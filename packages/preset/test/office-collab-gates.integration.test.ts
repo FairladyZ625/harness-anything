@@ -239,21 +239,35 @@ test("frozen preset process executes office/collab gates: red blocks completion 
       entrypoint: string,
       idempotencyKey: string,
       artifactFiles: Record<string, string>,
+      liveCanonicalOverrides?: Record<
+        string,
+        { readonly path: string; readonly revision: number; readonly blobSha256: string } | null
+      >,
     ) => {
       const requirement = contract.contract.gates.find((g) => g.gateId === gateId)!;
       const inputFiles: Record<string, Uint8Array> = {};
       const allSubjects: Array<ArtifactDelivery & { file: string }> = [];
+      const canonicalDocuments: Record<
+        string,
+        { readonly path: string; readonly revision: number; readonly blobSha256: string } | null
+      > = {};
       let index = 0;
       for (const [logicalPath, body] of Object.entries(artifactFiles)) {
         const key = `artifact-${index++}`;
         const bytes = Buffer.from(body, "utf8");
+        const fullPath = `${compiled.packagePath}/${logicalPath}`;
+        const digest = sha256(bytes);
         inputFiles[key] = bytes;
         allSubjects.push({
-          path: `${compiled.packagePath}/${logicalPath}`,
+          path: fullPath,
           revision: 1,
-          blobSha256: sha256(bytes),
+          blobSha256: digest,
           file: `input/${key}`,
         });
+        canonicalDocuments[fullPath] = { path: fullPath, revision: 1, blobSha256: digest };
+      }
+      if (liveCanonicalOverrides) {
+        Object.assign(canonicalDocuments, liveCanonicalOverrides);
       }
       const names =
         requirement.subjects === undefined || requirement.subjects === "all-artifacts"
@@ -261,7 +275,14 @@ test("frozen preset process executes office/collab gates: red blocks completion 
           : requirement.subjects.map((name) => `${compiled.packagePath}/${name}`);
       const subjects = allSubjects.filter((subject) => names === null || names.includes(subject.path));
       inputFiles["witness.json"] = Buffer.from(
-        JSON.stringify({ schema: "witness-input/v1", code: null, subjects, artifacts: allSubjects }),
+        JSON.stringify({
+          schema: "witness-input/v1",
+          packagePath: compiled.packagePath,
+          code: null,
+          subjects,
+          artifacts: allSubjects,
+          canonicalDocuments,
+        }),
         "utf8",
       );
       let witness: CompletionWitnessResult | undefined;
@@ -357,6 +378,33 @@ test("frozen preset process executes office/collab gates: red blocks completion 
     assert.equal(redUpstream.witness.result, "fail");
     assert.match(redUpstream.witness.diagnostic, /Upstream drift/u);
 
+    // 2b (HA09-11): Submission retains frozen v1 copy and expectedSha256=v1, while live canonical upstream advances to v2
+    const upstreamV2Hash = sha256("# Upstream Charter\nApproved scope v2.\n");
+    const liveDriftedUpstream = await runFrozenGate(
+      "upstream-fresh",
+      "office-collab/upstream-fresh",
+      "deliverable-task",
+      "verify-upstream-fresh",
+      "upstream-live-drift-red",
+      {
+        "artifacts/upstream-charter.md": upstreamBody,
+        "artifacts/upstream-freshness.json": JSON.stringify({
+          schema: "office-collab/upstream-freshness/v1",
+          checkedAt: "2026-11-21T09:00:00Z",
+          baselines: [{ ref: "artifacts/upstream-charter.md", expectedSha256: upstreamHash }],
+        }),
+      },
+      {
+        [`${compiled.packagePath}/artifacts/upstream-charter.md`]: {
+          path: `${compiled.packagePath}/artifacts/upstream-charter.md`,
+          revision: 2,
+          blobSha256: upstreamV2Hash,
+        },
+      },
+    );
+    assert.equal(liveDriftedUpstream.witness.result, "fail");
+    assert.match(liveDriftedUpstream.witness.diagnostic, /Live upstream drift/u);
+
     // 3. Positive case: repaired handoff + fresh upstream -> both pass with zero predicate issues & zero completion blockers
     const goodArtifacts = {
       "artifacts/runbook.md": runbookBody,
@@ -384,6 +432,21 @@ test("frozen preset process executes office/collab gates: red blocks completion 
     );
     assert.equal(greenHandoff.witness.result, "pass", greenHandoff.witness.diagnostic);
     assert.deepEqual(greenHandoff.predicateIssues, []);
+
+    const liveDriftedSnapshot = submittedSnapshot(compiled.event.payload.task, contract, greenHandoff.anchors, [
+      { gateId: "handoff-completeness", runId: "run-1", witness: greenHandoff.witness },
+      { gateId: "upstream-fresh", runId: "run-live-drift", witness: liveDriftedUpstream.witness },
+    ]);
+    const liveDriftBlockers = completionBlockers(liveDriftedSnapshot, "exec-office-1", {
+      closeout: "ready",
+      closeoutPath: `${compiled.packagePath}/closeout.md`,
+      eligibleDirtyPaths: [],
+      closeoutGates: { review: false, consent: false, factDisposition: false },
+    });
+    assert.ok(
+      liveDriftBlockers.some((blocker) => blocker.code === "gate_witness_missing" && blocker.gate === "upstream-fresh"),
+      JSON.stringify(liveDriftBlockers),
+    );
 
     const greenUpstream = await runFrozenGate(
       "upstream-fresh",

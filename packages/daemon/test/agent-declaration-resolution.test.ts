@@ -11,6 +11,7 @@ import {
   readAgentDeclaration,
   readAgentDeclarationResolution,
 } from "../src/daemon-host/agent-declaration-resolution.ts";
+import { prepareAgentEntityDelete, prepareAgentEntityInstall } from "../src/daemon-host/agent-entities.ts";
 
 const installed: AgentDeclarationV1 = {
   schema: "agent-declaration/v1",
@@ -319,4 +320,132 @@ test("HA09-8: pre-existing local custom office/collab vertical preserves core bu
     rmSync(rootDir, { recursive: true, force: true });
     rmSync(pureBuiltinRoot, { recursive: true, force: true });
   }
+});
+
+test("HA09-10: already-retired custom agent colliding with a newly shipped bundled id can be deleted or reinstalled while active overrides and ordinary retired agents stay guarded", () => {
+  const retiredCollision = {
+    schema: "agent-declaration/v1" as const,
+    id: "contributor",
+    name: "Pre-upgrade custom contributor",
+    role: "worker" as const,
+    instructions: "Legacy custom contributor instructions.",
+    runtimes: [{ type: "codex" as const, model: "legacy-model" }],
+    lifecycleState: "retired" as const,
+    retirement: { retiredAt: "2026-10-01T00:00:00.000Z", reason: "Retired before office/collab shipped" },
+  };
+  const activeCollision: AgentDeclarationV1 = {
+    schema: "agent-declaration/v1",
+    id: "contributor",
+    name: "Active contributor override",
+    role: "worker",
+    instructions: "Active override instructions.",
+    runtimes: [{ type: "codex", model: "active-model" }],
+  };
+  const retiredOrdinary = {
+    schema: "agent-declaration/v1" as const,
+    id: "retired-custom-only",
+    name: "Retired ordinary custom agent",
+    role: "worker" as const,
+    instructions: "Retired ordinary custom instructions.",
+    runtimes: [{ type: "codex" as const, model: "legacy-model" }],
+    lifecycleState: "retired" as const,
+    retirement: { retiredAt: "2026-10-01T00:00:00.000Z", reason: "Retired ordinary custom agent" },
+  };
+  const makeStore = (record: Record<string, unknown> | null): EntityStore => ({
+    upsert: () => {
+      throw new Error("unused");
+    },
+    get: <T>() =>
+      record
+        ? ({
+            kind: "agent",
+            id: String(record.id),
+            value: record as T,
+            documentPath: `harness/agents/${String(record.id)}.json`,
+            documentSha256: "sha-retired-collision",
+            workspaceRevision: 10,
+          } as const)
+        : null,
+    list: () => [],
+  });
+  const emptyProjection = {
+    countRuntimeDispatchesByAgent: () => 0,
+    listEntities: () => [],
+    readRelationQuery: () => ({ rows: [] }),
+  } as never;
+
+  // 1. Deleting an already-retired custom collision passes the builtin guard and prepares deletion.
+  const preparedDelete = prepareAgentEntityDelete({
+    rootDir: "/unused",
+    action: {
+      kind: "agent-delete",
+      agentId: "contributor",
+      expectedVersion: 10,
+      reason: "Clear retired pre-upgrade collision so bundled office/collab contributor is usable",
+    },
+    entityStore: makeStore(retiredCollision),
+    projection: emptyProjection,
+  });
+  assert.deepEqual(preparedDelete, { entityId: "contributor", baseBlobSha256: "sha-retired-collision" });
+
+  // 2. Reinstalling/updating an already-retired custom collision prepares an active overriding declaration.
+  const preparedReinstall = prepareAgentEntityInstall({
+    rootDir: "/unused",
+    action: {
+      kind: "agent-install",
+      declaration: activeCollision,
+      expectedVersion: 10,
+    },
+    entityStore: makeStore(retiredCollision),
+  });
+  assert.equal(preparedReinstall.declaration.id, "contributor");
+  assert.equal(preparedReinstall.declaration.name, "Active contributor override");
+
+  // 3. Partial agentId update on an already-retired custom collision strips retired metadata and succeeds.
+  const preparedPatch = prepareAgentEntityInstall({
+    rootDir: "/unused",
+    action: {
+      kind: "agent-install",
+      agentId: "contributor",
+      mcpPolicy: "disabled",
+      expectedVersion: 10,
+    },
+    entityStore: makeStore(retiredCollision),
+  });
+  assert.equal(preparedPatch.declaration.mcpPolicy, "disabled");
+  assert.equal("lifecycleState" in preparedPatch.declaration, false);
+
+  // 4. Active override of a bundled id is STILL protected from deletion (HA09-9 preserved).
+  assert.throws(
+    () =>
+      prepareAgentEntityDelete({
+        rootDir: "/unused",
+        action: { kind: "agent-delete", agentId: "contributor", expectedVersion: 10, reason: "attempt delete" },
+        entityStore: makeStore(activeCollision),
+        projection: emptyProjection,
+      }),
+    { code: "agent_system_builtin" },
+  );
+
+  // 5. Ordinary non-bundled retired custom agent is STILL blocked from reinstallation.
+  assert.throws(
+    () =>
+      prepareAgentEntityInstall({
+        rootDir: "/unused",
+        action: {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "retired-custom-only",
+            name: "Revive attempt",
+            role: "worker",
+            instructions: "Must remain blocked.",
+            runtimes: [{ type: "codex", model: "active-model" }],
+          },
+          expectedVersion: 10,
+        },
+        entityStore: makeStore(retiredOrdinary),
+      }),
+    { code: "agent_retired" },
+  );
 });

@@ -21,6 +21,121 @@ import {
 import { runProcessTextAsync } from "./process-port.ts";
 import { createHostScratchDirectory } from "./host-environment-io.ts";
 
+interface LiveCanonicalDocumentAnchor {
+  readonly path: string;
+  readonly revision: number;
+  readonly blobSha256: string;
+}
+
+const SAFE_CANONICAL_REF = /^(?!\/)(?:(?!\.\.?\/)[^/\\:<>"|?*\0]+\/)*(?!\.\.?$)[^/\\:<>"|?*\0]+$/u;
+const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+
+type ParsedJsonRecordResult =
+  | { readonly ok: true; readonly value: Record<string, unknown> }
+  | { readonly ok: false; readonly error: unknown };
+
+function parseJsonRecord(bytes: Uint8Array): ParsedJsonRecordResult {
+  const text = Buffer.from(bytes).toString("utf8").trim();
+  if (!text.startsWith("{")) return { ok: false, error: "not_json_object" };
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? { ok: true, value: parsed as Record<string, unknown> }
+      : { ok: false, error: "not_json_record" };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
+function canonicalPathForRef(packagePath: string, rawRef: unknown): string | null {
+  if (typeof rawRef !== "string") return null;
+  const trimmed = rawRef.trim();
+  if (!trimmed || !SAFE_CANONICAL_REF.test(trimmed)) return null;
+  const normalized = path.posix.normalize(trimmed).normalize("NFC");
+  if (
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.split("/").some((segment) => WINDOWS_RESERVED_SEGMENT.test(segment))
+  ) {
+    return null;
+  }
+  return normalized.startsWith("artifacts/") ? submissionArtifactPath(packagePath, normalized) : normalized;
+}
+
+function resolveLiveCanonicalDocuments(
+  cell: RepoCellOperationalContext,
+  packagePath: string,
+  subjects: readonly { readonly path: string }[],
+  accepted: ReadonlyMap<string, Uint8Array>,
+): Record<string, LiveCanonicalDocumentAnchor | null> {
+  const paths = new Set<string>();
+  const addRef = (rawRef: unknown): void => {
+    const resolved = canonicalPathForRef(packagePath, rawRef);
+    if (resolved) paths.add(resolved);
+  };
+  for (const subject of subjects) {
+    paths.add(subject.path);
+    const bytes = accepted.get(subject.path);
+    if (!bytes) continue;
+    const parsed = parseJsonRecord(bytes);
+    if (!parsed.ok) continue;
+    const record = parsed.value;
+    if (Array.isArray(record.baselines)) {
+      for (const baseline of record.baselines) {
+        if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) continue;
+        const item = baseline as Record<string, unknown>;
+        addRef(item.ref);
+        addRef(item.sourcePath);
+      }
+    }
+    addRef(record.documentPath);
+  }
+  const canonicalDocuments: Record<string, LiveCanonicalDocumentAnchor | null> = {};
+  for (const canonicalPath of paths) {
+    const document = cell.projection.readDocument(canonicalPath).document;
+    canonicalDocuments[canonicalPath] = document
+      ? { path: document.path, revision: document.workspaceRevision, blobSha256: document.blobSha256 }
+      : null;
+  }
+  return canonicalDocuments;
+}
+
+/** Returns a rerun reason when any live canonical upstream baseline declared by this gate drifted after prior pass. */
+export function canonicalBaselineDriftReason(
+  cell: RepoCellOperationalContext,
+  requirement: FrozenGateRequirement,
+  execution: Snapshot["executions"][number],
+): string | null {
+  if (execution.schema !== "execution/v1" || !execution.submission) return null;
+  const packagePath = cell.projection.read(execution.taskId).packagePath;
+  if (!packagePath) return null;
+  const names =
+    requirement.subjects === undefined || requirement.subjects === "all-artifacts"
+      ? null
+      : requirement.subjects.map((name) => submissionArtifactPath(packagePath, name));
+  const readArtifact = createSubmissionArtifactReader(cell);
+  for (const anchor of execution.submission.artifacts ?? []) {
+    const artifactPath = submissionArtifactPath(packagePath, anchor.path);
+    if (names !== null && !names.includes(artifactPath)) continue;
+    const document = readArtifact(packagePath, anchor.path, anchor.revision, anchor.blobSha256);
+    const parsed = parseJsonRecord(Buffer.from(document.body, document.encoding));
+    if (!parsed.ok || !Array.isArray(parsed.value.baselines)) continue;
+    for (const baseline of parsed.value.baselines) {
+      if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) continue;
+      const item = baseline as Record<string, unknown>;
+      const canonicalPath = canonicalPathForRef(packagePath, item.sourcePath ?? item.ref);
+      const expectedSha256 = typeof item.expectedSha256 === "string" ? item.expectedSha256 : null;
+      if (!canonicalPath || !expectedSha256) continue;
+      const live = cell.projection.readDocument(canonicalPath).document;
+      if (!live || live.blobSha256 !== expectedSha256) {
+        return `Live canonical upstream baseline ${canonicalPath} changed since prior witness run.`;
+      }
+    }
+  }
+  return null;
+}
+
 /** Runs accepted package bytes against the exact submitted input, outside the single writer queue. */
 export async function collectCommandWitness(
   cell: RepoCellOperationalContext,
@@ -96,6 +211,7 @@ export async function collectCommandWitness(
       );
       await runProcessTextAsync("tar", ["-xf", archive, "-C", codeRoot], scratch.directory, env);
     }
+    const canonicalDocuments = resolveLiveCanonicalDocuments(cell, packagePath, subjects, accepted);
     inputs["witness.json"] = Buffer.from(
       JSON.stringify({
         schema: "witness-input/v1",
@@ -103,12 +219,14 @@ export async function collectCommandWitness(
         taskId: execution.taskId,
         executionId: execution.executionId,
         iteration: execution.iteration,
+        packagePath,
         submissionDigest: run.submissionDigest,
         gateId: requirement.gateId,
         gateRunId: run.runId,
         code: submission.commitSha ? { commitSha: submission.commitSha, directory: "input/code" } : null,
         subjects,
         artifacts: allSubjects,
+        canonicalDocuments,
       }),
     );
     let produced: CompletionWitnessResult | undefined;

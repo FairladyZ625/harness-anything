@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1252,5 +1253,526 @@ for (const frame of [
     });
     assert.equal(workerDeleteDenied.outcome, "op_rejected", JSON.stringify(workerDeleteDenied));
     assert.equal(workerDeleteDenied.code, "agent_system_builtin");
+  },
+);
+
+test(
+  "HA09-10: pre-upgrade retired custom agents colliding with newly shipped office/collab ids can be deleted or reinstalled across cold daemon restart while core roles stay protected",
+  { timeout: 120_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-office-ha09-10-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      home = path.join(parent, "home"),
+      repoId = "office-ha09-10",
+      daemonId = "office-ha09-10",
+      instanceId = "ha09-10-provider",
+      realm = await serveKeycloak();
+    let stop = async (): Promise<void> => {};
+    t.after(async () => {
+      await stop();
+      await realm.close();
+      rmSync(parent, { recursive: true, force: true });
+    });
+    mkdirSync(home);
+    initIngressRepo(root, process.getuid?.() ?? 0);
+
+    // Pre-upgrade state: before built-in office/collab shipped, contributor and coordinator were ordinary custom ids.
+    // Shadow office/collab locally during pre-upgrade setup so contributor/coordinator can be legally installed and retired.
+    const preUpgradeVerticalDir = path.join(root, "verticals", "pre-upgrade-office");
+    mkdirSync(preUpgradeVerticalDir, { recursive: true });
+    writeFileSync(path.join(preUpgradeVerticalDir, "vertical.json"), JSON.stringify({ id: "office/collab" }));
+    execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+
+    realm.bind(userRoot);
+    realm.keycloak.account("owner");
+    realm.keycloak.permit("owner", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+    signInAt(userRoot, "owner");
+    registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+
+    const executablePath = writeProviderExecutable(
+      path.join(parent, "ha09-10-provider.mjs"),
+      `if (process.argv[2] === "auth" || process.argv[2] === "login") process.exit(0);
+for (const frame of [
+  { type: "thread.started", thread_id: "ha09-10-session" },
+  { type: "item.completed", item: { id: "result", type: "agent_message", text: "ok" } },
+  { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }
+]) console.log(JSON.stringify(frame));
+`,
+    );
+    const launchDaemon = async () => {
+      const started = await startDaemon({
+        daemonId,
+        userRoot,
+        buildSupersessionEnabled: false,
+        runtimeDiscover: () => [
+          {
+            installationId: "ha09-10-installation",
+            kindId: "codex",
+            executablePath,
+            version: "1.0.0",
+            observedAt: new Date().toISOString(),
+          },
+        ],
+      });
+      assert.ok("stop" in started);
+      stop = started.stop;
+      return started;
+    };
+    const cliEnvFor = (endpoint: string) => ({
+      HOME: home,
+      PATH: process.env.PATH,
+      SystemRoot: process.env.SystemRoot,
+      GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+      GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
+      HARNESS_DAEMON_USER_ROOT: userRoot,
+      HARNESS_DAEMON_ID: daemonId,
+      HARNESS_DAEMON_ENDPOINT: endpoint,
+      HARNESS_DAEMON_REPO_ID: repoId,
+    });
+    const cliJsonAt = async (endpoint: string, expectedExit: number, ...args: string[]): Promise<JsonObject> => {
+      const result = await spawnCli(["--root", root, "--json", ...args], cliEnvFor(endpoint));
+      assert.equal(result.status, expectedExit, `${result.stderr}\n${result.stdout}`);
+      return JSON.parse(result.stdout) as JsonObject;
+    };
+
+    const daemon1 = await launchDaemon();
+    const rpc1 = (method: string, params: JsonObject) =>
+      requestDaemonJsonRpcAt(daemon1.endpoint, method, params, 1000, 30_000);
+    const run1 = (action: JsonObject) => rpc1("repo.task.run", { repo: { repoId }, payload: { action } });
+
+    assert.equal(
+      (
+        await rpc1("daemon.runtimeInstance.create", {
+          payload: {
+            instanceId,
+            name: "HA09-10 Provider",
+            kindId: "codex",
+            installationId: "ha09-10-installation",
+            providerId: "openai",
+            models: ["ha09-10-model"],
+            permissionMode: "workspace-write",
+            authMode: "subscription",
+          },
+        })
+      ).ok,
+      true,
+    );
+    assert.equal((await run1({ kind: "settings-update", runtimeAllowedInstances: [instanceId] })).outcome, "applied");
+
+    const installAndRetire = async (id: string, name: string, withSquad = false) => {
+      const installed = await run1({
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id,
+          name,
+          role: "worker",
+          instructions: `Pre-upgrade custom ${id} declaration.`,
+          runtimes: [{ type: "codex", model: "ha09-10-model" }],
+        },
+      });
+      assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+      if (withSquad) {
+        const squad = await run1({
+          kind: "squad-install",
+          declaration: {
+            schema: "squad-declaration/v1",
+            id: `legacy-${id}-squad`,
+            name: `Legacy ${id} Squad`,
+            leader: id,
+            workers: [id],
+            leaderTurnBudget: 1,
+            roster: `Retains historical reference to ${id}.`,
+          },
+        });
+        assert.equal(squad.outcome, "applied", JSON.stringify(squad));
+      }
+      const retired = await run1({
+        kind: "agent-retire",
+        agentId: id,
+        reason: `Pre-upgrade retirement of custom ${id}`,
+      });
+      assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+      return Number(installed.revision);
+    };
+
+    const contributorVersion = await installAndRetire("contributor", "Legacy Custom Contributor");
+    const coordinatorVersion = await installAndRetire("coordinator", "Legacy Custom Coordinator", true);
+    const customOnlyVersion = await installAndRetire("retired-custom-only", "Legacy Custom Only");
+
+    // Simulate upgrade: stop daemon, remove pre-upgrade shadow so bundled office/collab ships live, then cold-start.
+    await daemon1.stop();
+    stop = async () => {};
+    rmSync(path.join(root, "verticals"), { recursive: true, force: true });
+
+    const daemon2 = await launchDaemon();
+    const rpc2 = (method: string, params: JsonObject) =>
+      requestDaemonJsonRpcAt(daemon2.endpoint, method, params, 1000, 30_000);
+    const run2 = (action: JsonObject) => rpc2("repo.task.run", { repo: { repoId }, payload: { action } });
+
+    const officeTask = await cliJsonAt(
+      daemon2.endpoint,
+      0,
+      "task",
+      "create",
+      "--title",
+      "Upgrade Recovery Office Task",
+      "--vertical",
+      "office/collab",
+      "--preset",
+      "deliverable-task",
+      "--profile",
+      "baseline",
+      "--risk-tier",
+      "low",
+    );
+    assert.equal(officeTask.outcome, "applied", JSON.stringify(officeTask));
+    const officeTaskId = String(officeTask.taskId);
+    await realizeTaskPlanFixture(root, String(officeTask.workspacePackagePath), (planPath: string) =>
+      run2({ kind: "doc-submit", paths: [planPath] }),
+    );
+    assert.equal((await cliJsonAt(daemon2.endpoint, 0, "task", "start", officeTaskId)).outcome, "applied");
+
+    // Before recovery, retired pre-upgrade contributor still rejects dispatch cleanly with agent_retired.
+    const preRecoveryDispatch = await spawnCli(
+      [
+        "--root",
+        root,
+        "--json",
+        "agent",
+        "run",
+        "contributor",
+        "--task",
+        officeTaskId,
+        "--instance",
+        instanceId,
+        "--dry-run",
+      ],
+      cliEnvFor(daemon2.endpoint),
+    );
+    assert.notEqual(preRecoveryDispatch.status, 0);
+    assert.match(`${preRecoveryDispatch.stdout}\n${preRecoveryDispatch.stderr}`, /agent_retired/u);
+
+    // Path 1: Delete unreferenced retired custom contributor -> recovers bundled office/collab contributor.
+    const deletedContributor = await run2({
+      kind: "agent-delete",
+      agentId: "contributor",
+      expectedVersion: contributorVersion,
+      reason: "Remove retired pre-upgrade custom contributor so bundled office/collab role is active",
+    });
+    assert.equal(deletedContributor.outcome, "applied", JSON.stringify(deletedContributor));
+
+    // Path 2: Referenced retired custom coordinator still rejects delete with agent_referenced,
+    // and can be recovered via authorized agent-install override.
+    const coordinatorDeleteReferenced = await run2({
+      kind: "agent-delete",
+      agentId: "coordinator",
+      expectedVersion: coordinatorVersion,
+      reason: "Should fail because squad still references coordinator",
+    });
+    assert.equal(coordinatorDeleteReferenced.outcome, "op_rejected", JSON.stringify(coordinatorDeleteReferenced));
+    assert.equal(coordinatorDeleteReferenced.code, "agent_referenced");
+
+    const reinstalledCoordinator = await run2({
+      kind: "agent-install",
+      expectedVersion: coordinatorVersion,
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "coordinator",
+        name: "Recovered Office Coordinator",
+        role: "commander",
+        instructions: "Coordinate office/collab deliverables and handoffs.",
+        runtimes: [{ type: "codex", model: "ha09-10-model" }],
+      },
+    });
+    assert.equal(reinstalledCoordinator.outcome, "applied", JSON.stringify(reinstalledCoordinator));
+
+    // Control: Ordinary non-bundled retired custom agent stays blocked from reinstallation.
+    const customOnlyReinstallDenied = await run2({
+      kind: "agent-install",
+      expectedVersion: customOnlyVersion,
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "retired-custom-only",
+        name: "Should Stay Blocked",
+        role: "worker",
+        instructions: "Ordinary retired custom agent must remain non-reinstallable.",
+        runtimes: [{ type: "codex", model: "ha09-10-model" }],
+      },
+    });
+    assert.equal(customOnlyReinstallDenied.outcome, "op_rejected", JSON.stringify(customOnlyReinstallDenied));
+    assert.equal(customOnlyReinstallDenied.code, "agent_retired");
+
+    // Cold-restart daemon again to prove both deleted contributor and reinstalled coordinator survive cold replay.
+    await daemon2.stop();
+    stop = async () => {};
+    const daemon3 = await launchDaemon();
+    const rpc3 = (method: string, params: JsonObject) =>
+      requestDaemonJsonRpcAt(daemon3.endpoint, method, params, 1000, 30_000);
+    const run3 = (action: JsonObject) => rpc3("repo.task.run", { repo: { repoId }, payload: { action } });
+
+    const contributorDryRun = await cliJsonAt(
+      daemon3.endpoint,
+      0,
+      "agent",
+      "run",
+      "contributor",
+      "--task",
+      officeTaskId,
+      "--instance",
+      instanceId,
+      "--dry-run",
+    );
+    assert.equal(contributorDryRun.ok, true, JSON.stringify(contributorDryRun));
+    assert.match(
+      String(contributorDryRun.prompt),
+      /Produce the assigned deliverable, handoff package, or meeting minutes/u,
+    );
+
+    const coordinatorDryRun = await cliJsonAt(
+      daemon3.endpoint,
+      0,
+      "agent",
+      "run",
+      "coordinator",
+      "--task",
+      officeTaskId,
+      "--instance",
+      instanceId,
+      "--dry-run",
+    );
+    assert.equal(coordinatorDryRun.ok, true, JSON.stringify(coordinatorDryRun));
+    assert.match(String(coordinatorDryRun.prompt), /Coordinate office\/collab deliverables and handoffs/u);
+
+    // Once active again, coordinator and core worker are protected from retire/delete (agent_system_builtin).
+    const activeCoordinatorDeleteDenied = await run3({
+      kind: "agent-delete",
+      agentId: "coordinator",
+      expectedVersion: Number(reinstalledCoordinator.revision),
+      reason: "Active bundled override must stay protected",
+    });
+    assert.equal(activeCoordinatorDeleteDenied.outcome, "op_rejected", JSON.stringify(activeCoordinatorDeleteDenied));
+    assert.equal(activeCoordinatorDeleteDenied.code, "agent_system_builtin");
+
+    const coreWorkerRetireDenied = await run3({
+      kind: "agent-retire",
+      agentId: "worker",
+      reason: "Core worker must stay protected",
+    });
+    assert.equal(coreWorkerRetireDenied.outcome, "op_rejected", JSON.stringify(coreWorkerRetireDenied));
+    assert.equal(coreWorkerRetireDenied.code, "agent_system_builtin");
+  },
+);
+
+test(
+  "HA09-11: real daemon command witness blocks upstream-fresh completion when live canonical upstream advances v1->v2 while submission retains v1 copy, and passes when aligned to v2",
+  { timeout: 120_000 },
+  async (t) => {
+    const sha256 = (value: string): string => createHash("sha256").update(value, "utf8").digest("hex"),
+      parent = mkdtempSync(path.join(tmpdir(), "ha-office-ha09-11-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      home = path.join(parent, "home"),
+      repoId = "office-ha09-11",
+      daemonId = "office-ha09-11",
+      realm = await serveKeycloak();
+    let stop = async (): Promise<void> => {};
+    t.after(async () => {
+      await stop();
+      await realm.close();
+      rmSync(parent, { recursive: true, force: true });
+    });
+    mkdirSync(home);
+    initIngressRepo(root, process.getuid?.() ?? 0);
+    execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+    realm.bind(userRoot);
+    realm.keycloak.account("owner");
+    realm.keycloak.permit("owner", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+    signInAt(userRoot, "owner");
+    registerBootstrappedDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+
+    const daemon = await startDaemon({
+      daemonId,
+      userRoot,
+      buildSupersessionEnabled: false,
+      runtimeDiscover: () => [],
+    });
+    assert.ok("stop" in daemon);
+    stop = daemon.stop;
+
+    const rpc = (method: string, params: JsonObject) =>
+        requestDaemonJsonRpcAt(daemon.endpoint, method, params, 1000, 30_000),
+      run = (action: JsonObject) => rpc("repo.task.run", { repo: { repoId }, payload: { action } }),
+      cliEnv = {
+        HOME: home,
+        PATH: process.env.PATH,
+        SystemRoot: process.env.SystemRoot,
+        GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+        GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
+        HARNESS_DAEMON_USER_ROOT: userRoot,
+        HARNESS_DAEMON_ID: daemonId,
+        HARNESS_DAEMON_ENDPOINT: daemon.endpoint,
+        HARNESS_DAEMON_REPO_ID: repoId,
+      },
+      cliJson = async (expectedExit: number, ...args: string[]): Promise<JsonObject> => {
+        const result = await spawnCli(["--root", root, "--json", ...args], cliEnv);
+        assert.equal(result.status, expectedExit, `${result.stderr}\n${result.stdout}`);
+        return JSON.parse(result.stdout) as JsonObject;
+      };
+
+    // 1. Create an independent upstream task holding the canonical upstream charter at v1.
+    const upstreamCreated = await cliJson(
+      0,
+      "task",
+      "create",
+      "--title",
+      "Upstream Charter Source",
+      "--vertical",
+      "office/collab",
+      "--preset",
+      "deliverable-task",
+      "--profile",
+      "baseline",
+      "--risk-tier",
+      "low",
+    );
+    assert.equal(upstreamCreated.outcome, "applied", JSON.stringify(upstreamCreated));
+    const upstreamTaskId = String(upstreamCreated.taskId);
+    const upstreamWorkspacePkg = String(upstreamCreated.workspacePackagePath);
+    const upstreamPkg = upstreamWorkspacePkg.replace(/^harness\//u, "");
+    await realizeTaskPlanFixture(root, upstreamWorkspacePkg, (planPath: string) =>
+      run({ kind: "doc-submit", paths: [planPath] }),
+    );
+    assert.equal((await cliJson(0, "task", "start", upstreamTaskId)).outcome, "applied");
+
+    const charterV1 = "# Upstream Charter\n\nApproved Q4 scope v1.\n";
+    const charterV1Sha = sha256(charterV1);
+    const upstreamCharterLogical = `${upstreamPkg}/artifacts/charter.md`;
+    const upstreamCharterFile = path.join(root, upstreamWorkspacePkg, "artifacts", "charter.md");
+    mkdirSync(path.dirname(upstreamCharterFile), { recursive: true });
+    writeFileSync(upstreamCharterFile, charterV1);
+    assert.equal((await run({ kind: "doc-submit", paths: [upstreamCharterLogical] })).outcome, "applied");
+
+    // 2. Create downstream deliverable-task (--profile upstream-verified) pinned to charter v1.
+    const prepareDownstreamSubmission = async (
+      title: string,
+      charterBody: string,
+      charterSha: string,
+    ): Promise<string> => {
+      const created = await cliJson(
+        0,
+        "task",
+        "create",
+        "--title",
+        title,
+        "--vertical",
+        "office/collab",
+        "--preset",
+        "deliverable-task",
+        "--profile",
+        "upstream-verified",
+        "--risk-tier",
+        "low",
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      const taskId = String(created.taskId);
+      const wsPkg = String(created.workspacePackagePath);
+      const pkg = wsPkg.replace(/^harness\//u, "");
+      await realizeTaskPlanFixture(root, wsPkg, (planPath: string) => run({ kind: "doc-submit", paths: [planPath] }));
+      assert.equal((await cliJson(0, "task", "start", taskId)).outcome, "applied");
+
+      const deliverableBody =
+        "# Quarterly Deliverable\n\n## Executive Summary\n\nAligned with approved charter.\n\n## Action Plan\n\n- Deliver final review packet\n";
+      const deliverableSha = sha256(deliverableBody);
+      const artifactsDir = path.join(root, wsPkg, "artifacts");
+      mkdirSync(artifactsDir, { recursive: true });
+      writeFileSync(path.join(artifactsDir, "deliverable.md"), deliverableBody);
+      writeFileSync(
+        path.join(artifactsDir, "deliverable-manifest.json"),
+        JSON.stringify({
+          schema: "office-collab/deliverable-manifest/v1",
+          title,
+          deliverableKind: "report",
+          owner: "coordinator",
+          audience: "operations",
+          documentPath: "artifacts/deliverable.md",
+          documentSha256: deliverableSha,
+          requiredSections: ["## Executive Summary", "## Action Plan"],
+        }),
+      );
+      writeFileSync(path.join(artifactsDir, "upstream-charter.md"), charterBody);
+      writeFileSync(
+        path.join(artifactsDir, "upstream-freshness.json"),
+        JSON.stringify({
+          schema: "office-collab/upstream-freshness/v1",
+          checkedAt: "2026-11-21T09:00:00Z",
+          baselines: [
+            {
+              ref: "artifacts/upstream-charter.md",
+              sourcePath: upstreamCharterLogical,
+              expectedSha256: charterSha,
+            },
+          ],
+        }),
+      );
+      writeFileSync(
+        path.join(root, wsPkg, "closeout.md"),
+        "# Closeout\n\n## Summary\n\nPrepared quarterly deliverable with verified upstream baseline.\n\n## Verification\n\nDeliverable contract and upstream freshness manifests synced.\n",
+      );
+      const synced = await run({
+        kind: "doc-submit",
+        paths: [
+          `${pkg}/artifacts/deliverable.md`,
+          `${pkg}/artifacts/deliverable-manifest.json`,
+          `${pkg}/artifacts/upstream-charter.md`,
+          `${pkg}/artifacts/upstream-freshness.json`,
+          `${pkg}/closeout.md`,
+        ],
+      });
+      assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+      const submitted = await cliJson(0, "task", "submit", taskId);
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      return taskId;
+    };
+
+    const staleDownstreamTaskId = await prepareDownstreamSubmission(
+      "Downstream Stale Deliverable",
+      charterV1,
+      charterV1Sha,
+    );
+
+    // 3. Advance the independent upstream charter from v1 -> v2 WITHOUT modifying the frozen downstream submission.
+    const charterV2 = "# Upstream Charter\n\nApproved Q4 scope v2 with updated compliance threshold.\n";
+    const charterV2Sha = sha256(charterV2);
+    writeFileSync(upstreamCharterFile, charterV2);
+    assert.equal((await run({ kind: "doc-submit", paths: [upstreamCharterLogical] })).outcome, "applied");
+
+    // 4. Attempting to complete the frozen v1 downstream submission (which initially passed at submit)
+    // must detect live canonical upstream drift, rerun upstream-fresh, and reject completion.
+    const staleComplete = await run({ kind: "task-complete", taskId: staleDownstreamTaskId });
+    assert.equal(staleComplete.outcome, "op_rejected", JSON.stringify(staleComplete));
+    assert.equal(staleComplete.code, "gate_witness_missing", JSON.stringify(staleComplete));
+    assert.match(JSON.stringify(staleComplete), /Live upstream drift/u);
+
+    // 4b. Pre-submit drift: a new downstream submission carrying frozen v1 copy after upstream already advanced to v2
+    // must also fail upstream-fresh immediately and block completion.
+    const preSubmitStaleTaskId = await prepareDownstreamSubmission(
+      "Downstream Pre-Submit Stale Deliverable",
+      charterV1,
+      charterV1Sha,
+    );
+    const preSubmitStaleComplete = await run({ kind: "task-complete", taskId: preSubmitStaleTaskId });
+    assert.equal(preSubmitStaleComplete.outcome, "op_rejected", JSON.stringify(preSubmitStaleComplete));
+    assert.equal(preSubmitStaleComplete.code, "gate_witness_missing", JSON.stringify(preSubmitStaleComplete));
+
+    // 5. Positive control: a downstream submission aligned to the live v2 charter passes both gates and completes.
+    const freshDownstreamTaskId = await prepareDownstreamSubmission(
+      "Downstream Fresh Deliverable",
+      charterV2,
+      charterV2Sha,
+    );
+    const freshComplete = await run({ kind: "task-complete", taskId: freshDownstreamTaskId });
+    assert.equal(freshComplete.outcome, "applied", JSON.stringify(freshComplete));
   },
 );

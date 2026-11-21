@@ -1,3 +1,4 @@
+import { readAnyBundledAgentDeclaration } from "@harness-anything/preset";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
@@ -641,8 +642,9 @@ export function prepareAgentEntityInstall(input: {
         "agent install with agentId requires mcpPolicy, clearMcpPolicy, or selectionStrategy.",
       );
     const current = repairableStoredDeclaration(store, "agent", agentId);
-    const projectedLifecycle = input.projection?.getEntity("agent", agentId)?.value.lifecycleState;
-    if (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired")
+    const projectedLifecycle = input.projection?.getEntity?.("agent", agentId)?.value?.lifecycleState;
+    const isRetired = current.value?.lifecycleState === "retired" || projectedLifecycle === "retired";
+    if (isRetired && readAnyBundledAgentDeclaration(agentId, input.rootDir) === null)
       throw agentInstallError(
         "agent",
         "agent_retired",
@@ -656,7 +658,8 @@ export function prepareAgentEntityInstall(input: {
         `${agentId} is not an installed agent.`,
         "agent/entity-present",
       );
-    const patched = applyAgentRuntimeOverrides(current.value, input.action);
+    const { lifecycleState: _retiredLifecycle, retirement: _retiredMetadata, ...baseDeclaration } = current.value;
+    const patched = applyAgentRuntimeOverrides(baseDeclaration, input.action);
     if ("issues" in patched)
       throw agentInstallError(
         "agent",
@@ -687,8 +690,12 @@ export function prepareAgentEntityInstall(input: {
   const declaration = decoded.declaration,
     current = repairableStoredDeclaration(store, kind, declaration.id);
   const projectedLifecycle =
-    kind === "agent" ? input.projection?.getEntity("agent", declaration.id)?.value.lifecycleState : undefined;
-  if (kind === "agent" && (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired"))
+    kind === "agent" ? input.projection?.getEntity?.("agent", declaration.id)?.value?.lifecycleState : undefined;
+  if (
+    kind === "agent" &&
+    (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired") &&
+    readAnyBundledAgentDeclaration(declaration.id, input.rootDir) === null
+  )
     throw agentInstallError(
       "agent",
       "agent_retired",
@@ -814,7 +821,9 @@ export function assertAgentDispatchable(agent: ProjectedAgentDeclaration): Agent
 export function prepareAgentEntityDelete(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly entityStore: EntityStore;
-  readonly projection: Pick<TaskProjection, "countRuntimeDispatchesByAgent" | "listEntities" | "readRelationQuery">;
+  readonly projection: Pick<TaskProjection, "countRuntimeDispatchesByAgent" | "listEntities" | "readRelationQuery"> & {
+    readonly getEntity?: TaskProjection["getEntity"];
+  };
   readonly rootDir?: string;
 }): PreparedAgentEntityDelete {
   const kind = entityKind(input.action.kind),
@@ -822,7 +831,14 @@ export function prepareAgentEntityDelete(input: {
     entityId = requiredEntityText(input.action[idField], idField),
     expectedVersion = input.action.expectedVersion,
     reason = requiredEntityText(input.action.reason, "reason");
-  if (kind === "agent") {
+  const current = input.entityStore.get(kind, entityId);
+  const projectedAgent = kind === "agent" ? input.projection.getEntity?.("agent", entityId) : undefined;
+  const effectiveLifecycle =
+    projectedAgent && projectedAgent.freshness !== "orphaned"
+      ? projectedAgent.value?.lifecycleState
+      : (current?.value as { readonly lifecycleState?: unknown } | undefined)?.lifecycleState;
+  const retiredInstalledCollision = kind === "agent" && current !== null && effectiveLifecycle === "retired";
+  if (kind === "agent" && !retiredInstalledCollision) {
     try {
       assertBundledAgentLifecycleOpen(entityId, input.rootDir);
     } catch (error) {
@@ -835,7 +851,6 @@ export function prepareAgentEntityDelete(input: {
   }
   if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 1)
     throw entityError("invalid_command", "expectedVersion must be a positive Entity revision for deletion.");
-  const current = input.entityStore.get(kind, entityId);
   if (current === null)
     throw attributeEntityActionCriterion(
       entityError(`${kind}_not_found`, `${entityId} is not an installed ${kind}.`),

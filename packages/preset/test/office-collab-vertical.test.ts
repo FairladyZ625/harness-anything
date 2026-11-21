@@ -541,21 +541,34 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
     assert.match(dup.diagnostic, /Duplicate top-level key "owner"/u);
 
     // HA09-2: CommonMark parity against mdast-util-from-markdown across Setext headings, HTML blocks 1-7,
-    // indented code blocks, thematic breaks, code fences, and ATX edge cases (with valid SHA-256 hashes).
+    // indented code blocks, thematic breaks, code fences, link reference definitions, containers, and ATX edge cases
+    // (all with valid SHA-256 hashes).
+    type MdastLikeNode = {
+      readonly type: string;
+      readonly depth?: number;
+      readonly value?: string;
+      readonly children?: ReadonlyArray<MdastLikeNode>;
+    };
+    const stripComments = (value: string): string => value.replace(/<!--[\s\S]*?-->/gu, "");
+    const collectInlineText = (node: MdastLikeNode): string => {
+      if (node.type === "html") return stripComments(node.value ?? "");
+      if (typeof node.value === "string") return node.value;
+      return (node.children ?? []).map(collectInlineText).join("");
+    };
     const mdastRequiredSections = (
       doc: string,
       required: readonly string[],
     ): { readonly missing: string[]; readonly empty: string[] } => {
-      const tree = fromMarkdown(doc);
-      const headingText = (node: { readonly children?: ReadonlyArray<{ readonly value?: string }> }): string =>
-        (node.children ?? [])
-          .map((child) => (typeof child.value === "string" ? child.value : ""))
-          .join("")
-          .trim();
-      const isSubstantive = (node: { readonly type: string; readonly value?: string }): boolean => {
-        if (node.type === "thematicBreak") return false;
+      const tree = fromMarkdown(doc) as unknown as { readonly children: ReadonlyArray<MdastLikeNode> };
+      const isSubstantive = (node: MdastLikeNode): boolean => {
+        if (node.type === "thematicBreak" || node.type === "definition") return false;
         if (node.type === "code") return (node.value ?? "").trim().length > 0;
-        if (node.type === "html") return (node.value ?? "").replace(/<!--[\s\S]*?-->/gu, "").trim().length > 0;
+        if (node.type === "html") return stripComments(node.value ?? "").trim().length > 0;
+        if (node.type === "heading") return collectInlineText(node).trim().length > 0;
+        if (node.type === "paragraph") return collectInlineText(node).trim().length > 0;
+        if (node.type === "blockquote" || node.type === "list" || node.type === "listItem") {
+          return (node.children ?? []).some(isSubstantive);
+        }
         return true;
       };
       const missing: string[] = [];
@@ -567,12 +580,10 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
         const text = parsed[2]!.trim();
         const matches: number[] = [];
         for (let i = 0; i < tree.children.length; i += 1) {
-          const node = tree.children[i] as {
-            readonly type: string;
-            readonly depth?: number;
-            readonly children?: ReadonlyArray<{ readonly value?: string }>;
-          };
-          if (node.type === "heading" && node.depth === depth && headingText(node) === text) matches.push(i);
+          const node = tree.children[i]!;
+          if (node.type === "heading" && node.depth === depth && collectInlineText(node).trim() === text) {
+            matches.push(i);
+          }
         }
         if (matches.length === 0) {
           missing.push(anchor);
@@ -581,11 +592,7 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
         let hasBody = false;
         for (const start of matches) {
           for (let i = start + 1; i < tree.children.length; i += 1) {
-            const current = tree.children[i] as {
-              readonly type: string;
-              readonly depth?: number;
-              readonly value?: string;
-            };
+            const current = tree.children[i]!;
             if (current.type === "heading") {
               if ((current.depth ?? 0) <= depth) break;
               continue;
@@ -601,6 +608,56 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       }
       return { missing, empty };
     };
+
+    // Negative 9 (HA09-2): Non-ATX plain-text anchors and empty heading anchors must be rejected even with matching hash
+    for (const [label, badSections, badDoc] of [
+      [
+        "plain-paragraph-anchor",
+        ["Executive Summary", "## Action Plan"],
+        "Executive Summary\n\nIt is a paragraph.\n\n## Action Plan\n\nProceed.\n",
+      ],
+      ["empty-atx-anchor", ["##", "## Action Plan"], "##\n\nSome text.\n\n## Action Plan\n\nProceed.\n"],
+      [
+        "comment-only-atx-anchor",
+        ["## <!-- hidden -->", "## Action Plan"],
+        "## <!-- hidden -->\n\nSome text.\n\n## Action Plan\n\nProceed.\n",
+      ],
+    ] as const) {
+      const badDocFile = path.join(sandbox, `${label}.md`);
+      writeFileSync(badDocFile, badDoc);
+      const badDocHash = sha256(badDoc);
+      const badManifestFile = path.join(sandbox, `${label}-manifest.json`);
+      const badManifestBody = JSON.stringify({
+        ...validManifest,
+        documentSha256: badDocHash,
+        requiredSections: [...badSections],
+      });
+      writeFileSync(badManifestFile, badManifestBody);
+      const badManifestHash = sha256(badManifestBody);
+      const badResult = runCheckScript(sandbox, scriptPath, {
+        schema: "witness-input/v1",
+        code: null,
+        subjects: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: badManifestHash,
+            file: badManifestFile,
+          },
+        ],
+        artifacts: [
+          {
+            path: "tasks/t1/artifacts/deliverable-manifest.json",
+            revision: 1,
+            blobSha256: badManifestHash,
+            file: badManifestFile,
+          },
+          { path: "tasks/t1/artifacts/deliverable.md", revision: 1, blobSha256: badDocHash, file: badDocFile },
+        ],
+      }).payload;
+      assert.equal(badResult.result, "fail", label);
+      assert.match(badResult.diagnostic, /must be non-empty Markdown ATX headings/u, label);
+    }
 
     const actionTail = "\n\n## Action Plan\n\nFinalize the handoff.\n";
     const required = ["## Executive Summary", "## Action Plan"];
@@ -659,6 +716,23 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
         "rootHeadingWithListBody",
         `## Executive Summary\n\n- Key decision one\n- Key decision two\n\n## Action Plan\n\n1. Owner executes\n2. Reviewer signs off\n`,
       ],
+      // HA09-2 link reference definitions (§4.7), empty nested headings, non-rendered container bodies, and tables
+      ["linkDefinitionOnly", `## Executive Summary\n\n[policy]: /policy${actionTail}`],
+      [
+        "multiLinkDefinitionOnly",
+        `## Executive Summary\n\n[policy]: /policy "Policy"\n[guide]: </guide/v1>\n'Guide Title'${actionTail}`,
+      ],
+      ["linkDefinitionBeforeSetext", `## Executive Summary\n\n[policy]: /policy\n---${actionTail}`],
+      ["linkDefinitionPlusParagraph", `## Executive Summary\n\n[policy]: /policy\n\nReal summary body.${actionTail}`],
+      ["linkDefinitionInlineParagraph", `## Executive Summary\n\n[policy]: /policy\nReal summary body.${actionTail}`],
+      ["blockquoteEmptyHeading", `## Executive Summary\n\n> ###${actionTail}`],
+      ["nestedBlockquoteEmptyHeading", `## Executive Summary\n\n> > ###   ###${actionTail}`],
+      ["listEmptyHeading", `## Executive Summary\n\n- ###${actionTail}`],
+      ["blockquoteDefinitionOnly", `## Executive Summary\n\n> [policy]: /policy${actionTail}`],
+      ["listDefinitionOnly", `## Executive Summary\n\n- [policy]: /policy${actionTail}`],
+      ["blockquoteCommentOnly", `## Executive Summary\n\n> <!-- placeholder -->${actionTail}`],
+      ["blockquoteNonEmptyHeading", `## Executive Summary\n\n> ### Quoted Milestone${actionTail}`],
+      ["tableBody", `## Executive Summary\n\n| Metric | Value |\n| --- | --- |\n| Status | Green |${actionTail}`],
     ];
     for (const [label, doc] of commonMarkCases) {
       const oracle = mdastRequiredSections(doc, required);
@@ -770,11 +844,25 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
       { path: "tasks/t1/artifacts/upstream-brief.md", revision: 1, blobSha256: briefHash, file: briefFile },
       { path: "tasks/t1/artifacts/upstream-spec.md", revision: 1, blobSha256: specHash, file: specFile },
     ];
+    const liveCanonicalV1 = {
+      "tasks/t1/artifacts/upstream-brief.md": {
+        path: "tasks/t1/artifacts/upstream-brief.md",
+        revision: 1,
+        blobSha256: briefHash,
+      },
+      "tasks/t1/artifacts/upstream-spec.md": {
+        path: "tasks/t1/artifacts/upstream-spec.md",
+        revision: 1,
+        blobSha256: specHash,
+      },
+    };
     const pass = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
+      packagePath: "tasks/t1",
       code: null,
       subjects: [manifestSubject],
       artifacts: validArtifacts,
+      canonicalDocuments: liveCanonicalV1,
     }).payload;
     assert.equal(pass.result, "pass", pass.diagnostic);
     assert.deepEqual(pass.predicate, {
@@ -795,8 +883,10 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
     // Negative 1: Upstream artifact changed after manifest was recorded -> drift detected from real frozen bytes
     const updatedBriefFile = path.join(sandbox, "upstream-brief-v2.md");
     writeFileSync(updatedBriefFile, "# Upstream Project Brief\nVersion 2 updated scope.\n");
+    const updatedBriefHash = sha256(readFileSync(updatedBriefFile));
     const artifactDrift = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
+      packagePath: "tasks/t1",
       code: null,
       subjects: [manifestSubject],
       artifacts: [
@@ -804,14 +894,138 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
         {
           path: "tasks/t1/artifacts/upstream-brief.md",
           revision: 2,
-          blobSha256: sha256(readFileSync(updatedBriefFile)),
+          blobSha256: updatedBriefHash,
           file: updatedBriefFile,
         },
         { path: "tasks/t1/artifacts/upstream-spec.md", revision: 1, blobSha256: specHash, file: specFile },
       ],
+      canonicalDocuments: {
+        ...liveCanonicalV1,
+        "tasks/t1/artifacts/upstream-brief.md": {
+          path: "tasks/t1/artifacts/upstream-brief.md",
+          revision: 2,
+          blobSha256: updatedBriefHash,
+        },
+      },
     }).payload;
     assert.equal(artifactDrift.result, "fail");
     assert.match(artifactDrift.diagnostic, /Upstream drift on "artifacts\/upstream-brief\.md"/u);
+
+    // Negative 1b (HA09-11): Submission retains frozen v1 copy and expectedSha256=v1, while live canonical document advanced to v2
+    const liveDriftWithFrozenV1 = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [manifestSubject],
+      artifacts: validArtifacts,
+      canonicalDocuments: {
+        ...liveCanonicalV1,
+        "tasks/t1/artifacts/upstream-brief.md": {
+          path: "tasks/t1/artifacts/upstream-brief.md",
+          revision: 2,
+          blobSha256: updatedBriefHash,
+        },
+      },
+    }).payload;
+    assert.equal(liveDriftWithFrozenV1.result, "fail");
+    assert.match(
+      liveDriftWithFrozenV1.diagnostic,
+      /Live upstream drift on "tasks\/t1\/artifacts\/upstream-brief\.md"/u,
+    );
+
+    // Negative 1c (HA09-11): Without live canonicalDocuments anchors, upstream-fresh fails closed instead of trusting frozen copy
+    const missingLiveAnchors = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [manifestSubject],
+      artifacts: validArtifacts,
+    }).payload;
+    assert.equal(missingLiveAnchors.result, "fail");
+    assert.match(missingLiveAnchors.diagnostic, /Missing live canonical upstream anchor/u);
+
+    // Negative 1d (HA09-11): Live canonical document retired/deleted (null anchor) fails closed
+    const retiredLiveAnchor = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [manifestSubject],
+      artifacts: validArtifacts,
+      canonicalDocuments: {
+        ...liveCanonicalV1,
+        "tasks/t1/artifacts/upstream-brief.md": null,
+      },
+    }).payload;
+    assert.equal(retiredLiveAnchor.result, "fail");
+    assert.match(retiredLiveAnchor.diagnostic, /Missing live canonical upstream anchor/u);
+
+    // Positive 2 & Negative 1e (HA09-11): Independent upstream canonical ledger source (both direct ref and sourcePath)
+    const independentManifestFile = path.join(sandbox, "independent-upstream.json");
+    writeFileSync(
+      independentManifestFile,
+      JSON.stringify({
+        schema: "office-collab/upstream-freshness/v1",
+        checkedAt: "2026-11-21T00:00:00Z",
+        baselines: [
+          {
+            ref: "artifacts/upstream-brief.md",
+            sourcePath: "tasks/task-upstream/artifacts/brief.md",
+            expectedSha256: briefHash,
+          },
+          {
+            ref: "context/project-charter.md",
+            expectedSha256: specHash,
+          },
+        ],
+      }),
+    );
+    const independentSubject = {
+      path: "tasks/t1/artifacts/upstream-freshness.json",
+      revision: 1,
+      blobSha256: sha256(readFileSync(independentManifestFile)),
+      file: independentManifestFile,
+    };
+    const independentPass = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [independentSubject],
+      artifacts: [independentSubject, validArtifacts[1]!],
+      canonicalDocuments: {
+        "tasks/task-upstream/artifacts/brief.md": {
+          path: "tasks/task-upstream/artifacts/brief.md",
+          revision: 3,
+          blobSha256: briefHash,
+        },
+        "context/project-charter.md": {
+          path: "context/project-charter.md",
+          revision: 2,
+          blobSha256: specHash,
+        },
+      },
+    }).payload;
+    assert.equal(independentPass.result, "pass", independentPass.diagnostic);
+    const independentDrifted = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [independentSubject],
+      artifacts: [independentSubject, validArtifacts[1]!],
+      canonicalDocuments: {
+        "tasks/task-upstream/artifacts/brief.md": {
+          path: "tasks/task-upstream/artifacts/brief.md",
+          revision: 4,
+          blobSha256: updatedBriefHash,
+        },
+        "context/project-charter.md": {
+          path: "context/project-charter.md",
+          revision: 2,
+          blobSha256: specHash,
+        },
+      },
+    }).payload;
+    assert.equal(independentDrifted.result, "fail");
+    assert.match(independentDrifted.diagnostic, /Live upstream drift on "tasks\/task-upstream\/artifacts\/brief\.md"/u);
 
     // Negative 2 (HA09-1): Self-reported external ref MUST fail closed even when observedSha256 === expectedSha256
     const extSelfReportedFile = path.join(sandbox, "ext-self-reported.json");
@@ -828,6 +1042,7 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
     );
     const extSelfReported = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
+      packagePath: "tasks/t1",
       code: null,
       subjects: [
         {
@@ -846,6 +1061,10 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
         },
         { path: "tasks/t1/artifacts/upstream-brief.md", revision: 1, blobSha256: briefHash, file: briefFile },
       ],
+      canonicalDocuments: {
+        ...liveCanonicalV1,
+        "decision/dec_example": null,
+      },
     }).payload;
     assert.equal(extSelfReported.result, "fail");
     assert.match(extSelfReported.diagnostic, /Unverifiable external upstream ref "decision\/dec_example"/u);
@@ -853,9 +1072,11 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
     // Negative 3: Referenced upstream artifact missing from submission
     const missingUpstream = runCheckScript(sandbox, scriptPath, {
       schema: "witness-input/v1",
+      packagePath: "tasks/t1",
       code: null,
       subjects: [manifestSubject],
       artifacts: [manifestSubject],
+      canonicalDocuments: liveCanonicalV1,
     }).payload;
     assert.equal(missingUpstream.result, "fail");
     assert.match(missingUpstream.diagnostic, /missing from submitted artifacts/u);

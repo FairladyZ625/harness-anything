@@ -6,6 +6,7 @@ const SCHEMA_ID = "office-collab/upstream-freshness/v1";
 const MANIFEST_PATH = "artifacts/upstream-freshness.json";
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const SAFE_ARTIFACT = /^artifacts\/(?:(?!\.\.?\/)[^/\\]+\/)*(?!\.\.?$)[^/\\]+$/u;
+const SAFE_LEDGER_PATH = /^(?!\/)(?:(?!\.\.?\/)[^/\\:]+\/)*(?!\.\.?$)[^/\\:]+$/u;
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
@@ -18,6 +19,36 @@ function findRootSubject(subjects, logicalPath) {
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function derivePackagePath(witness, manifestSubject) {
+  if (typeof witness.packagePath === "string" && witness.packagePath.trim().length > 0) {
+    return witness.packagePath.trim().replace(/\/+$/u, "");
+  }
+  const suffix = `/${MANIFEST_PATH}`;
+  if (typeof manifestSubject?.path === "string" && manifestSubject.path.endsWith(suffix)) {
+    return manifestSubject.path.slice(0, -suffix.length);
+  }
+  return "";
+}
+
+function resolveCanonicalPath(packagePath, ref) {
+  if (ref.startsWith("artifacts/")) {
+    return packagePath ? `${packagePath}/${ref}` : ref;
+  }
+  return ref;
+}
+
+function readLiveCanonicalAnchor(canonicalDocuments, canonicalPath) {
+  if (!canonicalDocuments || !Object.hasOwn(canonicalDocuments, canonicalPath)) return null;
+  const anchor = canonicalDocuments[canonicalPath];
+  if (!anchor || typeof anchor !== "object" || Array.isArray(anchor)) return null;
+  if (typeof anchor.blobSha256 !== "string" || !SHA256_RE.test(anchor.blobSha256)) return null;
+  return {
+    path: typeof anchor.path === "string" ? anchor.path : canonicalPath,
+    revision: typeof anchor.revision === "number" ? anchor.revision : null,
+    blobSha256: anchor.blobSha256,
+  };
 }
 
 function scanDuplicateTopLevelKeys(raw) {
@@ -77,6 +108,12 @@ const inputPath = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput;
 const witness = JSON.parse(readFileSync(inputPath, "utf8"));
 const rawSubjects = Array.isArray(witness.subjects) ? witness.subjects : [];
 const readableArtifacts = Array.isArray(witness.artifacts) ? witness.artifacts : rawSubjects;
+const canonicalDocuments =
+  witness.canonicalDocuments &&
+  typeof witness.canonicalDocuments === "object" &&
+  !Array.isArray(witness.canonicalDocuments)
+    ? witness.canonicalDocuments
+    : null;
 const subjects = rawSubjects.map(({ file: _file, ...identity }) => identity);
 
 const manifestSubject = findRootSubject(rawSubjects, MANIFEST_PATH);
@@ -85,6 +122,7 @@ if (!manifestSubject) {
   process.exit(0);
 }
 
+const packagePath = derivePackagePath(witness, manifestSubject);
 const rawManifest = readFileSync(manifestSubject.file, "utf8");
 let manifest;
 try {
@@ -127,37 +165,91 @@ if (Array.isArray(manifest.baselines)) {
       errors.push(`baselines[${index}].expectedSha256 must be a 64-character lowercase SHA-256 hex digest.`);
       continue;
     }
-    if (!ref.startsWith("artifacts/")) {
-      driftedCount += 1;
-      errors.push(
-        `Unverifiable external upstream ref "${ref}": upstream-fresh only verifies frozen artifacts/... subjects whose bytes can be independently hashed.`,
-      );
-      continue;
-    }
-    if (!SAFE_ARTIFACT.test(ref)) {
-      driftedCount += 1;
-      errors.push(`baselines[${index}].ref "${ref}" is not a safe artifacts/... path.`);
-      continue;
-    }
-    const subject = findRootSubject(readableArtifacts, ref);
-    if (!subject) {
-      driftedCount += 1;
-      errors.push(`Upstream artifact "${ref}" is missing from submitted artifacts.`);
-      continue;
-    }
-    const actualSha256 = hash("sha256", readFileSync(subject.file), "hex");
-    if (actualSha256 !== entry.expectedSha256) {
-      driftedCount += 1;
-      errors.push(
-        `Upstream drift on "${ref}": expected ${entry.expectedSha256.slice(0, 12)}, actual ${actualSha256.slice(0, 12)}.`,
-      );
-    } else if (entry.observedSha256 !== undefined) {
+    if (entry.observedSha256 !== undefined) {
       if (typeof entry.observedSha256 !== "string" || !SHA256_RE.test(entry.observedSha256)) {
         errors.push(`baselines[${index}].observedSha256 must be a 64-character lowercase SHA-256 hex digest.`);
-      } else if (entry.observedSha256 !== actualSha256) {
-        driftedCount += 1;
-        errors.push(`Upstream observedSha256 disagrees with frozen bytes for "${ref}".`);
+        continue;
       }
+    }
+    let sourcePath = null;
+    if (entry.sourcePath !== undefined) {
+      if (!nonEmptyString(entry.sourcePath) || !SAFE_LEDGER_PATH.test(entry.sourcePath.trim())) {
+        driftedCount += 1;
+        errors.push(`baselines[${index}].sourcePath must be a safe canonical ledger path.`);
+        continue;
+      }
+      sourcePath = entry.sourcePath.trim();
+    }
+
+    if (ref.startsWith("artifacts/")) {
+      if (!SAFE_ARTIFACT.test(ref)) {
+        driftedCount += 1;
+        errors.push(`baselines[${index}].ref "${ref}" is not a safe artifacts/... path.`);
+        continue;
+      }
+      const subject = findRootSubject(readableArtifacts, ref);
+      if (!subject) {
+        driftedCount += 1;
+        errors.push(`Upstream artifact "${ref}" is missing from submitted artifacts.`);
+        continue;
+      }
+      const actualFrozenSha256 = hash("sha256", readFileSync(subject.file), "hex");
+      if (actualFrozenSha256 !== entry.expectedSha256) {
+        driftedCount += 1;
+        errors.push(
+          `Upstream drift on "${ref}": expected ${entry.expectedSha256.slice(0, 12)}, actual ${actualFrozenSha256.slice(0, 12)}.`,
+        );
+        continue;
+      }
+      const livePath = resolveCanonicalPath(packagePath, sourcePath ?? ref);
+      const liveAnchor = readLiveCanonicalAnchor(canonicalDocuments, livePath);
+      if (!liveAnchor) {
+        driftedCount += 1;
+        errors.push(
+          `Missing live canonical upstream anchor for "${livePath}": upstream-fresh requires a current accepted canonical anchor.`,
+        );
+        continue;
+      }
+      if (liveAnchor.blobSha256 !== entry.expectedSha256) {
+        driftedCount += 1;
+        errors.push(
+          `Live upstream drift on "${livePath}": expected ${entry.expectedSha256.slice(0, 12)}, live canonical ${liveAnchor.blobSha256.slice(0, 12)}.`,
+        );
+        continue;
+      }
+      if (entry.observedSha256 !== undefined && entry.observedSha256 !== actualFrozenSha256) {
+        driftedCount += 1;
+        errors.push(`Upstream observedSha256 disagrees with verified bytes for "${ref}".`);
+      }
+      continue;
+    }
+
+    if (!SAFE_LEDGER_PATH.test(ref)) {
+      driftedCount += 1;
+      errors.push(
+        `Unverifiable external upstream ref "${ref}": upstream-fresh only verifies accepted canonical ledger documents.`,
+      );
+      continue;
+    }
+    const livePath = resolveCanonicalPath(packagePath, sourcePath ?? ref);
+    const liveAnchor = readLiveCanonicalAnchor(canonicalDocuments, livePath);
+    if (!liveAnchor) {
+      driftedCount += 1;
+      errors.push(
+        `Unverifiable external upstream ref "${ref}": no current accepted canonical document anchor exists at "${livePath}".`,
+      );
+      continue;
+    }
+    if (liveAnchor.blobSha256 !== entry.expectedSha256) {
+      driftedCount += 1;
+      errors.push(
+        `Live upstream drift on "${livePath}": expected ${entry.expectedSha256.slice(0, 12)}, live canonical ${liveAnchor.blobSha256.slice(0, 12)}.`,
+      );
+      continue;
+    }
+    if (entry.observedSha256 !== undefined && entry.observedSha256 !== liveAnchor.blobSha256) {
+      driftedCount += 1;
+      errors.push(`Upstream observedSha256 disagrees with live canonical bytes for "${ref}".`);
     }
   }
 }

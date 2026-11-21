@@ -53,39 +53,33 @@ function stripFrontmatter(body) {
   return match ? body.slice(match[0].length) : body;
 }
 
-function stripHtmlCommentsOnLine(line, inComment) {
+function stripHtmlComments(text) {
   let out = "";
   let index = 0;
-  let comment = inComment;
-  while (index < line.length) {
-    if (comment) {
-      const end = line.indexOf("-->", index);
-      if (end < 0) return { text: out, inComment: true };
-      index = end + 3;
-      comment = false;
-    } else {
-      const start = line.indexOf("<!--", index);
-      if (start < 0) {
-        out += line.slice(index);
-        break;
-      }
-      out += line.slice(index, start);
-      index = start + 4;
-      comment = true;
+  while (index < text.length) {
+    const start = text.indexOf("<!--", index);
+    if (start < 0) {
+      out += text.slice(index);
+      break;
     }
+    out += text.slice(index, start);
+    const end = text.indexOf("-->", start + 4);
+    if (end < 0) break;
+    index = end + 3;
   }
-  return { text: out, inComment: comment };
+  return out;
 }
 
-function parseHeading(line) {
+function parseAtxHeading(line) {
   const match = /^ {0,3}(#{1,6})(?:$|[ \t]+(.*)$)/u.exec(line);
   if (!match) return null;
-  let content = (match[2] ?? "").replace(/[ \t]+$/u, "");
-  if (/^#+$/u.test(content)) content = "";
-  else content = content.replace(/[ \t]+#+$/u, "").replace(/[ \t]+$/u, "");
+  let text = (match[2] ?? "").replace(/[ \t]+$/u, "");
+  if (/^#+$/u.test(text)) text = "";
+  else text = text.replace(/[ \t]+#+$/u, "").replace(/[ \t]+$/u, "");
   return {
-    level: match[1].length,
-    normalized: content ? `${match[1]} ${content}` : match[1],
+    depth: match[1].length,
+    text,
+    normalized: text ? `${match[1]} ${text}` : match[1],
   };
 }
 
@@ -106,29 +100,6 @@ function matchHtmlBlockStart(line, inParagraph) {
   const closeTag = /^ {0,3}<\/[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$/u;
   if (openTag.test(line) || closeTag.test(line)) return { type: 7, endPattern: null };
   return null;
-}
-
-function makeEntry(text, flags = {}) {
-  return {
-    text,
-    isHeading: flags.isHeading ?? false,
-    inCode: flags.inCode ?? false,
-    isHtmlBlock: flags.isHtmlBlock ?? false,
-    hasContent: flags.hasContent ?? false,
-    level: flags.level ?? 0,
-    normalizedHeading: flags.normalizedHeading ?? "",
-  };
-}
-
-function flushParagraphLines(parsed, paragraphLines) {
-  if (paragraphLines.length === 0) return;
-  let inComment = false;
-  for (const rawLine of paragraphLines) {
-    const stripped = stripHtmlCommentsOnLine(rawLine, inComment);
-    inComment = stripped.inComment;
-    parsed.push(makeEntry(stripped.text, { hasContent: stripped.text.trim().length > 0 }));
-  }
-  paragraphLines.length = 0;
 }
 
 function makeCursor(line) {
@@ -226,27 +197,173 @@ function matchListMarker(cursor, inParagraph) {
   return { spaces: info.spaces, markerLen, consumeAfter, itemIndent, emptyFirstLine };
 }
 
-function paragraphHasSubstantiveText(lines) {
-  let inComment = false;
-  for (const rawLine of lines) {
-    const stripped = stripHtmlCommentsOnLine(rawLine, inComment);
-    inComment = stripped.inComment;
-    if (stripped.text.trim().length > 0) return true;
+function skipOptionalSpaceAndOneNewline(text, start) {
+  let i = start;
+  while (i < text.length && (text[i] === " " || text[i] === "\t")) i += 1;
+  if (text[i] === "\n") {
+    i += 1;
+    while (i < text.length && (text[i] === " " || text[i] === "\t")) i += 1;
   }
-  return false;
+  return i;
 }
 
-function parseMarkdownLines(documentText) {
-  const parsed = [];
+function skipHorizontalSpaces(text, start) {
+  let i = start;
+  while (i < text.length && (text[i] === " " || text[i] === "\t")) i += 1;
+  return i;
+}
+
+function parseLinkDestination(text, start) {
+  if (start >= text.length) return -1;
+  if (text[start] === "<") {
+    let i = start + 1;
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === "\n" || ch === "<") return -1;
+      if (ch === "\\" && i + 1 < text.length) {
+        i += 2;
+        continue;
+      }
+      if (ch === ">") return i + 1;
+      i += 1;
+    }
+    return -1;
+  }
+  let i = start;
+  let parens = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) break;
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "(") {
+      parens += 1;
+      if (parens > 32) return -1;
+    } else if (ch === ")") {
+      if (parens === 0) return -1;
+      parens -= 1;
+    }
+    i += 1;
+  }
+  return i > start && parens === 0 ? i : -1;
+}
+
+function parseLinkTitle(text, start) {
+  const open = text[start];
+  const close = open === '"' ? '"' : open === "'" ? "'" : open === "(" ? ")" : null;
+  if (!close) return -1;
+  let i = start + 1;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === close) return i + 1;
+    if (open === "(" && ch === "(") return -1;
+    i += 1;
+  }
+  return -1;
+}
+
+function consumeLinkReferenceDefinition(text, start) {
+  // CommonMark §4.7 link reference definition: [label]: destination [title]
+  let i = start;
+  let leadingSpaces = 0;
+  while (i < text.length && text[i] === " " && leadingSpaces < 3) {
+    i += 1;
+    leadingSpaces += 1;
+  }
+  if (text[i] !== "[") return -1;
+  i += 1;
+  let labelLength = 0;
+  let hasNonSpace = false;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      labelLength += 2;
+      hasNonSpace = true;
+      i += 2;
+      if (labelLength > 999) return -1;
+      continue;
+    }
+    if (ch === "[") return -1;
+    if (ch === "]") break;
+    if (ch !== " " && ch !== "\t" && ch !== "\n") hasNonSpace = true;
+    labelLength += 1;
+    if (labelLength > 999) return -1;
+    i += 1;
+  }
+  if (i >= text.length || text[i] !== "]" || !hasNonSpace || text[i + 1] !== ":") return -1;
+  const destStart = skipOptionalSpaceAndOneNewline(text, i + 2);
+  const destEnd = parseLinkDestination(text, destStart);
+  if (destEnd < 0) return -1;
+
+  // Try optional title when separated by whitespace or a single newline.
+  const afterDestSpace = skipHorizontalSpaces(text, destEnd);
+  const hadSpace = afterDestSpace > destEnd;
+  const hadNewline = text[afterDestSpace] === "\n";
+  let titleEnd = -1;
+  if (hadSpace || hadNewline) {
+    const titleStart = hadNewline ? skipHorizontalSpaces(text, afterDestSpace + 1) : afterDestSpace;
+    const candidateEnd = parseLinkTitle(text, titleStart);
+    if (candidateEnd >= 0) {
+      const afterTitle = skipHorizontalSpaces(text, candidateEnd);
+      if (afterTitle >= text.length || text[afterTitle] === "\n") {
+        titleEnd = afterTitle < text.length ? afterTitle + 1 : afterTitle;
+      }
+    }
+  }
+  if (titleEnd >= 0) return titleEnd;
+
+  // Otherwise destination itself must finish the line (or end of paragraph buffer).
+  if (afterDestSpace >= text.length) return afterDestSpace;
+  if (text[afterDestSpace] === "\n") return afterDestSpace + 1;
+  return -1;
+}
+
+function splitParagraphDefinitions(lines) {
+  const joined = lines.join("\n");
+  let offset = 0;
+  let definitionCount = 0;
+  while (offset < joined.length) {
+    const next = consumeLinkReferenceDefinition(joined, offset);
+    if (next <= offset) break;
+    definitionCount += 1;
+    offset = next;
+  }
+  const remainder = joined.slice(offset);
+  const remainingLines = remainder.length === 0 ? [] : remainder.split("\n");
+  return { definitionCount, remainingLines };
+}
+
+function parseCommonMarkAst(documentText) {
+  const root = { type: "root", children: [] };
   const containers = [];
-  let rootContainerHasContent = false;
   let leaf = null;
+
+  const currentParent = () => (containers.length === 0 ? root : containers[containers.length - 1].node);
+
+  const appendNode = (node) => {
+    currentParent().children.push(node);
+  };
 
   const closeLeaf = () => {
     if (leaf === null) return;
     if (leaf.kind === "paragraph") {
-      if (containers.length === 0) flushParagraphLines(parsed, leaf.lines);
-      else if (paragraphHasSubstantiveText(leaf.lines)) rootContainerHasContent = true;
+      const { definitionCount, remainingLines } = splitParagraphDefinitions(leaf.lines);
+      for (let i = 0; i < definitionCount; i += 1) appendNode({ type: "definition" });
+      if (remainingLines.length > 0) {
+        const text = remainingLines.map((line) => line.trim()).join("\n");
+        if (text.length > 0) appendNode({ type: "paragraph", text });
+      }
+    } else if (leaf.kind === "fencedCode" || leaf.kind === "indentedCode") {
+      appendNode({ type: "code", value: leaf.lines.join("\n") });
+    } else if (leaf.kind === "htmlBlock") {
+      appendNode({ type: "html", value: leaf.lines.join("\n") });
     }
     leaf = null;
   };
@@ -255,15 +372,6 @@ function parseMarkdownLines(documentText) {
     if (containers.length <= targetLength) return;
     closeLeaf();
     containers.length = targetLength;
-    if (targetLength === 0) {
-      parsed.push(makeEntry("", { hasContent: rootContainerHasContent }));
-      rootContainerHasContent = false;
-    }
-  };
-
-  const recordSubstantive = (text, flags) => {
-    if (containers.length === 0) parsed.push(makeEntry(text, flags));
-    else if (flags.hasContent) rootContainerHasContent = true;
   };
 
   for (const line of stripFrontmatter(documentText).split(/\r?\n/u)) {
@@ -311,7 +419,7 @@ function parseMarkdownLines(documentText) {
         !(info.spaces <= 3 && cursor.line[info.nextIndex] === ">") &&
         !(info.spaces <= 3 && isThematicBreak(rest)) &&
         !(info.spaces <= 3 && isSetextUnderline(rest)) &&
-        !(info.spaces <= 3 && parseHeading(rest) !== null) &&
+        !(info.spaces <= 3 && parseAtxHeading(rest) !== null) &&
         !(info.spaces <= 3 && matchFencedCodeOpener(rest) !== null) &&
         !(info.spaces <= 3 && matchHtmlBlockStart(rest, true) !== null) &&
         matchListMarker(cursor, false) === null;
@@ -327,21 +435,22 @@ function parseMarkdownLines(documentText) {
       const rest = restText(cursor);
       const closer = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(rest);
       const closes = closer !== null && closer[1][0] === leaf.marker && closer[1].length >= leaf.length;
-      recordSubstantive(rest, { inCode: true, hasContent: !closes && rest.trim().length > 0 });
-      if (closes) leaf = null;
+      if (closes) {
+        closeLeaf();
+      } else {
+        leaf.lines.push(rest);
+      }
       continue;
     }
     if (leaf?.kind === "htmlBlock") {
       const info = peekIndent(cursor);
       const rest = restText(cursor);
       if (leaf.endPattern === null && info.blank) {
-        leaf = null;
+        closeLeaf();
         continue;
       }
-      const hasContent =
-        leaf.type === 2 ? stripHtmlCommentsOnLine(rest, true).text.trim().length > 0 : rest.trim().length > 0;
-      recordSubstantive(rest, { isHtmlBlock: true, hasContent });
-      if (leaf.endPattern !== null && leaf.endPattern.test(rest)) leaf = null;
+      leaf.lines.push(rest);
+      if (leaf.endPattern !== null && leaf.endPattern.test(rest)) closeLeaf();
       continue;
     }
 
@@ -354,26 +463,22 @@ function parseMarkdownLines(documentText) {
       if (leaf?.kind === "paragraph") {
         const setext = isSetextUnderline(rest);
         if (setext) {
-          const level = setext[1][0] === "=" ? 1 : 2;
-          const headingText = leaf.lines
-            .map((item) => item.trim())
-            .join("\n")
-            .trim();
-          const hashes = "#".repeat(level);
+          // CommonMark §4.3 + §4.7: extract leading link reference definitions first.
+          // If nothing remains, the underline cannot form a Setext heading.
+          const { definitionCount, remainingLines } = splitParagraphDefinitions(leaf.lines);
+          for (let i = 0; i < definitionCount; i += 1) appendNode({ type: "definition" });
           leaf = null;
-          if (containers.length === 0) {
-            parsed.push(
-              makeEntry(headingText, {
-                isHeading: true,
-                level,
-                normalizedHeading: headingText ? `${hashes} ${headingText}` : hashes,
-              }),
-            );
-          } else {
-            rootContainerHasContent = true;
+          if (remainingLines.length > 0) {
+            const depth = setext[1][0] === "=" ? 1 : 2;
+            const headingText = remainingLines
+              .map((item) => item.trim())
+              .join("\n")
+              .trim();
+            appendNode({ type: "heading", depth, text: headingText });
+            lineConsumed = true;
+            break;
           }
-          lineConsumed = true;
-          break;
+          // Fall through so "---" is handled as a thematic break and "===" as a paragraph.
         }
       }
       if (cursor.line[info.nextIndex] === ">") {
@@ -383,12 +488,14 @@ function parseMarkdownLines(documentText) {
         cursor.col += 1;
         const after = peekIndent(cursor);
         if (!after.blank && after.spaces >= 1) consumeColumns(cursor, 1);
-        containers.push({ kind: "blockquote" });
+        const node = { type: "blockquote", children: [] };
+        appendNode(node);
+        containers.push({ kind: "blockquote", node });
         continue;
       }
       if (isThematicBreak(rest)) {
         closeLeaf();
-        if (containers.length === 0) parsed.push(makeEntry(rest));
+        appendNode({ type: "thematicBreak" });
         lineConsumed = true;
         break;
       }
@@ -399,10 +506,13 @@ function parseMarkdownLines(documentText) {
         cursor.index += listMarker.markerLen;
         cursor.col += listMarker.markerLen;
         if (listMarker.consumeAfter > 0) consumeColumns(cursor, listMarker.consumeAfter);
+        const node = { type: "listItem", children: [] };
+        appendNode(node);
         containers.push({
           kind: "listItem",
           indent: listMarker.itemIndent,
           emptyFirstLine: listMarker.emptyFirstLine,
+          node,
         });
         continue;
       }
@@ -410,7 +520,7 @@ function parseMarkdownLines(documentText) {
     }
     if (lineConsumed) continue;
 
-    // Phase 5: leaf blocks at current container depth (only root depth emits root headings).
+    // Phase 5: leaf blocks at current container depth.
     const info = peekIndent(cursor);
     if (info.blank) {
       closeLeaf();
@@ -420,8 +530,8 @@ function parseMarkdownLines(documentText) {
     if ((leaf === null || leaf.kind === "indentedCode") && info.spaces >= 4) {
       consumeColumns(cursor, 4);
       const codeText = restText(cursor);
-      leaf = { kind: "indentedCode" };
-      recordSubstantive(codeText, { inCode: true, hasContent: codeText.trim().length > 0 });
+      if (leaf === null) leaf = { kind: "indentedCode", lines: [] };
+      leaf.lines.push(codeText);
       continue;
     }
     if (leaf?.kind === "indentedCode") closeLeaf();
@@ -429,30 +539,23 @@ function parseMarkdownLines(documentText) {
       const opener = matchFencedCodeOpener(rest);
       if (opener) {
         closeLeaf();
-        leaf = { kind: "fencedCode", marker: opener[1][0], length: opener[1].length };
-        if (containers.length === 0) parsed.push(makeEntry(rest, { inCode: true }));
+        leaf = { kind: "fencedCode", marker: opener[1][0], length: opener[1].length, lines: [] };
         continue;
       }
-      const heading = parseHeading(rest);
+      const heading = parseAtxHeading(rest);
       if (heading) {
         closeLeaf();
-        if (containers.length === 0) {
-          parsed.push(
-            makeEntry(rest, { isHeading: true, level: heading.level, normalizedHeading: heading.normalized }),
-          );
-        } else {
-          rootContainerHasContent = true;
-        }
+        appendNode({ type: "heading", depth: heading.depth, text: heading.text });
         continue;
       }
       const htmlStart = matchHtmlBlockStart(rest, leaf?.kind === "paragraph");
       if (htmlStart) {
         closeLeaf();
-        const hasContent =
-          htmlStart.type === 2 ? stripHtmlCommentsOnLine(rest, false).text.trim().length > 0 : rest.trim().length > 0;
-        recordSubstantive(rest, { isHtmlBlock: true, hasContent });
-        if (htmlStart.endPattern === null || !htmlStart.endPattern.test(rest))
-          leaf = { kind: "htmlBlock", ...htmlStart };
+        if (htmlStart.endPattern !== null && htmlStart.endPattern.test(rest)) {
+          appendNode({ type: "html", value: rest });
+        } else {
+          leaf = { kind: "htmlBlock", ...htmlStart, lines: [rest] };
+        }
         continue;
       }
     }
@@ -461,46 +564,62 @@ function parseMarkdownLines(documentText) {
   }
   closeContainersTo(0);
   closeLeaf();
-  return parsed;
+  return root;
 }
 
-function checkRequiredSections(documentText, requiredSections) {
-  const entries = parseMarkdownLines(documentText);
+function nodeHasVisibleContent(node) {
+  switch (node.type) {
+    case "definition":
+    case "thematicBreak":
+      return false;
+    case "code":
+      return node.value.trim().length > 0;
+    case "html":
+      return stripHtmlComments(node.value).trim().length > 0;
+    case "paragraph":
+      return stripHtmlComments(node.text).trim().length > 0;
+    case "heading":
+      return stripHtmlComments(node.text).trim().length > 0;
+    case "blockquote":
+    case "listItem":
+      return node.children.some(nodeHasVisibleContent);
+    default:
+      return false;
+  }
+}
+
+function checkRequiredSections(documentText, requiredHeadingSpecs) {
+  const ast = parseCommonMarkAst(documentText);
   const missing = [];
   const empty = [];
-  for (const anchor of requiredSections) {
-    const trimmedAnchor = anchor.trim();
-    const targetHeading = parseHeading(trimmedAnchor);
+  for (const target of requiredHeadingSpecs) {
     const matchingIndices = [];
-    for (let i = 0; i < entries.length; i += 1) {
-      const entry = entries[i];
-      if (targetHeading) {
-        if (entry.isHeading && entry.normalizedHeading === targetHeading.normalized) matchingIndices.push(i);
-      } else if (!entry.inCode && !entry.isHtmlBlock && entry.text.trim() === trimmedAnchor) {
+    for (let i = 0; i < ast.children.length; i += 1) {
+      const node = ast.children[i];
+      if (node.type === "heading" && node.depth === target.depth && node.text === target.text) {
         matchingIndices.push(i);
       }
     }
     if (matchingIndices.length === 0) {
-      missing.push(trimmedAnchor);
+      missing.push(target.raw);
       continue;
     }
-    const level = targetHeading?.level ?? 0;
     let hasBody = false;
     for (const startIndex of matchingIndices) {
-      for (let i = startIndex + 1; i < entries.length; i += 1) {
-        const current = entries[i];
-        if (current.isHeading) {
-          if (level > 0 && current.level <= level) break;
+      for (let i = startIndex + 1; i < ast.children.length; i += 1) {
+        const current = ast.children[i];
+        if (current.type === "heading") {
+          if (current.depth <= target.depth) break;
           continue;
         }
-        if (current.hasContent) {
+        if (nodeHasVisibleContent(current)) {
           hasBody = true;
           break;
         }
       }
       if (hasBody) break;
     }
-    if (!hasBody) empty.push(trimmedAnchor);
+    if (!hasBody) empty.push(target.raw);
   }
   return { missing, empty };
 }
@@ -568,15 +687,35 @@ if (typeof manifest.documentPath !== "string" || !SAFE_ARTIFACT.test(manifest.do
 if (typeof manifest.documentSha256 !== "string" || !SHA256_RE.test(manifest.documentSha256))
   errors.push('Field "documentSha256" must be a 64-character lowercase SHA-256 hex digest.');
 
-let requiredSections = [];
+const requiredHeadingSpecs = [];
 if (!Array.isArray(manifest.requiredSections) || manifest.requiredSections.length === 0) {
   errors.push('Field "requiredSections" must be a non-empty array of section headings.');
 } else if (!manifest.requiredSections.every(nonEmptyString)) {
   errors.push('Field "requiredSections" entries must be non-empty strings.');
 } else {
-  requiredSections = manifest.requiredSections.map((item) => item.trim());
-  if (new Set(requiredSections).size !== requiredSections.length)
-    errors.push('Field "requiredSections" must not contain duplicates.');
+  const seenNormalized = new Set();
+  const invalidAnchors = [];
+  let hasDuplicates = false;
+  for (const item of manifest.requiredSections) {
+    const raw = item.trim();
+    const parsed = parseAtxHeading(raw);
+    if (!parsed || stripHtmlComments(parsed.text).trim().length === 0) {
+      invalidAnchors.push(raw);
+      continue;
+    }
+    if (seenNormalized.has(parsed.normalized)) {
+      hasDuplicates = true;
+      continue;
+    }
+    seenNormalized.add(parsed.normalized);
+    requiredHeadingSpecs.push({ raw, depth: parsed.depth, text: parsed.text });
+  }
+  if (invalidAnchors.length > 0) {
+    errors.push(
+      `Field "requiredSections" entries must be non-empty Markdown ATX headings (e.g. "## Section"): invalid ${invalidAnchors.map((item) => `"${item}"`).join(", ")}.`,
+    );
+  }
+  if (hasDuplicates) errors.push('Field "requiredSections" must not contain duplicates.');
 }
 
 if (errors.length === 0) {
@@ -590,7 +729,7 @@ if (errors.length === 0) {
       errors.push(
         `Deliverable hash mismatch for ${manifest.documentPath}: expected ${manifest.documentSha256.slice(0, 12)}, got ${actualSha256.slice(0, 12)}.`,
       );
-    const { missing, empty } = checkRequiredSections(bytes.toString("utf8"), requiredSections);
+    const { missing, empty } = checkRequiredSections(bytes.toString("utf8"), requiredHeadingSpecs);
     if (missing.length > 0) errors.push(`Missing required sections: ${missing.join(", ")}.`);
     if (empty.length > 0) errors.push(`Empty required sections: ${empty.join(", ")}.`);
   }
@@ -608,7 +747,7 @@ if (errors.length > 0) {
       owner: manifest.owner,
       documentPath: manifest.documentPath,
       documentSha256: manifest.documentSha256,
-      verifiedSectionCount: requiredSections.length,
+      verifiedSectionCount: requiredHeadingSpecs.length,
     },
     "Deliverable contract, SHA-256 digest, and required sections verified.",
   );
