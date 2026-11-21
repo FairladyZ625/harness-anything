@@ -611,15 +611,17 @@ test(
     const pricedDefinition = { ...definition, model: "claude-haiku-4-5" } as const,
       artifact = runtimeDefinitionSnapshotArtifact(pricedDefinition),
       edgeReported = runtimeDispatchIdentity(repoId, "edge-settled-reported"),
+      edgeTaskless = runtimeDispatchIdentity(repoId, "edge-settled-taskless"),
       edgeUnreportedCache = runtimeDispatchIdentity(repoId, "edge-settled-unreported-cache"),
       edgeUnavailable = runtimeDispatchIdentity(repoId, "edge-settled-unavailable"),
       startedAt = new Date(Date.now() - 120_000).toISOString(),
       endedAt = new Date(Date.now() - 30_000).toISOString();
 
-    for (const [identity, label, metricsPayload, rawUsage] of [
+    for (const [identity, label, taskBound, metricsPayload, rawUsage] of [
       [
         edgeReported,
         "edge-settled-reported",
+        true,
         {
           inputTokens: 10_000,
           cacheReadTokens: 2_000,
@@ -632,8 +634,24 @@ test(
         { input_tokens: 10_000, cache_creation_input_tokens: 4_000, output_tokens: 1_000 },
       ],
       [
+        edgeTaskless,
+        "edge-settled-taskless",
+        false,
+        {
+          inputTokens: 3_000,
+          cacheReadTokens: 500,
+          cacheWriteTokens: 1_500,
+          outputTokens: 400,
+          totalTokens: 3_400,
+          toolCallCount: 3,
+          usageUnavailable: false,
+        },
+        { input_tokens: 3_000, cache_creation_input_tokens: 1_500, output_tokens: 400 },
+      ],
+      [
         edgeUnreportedCache,
         "edge-settled-unreported-cache",
+        true,
         {
           inputTokens: 2_000,
           cacheReadTokens: 0,
@@ -647,6 +665,7 @@ test(
       [
         edgeUnavailable,
         "edge-settled-unavailable",
+        true,
         {
           inputTokens: 0,
           cacheReadTokens: 0,
@@ -663,8 +682,8 @@ test(
         runtimeSessionId: identity.runtimeSessionId,
         instanceId: pricedDefinition.instanceId,
         kindId: pricedDefinition.kindId,
-        taskId,
-        executionId,
+        taskId: taskBound ? taskId : null,
+        executionId: taskBound ? executionId : null,
         agentId: "agent-edge",
         agentName: "Agent Edge",
         model: pricedDefinition.model,
@@ -689,8 +708,7 @@ test(
           opId: `op-req-${label}`,
           payload: {
             ...identity,
-            taskId,
-            executionId,
+            ...(taskBound ? { taskId, executionId } : {}),
             agentId: "agent-edge",
             agentName: "Agent Edge",
             startedAt,
@@ -702,7 +720,12 @@ test(
             definitionSnapshotRef: artifact.ref,
           },
           resultBody: artifact.body,
-          dispatchContext: { role: "implementation", taskId, executionId, launchGeneration: 1 },
+          dispatchContext: {
+            role: taskBound ? "implementation" : null,
+            taskId: taskBound ? taskId : null,
+            executionId: taskBound ? executionId : null,
+            launchGeneration: 1,
+          },
         },
         localAuthFixture(),
       );
@@ -728,49 +751,6 @@ test(
           toolCallCount: metricsPayload.toolCallCount,
           usageUnavailable: metricsPayload.usageUnavailable,
         };
-      const archiveRelPath = `${fixture.packagePath}/artifacts/dispatches/${identity.dispatchId}.json`,
-        archiveDiskPath = path.join(fixture.repo, "harness", archiveRelPath);
-      mkdirSync(path.dirname(archiveDiskPath), { recursive: true });
-      writeFileSync(
-        archiveDiskPath,
-        `${JSON.stringify(
-          {
-            schema: "runtime-dispatch/v1",
-            dispatchId: identity.dispatchId,
-            taskId,
-            executionId,
-            agentId: "agent-edge",
-            agentName: "Agent Edge",
-            instanceId: pricedDefinition.instanceId,
-            model: pricedDefinition.model,
-            reasoningEffort: null,
-            fast: false,
-            cwd: edgeRoot,
-            runtimeSessionId: identity.runtimeSessionId,
-            providerSessionId: null,
-            startedAt,
-            endedAt,
-            outcome: "succeeded",
-            exitCode: 0,
-            resultRef: `artifact:runtime-result/sha256/${resultSha}`,
-            runtimeMetrics: metricsPayload,
-            attemptGroupId: identity.dispatchId,
-            attemptIndex: 0,
-            provider: { instance: pricedDefinition.instanceId, model: pricedDefinition.model },
-            classification: "worker_stop",
-            reason: "Worker completed the attempt successfully.",
-          },
-          null,
-          2,
-        )}\n`,
-      );
-      const archived = await fixture.host.run(
-        repoId,
-        { kind: "doc-submit", paths: [archiveRelPath] },
-        localAuthFixture(),
-      );
-      assert.equal(archived.outcome, "applied", JSON.stringify(archived));
-      await waitForReceiptCommit(fixture.host, repoId, archived.opId, fixture.auth);
       const settled = await fixture.host.runtimeIngress(
         repoId,
         {
@@ -786,6 +766,7 @@ test(
             result: { sha256: resultSha, size: Buffer.byteLength(resultBody), mediaType: "text/plain; charset=utf-8" },
             endedAt,
             runtimeMetrics: canonicalMetrics,
+            ...("cacheWriteTokens" in metricsPayload ? { cacheWriteTokens: metricsPayload.cacheWriteTokens } : {}),
           },
           resultBody,
         },
@@ -793,6 +774,39 @@ test(
       );
       assert.equal(settled.outcome, "applied", JSON.stringify(settled));
     }
+
+    // F15: Submit a poisoned regular doc-submit JSON document at artifacts/dispatches/<dispatchId>.json
+    // and verify below that canonical metrics are never overwritten by ordinary projected documents.
+    const poisonedArchiveRelPath = `${fixture.packagePath}/artifacts/dispatches/${edgeReported.dispatchId}.json`,
+      poisonedArchiveDiskPath = path.join(fixture.repo, "harness", poisonedArchiveRelPath);
+    mkdirSync(path.dirname(poisonedArchiveDiskPath), { recursive: true });
+    writeFileSync(
+      poisonedArchiveDiskPath,
+      `${JSON.stringify(
+        {
+          schema: "runtime-dispatch/v1",
+          dispatchId: edgeReported.dispatchId,
+          runtimeMetrics: {
+            inputTokens: 999_999,
+            cacheReadTokens: 888_888,
+            cacheWriteTokens: 777_777,
+            outputTokens: 666_666,
+            totalTokens: 1_666_665,
+            toolCallCount: 999,
+            usageUnavailable: false,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const poisonedSubmitted = await fixture.host.run(
+      repoId,
+      { kind: "doc-submit", paths: [poisonedArchiveRelPath] },
+      localAuthFixture(),
+    );
+    assert.equal(poisonedSubmitted.outcome, "applied", JSON.stringify(poisonedSubmitted));
+    await waitForReceiptCommit(fixture.host, repoId, poisonedSubmitted.opId, fixture.auth);
 
     // Seed a center-local dispatch stream with sensitive provider thinking/tool bodies to verify F6:
     // local debugging still reads kind="dispatch", while Fleet TLS rejects it before host.read.
@@ -827,6 +841,7 @@ test(
 
     let doctorHealthCenterCalls = 0;
     let runtimeLocalObserveReadCalls = 0;
+    let detailHostReadCalls = 0;
     const center = await fixture.hold(
       listenFleetTls({
         host: {
@@ -834,6 +849,7 @@ test(
           read: async (...args: Parameters<typeof fixture.host.read>) => {
             if (args[1] === "observe.tail" && (args[2] as { kind?: unknown })?.kind !== "events")
               runtimeLocalObserveReadCalls += 1;
+            if (args[1] === "repo.agentRuntime.tokenUsageDetail") detailHostReadCalls += 1;
             return fixture.host.read(...args);
           },
           run: async (...args: Parameters<typeof fixture.host.run>) => {
@@ -923,20 +939,33 @@ test(
         cacheWriteTokens: 4_000,
         outputTokens: 1_000,
       }),
+      expectedTasklessCost = usageCostUsd(haikuPrice, {
+        inputTokens: 3_000,
+        cacheReadTokens: 500,
+        cacheWriteTokens: 1_500,
+        outputTokens: 400,
+      }),
       expectedUnreportedCost = usageCostUsd(haikuPrice, {
         inputTokens: 2_000,
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         outputTokens: 500,
       }),
-      expectedTotalCost = expectedReportedCost + expectedUnreportedCost,
+      expectedTotalCost = expectedReportedCost + expectedTasklessCost + expectedUnreportedCost,
       wrongInputRateCost =
         usageCostUsd(haikuPrice, {
           inputTokens: 10_000,
           cacheReadTokens: 2_000,
           cacheWriteTokens: 0,
           outputTokens: 1_000,
-        }) + expectedUnreportedCost;
+        }) +
+        usageCostUsd(haikuPrice, {
+          inputTokens: 3_000,
+          cacheReadTokens: 500,
+          cacheWriteTokens: 0,
+          outputTokens: 400,
+        }) +
+        expectedUnreportedCost;
     assert.notEqual(expectedTotalCost, wrongInputRateCost);
 
     const usage = parseDaemonReadResult(
@@ -949,18 +978,18 @@ test(
     );
     assert.ok("totals" in usage);
     if ("totals" in usage) {
-      assert.equal(usage.totals.totalTokens, 13_500);
-      assert.equal(usage.totals.cacheWriteTokens, 4_000);
+      assert.equal(usage.totals.totalTokens, 16_900);
+      assert.equal(usage.totals.cacheWriteTokens, 5_500);
       assert.equal(usage.totals.cacheWriteUnreportedDispatches, 1);
       assert.equal(usage.totals.cacheWriteUnitemizedDispatches, 0);
-      assert.equal(usage.totals.toolCallCount, 10);
-      assert.equal(usage.totals.usageReportedDispatches, 2);
+      assert.equal(usage.totals.toolCallCount, 13);
+      assert.equal(usage.totals.usageReportedDispatches, 3);
       assert.equal(usage.totals.usageUnavailableDispatches, 1);
       assert.ok(
         Math.abs(usage.totals.costUsd - expectedTotalCost) < 1e-12,
         `center costUsd=${usage.totals.costUsd} must match Edge differential cache-write pricing ${expectedTotalCost} (not ${wrongInputRateCost})`,
       );
-      assert.equal(usage.agents.find((agent) => agent.agentId === "agent-edge")?.cacheWriteTokens, 4_000);
+      assert.equal(usage.agents.find((agent) => agent.agentId === "agent-edge")?.cacheWriteTokens, 5_500);
     }
     const detail = parseDaemonReadResult(
       "repo.agentRuntime.tokenUsageDetail",
@@ -970,14 +999,15 @@ test(
         payload: { range: "today", agentId: "agent-edge" },
       }),
     );
-    assert.equal(detail.totals.totalTokens, 13_500);
-    assert.equal(detail.totals.cacheWriteTokens, 4_000);
+    assert.equal(detail.totals.totalTokens, 16_900);
+    assert.equal(detail.totals.cacheWriteTokens, 5_500);
     assert.equal(detail.totals.cacheWriteUnreportedDispatches, 1);
     assert.equal(detail.totals.cacheWriteUnitemizedDispatches, 0);
-    assert.equal(detail.totals.usageReportedDispatches, 2);
+    assert.equal(detail.totals.usageReportedDispatches, 3);
     assert.equal(detail.totals.usageUnavailableDispatches, 1);
     assert.ok(Math.abs(detail.totals.costUsd - expectedTotalCost) < 1e-12);
     const reportedSession = detail.sessions.find((row) => row.dispatchId === edgeReported.dispatchId)!;
+    const tasklessSession = detail.sessions.find((row) => row.dispatchId === edgeTaskless.dispatchId)!;
     const unreportedCacheSession = detail.sessions.find((row) => row.dispatchId === edgeUnreportedCache.dispatchId)!;
     const unavailableSession = detail.sessions.find((row) => row.dispatchId === edgeUnavailable.dispatchId)!;
     assert.equal(reportedSession.usage, "reported");
@@ -986,11 +1016,56 @@ test(
     assert.equal(reportedSession.toolCallCount, 7);
     assert.equal(reportedSession.endedAt, endedAt);
     assert.ok(reportedSession.durationMs !== null && reportedSession.durationMs > 0);
+    assert.equal(tasklessSession.usage, "reported");
+    assert.equal(tasklessSession.taskId, null, "F17: taskless Edge session has null taskId and no archive");
+    assert.equal(
+      tasklessSession.cacheWriteTokens,
+      1_500,
+      "F17: taskless Edge session retains cacheWriteTokens on Center",
+    );
     assert.equal(unreportedCacheSession.usage, "reported");
     assert.equal(unreportedCacheSession.cacheWriteTokens, 0);
     assert.equal(unavailableSession.usage, "unavailable");
     assert.equal(unavailableSession.totalTokens, 0);
     assert.equal(unavailableSession.toolCallCount, 2);
+
+    // F15: Overwrite artifacts/dispatches/<dispatchId>.json with invalid non-JSON text via doc-submit
+    // and verify Center tokenUsage & tokenUsageDetail neither throw nor drift!
+    writeFileSync(poisonedArchiveDiskPath, "{{{ corrupt non-json text submitted via doc-submit\n");
+    const nonJsonSubmitted = await fixture.host.run(
+      repoId,
+      { kind: "doc-submit", paths: [poisonedArchiveRelPath] },
+      localAuthFixture(),
+    );
+    assert.equal(nonJsonSubmitted.outcome, "applied", JSON.stringify(nonJsonSubmitted));
+    await waitForReceiptCommit(fixture.host, repoId, nonJsonSubmitted.opId, fixture.auth);
+    const detailAfterNonJson = parseDaemonReadResult(
+      "repo.agentRuntime.tokenUsageDetail",
+      await readFleetOperationalClient({
+        ...limitedPeerOptions,
+        method: "repo.agentRuntime.tokenUsageDetail",
+        payload: { range: "today", agentId: "agent-edge" },
+      }),
+    );
+    assert.deepEqual(
+      detailAfterNonJson.totals,
+      detail.totals,
+      "F15: non-JSON doc-submit must not throw or alter totals",
+    );
+
+    // F14: Remote forged or tampered cursors on Fleet TLS reject at center-listener BEFORE host.read!
+    const callsBeforeInvalidCursor = detailHostReadCalls;
+    for (const badCursor of ["v2.forged-unauthenticated-cursor", "f3.invalid_hmac_signature.v3.abc.def"]) {
+      await assert.rejects(
+        readFleetOperationalClient({
+          ...limitedPeerOptions,
+          method: "repo.agentRuntime.tokenUsageDetail",
+          payload: { range: "today", agentId: "agent-edge", limit: 2, cursor: badCursor },
+        }),
+        (error: unknown) => error instanceof FleetRemoteError && error.code === "invalid_cursor",
+      );
+    }
+    assert.equal(detailHostReadCalls, callsBeforeInvalidCursor, "F14: forged Fleet cursors must fail before host.read");
 
     // F6: local observe.tail(kind="dispatch") keeps working for local debugging, while Fleet TLS
     // rejects dispatch and all other runtime-local kinds with execution_scope_mismatch before host.read.

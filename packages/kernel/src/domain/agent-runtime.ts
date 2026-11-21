@@ -464,6 +464,7 @@ interface RuntimePayloads {
     readonly dispatchId?: string;
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
+    readonly cacheWriteTokens?: number;
     readonly attempt?: {
       readonly classification:
         | "provider_fault"
@@ -602,7 +603,7 @@ function validateAgentRuntimePayloadFields(
     : payloadFields[type];
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt", "orphanRecovery"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "cacheWriteTokens", "attempt", "orphanRecovery"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
@@ -769,6 +770,12 @@ function validateAgentRuntimePayloadFields(
             value.attempt.fallbackState !== null &&
             value.attempt.fallbackState !== "scheduled" &&
             value.attempt.fallbackState !== "exhausted"))))
+  )
+    return ["runtime dispatch settlement metadata is invalid"];
+  if (
+    type === "runtime_session_outcome_observed" &&
+    value.cacheWriteTokens !== undefined &&
+    (!Number.isSafeInteger(value.cacheWriteTokens) || Number(value.cacheWriteTokens) < 0)
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];

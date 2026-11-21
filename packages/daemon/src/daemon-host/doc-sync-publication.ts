@@ -82,8 +82,6 @@ export interface RuntimeDispatchArchive {
   readonly ruling?: { readonly path: string; readonly body: string };
   /** A reviewer report that exists only in the worker worktree is carried into the normal archive. */
   readonly reviewReport?: { readonly path: string; readonly body: string };
-  /** Optional full settlement token usage metrics (including cacheWriteTokens when reported). */
-  readonly runtimeMetrics?: RuntimeStatus.RuntimeDispatchMetrics;
   /**
    * The abnormal dispatch's raw stream, provider transcript and request trace, captured by the
    * execution node before compaction. Published with the archive so later archive retention and
@@ -213,7 +211,6 @@ export function archiveRuntimeDispatch(
       ...(value.lastConclusion === undefined ? {} : { lastConclusion: value.lastConclusion }),
       ...(value.exitHead === undefined ? {} : { exitHead: value.exitHead }),
       ...(value.eventStreamRef ? { eventStreamRef: value.eventStreamRef } : {}),
-      ...(value.runtimeMetrics ? { runtimeMetrics: value.runtimeMetrics } : {}),
       ...(forensicsRef === null ? {} : { forensicsRef }),
       attemptGroupId: value.attemptGroupId,
       attemptIndex: value.attemptIndex,

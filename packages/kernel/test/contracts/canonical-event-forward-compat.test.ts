@@ -266,3 +266,41 @@ test("delegation audit additions remain read-only and required identity is still
   assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(invalid)), /Invalid execution delegation/u);
   assert.ok(validateCurrentCanonicalEvent(invalid).length > 0);
 });
+
+test("runtime_session_outcome_observed top-level cacheWriteTokens is accepted by current and N-1 historical parsers while rejecting invalid values", () => {
+  const raw = readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "../../fixtures/canonical-events/agent-runtime-event-v1/accepted-runtime-session-outcome-observed-80fdc2355478.json",
+      ),
+      "utf8",
+    ),
+    base = JSON.parse(raw);
+  const withCacheWrite = {
+    ...base,
+    payload: {
+      ...base.payload,
+      runtimeMetrics: {
+        inputTokens: 1_000,
+        cacheReadTokens: 200,
+        outputTokens: 300,
+        totalTokens: 1_300,
+        toolCallCount: 4,
+        usageUnavailable: false,
+      },
+      cacheWriteTokens: 450,
+    },
+  };
+  assert.deepEqual(validateCurrentCanonicalEvent(withCacheWrite), []);
+  assert.deepEqual(parseCanonicalEvent(`${stableStringify(withCacheWrite)}\n`), withCacheWrite);
+  for (const bad of [-1, 1.5, "450", null, Number.NaN]) {
+    const invalid = {
+      ...withCacheWrite,
+      payload: { ...withCacheWrite.payload, cacheWriteTokens: bad },
+    };
+    assert.ok(
+      validateCurrentCanonicalEvent(invalid).length > 0,
+      `invalid cacheWriteTokens=${String(bad)} must be rejected by current canonical event validation`,
+    );
+  }
+});

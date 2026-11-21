@@ -256,7 +256,7 @@ export function repositoryEventQueries(
           ? (JSON.parse(String(row.witness_json)) as ReturnType<TaskProjectionQueries["readEventWitness"]>)
           : null;
       }),
-    readEventSummaries: (afterRevision, limit, fields, beforeRevision) =>
+    readEventSummaries: (afterRevision, limit, fields, beforeRevision, order) =>
       withRead((db, cut) => {
         if (
           !validateStorageReadWindow(
@@ -267,11 +267,14 @@ export function repositoryEventQueries(
           )
         )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        const scanOrder = order ?? (beforeRevision === undefined ? "asc" : "desc");
+        if (scanOrder !== "asc" && scanOrder !== "desc")
+          throw new Error("event summary page order must be asc or desc");
         if (fields === "fleet" || (typeof fields === "object" && "fleetNodeIds" in fields)) {
           assertEventSummaryReadIndexReady(db);
           return {
             ...cut,
-            events: readFleetEventHeaders(db, afterRevision, limit, beforeRevision),
+            events: readFleetEventHeaders(db, afterRevision, limit, beforeRevision, scanOrder),
             ...(typeof fields === "object" ? { fleetActivity: readFleetNodeActivity(db, fields.fleetNodeIds) } : {}),
           };
         }
@@ -302,21 +305,22 @@ export function repositoryEventQueries(
           selected.sort((left, right) => right.workspaceRevision - left.workspaceRevision);
           return { ...cut, events: selected.slice(0, limit).reverse(), hasMore: selected.length > limit };
         }
-        const rows =
-          beforeRevision === undefined
-            ? queryRows(
-                db,
-                "SELECT summary_json FROM event_summary WHERE workspace_revision > ? ORDER BY workspace_revision LIMIT ?",
-                afterRevision,
-                limit,
-              )
-            : queryRows(
-                db,
-                "SELECT summary_json FROM event_summary WHERE workspace_revision > ? AND workspace_revision < ? ORDER BY workspace_revision DESC LIMIT ?",
-                afterRevision,
-                beforeRevision,
-                limit,
-              ).toReversed();
+        const rawRows =
+            beforeRevision === undefined
+              ? queryRows(
+                  db,
+                  `SELECT summary_json FROM event_summary WHERE workspace_revision > ? ORDER BY workspace_revision ${scanOrder === "asc" ? "ASC" : "DESC"} LIMIT ?`,
+                  afterRevision,
+                  limit,
+                )
+              : queryRows(
+                  db,
+                  `SELECT summary_json FROM event_summary WHERE workspace_revision > ? AND workspace_revision < ? ORDER BY workspace_revision ${scanOrder === "asc" ? "ASC" : "DESC"} LIMIT ?`,
+                  afterRevision,
+                  beforeRevision,
+                  limit,
+                ),
+          rows = scanOrder === "desc" ? rawRows.toReversed() : rawRows;
         return {
           ...cut,
           events: rows.map(
@@ -702,9 +706,12 @@ function projectedDispatch(
     outcome = outcomeRow ? (JSON.parse(String(outcomeRow.event_json)) as { readonly schema: string }) : null;
   if (!outcome || !isAgentRuntimeEvent(outcome) || outcome.type !== "runtime_session_outcome_observed")
     return { event: publicRuntimeDispatch(event), metrics: null, endedAt: null, outcome: null };
+  const rawMetrics = outcome.payload.runtimeMetrics ?? null,
+    cacheWriteTokens = outcome.payload.cacheWriteTokens ?? rawMetrics?.cacheWriteTokens,
+    metrics = rawMetrics === null || cacheWriteTokens === undefined ? rawMetrics : { ...rawMetrics, cacheWriteTokens };
   return {
     event: publicRuntimeDispatch(event),
-    metrics: outcome.payload.runtimeMetrics ?? null,
+    metrics,
     endedAt: outcome.payload.endedAt ?? null,
     outcome: outcome.payload.outcome,
   };
@@ -784,24 +791,27 @@ function readFleetEventHeaders(
   after: number,
   limit: number,
   before?: number,
+  order: "asc" | "desc" = before === undefined ? "asc" : "desc",
 ): CanonicalEventSummary[] {
-  const rows =
-    before === undefined
-      ? queryRows<{ header: string }>(
-          db,
-          `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>?
-           ORDER BY workspace_revision LIMIT ?`,
-          after,
-          limit,
-        )
-      : queryRows<{ header: string }>(
-          db,
-          `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>? AND workspace_revision<?
-           ORDER BY workspace_revision DESC LIMIT ?`,
-          after,
-          before,
-          limit,
-        ).toReversed();
+  const dir = order === "asc" ? "ASC" : "DESC",
+    rawRows =
+      before === undefined
+        ? queryRows<{ header: string }>(
+            db,
+            `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>?
+             ORDER BY workspace_revision ${dir} LIMIT ?`,
+            after,
+            limit,
+          )
+        : queryRows<{ header: string }>(
+            db,
+            `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>? AND workspace_revision<?
+             ORDER BY workspace_revision ${dir} LIMIT ?`,
+            after,
+            before,
+            limit,
+          ),
+    rows = order === "desc" ? rawRows.toReversed() : rawRows;
   return rows.map(({ header }) => JSON.parse(header) as CanonicalEventSummary);
 }
 

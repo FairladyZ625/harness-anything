@@ -99,9 +99,13 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           { readonly type: "runtime_session_outcome_observed" }
         >)
       : null;
+    const rawMetrics = outcome?.payload.runtimeMetrics ?? null,
+      cacheWriteTokens = outcome?.payload.cacheWriteTokens ?? rawMetrics?.cacheWriteTokens,
+      metrics =
+        rawMetrics === null || cacheWriteTokens === undefined ? rawMetrics : { ...rawMetrics, cacheWriteTokens };
     return {
       event: publicRuntimeDispatch(event),
-      metrics: outcome?.payload.runtimeMetrics ?? null,
+      metrics,
       endedAt: outcome?.payload.endedAt ?? null,
       outcome: outcome?.payload.outcome ?? null,
     };

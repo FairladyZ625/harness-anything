@@ -294,6 +294,8 @@ export function eventReadIndexDdl(): readonly string[] {
       ON ha_events (${eventScope},revision) WHERE read_index_version<7`,
     `CREATE INDEX IF NOT EXISTS ha_events_fleet_node
       ON ha_events (${eventScope},fleet_node_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_visible_summary_revision
+      ON ha_events (${eventScope},revision DESC) WHERE event_type<>'ci_run_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_fleet_dispatch
       ON ha_events (${eventScope},fleet_node_id,dispatch_activity_at DESC,revision DESC)
       WHERE event_type='runtime_dispatch_requested'`,

@@ -1495,4 +1495,278 @@ if (!isMainThread) {
       }
     },
   );
+
+  test(
+    "F16: PostgreSQL sparse observe.tail scan cost stays bounded via ha_events_visible_summary_revision and fixed revision window when filtered events grow 5x",
+    { timeout: 180_000 },
+    async () => {
+      const pgFixture = await pgRuntimeFixture();
+      const measureSparseWindow = async (filteredPairs) => {
+        const rootDir = mkdtempSync(path.join(tmpdir(), `ha-pg-f16-${filteredPairs}-`)),
+          repoId = `repo_pg_f16_${filteredPairs}`,
+          visibleReader = "reader:visible",
+          hiddenReader = "reader:hidden",
+          fence = { repoId, holderId: "f16-writer", epoch: 1 },
+          scope = {
+            tenantId: "tenant_f16",
+            projectId: `project_f16_${filteredPairs}`,
+            policyEpoch: 1,
+            readers: [visibleReader],
+          };
+        let pgReader;
+        const originalQuery = pg.Client.prototype.query;
+        try {
+          initRepo(rootDir);
+          const backend = createPgStorageBackend({ pool: pgFixture.pool, scope, repoId }),
+            baseEvents = [],
+            blobs = new Map(),
+            eventReaders = new Map(),
+            retiredTemplate = retiredCiQueryFixtures()[0];
+          let rev = 0;
+          const makeFactBundle = (index) => {
+            rev += 1;
+            const draft = fact(rev),
+              sec = rev % 60,
+              min = Math.floor(rev / 60) % 60,
+              hr = Math.floor(rev / 3600) % 24,
+              occurredAt = `2026-11-10T${String(hr).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}.000Z`,
+              compiled = compileFactWrite({
+                event: {
+                  ...draft,
+                  factId: `F-${String(index).padStart(8, "0")}`,
+                  opId: `op-f16-fact-${rev}`,
+                  eventId: `ev-f16-fact-${rev}`,
+                  occurredAt,
+                  payload: {
+                    ...draft.payload,
+                    statement: `f16-fact-${index}`,
+                    evidenceSource: "f16-sparse-test",
+                  },
+                },
+              });
+            for (const blob of compiled.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
+            return compiled;
+          };
+
+          const firstBundle = makeFactBundle(1);
+          await backend.eventStore.append(firstBundle, 0, fence);
+          baseEvents.push(firstBundle.event);
+          eventReaders.set(firstBundle.event.workspaceRevision, [visibleReader]);
+          const expectedVisible = [firstBundle.event.workspaceRevision];
+          for (let i = 2; i <= 3; i += 1) {
+            const compiled = makeFactBundle(i);
+            baseEvents.push(compiled.event);
+            eventReaders.set(compiled.event.workspaceRevision, [visibleReader]);
+            expectedVisible.push(compiled.event.workspaceRevision);
+          }
+          // Append `filteredPairs` * 2 filtered events (half ci_run_observed, half RLS/reader-hidden)
+          for (let i = 0; i < filteredPairs; i += 1) {
+            rev += 1;
+            const sec = rev % 60,
+              min = Math.floor(rev / 60) % 60,
+              hr = Math.floor(rev / 3600) % 24;
+            baseEvents.push({
+              ...retiredTemplate,
+              workspaceRevision: rev,
+              opId: `op-f16-ci-${rev}`,
+              eventId: `ev-f16-ci-${rev}`,
+              occurredAt: `2026-11-11T${String(hr).padStart(2, "0")}:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}.000Z`,
+            });
+            eventReaders.set(rev, [visibleReader]);
+
+            const hidden = makeFactBundle(10_000 + i);
+            baseEvents.push(hidden.event);
+            eventReaders.set(hidden.event.workspaceRevision, [hiddenReader]);
+          }
+          const headRev = rev;
+
+          await withPostgresTransaction(
+            pgFixture.pool,
+            async (client) => {
+              for (const [sha, bytes] of blobs) {
+                await client.query(
+                  `INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (tenant_id,project_id,sha256) DO NOTHING`,
+                  [
+                    scope.tenantId,
+                    scope.projectId,
+                    sha,
+                    bytes.byteLength,
+                    bytes,
+                    [visibleReader, hiddenReader],
+                    scope.policyEpoch,
+                  ],
+                );
+              }
+              for (const raw of baseEvents.slice(1)) {
+                const body = serializeCanonicalEventUnchecked(raw).trimEnd();
+                await client.query(
+                  `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers,entity_refs,actor_refs)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+                  [
+                    scope.tenantId,
+                    scope.projectId,
+                    repoId,
+                    raw.workspaceRevision,
+                    raw.opId,
+                    raw.eventId,
+                    raw.type,
+                    body,
+                    `sha256:${sha256Text(body)}`,
+                    raw.occurredAt,
+                    scope.policyEpoch,
+                    eventReaders.get(raw.workspaceRevision),
+                    canonicalEventEntityRefs(raw),
+                    [raw.actor.principal.personId, ...(raw.actor.executor ? [raw.actor.executor.id] : [])],
+                  ],
+                );
+              }
+              await client.query(
+                "UPDATE ha_repo_heads SET revision=$5, head_op_id=$6 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4",
+                [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, headRev, baseEvents.at(-1).opId],
+              );
+              await rebuildPgProjection(client, scope, {
+                events: baseEvents,
+                sourceRevision: headRev,
+                readContentBlob: (sha) => blobs.get(sha) ?? null,
+              });
+            },
+            { ...scope, readers: [visibleReader, hiddenReader] },
+          );
+          await pgFixture.adminPool.query("ANALYZE ha_events");
+
+          // Measure actual EXPLAIN (ANALYZE, FORMAT JSON) scan cost on single history & follow calls:
+          const plans = [];
+          let capturing = false;
+          pg.Client.prototype.query = function (...args) {
+            const promise = originalQuery.apply(this, args);
+            const sql = typeof args[0] === "string" ? args[0] : (args[0]?.text ?? "");
+            if (!capturing || !sql.includes("default_summary_json AS summary_json")) return promise;
+            return promise.then(async (res) => {
+              const explained = await originalQuery.call(
+                  this,
+                  `EXPLAIN (ANALYZE, FORMAT JSON, TIMING OFF) ${sql}`,
+                  args[1],
+                ),
+                plan = explained.rows[0]["QUERY PLAN"][0].Plan;
+              plans.push({
+                rowsRead: planRowsRead(plan),
+                scanNodes: collectScanNodes(plan),
+              });
+              return res;
+            });
+          };
+
+          pgReader = createPgTaskQueryReader({ connectionString: pgFixture.connectionString, scope, repoId });
+          let historyFirstPage, followFirstPage;
+          const recoveredHistory = [],
+            recoveredFollow = [];
+          pgReader.withSession((pgQueries) => {
+            historyFirstPage = readObserveEventTail({
+              repoId,
+              rootDir,
+              mode: "local",
+              projection: pgQueries,
+              payload: { kind: "events", direction: "history" },
+            });
+            followFirstPage = readObserveEventTail({
+              repoId,
+              rootDir,
+              mode: "local",
+              projection: pgQueries,
+              payload: { kind: "events", direction: "follow", cursor: { kind: "events", revision: 3 } },
+            });
+
+            // Step resumable historyCursor across the sparse gap to recover [1, 2, 3]
+            recoveredHistory.push(...historyFirstPage.items.map((item) => item.workspaceRevision));
+            let hPage = historyFirstPage;
+            while (!hPage.done) {
+              hPage = readObserveEventTail({
+                repoId,
+                rootDir,
+                mode: "local",
+                projection: pgQueries,
+                payload: { kind: "events", direction: "history", cursor: hPage.historyCursor },
+              });
+              recoveredHistory.unshift(...hPage.items.map((item) => item.workspaceRevision));
+            }
+
+            // Step resumable liveCursor across the sparse gap to headRev
+            let fPage = readObserveEventTail({
+              repoId,
+              rootDir,
+              mode: "local",
+              projection: pgQueries,
+              payload: { kind: "events", direction: "follow", cursor: { kind: "events", revision: 0 } },
+            });
+            recoveredFollow.push(...fPage.items.map((item) => item.workspaceRevision));
+            while (!fPage.done) {
+              fPage = readObserveEventTail({
+                repoId,
+                rootDir,
+                mode: "local",
+                projection: pgQueries,
+                payload: { kind: "events", direction: "follow", cursor: fPage.liveCursor },
+              });
+              recoveredFollow.push(...fPage.items.map((item) => item.workspaceRevision));
+            }
+            assert.equal(fPage.liveCursor.revision, headRev);
+          });
+
+          // Capture actual PostgreSQL EXPLAIN (ANALYZE, FORMAT JSON) on the exact bounded window queries
+          // issued by readObserveEventTail's first history and follow pages:
+          capturing = true;
+          await backend.projection.readEventSummaries(Math.max(0, headRev - 500), 65, undefined, headRev + 1, "desc");
+          await backend.projection.readEventSummaries(3, 65, undefined, 504, "asc");
+          capturing = false;
+
+          assert.deepEqual(recoveredHistory, expectedVisible);
+          assert.deepEqual(recoveredFollow, expectedVisible);
+          assert.equal(plans.length, 2);
+          return {
+            historyPlan: plans[0],
+            followPlan: plans[1],
+            historyFirstPageDone: historyFirstPage.done,
+            followFirstPageDone: followFirstPage.done,
+          };
+        } finally {
+          pg.Client.prototype.query = originalQuery;
+          pgReader?.close();
+          rmSync(rootDir, { recursive: true, force: true });
+        }
+      };
+
+      try {
+        // 300 pairs = 600 filtered events vs 1,200 pairs = 2,400 filtered events (4x filtered gap growth!)
+        const small = await measureSparseWindow(300),
+          large = await measureSparseWindow(1_200);
+        assert.equal(small.historyFirstPageDone, false);
+        assert.equal(large.historyFirstPageDone, false);
+        assert.equal(small.followFirstPageDone, false);
+        assert.equal(large.followFirstPageDone, false);
+
+        for (const entry of [small.historyPlan, large.historyPlan, small.followPlan, large.followPlan]) {
+          assert.ok(
+            entry.scanNodes.some((node) => node.indexName === "ha_events_visible_summary_revision"),
+            `expected ha_events_visible_summary_revision index scan, got ${JSON.stringify(entry.scanNodes)}`,
+          );
+          assert.ok(
+            entry.rowsRead <= 300,
+            `sparse observe.tail scan must stay bounded (<= 300 non-CI rows in 500-rev window), got ${entry.rowsRead}`,
+          );
+        }
+        assert.ok(
+          large.historyPlan.rowsRead <= small.historyPlan.rowsRead + 5,
+          `history scan cost grew across 4x filtered gap: ${small.historyPlan.rowsRead} -> ${large.historyPlan.rowsRead}`,
+        );
+        assert.ok(
+          large.followPlan.rowsRead <= small.followPlan.rowsRead + 5,
+          `follow scan cost grew across 4x filtered gap: ${small.followPlan.rowsRead} -> ${large.followPlan.rowsRead}`,
+        );
+      } finally {
+        await pgFixture.pool.end();
+        await pgFixture.close();
+      }
+    },
+  );
 }

@@ -90,6 +90,7 @@ function appendDispatch(
       readonly endedAt: string;
       readonly inputTokens: number;
       readonly cacheReadTokens: number;
+      readonly cacheWriteTokens?: number;
       readonly outputTokens: number;
       readonly toolCallCount: number;
       readonly usageUnavailable?: boolean;
@@ -156,6 +157,7 @@ function appendDispatch(
           toolCallCount: options.settle.toolCallCount,
           usageUnavailable: options.settle.usageUnavailable ?? false,
         },
+        ...(options.settle.cacheWriteTokens === undefined ? {} : { cacheWriteTokens: options.settle.cacheWriteTokens }),
       },
     };
   const outcomePlan = canonicalEventWritePlan(outcomeEvent, "agent-runtime/v1", outcomeEvent.opId);
@@ -340,12 +342,12 @@ test("F12: two-step expand-and-contract keeps canonical events baseline 6-key + 
     );
 
     // 2) Seed 3 Edge dispatches (zero center-local stream files):
-    //    - edgeItemized: archived with cacheWriteTokens: 4_000 -> exact differential pricing!
-    //    - edgeUnreported: archived without cacheWriteTokens -> cacheWriteUnreportedDispatches = 1
-    //    - edgeUnarchived: NO archive, pure 6-key canonical outcome -> cacheWriteUnitemizedDispatches = 1
+    //    - edgeItemized: task-bound settlement with top-level cacheWriteTokens: 4_000 -> differential pricing!
+    //    - edgeTaskless: taskless Edge settlement (taskId=null, archive=null) with cacheWriteTokens: 1_500 (F17!)
+    //    - edgeUnreported: settlement without cacheWriteTokens -> cacheWriteUnreportedDispatches = 1
     const edgeItemized = { dispatchId: "dispatch_00000000000000000000f121", sessionId: "runtime-f12-itemized" },
-      edgeUnreported = { dispatchId: "dispatch_00000000000000000000f122", sessionId: "runtime-f12-unreported" },
-      edgeUnarchived = { dispatchId: "dispatch_00000000000000000000f123", sessionId: "runtime-f12-unarchived" };
+      edgeTaskless = { dispatchId: "dispatch_00000000000000000000f123", sessionId: "runtime-f12-taskless" },
+      edgeUnreported = { dispatchId: "dispatch_00000000000000000000f122", sessionId: "runtime-f12-unreported" };
 
     appendDispatch(repo, {
       dispatchId: edgeItemized.dispatchId,
@@ -354,117 +356,103 @@ test("F12: two-step expand-and-contract keeps canonical events baseline 6-key + 
       startedAt,
       taskId,
       executionId,
-      settle: { endedAt, inputTokens: 10_000, cacheReadTokens: 2_000, outputTokens: 1_000, toolCallCount: 4 },
+      settle: {
+        endedAt,
+        inputTokens: 10_000,
+        cacheReadTokens: 2_000,
+        cacheWriteTokens: 4_000,
+        outputTokens: 1_000,
+        toolCallCount: 4,
+      },
+    });
+    appendDispatch(repo, {
+      dispatchId: edgeTaskless.dispatchId,
+      runtimeSessionId: edgeTaskless.sessionId,
+      agentId: "agent-edge-f12",
+      startedAt: "2026-09-14T10:01:00.000Z",
+      settle: {
+        endedAt,
+        inputTokens: 3_000,
+        cacheReadTokens: 500,
+        cacheWriteTokens: 1_500,
+        outputTokens: 400,
+        toolCallCount: 3,
+      },
     });
     appendDispatch(repo, {
       dispatchId: edgeUnreported.dispatchId,
       runtimeSessionId: edgeUnreported.sessionId,
       agentId: "agent-edge-f12",
-      startedAt: "2026-09-14T10:01:00.000Z",
+      startedAt: "2026-09-14T10:02:00.000Z",
       taskId,
       executionId,
       settle: { endedAt, inputTokens: 2_000, cacheReadTokens: 0, outputTokens: 500, toolCallCount: 2 },
     });
-    appendDispatch(repo, {
-      dispatchId: edgeUnarchived.dispatchId,
-      runtimeSessionId: edgeUnarchived.sessionId,
-      agentId: "agent-edge-f12",
-      startedAt: "2026-09-14T10:02:00.000Z",
-      taskId,
-      executionId,
-      settle: { endedAt, inputTokens: 1_000, cacheReadTokens: 0, outputTokens: 200, toolCallCount: 1 },
-    });
 
-    const publishArchive = (
-      entry: { readonly dispatchId: string; readonly sessionId: string },
-      runtimeMetrics: {
-        readonly inputTokens: number;
-        readonly cacheReadTokens: number;
-        readonly cacheWriteTokens?: number;
-        readonly outputTokens: number;
-        readonly totalTokens: number;
-        readonly toolCallCount: number;
-        readonly usageUnavailable: boolean;
-      },
-    ) => {
-      const resultText = `archive result ${entry.dispatchId}\n`,
-        sha = createHash("sha256").update(resultText).digest("hex"),
-        receipt = archiveRuntimeDispatch({
-          workspaceId: "ha13-compat",
-          rootDir: repo.rootDir,
-          store: repo.store,
-          projection: repo.projection,
-          binding: {
+    // Publish normal RuntimeDispatchArchive for edgeItemized and verify archive contains NO runtimeMetrics.
+    const resultText = `archive result ${edgeItemized.dispatchId}\n`,
+      resultSha = createHash("sha256").update(resultText).digest("hex"),
+      archiveReceipt = archiveRuntimeDispatch({
+        workspaceId: "ha13-compat",
+        rootDir: repo.rootDir,
+        store: repo.store,
+        projection: repo.projection,
+        binding: {
+          actor: {
+            principal: { personId: "person-a" },
+            executor: { id: `runtime-session:${edgeItemized.sessionId}`, kind: "agent" },
+          },
+          source: "local",
+          authorizationDecision: {
+            policyRef: "policy/local-test",
             actor: {
               principal: { personId: "person-a" },
-              executor: { id: `runtime-session:${entry.sessionId}`, kind: "agent" },
+              executor: { id: `runtime-session:${edgeItemized.sessionId}`, kind: "agent" },
             },
-            source: "local",
-            authorizationDecision: {
-              policyRef: "policy/local-test",
-              actor: {
-                principal: { personId: "person-a" },
-                executor: { id: `runtime-session:${entry.sessionId}`, kind: "agent" },
-              },
-              subject: `task/${taskId}`,
-              bindingsUsed: [],
-              outcome: "allowed",
-              reasonCodes: ["allowed"],
-              nextActions: [],
-              evaluatedAtCut: `canonical:${repo.projection.readCut().watermark}`,
-            },
+            subject: `task/${taskId}`,
+            bindingsUsed: [],
+            outcome: "allowed",
+            reasonCodes: ["allowed"],
+            nextActions: [],
+            evaluatedAtCut: `canonical:${repo.projection.readCut().watermark}`,
           },
-          now: () => endedAt,
-          archive: {
-            dispatchId: entry.dispatchId,
-            taskId,
-            executionId,
-            agentId: "agent-edge-f12",
-            agentName: "Agent Edge F12",
-            instanceId: DEFINITION_SNAPSHOT.instanceId,
-            model: DEFINITION_SNAPSHOT.model,
-            reasoningEffort: null,
-            fast: false,
-            cwd: "/edge/workspace",
-            prompt: `prompt ${entry.dispatchId}`,
-            runtimeSessionId: entry.sessionId,
-            providerSessionId: null,
-            startedAt,
-            endedAt,
-            outcome: "succeeded",
-            exitCode: 0,
-            resultRef: `artifact:runtime-result/sha256/${sha}`,
-            resultText,
-            runtimeMetrics,
-            attemptGroupId: entry.dispatchId,
-            attemptIndex: 0,
-            provider: { instance: DEFINITION_SNAPSHOT.instanceId, model: DEFINITION_SNAPSHOT.model },
-            classification: "worker_stop",
-            reason: "Worker completed the attempt successfully.",
-          },
-        });
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    };
+        },
+        now: () => endedAt,
+        archive: {
+          dispatchId: edgeItemized.dispatchId,
+          taskId,
+          executionId,
+          agentId: "agent-edge-f12",
+          agentName: "Agent Edge F12",
+          instanceId: DEFINITION_SNAPSHOT.instanceId,
+          model: DEFINITION_SNAPSHOT.model,
+          reasoningEffort: null,
+          fast: false,
+          cwd: "/edge/workspace",
+          prompt: `prompt ${edgeItemized.dispatchId}`,
+          runtimeSessionId: edgeItemized.sessionId,
+          providerSessionId: null,
+          startedAt,
+          endedAt,
+          outcome: "succeeded",
+          exitCode: 0,
+          resultRef: `artifact:runtime-result/sha256/${resultSha}`,
+          resultText,
+          attemptGroupId: edgeItemized.dispatchId,
+          attemptIndex: 0,
+          provider: { instance: DEFINITION_SNAPSHOT.instanceId, model: DEFINITION_SNAPSHOT.model },
+          classification: "worker_stop",
+          reason: "Worker completed the attempt successfully.",
+        },
+      });
+    assert.equal(archiveReceipt.outcome, "applied", JSON.stringify(archiveReceipt));
+    const packagePath = repo.projection.readTaskIndex({ taskIds: [taskId] }).rows[0]!.packagePath,
+      archivedDoc = repo.projection.readDocument(
+        `${packagePath}/artifacts/dispatches/${edgeItemized.dispatchId}.json`,
+      ).document!;
+    assert.equal(Object.hasOwn(JSON.parse(archivedDoc.body), "runtimeMetrics"), false);
 
-    publishArchive(edgeItemized, {
-      inputTokens: 10_000,
-      cacheReadTokens: 2_000,
-      cacheWriteTokens: 4_000,
-      outputTokens: 1_000,
-      totalTokens: 11_000,
-      toolCallCount: 4,
-      usageUnavailable: false,
-    });
-    publishArchive(edgeUnreported, {
-      inputTokens: 2_000,
-      cacheReadTokens: 0,
-      outputTokens: 500,
-      totalTokens: 2_500,
-      toolCallCount: 2,
-      usageUnavailable: false,
-    });
-
-    // 3) Verify EVERY persisted canonical event passes baseline 6-key decoder AND cold rebuild has 0 issues!
+    // 3) Verify EVERY persisted canonical event keeps 6-key runtimeMetrics AND cold rebuild has 0 issues!
     const persistedEvents = repo.store.read().events;
     assert.ok(persistedEvents.length > 0);
     const legacyRoot = mkdtempSync(path.join(tmpdir(), "ha-f12-legacy-rebuild-"));
@@ -511,53 +499,201 @@ test("F12: two-step expand-and-contract keeps canonical events baseline 6-key + 
       rmSync(legacyRoot, { recursive: true, force: true });
     }
 
-    // 4) Verify Center tokenUsage & tokenUsageDetail (with ZERO local stream files) compute exact
-    //    differential cache-write pricing from archived JSON + classify unarchived 6-key as unitemized!
-    const price = modelPriceOf("claude-haiku-4-5")!;
-    assert.ok(price && price.cacheWritePerMillion !== price.inputPerMillion);
-    const expectedCost =
-      usageCostUsd(price, {
-        inputTokens: 10_000,
-        cacheReadTokens: 2_000,
-        cacheWriteTokens: 4_000,
-        outputTokens: 1_000,
-      }) +
-      usageCostUsd(price, { inputTokens: 2_000, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 500 }) +
-      usageCostUsd(price, { inputTokens: 1_000, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 200 });
-    const cut = repo.projection.readCut();
-    const agg = readAgentRuntimeTokenUsage({
-      rootDir: repo.rootDir,
-      now: nowIso,
-      range: "today",
-      entityLabel: () => null,
-      taskOf: () => undefined,
-      cut,
-      projection: repo.projection,
-    });
-    assert.deepEqual(validateAgentRuntimeTokenUsage(agg), []);
-    assert.equal(agg.totals.cacheWriteTokens, 4_000);
-    assert.equal(agg.totals.cacheWriteUnreportedDispatches, 1);
-    assert.equal(agg.totals.cacheWriteUnitemizedDispatches, 1);
-    assert.ok(
-      Math.abs(agg.totals.costUsd - expectedCost) < 1e-12,
-      `expected exact differential cost ${expectedCost}, got ${agg.totals.costUsd}`,
-    );
+    // 4) F17: Verify Edge local stream root AND Center canonical-only root report IDENTICAL cacheWriteTokens & USD!
+    const edgeLocalRoot = mkdtempSync(path.join(tmpdir(), "ha-f17-edge-local-"));
+    try {
+      mkdirSync(path.join(edgeLocalRoot, "harness"), { recursive: true });
+      writeFileSync(
+        path.join(edgeLocalRoot, "harness/harness.yaml"),
+        "schema: harness-anything/v1\nname: ha13-compat\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+      );
+      for (const [entry, st, metrics, raw] of [
+        [
+          edgeItemized,
+          startedAt,
+          {
+            inputTokens: 10_000,
+            cacheReadTokens: 2_000,
+            cacheWriteTokens: 4_000,
+            outputTokens: 1_000,
+            totalTokens: 11_000,
+            toolCallCount: 4,
+          },
+          { input_tokens: 10_000, cache_creation_input_tokens: 4_000, output_tokens: 1_000 },
+        ],
+        [
+          edgeTaskless,
+          "2026-09-14T10:01:00.000Z",
+          {
+            inputTokens: 3_000,
+            cacheReadTokens: 500,
+            cacheWriteTokens: 1_500,
+            outputTokens: 400,
+            totalTokens: 3_400,
+            toolCallCount: 3,
+          },
+          { input_tokens: 3_000, cache_creation_input_tokens: 1_500, output_tokens: 400 },
+        ],
+        [
+          edgeUnreported,
+          "2026-09-14T10:02:00.000Z",
+          { inputTokens: 2_000, cacheReadTokens: 0, outputTokens: 500, totalTokens: 2_500, toolCallCount: 2 },
+          { input_tokens: 2_000, output_tokens: 500 },
+        ],
+      ] as const) {
+        openDispatchStream(edgeLocalRoot, {
+          dispatchId: entry.dispatchId,
+          runtimeSessionId: entry.sessionId,
+          instanceId: DEFINITION_SNAPSHOT.instanceId,
+          taskId: entry === edgeTaskless ? null : taskId,
+          executionId: entry === edgeTaskless ? null : executionId,
+          startedAt: st,
+          agentId: "agent-edge-f12",
+          model: DEFINITION_SNAPSHOT.model,
+        });
+        appendRuntimeWorkerRecord(edgeLocalRoot, entry.dispatchId, {
+          kind: "runtime_metrics",
+          ...metrics,
+          compacted: false,
+          raw,
+        });
+      }
 
-    const detail = readAgentRuntimeTokenUsageDetail({
-      rootDir: repo.rootDir,
-      now: nowIso,
-      range: "today",
-      member: { kind: "agent", agentId: "agent-edge-f12" },
-      entityLabel: () => null,
-      cut,
-      projection: repo.projection,
-    });
-    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
-    assert.equal(detail.totals.cacheWriteTokens, 4_000);
-    assert.equal(detail.totals.cacheWriteUnreportedDispatches, 1);
-    assert.equal(detail.totals.cacheWriteUnitemizedDispatches, 1);
-    assert.ok(Math.abs(detail.totals.costUsd - expectedCost) < 1e-12);
-    assert.equal(detail.sessions.find((s) => s.dispatchId === edgeItemized.dispatchId)?.cacheWriteTokens, 4_000);
+      const price = modelPriceOf("claude-haiku-4-5")!;
+      assert.ok(price && price.cacheWritePerMillion !== price.inputPerMillion);
+      const expectedCost =
+        usageCostUsd(price, {
+          inputTokens: 10_000,
+          cacheReadTokens: 2_000,
+          cacheWriteTokens: 4_000,
+          outputTokens: 1_000,
+        }) +
+        usageCostUsd(price, {
+          inputTokens: 3_000,
+          cacheReadTokens: 500,
+          cacheWriteTokens: 1_500,
+          outputTokens: 400,
+        }) +
+        usageCostUsd(price, { inputTokens: 2_000, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 500 });
+
+      const cut = repo.projection.readCut();
+      const centerAgg = readAgentRuntimeTokenUsage({
+        rootDir: repo.rootDir,
+        now: nowIso,
+        range: "today",
+        entityLabel: () => null,
+        taskOf: () => undefined,
+        cut,
+        projection: repo.projection,
+      });
+      const edgeAgg = readAgentRuntimeTokenUsage({
+        rootDir: edgeLocalRoot,
+        now: nowIso,
+        range: "today",
+        entityLabel: () => null,
+        taskOf: () => undefined,
+        cut,
+        projection: repo.projection,
+      });
+      assert.deepEqual(validateAgentRuntimeTokenUsage(centerAgg), []);
+      assert.equal(centerAgg.totals.cacheWriteTokens, 5_500);
+      assert.equal(centerAgg.totals.cacheWriteUnreportedDispatches, 1);
+      assert.equal(centerAgg.totals.cacheWriteUnitemizedDispatches, 0);
+      assert.ok(Math.abs(centerAgg.totals.costUsd - expectedCost) < 1e-12);
+      assert.deepEqual(
+        centerAgg.totals,
+        edgeAgg.totals,
+        "F17: Edge and Center totals (including taskless Edge session) must match identically",
+      );
+
+      const centerDetail = readAgentRuntimeTokenUsageDetail({
+        rootDir: repo.rootDir,
+        now: nowIso,
+        range: "today",
+        member: { kind: "agent", agentId: "agent-edge-f12" },
+        entityLabel: () => null,
+        cut,
+        projection: repo.projection,
+      });
+      const edgeDetail = readAgentRuntimeTokenUsageDetail({
+        rootDir: edgeLocalRoot,
+        now: nowIso,
+        range: "today",
+        member: { kind: "agent", agentId: "agent-edge-f12" },
+        entityLabel: () => null,
+        cut,
+        projection: repo.projection,
+      });
+      assert.deepEqual(validateAgentRuntimeTokenUsageDetail(centerDetail), []);
+      assert.deepEqual(centerDetail.totals, edgeDetail.totals);
+      assert.equal(
+        centerDetail.sessions.find((s) => s.dispatchId === edgeTaskless.dispatchId)?.cacheWriteTokens,
+        1_500,
+      );
+
+      // 5) F15: Poisoned or invalid non-JSON documents at artifacts/dispatches/<dispatchId>.json
+      //    cannot alter canonical token usage or throw!
+      for (const untrustedBody of [
+        JSON.stringify({
+          schema: "runtime-dispatch/v1",
+          runtimeMetrics: {
+            inputTokens: 999_999,
+            cacheReadTokens: 888_888,
+            cacheWriteTokens: 777_777,
+            outputTokens: 666_666,
+            totalTokens: 1_666_665,
+            toolCallCount: 99,
+            usageUnavailable: false,
+          },
+        }),
+        "{{{ corrupt non-json regular doc-submit payload",
+      ]) {
+        const poisonedProjection = new Proxy(repo.projection, {
+          get(target, prop, receiver) {
+            if (prop === "readDocument") {
+              return () => ({
+                document: {
+                  path: `${packagePath}/artifacts/dispatches/${edgeItemized.dispatchId}.json`,
+                  body: untrustedBody,
+                },
+              });
+            }
+            return Reflect.get(target, prop, receiver);
+          },
+        });
+        const afterPoisonAgg = readAgentRuntimeTokenUsage({
+          rootDir: repo.rootDir,
+          now: nowIso,
+          range: "today",
+          entityLabel: () => null,
+          taskOf: () => undefined,
+          cut,
+          projection: poisonedProjection,
+        });
+        const afterPoisonDetail = readAgentRuntimeTokenUsageDetail({
+          rootDir: repo.rootDir,
+          now: nowIso,
+          range: "today",
+          member: { kind: "agent", agentId: "agent-edge-f12" },
+          limit: 10,
+          entityLabel: () => null,
+          cut,
+          projection: poisonedProjection,
+        });
+        assert.deepEqual(
+          afterPoisonAgg.totals,
+          centerAgg.totals,
+          "F15: untrusted document must never alter canonical totals",
+        );
+        assert.deepEqual(
+          afterPoisonDetail.totals,
+          centerDetail.totals,
+          "F15: untrusted document must never alter detail totals",
+        );
+      }
+    } finally {
+      rmSync(edgeLocalRoot, { recursive: true, force: true });
+    }
   } finally {
     repo.projection.close();
     rmSync(repo.rootDir, { recursive: true, force: true });
@@ -649,7 +785,34 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
         toolCallCount: 88,
       },
     });
-    // 3) Settle the previously unsettled 23:10 dispatch at revision > page1Cut.watermark
+    // 3) Settle the previously unsettled 23:10 dispatch at revision > page1Cut.watermark AND write
+    //    a local .jsonl stream with runtime_metrics + process_exit on disk to verify F13 (neither
+    //    local stream files nor post-watermark lifecycle/settlements may leak into Page 2..K!).
+    openDispatchStream(repo.rootDir, {
+      dispatchId: "dispatch_00000000000000000000f131",
+      runtimeSessionId: "runtime-dispatch_00000000000000000000f131",
+      instanceId: DEFINITION_SNAPSHOT.instanceId,
+      taskId: null,
+      executionId: null,
+      startedAt: localIso(14, 23, 10),
+      agentId: "agent-f13",
+      model: DEFINITION_SNAPSHOT.model,
+    });
+    appendRuntimeWorkerRecord(repo.rootDir, "dispatch_00000000000000000000f131", {
+      kind: "runtime_metrics",
+      inputTokens: 7_777,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 555,
+      outputTokens: 7_777,
+      totalTokens: 15_554,
+      toolCallCount: 77,
+      compacted: false,
+    });
+    appendRuntimeWorkerRecord(repo.rootDir, "dispatch_00000000000000000000f131", {
+      kind: "process_exit",
+      exitCode: 0,
+      signal: null,
+    });
     const settleRev = repo.nextRevision(),
       settleBody = "late settle\n",
       settleSha = createHash("sha256").update(settleBody).digest("hex"),
@@ -678,6 +841,7 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
             totalTokens: 15_554,
             usageUnavailable: false,
           },
+          cacheWriteTokens: 555,
         },
       };
     const latePlan = canonicalEventWritePlan(lateOutcome, "agent-runtime/v1", lateOutcome.opId);
@@ -695,77 +859,178 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
     });
     repo.projection.apply(lateOutcome, latePlan);
 
-    // Continue pagination AFTER local midnight and AFTER concurrent writes using Page 1's cursor:
+    // Continue pagination AFTER local midnight and AFTER concurrent writes across BOTH the hot
+    // projection AND a brand-new cold second reader instance (`coldReader`):
     const newCut = repo.projection.readCut();
     assert.ok(newCut.watermark > page1Cut.watermark);
-    const collected = [...page1.sessions];
-    let cursor = page1.page!.nextCursor!;
-    for (let step = 0; step < 5; step += 1) {
-      const next = readAgentRuntimeTokenUsageDetail({
-        rootDir: repo.rootDir,
-        now: afterMidnightNow,
-        range: "today",
-        member: { kind: "agent", agentId: "agent-f13" },
-        personId: "person-a",
-        limit: 2,
-        cursor,
-        entityLabel: () => null,
-        cut: newCut,
-        projection: repo.projection,
-      });
-      assert.equal(next.since, page1.since, "continuation page must stay pinned to Page 1 local day across midnight");
-      assert.equal(next.watermark, page1.watermark, "continuation page must preserve pinned projection watermark");
-      assert.deepEqual(next.totals, page1.totals, "continuation totals must not drift under concurrent writes");
-      assert.deepEqual(next.buckets, page1.buckets, "continuation buckets must not drift across midnight");
-      collected.push(...next.sessions);
-      if (!next.page?.nextCursor) break;
-      cursor = next.page.nextCursor;
+    const coldReader = makeTaskProjection({ rootDir: repo.rootDir, eventStore: repo.store });
+    try {
+      for (const [readerLabel, reader] of [
+        ["hot-reader", repo.projection],
+        ["cold-second-reader", coldReader],
+      ] as const) {
+        const collected = [...page1.sessions];
+        let cursor = page1.page!.nextCursor!;
+        for (let step = 0; step < 5; step += 1) {
+          const next = readAgentRuntimeTokenUsageDetail({
+            rootDir: repo.rootDir,
+            now: afterMidnightNow,
+            range: "today",
+            member: { kind: "agent", agentId: "agent-f13" },
+            personId: "person-a",
+            limit: 2,
+            cursor,
+            entityLabel: () => null,
+            cut: newCut,
+            projection: reader,
+          });
+          assert.equal(next.since, page1.since, `${readerLabel}: continuation must stay pinned across midnight`);
+          assert.equal(next.watermark, page1.watermark, `${readerLabel}: continuation must preserve pinned watermark`);
+          assert.deepEqual(next.totals, page1.totals, `${readerLabel}: continuation totals must not drift`);
+          assert.deepEqual(next.buckets, page1.buckets, `${readerLabel}: continuation buckets must not drift`);
+          collected.push(...next.sessions);
+          if (!next.page?.nextCursor) break;
+          cursor = next.page.nextCursor;
+        }
+        assert.deepEqual(
+          collected.map((row) => row.dispatchId),
+          [
+            "dispatch_00000000000000000000f135",
+            "dispatch_00000000000000000000f134",
+            "dispatch_00000000000000000000f133",
+            "dispatch_00000000000000000000f132",
+            "dispatch_00000000000000000000f131",
+          ],
+        );
+        const tailRow = collected.at(-1)!;
+        assert.equal(tailRow.totalTokens, 0, `${readerLabel}: post-watermark stream/outcome must not leak into row`);
+        assert.equal(tailRow.cacheWriteTokens, 0);
+        assert.equal(tailRow.endedAt, null);
+        assert.equal(tailRow.usage, "pending");
+        // Verify exact sum(all paged session rows) === page1.totals at page1.watermark!
+        assert.equal(
+          collected.reduce((acc, row) => acc + row.totalTokens, 0),
+          page1.totals.totalTokens,
+          `${readerLabel}: sum(paged totalTokens) must equal page1.totals.totalTokens`,
+        );
+        assert.equal(
+          collected.reduce((acc, row) => acc + row.inputTokens, 0),
+          page1.totals.inputTokens,
+        );
+        assert.equal(
+          collected.reduce((acc, row) => acc + row.outputTokens, 0),
+          page1.totals.outputTokens,
+        );
+        assert.equal(
+          collected.reduce((acc, row) => acc + row.toolCallCount, 0),
+          page1.totals.toolCallCount,
+        );
+        assert.equal(collected.filter((row) => row.usage === "reported").length, page1.totals.usageReportedDispatches);
+        assert.equal(
+          collected.filter((row) => row.usage === "unavailable").length,
+          page1.totals.usageUnavailableDispatches,
+        );
+      }
+    } finally {
+      coldReader.close();
     }
-    assert.deepEqual(
-      collected.map((row) => row.dispatchId),
-      [
-        "dispatch_00000000000000000000f135",
-        "dispatch_00000000000000000000f134",
-        "dispatch_00000000000000000000f133",
-        "dispatch_00000000000000000000f132",
-        "dispatch_00000000000000000000f131",
-      ],
-      "no pre-midnight rows may disappear and no post-Page-1 rows may leak into the cursor stream",
-    );
-    const tailRow = collected.at(-1)!;
-    assert.equal(tailRow.totalTokens, 0, "outcome settled after Page 1 watermark must not leak into Page 3 row");
 
-    // Negative cursor binding checks: mismatched range, member, or personId must be rejected with invalid_cursor.
-    for (const mismatch of [
-      { range: "7d" as const, member: { kind: "agent" as const, agentId: "agent-f13" }, personId: "person-a" },
-      { range: "today" as const, member: { kind: "agent" as const, agentId: "agent-other" }, personId: "person-a" },
-      { range: "today" as const, member: { kind: "agent" as const, agentId: "agent-f13" }, personId: "person-b" },
+    // F14: Negative cursor binding & oversized/forged window checks MUST reject BEFORE any DB query!
+    let dbQueryCountOnInvalidCursor = 0;
+    const trapProjection: TaskProjection = new Proxy(repo.projection, {
+      get(target, prop, receiver) {
+        if (prop === "readRuntimeDispatchPage" || prop === "readDispatchLifecycle") {
+          return () => {
+            dbQueryCountOnInvalidCursor += 1;
+            throw new Error(`unexpected storage query ${String(prop)} on invalid cursor`);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const forgedMultiYearV2 = Buffer.from(
+      [
+        "v2",
+        "2026-09-14T23:40:00.000Z",
+        "dispatch_00000000000000000000f134",
+        "today",
+        "agent",
+        "agent-f13",
+        "person-a",
+        "0",
+        String(Date.parse("2099-01-01T00:00:00.000Z")),
+        "5",
+        "5",
+      ].join("\0"),
+      "utf8",
+    ).toString("base64url");
+    const tamperedV3 = `${page1.page!.nextCursor!.slice(0, -4)}AAAA`;
+    const oversizedCursor = `v3.${"A".repeat(9_000)}.${"B".repeat(100)}`;
+
+    for (const badCall of [
+      {
+        range: "7d" as const,
+        member: { kind: "agent" as const, agentId: "agent-f13" },
+        personId: "person-a",
+        cursor: page1.page!.nextCursor!,
+      },
+      {
+        range: "today" as const,
+        member: { kind: "agent" as const, agentId: "agent-other" },
+        personId: "person-a",
+        cursor: page1.page!.nextCursor!,
+      },
+      {
+        range: "today" as const,
+        member: { kind: "agent" as const, agentId: "agent-f13" },
+        personId: "person-b",
+        cursor: page1.page!.nextCursor!,
+      },
+      {
+        range: "today" as const,
+        member: { kind: "agent" as const, agentId: "agent-f13" },
+        personId: "person-a",
+        cursor: forgedMultiYearV2,
+      },
+      {
+        range: "today" as const,
+        member: { kind: "agent" as const, agentId: "agent-f13" },
+        personId: "person-a",
+        cursor: tamperedV3,
+      },
+      {
+        range: "today" as const,
+        member: { kind: "agent" as const, agentId: "agent-f13" },
+        personId: "person-a",
+        cursor: oversizedCursor,
+      },
     ]) {
       assert.throws(
         () =>
           readAgentRuntimeTokenUsageDetail({
             rootDir: repo.rootDir,
             now: afterMidnightNow,
-            ...mismatch,
+            ...badCall,
             limit: 2,
-            cursor: page1.page!.nextCursor!,
             entityLabel: () => null,
             cut: newCut,
-            projection: repo.projection,
+            projection: trapProjection,
           }),
         (error: unknown) => (error as { code?: string })?.code === "invalid_cursor",
       );
     }
+    assert.equal(dbQueryCountOnInvalidCursor, 0, "F14: invalid/forged cursors must reject before querying SQLite/PG");
   } finally {
     repo.projection.close();
     rmSync(repo.rootDir, { recursive: true, force: true });
   }
 });
 
-test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and stream opens regardless of window size W", () => {
+test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 stream opens and Fleet unpaginated ceiling fails closed", () => {
   const originalOpenSync = fs.openSync;
   const runScenario = (windowSize: number, otherAgentRows: number) => {
     const repo = makeRepoRoot(`ha-f11-bounded-${windowSize}-`);
+    let coldProjection: TaskProjection | null = null;
     try {
       const baseMs = Date.parse("2026-09-14T01:00:00.000Z"),
         nowIso = "2026-09-14T12:00:00.000Z";
@@ -798,6 +1063,7 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
             endedAt,
             inputTokens: 1_000,
             cacheReadTokens: 100,
+            cacheWriteTokens: 50,
             outputTokens: 200,
             toolCallCount: 2,
           },
@@ -824,29 +1090,34 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
         });
       }
 
+      // Open a brand-new cold second reader instance that NEVER ran Page 1!
+      coldProjection = makeTaskProjection({ rootDir: repo.rootDir, eventStore: repo.store });
       let pageCalls = 0,
         rowsReturned = 0,
         lifecycleCalls = 0,
         streamOpens = 0;
-      const spiedProjection: TaskProjection = new Proxy(repo.projection, {
-        get(target, prop, receiver) {
-          if (prop === "readRuntimeDispatchPage") {
-            return (query: Parameters<TaskProjection["readRuntimeDispatchPage"]>[0]) => {
-              pageCalls += 1;
-              const result = target.readRuntimeDispatchPage(query);
-              rowsReturned += result.rows.length;
-              return result;
-            };
-          }
-          if (prop === "readDispatchLifecycle") {
-            return (query: Parameters<TaskProjection["readDispatchLifecycle"]>[0]) => {
-              lifecycleCalls += 1;
-              return target.readDispatchLifecycle(query);
-            };
-          }
-          return Reflect.get(target, prop, receiver);
-        },
-      });
+      const makeSpied = (base: TaskProjection): TaskProjection =>
+        new Proxy(base, {
+          get(target, prop, receiver) {
+            if (prop === "readRuntimeDispatchPage") {
+              return (query: Parameters<TaskProjection["readRuntimeDispatchPage"]>[0]) => {
+                pageCalls += 1;
+                const result = target.readRuntimeDispatchPage(query);
+                rowsReturned += result.rows.length;
+                return result;
+              };
+            }
+            if (prop === "readDispatchLifecycle") {
+              return (query: Parameters<TaskProjection["readDispatchLifecycle"]>[0]) => {
+                lifecycleCalls += 1;
+                return target.readDispatchLifecycle(query);
+              };
+            }
+            return Reflect.get(target, prop, receiver);
+          },
+        });
+      const spiedHot = makeSpied(repo.projection),
+        spiedCold = makeSpied(coldProjection);
 
       const cut = repo.projection.readCut(),
         pageSize = 5;
@@ -856,7 +1127,7 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
       }) as typeof fs.openSync;
       syncBuiltinESMExports();
 
-      // Page 1 populates the pinned window snapshot cache.
+      // Page 1 on hot reader:
       const page1 = readAgentRuntimeTokenUsageDetail({
         rootDir: repo.rootDir,
         now: nowIso,
@@ -865,12 +1136,13 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
         limit: pageSize,
         entityLabel: () => null,
         cut,
-        projection: spiedProjection,
+        projection: spiedHot,
       });
       assert.equal(page1.sessions.length, pageSize);
+      assert.equal(streamOpens, 0, "Page 1 paginated read must open 0 local .jsonl stream files");
       assert.ok(page1.page?.nextCursor);
 
-      // Measure a single continuation page (Page 2): must be strictly O(pageSize), independent of W!
+      // Measure Page 2 on the COLD SECOND READER INSTANCE: must be strictly O(pageSize), 0 window rescan!
       const page1Rows = rowsReturned;
       pageCalls = 0;
       rowsReturned = 0;
@@ -885,11 +1157,11 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
         cursor: page1.page!.nextCursor!,
         entityLabel: () => null,
         cut,
-        projection: spiedProjection,
+        projection: spiedCold,
       });
-      const page2Stats = { pageCalls, rowsReturned, lifecycleCalls, streamOpens };
+      const coldPage2Stats = { pageCalls, rowsReturned, lifecycleCalls, streamOpens };
 
-      // Drain remaining pages and verify total work across ALL pages is linear O(W), never O(W^2).
+      // Drain remaining pages on cold second reader and verify exact sum parity with Page 1!
       const collected = [...page1.sessions, ...page2.sessions];
       let cursor = page2.page?.nextCursor ?? null;
       while (cursor !== null) {
@@ -902,7 +1174,7 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
           cursor,
           entityLabel: () => null,
           cut,
-          projection: spiedProjection,
+          projection: spiedCold,
         });
         assert.deepEqual(next.totals, page1.totals);
         collected.push(...next.sessions);
@@ -911,10 +1183,40 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
       const totalRowsReadAcrossAllPages = page1Rows + rowsReturned;
       assert.equal(collected.length, windowSize);
       assert.equal(new Set(collected.map((row) => row.dispatchId)).size, windowSize);
-      return { page2Stats, totalRowsReadAcrossAllPages };
+      assert.equal(
+        collected.reduce((acc, row) => acc + row.totalTokens, 0),
+        page1.totals.totalTokens,
+      );
+      assert.equal(
+        collected.reduce((acc, row) => acc + row.cacheWriteTokens, 0),
+        page1.totals.cacheWriteTokens,
+      );
+
+      // Also verify Fleet unpaginated ceiling (`maxUnpaginatedSessions`) fails closed before scanning W!
+      pageCalls = 0;
+      rowsReturned = 0;
+      if (windowSize > 10) {
+        assert.throws(
+          () =>
+            readAgentRuntimeTokenUsageDetail({
+              rootDir: repo.rootDir,
+              now: nowIso,
+              range: "today",
+              member: { kind: "agent", agentId: "agent-target" },
+              maxUnpaginatedSessions: 10,
+              entityLabel: () => null,
+              cut,
+              projection: spiedCold,
+            }),
+          (error: unknown) => (error as { code?: string })?.code === "resource_exhausted",
+        );
+        assert.equal(pageCalls, 1, "Fleet unpaginated ceiling must abort on the first dispatch page");
+      }
+      return { coldPage2Stats, totalRowsReadAcrossAllPages };
     } finally {
       fs.openSync = originalOpenSync;
       syncBuiltinESMExports();
+      coldProjection?.close();
       repo.projection.close();
       rmSync(repo.rootDir, { recursive: true, force: true });
     }
@@ -922,31 +1224,16 @@ test("F11: paginated tokenUsageDetail continuation seeks O(pageSize) rows and st
 
   const small = runScenario(20, 40),
     large = runScenario(160, 100);
-  // Page 2 work is strictly O(pageSize = 5) regardless of whether W = 20 or W = 160!
-  assert.equal(small.page2Stats.pageCalls, 1);
-  assert.equal(large.page2Stats.pageCalls, 1);
-  assert.equal(small.page2Stats.rowsReturned, 5);
-  assert.equal(large.page2Stats.rowsReturned, 5);
-  assert.equal(small.page2Stats.lifecycleCalls, 5);
-  assert.equal(large.page2Stats.lifecycleCalls, 5);
-  assert.ok(small.page2Stats.streamOpens > 0, "fs.openSync spy must observe dispatch stream reads");
-  assert.ok(
-    small.page2Stats.streamOpens <= 5 * 5,
-    `continuation stream opens must stay O(pageSize) (<= 25), observed ${small.page2Stats.streamOpens}`,
-  );
-  assert.equal(
-    large.page2Stats.streamOpens,
-    small.page2Stats.streamOpens,
-    "continuation page stream opens must stay constant as window size W grows 8x",
-  );
-  assert.equal(
-    large.page2Stats.rowsReturned,
-    small.page2Stats.rowsReturned,
-    "continuation page row reads must stay constant as window size W grows 8x",
-  );
-  // Draining all 32 pages of W=160 reads <= 2*W rows total (315 rows), never O(W^2) (32*160 = 5,120 rows)!
+  assert.equal(small.coldPage2Stats.pageCalls, 1);
+  assert.equal(large.coldPage2Stats.pageCalls, 1);
+  assert.equal(small.coldPage2Stats.rowsReturned, 5);
+  assert.equal(large.coldPage2Stats.rowsReturned, 5);
+  assert.equal(small.coldPage2Stats.lifecycleCalls, 1);
+  assert.equal(large.coldPage2Stats.lifecycleCalls, 1);
+  assert.equal(small.coldPage2Stats.streamOpens, 0);
+  assert.equal(large.coldPage2Stats.streamOpens, 0);
   assert.ok(
     large.totalRowsReadAcrossAllPages <= 160 * 2,
-    `full-window drain must stay O(W) (<= 320 rows), observed ${large.totalRowsReadAcrossAllPages}`,
+    `cold cross-instance full-window drain must stay O(W) (<= 320 rows), observed ${large.totalRowsReadAcrossAllPages}`,
   );
 });

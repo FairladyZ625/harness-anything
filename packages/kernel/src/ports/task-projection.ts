@@ -334,8 +334,10 @@ export interface TaskProjection {
           readonly nodeId?: string;
         }
       | { readonly fleetNodeIds: readonly string[] },
-    /** Exclusive upper revision bound for bounded backward history paging (ORDER BY revision DESC LIMIT limit). */
+    /** Exclusive upper revision bound for bounded window paging. */
     beforeRevision?: number,
+    /** Revision scan order within (afterRevision, beforeRevision); defaults to asc without beforeRevision, desc with beforeRevision. */
+    order?: "asc" | "desc",
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];

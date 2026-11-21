@@ -38,6 +38,11 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  finalizeFleetTokenUsageDetailResult,
+  fleetTokenUsageDetailCursorKey,
+  unwrapFleetTokenUsageDetailCursor,
+} from "../agent-runtime-token-usage.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   consumeKnownError,
@@ -155,6 +160,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const resourceBudget = options.commandResourceBudget ?? createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const detailCursorKey = fleetTokenUsageDetailCursorKey(options.key);
   const reserveDocShowBudget = (nodeId: string, repoId: string, sessionId: string) => {
     try {
       return resourceBudget.reserve({ nodeId, repoId, sessionId }, { bulkTransfers: 1 });
@@ -1634,7 +1640,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             const errors = validateTaskDispatchesPayload(frame.payload);
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
-          result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+          let readPayload = frame.payload as JsonObject;
+          const outerDetailCursor =
+            frame.method === "repo.agentRuntime.tokenUsageDetail" && typeof frame.payload.cursor === "string"
+              ? frame.payload.cursor
+              : null;
+          if (outerDetailCursor !== null) {
+            const innerCursor = unwrapFleetTokenUsageDetailCursor(detailCursorKey, a.repoId, outerDetailCursor);
+            if (innerCursor === null) throw new FleetFault("invalid_cursor", "Token usage detail cursor is invalid.");
+            readPayload = { ...readPayload, cursor: innerCursor };
+          }
+          result = await options.host.read(a.repoId, frame.method, readPayload, binding);
+          if (frame.method === "repo.agentRuntime.tokenUsageDetail")
+            result = finalizeFleetTokenUsageDetailResult(detailCursorKey, a.repoId, outerDetailCursor, result);
           if (frame.method === "repo.fleet.overview.read") {
             const warning = versionWarnings.get(nodeId);
             if (warning !== undefined) {
@@ -1647,6 +1665,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         reservation?.release();
         if (error instanceof FleetFault) throw error;
         const code = runtimeErrorCode(error);
+        if (code === "resource_exhausted") throw new FleetFault(code, runtimeErrorMessage(error), true);
         if (
           code &&
           ["authentication_required", "authorization_denied", "keycloak_unavailable", "projection_pending"].includes(

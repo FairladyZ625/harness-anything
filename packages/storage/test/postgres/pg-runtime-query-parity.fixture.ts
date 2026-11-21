@@ -183,6 +183,15 @@ export async function appendRuntimeQueryFixtures(
       reasonCode: "fixture_failure",
       resultRef: "artifact:runtime-result/sha256/" + "1".repeat(64),
       result: null,
+      runtimeMetrics: {
+        inputTokens: 320,
+        cacheReadTokens: 80,
+        outputTokens: 40,
+        totalTokens: 360,
+        toolCallCount: 3,
+        usageUnavailable: false,
+      },
+      cacheWriteTokens: 60,
     },
   };
   await append({ event: outcome, plan: canonicalEventWritePlan(outcome, "agent-runtime/v1", outcome.opId), blobs: [] });

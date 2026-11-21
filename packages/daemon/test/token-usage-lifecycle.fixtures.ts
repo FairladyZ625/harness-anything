@@ -65,9 +65,36 @@ export function tokenUsageProjection(
                 },
               },
             },
-            metrics: terminal?.runtimeMetrics ?? null,
-            endedAt: terminal?.endedAt ?? null,
-            outcome: terminal ? runtimeSessionOutcomeFromEvidence(terminal) : null,
+            metrics:
+              terminal?.runtimeMetrics !== undefined
+                ? terminal.cacheWriteTokens === undefined
+                  ? terminal.runtimeMetrics
+                  : { ...terminal.runtimeMetrics, cacheWriteTokens: terminal.cacheWriteTokens }
+                : summary?.runtimeMetrics
+                  ? {
+                      inputTokens: summary.runtimeMetrics.inputTokens,
+                      cacheReadTokens: summary.runtimeMetrics.cacheReadTokens,
+                      ...(summary.runtimeMetrics.cacheWriteTokens === undefined
+                        ? {}
+                        : { cacheWriteTokens: summary.runtimeMetrics.cacheWriteTokens }),
+                      outputTokens: summary.runtimeMetrics.outputTokens,
+                      totalTokens: summary.runtimeMetrics.totalTokens,
+                      toolCallCount: summary.runtimeMetrics.toolCallCount,
+                      usageUnavailable: summary.runtimeMetrics.usageUnavailable === true,
+                    }
+                  : null,
+            endedAt:
+              terminal?.endedAt ??
+              summary?.records.findLast(
+                (record): record is { readonly kind: "process_exit"; readonly occurredAt: string } =>
+                  record.kind === "process_exit" && typeof record.occurredAt === "string",
+              )?.occurredAt ??
+              null,
+            outcome: terminal
+              ? runtimeSessionOutcomeFromEvidence(terminal)
+              : summary?.process?.exited
+                ? "succeeded"
+                : null,
           };
         }),
         rows = allRows

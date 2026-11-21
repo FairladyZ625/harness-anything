@@ -1,4 +1,5 @@
 import type { FleetNodeActivity } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import path from "node:path";
 import type { DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
@@ -131,20 +132,23 @@ function buildObserveEventTail(
 function readEventTail(projection: TaskProjection, payload: EventTailPayload): EventTailPage {
   if (payload.scopePersonId !== undefined || payload.filterNodeId !== undefined)
     return readScopedEventTail(projection, payload);
-  const requested = payload.cursor?.revision;
+  const requested = payload.cursor?.revision,
+    maxRevisionSpan = storageReadPolicy.defaultValue.pageSizes.standard;
   if (payload.direction === "follow") {
     const after = requested!,
-      page = projection.readEventSummaries(after, pageSize + 1, payload.fields);
+      scanBefore = after + maxRevisionSpan + 1,
+      page = projection.readEventSummaries(after, pageSize + 1, payload.fields, scanBefore, "asc");
     if (after > page.sourceRevision)
       throw observeError(
         "invalid_cursor",
         `Canonical event cursor ${after} is ahead of source revision ${page.sourceRevision}.`,
       );
     const selected = page.events.slice(0, pageSize),
-      exhaustedWatermark = page.events.length <= pageSize,
-      // When the bounded page returned <= pageSize rows, storage proved no more visible rows
-      // exist in (after, page.watermark], so advance the cursor across filtered tail revisions.
-      revision = exhaustedWatermark ? Math.max(after, page.watermark) : selected.at(-1)!.workspaceRevision,
+      exhaustedWindow = page.events.length <= pageSize,
+      coveredUpper = Math.min(page.watermark, scanBefore - 1),
+      // Storage proved no more visible rows exist in (after, coveredUpper], so advance the
+      // cursor across bounded filtered intervals without scanning unbounded tail history in one call.
+      revision = exhaustedWindow ? Math.max(after, coveredUpper) : selected.at(-1)!.workspaceRevision,
       liveCursor = { kind: "events" as const, revision },
       sourceCursor = { kind: "events" as const, revision: page.sourceRevision };
     return {
@@ -153,7 +157,7 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
       historyCursor: null,
       liveCursor,
       sourceCursor,
-      done: page.status === "ready" && exhaustedWatermark && sameCursor(liveCursor, sourceCursor),
+      done: page.status === "ready" && exhaustedWindow && sameCursor(liveCursor, sourceCursor),
     };
   }
 
@@ -164,16 +168,21 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
       "invalid_cursor",
       `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
     );
-  const page = projection.readEventSummaries(
-      0,
+  const effectiveUpper = Math.min(probe.watermark + 1, Math.max(0, before)),
+    scanAfter = Math.max(0, effectiveUpper - 1 - maxRevisionSpan),
+    page = projection.readEventSummaries(
+      scanAfter,
       pageSize + 1,
       payload.fleetNodeIds === undefined ? payload.fields : { fleetNodeIds: payload.fleetNodeIds },
-      before,
+      effectiveUpper,
+      "desc",
     ),
-    hasMore = page.events.length > pageSize,
-    selected = hasMore ? page.events.slice(-pageSize) : page.events,
-    coveredUpper = Math.min(page.watermark, Math.max(0, before - 1)),
-    firstRevision = hasMore ? selected[0]!.workspaceRevision : 0,
+    hasMoreInWindow = page.events.length > pageSize,
+    hasEarlierRevisions = scanAfter > 0,
+    hasMore = hasMoreInWindow || hasEarlierRevisions,
+    selected = hasMoreInWindow ? page.events.slice(-pageSize) : page.events,
+    coveredUpper = Math.min(page.watermark, Math.max(0, effectiveUpper - 1)),
+    firstRevision = hasMoreInWindow ? selected[0]!.workspaceRevision : hasEarlierRevisions ? scanAfter + 1 : 0,
     lastRevision =
       requested === undefined
         ? Math.max(selected.at(-1)?.workspaceRevision ?? 0, coveredUpper)

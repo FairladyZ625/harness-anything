@@ -286,9 +286,8 @@ export async function publishExit(
         active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
       );
     active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
-    // Keep the canonical agent-runtime-event/v1 outcome strictly on the 6-key baseline schema
-    // during the dec_659E15CF expand window (2026-12-21), while carrying optional cacheWriteTokens
-    // in the local stream and open RuntimeDispatchArchive document.
+    // Keep runtimeMetrics on the 6-key baseline shape while carrying optional cacheWriteTokens at
+    // the top level of runtime_session_outcome_observed.payload (accepted by N-1 allowUnknownFields).
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
@@ -297,9 +296,11 @@ export async function publishExit(
       toolCallCount: active.toolCallCount,
       usageUnavailable: !active.usageReported,
     };
+    const outcomeCacheWriteTokens =
+      cacheWriteTokensOfUsage(active.rawUsage) === null ? undefined : active.cacheWriteTokens;
     const streamRuntimeMetrics = {
       ...runtimeMetrics,
-      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
+      ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
     };
     active.stream.appendRuntimeMetrics?.(
       { ...streamRuntimeMetrics, compacted: active.compacted, raw: active.rawUsage },
@@ -466,7 +467,6 @@ export async function publishExit(
       lastConclusion,
       exitHead,
       eventStreamRef: active.stream.ref,
-      runtimeMetrics: streamRuntimeMetrics,
       attemptGroupId: attemptOutcome.attemptGroupId,
       attemptIndex: attemptOutcome.attemptIndex,
       provider: { instance: attemptOutcome.provider.instance, model: attemptOutcome.provider.model },
@@ -701,6 +701,7 @@ export async function publishExit(
         dispatchId: active.dispatchId,
         endedAt,
         runtimeMetrics,
+        ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
