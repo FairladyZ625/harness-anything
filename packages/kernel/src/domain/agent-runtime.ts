@@ -45,6 +45,8 @@ export const agentRuntimeEventTypes = [
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
+  "runtime_cancel_requested",
+  "runtime_steer_requested",
 ] as const;
 
 export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: string): EntityRelationRecord {
@@ -497,6 +499,27 @@ interface RuntimePayloads {
   };
   readonly runtime_handoff_revoked: { readonly dispatchId: string; readonly runtimeSessionId: string };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
+  readonly runtime_cancel_requested: {
+    readonly runtimeSessionId: string;
+    readonly controlRequestId: string;
+    readonly targetNodeId: string;
+    readonly reason?: string;
+  };
+  readonly runtime_steer_requested: {
+    readonly runtimeSessionId: string;
+    readonly dispatchId: string;
+    readonly controlRequestId: string;
+    readonly targetNodeId: string;
+    readonly prompt: string;
+    readonly expected?: {
+      readonly repoId?: string;
+      readonly taskless?: true;
+      readonly taskId?: string;
+      readonly executionId?: string;
+      readonly dispatchId?: string;
+      readonly version?: number;
+    };
+  };
 }
 export interface RuntimeDispatchMetrics {
   readonly inputTokens: number;
@@ -560,6 +583,8 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
   runtime_handoff_exported: ["dispatchId", "runtimeSessionId", "taskId", "executionId", "commit", "sha256"],
   runtime_handoff_revoked: ["dispatchId", "runtimeSessionId"],
   runtime_dispatch_outcome_unknown: ["dispatchId", "runtimeSessionId"],
+  runtime_cancel_requested: ["runtimeSessionId", "controlRequestId", "targetNodeId"],
+  runtime_steer_requested: ["runtimeSessionId", "dispatchId", "controlRequestId", "targetNodeId", "prompt"],
 };
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
   return validateAgentRuntimePayloadFields(type, value, false);
@@ -608,32 +633,36 @@ function validateAgentRuntimePayloadFields(
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
           ? ["processGroupPid", "providerUnreachable"]
-          : type === "runtime_dispatch_requested"
-            ? [
-                "startedAt",
-                "resumedFromDispatchId",
-                "handoffEnabled",
-                "handoffCheckpointId",
-                "acceptedCommit",
-                "resumeProviderSessionId",
-                "taskId",
-                "executionId",
-                "attemptGroupId",
-                "attemptIndex",
-                "agentId",
-                "agentName",
-                "agentDeclarationDigest",
-                "skillSnapshotDigest",
-                "squadId",
-                "squadRun",
-                "cwd",
-                "role",
-                "launchedPermissionMode",
-                "requestedPermissionMode",
-                "permissionModeSource",
-                "reviewTarget",
-              ]
-            : [];
+          : type === "runtime_cancel_requested"
+            ? ["reason"]
+            : type === "runtime_steer_requested"
+              ? ["expected"]
+              : type === "runtime_dispatch_requested"
+                ? [
+                    "startedAt",
+                    "resumedFromDispatchId",
+                    "handoffEnabled",
+                    "handoffCheckpointId",
+                    "acceptedCommit",
+                    "resumeProviderSessionId",
+                    "taskId",
+                    "executionId",
+                    "attemptGroupId",
+                    "attemptIndex",
+                    "agentId",
+                    "agentName",
+                    "agentDeclarationDigest",
+                    "skillSnapshotDigest",
+                    "squadId",
+                    "squadRun",
+                    "cwd",
+                    "role",
+                    "launchedPermissionMode",
+                    "requestedPermissionMode",
+                    "permissionModeSource",
+                    "reviewTarget",
+                  ]
+                : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, requiredFields) ||
@@ -646,6 +675,14 @@ function validateAgentRuntimePayloadFields(
     (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
   )
     return ["runtime handoff audit binding is invalid"];
+  if (type === "runtime_cancel_requested" && value.reason !== undefined && !isNonEmptyString(value.reason))
+    return ["runtime cancel request reason is invalid"];
+  if (
+    type === "runtime_steer_requested" &&
+    (!isNonEmptyString(value.prompt) ||
+      (value.expected !== undefined && !validRuntimeSteerRequestedExpected(value.expected)))
+  )
+    return ["runtime steer request payload is invalid"];
   const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
@@ -982,6 +1019,8 @@ export function reduceRuntimeSession(
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||
     event.type === "runtime_handoff_revoked" ||
+    event.type === "runtime_cancel_requested" ||
+    event.type === "runtime_steer_requested" ||
     event.type === "runtime_installation_observed"
   )
     return current;
@@ -1240,6 +1279,19 @@ export function resolveScheduledPermissionMode(input: {
 }
 export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
   return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
+}
+function validRuntimeSteerRequestedExpected(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0) return false;
+  const allowed = ["repoId", "taskless", "taskId", "executionId", "dispatchId", "version"];
+  if (keys.some((key) => !allowed.includes(key))) return false;
+  for (const field of ["repoId", "taskId", "executionId", "dispatchId"] as const)
+    if (value[field] !== undefined && !isNonEmptyString(value[field])) return false;
+  if (value.taskless !== undefined && value.taskless !== true) return false;
+  if (value.taskless === true && (value.taskId !== undefined || value.executionId !== undefined)) return false;
+  if (value.version !== undefined && (!Number.isSafeInteger(value.version) || Number(value.version) < 0)) return false;
+  return true;
 }
 function validRef(value: unknown): boolean {
   return typeof value === "string" && /^(?:artifact|file|provider):[^\r\n]{1,512}$/u.test(value);

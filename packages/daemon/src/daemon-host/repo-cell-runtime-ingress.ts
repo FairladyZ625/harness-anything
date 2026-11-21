@@ -40,6 +40,8 @@ const auxiliaryEventTypes = Object.freeze([
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
+  "runtime_cancel_requested",
+  "runtime_steer_requested",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][]);
 
 /**
@@ -62,9 +64,19 @@ export function appendAuxiliaryRuntimeIngress(
   action: RuntimeIngressAction,
   binding: RepoCellBinding,
   trustedHandoff = false,
+  trustedControl = false,
 ): JsonObject {
   if (action.kind === "event" && action.type.startsWith("runtime_handoff_") && !trustedHandoff)
     throw cell.cellCodedError("invalid_runtime_event", "Handoff audit events require the authorized handoff action.");
+  if (
+    action.kind === "event" &&
+    (action.type === "runtime_cancel_requested" || action.type === "runtime_steer_requested") &&
+    !trustedControl
+  )
+    throw cell.cellCodedError(
+      "invalid_runtime_event",
+      "Remote runtime control events require the authorized runtime control action.",
+    );
   const remote = typeof binding.source === "object" && binding.source.kind === "node";
   if (action.kind === "archive") {
     return archiveRuntimeDispatch({

@@ -211,6 +211,7 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
+        activeRuntimeSessionIds: () => [],
         isIdle: unsupportedWrite,
         close: unsupportedWrite,
       },

@@ -466,6 +466,7 @@ export const daemonRuntimeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#adoptRuntimes.attempts:732c866a23be48cb4aa696ecfa50fee7",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#restoreRuntime:39e4830081c0babcb59e3341fa031186",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#restoreRuntime:7d3fd3f7168077bcaf35c303654a655e",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#cancelRuntime:12a74b80bb08351e06d612f66ec856c1",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#cancelRuntime:f12e9da0d749ff82a1adcbfb4ea3616b",
     "policy:packages/daemon:packages/daemon/src/runtime-engine/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:25c83a9ee0a22be85f048c21b6b3e2b2",
     "policy:packages/daemon:packages/daemon/src/runtime-engine/runtime-spawn-errors.ts#runtimeTaskLeaseRequiredMessage:d1dcaf6ee3b6789b199bdf70b1f5e511",
@@ -1154,7 +1155,7 @@ export const daemonAuthorizationReceiptContractPolicy = {
   sources: [
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-task.ts#verifyFleetTaskSubmitHolder:14085f29822d258e9ba1df56ece5c97d",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-task-delivery.ts#assertFleetDeliveryHolder:d24c9064b6f713519f68d752098c35e3",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/fleet/forwarding-intent.ts#forwardingIntentIssue:16800eef7e7892d4fe4742af8daee7b5",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/fleet/forwarding-intent.ts#forwardingIntentIssue:20e2c13f95df3d0a9df5069794882d62",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-decision-lifecycle.ts#defineCenterForwardArbiterCommand.admission:9f01bc772226841415b8fc2e6c07478e",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-people.ts#peopleWriteTopology.admission:9f01bc772226841415b8fc2e6c07478e",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts#taskActionProtocolCommand.admission:9f01bc772226841415b8fc2e6c07478e",
