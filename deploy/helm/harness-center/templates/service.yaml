@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+  annotations:
+    {{- if .Values.metrics.enabled }}
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.service.metricsPort | quote }}
+    prometheus.io/path: {{ .Values.metrics.path | quote }}
+    {{- end }}
+    {{- with .Values.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "harness-center.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- if .Values.fleet.enabled }}
+    - name: fleet-tls
+      port: {{ .Values.service.fleetPort }}
+      targetPort: fleet-tls
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}

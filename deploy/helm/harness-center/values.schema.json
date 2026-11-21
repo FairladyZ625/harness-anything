@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Harness Anything Center Helm Chart Values",
+  "type": "object",
+  "required": [
+    "workloadKind",
+    "replicaCount",
+    "image",
+    "daemon",
+    "storage",
+    "identity",
+    "fleet",
+    "metrics",
+    "service",
+    "probes",
+    "persistence",
+    "podSecurityContext",
+    "securityContext"
+  ],
+  "properties": {
+    "workloadKind": {
+      "type": "string",
+      "enum": ["Deployment", "StatefulSet"]
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "daemon": {
+      "type": "object",
+      "required": ["id", "userRoot"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "userRoot": { "type": "string", "pattern": "^/" },
+        "extraEnv": { "type": "array" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "required": ["backend", "secretKey"],
+      "properties": {
+        "backend": { "type": "string", "enum": ["postgres", "sqlite"] },
+        "existingSecret": { "type": "string" },
+        "secretKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["mode", "realm", "clientId"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["external", "managed"] },
+        "issuerUrl": { "type": "string" },
+        "realm": { "type": "string", "minLength": 1 },
+        "clientId": { "type": "string", "minLength": 1 },
+        "existingClientSecret": { "type": "string" },
+        "clientSecretKey": { "type": "string" },
+        "extraCaCertConfigMap": { "type": "string" },
+        "extraCaCertKey": { "type": "string" }
+      }
+    },
+    "fleet": {
+      "type": "object",
+      "required": ["enabled", "port"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "externalUrl": { "type": "string" },
+        "tlsExistingSecret": { "type": "string" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": ["enabled", "bind", "port", "path"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "bind": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "path": { "type": "string", "pattern": "^/" },
+        "bearerTokenExistingSecret": { "type": "string" },
+        "bearerTokenSecretKey": { "type": "string" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": ["type", "fleetPort", "metricsPort"],
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "fleetPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "metricsPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "probes": {
+      "type": "object",
+      "required": ["liveness", "readiness", "startup"]
+    },
+    "persistence": {
+      "type": "object",
+      "required": ["enabled", "size"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "storageClass": { "type": "string" },
+        "accessModes": { "type": "array", "items": { "type": "string" } },
+        "size": { "type": "string", "minLength": 1 }
+      }
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "required": ["runAsNonRoot"],
+      "properties": {
+        "runAsNonRoot": { "type": "boolean" }
+      }
+    },
+    "securityContext": {
+      "type": "object",
+      "required": ["allowPrivilegeEscalation"],
+      "properties": {
+        "allowPrivilegeEscalation": { "type": "boolean" }
+      }
+    }
+  }
+}

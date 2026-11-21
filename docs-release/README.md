@@ -146,6 +146,7 @@ For an authorization precheck before rendering an action, use the [Entity Action
 explanation contract](entity-actions-explain.md): one authenticated person, one
 canonical cut, and an answer that is never a write permit.
 For a PostgreSQL-backed center, see [PostgreSQL daemon deployment](postgres-daemon.md).
+For Prometheus metrics, offline reproducible build checks, and generic Helm deployment, see [Observability, Reproducible Offline Builds, and Helm Deployment](observability-and-deployment.md).
 
 ## Configure hosted Git credentials
 

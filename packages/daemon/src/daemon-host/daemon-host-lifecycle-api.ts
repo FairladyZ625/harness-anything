@@ -2,13 +2,19 @@ import { existsSync } from "node:fs";
 import { observeDaemonOperation, markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { readDaemonRegistry } from "@harness-anything/kernel";
+import { readDaemonRegistry, type RepoMetricsSnapshot } from "@harness-anything/kernel";
 
 export function createDaemonHostLifecycleApi(
   context: DaemonHostApiContext,
 ): Pick<
   DaemonHost,
-  "status" | "writeQueues" | "pendingFleetDeliveries" | "startAttachments" | "attachmentsSettled" | "close"
+  | "status"
+  | "writeQueues"
+  | "observabilitySnapshot"
+  | "pendingFleetDeliveries"
+  | "startAttachments"
+  | "attachmentsSettled"
+  | "close"
 > {
   return {
     status: () => {
@@ -111,6 +117,55 @@ export function createDaemonHostLifecycleApi(
         .map((cell) => cell.status())
         .concat([...context.warming.values(), ...context.unavailable.values()])
         .map((status) => ({ repoId: status.repoId, queueDepth: status.queueDepth ?? null })),
+    observabilitySnapshot: () => {
+      const repos: RepoMetricsSnapshot[] = [];
+      const seen = new Set<string>();
+      for (const cell of context.cells.values()) {
+        const cellStatus = cell.status();
+        const status = context.warming.get(cellStatus.repoId) ?? cellStatus;
+        seen.add(status.repoId);
+        repos.push({
+          repoId: status.repoId,
+          state: status.state,
+          queueDepth: status.queueDepth ?? null,
+          projectionWatermark: status.projectionWatermark ?? null,
+          ledgerRevision: status.ledgerRevision ?? null,
+        });
+      }
+      for (const status of context.warming.values()) {
+        if (seen.has(status.repoId)) continue;
+        seen.add(status.repoId);
+        repos.push({
+          repoId: status.repoId,
+          state: status.state,
+          queueDepth: status.queueDepth ?? null,
+          projectionWatermark: status.projectionWatermark ?? null,
+          ledgerRevision: status.ledgerRevision ?? null,
+        });
+      }
+      for (const status of context.unavailable.values()) {
+        if (seen.has(status.repoId)) continue;
+        seen.add(status.repoId);
+        repos.push({
+          repoId: status.repoId,
+          state: status.state,
+          queueDepth: status.queueDepth ?? null,
+          projectionWatermark: status.projectionWatermark ?? null,
+          ledgerRevision: status.ledgerRevision ?? null,
+        });
+      }
+      const centerMetrics = context.fleetCenter?.connectionMetrics();
+      const fleet = centerMetrics
+        ? { centerEnabled: true, ...centerMetrics }
+        : {
+            centerEnabled: false,
+            activeConnections: 0,
+            authenticatedNodes: 0,
+            replicationStreams: 0,
+            pendingDeliveries: 0,
+          };
+      return { repos, fleet };
+    },
     pendingFleetDeliveries: () => context.fleetCenter?.pendingDeliveries() ?? 0,
     startAttachments: () => {
       void context.startInitialAttachments();

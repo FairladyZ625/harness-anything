@@ -142,11 +142,20 @@ export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly activity: import("./replica-status.ts").ReplicaSyncActivity | null;
 }
 
+export interface FleetConnectionMetrics {
+  readonly activeConnections: number;
+  readonly authenticatedNodes: number;
+  readonly replicationStreams: number;
+  readonly pendingDeliveries: number;
+}
+
 export interface FleetTlsCenter {
   readonly port: number;
   readonly close: () => Promise<void>;
   /** Cuts every session the node holds, including a handshake still awaiting its verdict. */
   readonly pendingDeliveries: () => number;
+  /** O(1) in-memory connection and delivery counters for Prometheus scrapes (zero disk/DB reads). */
+  readonly connectionMetrics: () => FleetConnectionMetrics;
   readonly disconnectNode: (nodeId: string) => void;
   readonly inspectNode: (nodeId: string) => {
     readonly online: boolean;

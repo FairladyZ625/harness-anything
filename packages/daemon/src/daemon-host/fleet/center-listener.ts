@@ -1886,6 +1886,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   return {
     port: address.port,
     pendingDeliveries: deliveries.pending,
+    connectionMetrics: () => ({
+      activeConnections: connections.size,
+      authenticatedNodes: sessions.size,
+      replicationStreams: replicationOwners.size,
+      pendingDeliveries: deliveries.pending(),
+    }),
     inspectNode: (nodeId) => ({
       online: (sessions.get(nodeId)?.size ?? 0) > 0,
       inFlight: nodeAdmission.inFlight(nodeId),

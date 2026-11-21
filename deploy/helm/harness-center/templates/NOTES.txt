@@ -1,0 +1,18 @@
+Harness Anything Center ({{ include "harness-center.fullname" . }}) deployed in {{ .Values.workloadKind }} mode.
+
+1. External PostgreSQL storage:
+   Mount a Kubernetes Secret containing daemon-storage.json via storage.existingSecret.
+   Runtime and authority connection strings must live only in that Secret.
+
+2. External OIDC / Keycloak identity:
+   Configure identity.issuerUrl, identity.realm, identity.clientId and mount the confidential
+   client secret via identity.existingClientSecret.
+
+3. Observability & health probes:
+   {{- if .Values.metrics.enabled }}
+   - Metrics:   http://{{ include "harness-center.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}{{ .Values.metrics.path }}
+   - Liveness:  http://{{ include "harness-center.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/healthz
+   - Readiness: http://{{ include "harness-center.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/readyz
+   {{- else }}
+   Metrics HTTP endpoint is disabled (metrics.enabled=false).
+   {{- end }}

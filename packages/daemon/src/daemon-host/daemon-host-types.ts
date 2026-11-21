@@ -4,6 +4,8 @@ import type { SquadControlResult } from "./squad-control-result.ts";
 import {
   type AuthorizationDecision,
   type DaemonRepoMode,
+  type FleetMetricsSnapshot,
+  type RepoMetricsSnapshot,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type {
@@ -306,6 +308,11 @@ export interface DaemonHost {
   };
   /** Lightweight queue snapshot from loaded cells only; no registry/build/cell re-read. */
   readonly writeQueues: () => readonly { readonly repoId: string; readonly queueDepth: number | null }[];
+  /** Pure in-memory O(1) observability snapshot for Prometheus scrapes; zero registry or DB scans. */
+  readonly observabilitySnapshot: () => {
+    readonly repos: readonly RepoMetricsSnapshot[];
+    readonly fleet: FleetMetricsSnapshot;
+  };
   readonly configureNodeAutoClaim: (policy: unknown, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+data:
+  HARNESS_DAEMON_ID: {{ .Values.daemon.id | quote }}
+  HARNESS_DAEMON_USER_ROOT: {{ .Values.daemon.userRoot | quote }}
+  {{- if .Values.metrics.enabled }}
+  HARNESS_DAEMON_METRICS_BIND: {{ .Values.metrics.bind | quote }}
+  HARNESS_DAEMON_METRICS_PORT: {{ .Values.metrics.port | quote }}
+  HARNESS_DAEMON_METRICS_PATH: {{ .Values.metrics.path | quote }}
+  {{- end }}
+  {{- if .Values.identity.issuerUrl }}
+  HARNESS_OIDC_ISSUER_URL: {{ .Values.identity.issuerUrl | quote }}
+  {{- end }}
+  HARNESS_OIDC_REALM: {{ .Values.identity.realm | quote }}
+  HARNESS_OIDC_CLIENT_ID: {{ .Values.identity.clientId | quote }}
+  {{- if .Values.fleet.externalUrl }}
+  HARNESS_FLEET_EXTERNAL_URL: {{ .Values.fleet.externalUrl | quote }}
+  {{- end }}

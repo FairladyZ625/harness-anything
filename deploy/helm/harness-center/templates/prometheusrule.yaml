@@ -1,0 +1,51 @@
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: harness-center.rules
+      rules:
+        - alert: HarnessDaemonDown
+          expr: ha_daemon_up == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Harness Anything daemon is down"
+            description: "The Harness Anything center daemon reported ha_daemon_up == 0 for more than 1 minute."
+        - alert: HarnessWriteQueueSaturated
+          expr: ha_daemon_write_queue_depth_total > {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }}
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Harness Anything single-writer queue backlog"
+            description: "Total single-writer queue depth exceeded {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }} for 2 minutes."
+        - alert: HarnessProjectionLagHigh
+          expr: ha_daemon_projection_lag_revisions_max > {{ .Values.metrics.prometheusRule.projectionLagThreshold }}
+          for: 3m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Harness Anything projection lag elevated"
+            description: "Maximum projection lag exceeded {{ .Values.metrics.prometheusRule.projectionLagThreshold }} revisions for 3 minutes."
+        - alert: HarnessRpcErrorRateHigh
+          expr: |
+            (
+              rate(ha_daemon_rpc_requests_total{outcome="error"}[5m])
+              / clamp_min(rate(ha_daemon_rpc_requests_total[5m]), 1e-9)
+            ) > {{ .Values.metrics.prometheusRule.rpcErrorRatioThreshold }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Harness Anything RPC error rate elevated"
+            description: "Daemon RPC error ratio exceeded {{ .Values.metrics.prometheusRule.rpcErrorRatioThreshold }} over the last 5 minutes."
+{{- end }}

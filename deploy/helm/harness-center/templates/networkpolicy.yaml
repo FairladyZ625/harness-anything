@@ -1,0 +1,32 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "harness-center.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        {{- if .Values.fleet.enabled }}
+        - protocol: TCP
+          port: {{ .Values.fleet.port }}
+        {{- end }}
+        {{- if .Values.metrics.enabled }}
+        - protocol: TCP
+          port: {{ .Values.metrics.port }}
+        {{- end }}
+      {{- if .Values.networkPolicy.ingressFromNamespaces }}
+      from:
+        {{- range .Values.networkPolicy.ingressFromNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,139 @@
+# Generic production values for Harness Anything Center.
+# Designed for external PostgreSQL + external OIDC/Keycloak with no customer-specific coupling.
+
+# Select "Deployment" for stateless PostgreSQL-backed centers (materialize: false)
+# or "StatefulSet" when persistent per-pod storage is required.
+workloadKind: Deployment
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/fairladyz625/harness-anything-center
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+daemon:
+  id: center
+  userRoot: /var/lib/ha/user
+  extraEnv: []
+
+# External PostgreSQL configuration mounted as a Kubernetes Secret at <userRoot>/daemon-storage.json.
+# Runtime and authority connection strings must live only in the referenced Secret, never in values.yaml.
+storage:
+  backend: postgres
+  existingSecret: ""
+  secretKey: daemon-storage.json
+
+# External OIDC / Keycloak identity authority (non-secret metadata in ConfigMap; client secret via Secret).
+identity:
+  mode: external
+  issuerUrl: ""
+  realm: fleet
+  clientId: harness-center
+  existingClientSecret: ""
+  clientSecretKey: client-secret
+  extraCaCertConfigMap: ""
+  extraCaCertKey: ca.pem
+
+fleet:
+  enabled: true
+  port: 7545
+  externalUrl: ""
+  tlsExistingSecret: ""
+
+metrics:
+  enabled: true
+  bind: "0.0.0.0"
+  port: 9090
+  path: /metrics
+  bearerTokenExistingSecret: ""
+  bearerTokenSecretKey: token
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 10s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+    writeQueueDepthThreshold: 32
+    projectionLagThreshold: 500
+    rpcErrorRatioThreshold: 0.05
+
+service:
+  type: ClusterIP
+  annotations: {}
+  fleetPort: 7545
+  metricsPort: 9090
+
+probes:
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 24
+
+persistence:
+  enabled: false
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+networkPolicy:
+  enabled: false
+  ingressFromNamespaces: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

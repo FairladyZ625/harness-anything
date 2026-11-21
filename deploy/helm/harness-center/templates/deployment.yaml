@@ -1,0 +1,169 @@
+{{- if eq .Values.workloadKind "Deployment" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "harness-center.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harness-center.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "harness-center.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: harness-center
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "harness-center.fullname" . }}
+          env:
+            {{- if .Values.metrics.enabled }}
+            - name: HARNESS_DAEMON_METRICS_PORT
+              value: {{ .Values.metrics.port | quote }}
+            {{- end }}
+            {{- if .Values.identity.extraCaCertConfigMap }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: "/etc/harness/ca/{{ .Values.identity.extraCaCertKey }}"
+            {{- end }}
+            {{- if .Values.metrics.bearerTokenExistingSecret }}
+            - name: HARNESS_DAEMON_METRICS_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.metrics.bearerTokenExistingSecret }}
+                  key: {{ .Values.metrics.bearerTokenSecretKey }}
+            {{- end }}
+            {{- with .Values.daemon.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            {{- if .Values.fleet.enabled }}
+            - name: fleet-tls
+              containerPort: {{ .Values.fleet.port }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          {{- if .Values.metrics.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: daemon-state
+              mountPath: {{ .Values.daemon.userRoot | quote }}
+            {{- if .Values.storage.existingSecret }}
+            - name: daemon-storage-config
+              mountPath: "{{ .Values.daemon.userRoot }}/daemon-storage.json"
+              subPath: {{ .Values.storage.secretKey }}
+              readOnly: true
+            {{- end }}
+            {{- if .Values.fleet.tlsExistingSecret }}
+            - name: fleet-tls
+              mountPath: /etc/harness/fleet-tls
+              readOnly: true
+            {{- end }}
+            {{- if .Values.identity.existingClientSecret }}
+            - name: oidc-client-secret
+              mountPath: /etc/harness/oidc
+              readOnly: true
+            {{- end }}
+            {{- if .Values.identity.extraCaCertConfigMap }}
+            - name: extra-ca-cert
+              mountPath: /etc/harness/ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: daemon-state
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "harness-center.fullname" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.storage.existingSecret }}
+        - name: daemon-storage-config
+          secret:
+            secretName: {{ .Values.storage.existingSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- if .Values.fleet.tlsExistingSecret }}
+        - name: fleet-tls
+          secret:
+            secretName: {{ .Values.fleet.tlsExistingSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- if .Values.identity.existingClientSecret }}
+        - name: oidc-client-secret
+          secret:
+            secretName: {{ .Values.identity.existingClientSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- if .Values.identity.extraCaCertConfigMap }}
+        - name: extra-ca-cert
+          configMap:
+            name: {{ .Values.identity.extraCaCertConfigMap }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

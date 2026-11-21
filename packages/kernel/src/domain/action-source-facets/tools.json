@@ -1997,6 +1997,48 @@
         "order": 217
       },
       {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:19dba6257dbac3fc4faefd97cc25a18e",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 424
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:1b49366a4c35091ea7711969d604e120",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 423
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:6cfdbbd525df5cbf635295d6e1d7f316",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 426
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:b5ed742650d51b8ddf4e601db991c130",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 425
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildWorkspacesInOrder:567fb20de4fe8ea9a869c4fe94711bd9",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync",
+        "order": 422
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#removeBuildInfoFiles.walk:36d0f2489771e2b9972a444f938fe578",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync",
+        "order": 421
+      },
+      {
         "candidateId": "action:tools:tools/run-gui-tests.mjs#main.child:91619e5f97a431a86859a5bdf3329925",
         "route": "package-assets-build",
         "role": "technical-port",
