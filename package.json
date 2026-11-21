@@ -61,6 +61,7 @@
     "harness:check-import-boundaries": "node tools/check-import-boundaries.mjs",
     "harness:check-c4-architecture": "node tools/check-c4-architecture.mjs",
     "harness:check-entity-doc-contract": "node tools/generate-entity-doc-contract.mjs --check",
+    "harness:check-ontology-facets": "node tools/refresh-ontology-facets.mjs --check",
     "harness:check-format": "node tools/check-format.mjs",
     "harness:check-poll-spin-boundary": "node tools/check-poll-spin-boundary.mjs",
     "harness:check-fallback-boundaries": "node tools/check-fallback-boundaries.mjs",

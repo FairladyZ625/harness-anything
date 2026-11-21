@@ -293,6 +293,7 @@ export const documentSyncRoutingPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/doc-sync-writer.ts#resolveDocRoute.allowed:f0ce3ef598574b1ebe708af042563f87",
     "policy:packages/kernel:packages/kernel/src/domain/doc-sync-writer.ts#resolveDocRoute.allowed:f0ce3ef598574b1ebe708af042563f87:2",
     "policy:packages/kernel:packages/kernel/src/domain/doc-sync-writer.ts#resolveDocRoute.allowed:d3583fbbe4fa23918ff42c68ae84c60d",
+    "policy:packages/kernel:packages/kernel/src/domain/submission-facts.ts#standaloneCloseoutFactsBounds:886f8d5f24237022cffd4e76332ede93",
     "policy:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#transitionDocumentSections:bcfedf76c4918be010e5f3eea6f2aace",
     "policy:packages/kernel:packages/kernel/src/domain/transition-document-readiness.ts#markdownSectionSpans:886f8d5f24237022cffd4e76332ede93",
   ].map((candidateId) => ({ candidateId, route: "doc-sync routing" })),

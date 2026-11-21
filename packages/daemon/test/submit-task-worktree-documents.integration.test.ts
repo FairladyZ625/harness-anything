@@ -15,7 +15,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { isTaskEvent } from "@harness-anything/kernel";
+import { isTaskEvent, upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
+import { CLOSEOUT_FACTS_END, CLOSEOUT_FACTS_START } from "@harness-anything/kernel/internal/domain/submission-facts.ts";
 import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-executor.ts";
@@ -154,7 +155,10 @@ test("task submit refreshes worker artifacts and carries new worktree artifacts"
     );
     assert.ok(event.payload.execution.submission?.changedFiles?.includes("src/delivery.ts"));
     assert.ok(event.payload.execution.submission?.productionDelta);
-    assert.equal(readFileSync(canonicalCloseout, "utf8"), revisedCloseout);
+    assert.equal(
+      readFileSync(canonicalCloseout, "utf8"),
+      upsertCloseoutSubmissionFacts(revisedCloseout, event.payload.execution.submission!),
+    );
     assert.equal(readFileSync(canonicalArtifact, "utf8"), amendedArtifactBody);
     const amendedAnchor = event.payload.execution.submission?.artifacts?.find(
       (artifact) => artifact.path === artifactPath,
@@ -279,10 +283,14 @@ for (const external of [false, true])
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
       await waitForFixturePublication(cell, submitted.opId, workerHolder);
 
+      const event = makeTaskEventReader({ repoId, rootDir })
+        .read()
+        .events.find((entry) => isTaskEvent(entry) && entry.type === "execution_submitted" && entry.taskId === taskId);
+      assert.ok(event && isTaskEvent(event) && event.type === "execution_submitted");
       assert.equal(
         readFileSync(canonicalCloseout, "utf8"),
-        fullCloseout,
-        "single submit must freeze the worktree closeout instead of canonical skeleton",
+        upsertCloseoutSubmissionFacts(fullCloseout, event.payload.execution.submission!),
+        "single submit must freeze the worktree closeout with auto-computed submission facts",
       );
       assert.equal(readFileSync(canonicalExplainer, "utf8"), explainerBody);
       assert.equal(
@@ -290,10 +298,6 @@ for (const external of [false, true])
         planV2,
         "untouched v1 task_plan.md in worktree must never roll back canonical v2 task_plan.md",
       );
-      const event = makeTaskEventReader({ repoId, rootDir })
-        .read()
-        .events.find((entry) => isTaskEvent(entry) && entry.type === "execution_submitted" && entry.taskId === taskId);
-      assert.ok(event && isTaskEvent(event) && event.type === "execution_submitted");
       const explainerAnchor = event.payload.execution.submission?.artifacts?.find((a) => a.path === explainerPath);
       assert.ok(explainerAnchor, "submission must freeze explainer.html artifact from worktree");
       const contentReader = makeTaskEventReader({ repoId, rootDir });
@@ -342,3 +346,118 @@ for (const external of [false, true])
       rmSync(temporaryRoot, { recursive: true, force: true });
     }
   });
+
+test("task submit and amend automatically refresh stale managed submission facts in closeout.md while keeping authored Summary verbatim", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-closeout-facts-")),
+    ledger = path.join(rootDir, "harness"),
+    taskId = "task-submit-closeout-facts",
+    executionId = "execution-submit-closeout-facts",
+    repoId = workspaceId("submit-closeout-facts"),
+    holder = withPolicyGroup(
+      {
+        actor: { principal: { personId: "owner" }, executor: { kind: "agent" as const, id: "worker" } },
+        source: "local" as const,
+      },
+      "admin",
+    );
+  initRepo(rootDir);
+  git(rootDir, "branch", "-M", "main");
+  writeFileSync(path.join(rootDir, ".gitignore"), "harness/\nledger-data/\n.harness/\n.worktrees/\n");
+  git(rootDir, "add", ".gitignore");
+  git(rootDir, "commit", "-qm", "test: fixture exclusions");
+  mkdirSync(ledger);
+  initRepo(ledger);
+  writeFileSync(path.join(ledger, "harness.yaml"), "settings:\n  closeout:\n    profile: strict\n");
+  const cell = await openBootstrappedRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "submit-closeout-facts-fixture",
+  });
+  try {
+    await seedBuiltinSchedules({ cell, binding: holder });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Auto refresh closeout facts" }, holder);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, holder);
+    const packagePath = String((created as { readonly packagePath?: string }).packagePath);
+    await realizeTaskPlanFixture(
+      rootDir,
+      packagePath,
+      async (documentPath) => {
+        const receipt = await cell.run({ kind: "doc-submit", paths: [documentPath] }, holder);
+        await waitForFixturePublication(cell, receipt.opId, holder);
+        return receipt;
+      },
+      "Auto refresh closeout facts",
+    );
+    const started = await cell.run({ kind: "task-start", taskId, executionId }, holder);
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await waitForFixturePublication(cell, started.opId, holder);
+
+    const worker = path.join(rootDir, ".worktrees", taskId),
+      canonicalCloseout = path.join(ledger, packagePath, "closeout.md"),
+      workerCloseout = path.join(worker, "harness", packagePath, "closeout.md"),
+      staleSha = "1".repeat(40),
+      authoredHeader =
+        "## Summary\n\nAuthored summary prose stays byte-for-byte untouched across submit and amend.\n\n" +
+        "## Verification\n\nIntegration test verifies automatic facts refresh.\n\n" +
+        "## Residual Risk\n\nNone.\n\n" +
+        "## Same Mechanism Elsewhere\n\nShared with PR body facts.\n",
+      staleCloseout = `${authoredHeader}\n${CLOSEOUT_FACTS_START}\n## Delivery Facts\n- Delivery commit: \`${staleSha}\`\n${CLOSEOUT_FACTS_END}\n`;
+
+    writeFileSync(workerCloseout, staleCloseout);
+    mkdirSync(path.join(worker, "src"), { recursive: true });
+    writeFileSync(path.join(worker, "src", "first.ts"), "export const first = 1;\n");
+    git(worker, "add", "src/first.ts");
+    git(worker, "commit", "-qm", "feat: first cut");
+    const firstCommit = git(worker, "rev-parse", "HEAD");
+
+    let firstSubmit = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    for (let attempt = 0; firstSubmit.outcome === "pending" && attempt < 4; attempt += 1) {
+      await waitForFixturePublication(cell, firstSubmit.opId, holder);
+      firstSubmit = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
+    }
+    assert.equal(firstSubmit.outcome, "applied", JSON.stringify(firstSubmit));
+    await waitForFixturePublication(cell, firstSubmit.opId, holder);
+
+    const afterFirst = readFileSync(canonicalCloseout, "utf8");
+    assert.ok(afterFirst.startsWith(authoredHeader), "authored Summary prose preserved byte-for-byte on submit");
+    assert.ok(afterFirst.includes(`Delivery commit: \`${firstCommit}\``), "managed block refreshed to first commit");
+    assert.ok(afterFirst.includes(`"src/first.ts"`), "managed block includes changed path");
+    assert.ok(afterFirst.includes("Submission digest: `sha256:"), "managed block includes submission digest");
+    assert.ok(!afterFirst.includes(staleSha), "stale commit SHA removed");
+    assert.equal(readFileSync(workerCloseout, "utf8"), afterFirst, "worktree closeout matches canonical after submit");
+    const submittedEvents = makeTaskEventReader({ repoId, rootDir })
+      .read()
+      .events.filter((entry) => isTaskEvent(entry) && entry.type === "execution_submitted" && entry.taskId === taskId);
+    assert.equal(submittedEvents.length, 1);
+    assert.equal(
+      submittedEvents[0]!.payload.documentClaims?.some((claim) => claim.path === `${packagePath}/closeout.md`),
+      false,
+      "execution_submitted must not claim closeout.md directly (published via doc-event/v1 preserve=false instead)",
+    );
+
+    // Second commit + submit --amend without editing closeout.md.
+    writeFileSync(path.join(worker, "src", "second.ts"), "export const second = 2;\n");
+    git(worker, "add", "src/second.ts");
+    git(worker, "commit", "-qm", "feat: amended cut");
+    const secondCommit = git(worker, "rev-parse", "HEAD");
+
+    let amendedSubmit = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder);
+    for (let attempt = 0; amendedSubmit.outcome === "pending" && attempt < 4; attempt += 1) {
+      await waitForFixturePublication(cell, amendedSubmit.opId, holder);
+      amendedSubmit = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder);
+    }
+    assert.equal(amendedSubmit.outcome, "applied", JSON.stringify(amendedSubmit));
+    await waitForFixturePublication(cell, amendedSubmit.opId, holder);
+
+    const afterAmend = readFileSync(canonicalCloseout, "utf8");
+    assert.ok(afterAmend.startsWith(authoredHeader), "authored Summary prose preserved byte-for-byte on amend");
+    assert.ok(afterAmend.includes(`Delivery commit: \`${secondCommit}\``), "managed block refreshed to amended commit");
+    assert.ok(afterAmend.includes(`"src/second.ts"`), "managed block includes amended changed path");
+    assert.ok(!afterAmend.includes(firstCommit), "first commit SHA replaced on amend");
+    assert.equal(readFileSync(workerCloseout, "utf8"), afterAmend, "worktree closeout matches canonical after amend");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

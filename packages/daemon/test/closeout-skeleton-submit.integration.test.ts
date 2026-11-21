@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, registerDaemonRepo } from "@harness-anything/storage";
-import { isTaskEvent } from "@harness-anything/kernel";
+import { isTaskEvent, upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
@@ -280,12 +280,20 @@ test(
       await waitForFixturePublication(cell, receipt.opId, binding);
       const shown = await cell.run({ kind: "task-show", taskId }, binding);
       t.diagnostic(`Real task-show receipt: ${JSON.stringify(shown)}`);
+      const shownSnapshot = JSON.parse(String(shown.evidence)),
+        submittedCut = shownSnapshot.executions.find(
+          (candidate: { readonly executionId: string }) => candidate.executionId === executionId,
+        ).submission;
       const published = await execute(
         process.execPath,
         [cli, "--root", rootDir, "doc", "show", "--path", `harness/${packagePath}/closeout.md`, "--raw"],
         { cwd: rootDir, env: publisherEnv },
       );
-      assert.equal(published.stdout, incident, "the accepted closeout is the exact incident body");
+      assert.equal(
+        published.stdout,
+        upsertCloseoutSubmissionFacts(incident, submittedCut),
+        "the accepted closeout preserves the incident body and refreshes managed submission facts",
+      );
       const rendered = await execute(
         process.execPath,
         [path.join(sourceRoot, "tools/gates/render-task-pr-body.mjs"), "--task", taskId],

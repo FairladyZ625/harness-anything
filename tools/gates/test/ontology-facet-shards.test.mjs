@@ -1,11 +1,18 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readWorkspacePackages } from "../../public-workspaces.mjs";
-import { formatOntologyFacetShard, ontologyFacetShardFiles } from "../../refresh-ontology-facets.mjs";
+import {
+  REFRESH_ONTOLOGY_FACETS_REMEDY,
+  checkOntologyFacetShards,
+  formatOntologyFacetShard,
+  ontologyFacetShardFiles,
+  writeOntologyFacetShards,
+} from "../../refresh-ontology-facets.mjs";
 import { auditOntologyClosure } from "../ontology-closure-audit.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { loadOntologyClosureSnapshot } from "../ontology-gate-lib.mjs";
@@ -100,4 +107,34 @@ test("closure rejects tampering with a source or contract loaded from disk shard
     [["ONTOLOGY_JUDGMENT_DUPLICATE", source.candidateId]],
   );
   t.diagnostic(`${contractFindings[0].code} ${contractFindings[0].id}`);
+});
+
+test("refresh CLI --check detects key-order drift with self-heal hint and --write idempotently restores canonical bytes", (t) => {
+  const tempDomain = mkdtempSync(path.join(tmpdir(), "ontology-facet-cli-"));
+  t.after(() => rmSync(tempDomain, { recursive: true, force: true }));
+  for (const family of ["action-source-facets", "source-contract-facets"])
+    cpSync(path.join(domain, family), path.join(tempDomain, family), { recursive: true });
+
+  const script = path.join(repo, "tools/refresh-ontology-facets.mjs"),
+    targetRelative = "action-source-facets/cli.json",
+    targetFile = path.join(tempDomain, targetRelative),
+    canonical = readFileSync(targetFile, "utf8").replaceAll("\r\n", "\n"),
+    parsed = JSON.parse(canonical),
+    reversedKeys = Object.fromEntries(Object.entries(parsed.sources).reverse());
+  writeFileSync(targetFile, `${JSON.stringify({ sources: reversedKeys }, null, 2)}\n`, "utf8");
+
+  assert.equal(checkOntologyFacetShards(tempDomain).ok, false);
+  const failed = spawnSync(process.execPath, [script, "--check", "--domain", tempDomain], { encoding: "utf8" });
+  assert.notEqual(failed.status, 0);
+  assert.match(failed.stderr, new RegExp(targetRelative.replaceAll("/", "\\/"), "u"));
+  assert.ok(failed.stderr.includes(REFRESH_ONTOLOGY_FACETS_REMEDY), failed.stderr);
+
+  const repaired = spawnSync(process.execPath, [script, "--write", "--domain", tempDomain], { encoding: "utf8" });
+  assert.equal(repaired.status, 0, repaired.stderr);
+  assert.equal(readFileSync(targetFile, "utf8"), canonical);
+  assert.deepEqual(writeOntologyFacetShards(tempDomain).updated, []);
+
+  const passed = spawnSync(process.execPath, [script, "--check", "--domain", tempDomain], { encoding: "utf8" });
+  assert.equal(passed.status, 0, passed.stderr);
+  assert.match(passed.stdout, /Ontology facet shards check passed/u);
 });

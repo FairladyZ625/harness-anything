@@ -613,6 +613,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-poll-spin-boundary": "packages/daemon/src/daemon-host/runtime-poll.ts",
     "check-fallback-boundaries": "tools/gates/receipt-verify.mjs",
     "check-entity-doc-contract": "packages/kernel/src/domain/entity-kind-registry.ts",
+    "check-ontology-facets": "packages/kernel/src/domain/action-source-facets/kernel.json",
     "check-format": "packages/cli/src/index.ts",
     lint: "packages/cli/src/index.ts",
     "check-test-tier-manifest": "packages/storage/test/store/task-event-store.test.ts",
