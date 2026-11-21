@@ -13,7 +13,12 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
 import { resolveContainedPath } from "./contained-path.ts";
-import { readDispatchStream, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import {
+  readDispatchStream,
+  readDispatchStreamHeaders,
+  readDispatchStreamSummary,
+  type TrustedManagedCwdKind,
+} from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
@@ -297,6 +302,17 @@ export function dispatchDecisionPackageRoot(
   )
     return packageRoot;
   return null;
+}
+
+/** Managed containment roots authorized strictly by trusted system-materialized cwd provenance. */
+export function managedRootsForTrustedCwd(
+  rootDir: string,
+  trustedManagedCwd?: TrustedManagedCwdKind,
+): readonly string[] {
+  if (trustedManagedCwd === "worktree") return [path.join(rootDir, ".worktrees")];
+  if (trustedManagedCwd === "task-package" || trustedManagedCwd === "decision-package")
+    return [resolveHarnessLayout(rootDir).authoredRoot];
+  return [];
 }
 
 /** Validate a system-materialized directory against the repository root or its declared managed roots. */

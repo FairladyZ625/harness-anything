@@ -9,7 +9,11 @@ import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/daemon-
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
-import { dispatchDecisionPackageRoot, resolveDispatchCwd } from "../src/daemon-host/runtime-resume-admission.ts";
+import {
+  dispatchDecisionPackageRoot,
+  managedRootsForTrustedCwd,
+  resolveDispatchCwd,
+} from "../src/daemon-host/runtime-resume-admission.ts";
 
 test("an unbound runtime inherits its spawning daemon route and runtime actor", async () => {
   const prepared = {
@@ -210,8 +214,53 @@ test(
 
     // Inherited cwd with explicit managed root resolves only while realpath remains inside that managed root.
     assert.equal(
-      resolveDispatchCwd(root, {}, resolvedPackage.cwd, null, undefined, [path.join(root, "harness")]).cwd,
+      resolveDispatchCwd(
+        root,
+        {},
+        resolvedPackage.cwd,
+        null,
+        undefined,
+        managedRootsForTrustedCwd(root, "task-package"),
+      ).cwd,
       resolvedPackage.cwd,
+    );
+    assert.deepEqual(managedRootsForTrustedCwd(root, undefined), []);
+    assert.deepEqual(managedRootsForTrustedCwd(root, "worktree"), [path.join(root, ".worktrees")]);
+    assert.deepEqual(managedRootsForTrustedCwd(root, "task-package"), [path.join(root, "harness")]);
+    assert.deepEqual(managedRootsForTrustedCwd(root, "decision-package"), [path.join(root, "harness")]);
+
+    // A symlinked .worktrees target outside the repository is allowed ONLY with trusted "worktree" provenance,
+    // never for ordinary caller-selected Task-bound cwds (inheritedManagedRoots = []).
+    const externalWorktrees = path.join(parent, "external-worktrees"),
+      externalCheckout = path.join(externalWorktrees, ".review", "task_1", "abc");
+    mkdirSync(externalCheckout, { recursive: true });
+    symlinkSync(externalWorktrees, path.join(root, ".worktrees"), "dir");
+    assert.equal(
+      resolveDispatchCwd(
+        root,
+        {},
+        path.join(root, ".worktrees", ".review", "task_1", "abc"),
+        null,
+        undefined,
+        managedRootsForTrustedCwd(root, "worktree"),
+      ).cwd,
+      realpathSync.native(externalCheckout),
+    );
+    assert.throws(
+      () =>
+        resolveDispatchCwd(
+          root,
+          {},
+          path.join(root, ".worktrees", ".review", "task_1", "abc"),
+          null,
+          undefined,
+          managedRootsForTrustedCwd(root, undefined),
+        ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd must stay inside the repository.",
     );
 
     // Missing inherited cwd fails with directory-does-not-exist instead of containment escape.

@@ -31,7 +31,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
 import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from "./task-delivery-containment.ts";
 import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
-import { activeCutReviewDispatches, latestFailedCutReviewDispatch } from "./review-dispatch-state.ts";
+import { cutReviewTargetKey, readCutReviewDispatchStates } from "@harness-anything/application/queries";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -94,33 +94,44 @@ export function readCompletionContext(
               reviewsForExecution(snapshot.reviews, execution).length === 0,
           )
         : undefined,
+    reviewCutStates =
+      snapshot.task?.status === "in_review" && closeoutGates.review !== false
+        ? readCutReviewDispatchStates(
+            projection,
+            snapshot.executions
+              .filter(isNativeExecution)
+              .filter((execution) => execution.iteration === snapshot.task?.iteration && execution.submission !== null)
+              .map((execution) => ({
+                taskId,
+                execution,
+                ...(snapshot.task?.reviewDispatchFailure
+                  ? { recordedFailure: snapshot.task.reviewDispatchFailure }
+                  : {}),
+              })),
+          )
+        : null,
+    unreviewedCut =
+      snapshot.task?.status === "in_review" && closeoutGates.review !== false
+        ? snapshot.executions
+            .filter(isNativeExecution)
+            .find(
+              (execution) =>
+                execution.iteration === snapshot.task?.iteration &&
+                execution.submission !== null &&
+                !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
+            )
+        : undefined,
     common = {
       ...(actor === undefined ? {} : { actor }),
       activeReviewDispatchIds:
-        snapshot.task?.status === "in_review" && closeoutGates.review !== false
-          ? snapshot.executions.flatMap((execution) =>
-              isNativeExecution(execution) && execution.iteration === snapshot.task?.iteration && execution.submission
-                ? activeCutReviewDispatches({ projection }, taskId, execution).map(
-                    ({ event }) => event.payload.dispatchId,
-                  )
-                : [],
-            )
-          : [],
+        reviewCutStates === null
+          ? []
+          : [...reviewCutStates.values()].flatMap(({ activeDispatches }) =>
+              activeDispatches.map(({ event }) => event.payload.dispatchId),
+            ),
       latestReviewDispatchFailure:
-        snapshot.task?.status === "in_review" && closeoutGates.review !== false
-          ? (() => {
-              const reviewCut = snapshot.executions
-                .filter(isNativeExecution)
-                .find(
-                  (execution) =>
-                    execution.iteration === snapshot.task?.iteration &&
-                    execution.submission !== null &&
-                    !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
-                );
-              return reviewCut
-                ? latestFailedCutReviewDispatch({ projection }, taskId, reviewCut, snapshot.task.reviewDispatchFailure)
-                : null;
-            })()
+        unreviewedCut && reviewCutStates !== null
+          ? (reviewCutStates.get(cutReviewTargetKey(taskId, unreviewedCut.executionId))?.latestFailure ?? null)
           : null,
       closeoutGates,
       ...(executorlessReview

@@ -137,6 +137,8 @@ const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
 
+export type TrustedManagedCwdKind = "worktree" | "task-package" | "decision-package";
+
 export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly handoffEnabled?: boolean;
   readonly schema: typeof streamSchema;
@@ -147,8 +149,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
     | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
-  /** True only when the trusted internal Decision review entry materialized and authorized the package cwd. */
-  readonly trustedDecisionPackage?: true;
+  /** Provenance of a system-materialized managed cwd; absent for repo-root or caller-selected cwds. */
+  readonly trustedManagedCwd?: TrustedManagedCwdKind;
   readonly leaseVersion?: number;
   readonly schedule?: {
     readonly scheduleId: string;
@@ -1450,6 +1452,10 @@ function isHeader(value: Record<string, unknown> | null): value is Record<string
     typeof value.startedAt === "string" &&
     (value.stallTimeoutMs === undefined ||
       (Number.isSafeInteger(value.stallTimeoutMs) && Number(value.stallTimeoutMs) >= 10_000)) &&
+    (value.trustedManagedCwd === undefined ||
+      value.trustedManagedCwd === "worktree" ||
+      value.trustedManagedCwd === "task-package" ||
+      value.trustedManagedCwd === "decision-package") &&
     typeof value.eventStreamRef === "string"
   );
 }

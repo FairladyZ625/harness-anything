@@ -1017,3 +1017,39 @@ export function isDispatchAttemptExitedUnsettled(view: DispatchLifecycleView): b
 export function isDispatchAttemptCancelled(view: DispatchLifecycleView): boolean {
   return view.attempt.outcome === "cancelled";
 }
+
+type DispatchAttemptFallbackState = NonNullable<
+  Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>["payload"]["attempt"]
+>["fallbackState"];
+
+/** True when a settled dispatch group ended in failure or exhausted fallback (excluding succeeded, cancelled, and stopped). */
+export function isSettledDispatchFailure(
+  view: DispatchLifecycleView,
+  attempt?: { readonly fallbackState?: DispatchAttemptFallbackState } | null,
+): boolean {
+  return (
+    view.policy.groupSettled &&
+    (view.attempt.outcome === "failed" ||
+      (view.attempt.outcome === "unknown" && attempt?.fallbackState === "exhausted"))
+  );
+}
+
+/** True when a durable terminal payload closes a waiting_backoff fallback group as exhausted. */
+export function isExhaustedDispatchTerminal(
+  terminal?: {
+    readonly payload?: { readonly attempt?: { readonly fallbackState?: DispatchAttemptFallbackState } };
+  } | null,
+): boolean {
+  return terminal?.payload?.attempt?.fallbackState === "exhausted";
+}
+
+/** Returns the earliest retry timestamp when a fallback disposition scheduled a continuation, else null. */
+export function scheduledFallbackNotBefore(
+  disposition?: {
+    readonly fallbackState?: DispatchAttemptFallbackState;
+    readonly fallbackSchedule?: { readonly notBeforeAt: string };
+  } | null,
+  fallbackAt = "",
+): string | null {
+  return disposition?.fallbackState === "scheduled" ? (disposition.fallbackSchedule?.notBeforeAt ?? fallbackAt) : null;
+}

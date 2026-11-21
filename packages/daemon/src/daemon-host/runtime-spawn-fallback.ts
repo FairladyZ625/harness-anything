@@ -19,6 +19,7 @@ import {
   type DispatchStreamHeader,
   type DispatchStreamWriter,
   type DispatchTerminalOutcome,
+  type TrustedManagedCwdKind,
 } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -34,6 +35,8 @@ import { existsSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import {
   consumeKnownError,
+  isExhaustedDispatchTerminal,
+  scheduledFallbackNotBefore,
   sha256Text,
   type AgentRuntimeEventV1,
   type DispatchLifecycleView,
@@ -570,7 +573,7 @@ export async function scheduleFallbackContinuation(args: {
     workspaceProgress: RuntimeWorkspaceProgress,
     inheritedCwd?: string,
     preparedWorktree?: TaskWorktreeCheckout | null,
-    trustedDecisionReview?: boolean,
+    trustedManagedCwd?: TrustedManagedCwdKind,
   ) => Promise<unknown>;
   readonly ensureFallbackWorktree?: (input: {
     readonly role?: string;
@@ -625,8 +628,8 @@ export async function scheduleFallbackContinuation(args: {
     await releaseFallbackResources(context, settled.rows[0], header.role, header.cwd);
     return true;
   };
-  // Replay durable event bytes first; only the center decides whether they close the group.
-  if (stream.terminalOutcome && (await publishTerminal(stream.terminalOutcome))) return;
+  // Replay durable exhaustion bytes first; only an exhausted terminal can close a waiting_backoff group.
+  if (isExhaustedDispatchTerminal(stream.terminalOutcome) && (await publishTerminal(stream.terminalOutcome!))) return;
   const plan = lifecycle.successor.schedule;
   if (!plan) throw runtimeSpawnError("runtime_event_missing", `Fallback ${args.dispatchId} has no schedule data.`);
   const notBeforeMs = Date.parse(plan.notBeforeAt);
@@ -679,7 +682,7 @@ export async function scheduleFallbackContinuation(args: {
         if (!currentGroup?.policy.fallbackPending || currentGroup.controlLeafDispatchId !== args.dispatchId) return;
         const currentStream = readDispatchStream(input.rootDir, args.dispatchId),
           terminal = currentStream?.terminalOutcome;
-        if (terminal && (await publishTerminal(terminal))) return;
+        if (isExhaustedDispatchTerminal(terminal) && (await publishTerminal(terminal!))) return;
         if (Date.parse(input.now()) < notBeforeMs) return scheduleFallbackContinuation(args);
         const dispatchCwd = header.cwd!,
           fallback = header.fallbackAttempt!,
@@ -782,7 +785,7 @@ export async function scheduleFallbackContinuation(args: {
             workspaceProgress,
             ensuredWorktree ? ensuredWorktree.cwd : dispatchCwd,
             ensuredWorktree,
-            header.trustedDecisionPackage === true,
+            ensuredWorktree ? "worktree" : header.trustedManagedCwd,
           );
         } catch (error) {
           consumeKnownError(error);
@@ -964,8 +967,31 @@ export async function settleStartRejectedAttempt(args: {
   if (lifecycle?.policy.groupSettled) {
     await releaseFallbackResources(context, lifecycle, role, cwd, lifecycle.groupDispatchIds.length > 1);
     if (lifecycle.groupDispatchIds.length <= 1) removeDispatchStream(input.rootDir, dispatchId);
-  } else {
-    removeDispatchStream(input.rootDir, dispatchId);
+    return { fallbackPending: false };
+  }
+  // Center lifecycle is pending or has not yet projected this dispatch. Preserve the node-local
+  // dispatch stream and review checkout so reconcileFallback or restart adoption can finish recovery.
+  const scheduledNotBefore = scheduledFallbackNotBefore(fallback ?? null, endedAt);
+  if (scheduledNotBefore !== null) {
+    if (!context.closed?.() && !context.closeSignal?.aborted) {
+      const signal = context.closeSignal,
+        delayMs = Math.min(Math.max(0, Date.parse(scheduledNotBefore) - Date.parse(input.now())), 2_147_483_647);
+      let detachAbort: (() => void) | undefined;
+      const timer = setTimeout(() => {
+        detachAbort?.();
+        if (context.closed?.() || signal?.aborted) return;
+        input.schedule(async () => {
+          await context.reconcileFallback(dispatchId);
+        }, binding);
+      }, delayMs);
+      timer.unref();
+      if (signal) {
+        const onAbort = (): void => clearTimeout(timer);
+        signal.addEventListener("abort", onAbort, { once: true });
+        detachAbort = () => signal.removeEventListener("abort", onAbort);
+      }
+    }
+    return { fallbackPending: true };
   }
   return { fallbackPending: false };
 }

@@ -7,7 +7,7 @@ import {
   readAttestationPool,
   type CollaboratorTaskScope,
 } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
-import { activeCutReviewDispatches, latestFailedCutReviewDispatch } from "./review-dispatch-state.ts";
+import { cutReviewTargetKey, readCutReviewDispatchStates } from "@harness-anything/application/queries";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -918,37 +918,46 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
       // The durable cut is the blocker: a missing/failed dispatch needs no separate mutable flag.
-      // Reuse dispatch admission's definition of an active review so recovery removes this attention row.
+      // Reuse the application batch read so active detection and failure selection share one lifecycle lookup.
       undispatchedReviews = attentionOnly
         ? []
-        : underReview.flatMap((row) => {
-            const snapshot = projection.read(row.taskId).snapshot,
-              execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
-            if (
-              !execution?.submission ||
-              hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions) ||
-              activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
-            )
-              return [];
-            const failure = latestFailedCutReviewDispatch(
-              { projection },
-              row.taskId,
-              execution,
-              snapshot.task?.reviewDispatchFailure,
-            );
-            return [
-              {
-                taskId: row.taskId,
-                since: row.submittedAt,
-                title:
-                  `${row.title} — CEO: required review has no active dispatch` +
-                  (failure
-                    ? `; ${reviewDispatchFailureWarning({ code: failure.code ?? "review_dispatch_failed", message: failure.reason })}`
-                    : "") +
-                  `; run ha task dispatch-review ${row.taskId}.`,
-              },
-            ];
-          }),
+        : (() => {
+            const unreviewedCandidates = underReview.flatMap((row) => {
+                const snapshot = projection.read(row.taskId).snapshot,
+                  execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
+                if (
+                  !execution?.submission ||
+                  hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions)
+                )
+                  return [];
+                return [{ row, execution, recordedFailure: snapshot.task?.reviewDispatchFailure }];
+              }),
+              cutStates = readCutReviewDispatchStates(
+                projection,
+                unreviewedCandidates.map(({ row, execution, recordedFailure }) => ({
+                  taskId: row.taskId,
+                  execution,
+                  ...(recordedFailure ? { recordedFailure } : {}),
+                })),
+              );
+            return unreviewedCandidates.flatMap(({ row, execution }) => {
+              const state = cutStates.get(cutReviewTargetKey(row.taskId, execution.executionId));
+              if (state && state.activeDispatches.length > 0) return [];
+              const failure = state?.latestFailure ?? null;
+              return [
+                {
+                  taskId: row.taskId,
+                  since: row.submittedAt,
+                  title:
+                    `${row.title} — CEO: required review has no active dispatch` +
+                    (failure
+                      ? `; ${reviewDispatchFailureWarning({ code: failure.code ?? "review_dispatch_failed", message: failure.reason })}`
+                      : "") +
+                    `; run ha task dispatch-review ${row.taskId}.`,
+                },
+              ];
+            });
+          })(),
       // 形状信号:同一任务第二次 escalation 起,默认视为同一族问题(实测问句文本相似度分不出族:
       // task_9e275cf8 八次同族两两 0.02–0.20,别的任务不同族可达 0.42),由 CEO 的前提复核判定;
       // 晚于最近一次 escalation 的 continue/narrow 复核使其出列。

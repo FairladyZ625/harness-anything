@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
@@ -114,6 +114,19 @@ export function assertPhysicalReviewReport(input: {
   };
 }
 
+function insideAnyWorkspaceRoot(roots: readonly string[], candidate: string): boolean {
+  return roots.some((rootDir) => insideWorkspace(rootDir, candidate));
+}
+
+function realWorkspaceRoots(rootDir: string): readonly string[] {
+  const roots = [realpathSync(rootDir)],
+    authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
+  if (existsSync(authoredRoot)) {
+    const realAuthoredRoot = realpathSync(authoredRoot);
+    if (!roots.includes(realAuthoredRoot)) roots.push(realAuthoredRoot);
+  }
+  return roots;
+}
 /** A path is a reviewer artifact only when it stays inside the workspace boundary. */
 function insideWorkspace(rootDir: string, candidate: string): boolean {
   const root = path.resolve(rootDir);
@@ -145,10 +158,11 @@ export function reviewerArtifactFiles(input: {
       ? path.resolve(requested)
       : path.join(authoredRoot, ...packet.split("/")),
     reportAbsolute = `${packetAbsolute.slice(0, -".json".length)}.md`,
+    allowedRoots = [input.rootDir, authoredRoot, ...realWorkspaceRoots(input.rootDir)],
     named =
       requested.replace(/^harness\//u, "") === packet ||
       (path.isAbsolute(requested) &&
-        insideWorkspace(input.rootDir, packetAbsolute) &&
+        insideAnyWorkspaceRoot(allowedRoots, packetAbsolute) &&
         packetAbsolute.replace(/\\/gu, "/").endsWith(`/${packet}`));
   return named ? { packet, report, packetAbsolute, reportAbsolute } : null;
 }
@@ -253,10 +267,10 @@ export function reviewerArtifactsForReview(
         `Reviewer artifact ${candidate} must be a regular file, not a symbolic link.`,
       );
   }
-  const realWorkspaceRoot = realpathSync(cell.rootDir);
+  const allowedRealRoots = realWorkspaceRoots(cell.rootDir);
   const readReviewArtifact = (absolute: string): string => {
     const real = realpathSync(absolute);
-    if (real !== realWorkspaceRoot && !real.startsWith(`${realWorkspaceRoot}${path.sep}`))
+    if (!insideAnyWorkspaceRoot(allowedRealRoots, real))
       throw cell.cellCodedError("invalid_command", "Reviewer artifact must stay inside the reviewer workspace.");
     return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(real));
   };
