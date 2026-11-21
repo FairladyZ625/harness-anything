@@ -31,7 +31,11 @@ export async function dispatchCenterRuntimeControl(
   }
 }
 
-export function runtimeControlReceiptOpId(repoId: string, eventType: string, payload: JsonObject): string | null {
+export function runtimeControlReceiptOpId(
+  repoId: string,
+  eventType: string,
+  payload: Readonly<Record<string, unknown>>,
+): string | null {
   if (
     (eventType !== "runtime_session_liveness_changed" && eventType !== "runtime_session_provider_bound") ||
     typeof payload.runtimeSessionId !== "string" ||
@@ -40,11 +44,15 @@ export function runtimeControlReceiptOpId(repoId: string, eventType: string, pay
     Array.isArray(payload.controlReceipt)
   )
     return null;
-  const requestOpId = (payload.controlReceipt as JsonObject).requestOpId;
+  const requestOpId = (payload.controlReceipt as { readonly requestOpId?: unknown }).requestOpId;
   return typeof requestOpId === "string" ? steerReceiptOpId(repoId, payload.runtimeSessionId, requestOpId) : null;
 }
 
-export function runtimeEventStorageOpId(repoId: string, eventType: string, payload: JsonObject): string {
+export function runtimeEventStorageOpId(
+  repoId: string,
+  eventType: string,
+  payload: Readonly<Record<string, unknown>>,
+): string {
   if (eventType === "runtime_squad_run_observed")
     return squadObservationEventOpId(payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">);
   return runtimeControlReceiptOpId(repoId, eventType, payload) ?? randomUUID();
