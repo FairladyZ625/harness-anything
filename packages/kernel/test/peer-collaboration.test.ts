@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { baseEntityPolicyActions, requireEntityKindContract } from "../src/domain/entity-kind-registry.ts";
+import { parseEntityJsonSchema } from "../src/domain/entity-json-schema.ts";
 import {
   classifyPeerIntentRiskTier,
   evaluatePeerExecutionCeiling,
@@ -169,6 +170,24 @@ test("the active claimant can answer, reject, or promote the request", () => {
         envelope("peer_request_promoted", terminal as EventOf<"peer_request_promoted">["payload"]),
       ),
     { code: "peer_request_promotion_task_required" },
+  );
+});
+
+test("registered PeerRequest decoding enforces the PROMOTED task-id discriminator", () => {
+  const schema = requireEntityKindContract("peer-request").schema;
+  const promoted = reducePeerRequestEvent(
+    claimedRequest(),
+    envelope("peer_request_promoted", { ...terminal, promotedTaskId: "task_123" }),
+  );
+
+  assert.deepEqual(parseEntityJsonSchema(schema, promoted), promoted);
+  assert.throws(
+    () => parseEntityJsonSchema(schema, { ...promoted, promotedTaskId: null }),
+    { code: "invalid_entity_contract" },
+  );
+  assert.throws(
+    () => parseEntityJsonSchema(schema, { ...promoted, state: "DONE", promotedTaskId: "task_123" }),
+    { code: "invalid_entity_contract" },
   );
 });
 

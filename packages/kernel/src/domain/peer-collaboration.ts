@@ -236,6 +236,23 @@ const requestFields = objectFields(
   ["requestId", "from", "to", "kind", "summary", "structuredBody", "attachments"],
 );
 const schemaDialect = "https://json-schema.org/draft/2020-12/schema" as const;
+const promotedTaskDiscriminator = [
+  {
+    type: "object",
+    properties: { state: { type: "string", const: "PROMOTED" }, promotedTaskId: idField },
+    required: ["state", "promotedTaskId"],
+    additionalProperties: true,
+  },
+  {
+    type: "object",
+    properties: {
+      state: { type: "string", enum: peerRequestStates.filter((state) => state !== "PROMOTED") },
+      promotedTaskId: { type: "null" },
+    },
+    required: ["state", "promotedTaskId"],
+    additionalProperties: true,
+  },
+] as const;
 
 export const peerRequestV1JsonSchema: EntityDocumentJsonSchema<PeerRequestV1> = {
   $schema: schemaDialect,
@@ -264,6 +281,7 @@ export const peerRequestV1JsonSchema: EntityDocumentJsonSchema<PeerRequestV1> = 
       "promotedTaskId",
     ],
   ),
+  oneOf: promotedTaskDiscriminator,
 };
 
 const terminalFields = { requestId: idField, claimId: textField };
