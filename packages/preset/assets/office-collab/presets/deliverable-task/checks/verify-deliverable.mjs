@@ -183,25 +183,82 @@ function stripHtmlComments(text) {
   return out;
 }
 
+const VOID_HTML_TAGS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr",
+]);
+const NON_BODY_HTML_TAGS = new Set([
+  "style",
+  "script",
+  "template",
+  "head",
+  "title",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+]);
+const HTML_ATTR_RE =
+  /[ \t\r\n]+([A-Za-z_:][A-Za-z0-9_.:-]*)(?:[ \t\r\n]*=[ \t\r\n]*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?/gu;
+
 function matchInlineHtmlAt(text, start) {
   if (text[start] !== "<") return null;
   const tail = text.slice(start);
   const comment = /^<!--(?:>|->|[\s\S]*?-->)/u.exec(tail);
-  if (comment) return { length: comment[0].length, visible: "" };
+  if (comment) return { length: comment[0].length, visible: "", kind: "other" };
   const cdata = /^<!\[CDATA\[([\s\S]*?)\]\]>/u.exec(tail);
-  if (cdata) return { length: cdata[0].length, visible: cdata[1] };
+  if (cdata) return { length: cdata[0].length, visible: cdata[1], kind: "other" };
   const pi = /^<\?[\s\S]*?\?>/u.exec(tail);
-  if (pi) return { length: pi[0].length, visible: "" };
+  if (pi) return { length: pi[0].length, visible: "", kind: "other" };
   const decl = /^<![A-Za-z][^>]*>/u.exec(tail);
-  if (decl) return { length: decl[0].length, visible: "" };
+  if (decl) return { length: decl[0].length, visible: "", kind: "other" };
   const openTag =
-    /^<[A-Za-z][A-Za-z0-9-]*(?:[ \t\r\n]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t\r\n]*=[ \t\r\n]*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t\r\n]*\/?>/u.exec(
+    /^<([A-Za-z][A-Za-z0-9-]*)((?:[ \t\r\n]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t\r\n]*=[ \t\r\n]*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*)[ \t\r\n]*(\/?)>/u.exec(
       tail,
     );
-  if (openTag) return { length: openTag[0].length, visible: "" };
-  const closeTag = /^<\/[A-Za-z][A-Za-z0-9-]*[ \t\r\n]*>/u.exec(tail);
-  if (closeTag) return { length: closeTag[0].length, visible: "" };
+  if (openTag) {
+    const tag = openTag[1].toLowerCase();
+    const selfClosing = openTag[3] === "/" || VOID_HTML_TAGS.has(tag);
+    const hiddenAttr =
+      openTag[2].length > 0 &&
+      Array.from(openTag[2].matchAll(HTML_ATTR_RE), (match) => match[1].toLowerCase()).includes("hidden");
+    const suppressed = NON_BODY_HTML_TAGS.has(tag) || hiddenAttr;
+    return { length: openTag[0].length, visible: "", kind: "open", tag, selfClosing, suppressed };
+  }
+  const closeTag = /^<\/([A-Za-z][A-Za-z0-9-]*)[ \t\r\n]*>/u.exec(tail);
+  if (closeTag) return { length: closeTag[0].length, visible: "", kind: "close", tag: closeTag[1].toLowerCase() };
   return null;
+}
+
+function applyHtmlTagToSuppression(stack, html) {
+  if (html.kind === "open" && !html.selfClosing) {
+    stack.push({ tag: html.tag, suppressed: html.suppressed });
+  } else if (html.kind === "close") {
+    for (let idx = stack.length - 1; idx >= 0; idx -= 1) {
+      if (stack[idx].tag === html.tag) {
+        stack.length = idx;
+        break;
+      }
+    }
+  }
+}
+
+function isHtmlSuppressed(stack) {
+  return stack.some((frame) => frame.suppressed);
 }
 
 function matchAutolinkAt(text, start) {
@@ -219,17 +276,19 @@ function matchAutolinkAt(text, start) {
 
 function stripHtmlCommentsAndTags(text) {
   let out = "";
+  const stack = [];
   let i = 0;
   while (i < text.length) {
     if (text[i] === "<") {
       const html = matchInlineHtmlAt(text, i);
       if (html) {
-        out += html.visible;
+        if (!isHtmlSuppressed(stack)) out += html.visible;
+        applyHtmlTagToSuppression(stack, html);
         i += html.length;
         continue;
       }
     }
-    out += text[i];
+    if (!isHtmlSuppressed(stack)) out += text[i];
     i += 1;
   }
   return stripHtmlComments(out);
@@ -726,8 +785,9 @@ function isUnicodePunctuation(ch) {
 
 function extractVisibleInlineText(text, definitions) {
   const tokens = [];
+  const htmlStack = [];
   const pushText = (value) => {
-    if (value.length > 0) tokens.push({ kind: "text", value });
+    if (value.length > 0 && !isHtmlSuppressed(htmlStack)) tokens.push({ kind: "text", value });
   };
   let i = 0;
   while (i < text.length) {
@@ -763,6 +823,7 @@ function extractVisibleInlineText(text, definitions) {
       const html = matchInlineHtmlAt(text, i);
       if (html) {
         pushText(html.visible);
+        applyHtmlTagToSuppression(htmlStack, html);
         i += html.length;
         continue;
       }
@@ -800,17 +861,19 @@ function extractVisibleInlineText(text, definitions) {
     if (ch === "*" || ch === "_") {
       let run = 0;
       while (i + run < text.length && text[i + run] === ch) run += 1;
-      const before = i > 0 ? text[i - 1] : undefined;
-      const after = i + run < text.length ? text[i + run] : undefined;
-      const leftFlanking =
-        !isUnicodeWhitespace(after) &&
-        (!isUnicodePunctuation(after) || isUnicodeWhitespace(before) || isUnicodePunctuation(before));
-      const rightFlanking =
-        !isUnicodeWhitespace(before) &&
-        (!isUnicodePunctuation(before) || isUnicodeWhitespace(after) || isUnicodePunctuation(after));
-      const canOpen = ch === "_" ? leftFlanking && (!rightFlanking || isUnicodePunctuation(before)) : leftFlanking;
-      const canClose = ch === "_" ? rightFlanking && (!leftFlanking || isUnicodePunctuation(after)) : rightFlanking;
-      tokens.push({ kind: "delim", char: ch, count: run, originalCount: run, canOpen, canClose });
+      if (!isHtmlSuppressed(htmlStack)) {
+        const before = i > 0 ? text[i - 1] : undefined;
+        const after = i + run < text.length ? text[i + run] : undefined;
+        const leftFlanking =
+          !isUnicodeWhitespace(after) &&
+          (!isUnicodePunctuation(after) || isUnicodeWhitespace(before) || isUnicodePunctuation(before));
+        const rightFlanking =
+          !isUnicodeWhitespace(before) &&
+          (!isUnicodePunctuation(before) || isUnicodeWhitespace(after) || isUnicodePunctuation(after));
+        const canOpen = ch === "_" ? leftFlanking && (!rightFlanking || isUnicodePunctuation(before)) : leftFlanking;
+        const canClose = ch === "_" ? rightFlanking && (!leftFlanking || isUnicodePunctuation(after)) : rightFlanking;
+        tokens.push({ kind: "delim", char: ch, count: run, originalCount: run, canOpen, canClose });
+      }
       i += run;
       continue;
     }
@@ -1087,14 +1150,13 @@ function nodeHasVisibleContent(node, definitions) {
   switch (node.type) {
     case "definition":
     case "thematicBreak":
+    case "heading":
       return false;
     case "code":
       return hasVisibleText(node.value);
     case "html":
       return hasVisibleText(decodeCharacterReferences(stripHtmlCommentsAndTags(node.value)));
     case "paragraph":
-      return hasVisibleText(extractVisibleInlineText(node.text, definitions));
-    case "heading":
       return hasVisibleText(extractVisibleInlineText(node.text, definitions));
     case "blockquote":
     case "listItem":

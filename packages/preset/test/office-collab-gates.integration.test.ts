@@ -514,6 +514,51 @@ test("frozen preset process executes office/collab gates: red blocks completion 
       }),
       [],
     );
+
+    // 5. Scale test (HA09-15): 450 aligned upstream baselines stay within the production 64 KiB resultBytes limit
+    const largeRefSha = sha256("# Shared Upstream Baseline\nFrozen v1.\n");
+    const largeBaselines = Array.from({ length: 450 }, (_, idx) => ({
+      ref: `projects/office-collaboration/release-plan/reference-${idx}.md`,
+      expectedSha256: largeRefSha,
+    }));
+    const largeCanonical = Object.fromEntries(
+      largeBaselines.map(({ ref }) => [ref, { path: ref, revision: 12, blobSha256: largeRefSha }]),
+    );
+    const largeUpstreamArtifacts = {
+      "artifacts/upstream-freshness.json": JSON.stringify({
+        schema: "office-collab/upstream-freshness/v1",
+        checkedAt: "2026-11-21T09:10:00Z",
+        baselines: largeBaselines,
+      }),
+    };
+    const largePass = await runFrozenGate(
+      "upstream-fresh",
+      "office-collab/upstream-fresh",
+      "deliverable-task",
+      "verify-upstream-fresh",
+      "upstream-450-pass",
+      largeUpstreamArtifacts,
+      largeCanonical,
+    );
+    assert.equal(largePass.witness.result, "pass", largePass.witness.diagnostic);
+    assert.equal(largePass.witness.predicate.baselineCount, 450);
+    assert.deepEqual(largePass.predicateIssues, []);
+
+    const driftedLastRef = largeBaselines[449]!.ref;
+    const largeDrift = await runFrozenGate(
+      "upstream-fresh",
+      "office-collab/upstream-fresh",
+      "deliverable-task",
+      "verify-upstream-fresh",
+      "upstream-450-drift",
+      largeUpstreamArtifacts,
+      {
+        ...largeCanonical,
+        [driftedLastRef]: { path: driftedLastRef, revision: 13, blobSha256: sha256("Drifted v2\n") },
+      },
+    );
+    assert.equal(largeDrift.witness.result, "fail");
+    assert.match(largeDrift.witness.diagnostic, /Live upstream drift/u);
   } finally {
     await service.close();
     rmSync(rootDir, { recursive: true, force: true });

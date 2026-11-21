@@ -9,6 +9,7 @@ import {
   currentGateRun,
   gateAppliesToSubmission,
   isHumanAttestationWitness,
+  sha256Bytes,
   validCompletionWitnessResult,
   type CompletionEvidenceV1,
   type CompletionWitnessResult,
@@ -32,6 +33,7 @@ interface LiveCanonicalDocumentAnchor {
 }
 
 const UPSTREAM_FRESH_PREDICATE_TYPE = "office-collab/upstream-fresh/v1";
+const UPSTREAM_FRESH_MANIFEST_PATH = "artifacts/upstream-freshness.json";
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const SAFE_CANONICAL_REF = /^(?!\/)(?:(?!\.\.?\/)[^/\\:<>"|?*\0]+\/)*(?!\.\.?$)[^/\\:<>"|?*\0]+$/u;
 const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
@@ -84,19 +86,40 @@ function canonicalBaselinePath(packagePath: string, item: Record<string, unknown
   return item.sourcePath === undefined ? ref : null;
 }
 
+function isUpstreamFreshRequirement(requirement: FrozenGateRequirement): boolean {
+  return requirement.witness.kind === "command" && requirement.witness.predicateType === UPSTREAM_FRESH_PREDICATE_TYPE;
+}
+
+function extractUpstreamManifestAnchors(
+  packagePath: string,
+  bytes: Uint8Array,
+): { readonly anchors: ReadonlyArray<readonly [string, string]>; readonly anchorsDigest: string } | null {
+  const parsed = parseJsonRecord(bytes);
+  if (!parsed.ok || !Array.isArray(parsed.value.baselines) || parsed.value.baselines.length === 0) return null;
+  const anchors: Array<readonly [string, string]> = [];
+  for (const entry of parsed.value.baselines) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+    const record = entry as Record<string, unknown>;
+    const ref = canonicalBaselinePath(packagePath, record);
+    const expectedSha256 =
+      typeof record.expectedSha256 === "string" && SHA256_RE.test(record.expectedSha256) ? record.expectedSha256 : null;
+    if (!ref || !expectedSha256) return null;
+    anchors.push([ref, expectedSha256]);
+  }
+  const anchorsDigest = sha256Bytes(Buffer.from(JSON.stringify(anchors), "utf8"));
+  return { anchors, anchorsDigest };
+}
+
 function resolveLiveCanonicalDocuments(
   cell: RepoCellOperationalContext,
   requirement: FrozenGateRequirement,
   packagePath: string,
   subjects: readonly { readonly path: string }[],
   accepted: ReadonlyMap<string, Uint8Array>,
-): Record<string, LiveCanonicalDocumentAnchor | null> {
+): Record<string, LiveCanonicalDocumentAnchor | null> | undefined {
+  if (!isUpstreamFreshRequirement(requirement)) return undefined;
   const paths = new Set<string>();
-  const isUpstreamFreshGate =
-    requirement.witness.kind === "command" && requirement.witness.predicateType === UPSTREAM_FRESH_PREDICATE_TYPE;
   for (const subject of subjects) {
-    paths.add(subject.path);
-    if (!isUpstreamFreshGate) continue;
     const bytes = accepted.get(subject.path);
     if (!bytes) continue;
     const parsed = parseJsonRecord(bytes);
@@ -121,9 +144,9 @@ function resolveLiveCanonicalDocuments(
 }
 
 /**
- * Verifies every live canonical upstream anchor emitted by a passing `office-collab/upstream-fresh/v1`
- * witness atomically inside the serial RepoCell `completeTask` write path, without mutating gate runs
- * or affecting unrelated command gates.
+ * Verifies every live canonical upstream anchor pinned by a passing `office-collab/upstream-fresh/v1`
+ * witness atomically inside the serial RepoCell `completeTask` write path, reconstructing anchors from
+ * the pinned frozen manifest so the witness frame stays O(1) within the 64 KiB execution budget.
  */
 export function liveUpstreamFreshnessBlocker(
   cell: RepoCellOperationalContext,
@@ -136,12 +159,10 @@ export function liveUpstreamFreshnessBlocker(
       value.schema === "execution/v1" && value.executionId === executionId && value.iteration === task?.iteration,
   );
   if (!task || !execution?.submission) return null;
+  let packagePath: string | null | undefined;
+  let readArtifact: ReturnType<typeof createSubmissionArtifactReader> | undefined;
   for (const requirement of execution.submission.completionContract.gates) {
-    if (
-      !gateAppliesToSubmission(requirement, execution.submission) ||
-      requirement.witness.kind !== "command" ||
-      requirement.witness.predicateType !== UPSTREAM_FRESH_PREDICATE_TYPE
-    ) {
+    if (!gateAppliesToSubmission(requirement, execution.submission) || !isUpstreamFreshRequirement(requirement)) {
       continue;
     }
     const activeRun = currentGateRun(execution, requirement.gateId);
@@ -158,66 +179,74 @@ export function liveUpstreamFreshnessBlocker(
       )
       .at(-1);
     if (!witness || witness.result !== "pass") continue;
-    const rawAnchors = witness.predicate?.verifiedAnchors;
     const rerunAction =
       `ha task witness-rerun ${task.taskId} --execution-id ${executionId} ` +
       `--gate ${requirement.gateId} --run-id ${activeRun.runId} --reason <reason>`;
-    if (!Array.isArray(rawAnchors) || rawAnchors.length === 0) {
-      return {
-        code: "gate_witness_missing",
-        gate: requirement.gateId,
-        next: completionGuidance(
-          snapshot,
-          executionId,
-          rerunAction,
-          `Upstream freshness witness for ${requirement.gateId} lacks verifiedAnchors; rerun ${requirement.gateId} before completion.`,
-        ),
-      };
+    const blocker = (reason: string) => ({
+      code: "gate_witness_missing" as const,
+      gate: requirement.gateId,
+      next: completionGuidance(snapshot, executionId, rerunAction, reason),
+    });
+    const predicateDigest =
+      typeof witness.predicate?.anchorsDigest === "string" && SHA256_RE.test(witness.predicate.anchorsDigest)
+        ? witness.predicate.anchorsDigest
+        : null;
+    const baselineCount =
+      typeof witness.predicate?.baselineCount === "number" &&
+      Number.isSafeInteger(witness.predicate.baselineCount) &&
+      witness.predicate.baselineCount > 0
+        ? witness.predicate.baselineCount
+        : null;
+    if (!predicateDigest || baselineCount === null) {
+      return blocker(
+        `Upstream freshness witness for ${requirement.gateId} lacks a valid anchorsDigest; rerun ${requirement.gateId} before completion.`,
+      );
     }
-    for (const entry of rawAnchors) {
-      const record =
-        entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>) : null;
-      const ref = record ? normalizeLedgerPath(record.ref) : null;
-      const expectedSha256 =
-        record && typeof record.expectedSha256 === "string" && SHA256_RE.test(record.expectedSha256)
-          ? record.expectedSha256
-          : null;
-      if (!ref || !expectedSha256) {
-        return {
-          code: "gate_witness_missing",
-          gate: requirement.gateId,
-          next: completionGuidance(
-            snapshot,
-            executionId,
-            rerunAction,
-            `Upstream freshness witness for ${requirement.gateId} carries an invalid verifiedAnchor entry.`,
-          ),
-        };
-      }
+    if (packagePath === undefined) packagePath = cell.projection.read(task.taskId).packagePath ?? null;
+    const manifestPath = packagePath ? submissionArtifactPath(packagePath, UPSTREAM_FRESH_MANIFEST_PATH) : null;
+    const manifestAnchor = manifestPath
+      ? (execution.submission.artifacts ?? []).find((item) => item.path === manifestPath)
+      : undefined;
+    const witnessBindsManifest =
+      manifestAnchor !== undefined &&
+      (witness.subjects ?? []).some(
+        (subject) =>
+          subject.path === manifestAnchor.path &&
+          subject.revision === manifestAnchor.revision &&
+          subject.blobSha256 === manifestAnchor.blobSha256,
+      );
+    if (!packagePath || !manifestAnchor || !witnessBindsManifest) {
+      return blocker(
+        `Upstream freshness witness for ${requirement.gateId} is not bound to the pinned ${UPSTREAM_FRESH_MANIFEST_PATH} artifact.`,
+      );
+    }
+    readArtifact ??= createSubmissionArtifactReader(cell);
+    const frozenManifest = readArtifact(
+      packagePath,
+      manifestAnchor.path,
+      manifestAnchor.revision,
+      manifestAnchor.blobSha256,
+    );
+    const extracted = extractUpstreamManifestAnchors(
+      packagePath,
+      Buffer.from(frozenManifest.body, frozenManifest.encoding),
+    );
+    if (!extracted || extracted.anchors.length !== baselineCount || extracted.anchorsDigest !== predicateDigest) {
+      return blocker(
+        `Upstream freshness witness for ${requirement.gateId} anchorsDigest disagrees with pinned ${UPSTREAM_FRESH_MANIFEST_PATH}; rerun ${requirement.gateId} before completion.`,
+      );
+    }
+    for (const [ref, expectedSha256] of extracted.anchors) {
       const live = cell.projection.readDocument(ref).document;
       if (!live) {
-        return {
-          code: "gate_witness_missing",
-          gate: requirement.gateId,
-          next: completionGuidance(
-            snapshot,
-            executionId,
-            rerunAction,
-            `Missing live canonical upstream anchor for "${ref}": upstream-fresh requires a current accepted canonical anchor.`,
-          ),
-        };
+        return blocker(
+          `Missing live canonical upstream anchor for "${ref}": upstream-fresh requires a current accepted canonical anchor.`,
+        );
       }
       if (live.blobSha256 !== expectedSha256) {
-        return {
-          code: "gate_witness_missing",
-          gate: requirement.gateId,
-          next: completionGuidance(
-            snapshot,
-            executionId,
-            rerunAction,
-            `Live upstream drift on "${ref}": expected ${expectedSha256.slice(0, 12)}, live canonical ${live.blobSha256.slice(0, 12)}.`,
-          ),
-        };
+        return blocker(
+          `Live upstream drift on "${ref}": expected ${expectedSha256.slice(0, 12)}, live canonical ${live.blobSha256.slice(0, 12)}.`,
+        );
       }
     }
   }
@@ -314,7 +343,7 @@ export async function collectCommandWitness(
         code: submission.commitSha ? { commitSha: submission.commitSha, directory: "input/code" } : null,
         subjects,
         artifacts: allSubjects,
-        canonicalDocuments,
+        ...(canonicalDocuments !== undefined ? { canonicalDocuments } : {}),
       }),
     );
     let produced: CompletionWitnessResult | undefined;

@@ -564,19 +564,69 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
         })
         .replace(/&nbsp;/gu, "\u00a0")
         .replace(/&ZeroWidthSpace;/gu, "\u200b");
-    const stripCommentsAndTags = (value: string): string =>
-      decodeSimpleEntities(
-        value
-          .replace(/<!--[\s\S]*?-->/gu, "")
-          .replace(/<\?[\s\S]*?\?>/gu, "")
-          .replace(/<![A-Za-z][^>]*>/gu, "")
-          .replace(/<\/?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?\/?>/gu, ""),
-      );
+    const stripHiddenAndNonBodyHtml = (value: string): string => {
+      const nonBody = new Set(["style", "script", "template", "head", "title", "h1", "h2", "h3", "h4", "h5", "h6"]);
+      const voidTags = new Set([
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+      ]);
+      const attrRe =
+        /[ \t\r\n]+([A-Za-z_:][A-Za-z0-9_.:-]*)(?:[ \t\r\n]*=[ \t\r\n]*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?/gu;
+      const tokenRe =
+        /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<![A-Za-z][^>]*>|<\/([A-Za-z][A-Za-z0-9-]*)\s*>|<([A-Za-z][A-Za-z0-9-]*)((?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/gu;
+      const stack: Array<{ tag: string; suppressed: boolean }> = [];
+      let out = "";
+      let last = 0;
+      for (const match of value.matchAll(tokenRe)) {
+        const idx = match.index ?? 0;
+        if (!stack.some((f) => f.suppressed)) out += value.slice(last, idx);
+        const closeTag = match[1]?.toLowerCase();
+        const openTag = match[2]?.toLowerCase();
+        if (openTag) {
+          const attrs = match[3] ?? "";
+          const selfClosing = match[4] === "/" || voidTags.has(openTag);
+          let hasHidden = false;
+          for (const attr of attrs.matchAll(attrRe)) {
+            if (attr[1]?.toLowerCase() === "hidden") hasHidden = true;
+          }
+          if (!selfClosing) stack.push({ tag: openTag, suppressed: nonBody.has(openTag) || hasHidden });
+        } else if (closeTag) {
+          for (let j = stack.length - 1; j >= 0; j -= 1) {
+            if (stack[j]!.tag === closeTag) {
+              stack.length = j;
+              break;
+            }
+          }
+        }
+        last = idx + match[0].length;
+      }
+      if (!stack.some((f) => f.suppressed)) out += value.slice(last);
+      return decodeSimpleEntities(out);
+    };
     const collectInlineText = (node: MdastLikeNode): string => {
-      if (node.type === "html") return stripCommentsAndTags(node.value ?? "");
+      if (node.type === "html") return stripHiddenAndNonBodyHtml(node.value ?? "");
       if (node.type === "image") return node.alt ?? "";
       if (typeof node.value === "string") return node.value;
-      return (node.children ?? []).map(collectInlineText).join("");
+      const children = node.children ?? [];
+      if (children.some((child) => child.type === "html")) {
+        const reconstructed = children
+          .map((child) => (child.type === "html" ? (child.value ?? "") : collectInlineText(child)))
+          .join("");
+        return stripHiddenAndNonBodyHtml(reconstructed);
+      }
+      return children.map(collectInlineText).join("");
     };
     const mdastRequiredSections = (
       doc: string,
@@ -584,10 +634,9 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
     ): { readonly missing: string[]; readonly empty: string[] } => {
       const tree = fromMarkdown(doc) as unknown as { readonly children: ReadonlyArray<MdastLikeNode> };
       const isSubstantive = (node: MdastLikeNode): boolean => {
-        if (node.type === "thematicBreak" || node.type === "definition") return false;
+        if (node.type === "thematicBreak" || node.type === "definition" || node.type === "heading") return false;
         if (node.type === "code") return hasVisible(node.value ?? "");
-        if (node.type === "html") return hasVisible(stripCommentsAndTags(node.value ?? ""));
-        if (node.type === "heading") return hasVisible(collectInlineText(node));
+        if (node.type === "html") return hasVisible(stripHiddenAndNonBodyHtml(node.value ?? ""));
         if (node.type === "paragraph") return hasVisible(collectInlineText(node));
         if (node.type === "blockquote" || node.type === "list" || node.type === "listItem") {
           return (node.children ?? []).some(isSubstantive);
@@ -765,6 +814,26 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       ["listDefinitionOnly", `## Executive Summary\n\n- [policy]: /policy${actionTail}`],
       ["blockquoteCommentOnly", `## Executive Summary\n\n> <!-- placeholder -->${actionTail}`],
       ["blockquoteNonEmptyHeading", `## Executive Summary\n\n> ### Quoted Milestone${actionTail}`],
+      ["blockquoteNestedHeadingOnly", `## Executive Summary\n\n> ### Background${actionTail}`],
+      ["listNestedHeadingOnly", `## Executive Summary\n\n- ### Background${actionTail}`],
+      [
+        "blockquoteHeadingPlusParagraph",
+        `## Executive Summary\n\n> ### Background\n>\n> Real quoted prose.${actionTail}`,
+      ],
+      ["blockquoteRealParagraph", `## Executive Summary\n\n> Real quoted paragraph.${actionTail}`],
+      ["htmlBlockHiddenDiv", `## Executive Summary\n\n<div hidden>Background</div>${actionTail}`],
+      ["htmlBlockHiddenEmptyAttr", `## Executive Summary\n\n<div hidden="">Background</div>${actionTail}`],
+      ["htmlBlockHiddenUntilFound", `## Executive Summary\n\n<div hidden="until-found">Background</div>${actionTail}`],
+      ["htmlBlockNestedHiddenChild", `## Executive Summary\n\n<div><p hidden>Background</p></div>${actionTail}`],
+      ["htmlBlockStyleTag", `## Executive Summary\n\n<style>.summary{display:block}</style>${actionTail}`],
+      ["htmlBlockHeadingTag", `## Executive Summary\n\n<h3>Background</h3>${actionTail}`],
+      ["htmlInlineHiddenSpan", `## Executive Summary\n\n<span hidden>Background</span>${actionTail}`],
+      ["htmlBlockTitleNotHiddenAttr", `## Executive Summary\n\n<div title="not hidden">Background</div>${actionTail}`],
+      [
+        "htmlBlockHiddenThenVisibleSibling",
+        `## Executive Summary\n\n<div hidden>Hidden</div><p>Real prose</p>${actionTail}`,
+      ],
+      ["htmlInlineHiddenThenVisible", `## Executive Summary\n\n<span hidden>Hidden</span> Real prose${actionTail}`],
       ["tableBody", `## Executive Summary\n\n| Metric | Value |\n| --- | --- |\n| Status | Green |${actionTail}`],
       // HA09-2 visible rendered inline text (character references, empty links/images, emphasis, inline HTML)
       ["whitespaceEntityDec", `## Executive Summary\n\n&#32;${actionTail}`],
@@ -925,16 +994,19 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
       canonicalDocuments: liveCanonicalV1,
     }).payload;
     assert.equal(pass.result, "pass", pass.diagnostic);
+    const expectedAnchorsDigest = sha256(
+      JSON.stringify([
+        ["tasks/t1/artifacts/upstream-brief.md", briefHash],
+        ["tasks/t1/artifacts/upstream-spec.md", specHash],
+      ]),
+    );
     assert.deepEqual(pass.predicate, {
       schema: "office-collab/upstream-freshness/v1",
       checkedAt: "2026-11-21T00:00:00Z",
       baselineCount: 2,
       driftedCount: 0,
       allFresh: true,
-      verifiedAnchors: [
-        { ref: "tasks/t1/artifacts/upstream-brief.md", expectedSha256: briefHash },
-        { ref: "tasks/t1/artifacts/upstream-spec.md", expectedSha256: specHash },
-      ],
+      anchorsDigest: expectedAnchorsDigest,
     });
     const anchors = [{ path: manifestSubject.path, revision: manifestSubject.revision, blobSha256: manifestHash }];
     assert.deepEqual(
@@ -1222,6 +1294,75 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
     }).payload;
     assert.equal(missingUpstream.result, "fail");
     assert.match(missingUpstream.diagnostic, /missing from submitted artifacts/u);
+
+    // HA09-15: 450 and 600 aligned upstream baselines stay strictly within the 64 KiB preset execution budget
+    for (const count of [450, 600]) {
+      const refSha = sha256("Accepted canonical baseline\n");
+      const largeBaselines = Array.from({ length: count }, (_, idx) => ({
+        ref: `projects/office-collaboration/release-plan/reference-${idx}.md`,
+        expectedSha256: refSha,
+      }));
+      const largeCanonicalDocuments = Object.fromEntries(
+        largeBaselines.map(({ ref }) => [ref, { path: ref, revision: 23, blobSha256: refSha }]),
+      );
+      const largeManifestBody = JSON.stringify({
+        schema: "office-collab/upstream-freshness/v1",
+        checkedAt: "2026-11-21T00:00:00Z",
+        baselines: largeBaselines,
+      });
+      const largeManifestFile = path.join(sandbox, `large-upstream-${count}.json`);
+      writeFileSync(largeManifestFile, largeManifestBody);
+      const largeManifestHash = sha256(largeManifestBody);
+      const largeSubject = {
+        path: "tasks/t1/artifacts/upstream-freshness.json",
+        revision: 1,
+        blobSha256: largeManifestHash,
+        file: largeManifestFile,
+      };
+      const largePass = runCheckScript(sandbox, scriptPath, {
+        schema: "witness-input/v1",
+        packagePath: "tasks/t1",
+        code: null,
+        subjects: [largeSubject],
+        artifacts: [largeSubject],
+        canonicalDocuments: largeCanonicalDocuments,
+      });
+      assert.equal(largePass.payload.result, "pass", largePass.payload.diagnostic);
+      assert.ok(
+        largePass.rawBytes < 2048,
+        `expected O(1) pass witness frame < 2048B for ${count} baselines, got ${largePass.rawBytes}`,
+      );
+      assert.equal(largePass.payload.predicate.baselineCount, count);
+      assert.equal(
+        largePass.payload.predicate.anchorsDigest,
+        sha256(JSON.stringify(largeBaselines.map(({ ref, expectedSha256 }) => [ref, expectedSha256]))),
+      );
+      assert.deepEqual(
+        completionPredicateIssues(
+          requirement,
+          largePass.payload,
+          [{ path: largeSubject.path, revision: largeSubject.revision, blobSha256: largeManifestHash }],
+          (logical) => (logical === "artifacts/upstream-freshness.json" ? JSON.parse(largeManifestBody) : undefined),
+        ),
+        [],
+      );
+      if (count === 450) {
+        const driftedRef = largeBaselines[449]!.ref;
+        const largeDrift = runCheckScript(sandbox, scriptPath, {
+          schema: "witness-input/v1",
+          packagePath: "tasks/t1",
+          code: null,
+          subjects: [largeSubject],
+          artifacts: [largeSubject],
+          canonicalDocuments: {
+            ...largeCanonicalDocuments,
+            [driftedRef]: { path: driftedRef, revision: 24, blobSha256: sha256("Drifted baseline\n") },
+          },
+        });
+        assert.equal(largeDrift.payload.result, "fail");
+        assert.match(largeDrift.payload.diagnostic, /Live upstream drift/u);
+      }
+    }
   } finally {
     rmSync(sandbox, { recursive: true, force: true });
   }

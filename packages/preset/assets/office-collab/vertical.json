@@ -292,7 +292,7 @@
         "predicateType": "office-collab/upstream-fresh/v1",
         "resultSchema": {
           "type": "object",
-          "required": ["schema", "checkedAt", "baselineCount", "driftedCount", "allFresh", "verifiedAnchors"],
+          "required": ["schema", "checkedAt", "baselineCount", "driftedCount", "allFresh", "anchorsDigest"],
           "additionalProperties": false,
           "properties": {
             "schema": { "type": "string", "const": "office-collab/upstream-freshness/v1" },
@@ -300,19 +300,7 @@
             "baselineCount": { "type": "integer", "minimum": 1 },
             "driftedCount": { "type": "integer", "const": 0 },
             "allFresh": { "type": "boolean", "const": true },
-            "verifiedAnchors": {
-              "type": "array",
-              "minItems": 1,
-              "items": {
-                "type": "object",
-                "required": ["ref", "expectedSha256"],
-                "additionalProperties": false,
-                "properties": {
-                  "ref": { "type": "string", "minLength": 1 },
-                  "expectedSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
-                }
-              }
-            }
+            "anchorsDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
           }
         }
       },

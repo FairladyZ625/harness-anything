@@ -288,6 +288,11 @@ if (Array.isArray(manifest.baselines)) {
 if (errors.length > 0 || driftedCount > 0) {
   emit("fail", subjects, {}, errors.join(" "));
 } else {
+  const anchorsDigest = hash(
+    "sha256",
+    JSON.stringify(verifiedAnchors.map(({ ref, expectedSha256 }) => [ref, expectedSha256])),
+    "hex",
+  );
   emit(
     "pass",
     subjects,
@@ -297,7 +302,7 @@ if (errors.length > 0 || driftedCount > 0) {
       baselineCount: manifest.baselines.length,
       driftedCount: 0,
       allFresh: true,
-      verifiedAnchors,
+      anchorsDigest,
     },
     `Verified ${manifest.baselines.length} upstream baseline(s) with zero drift.`,
   );

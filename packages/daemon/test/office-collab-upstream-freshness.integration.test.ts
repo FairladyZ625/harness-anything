@@ -7,14 +7,22 @@ import path from "node:path";
 import test from "node:test";
 import {
   INITIAL_SETTINGS_V1,
+  submissionDigest,
   writeRepositorySettingsFacet,
+  type FrozenGateRequirement,
   type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
+import type { PresetProcessService } from "@harness-anything/preset";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
+import { collectCommandWitness } from "../src/daemon-host/repo-cell-command-witness.ts";
 import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
-import type { RepoCellWriteQueueHead } from "../src/daemon-host/repo-cell-types.ts";
+import type {
+  RepoCellOperationalContext,
+  RepoCellWriteQueueHead,
+  Snapshot,
+} from "../src/daemon-host/repo-cell-types.ts";
 import {
   policyTestCenter,
   policyTestRealm,
@@ -550,11 +558,18 @@ test(
 const inputPath = JSON.parse(process.env.HA_PRESET_INPUT ?? "{}").witnessInput;
 const witness = JSON.parse(readFileSync(inputPath, "utf8"));
 const subjects = (witness.subjects ?? []).map(({ file: _file, ...identity }) => identity);
+const hasCanonicalDocs = Object.hasOwn(witness, "canonicalDocuments");
 console.log(JSON.stringify({
   schema: "preset-script-result/v1",
   produces: [{
     capabilityId: "completion-witness",
-    payload: { result: "pass", subjects, predicateType: "custom/metrics/v1", predicate: { ok: true }, diagnostic: "custom pass" }
+    payload: {
+      result: hasCanonicalDocs ? "fail" : "pass",
+      subjects,
+      predicateType: "custom/metrics/v1",
+      predicate: hasCanonicalDocs ? {} : { ok: true },
+      diagnostic: hasCanonicalDocs ? "unexpected canonicalDocuments in non-office witness input" : "custom pass"
+    }
   }]
 }));
 `,
@@ -654,6 +669,287 @@ console.log(JSON.stringify({
       (execAfter.gateRuns ?? []).map((r) => r.runId),
       initialRunIds,
       "non-office custom command gate must never be re-run or invalidated by office freshness logic",
+    );
+  },
+);
+
+test("HA09-16: non-office all-artifacts command gates perform 0 live document reads and receive unchanged frozen witness input", async () => {
+  const packagePath = "tasks/task_non_office_all_artifacts";
+  const blobs = new Map<string, Uint8Array>();
+  const claims: Array<{ path: string; sha256: string }> = [];
+  const artifacts: Array<{ path: string; revision: number; blobSha256: string }> = [];
+  for (let i = 0; i < 6; i += 1) {
+    const content = Buffer.from(`artifact-content-${i}\n`, "utf8");
+    const digest = sha256(content);
+    const fullPath = `${packagePath}/artifacts/item-${i}.txt`;
+    blobs.set(digest, content);
+    claims.push({ path: fullPath, sha256: digest });
+    artifacts.push({ path: fullPath, revision: 11, blobSha256: digest });
+  }
+  const readDocumentPaths: string[] = [];
+  const fakeCell = {
+    input: { repoId: "repo_non_office_spy" },
+    rootDir: "/tmp/non-office-spy",
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    projection: {
+      read: () => ({ packagePath }),
+      readPresetSnapshot: () => ({
+        snapshot: {
+          digest: "sha256:" + "a".repeat(64),
+          completionPackages: {
+            "custom/all-artifacts-source": { id: "custom-preset" },
+          },
+        },
+      }),
+      readDocument: (docPath: string) => {
+        readDocumentPaths.push(docPath);
+        return { document: null };
+      },
+    },
+    store: {
+      readEventAtRevision: (revision: number) =>
+        revision === 11
+          ? {
+              schema: "doc-event/v1",
+              opId: "op_doc_accept_11",
+              workspaceRevision: 11,
+              payload: {
+                changes: claims.map((claim) => ({
+                  path: claim.path,
+                  candidate: { sha256: claim.sha256, size: blobs.get(claim.sha256)!.length, mediaType: "text/plain" },
+                })),
+              },
+            }
+          : null,
+      readContentBlob: (digest: string) => blobs.get(digest) ?? null,
+    },
+  } as unknown as RepoCellOperationalContext;
+
+  const requirement: FrozenGateRequirement = {
+    gateId: "all-artifacts-gate",
+    appliesTo: "artifacts",
+    subjects: "all-artifacts",
+    witness: {
+      kind: "command",
+      adapterId: "custom/all-artifacts-source",
+      entrypoint: "custom-preset/check",
+      predicateType: "custom/all-artifacts/v1",
+      resultSchema: {
+        type: "object",
+        required: ["ok"],
+        additionalProperties: false,
+        properties: { ok: { type: "boolean", const: true } },
+      },
+    },
+  };
+  const submission = {
+    commitSha: null,
+    artifacts,
+    completionContract: {
+      presetSnapshotDigest: "sha256:" + "a".repeat(64),
+      gates: [requirement],
+    },
+  };
+  const digest = submissionDigest(submission as Parameters<typeof submissionDigest>[0]);
+  const execution = {
+    schema: "execution/v1",
+    taskId: "task_non_office_all_artifacts",
+    executionId: "exe_non_office_1",
+    iteration: 1,
+    state: "submitted",
+    submission,
+    gateRuns: [
+      {
+        gateId: "all-artifacts-gate",
+        runId: "run_non_office_1",
+        sourceId: "custom/all-artifacts-source",
+        state: "running",
+        claimFence: 1,
+        submissionDigest: digest,
+      },
+    ],
+  } as unknown as Snapshot["executions"][number];
+
+  let capturedWitnessInput: Record<string, unknown> | undefined;
+  const fakeProcess = {
+    startFrozen: async (
+      _req: unknown,
+      frozen: { readonly inputFiles: Record<string, Uint8Array> },
+      hooks: {
+        readonly onSettled: () => void;
+        readonly publish: (item: Record<string, unknown>) => Promise<{ outcome: string }>;
+      },
+    ) => {
+      capturedWitnessInput = JSON.parse(Buffer.from(frozen.inputFiles["witness.json"]!).toString("utf8")) as Record<
+        string,
+        unknown
+      >;
+      const published = await hooks.publish({
+        kind: "completion-witness",
+        result: "pass",
+        subjects: artifacts,
+        predicateType: "custom/all-artifacts/v1",
+        predicate: { ok: true },
+        diagnostic: "verified",
+      });
+      assert.equal(published.outcome, "applied", JSON.stringify(published));
+      hooks.onSettled();
+      return { runId: "preset_run_spy_1" };
+    },
+    status: () => ({ outcome: "applied" }),
+  } as unknown as PresetProcessService;
+
+  const evidence = await collectCommandWitness(fakeCell, requirement, execution, fakeProcess);
+  assert.equal(evidence.result, "pass");
+  assert.deepEqual(
+    readDocumentPaths,
+    [],
+    "non-office all-artifacts command gate must perform 0 live canonical document reads",
+  );
+  assert.ok(capturedWitnessInput, "expected witness.json to be constructed");
+  assert.equal(
+    Object.hasOwn(capturedWitnessInput, "canonicalDocuments"),
+    false,
+    "non-office witness.json must not include canonicalDocuments",
+  );
+  assert.deepEqual(Object.keys(capturedWitnessInput).sort(), [
+    "artifacts",
+    "code",
+    "executionId",
+    "gateId",
+    "gateRunId",
+    "iteration",
+    "packagePath",
+    "repoId",
+    "schema",
+    "subjects",
+    "submissionDigest",
+    "taskId",
+  ]);
+});
+
+test(
+  "HA09-15: real daemon completes 450-entry upstream manifest within 64 KiB witness budget and blocks live drift on entry #450 via pinned manifest readback",
+  { timeout: 120_000 },
+  async (t) => {
+    const { root, ledger } = initLedgerFixture("ha-office-450-upstream-");
+    const repoId = workspaceId("office-450-upstream");
+    writeFileSync(
+      path.join(ledger, "harness.yaml"),
+      writeRepositorySettingsFacet(
+        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings: {}\n",
+        {
+          ...INITIAL_SETTINGS_V1,
+          defaultVertical: "office/collab",
+          defaultPreset: "deliverable-task",
+          defaultProfile: "upstream-verified",
+        },
+      ),
+    );
+    const cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "office-owner" });
+    t.after(async () => {
+      await cell.close();
+      rmSync(root, { recursive: true, force: true });
+    });
+    const owner = withPolicyGroup(
+      { actor: { principal: { personId: "office-owner" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+    const applied = async (action: Record<string, unknown> & { kind: string }) => {
+      const receipt = await cell.run(action, owner);
+      assert.ok(
+        receipt.outcome === "applied" || (receipt.outcome === "pending" && receipt.acceptance !== null),
+        JSON.stringify(receipt),
+      );
+      if (receipt.acceptance !== null) await waitForFixturePublication(cell, receipt.opId, owner);
+      return receipt;
+    };
+
+    const refDir = path.join(ledger, "context", "upstream-baselines");
+    mkdirSync(refDir, { recursive: true });
+    const refPaths: string[] = [];
+    const baselineBodyV1 = "# Canonical Baseline\nApproved v1.\n";
+    const baselineShaV1 = sha256(baselineBodyV1);
+    for (let i = 0; i < 450; i += 1) {
+      const relPath = `context/upstream-baselines/ref-${String(i).padStart(3, "0")}.md`;
+      writeFileSync(path.join(ledger, relPath), baselineBodyV1);
+      refPaths.push(relPath);
+    }
+    await applied({ kind: "doc-submit", paths: refPaths });
+    const baselines = refPaths.map((ref) => ({ ref, expectedSha256: baselineShaV1 }));
+
+    const submit450Task = async (title: string): Promise<string> => {
+      const created = await applied({
+        kind: "task-create",
+        title,
+        verticalId: "office/collab",
+        presetId: "deliverable-task",
+        profileId: "upstream-verified",
+        riskTier: "low",
+      });
+      const taskId = String((created as { taskId?: string }).taskId);
+      const pkg = String((created as { packagePath?: string }).packagePath);
+      await realizeTaskPlanFixture(root, `harness/${pkg}`, (docPath: string) =>
+        applied({ kind: "doc-submit", paths: [docPath] }),
+      );
+      await applied({ kind: "task-start", taskId });
+      const deliverableBody = "## Executive Summary\n\nAligned with all 450 baselines.\n\n## Action Plan\n\nShip.\n";
+      mkdirSync(path.join(ledger, pkg, "artifacts"), { recursive: true });
+      writeFileSync(path.join(ledger, pkg, "artifacts/deliverable.md"), deliverableBody);
+      writeFileSync(
+        path.join(ledger, pkg, "artifacts/deliverable-manifest.json"),
+        JSON.stringify({
+          schema: "office-collab/deliverable-manifest/v1",
+          title,
+          deliverableKind: "report",
+          owner: "coordinator",
+          audience: "operations",
+          documentPath: "artifacts/deliverable.md",
+          documentSha256: sha256(deliverableBody),
+          requiredSections: ["## Executive Summary", "## Action Plan"],
+        }),
+      );
+      writeFileSync(
+        path.join(ledger, pkg, "artifacts/upstream-freshness.json"),
+        JSON.stringify({
+          schema: "office-collab/upstream-freshness/v1",
+          checkedAt: "2026-11-21T09:15:00Z",
+          baselines,
+        }),
+      );
+      writeFileSync(
+        path.join(ledger, pkg, "closeout.md"),
+        "# Closeout\n\n## Summary\n\n450 upstream baselines checked.\n\n## Verification\n\nSynced.\n",
+      );
+      await applied({
+        kind: "doc-submit",
+        paths: [
+          `${pkg}/artifacts/deliverable.md`,
+          `${pkg}/artifacts/deliverable-manifest.json`,
+          `${pkg}/artifacts/upstream-freshness.json`,
+          `${pkg}/closeout.md`,
+        ],
+      });
+      await applied({ kind: "task-submit", taskId });
+      return taskId;
+    };
+
+    // Positive: 450 aligned baselines pass submit and complete cleanly within 64 KiB budget
+    const passTaskId = await submit450Task("Large 450-Baseline Pass Task");
+    const completed = await applied({ kind: "task-complete", taskId: passTaskId });
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+
+    // Negative: second task passes submit with 450 aligned baselines, then entry #450 drifts before completeTask
+    const driftTaskId = await submit450Task("Large 450-Baseline Drift Task");
+    const lastRef = refPaths[449]!;
+    writeFileSync(path.join(ledger, lastRef), "# Canonical Baseline\nUpdated v2 after submit.\n");
+    await applied({ kind: "doc-submit", paths: [lastRef] });
+    const blocked = await cell.run({ kind: "task-complete", taskId: driftTaskId }, owner);
+    assert.equal(blocked.outcome, "op_rejected", JSON.stringify(blocked));
+    assert.equal(blocked.code, "gate_witness_missing", JSON.stringify(blocked));
+    assert.match(
+      String(blocked.rejectionExplanation ?? ""),
+      /Live upstream drift on "context\/upstream-baselines\/ref-449\.md"/u,
     );
   },
 );
