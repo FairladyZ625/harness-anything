@@ -1,5 +1,7 @@
 import { timestamp } from "./timestamp.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord } from "./contract-validation.ts";
+import type { RuntimeProviderHealthStatus } from "./operational-status.ts";
+export type { RuntimeProviderHealthStatus } from "./operational-status.ts";
 
 export const runtimeQuotaWindowKinds = Object.freeze(["session", "weekly", "monthly", "bucket"] as const);
 export type RuntimeQuotaWindowKind = (typeof runtimeQuotaWindowKinds)[number];
@@ -551,7 +553,7 @@ export interface RuntimeProviderHealthBlockInput {
 }
 
 export interface RuntimeProviderHealthProjection {
-  readonly status: "frozen" | "cooldown" | "ready";
+  readonly status: RuntimeProviderHealthStatus;
   readonly recoverAt: string | null;
   readonly reason: string | null;
   readonly transportBlocked: boolean;
@@ -569,7 +571,7 @@ export interface RuntimeProviderHealthProjection {
  */
 export function projectRuntimeProviderHealth(
   health: RuntimeProviderHealthBlockInput | undefined,
-  now?: string,
+  now: string,
 ): RuntimeProviderHealthProjection {
   if (!health) {
     return {
@@ -580,7 +582,7 @@ export function projectRuntimeProviderHealth(
       usageExhausted: false,
     };
   }
-  const nowTime = now === undefined ? Date.now() : Date.parse(now);
+  const nowTime = Date.parse(now);
   const futureClock = (value: string | null | undefined): string | null => {
     if (typeof value !== "string") return null;
     const parsed = Date.parse(value);
@@ -598,7 +600,7 @@ export function projectRuntimeProviderHealth(
     futureClocks.length === 0 ? null : futureClocks.sort((left, right) => Date.parse(right) - Date.parse(left))[0]!;
   const transportBlocked = activeFrozenUntil !== null || activeCooldownUntil !== null;
   const usageExhausted = activeUsageUntil !== null;
-  const status: "frozen" | "cooldown" | "ready" = health.frozen ? "frozen" : recoverAt !== null ? "cooldown" : "ready";
+  const status: RuntimeProviderHealthStatus = health.frozen ? "frozen" : recoverAt !== null ? "cooldown" : "ready";
   const reason =
     status === "frozen"
       ? (health.reason ?? (usageExhausted ? "quota_exhausted" : null))

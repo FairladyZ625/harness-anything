@@ -344,6 +344,7 @@ export {
   validRuntimeSubscriptionQuota,
   type RuntimeProviderHealthBlockInput,
   type RuntimeProviderHealthProjection,
+  type RuntimeProviderHealthStatus,
   type RuntimeQuotaCreditsV1,
   type RuntimeQuotaWindowKind,
   type RuntimeQuotaWindowScope,
