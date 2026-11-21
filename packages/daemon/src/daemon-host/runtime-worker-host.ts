@@ -379,9 +379,10 @@ export async function runRuntimeWorkerHost(): Promise<void> {
             state = parsed ? providerSteerState(parsed, manifest.kindId) : {};
           if (state.sessionId) providerSessionId = state.sessionId;
           if (!acp && pendingSteer !== null && parsed) {
-            if (parsed.type === "error" || parsed.type === "turn.failed") {
-              settlePendingSteerRejected(codexErrorItemMessage(parsed) || "provider rejected steered turn");
-            } else if (!ioError.spawn && !ioError.stdin) {
+            const steerDisposition = nativeSteerTurnAcceptance(parsed, manifest.kindId);
+            if (steerDisposition === "rejected") {
+              settlePendingSteerRejected(nativeSteerErrorMessage(parsed) || "provider rejected steered turn");
+            } else if (steerDisposition === "accepted" && !ioError.spawn && !ioError.stdin) {
               settlePendingSteerApplied();
             }
           }
@@ -592,6 +593,75 @@ function codexErrorItemMessage(value: Record<string, unknown>): string {
   return value.type === "item.completed" && item?.type === "error" && typeof item.message === "string" && item.message
     ? item.message
     : "";
+}
+
+/** Error message carried by a native provider failure frame (`turn.failed`, `error`, or error item). */
+function nativeSteerErrorMessage(value: Record<string, unknown>): string {
+  const codexItem = codexErrorItemMessage(value);
+  if (codexItem) return codexItem;
+  if (typeof value.message === "string" && value.message.trim()) return value.message;
+  const err = value.error as Record<string, unknown> | string | undefined;
+  if (typeof err === "string" && err.trim()) return err;
+  if (err && typeof err === "object" && typeof err.message === "string" && err.message.trim()) return err.message;
+  return "";
+}
+
+/**
+ * Classifies whether a native interrupt-resume provider frame proves that the steered turn was
+ * accepted, rejected, or is still only initializing (F5). Startup frames like Codex `thread.started`
+ * or Claude `system`/`init` NEVER count as turn acceptance because the provider can still fail with
+ * `turn.failed` or a non-zero exit immediately afterward.
+ */
+function nativeSteerTurnAcceptance(
+  value: Record<string, unknown>,
+  kindId?: string,
+): "accepted" | "rejected" | "pending" {
+  if (providerReconnectFromFrame(kindId ?? "", value) !== null) return "pending";
+  const type = typeof value.type === "string" ? value.type : "";
+  if (type === "error" || type === "turn.failed" || value.is_error === true) return "rejected";
+  if (kindId === "codex") {
+    const item = value.item as Record<string, unknown> | undefined;
+    if (type === "item.completed" && item?.type === "error") {
+      return codexCompactionWarning.test(codexErrorItemMessage(value)) ? "pending" : "rejected";
+    }
+    if (
+      type === "turn.started" ||
+      type === "item.started" ||
+      type === "item.updated" ||
+      type === "item.completed" ||
+      type === "turn.completed"
+    )
+      return "accepted";
+    return "pending";
+  }
+  if (kindId === "claude") {
+    if (type === "system") return "pending";
+    if (type === "result") {
+      if (typeof value.subtype === "string" && value.subtype.startsWith("error")) return "rejected";
+      return "accepted";
+    }
+    if (
+      type === "assistant" ||
+      type === "content_block_start" ||
+      type === "content_block_delta" ||
+      type === "message_start"
+    )
+      return "accepted";
+    return "pending";
+  }
+  if (type === "thread.started" || type === "system" || type === "session.started" || type === "init") return "pending";
+  if (
+    type === "turn.started" ||
+    type === "turn.completed" ||
+    type === "item.started" ||
+    type === "item.updated" ||
+    type === "item.completed" ||
+    type === "assistant" ||
+    type === "result" ||
+    type === "message"
+  )
+    return "accepted";
+  return "pending";
 }
 
 /** The assistant text of a Codex `item.completed` agent message, or "" for every other frame. */

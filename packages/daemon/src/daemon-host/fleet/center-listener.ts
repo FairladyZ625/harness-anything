@@ -49,7 +49,6 @@ import {
   consumeKnownError,
   resolveHarnessLayout,
   sha256Bytes,
-  sha256Text,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
   type SquadRunObservation,
 } from "@harness-anything/kernel";
@@ -62,6 +61,7 @@ import {
   type BaseBackupArchive,
   type BaseBackupMetadata,
 } from "@harness-anything/storage";
+import { steerReceiptOpId } from "../dispatch-steer-state.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../../runtime-engine/runtime-spawn-errors.ts";
 import {
   describeClaimMiss,
@@ -1468,11 +1468,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               )
             : controlReceipt !== null &&
                 typeof frame.payload.runtimeSessionId === "string" &&
-                typeof controlReceipt.requestOpId === "string" &&
-                typeof controlReceipt.status === "string"
-              ? `runtime-steer-rcpt-${sha256Text(
-                  `${a.repoId}\0${frame.payload.runtimeSessionId}\0${controlReceipt.requestOpId}\0${controlReceipt.status}`,
-                ).slice(0, 32)}`
+                typeof controlReceipt.requestOpId === "string"
+              ? steerReceiptOpId(a.repoId, frame.payload.runtimeSessionId, controlReceipt.requestOpId)
               : randomUUID();
         try {
           receipt = await options.host.runtimeIngress(

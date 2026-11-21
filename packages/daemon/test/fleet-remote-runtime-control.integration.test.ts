@@ -21,7 +21,8 @@ import {
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
-import { runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
+import { steerReceiptOpId } from "../src/daemon-host/dispatch-steer-state.ts";
+import { runFleetRuntimeEventClient, runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
 import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
@@ -32,6 +33,7 @@ import { fleetHostWriterOptions } from "./fleet-store.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const repoId = "lease-repo";
 const secondRepoId = "second-repo";
@@ -138,14 +140,20 @@ function createObservableCodexProviderScript(
       '  process.stderr.write("provider rejected steered prompt\\n");',
       "  process.exit(1);",
       "}",
+      'const emit = (value) => process.stdout.write(JSON.stringify(value) + "\\n");',
+      'if (isResume && prompt.includes("[REJECT_AFTER_THREAD_STARTED]")) {',
+      '  emit({ type: "thread.started", thread_id: threadId });',
+      '  emit({ type: "turn.failed", error: { message: "turn rejected after thread start" } });',
+      "  process.exit(1);",
+      "}",
       "if (isResume && resumeStartedFile) {",
       '  fs.writeFileSync(resumeStartedFile, "resumed");',
       "}",
       "if (isResume && resumeGateFile) {",
       "  while (!fs.existsSync(resumeGateFile)) await new Promise((resolve) => setTimeout(resolve, 25));",
       "}",
-      'const emit = (value) => process.stdout.write(JSON.stringify(value) + "\\n");',
       'emit({ type: "thread.started", thread_id: threadId });',
+      'if (isResume) emit({ type: "turn.started" });',
       'if (prompt.includes("[HOLD_TOOL]")) {',
       '  emit({ type: "item.started", item: { id: "tool-hold", type: "command_execution" } });',
       "}",
@@ -819,6 +827,56 @@ test(
       );
     });
 
+    // F6 retry after lost first Center response: Center already persisted this steer idempotencyKey,
+    // so retrying through Edge B real CLI returns `no_changes` (replicationSequence: null on wire)
+    // while `runFleetEdgeWrite` still proves Edge B's replica observes the original persisted cut!
+    const preRecordedKey = "ctrl-f6-lost-response-retry";
+    const preRecordedOnCenter = await f.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: sessionA,
+        prompt: "Pre-recorded steer whose first Center response was lost",
+        idempotencyKey: preRecordedKey,
+      },
+      localAuth,
+    );
+    assert.equal(preRecordedOnCenter.outcome, "applied", JSON.stringify(preRecordedOnCenter));
+    assert.equal(typeof preRecordedOnCenter.revision, "number", JSON.stringify(preRecordedOnCenter));
+    const retrySteerReceipt = await edgeB.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: sessionA,
+        prompt: "Pre-recorded steer whose first Center response was lost",
+        idempotencyKey: preRecordedKey,
+      },
+      localAuth,
+    );
+    assert.equal(retrySteerReceipt.outcome, "no_changes", JSON.stringify(retrySteerReceipt));
+    assert.equal(retrySteerReceipt.revision, preRecordedOnCenter.revision);
+    const immediateRetryReadOnB = await edgeB.host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: sessionA },
+      localAuth,
+    );
+    assert.ok(
+      immediateRetryReadOnB.watermark >= Number(preRecordedOnCenter.revision),
+      `Edge B replica watermark (${immediateRetryReadOnB.watermark}) must already include pre-recorded cut (${preRecordedOnCenter.revision}) on no_changes retry`,
+    );
+    await waitForDurableCondition(async () => {
+      const read = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: sessionA, includeControlReceipts: true },
+        localAuth,
+      );
+      return Boolean(
+        read.session?.controlReceipts?.some(
+          (rcpt) => rcpt.controlRequestId === preRecordedKey && rcpt.status === "applied",
+        ),
+      );
+    });
+
     const cancelStartedAt = Date.now();
     const cliCancelA = await invokeEdgeBCli(["runtime", "cancel", sessionA]);
     assert.equal(cliCancelA.code, 0, JSON.stringify(cliCancelA));
@@ -941,14 +999,31 @@ test(
         );
         assert.deepEqual(validateAgentRuntimeEvent(event), []);
       }
-      // Verify N-1 session reduction over the entire sessionA event stream succeeds with zero errors.
-      let reduced: RuntimeSession | null = null;
-      for (const event of runtimeEvents.filter(
-        (e) => "runtimeSessionId" in e.payload && e.payload.runtimeSessionId === sessionA,
-      )) {
-        reduced = reduceRuntimeSession(reduced, event);
+      // Verify frozen N-1 (bb7e55c90) session reduction invariant over EVERY runtime session in the ledger:
+      // NEVER emit runtime_session_liveness_changed after runtime_session_exited or runtime_session_cancelled!
+      const sessionIdsInLedger = new Set(
+        runtimeEvents
+          .map((e) => ("runtimeSessionId" in e.payload ? e.payload.runtimeSessionId : null))
+          .filter((id): id is string => typeof id === "string"),
+      );
+      for (const sid of sessionIdsInLedger) {
+        let reducedSession: RuntimeSession | null = null;
+        let sawExited = false;
+        for (const event of runtimeEvents.filter(
+          (e) => "runtimeSessionId" in e.payload && e.payload.runtimeSessionId === sid,
+        )) {
+          if (sawExited) {
+            assert.notEqual(
+              event.type,
+              "runtime_session_liveness_changed",
+              `F11: session ${sid} emitted runtime_session_liveness_changed after exit (breaks bb7e55c90 N-1 reducer)`,
+            );
+          }
+          reducedSession = reduceRuntimeSession(reducedSession, event);
+          if (reducedSession?.liveness === "exited") sawExited = true;
+        }
+        if (sid === sessionA) assert.equal(reducedSession?.outcome, "cancelled");
       }
-      assert.equal(reduced?.outcome, "cancelled");
 
       // Build exact PG-style canonical-seed.json from real ledger rows/outcomes and run real `hydrateReplicaSeed`!
       const rawEvents = ledger.eventRows();
@@ -1161,6 +1236,67 @@ test(
       "provider rejection must never emit an applied receipt",
     );
 
+    // Part A2 (F5): Real provider emits thread.started FIRST, then turn.failed + exit 1!
+    // Must NEVER report applied on thread.started; must report ONLY rejected!
+    const spawnRejectAfterThread = await edgeA.host.spawnRuntime(
+      repoId,
+      {
+        runtimeInstanceId: "node-one-codex",
+        cwd: { scope: "repo-root" },
+        prompt: "Worker that emits thread.started then turn.failed on steer",
+        dispatchKey: "g8-f5-provider-reject-after-thread-started",
+      },
+      localAuth,
+    );
+    assert.equal(spawnRejectAfterThread.outcome, "applied", JSON.stringify(spawnRejectAfterThread));
+    const rejectAfterThreadSessionId = String(spawnRejectAfterThread.runtimeSessionId);
+    await waitForProviderBound(f.host, rejectAfterThreadSessionId, localAuth);
+
+    const rejectAfterThreadSteer = await f.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: rejectAfterThreadSessionId,
+        prompt: "Trigger turn.failed after thread.started [REJECT_AFTER_THREAD_STARTED]",
+        idempotencyKey: "ctrl-f5-reject-after-thread-started",
+      },
+      localAuth,
+    );
+    assert.equal(rejectAfterThreadSteer.outcome, "applied", JSON.stringify(rejectAfterThreadSteer));
+    await f.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [rejectAfterThreadSessionId] },
+      { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
+    );
+    await waitForDurableCondition(async () => {
+      const read = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: rejectAfterThreadSessionId, includeControlReceipts: true },
+        localAuth,
+      );
+      return Boolean(
+        read.session?.controlReceipts?.some(
+          (rcpt) =>
+            rcpt.controlRequestId === "ctrl-f5-reject-after-thread-started" &&
+            rcpt.status === "rejected" &&
+            rcpt.reasonCode === "steer_dropped",
+        ),
+      );
+    });
+    const rejectAfterThreadRead = await f.host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: rejectAfterThreadSessionId, includeControlReceipts: true },
+      localAuth,
+    );
+    assert.equal(
+      rejectAfterThreadRead.session?.controlReceipts?.some(
+        (rcpt) => rcpt.controlRequestId === "ctrl-f5-reject-after-thread-started" && rcpt.status === "applied",
+      ),
+      false,
+      "F5: thread.started followed by turn.failed must NEVER emit an applied receipt",
+    );
+
     // Part B: Transient Center disconnect between steer outcome generation on Edge and Center ACK!
     const spawnDisconnect = await edgeA.host.spawnRuntime(
       repoId,
@@ -1224,5 +1360,284 @@ test(
       { runtimeSessionIds: [disconnectSessionId] },
       { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
     );
+  },
+);
+
+test(
+  "F11/F14/F15: Center fences controlReceipt against persisted request, rejects conflicting terminal receipts, and accepts authorized late receipts on cancelled task-bound sessions without breaking N-1 reducer",
+  { timeout: 120_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t);
+    const originRemote = path.join(f.root, "origin.git");
+    git(f.root, "clone", "--bare", "-q", f.repo, originRemote);
+    git(f.repo, "remote", "add", "origin", originRemote);
+    git(f.repo, "fetch", "-q", "origin");
+    const branch = git(f.repo, "branch", "--show-current");
+
+    await allowEdgeRuntimeInstances(f.host);
+    signInAt(f.userRoot, "person-one");
+    f.owners.keycloak.permit("person-one", repoId, [
+      "runtime-cancel",
+      "runtime-steer",
+      "repository-read",
+      "task-create",
+      "task-start",
+    ]);
+    const tracePath = path.join(f.root, "provider-trace-f15.jsonl"),
+      provider = createObservableCodexProviderScript(f.root, "provider-f15", tracePath, "thread-f15-1");
+    const { edge: edgeA } = await setupEdgeNode(t, f, originRemote, branch, "node-one", "edge-f15", provider);
+    const localAuth = localAuthFixture();
+    const edgeAPeer = {
+      ...f.peer("node-one"),
+      ca: readFileSync(path.join(f.root, "tls.crt")),
+      repoId,
+      timeoutMs: 15_000,
+    };
+
+    // Spawn a live session on Edge A and issue one genuine steer request.
+    const spawned = await edgeA.host.spawnRuntime(
+      repoId,
+      {
+        runtimeInstanceId: "node-one-codex",
+        cwd: { scope: "repo-root" },
+        prompt: "Worker for F15 receipt fencing",
+        dispatchKey: "g8-f15-receipt-fence",
+      },
+      localAuth,
+    );
+    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    const sessionId = String(spawned.runtimeSessionId);
+    const dispatchId = String(spawned.dispatchId);
+    await waitForProviderBound(f.host, sessionId, localAuth);
+
+    const steer = await f.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: sessionId,
+        prompt: "Genuine steer for F15",
+        idempotencyKey: "ctrl-f15-genuine",
+      },
+      localAuth,
+    );
+    assert.equal(steer.outcome, "applied", JSON.stringify(steer));
+    const requestOpId = String(steer.opId);
+
+    // Wait for Edge A's genuine applied receipt to land.
+    await waitForDurableCondition(async () => {
+      const read = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: sessionId, includeControlReceipts: true },
+        localAuth,
+      );
+      return Boolean(
+        read.session?.controlReceipts?.some(
+          (rcpt) => rcpt.controlRequestId === "ctrl-f15-genuine" && rcpt.status === "applied",
+        ),
+      );
+    });
+
+    // F15 Negative 1: Forged receipt referencing nonexistent requestOpId must be rejected!
+    await assert.rejects(
+      runFleetRuntimeEventClient({
+        ...edgeAPeer,
+        opId: steerReceiptOpId(repoId, sessionId, "op-nonexistent-request"),
+        eventType: "runtime_session_liveness_changed",
+        payload: {
+          runtimeSessionId: sessionId,
+          liveness: "live",
+          controlReceipt: {
+            action: "steer",
+            controlRequestId: "ctrl-forged",
+            requestOpId: "op-nonexistent-request",
+            status: "applied",
+            dispatchId,
+            steerVersion: 99,
+          },
+        },
+      }),
+      { code: "control_request_not_found" },
+    );
+
+    // F15 Negative 2: Forged receipt with wrong controlRequestId for real requestOpId must be rejected!
+    await assert.rejects(
+      runFleetRuntimeEventClient({
+        ...edgeAPeer,
+        opId: steerReceiptOpId(repoId, sessionId, requestOpId),
+        eventType: "runtime_session_liveness_changed",
+        payload: {
+          runtimeSessionId: sessionId,
+          liveness: "live",
+          controlReceipt: {
+            action: "steer",
+            controlRequestId: "ctrl-wrong-id",
+            requestOpId,
+            status: "applied",
+            dispatchId,
+            steerVersion: 1,
+          },
+        },
+      }),
+      { code: "invalid_control_receipt" },
+    );
+
+    // F15 Negative 3: Conflicting terminal receipt (rejected after applied) for the SAME requestOpId must be rejected!
+    await assert.rejects(
+      runFleetRuntimeEventClient({
+        ...edgeAPeer,
+        opId: steerReceiptOpId(repoId, sessionId, requestOpId),
+        eventType: "runtime_session_liveness_changed",
+        payload: {
+          runtimeSessionId: sessionId,
+          liveness: "live",
+          controlReceipt: {
+            action: "steer",
+            controlRequestId: "ctrl-f15-genuine",
+            requestOpId,
+            status: "rejected",
+            dispatchId,
+            reasonCode: "steer_dropped",
+          },
+        },
+      }),
+      { code: "control_receipt_conflict" },
+    );
+
+    // F15 Positive: Identical replay of the recorded applied receipt settles idempotently as no_changes!
+    const identicalReplay = await runFleetRuntimeEventClient({
+      ...edgeAPeer,
+      opId: steerReceiptOpId(repoId, sessionId, requestOpId),
+      eventType: "runtime_session_liveness_changed",
+      payload: {
+        runtimeSessionId: sessionId,
+        liveness: "live",
+        controlReceipt: {
+          action: "steer",
+          controlRequestId: "ctrl-f15-genuine",
+          requestOpId,
+          status: "applied",
+          dispatchId,
+          steerVersion: 1,
+        },
+      },
+    });
+    assert.equal(identicalReplay.receipt.outcome, "no_changes", JSON.stringify(identicalReplay));
+
+    // Cancel sessionA and wait for terminal exit, then issue a second persisted steer BEFORE exit on a
+    // real task-bound session to verify F14 + F11 post-exit late receipt handling!
+    await f.host.cancelRuntime(repoId, { runtimeSessionId: sessionId }, localAuth);
+    await f.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [sessionId] },
+      { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
+    );
+
+    // F14 + F11: Real task-bound session steered, cancelled, and then receives an authorized late receipt!
+    const taskId = "task_f14_late_receipt";
+    const created = await f.host.run(
+      repoId,
+      { kind: "task-create", taskId, title: "F14 task-bound late receipt", presetId: "docs-task" },
+      localAuth,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const packagePath = String(created.packagePath);
+    await realizeTaskPlanFixture(f.repo, packagePath, (planPath) =>
+      f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuth),
+    );
+    const started = await f.command("node-one", { kind: "task-start", taskId });
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    const taskSpawn = await edgeA.host.spawnRuntime(
+      repoId,
+      {
+        runtimeInstanceId: "node-one-codex",
+        cwd: { scope: "repo-root" },
+        taskId,
+        prompt: "Task-bound worker for F14",
+        dispatchKey: "g8-f14-task-bound",
+      },
+      localAuth,
+    );
+    assert.equal(taskSpawn.outcome, "applied", JSON.stringify(taskSpawn));
+    const taskSessionId = String(taskSpawn.runtimeSessionId);
+    const taskDispatchId = String(taskSpawn.dispatchId);
+    await waitForProviderBound(f.host, taskSessionId, localAuth);
+
+    // Disconnect Center TLS briefly while persisting BOTH steer and cancel on Center so Edge A
+    // receives them together on reconnect: by F13, cancel executes FIRST (never emitting an applied
+    // steer receipt), settles the task-bound session as cancelled, and THEN we send an authorized
+    // host late `rejected` receipt over TLS to prove F14 + F11 deterministically!
+    const f14CenterPort = f.center.port;
+    await f.center.close();
+    const taskSteer = await f.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: taskSessionId,
+        prompt: "Task-bound steer superseded by cancel",
+        idempotencyKey: "ctrl-f14-task-bound-steer",
+      },
+      localAuth,
+    );
+    assert.equal(taskSteer.outcome, "applied", JSON.stringify(taskSteer));
+    const taskSteerOpId = String(taskSteer.opId);
+
+    await f.host.cancelRuntime(repoId, { runtimeSessionId: taskSessionId }, localAuth);
+    await f.openCenter(f.host, f14CenterPort);
+    await f.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [taskSessionId] },
+      { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
+    );
+
+    // Now send an authorized late receipt for the cancelled/exited task-bound session over TLS!
+    // F14: Must NOT fail with execution_credential_rejected!
+    // F11: Must settle cleanly as no_changes WITHOUT writing runtime_session_liveness_changed after exit!
+    const lateReceiptResult = await runFleetRuntimeEventClient({
+      ...edgeAPeer,
+      opId: steerReceiptOpId(repoId, taskSessionId, taskSteerOpId),
+      eventType: "runtime_session_liveness_changed",
+      payload: {
+        runtimeSessionId: taskSessionId,
+        liveness: "live",
+        controlReceipt: {
+          action: "steer",
+          controlRequestId: "ctrl-f14-task-bound-steer",
+          requestOpId: taskSteerOpId,
+          status: "rejected",
+          dispatchId: taskDispatchId,
+          reasonCode: "steer_dropped",
+          message: "runtime terminated before steer acceptance",
+        },
+      },
+    });
+    assert.equal(lateReceiptResult.receipt.outcome, "no_changes", JSON.stringify(lateReceiptResult));
+
+    // Verify zero runtime_session_liveness_changed events appear after exit in the canonical ledger
+    // and frozen N-1 (bb7e55c90) reduceRuntimeSession succeeds across the entire taskSessionId history!
+    const ledger = openSqliteEventStore({ rootInput: f.repo, repoId, readOnly: true });
+    try {
+      const taskSessionEvents = ledger
+        .events()
+        .filter(
+          (e): e is AgentRuntimeEventV1 =>
+            e.schema === "agent-runtime-event/v1" &&
+            "runtimeSessionId" in e.payload &&
+            e.payload.runtimeSessionId === taskSessionId,
+        );
+      let reduced: RuntimeSession | null = null;
+      let sawExited = false;
+      for (const event of taskSessionEvents) {
+        if (sawExited)
+          assert.notEqual(
+            event.type,
+            "runtime_session_liveness_changed",
+            "F11: late receipt on exited task-bound session must never emit runtime_session_liveness_changed after exit",
+          );
+        reduced = reduceRuntimeSession(reduced, event);
+        if (reduced?.liveness === "exited") sawExited = true;
+      }
+      assert.equal(reduced?.outcome, "cancelled");
+    } finally {
+      ledger.close();
+    }
   },
 );

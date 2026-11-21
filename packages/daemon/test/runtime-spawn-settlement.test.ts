@@ -12,6 +12,7 @@ import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { createRuntimeInstanceDispatchState } from "../src/daemon-host/runtime-instance-selection.ts";
 import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { readAllPendingSteerReceipts, recordPendingSteerReceipt } from "../src/daemon-host/dispatch-steer-state.ts";
 import { runtimeResultText } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import {
@@ -1343,6 +1344,60 @@ test("a stalled dispatch settles through the process-tree path and never masks i
     );
     assert.deepEqual(termination, ["tree"], "one termination path runs; no second best-effort kill hides it");
     assert.equal(runtime.stalledAt, "2026-10-24T00:05:00.000Z", "the stall observation is still recorded");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("F14: transient steer receipt flush failure during publishTerminalOutcome never blocks exited/cancelled/outcome publication", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-f14-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "worker result"),
+      published: string[] = [];
+    runtime.cancelRequested = true;
+    runtime.cancelOpId = "op-cancel-f14";
+    recordPendingSteerReceipt(rootDir, runtime.dispatchId, "canonical", runtime.runtimeSessionId, {
+      status: "applied",
+      controlRequestId: "ctrl-f14-pending",
+      requestOpId: "op-f14-pending",
+      steerVersion: 1,
+    });
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-10-24T00:05:01.000Z",
+        reclaimRuntimeTempDirectory: () => null,
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "worker result",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async (type: string) => {
+        if (type === "runtime_session_liveness_changed") {
+          throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+        }
+        published.push(type);
+        return {};
+      },
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+
+    await publishExit(context, runtime, null);
+
+    assert.deepEqual(published, [
+      "runtime_session_exited",
+      "runtime_session_cancelled",
+      "runtime_session_outcome_observed",
+    ]);
+    assert.equal(
+      readAllPendingSteerReceipts(rootDir).length,
+      1,
+      "unacknowledged steer receipt must stay durable in pending index for asynchronous replay",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

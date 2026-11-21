@@ -16,8 +16,9 @@ import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
 import {
   appendRuntimeWorkerRecord,
+  findLiveDispatchStreamPath,
   readDispatchStream,
-  readDispatchStreamHeaders,
+  readDispatchStreamHeader,
   readDispatchStreamSummary,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
@@ -71,15 +72,21 @@ export async function cancelRuntime(
     throw runtimeSpawnError("invalid_field", "Recovery reason must not be empty.");
   if (payload.idempotencyKey !== undefined && !idempotencyKey)
     throw runtimeSpawnError("invalid_field", "Runtime cancel idempotencyKey must not be empty.");
-  // Authorize against the canonical dispatch, including repeated cancellation after archival.
-  const headers = readDispatchStreamHeaders(context.input.rootDir, true),
-    matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
+  // Authorize against the active handle Map or canonical dispatch via O(1) direct header lookup (F4).
+  const runtimeHandles = context.processes;
+  let active = runtimeHandles.get(runtimeSessionId);
+  const directActiveHeader = active ? readDispatchStreamHeader(context.input.rootDir, active.dispatchId) : null,
     canonicalDispatch =
-      matchingHeader !== undefined
+      directActiveHeader !== null
         ? null
         : context.input.remote?.readRuntimeDispatch
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
           : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
+    matchingHeader =
+      directActiveHeader ??
+      (canonicalDispatch?.payload?.dispatchId
+        ? (readDispatchStreamHeader(context.input.rootDir, canonicalDispatch.payload.dispatchId) ?? undefined)
+        : undefined),
     ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
     isCenter = context.input.runtimeNode === undefined && context.input.remote === undefined,
     remoteEdgeTargetNodeId =
@@ -114,8 +121,6 @@ export async function cancelRuntime(
       (crossNodeCenterRuling ||
         (ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
           (matchingHeader !== undefined || sameWriteSource(ownerBinding.source, binding.source))));
-  const runtimeHandles = context.processes;
-  let active = runtimeHandles.get(runtimeSessionId);
   // Owner authorization permits a mechanical stop even while the center is offline.
   // The handle is transport only: publication and resource release still require the center.
   if (owned && active && ruling === null) return stopOwnedRuntime(active);
@@ -222,7 +227,7 @@ export async function cancelRuntime(
     hasLiveDispatch =
       targetDispatchId !== undefined &&
       (ruling !== null || matchingHeader !== undefined) &&
-      readDispatchStreamHeaders(context.input.rootDir).some(({ dispatchId }) => dispatchId === targetDispatchId);
+      findLiveDispatchStreamPath(context.input.rootDir, targetDispatchId) !== null;
   let ownerGroup: { readonly evidence: RuntimeDispatchOwnerEvidence | null; readonly pid: number | null } | undefined,
     groupStop: ReturnType<typeof probeProcessGroup> | undefined;
   const readOwnerGroup = async () =>
@@ -582,8 +587,28 @@ export async function steerRuntime(
       typeof dispatchIdInput === "string"
         ? { dispatchId: dispatchIdInput }
         : { runtimeSessionId: runtimeSessionIdInput as string },
-    { rootDir, repoId } = context.input;
-  const localHeader = findRuntimeSteerHeader(rootDir, selector);
+    { rootDir, repoId } = context.input,
+    runtimeHandles = context.processes,
+    activeForSelector =
+      "runtimeSessionId" in selector
+        ? runtimeHandles.get(selector.runtimeSessionId)
+        : [...runtimeHandles.values()].find((entry) => entry.dispatchId === selector.dispatchId);
+  let knownDispatchId = activeForSelector?.dispatchId;
+  if (!knownDispatchId && !("dispatchId" in selector) && !context.input.remote) {
+    const projDispatch =
+      context.requiredRuntimeProjection(context.input).readRuntimeDispatch(selector.runtimeSessionId) ??
+      context
+        .requiredRuntimeProjection(context.input)
+        .readLatestRuntimeDispatchBySession?.(selector.runtimeSessionId) ??
+      null;
+    if (projDispatch) knownDispatchId = projDispatch.payload.dispatchId;
+  }
+  const localHeader =
+    knownDispatchId !== undefined
+      ? findRuntimeSteerHeader(rootDir, selector, { knownDispatchId, skipLeafScan: activeForSelector !== undefined })
+      : "dispatchId" in selector || context.input.remote !== undefined
+        ? findRuntimeSteerHeader(rootDir, selector)
+        : null;
   if (!localHeader) {
     if (context.input.runtimeNode === undefined && context.input.remote === undefined)
       return requestRemoteEdgeSteer(context, { selector, prompt, expected, idempotencyKey }, binding);
@@ -606,13 +631,14 @@ export async function steerRuntime(
               repoId,
               header,
               view?.policy.processAlive ? "running" : view?.attempt.phase === "starting" ? "starting" : "stopped",
+              undefined,
+              view?.controlLeafDispatchId,
             ),
           )
         : runtimeSpawnError(code, message);
   if (!header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw refuse("execution_scope_mismatch", "This runtime is owned by another node.");
   await assertRuntimeRecoveryReady(context, runtimeSessionId);
-  const runtimeHandles = context.processes;
   let active = runtimeHandles.get(runtimeSessionId);
   if (!active) {
     await adoptRuntimes(context, undefined, { runtimeSessionId });
@@ -625,7 +651,17 @@ export async function steerRuntime(
   );
   // No await from here to the append: the comparison and the write are one section of the writer.
   if (expected) {
-    const current = resolveRuntimeSteerHeader(rootDir, selector);
+    const current =
+      view?.controlLeafDispatchId !== undefined
+        ? (readDispatchStreamHeader(rootDir, view.controlLeafDispatchId) ??
+          resolveRuntimeSteerHeader(rootDir, selector, {
+            knownDispatchId: active?.dispatchId,
+            skipLeafScan: active !== undefined,
+          }))
+        : resolveRuntimeSteerHeader(rootDir, selector, {
+            knownDispatchId: active?.dispatchId,
+            skipLeafScan: active !== undefined,
+          });
     // A leaf that moved during adoption is a different target, whatever the caller stated.
     if (current.dispatchId !== header.dispatchId) {
       header = current;
@@ -641,7 +677,14 @@ export async function steerRuntime(
     throw refuse("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
   const remoteDedupKey = options?.remoteControlOpId ?? options?.remoteControlRequestId ?? null,
     seenOpIds = remoteDedupKey ? new Set<string>() : undefined,
-    target = runtimeSteerTarget(rootDir, repoId, header, "running", seenOpIds),
+    target = runtimeSteerTarget(
+      rootDir,
+      repoId,
+      header,
+      "running",
+      seenOpIds,
+      header.taskId !== null ? view.controlLeafDispatchId : undefined,
+    ),
     opId = remoteDedupKey
       ? `runtime-steer-remote-${sha256Text(`${repoId}\0${runtimeSessionId}\0${remoteDedupKey}`).slice(0, 32)}`
       : `runtime-steer-${createHash("sha256").update(`${repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;

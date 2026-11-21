@@ -1154,14 +1154,7 @@ export function reduceRuntimeSession(
     };
   }
   if (event.type === "runtime_session_liveness_changed") {
-    if (current.liveness === "exited") {
-      if (event.payload.controlReceipt !== undefined)
-        return {
-          ...current,
-          lastObservedAt: event.occurredAt,
-        };
-      throw new Error(`runtime session ${sessionId} already exited`);
-    }
+    if (!runtimeSessionAcceptsLivenessEvent(current)) throw new Error(`runtime session ${sessionId} already exited`);
     return {
       ...current,
       liveness: event.payload.liveness,
@@ -1215,6 +1208,11 @@ export function reduceRuntimeSession(
   }
   return current;
 }
+/** Canonical domain judgment: whether a RuntimeSession can still accept a `runtime_session_liveness_changed` event (F11 / N-1 reducer invariant). */
+export function runtimeSessionAcceptsLivenessEvent(session: Pick<RuntimeSession, "liveness">): boolean {
+  return session.liveness !== "exited";
+}
+
 export function markRuntimeSessionUnknown(session: RuntimeSession): RuntimeSession {
   return session.liveness === "exited" || (session.liveness === "unknown" && !session.attachable)
     ? session

@@ -795,7 +795,14 @@ async function publishTerminalOutcome(
     cancelled = active
       ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
       : payload.outcome === "cancelled";
-  await flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding);
+  // F14: Best-effort pre-exit steer receipt flush so receipts land before runtime_session_exited
+  // when Center is reachable (keeping N-1 compatibility), yet a transient receipt failure NEVER
+  // blocks exited/cancelled/outcome publication or resource release.
+  const [receiptFlush] = await Promise.allSettled([
+    flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding),
+  ]);
+  if (receiptFlush.status === "rejected")
+    console.error(`[runtime-steer-receipts] pre-exit flush deferred for ${dispatchId}:`, receiptFlush.reason);
   const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
   if (!stopAlreadyProven)
     await context.publishRuntimeEvent(
