@@ -170,5 +170,28 @@
         "allowPrivilegeEscalation": { "type": "boolean" }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workloadKind": { "const": "Deployment" },
+          "storage": {
+            "properties": { "backend": { "const": "sqlite" } },
+            "required": ["backend"]
+          }
+        },
+        "required": ["workloadKind", "storage"]
+      },
+      "then": {
+        "properties": {
+          "persistence": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["persistence"]
+      }
+    }
+  ]
 }

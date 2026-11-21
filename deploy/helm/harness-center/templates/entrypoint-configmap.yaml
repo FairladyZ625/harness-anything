@@ -24,6 +24,14 @@ data:
       fi
     fi
 
+    # 0b. Fail closed if Fleet and metrics listeners are assigned the same container TCP port.
+    if [ "$FLEET_ENABLED" != "false" ] && [ -n "${HARNESS_DAEMON_METRICS_PORT:-}" ] && [ -n "${HARNESS_FLEET_PORT:-}" ]; then
+      if [ "${HARNESS_FLEET_PORT}" = "${HARNESS_DAEMON_METRICS_PORT}" ]; then
+        echo "harness-center: HARNESS_FLEET_PORT (${HARNESS_FLEET_PORT}) and HARNESS_DAEMON_METRICS_PORT (${HARNESS_DAEMON_METRICS_PORT}) must be distinct." >&2
+        exit 1
+      fi
+    fi
+
     # 1. Verify declared storage backend wiring across ALL enabled registered repositories (plus target Fleet authority)
     #    so postgres deployments never silently fall back to local SQLite for any repo, and never leak Secret contents on parse errors.
     node -e '
@@ -405,27 +413,61 @@ data:
       exit 1
     fi
 
-    node "$CLI_ENTRY" bootstrap \
+    BOOTSTRAP_OUT="${USER_ROOT}/.oidc-bootstrap-out.$$"
+    rm -f "$BOOTSTRAP_OUT"
+    node "$CLI_ENTRY" bootstrap --json \
       --mode external \
       --url "${HARNESS_OIDC_ISSUER_URL}" \
       --realm "${HARNESS_OIDC_REALM:-fleet}" \
       --client-id "${HARNESS_OIDC_CLIENT_ID:-harness-center}" \
-      --client-secret-stdin < "${HARNESS_OIDC_CLIENT_SECRET_FILE}" &
+      --client-secret-stdin < "${HARNESS_OIDC_CLIENT_SECRET_FILE}" > "$BOOTSTRAP_OUT" &
     CHILD_PID=$!
     wait_for_pid "$CHILD_PID"
     BOOTSTRAP_RC="$WAIT_RC"
     CHILD_PID=""
 
     if [ "$SHUTDOWN_REQUESTED" -ne 0 ]; then
+      rm -f "$BOOTSTRAP_OUT"
       wait_for_daemon
       exit 143
     fi
 
     if [ "$BOOTSTRAP_RC" -ne 0 ]; then
+      rm -f "$BOOTSTRAP_OUT"
       echo "harness-center: external OIDC/Keycloak bootstrap failed (exit ${BOOTSTRAP_RC})" >&2
       kill -TERM "$DAEMON_PID" 2>/dev/null || true
       wait_for_daemon
       exit "$BOOTSTRAP_RC"
+    fi
+
+    set +e
+    node -e '
+      const { existsSync, readFileSync } = require("node:fs");
+      const outFile = process.argv[1];
+      if (!existsSync(outFile)) process.exit(0);
+      const raw = readFileSync(outFile, "utf8").trim();
+      if (!raw) process.exit(0);
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        process.exit(0);
+      }
+      if (parsed && typeof parsed === "object" && parsed.authoritySync && parsed.authoritySync.pending === true) {
+        console.error(
+          "harness-center: external OIDC/Keycloak bootstrap left authoritySync.pending=true; failing closed until discovery succeeds.",
+        );
+        process.exit(12);
+      }
+    ' "$BOOTSTRAP_OUT"
+    BOOTSTRAP_SYNC_RC=$?
+    set -e
+    rm -f "$BOOTSTRAP_OUT"
+
+    if [ "$BOOTSTRAP_SYNC_RC" -ne 0 ]; then
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      wait_for_daemon
+      exit 1
     fi
 
     # Gracefully drain the temporary bootstrap daemon, then hand off directly to `exec node` as PID 1

@@ -25,7 +25,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
@@ -106,6 +106,7 @@ function removeBuildInfoFiles(rootDir) {
  */
 function collectDeliverableEntries(rootDir, options = {}) {
   const ignoreSet = new Set(options.ignoreFiles ?? []);
+  const ignoredSegments = new Set(options.ignoredSegments ?? []);
   const entries = [];
 
   const walk = (directory) => {
@@ -113,7 +114,7 @@ function collectDeliverableEntries(rootDir, options = {}) {
       left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
     );
     for (const entry of dirEntries) {
-      if (DEFAULT_IGNORED_SEGMENTS.has(entry.name)) continue;
+      if (ignoredSegments.has(entry.name)) continue;
       const fullPath = path.join(directory, entry.name);
       const relativePath = path.relative(rootDir, fullPath).split(path.sep).join("/");
       if (ignoreSet.has(relativePath)) continue;
@@ -255,13 +256,74 @@ export function createDeterministicTarGz(rootDir, options = {}) {
   return gzipped;
 }
 
-function writeDeliverableDirectory(stagingDir, outDir) {
+function isSameOrWithinPath(candidatePath, basePath) {
+  const rel = path.relative(basePath, candidatePath);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function readBundleManifestMarker(directory) {
+  const manifestPath = path.join(directory, "build-manifest.json");
+  const stat = lstatSync(manifestPath, { throwIfNoEntry: false });
+  if (!stat || !stat.isFile()) return null;
+  try {
+    const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+    return parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed) &&
+      parsed.schema === REPRODUCIBLE_BUILD_MANIFEST_SCHEMA &&
+      Array.isArray(parsed.files)
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function prepareDeliverableTargetPath(outDir, options = {}) {
   const targetDir = path.resolve(outDir);
   const parentDir = path.dirname(targetDir);
   if (targetDir === parentDir) {
     throw new Error(`Refusing to overwrite filesystem root as output directory: ${targetDir}`);
   }
-  const entries = collectDeliverableEntries(stagingDir);
+  const protectedAncestors = [path.resolve(process.cwd()), path.resolve(homedir()), path.resolve(tmpdir())];
+  if (options.repository) protectedAncestors.push(path.resolve(options.repository));
+  for (const protectedPath of protectedAncestors) {
+    if (isSameOrWithinPath(protectedPath, targetDir)) {
+      throw new Error(
+        `Refusing to replace protected directory or ancestor (${protectedPath}) as --out target: ${targetDir}`,
+      );
+    }
+  }
+  if (options.archivePath) {
+    const resolvedArchive = path.resolve(options.archivePath);
+    if (isSameOrWithinPath(resolvedArchive, targetDir) || isSameOrWithinPath(targetDir, resolvedArchive)) {
+      throw new Error(
+        `Refusing overlapping --archive (${resolvedArchive}) and --out (${targetDir}) paths; write --archive outside --out.`,
+      );
+    }
+  }
+  const existing = lstatSync(targetDir, { throwIfNoEntry: false });
+  if (existing) {
+    if (!existing.isDirectory()) {
+      throw new Error(`Refusing to replace non-directory output path: ${targetDir}`);
+    }
+    if (lstatSync(path.join(targetDir, ".git"), { throwIfNoEntry: false })) {
+      throw new Error(`Refusing to replace Git checkout directory as --out target: ${targetDir}`);
+    }
+    const entries = readdirSync(targetDir);
+    if (entries.length > 0 && readBundleManifestMarker(targetDir) === null) {
+      throw new Error(
+        `Refusing to replace existing non-empty directory without a valid ${REPRODUCIBLE_BUILD_MANIFEST_SCHEMA} build-manifest.json: ${targetDir}`,
+      );
+    }
+  }
+  return targetDir;
+}
+
+function writeDeliverableDirectory(stagingDir, outDir, options = {}) {
+  const targetDir = prepareDeliverableTargetPath(outDir, options);
+  const parentDir = path.dirname(targetDir);
+  const entries = collectDeliverableEntries(stagingDir, { ignoredSegments: options.ignoredSegments });
   mkdirSync(parentDir, { recursive: true });
   const tempDir = mkdtempSync(path.join(parentDir, `.${path.basename(targetDir)}.staging-`));
   const backupDir = `${targetDir}.replacing-${process.pid}-${Date.now()}`;
@@ -450,6 +512,13 @@ export async function buildReproducibleBundle(options) {
     options.targetWorkspaces && options.targetWorkspaces.length > 0 ? options.targetWorkspaces : DEFAULT_WORKSPACES;
   const dependencyMode = options.dependencyMode ?? (options.offlineCacheDir ? "offline-cache" : "mirror");
 
+  if (options.outputDir) {
+    prepareDeliverableTargetPath(options.outputDir, {
+      repository,
+      archivePath: options.archivePath,
+    });
+  }
+
   const staging = mkdtempSync(path.join(tmpdir(), "ha-repro-stage-"));
   try {
     const extracted = extractTree(repository, commit, staging);
@@ -517,7 +586,10 @@ export async function buildReproducibleBundle(options) {
       rmSync(stagedNodeModules, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
 
-    const computed = computeDirectoryManifest(staging, { ignoreFiles: ["build-manifest.json"] });
+    const computed = computeDirectoryManifest(staging, {
+      ignoreFiles: ["build-manifest.json"],
+      ignoredSegments: DEFAULT_IGNORED_SEGMENTS,
+    });
     const manifest = {
       schema: REPRODUCIBLE_BUILD_MANIFEST_SCHEMA,
       commit,
@@ -534,7 +606,10 @@ export async function buildReproducibleBundle(options) {
 
     let archiveSha256 = null;
     if (options.archivePath || options.createArchive) {
-      const archiveBytes = createDeterministicTarGz(staging, { sourceDateEpoch });
+      const archiveBytes = createDeterministicTarGz(staging, {
+        sourceDateEpoch,
+        ignoredSegments: DEFAULT_IGNORED_SEGMENTS,
+      });
       archiveSha256 = sha256Buffer(archiveBytes);
       if (options.archivePath) {
         const destinationArchive = path.resolve(options.archivePath);
@@ -544,7 +619,11 @@ export async function buildReproducibleBundle(options) {
     }
 
     if (options.outputDir) {
-      writeDeliverableDirectory(staging, path.resolve(options.outputDir));
+      writeDeliverableDirectory(staging, path.resolve(options.outputDir), {
+        repository,
+        archivePath: options.archivePath,
+        ignoredSegments: DEFAULT_IGNORED_SEGMENTS,
+      });
     }
 
     return {
@@ -634,7 +713,11 @@ export function verifyBuildManifest(options) {
     return { ok: false, errors };
   }
 
-  const actual = computeDirectoryManifest(bundleDir, { ignoreFiles: ["build-manifest.json"] });
+  // Delivered bundles must be walked strictly with zero ignored directory segments (e.g. injected node_modules/.git).
+  const actual = computeDirectoryManifest(bundleDir, {
+    ignoreFiles: ["build-manifest.json"],
+    ignoredSegments: [],
+  });
   const expectedMap = new Map();
   for (const entry of manifest.files) {
     if (!entry || typeof entry !== "object" || typeof entry.path !== "string" || entry.path.length === 0) {

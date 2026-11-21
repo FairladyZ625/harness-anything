@@ -12,6 +12,9 @@ data:
   HARNESS_CLI_ENTRY: {{ .Values.daemon.cliEntrypoint | quote }}
   HARNESS_STORAGE_BACKEND: {{ .Values.storage.backend | quote }}
   HARNESS_FLEET_ENABLED: {{ .Values.fleet.enabled | quote }}
+  {{- if .Values.fleet.enabled }}
+  HARNESS_FLEET_PORT: {{ .Values.fleet.port | quote }}
+  {{- end }}
   {{- if .Values.metrics.enabled }}
   HARNESS_DAEMON_METRICS_BIND: {{ .Values.metrics.bind | quote }}
   HARNESS_DAEMON_METRICS_PORT: {{ .Values.metrics.port | quote }}
@@ -29,7 +32,6 @@ data:
   {{- end }}
   {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret .Values.fleet.authorityRepoId }}
   HARNESS_FLEET_BIND: {{ .Values.fleet.bind | quote }}
-  HARNESS_FLEET_PORT: {{ .Values.fleet.port | quote }}
   HARNESS_FLEET_AUTHORITY_REPO_ID: {{ .Values.fleet.authorityRepoId | quote }}
   HARNESS_FLEET_AUTHORITY_REPO_ROOT: {{ .Values.fleet.authorityRepoRoot | quote }}
   HARNESS_FLEET_QUOTA_BYTES: {{ .Values.fleet.quotaBytes | quote }}

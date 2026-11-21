@@ -104,6 +104,12 @@ spec:
           volumeMounts:
             - name: daemon-state
               mountPath: {{ .Values.daemon.userRoot | quote }}
+              subPath: user
+            {{- if .Values.fleet.enabled }}
+            - name: daemon-state
+              mountPath: {{ .Values.fleet.authorityRepoRoot | quote }}
+              subPath: authority-repo
+            {{- end }}
             - name: entrypoint
               mountPath: /etc/harness/entrypoint
               readOnly: true

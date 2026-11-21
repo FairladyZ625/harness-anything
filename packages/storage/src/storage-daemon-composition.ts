@@ -45,6 +45,57 @@ export type DaemonStorageConfig =
   | import("./storage-backend.ts").PostgresStorageBackendConfig
   | import("./storage-backend.ts").PGliteStorageBackendConfig;
 
+export function resolveRequiredStorageBackend(
+  explicit?: import("./storage-backend.ts").StorageBackend,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): import("./storage-backend.ts").StorageBackend | undefined {
+  if (explicit !== undefined) return explicit;
+  const raw = env.HARNESS_STORAGE_BACKEND?.trim();
+  if (!raw) return undefined;
+  if (raw === "postgres" || raw === "sqlite" || raw === "pglite") return raw;
+  throw new Error(`Invalid HARNESS_STORAGE_BACKEND: ${JSON.stringify(raw)} (expected postgres, sqlite, or pglite).`);
+}
+
+export function enforceRepoStorageBackend(input: {
+  readonly requiredBackend?: import("./storage-backend.ts").StorageBackend;
+  readonly repoId: string;
+  readonly mode?: string;
+  readonly storage?: DaemonStorageConfig;
+  readonly hostCodedError: (code: string, message: string) => Error;
+}): void {
+  if (!input.requiredBackend || input.mode === "remote-proxy") return;
+  if (input.requiredBackend === "postgres") {
+    const valid =
+      input.storage?.backend === "postgres" &&
+      typeof input.storage.connectionString === "string" &&
+      input.storage.connectionString.trim().length > 0 &&
+      typeof input.storage.authorityConnectionString === "string" &&
+      input.storage.authorityConnectionString.trim().length > 0;
+    if (!valid) {
+      throw input.hostCodedError(
+        "invalid_field",
+        `Repository ${input.repoId} requires a valid postgres entry in daemon-storage.json because this daemon enforces storage.backend=postgres.`,
+      );
+    }
+    return;
+  }
+  if (input.requiredBackend === "sqlite") {
+    if (input.storage && input.storage.backend && input.storage.backend !== "sqlite") {
+      throw input.hostCodedError(
+        "invalid_field",
+        `Repository ${input.repoId} declares storage backend "${input.storage.backend}" which conflicts with enforced storage.backend=sqlite.`,
+      );
+    }
+    return;
+  }
+  if (input.requiredBackend === "pglite" && input.storage?.backend !== "pglite") {
+    throw input.hostCodedError(
+      "invalid_field",
+      `Repository ${input.repoId} requires a pglite entry in daemon-storage.json because this daemon enforces storage.backend=pglite.`,
+    );
+  }
+}
+
 export function hasDaemonGitFollower(storage?: DaemonStorageConfig): boolean {
   return (storage?.backend !== "postgres" && storage?.backend !== "pglite") || storage.gitFollower !== undefined;
 }

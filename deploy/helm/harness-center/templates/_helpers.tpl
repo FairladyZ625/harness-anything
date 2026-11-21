@@ -6,18 +6,18 @@ Expand the name of the chart.
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
+Create a collision-free, release-unique fully qualified base name (<= 51 chars when default, <= 63 chars with fullnameOverride).
+Every default release embeds an 8-char sha256 discriminator of .Release.Name so distinct releases
+(e.g. "prod" vs "prod-harness-center" vs "prod-harness-center-metrics" or 53-char siblings) never collide.
 */}}
 {{- define "harness-center.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
-{{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
-{{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
-{{- end }}
+{{- $releaseHash := .Release.Name | sha256sum | trunc 8 }}
+{{- $prefix := printf "%s-%s" .Release.Name $name | trunc 42 | trimSuffix "-" }}
+{{- printf "%s-%s" $prefix $releaseHash }}
 {{- end }}
 {{- end }}
 
@@ -49,8 +49,21 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Dedicated Fleet TLS Service name with explicit -fleet role suffix so Fleet, Metrics (-metrics),
+and Headless (-headless) Services are pairwise disjoint across all releases and overrides.
+*/}}
+{{- define "harness-center.fleetServiceName" -}}
+{{- $full := include "harness-center.fullname" . -}}
+{{- if le (len $full) 57 -}}
+{{- printf "%s-fleet" $full -}}
+{{- else -}}
+{{- printf "%s-%s-fleet" ($full | trunc 48 | trimSuffix "-") ($full | sha256sum | trunc 8) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Dedicated in-cluster Metrics Service name (always ClusterIP, never shared with external Fleet exposure).
-Truncates before appending the suffix and hashes long fullnames so primary, metrics, and headless Services never collide.
+Truncates before appending the suffix and hashes long fullnames so Fleet, metrics, and headless Services never collide.
 */}}
 {{- define "harness-center.metricsServiceName" -}}
 {{- $full := include "harness-center.fullname" . -}}
@@ -88,7 +101,9 @@ Entrypoint ConfigMap name bounded to 63 chars even for maximum-length release na
 
 {{/*
 Render-time validation enforcing single-writer topology, required PostgreSQL Secret wiring,
-metrics auth Secret key completeness, and strict ASCII non-conflicting Prometheus scrape path.
+persistent storage for SQLite workloads, distinct Fleet vs metrics container ports,
+disjoint userRoot vs authorityRepoRoot mounts, metrics auth Secret key completeness,
+and strict ASCII non-conflicting Prometheus scrape path.
 */}}
 {{- define "harness-center.validateValues" -}}
 {{- if ne (int .Values.replicaCount) 1 }}
@@ -96,6 +111,15 @@ metrics auth Secret key completeness, and strict ASCII non-conflicting Prometheu
 {{- end }}
 {{- if and (eq .Values.storage.backend "postgres") (not .Values.storage.existingSecret) }}
 {{- fail "storage.existingSecret is required when storage.backend=postgres so daemon-storage.json is mounted and never falls back to local SQLite." }}
+{{- end }}
+{{- if and (eq .Values.storage.backend "sqlite") (eq .Values.workloadKind "Deployment") (not .Values.persistence.enabled) }}
+{{- fail "storage.backend=sqlite requires persistent storage: set workloadKind=StatefulSet or persistence.enabled=true on Deployment so Pod replacement does not lose the SQLite ledger." }}
+{{- end }}
+{{- if and .Values.fleet.enabled .Values.metrics.enabled (eq (int .Values.fleet.port) (int .Values.metrics.port)) }}
+{{- fail (printf "fleet.port (%d) and metrics.port (%d) must be distinct when both fleet.enabled and metrics.enabled are true so the Fleet Service cannot forward to the plaintext metrics HTTP listener or collide on container bind." (int .Values.fleet.port) (int .Values.metrics.port)) }}
+{{- end }}
+{{- if and .Values.fleet.enabled (eq (trimSuffix "/" .Values.daemon.userRoot) (trimSuffix "/" .Values.fleet.authorityRepoRoot)) }}
+{{- fail (printf "fleet.authorityRepoRoot (%q) must not equal daemon.userRoot (%q)." .Values.fleet.authorityRepoRoot .Values.daemon.userRoot) }}
 {{- end }}
 {{- if .Values.metrics.enabled }}
 {{- $mpath := trim .Values.metrics.path }}

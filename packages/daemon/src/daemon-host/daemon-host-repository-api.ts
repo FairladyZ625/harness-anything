@@ -19,7 +19,13 @@ import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { centerMovedError, readCenterMigrating, registerDaemonRepo } from "@harness-anything/storage";
+import {
+  centerMovedError,
+  enforceRepoStorageBackend,
+  readCenterMigrating,
+  registerDaemonRepo,
+  resolveRequiredStorageBackend,
+} from "@harness-anything/storage";
 import { extractCenterMoved } from "./daemon-host-errors.ts";
 import {
   readDaemonRegistry,
@@ -317,6 +323,14 @@ export function createDaemonHostRepositoryApi(
           "repository_already_registered",
           `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
         );
+      const bootstrapStorage = context.input.storage?.[bootstrap.repoId];
+      enforceRepoStorageBackend({
+        requiredBackend: resolveRequiredStorageBackend(context.input.requiredStorageBackend),
+        repoId: bootstrap.repoId,
+        mode: "local",
+        storage: bootstrapStorage,
+        hostCodedError: context.hostCodedError,
+      });
       if (!request.configureOnly) {
         if (context.oidc.centerConfigured()) {
           const center = await context.keycloakCenter();
@@ -349,6 +363,7 @@ export function createDaemonHostRepositoryApi(
             rootDir: bootstrap.rootDir,
             mode: "local",
             ownerId: context.input.daemonId,
+            storage: bootstrapStorage,
             defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
@@ -622,6 +637,17 @@ export function createDaemonHostRepositoryApi(
           requestedRoot !== oldRoot
         )
           await context.migrateEdgeWorkspace(request.repoId, oldRoot, requestedRoot);
+        const effectiveMode = request.mode ?? existing?.mode ?? "local",
+          effectiveState = request.state ?? existing?.state ?? "enabled";
+        if (effectiveState === "enabled" && effectiveMode !== "remote-proxy") {
+          enforceRepoStorageBackend({
+            requiredBackend: resolveRequiredStorageBackend(context.input.requiredStorageBackend),
+            repoId: request.repoId,
+            mode: effectiveMode,
+            storage: context.input.storage?.[request.repoId],
+            hostCodedError: context.hostCodedError,
+          });
+        }
         const result = updateDaemonRepo({
           ...request,
           ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),

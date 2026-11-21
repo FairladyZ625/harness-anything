@@ -435,6 +435,39 @@ test("verifyBuildManifest detects byte, executable-mode, symlink-target, type, m
     assert.ok(extraCheck.errors.some((entry) => entry.includes("injected.js")));
     unlinkSync(extraPath);
 
+    // F-G7-26: extra files inside previously ignored directory names (node_modules, .git) MUST be caught by verifyBuildManifest
+    const injectedNodeModulesFile = path.join(outDir, "node_modules/evil-dep/index.js");
+    mkdirSync(path.dirname(injectedNodeModulesFile), { recursive: true });
+    writeFileSync(injectedNodeModulesFile, 'module.exports = "hijacked";\n');
+    const nmCheck = verifyBuildManifest({ bundleDir: outDir, manifestPath });
+    assert.equal(
+      nmCheck.ok,
+      false,
+      "verifyBuildManifest must reject injected node_modules files inside delivered bundle",
+    );
+    assert.ok(nmCheck.errors.some((entry) => entry.includes("unexpected extra file: node_modules/evil-dep/index.js")));
+    rmSync(path.join(outDir, "node_modules"), { recursive: true, force: true });
+
+    const injectedNestedNm = path.join(outDir, "packages/sample/node_modules/shadow/index.js");
+    mkdirSync(path.dirname(injectedNestedNm), { recursive: true });
+    writeFileSync(injectedNestedNm, "export const hijacked = true;\n");
+    const nestedNmCheck = verifyBuildManifest({ bundleDir: outDir, manifestPath });
+    assert.equal(nestedNmCheck.ok, false, "verifyBuildManifest must reject nested node_modules files");
+    assert.ok(
+      nestedNmCheck.errors.some((entry) =>
+        entry.includes("unexpected extra file: packages/sample/node_modules/shadow/index.js"),
+      ),
+    );
+    rmSync(path.join(outDir, "packages/sample/node_modules"), { recursive: true, force: true });
+
+    const injectedGitConfig = path.join(outDir, ".git/config");
+    mkdirSync(path.dirname(injectedGitConfig), { recursive: true });
+    writeFileSync(injectedGitConfig, "[core]\n\trepositoryformatversion = 0\n");
+    const gitDirCheck = verifyBuildManifest({ bundleDir: outDir, manifestPath });
+    assert.equal(gitDirCheck.ok, false, "verifyBuildManifest must reject injected .git files inside delivered bundle");
+    assert.ok(gitDirCheck.errors.some((entry) => entry.includes("unexpected extra file: .git/config")));
+    rmSync(path.join(outDir, ".git"), { recursive: true, force: true });
+
     // Single-byte tamper rejected
     const target = path.join(outDir, "packages/sample/dist/index.js");
     const original = readFileSync(target, "utf8");
@@ -569,6 +602,100 @@ test("buildReproducibleBundle atomically replaces reused --out directory so dele
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(path.dirname(outDir), { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(archiveDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("buildReproducibleBundle refuses protected paths, arbitrary non-bundle directories, and --archive inside --out (F-G7-25)", async () => {
+  const { dir, commit } = createFixtureGitRepo({ nondeterministic: false });
+  const sandbox = mkdtempSync(path.join(tmpdir(), "ha-repro-guard-"));
+  const operatorDir = path.join(sandbox, "operator-backups");
+  const fakeGitDir = path.join(sandbox, "checkout-with-manifest");
+  const cleanOutDir = path.join(sandbox, "fresh-bundle");
+  try {
+    // 1. Existing non-empty directory created outside this tool (no build-manifest.json)
+    mkdirSync(operatorDir, { recursive: true });
+    const preciousFile = path.join(operatorDir, "backup-2026.sql");
+    writeFileSync(preciousFile, "-- precious operator backup\n");
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: operatorDir,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /without a valid harness-anything\/reproducible-build-manifest\/v1 build-manifest\.json/u,
+    );
+    assert.equal(
+      readFileSync(preciousFile, "utf8"),
+      "-- precious operator backup\n",
+      "refused --out must leave existing operator files completely untouched",
+    );
+
+    // 2. Protected repository root / ancestor directory
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: dir,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing to replace protected directory/u,
+    );
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: path.dirname(dir),
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing to replace protected directory/u,
+    );
+
+    // 3. Git checkout directory even if it contains a valid-looking build-manifest.json
+    mkdirSync(path.join(fakeGitDir, ".git"), { recursive: true });
+    writeFileSync(
+      path.join(fakeGitDir, "build-manifest.json"),
+      JSON.stringify({ schema: "harness-anything/reproducible-build-manifest/v1", files: [] }),
+    );
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: fakeGitDir,
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing to replace Git checkout directory/u,
+    );
+
+    // 4. --archive placed inside --out directory is refused before writing or replacing
+    await assert.rejects(
+      () =>
+        buildReproducibleBundle({
+          repository: dir,
+          revision: commit,
+          outputDir: cleanOutDir,
+          archivePath: path.join(cleanOutDir, "nested/bundle.tar.gz"),
+          targetWorkspaces: ["@repro/sample"],
+          dependencyMode: "none",
+        }),
+      /Refusing overlapping --archive/u,
+    );
+    assert.equal(
+      lstatSync(cleanOutDir, { throwIfNoEntry: false }),
+      undefined,
+      "rejected overlapping --archive/--out must not create partial output",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 

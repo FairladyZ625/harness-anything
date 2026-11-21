@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "harness-center.fullname" . }}
+  name: {{ include "harness-center.fleetServiceName" . }}
   labels:
     {{- include "harness-center.labels" . | nindent 4 }}
     app.kubernetes.io/component: fleet

@@ -26,7 +26,12 @@ import { centerReviewFailurePrefix } from "./task-review-dispatch.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { readDaemonStorageConfig, registerDaemonRepo } from "@harness-anything/storage";
+import {
+  enforceRepoStorageBackend,
+  readDaemonStorageConfig,
+  registerDaemonRepo,
+  resolveRequiredStorageBackend,
+} from "@harness-anything/storage";
 import {
   consumeKnownError,
   validateScheduleV1,
@@ -176,7 +181,12 @@ import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
-  input = { ...input, storage: input.storage ?? readDaemonStorageConfig(input.userRoot) };
+  const requiredStorageBackend = resolveRequiredStorageBackend(input.requiredStorageBackend);
+  input = {
+    ...input,
+    storage: input.storage ?? readDaemonStorageConfig(input.userRoot),
+    ...(requiredStorageBackend ? { requiredStorageBackend } : {}),
+  };
   // Daemon-close lifetime: parked waits and in-flight edge forwarding/retry stop here.
   const closeController = new AbortController();
   const skillEvalProduction = openSkillEvalProduction({
@@ -834,9 +844,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return mode === "managed" || (mode === "external" && oidc.centerConfigured());
     },
     ensureRbacResumed,
-    checkOidcStatus: () => oidc.status(),
-    checkOidcCenter: () => oidc.center(),
+    checkOidcStatus: (loginTarget) => oidc.status(loginTarget),
+    checkOidcCenter: (rejectedAccessToken) => oidc.center(rejectedAccessToken),
     isClosing: () => closing,
+    readyReverifyIntervalMs: input.identityReadyReverifyIntervalMs,
     recordDiagnostics: (error) => {
       input.recordLifecycle?.({ event: "diagnostics", service: "identity-readiness", error });
     },
@@ -1001,6 +1012,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const attach = async (rootDir: string, repoId: string, mode?: DaemonRepoMode) => {
     const root = canonicalRoot(rootDir),
       id = workspaceId(repoId);
+    enforceRepoStorageBackend({
+      requiredBackend: requiredStorageBackend,
+      repoId: id,
+      mode,
+      storage: input.storage?.[id],
+      hostCodedError,
+    });
     const registered = registerDaemonRepo({
       canonicalRoot: root,
       repoId,
@@ -1420,10 +1438,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (
           request.mode === "external" ||
           (request.mode === "managed" && request.operation !== "listener" && request.operation !== "listener-set")
-        )
+        ) {
+          const target = requireLoginTarget();
           return oidc
-            .configureAuthority(() => managedRbac.run(request), requireLoginTarget())
-            .then(identityReadiness.observeConfigured, identityReadiness.observeConfigureFailure);
+            .configureAuthority(() => managedRbac.run(request), target)
+            .then(
+              (outcome) => identityReadiness.observeConfigured(outcome, target),
+              identityReadiness.observeConfigureFailure,
+            );
+        }
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (usesRegisteredAuthority && request.repoId) {

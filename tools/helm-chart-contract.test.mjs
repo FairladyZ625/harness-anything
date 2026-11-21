@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import Ajv from "ajv";
@@ -12,7 +12,9 @@ import { PROMETHEUS_METRIC_NAMES } from "../packages/kernel/src/domain/prometheu
 import { readDaemonRegistry } from "../packages/kernel/src/daemon/registry.ts";
 import { readFleetCenterConfig } from "../packages/daemon/src/daemon-host/fleet-center-config.ts";
 import { openDaemonHost } from "../packages/daemon/src/daemon-host/daemon-host.ts";
+import { createIdentityReadinessController } from "../packages/daemon/src/daemon-host/daemon-host-lifecycle-api.ts";
 import { startDaemonMetricsServer } from "../packages/daemon/src/daemon-host/metrics-http-server.ts";
+import { sqliteLedgerPath } from "../packages/storage/src/store/sqlite-ledger-layout.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const chartRoot = path.join(repoRoot, "deploy/helm/harness-center");
@@ -61,19 +63,37 @@ function renderHelmNames({ releaseName, chartName = "harness-center", nameOverri
   const name = trunc(nameOverride || chartName, 63);
   const fullname = fullnameOverride
     ? trunc(fullnameOverride, 63)
-    : releaseName.includes(name)
-      ? trunc(releaseName, 63)
-      : trunc(`${releaseName}-${name}`, 63);
+    : `${trunc(`${releaseName}-${name}`, 42)}-${sha8(releaseName)}`;
   const derived = (suffix, directMax, hashPrefixMax) =>
     fullname.length <= directMax
       ? `${fullname}-${suffix}`
       : `${trunc(fullname, hashPrefixMax)}-${sha8(fullname)}-${suffix}`;
   return {
     fullname,
+    fleetServiceName: derived("fleet", 57, 48),
     metricsServiceName: derived("metrics", 55, 46),
     headlessServiceName: derived("headless", 54, 45),
     entrypointConfigMapName: derived("entrypoint", 52, 43),
   };
+}
+
+function validateHelmValuesRender(values) {
+  const errors = [];
+  if (Number(values.replicaCount) !== 1) errors.push("replicaCount must equal 1");
+  if (values.storage?.backend === "postgres" && !values.storage?.existingSecret) {
+    errors.push("storage.existingSecret is required when storage.backend=postgres");
+  }
+  if (values.storage?.backend === "sqlite" && values.workloadKind === "Deployment" && !values.persistence?.enabled) {
+    errors.push("storage.backend=sqlite requires workloadKind=StatefulSet or persistence.enabled=true");
+  }
+  if (values.fleet?.enabled && values.metrics?.enabled && Number(values.fleet.port) === Number(values.metrics.port)) {
+    errors.push("fleet.port and metrics.port must be distinct when both fleet.enabled and metrics.enabled are true");
+  }
+  const trimSlash = (value) => String(value ?? "").replace(/\/+$/u, "");
+  if (values.fleet?.enabled && trimSlash(values.daemon?.userRoot) === trimSlash(values.fleet?.authorityRepoRoot)) {
+    errors.push("fleet.authorityRepoRoot must not equal daemon.userRoot");
+  }
+  return errors;
 }
 
 function renderPrometheusRuleForRelease(template, { releaseName, namespace, metricsServiceName, rpcThreshold = 0.05 }) {
@@ -289,16 +309,40 @@ test("values.yaml validates strictly against values.schema.json and schema enfor
   assert.equal(validate({ ...values, replicaCount: 2 }), false, "schema must reject replicaCount > 1");
   assert.equal(validate({ ...values, replicaCount: 0 }), false, "schema must reject replicaCount < 1");
 
-  // F-G7-11: postgres backend requires non-empty existingSecret, while sqlite allows empty
+  // F-G7-11 & F-G7-29: postgres requires non-empty existingSecret; sqlite rejects unpersisted Deployment and allows StatefulSet or Deployment+persistence
   assert.equal(
     validate({ ...values, storage: { ...values.storage, backend: "postgres", existingSecret: "" } }),
     false,
     "schema must reject postgres backend without existingSecret",
   );
   assert.equal(
-    validate({ ...values, storage: { ...values.storage, backend: "sqlite", existingSecret: "" } }),
+    validate({
+      ...values,
+      workloadKind: "Deployment",
+      persistence: { ...values.persistence, enabled: false },
+      storage: { ...values.storage, backend: "sqlite", existingSecret: "" },
+    }),
+    false,
+    "schema must reject unpersisted Deployment with sqlite backend",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      workloadKind: "StatefulSet",
+      storage: { ...values.storage, backend: "sqlite", existingSecret: "" },
+    }),
     true,
-    "schema must allow sqlite backend without existingSecret",
+    "schema must allow StatefulSet with sqlite backend without existingSecret",
+  );
+  assert.equal(
+    validate({
+      ...values,
+      workloadKind: "Deployment",
+      persistence: { ...values.persistence, enabled: true },
+      storage: { ...values.storage, backend: "sqlite", existingSecret: "" },
+    }),
+    true,
+    "schema must allow Deployment with persistence.enabled=true and sqlite backend",
   );
 
   // F-G7-13 & F-G7-23: reject reserved probe paths, dot/traversal segments, trailing slashes, non-ASCII, and percent-encoding
@@ -379,16 +423,64 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
   assert.ok(headlessService.includes('eq .Values.workloadKind "StatefulSet"'));
   assert.ok(headlessService.includes("clusterIP: None"));
 
-  // F-G7-18: collision-free <= 63-char Service & ConfigMap names across long release names & fullnameOverride
+  // F-G7-18 & F-G7-28: release-unique injective base + explicit role suffixes prevent ALL cross-release Service/ConfigMap collisions
+  assert.ok(helpers.includes('define "harness-center.fleetServiceName"'));
   assert.ok(helpers.includes('define "harness-center.entrypointConfigMapName"'));
-  assert.ok(helpers.includes("trunc 46") && helpers.includes("sha256sum | trunc 8"));
+  assert.ok(helpers.includes(".Release.Name | sha256sum | trunc 8"));
+  assert.ok(helpers.includes("trunc 48") && helpers.includes("trunc 46") && helpers.includes("sha256sum | trunc 8"));
   assert.ok(helpers.includes("trunc 45") && helpers.includes("trunc 43"));
+  assert.ok(fleetService.includes('name: {{ include "harness-center.fleetServiceName" . }}'));
   assert.ok(deployment.includes('name: {{ include "harness-center.entrypointConfigMapName" . }}'));
   assert.ok(statefulset.includes('name: {{ include "harness-center.entrypointConfigMapName" . }}'));
 
+  // F-G7-27: render-time validation rejects overlapping fleet.port and metrics.port (even when TLS secret is unset & service.type=LoadBalancer)
+  assert.ok(
+    helpers.includes("eq (int .Values.fleet.port) (int .Values.metrics.port)"),
+    "_helpers.tpl validateValues must reject overlapping fleet.port and metrics.port",
+  );
+  const defaultValues = parseYaml(readFileSync(path.join(chartRoot, "values.yaml"), "utf8"));
+  assert.deepEqual(validateHelmValuesRender(defaultValues), []);
+  const overlappingPortErrors = validateHelmValuesRender({
+    ...defaultValues,
+    service: { ...defaultValues.service, type: "LoadBalancer" },
+    fleet: { ...defaultValues.fleet, enabled: true, port: defaultValues.metrics.port, tlsExistingSecret: "" },
+    metrics: { ...defaultValues.metrics, enabled: true },
+  });
+  assert.ok(
+    overlappingPortErrors.some((entry) => entry.includes("fleet.port and metrics.port must be distinct")),
+    "overlapping Fleet and metrics container ports must fail render-time validation",
+  );
+  // Distinct container ports render distinct targetPorts on Fleet vs Metrics Services
+  assert.notEqual(defaultValues.fleet.port, defaultValues.metrics.port);
+  assert.ok(deployment.includes("containerPort: {{ .Values.fleet.port }}"));
+  assert.ok(deployment.includes("containerPort: {{ .Values.metrics.port }}"));
+  assert.ok(statefulset.includes("containerPort: {{ .Values.fleet.port }}"));
+  assert.ok(statefulset.includes("containerPort: {{ .Values.metrics.port }}"));
+  assert.ok(fleetService.includes("targetPort: fleet-tls"));
+  assert.ok(metricsService.includes("targetPort: metrics"));
+
+  // F-G7-29: StatefulSet and Deployment mount daemon-state PVC on BOTH daemon.userRoot (subPath: user) and fleet.authorityRepoRoot (subPath: authority-repo)
+  assert.ok(
+    helpers.includes('eq .Values.storage.backend "sqlite"') && helpers.includes("not .Values.persistence.enabled"),
+  );
+  assert.ok(helpers.includes("fleet.authorityRepoRoot"));
+  assert.ok(statefulset.includes("subPath: user") && statefulset.includes("subPath: authority-repo"));
+  assert.ok(statefulset.includes("mountPath: {{ .Values.fleet.authorityRepoRoot | quote }}"));
+  assert.ok(deployment.includes("subPath: user") && deployment.includes("subPath: authority-repo"));
+  assert.ok(deployment.includes("mountPath: {{ .Values.fleet.authorityRepoRoot | quote }}"));
+  const sameMountErrors = validateHelmValuesRender({
+    ...defaultValues,
+    fleet: { ...defaultValues.fleet, authorityRepoRoot: defaultValues.daemon.userRoot },
+  });
+  assert.ok(sameMountErrors.some((entry) => entry.includes("authorityRepoRoot")));
+
   const dnsLabelPattern = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
   const namingCases = [
-    { label: "short-release", releaseName: "prod" },
+    { label: "prod", releaseName: "prod" },
+    { label: "prod-harness-center", releaseName: "prod-harness-center" },
+    { label: "prod-harness-center-metrics", releaseName: "prod-harness-center-metrics" },
+    { label: "prod-harness-center-fleet", releaseName: "prod-harness-center-fleet" },
+    { label: "prod-harness-center-headless", releaseName: "prod-harness-center-headless" },
     { label: "50-char-release", releaseName: "r".repeat(50) },
     { label: "53-char-release-a", releaseName: `${"r".repeat(52)}a` },
     { label: "53-char-release-b", releaseName: `${"r".repeat(52)}b` },
@@ -410,6 +502,7 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
     renderedByLabel.set(namingCase.label, names);
     const allNames = [
       names.fullname,
+      names.fleetServiceName,
       names.metricsServiceName,
       names.headlessServiceName,
       names.entrypointConfigMapName,
@@ -422,16 +515,44 @@ test("Helm templates isolate Fleet vs Metrics Services, wire StatefulSet headles
     }
     assert.equal(
       new Set(allNames).size,
-      4,
-      `${namingCase.label}: Fleet, metrics, headless Services and entrypoint ConfigMap must never collide: ${JSON.stringify(names)}`,
+      5,
+      `${namingCase.label}: base, Fleet, metrics, headless Services and entrypoint ConfigMap must never collide: ${JSON.stringify(names)}`,
     );
   }
-  // Two 53-char releases differing only at their final character must produce distinct Service sets
-  const relA = renderedByLabel.get("53-char-release-a");
-  const relB = renderedByLabel.get("53-char-release-b");
-  assert.notEqual(relA.fullname, relB.fullname);
-  assert.notEqual(relA.metricsServiceName, relB.metricsServiceName);
-  assert.notEqual(relA.headlessServiceName, relB.headlessServiceName);
+  // F-G7-28: ALL default releases installed in the same namespace produce zero Service or ConfigMap name collisions across pairs!
+  const defaultReleaseLabels = [
+    "prod",
+    "prod-harness-center",
+    "prod-harness-center-metrics",
+    "prod-harness-center-fleet",
+    "prod-harness-center-headless",
+    "50-char-release",
+    "53-char-release-a",
+    "53-char-release-b",
+  ];
+  const allServiceNamesAcrossReleases = new Set();
+  const allConfigMapNamesAcrossReleases = new Set();
+  for (const label of defaultReleaseLabels) {
+    const names = renderedByLabel.get(label);
+    for (const svc of [names.fleetServiceName, names.metricsServiceName, names.headlessServiceName]) {
+      assert.equal(
+        allServiceNamesAcrossReleases.has(svc),
+        false,
+        `cross-release Service collision on ${svc} for release ${label}`,
+      );
+      allServiceNamesAcrossReleases.add(svc);
+    }
+    for (const cm of [names.fullname, names.entrypointConfigMapName]) {
+      assert.equal(
+        allConfigMapNamesAcrossReleases.has(cm),
+        false,
+        `cross-release ConfigMap collision on ${cm} for release ${label}`,
+      );
+      allConfigMapNamesAcrossReleases.add(cm);
+    }
+  }
+  // Upgrade stability: re-rendering the same release name produces identical deterministic names
+  assert.deepEqual(renderHelmNames({ releaseName: "prod" }), renderedByLabel.get("prod"));
 
   // F-G7-12: Fleet Service exposes ONLY fleet-tls (supporting ClusterIP/NodePort/LoadBalancer);
   // Metrics Service is ALWAYS ClusterIP and exposes ONLY metrics; Headless Service is clusterIP: None for StatefulSet
@@ -874,6 +995,68 @@ if (args[0] === "bootstrap") {
       "daemon must NOT start when configured metrics bearer token is empty",
     );
 
+    // F-G7-27: Overlapping HARNESS_FLEET_PORT and HARNESS_DAEMON_METRICS_PORT fails closed before daemon start
+    const overlapPortRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...upgradedEnv,
+        HARNESS_FLEET_ENABLED: "true",
+        HARNESS_FLEET_PORT: "9090",
+        HARNESS_DAEMON_METRICS_PORT: "9090",
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(
+      overlapPortRes.status,
+      0,
+      "overlapping Fleet and metrics ports must fail closed in start-center.sh",
+    );
+    assert.match(overlapPortRes.stderr, /HARNESS_FLEET_PORT.*HARNESS_DAEMON_METRICS_PORT/u);
+    assert.equal(
+      readFileSync(daemonLog, "utf8").trim().split("\n").length,
+      daemonLinesBefore,
+      "daemon must NOT start when Fleet and metrics share the same container port",
+    );
+
+    // F-G7-31: First-time bootstrap returning exit 0 with authoritySync.pending=true must fail closed instead of restarting blindly
+    const pendingBootRoot = path.join(sandbox, "pending-boot-user");
+    mkdirSync(pendingBootRoot, { recursive: true });
+    writeFileSync(
+      path.join(pendingBootRoot, "daemon-storage.json"),
+      JSON.stringify({
+        "org-center": {
+          backend: "postgres",
+          connectionString: "postgresql://runtime@db.internal/harness",
+          authorityConnectionString: "postgresql://authority@db.internal/harness",
+          materialize: false,
+        },
+      }),
+    );
+    const pendingBootstrapCli = path.join(sandbox, "pending-bootstrap-cli.cjs");
+    writeFileSync(
+      pendingBootstrapCli,
+      `
+const args = process.argv.slice(2);
+if (args[0] === "bootstrap") {
+  process.stdout.write(JSON.stringify({ ok: true, mode: "external", authoritySync: { ok: false, pending: true, code: "oidc_discovery_unavailable" } }) + "\\n");
+}
+process.exit(0);
+`,
+    );
+    const pendingBootRes = spawnSync("/bin/sh", [scriptPath], {
+      env: {
+        ...sharedEnv,
+        HARNESS_DAEMON_USER_ROOT: pendingBootRoot,
+        HARNESS_CLI_ENTRY: pendingBootstrapCli,
+      },
+      encoding: "utf8",
+    });
+    assert.notEqual(
+      pendingBootRes.status,
+      0,
+      "bootstrap reporting authoritySync.pending=true must fail closed in start-center.sh",
+    );
+    assert.match(pendingBootRes.stderr, /authoritySync\.pending=true/u);
+
     // F-G7-14 & F-G7-21: SIGTERM during blocked bootstrap CLI (not just wait-loop sleep) interrupts immediately,
     // triggers daemon drain, waits for drain completion, and preserves real child exit codes on crashes/failures
     const drainRoot = path.join(sandbox, "drain-user");
@@ -999,13 +1182,21 @@ if (args[0] === "bootstrap") {
   }
 });
 
-test("container /readyz tracks authoritative live external OIDC initialization failure, pending authoritySync, and recovery", async () => {
+test("container /readyz tracks live OIDC revocation/recovery and per-target authoritySync.pending (F-G7-20, F-G7-31)", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-helm-oidc-readyz-"));
   const rbacDir = path.join(userRoot, "rbac");
+  const workspaceA = path.join(userRoot, "ws-a");
+  const workspaceB = path.join(userRoot, "ws-b");
   mkdirSync(rbacDir, { recursive: true });
+  mkdirSync(workspaceA, { recursive: true });
+  mkdirSync(workspaceB, { recursive: true });
 
   let centerHealthy = false;
-  let statusHealthy = false;
+  let defaultStatusHealthy = false;
+  let workspaceAStatusHealthy = false;
+  let centerTokenCounter = 0;
+  const rejectedTokensSeen = [];
+  const statusTargetsSeen = [];
   let configureOutcome = {
     ok: true,
     mode: "external",
@@ -1017,12 +1208,24 @@ test("container /readyz tracks authoritative live external OIDC initialization f
     configured: () => existsSync(path.join(rbacDir, "config.json")),
     centerConfigured: () =>
       existsSync(path.join(rbacDir, "config.json")) && existsSync(path.join(rbacDir, "center-client-secret")),
-    center: async () => {
+    center: async (rejectedAccessToken) => {
+      if (rejectedAccessToken !== undefined) rejectedTokensSeen.push(rejectedAccessToken);
       if (!centerHealthy) throw new Error("OIDC client credentials revoked or unreachable");
-      return { url: "https://idp.example.org", realm: "fleet", accessToken: "tok", provider: {} };
+      centerTokenCounter += 1;
+      return {
+        url: "https://idp.example.org",
+        realm: "fleet",
+        accessToken: `tok-${centerTokenCounter}`,
+        provider: {},
+      };
     },
-    status: async () => {
-      if (!statusHealthy) throw new Error("OIDC discovery unavailable");
+    status: async (loginTarget) => {
+      statusTargetsSeen.push(loginTarget ?? "<default>");
+      if (loginTarget === workspaceA) {
+        if (!workspaceAStatusHealthy) throw new Error("workspaceA OIDC discovery unavailable");
+        return { ok: true, authenticated: false };
+      }
+      if (!defaultStatusHealthy) throw new Error("default OIDC discovery unavailable");
       return { ok: true, authenticated: false };
     },
     configureAuthority: async (operation) => {
@@ -1076,6 +1279,7 @@ test("container /readyz tracks authoritative live external OIDC initialization f
     daemonId: "helm-oidc-readyz",
     userRoot,
     requireIdentityReady: true,
+    identityReadyReverifyIntervalMs: 0,
     oidc: fakeOidc,
     managedRbac: fakeManagedRbac,
   });
@@ -1106,6 +1310,10 @@ test("container /readyz tracks authoritative live external OIDC initialization f
     isReady: () => host.probeSnapshot(),
   });
   const origin = new URL(server.endpoint).origin;
+  const settleAsync = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+  };
   try {
     // 1. Before configuration: /readyz is 503 identity_not_configured
     let res = await fetch(`${origin}/readyz`);
@@ -1116,7 +1324,7 @@ test("container /readyz tracks authoritative live external OIDC initialization f
     await assert.rejects(
       () =>
         host.manageRbac(
-          { mode: "external", operation: "bootstrap", rootDir: userRoot },
+          { mode: "external", operation: "bootstrap", rootDir: workspaceA },
           { transportKind: "unix-socket" },
         ),
       /refused connection/u,
@@ -1124,38 +1332,261 @@ test("container /readyz tracks authoritative live external OIDC initialization f
     res = await fetch(`${origin}/readyz`);
     assert.equal(res.status, 503);
 
-    // 3. configureAuthority writes config.json (mode=external) but returns authoritySync.pending === true ->
-    //    /readyz MUST return 503 with identity_authority_sync_pending (NOT 200 just because mode === external!)
+    // 3. configureAuthority on workspaceA returns authoritySync.pending === true ->
+    //    default scope status(undefined) succeeding MUST NOT clear workspaceA's pending sync!
     configureShouldThrow = false;
     const pendingRes = await host.manageRbac(
-      { mode: "external", operation: "bootstrap", rootDir: userRoot },
+      { mode: "external", operation: "bootstrap", rootDir: workspaceA },
       { transportKind: "unix-socket" },
     );
     assert.equal(pendingRes.ok, true);
     assert.equal(pendingRes.authoritySync.pending, true);
 
+    defaultStatusHealthy = true;
+    centerHealthy = true;
+    workspaceAStatusHealthy = false;
+    await fetch(`${origin}/readyz`);
+    await settleAsync();
     res = await fetch(`${origin}/readyz`);
-    assert.equal(res.status, 503);
-    const pendingBody = await res.json();
+    assert.equal(res.status, 503, "default scope recovery must not clear workspaceA pending authoritySync");
+    const stillPending = await res.json();
     assert.ok(
-      pendingBody.reasons.includes("identity_authority_sync_pending"),
-      `expected identity_authority_sync_pending, got ${JSON.stringify(pendingBody)}`,
+      stillPending.reasons.includes("identity_authority_sync_pending"),
+      `expected identity_authority_sync_pending while workspaceA is still failing, got ${JSON.stringify(stillPending)}`,
+    );
+    assert.ok(
+      statusTargetsSeen.includes(workspaceA),
+      `expected oidc.status to be invoked with workspaceA target, saw ${JSON.stringify(statusTargetsSeen)}`,
     );
 
-    // 4. External OIDC recovers (status() and center() succeed) -> /readyz transitions to 200 ready
-    statusHealthy = true;
-    centerHealthy = true;
-    // Trigger background check via /readyz and wait briefly for the microtask/promise to settle
+    // 4. Even if workspaceB configures cleanly, workspaceA's pending target remains pending until workspaceA recovers
+    configureOutcome = { ok: true, mode: "external" };
+    await host.manageRbac(
+      { mode: "external", operation: "bootstrap", rootDir: workspaceB },
+      { transportKind: "unix-socket" },
+    );
+    res = await fetch(`${origin}/readyz`);
+    assert.equal(res.status, 503);
+    assert.ok((await res.json()).reasons.includes("identity_authority_sync_pending"));
+
+    // 5. workspaceA discovery recovers -> /readyz transitions to 200 ready
+    workspaceAStatusHealthy = true;
     await fetch(`${origin}/readyz`);
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
+    await settleAsync();
     res = await fetch(`${origin}/readyz`);
     assert.equal(res.status, 200);
     assert.equal((await res.json()).status, "ready");
+
+    // 6. F-G7-31: Upstream service credential is later revoked -> /readyz re-verifies with rejectedAccessToken and transitions to 503 identity_unavailable!
+    centerHealthy = false;
+    await fetch(`${origin}/readyz`);
+    await settleAsync();
+    res = await fetch(`${origin}/readyz`);
+    assert.equal(res.status, 503, "revoked upstream credential must transition /readyz from 200 back to 503");
+    const revokedBody = await res.json();
+    assert.ok(
+      revokedBody.reasons.includes("identity_unavailable"),
+      `expected identity_unavailable after revocation, got ${JSON.stringify(revokedBody)}`,
+    );
+    assert.ok(
+      rejectedTokensSeen.length >= 1,
+      "live re-verification must pass previous accessToken to invalidate cached center token",
+    );
+
+    // 7. Upstream recovers -> /readyz transitions back from 503 to 200 ready
+    centerHealthy = true;
+    await fetch(`${origin}/readyz`);
+    await settleAsync();
+    res = await fetch(`${origin}/readyz`);
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).status, "ready");
+
+    // Direct controller check: verify throttling respects readyReverifyIntervalMs via injected clock
+    let clockMs = 1_000;
+    let directCenterCalls = 0;
+    const controller = createIdentityReadinessController({
+      requireIdentityReady: true,
+      hasConfiguredIdentity: () => true,
+      ensureRbacResumed: async () => undefined,
+      checkOidcStatus: async () => ({ ok: true }),
+      checkOidcCenter: async () => {
+        directCenterCalls += 1;
+        return { accessToken: `direct-${directCenterCalls}` };
+      },
+      isClosing: () => false,
+      nowMs: () => clockMs,
+      readyReverifyIntervalMs: 10_000,
+    });
+    controller.start();
+    await settleAsync();
+    assert.equal(controller.currentState(), "ready");
+    assert.equal(directCenterCalls, 1);
+    clockMs += 5_000;
+    assert.equal(controller.currentState(), "ready");
+    await settleAsync();
+    assert.equal(directCenterCalls, 1, "re-verification must stay throttled within readyReverifyIntervalMs");
+    clockMs += 5_000;
+    assert.equal(controller.currentState(), "ready");
+    await settleAsync();
+    assert.equal(directCenterCalls, 2, "re-verification must run once readyReverifyIntervalMs elapses");
   } finally {
     await server.close();
     await host.close();
     rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("StatefulSet PVC subPaths persist SQLite authority ledger revision across Pod replacement (F-G7-29)", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "ha-helm-pod-replace-"));
+  const pvcRoot = path.join(sandbox, "pvc-daemon-state");
+  const pvcUserSubPath = path.join(pvcRoot, "user");
+  const pvcAuthorityRepoSubPath = path.join(pvcRoot, "authority-repo");
+  mkdirSync(pvcUserSubPath, { recursive: true });
+  mkdirSync(pvcAuthorityRepoSubPath, { recursive: true });
+
+  // Verify the rendered StatefulSet mounts cover BOTH daemon.userRoot (subPath: user) and fleet.authorityRepoRoot (subPath: authority-repo)
+  const statefulset = readFileSync(path.join(templatesRoot, "statefulset.yaml"), "utf8");
+  assert.ok(statefulset.includes("subPath: user") && statefulset.includes("subPath: authority-repo"));
+
+  const pod1Ephemeral = path.join(sandbox, "pod-1-rootfs");
+  const pod2Ephemeral = path.join(sandbox, "pod-2-rootfs");
+  mkdirSync(pod1Ephemeral, { recursive: true });
+  mkdirSync(pod2Ephemeral, { recursive: true });
+
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "Test",
+    GIT_AUTHOR_EMAIL: "test@example.test",
+    GIT_COMMITTER_NAME: "Test",
+    GIT_COMMITTER_EMAIL: "test@example.test",
+  };
+  const runGit = (cwd, args) => {
+    const res = spawnSync("git", args, { cwd, encoding: "utf8", env: gitEnv });
+    assert.equal(res.status, 0, `git ${args.join(" ")} failed: ${res.stderr}`);
+  };
+  try {
+    // Initialize a Git repo with canonical roster inside the PVC's authority-repo subPath (mounted at fleet.authorityRepoRoot)
+    runGit(pvcAuthorityRepoSubPath, ["init", "-q", "-b", "main"]);
+    runGit(pvcAuthorityRepoSubPath, ["config", "user.name", "Helm Pod Replacement Test"]);
+    runGit(pvcAuthorityRepoSubPath, ["config", "user.email", "helm-test@example.invalid"]);
+    runGit(pvcAuthorityRepoSubPath, ["config", "gc.auto", "0"]);
+    runGit(pvcAuthorityRepoSubPath, ["commit", "--allow-empty", "-q", "-m", "init"]);
+    mkdirSync(path.join(pvcAuthorityRepoSubPath, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(pvcAuthorityRepoSubPath, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: center-sqlite\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    writeFileSync(
+      path.join(pvcAuthorityRepoSubPath, "harness/people.yaml"),
+      `${JSON.stringify(
+        {
+          schema: "harness-people/v1",
+          people: [
+            {
+              personId: "writer",
+              displayName: "writer",
+              roles: ["writer"],
+              credentials: [
+                {
+                  kind: "unix-socket-owner-boundary",
+                  issuer: `host:${hostname()}`,
+                  subject: String(process.getuid?.() ?? 0),
+                },
+              ],
+            },
+          ],
+          roles: [{ roleId: "writer", commandClasses: ["repo-read", "repo-write", "admin"] }],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    runGit(pvcAuthorityRepoSubPath, ["add", "harness"]);
+    runGit(pvcAuthorityRepoSubPath, ["commit", "-q", "-m", "seed roster"]);
+
+    // Pod 1: boots with PVC user + authority-repo mounts, registers SQLite repo, and writes a canonical fact revision
+    const pod1Host = await openDaemonHost({
+      daemonId: "center",
+      userRoot: pvcUserSubPath,
+      requiredStorageBackend: "sqlite",
+    });
+    let revisionAfterPod1 = 0;
+    let recordedFactId = "";
+    const localOwnerAuth = {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: {
+        ownerUid: process.getuid?.() ?? 0,
+        source: "unix-socket-filesystem-owner-boundary",
+      },
+    };
+    try {
+      const reg = await pod1Host.admin(
+        { kind: "register", repoId: "center-sqlite", rootDir: pvcAuthorityRepoSubPath, mode: "local" },
+        localOwnerAuth,
+      );
+      assert.equal(reg.ok, true, `Pod 1 register failed: ${JSON.stringify(reg)}`);
+      const recorded = await pod1Host.run(
+        "center-sqlite",
+        {
+          kind: "fact-record",
+          statement: "StatefulSet PVC authority-repo subPath persists SQLite ledger across Pod replacement.",
+          evidenceSource: "test:helm-pod-replacement",
+          confidence: "high",
+          memoryClass: "semantic",
+          memoryTags: [],
+        },
+        localOwnerAuth,
+      );
+      assert.equal(recorded.outcome, "applied", `Pod 1 fact-record failed: ${JSON.stringify(recorded)}`);
+      recordedFactId = String(recorded.factId ?? "");
+      assert.ok(recordedFactId.startsWith("F-"), `expected canonical factId, got ${JSON.stringify(recorded)}`);
+      const status1 = pod1Host.observabilitySnapshot().repos.find((r) => r.repoId === "center-sqlite");
+      assert.ok(status1, "Pod 1 must attach center-sqlite");
+      assert.ok(
+        typeof status1.ledgerRevision === "number" && status1.ledgerRevision > 0,
+        `expected positive ledgerRevision after Pod 1 write, got ${JSON.stringify(status1)}`,
+      );
+      revisionAfterPod1 = status1.ledgerRevision;
+      const ledgerFile = sqliteLedgerPath(pvcAuthorityRepoSubPath);
+      assert.equal(
+        existsSync(ledgerFile),
+        true,
+        `SQLite ledger must reside inside PVC authority-repo subPath: ${ledgerFile}`,
+      );
+    } finally {
+      await pod1Host.close();
+    }
+
+    // Simulate Pod 1 termination & replacement: delete Pod 1 ephemeral rootfs completely; Pod 2 sees ONLY the PVC subPaths
+    rmSync(pod1Ephemeral, { recursive: true, force: true });
+
+    const pod2Host = await openDaemonHost({
+      daemonId: "center",
+      userRoot: pvcUserSubPath,
+      requiredStorageBackend: "sqlite",
+    });
+    try {
+      await pod2Host.attachmentsSettled();
+      const status2 = pod2Host.observabilitySnapshot().repos.find((r) => r.repoId === "center-sqlite");
+      assert.ok(status2, "Pod 2 must re-attach center-sqlite from persisted PVC registry");
+      assert.equal(status2.state, "attached");
+      assert.equal(
+        status2.ledgerRevision,
+        revisionAfterPod1,
+        "Pod 2 must read back the exact same SQLite ledgerRevision persisted by Pod 1",
+      );
+      const readBack = await pod2Host.run(
+        "center-sqlite",
+        { kind: "fact-show", factId: recordedFactId },
+        localOwnerAuth,
+      );
+      assert.equal(readBack.outcome, "applied", `Pod 2 must read back persisted fact: ${JSON.stringify(readBack)}`);
+      assert.match(String(readBack.evidence ?? ""), /StatefulSet PVC authority-repo subPath persists SQLite ledger/u);
+    } finally {
+      await pod2Host.close();
+    }
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 

@@ -327,6 +327,8 @@ export interface DaemonHost {
 
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
+  /** Optional strict storage backend policy (defaults to HARNESS_STORAGE_BACKEND env when set). */
+  readonly requiredStorageBackend?: import("@harness-anything/storage").StorageBackend;
   readonly daemonId: string;
   readonly userRoot: string;
   readonly endpoint?: string;
@@ -347,6 +349,8 @@ export interface DaemonHostOpenInput {
   readonly runtimeFile?: string;
   /** When true, /readyz requires external/managed identity configuration to be present before advertising ready. */
   readonly requireIdentityReady?: boolean;
+  /** Minimum interval (ms) between live upstream OIDC re-verifications while already ready (default 10000). */
+  readonly identityReadyReverifyIntervalMs?: number;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   readonly buildDraining?: () => boolean;

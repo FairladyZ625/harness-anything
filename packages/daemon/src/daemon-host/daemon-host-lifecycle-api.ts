@@ -23,19 +23,25 @@ export type IdentityProbeCode =
 export interface IdentityReadinessController {
   readonly start: () => void;
   readonly currentState: () => IdentityProbeCode;
-  readonly observeConfigured: <T>(outcome: T) => Promise<T>;
+  readonly observeConfigured: <T>(outcome: T, loginTarget?: string) => Promise<T>;
   readonly observeConfigureFailure: (error: unknown) => never;
 }
+
+const DEFAULT_IDENTITY_READY_REVERIFY_INTERVAL_MS = 10_000;
 
 export function createIdentityReadinessController(input: {
   readonly requireIdentityReady?: boolean;
   readonly hasConfiguredIdentity: () => boolean;
   readonly ensureRbacResumed: () => Promise<void>;
-  readonly checkOidcStatus: () => Promise<unknown>;
-  readonly checkOidcCenter: () => Promise<unknown>;
+  readonly checkOidcStatus: (loginTarget?: string) => Promise<unknown>;
+  readonly checkOidcCenter: (rejectedAccessToken?: string) => Promise<unknown>;
   readonly isClosing: () => boolean;
+  readonly nowMs?: () => number;
+  readonly readyReverifyIntervalMs?: number;
   readonly recordDiagnostics?: (errorMessage: string) => void;
 }): IdentityReadinessController {
+  const nowMs = input.nowMs ?? Date.now;
+  const readyReverifyIntervalMs = input.readyReverifyIntervalMs ?? DEFAULT_IDENTITY_READY_REVERIFY_INTERVAL_MS;
   const isIdentityRequired = (): boolean => {
     if (input.requireIdentityReady !== undefined) return input.requireIdentityReady;
     const raw = process.env.HARNESS_DAEMON_REQUIRE_IDENTITY;
@@ -46,29 +52,65 @@ export function createIdentityReadinessController(input: {
       ? "identity_verifying"
       : "ready"
     : "identity_not_configured";
+  let pendingSyncTargets: string[] = [];
+  const addPendingSyncTarget = (targetKey: string): void => {
+    if (!pendingSyncTargets.includes(targetKey)) pendingSyncTargets.push(targetKey);
+  };
+  const clearPendingSyncTarget = (targetKey: string): void => {
+    pendingSyncTargets = pendingSyncTargets.filter((entry) => entry !== targetKey);
+  };
   let verifyInFlight: Promise<void> | null = null;
   let verifyGeneration = 0;
+  let lastVerifiedAtMs = Number.NEGATIVE_INFINITY;
+  let lastAccessToken: string | undefined;
+  let discoveryVerified = false;
 
-  const verifyLiveAuthority = (): Promise<void> => {
+  const verifyLiveAuthority = (forceFreshToken = false): Promise<void> => {
     if (!input.hasConfiguredIdentity()) {
+      pendingSyncTargets = [];
+      discoveryVerified = false;
+      lastAccessToken = undefined;
       current = "identity_not_configured";
       return Promise.resolve();
     }
     if (verifyInFlight) return verifyInFlight;
-    const checkPendingSync = current === "identity_authority_sync_pending";
+    const targetsToSync = [...pendingSyncTargets];
     const generation = ++verifyGeneration;
+    const tokenToInvalidate = forceFreshToken ? lastAccessToken : undefined;
     const run = (async () => {
       await input.ensureRbacResumed();
-      if (checkPendingSync) await input.checkOidcStatus();
-      await input.checkOidcCenter();
+      for (const target of targetsToSync) {
+        await input.checkOidcStatus(target === "" ? undefined : target);
+        clearPendingSyncTarget(target);
+      }
+      if (!discoveryVerified) {
+        await input.checkOidcStatus(undefined);
+        discoveryVerified = true;
+      }
+      const centerResult = await input.checkOidcCenter(tokenToInvalidate);
+      if (
+        centerResult !== null &&
+        typeof centerResult === "object" &&
+        "accessToken" in centerResult &&
+        typeof centerResult.accessToken === "string"
+      ) {
+        lastAccessToken = centerResult.accessToken;
+      }
     })()
       .then(
         () => {
-          if (!input.isClosing()) current = "ready";
+          if (input.isClosing() || verifyGeneration !== generation) return;
+          if (pendingSyncTargets.length > 0) {
+            current = "identity_authority_sync_pending";
+            return;
+          }
+          current = "ready";
+          lastVerifiedAtMs = nowMs();
         },
         (error: unknown) => {
-          if (!input.isClosing()) {
-            current = checkPendingSync ? "identity_authority_sync_pending" : "identity_unavailable";
+          if (!input.isClosing() && verifyGeneration === generation) {
+            if (forceFreshToken) lastAccessToken = undefined;
+            current = pendingSyncTargets.length > 0 ? "identity_authority_sync_pending" : "identity_unavailable";
           }
           input.recordDiagnostics?.(error instanceof Error ? error.message : String(error));
         },
@@ -82,20 +124,28 @@ export function createIdentityReadinessController(input: {
 
   return {
     start: () => {
-      if (isIdentityRequired() && input.hasConfiguredIdentity()) void verifyLiveAuthority();
+      if (isIdentityRequired() && input.hasConfiguredIdentity()) void verifyLiveAuthority(false);
     },
     currentState: () => {
-      if (
-        !input.isClosing() &&
-        (current === "identity_unavailable" ||
+      if (!input.isClosing()) {
+        if (
+          current === "identity_unavailable" ||
           current === "identity_authority_sync_pending" ||
-          current === "identity_verifying")
-      ) {
-        void verifyLiveAuthority();
+          current === "identity_verifying"
+        ) {
+          void verifyLiveAuthority(false);
+        } else if (
+          current === "ready" &&
+          isIdentityRequired() &&
+          nowMs() - lastVerifiedAtMs >= readyReverifyIntervalMs
+        ) {
+          void verifyLiveAuthority(true);
+        }
       }
       return current;
     },
-    observeConfigured: async <T>(outcome: T): Promise<T> => {
+    observeConfigured: async <T>(outcome: T, loginTarget?: string): Promise<T> => {
+      const targetKey = loginTarget ?? "";
       const sync =
         outcome !== null &&
         typeof outcome === "object" &&
@@ -104,20 +154,37 @@ export function createIdentityReadinessController(input: {
         typeof outcome.authoritySync === "object"
           ? (outcome.authoritySync as { readonly pending?: unknown })
           : null;
+      ++verifyGeneration;
+      verifyInFlight = null;
       if (sync?.pending === true) {
+        addPendingSyncTarget(targetKey);
         current = "identity_authority_sync_pending";
         return outcome;
       }
+      clearPendingSyncTarget(targetKey);
+      discoveryVerified = false;
+      lastAccessToken = undefined;
       if (!input.hasConfiguredIdentity()) {
+        pendingSyncTargets = [];
         current = "identity_not_configured";
         return outcome;
       }
+      if (pendingSyncTargets.length > 0) {
+        current = "identity_authority_sync_pending";
+        return outcome;
+      }
       current = "identity_verifying";
-      await verifyLiveAuthority();
+      await verifyLiveAuthority(false);
       return outcome;
     },
     observeConfigureFailure: (error: unknown): never => {
-      current = input.hasConfiguredIdentity() ? "identity_unavailable" : "identity_not_configured";
+      ++verifyGeneration;
+      verifyInFlight = null;
+      current = input.hasConfiguredIdentity()
+        ? pendingSyncTargets.length > 0
+          ? "identity_authority_sync_pending"
+          : "identity_unavailable"
+        : "identity_not_configured";
       throw error;
     },
   };
@@ -379,18 +446,22 @@ export function createDaemonHostLifecycleApi(
       if (context.initialAttachmentsSettled && !context.initialAttachmentsSettled()) {
         reasons.push("initial_attachments_pending");
       }
-      if (context.warming.size > 0) reasons.push("repos_warming");
+      let hasWarmingRepo = context.warming.size > 0;
       let hasUnavailableRepo = context.unavailable.size > 0;
-      if (!hasUnavailableRepo) {
-        for (const cell of context.cells.values()) {
-          const status = cell.publishedStatus ? cell.publishedStatus() : cell.status();
-          if (status.state === "unavailable") {
-            hasUnavailableRepo = true;
-            break;
-          }
+      let hasUnreadableProjection = false;
+      for (const cell of context.cells.values()) {
+        const status = cell.publishedStatus ? cell.publishedStatus() : cell.status();
+        if (status.state === "unavailable" || status.state === "closed") {
+          hasUnavailableRepo = true;
+        } else if (status.state === "warming") {
+          hasWarmingRepo = true;
+        } else if (status.projectionReadable === false) {
+          hasUnreadableProjection = true;
         }
       }
+      if (hasWarmingRepo) reasons.push("repos_warming");
       if (hasUnavailableRepo) reasons.push("repos_unavailable");
+      if (hasUnreadableProjection) reasons.push("projections_unreadable");
       if (context.fleetCenterRestoreFailed?.()) reasons.push("fleet_center_unavailable");
       if (isIdentityRequired() && context.identityReadiness) {
         const identityState = context.identityReadiness();

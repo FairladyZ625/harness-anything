@@ -85,6 +85,10 @@ export async function startDaemon(input: {
   readonly metrics?: DaemonMetricsHttpConfig | null;
   /** When true, /readyz requires external/managed identity configuration before reporting ready. */
   readonly requireIdentityReady?: boolean;
+  /** Optional strict storage backend policy (defaults to HARNESS_STORAGE_BACKEND env when set). */
+  readonly requiredStorageBackend?: DaemonHostOpenInput["requiredStorageBackend"];
+  /** Minimum interval (ms) between live upstream OIDC re-verifications while already ready. */
+  readonly identityReadyReverifyIntervalMs?: DaemonHostOpenInput["identityReadyReverifyIntervalMs"];
 }): Promise<DaemonServeStart> {
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket

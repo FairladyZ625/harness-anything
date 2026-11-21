@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
 import { observeDaemonOperation } from "./daemon-operation.ts";
-import { centerMovedError } from "@harness-anything/storage";
+import { centerMovedError, enforceRepoStorageBackend, resolveRequiredStorageBackend } from "@harness-anything/storage";
 import {
   consumeKnownError,
   readDaemonRegistry,
   disableDaemonRepo,
   type DaemonRepoMode,
 } from "@harness-anything/kernel";
-import { revokedAttachError } from "./daemon-host-errors.ts";
+import { hostCodedError, revokedAttachError } from "./daemon-host-errors.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { RepoCell } from "./repo-cell-types.ts";
 import type { RuntimeAttemptTerminal } from "./runtime-spawn.ts";
@@ -167,6 +167,14 @@ export async function performOpenRegistered(
     const moved = centerMovedError(relocationUserRoot, repo.repoId);
     if (moved !== null) throw moved;
   }
+  const resolvedStorage = context.input?.storage?.[repo.repoId];
+  enforceRepoStorageBackend({
+    requiredBackend: resolveRequiredStorageBackend(context.input?.requiredStorageBackend),
+    repoId: repo.repoId,
+    mode: repo.mode,
+    storage: resolvedStorage,
+    hostCodedError: context.hostCodedError ?? hostCodedError,
+  });
   let opened: RepoCell | undefined, publishedState: ReturnType<RepoCell["status"]>["state"] | undefined;
   try {
     opened = await context.openCell({
@@ -174,7 +182,7 @@ export async function performOpenRegistered(
       rootDir: canonicalRoot(repo.canonicalRoot),
       mode: repo.mode,
       ownerId: context.input.daemonId,
-      storage: context.input.storage?.[repo.repoId],
+      storage: resolvedStorage,
       defaultWriterEpochFence: context.writerEpochFence(repo.repoId),
       ...(context.input.now ? { now: context.input.now } : {}),
       runtimeDaemonRoute: context.runtimeDaemonRoute,

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,8 +10,11 @@ import {
   createRpcMetricsAccumulator,
   formatPrometheusMetrics,
   PROMETHEUS_TEXT_CONTENT_TYPE,
+  readDaemonRegistry,
 } from "@harness-anything/kernel";
+import { sqliteLedgerPath } from "@harness-anything/storage";
 import { daemonPackageVersion } from "../src/daemon-host/build-identity.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { createDaemonHostLifecycleApi, createTrackedRepoMaps } from "../src/daemon-host/daemon-host-lifecycle-api.ts";
 import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
@@ -1042,6 +1045,199 @@ test(
     } finally {
       for (const close of closers.splice(0)) await close();
       if (running && "stop" in running) await running.stop();
+      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);
+
+test("probeSnapshot and /readyz report projections_unreadable when an attached RepoCell has projectionReadable=false, while /healthz stays live (F-G7-32)", async () => {
+  let projectionReadable = false;
+  let causeClass: "projection" | null = "projection";
+  const maps = createTrackedRepoMaps();
+  const fakeCell = {
+    publishedStatus: () => ({
+      repoId: "repo-proj",
+      rootDir: "/tmp/repo-proj",
+      mode: "local" as const,
+      state: "attached" as const,
+      projectionReadable,
+      generation: 3,
+      queueDepth: 0,
+      projectionWatermark: 10,
+      ledgerRevision: 10,
+      recoveryMs: 0,
+      materialization: null,
+      lastError: projectionReadable ? null : "ProjectionIdentityMismatchError",
+      causeClass,
+    }),
+    status: () => {
+      throw new Error("probeSnapshot must read publishedStatus() without touching cell.status()");
+    },
+  };
+  maps.cells.set("repo-proj", fakeCell as unknown as Parameters<typeof maps.cells.set>[1]);
+
+  const lifecycle = createDaemonHostLifecycleApi({
+    input: { daemonId: "proj-ready-test", userRoot: "/tmp/unused" },
+    cells: maps.cells,
+    warming: maps.warming,
+    unavailable: maps.unavailable,
+    sortedRepoIds: maps.sortedRepoIds,
+    closing: false,
+    initialAttachmentsSettled: () => true,
+    fleetCenterRestoreFailed: () => false,
+  } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
+
+  const server = await startDaemonMetricsServer({
+    config: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
+    daemonId: "proj-ready-test",
+    collectSnapshot: () => ({
+      daemonId: "proj-ready-test",
+      version: daemonPackageVersion({}),
+      commit: "test",
+      uptimeSeconds: 1,
+      processResidentMemoryBytes: 1_000,
+      processHeapUsedBytes: 500,
+      activeRuntimeSessions: 0,
+      rpc: createRpcMetricsAccumulator().snapshot(0),
+      fleet: lifecycle.observabilitySnapshot().fleet,
+      repos: lifecycle.observabilitySnapshot().repos,
+    }),
+    isLive: () => true,
+    isReady: () => lifecycle.probeSnapshot(),
+  });
+  const origin = new URL(server.endpoint).origin;
+  try {
+    // Attached but projectionReadable === false -> /readyz 503 projections_unreadable, /healthz 200 live
+    const unreadableReady = await fetch(`${origin}/readyz`);
+    assert.equal(unreadableReady.status, 503);
+    const unreadableBody = (await unreadableReady.json()) as { readonly ok: boolean; readonly reasons?: string[] };
+    assert.equal(unreadableBody.ok, false);
+    assert.deepEqual(unreadableBody.reasons, ["projections_unreadable"]);
+
+    const liveRes = await fetch(`${origin}/healthz`);
+    assert.equal(liveRes.status, 200);
+    assert.equal(((await liveRes.json()) as { readonly status: string }).status, "live");
+
+    // Once projection recovers (projectionReadable === true) -> /readyz returns 200 ready
+    projectionReadable = true;
+    causeClass = null;
+    const recoveredReady = await fetch(`${origin}/readyz`);
+    assert.equal(recoveredReady.status, 200);
+    assert.equal(((await recoveredReady.json()) as { readonly status: string }).status, "ready");
+  } finally {
+    await server.close();
+  }
+});
+
+test(
+  "requiredStorageBackend=postgres rejects runtime repo register, init, and update missing PG config before writing SQLite while keeping local SQLite default (F-G7-30)",
+  { timeout: 60_000 },
+  async () => {
+    const sandbox = mkdtempSync(path.join(tmpdir(), "ha-pg-enforce-"));
+    const pgUserRoot = path.join(sandbox, "pg-user");
+    const defaultUserRoot = path.join(sandbox, "default-user");
+    const repoB = path.join(sandbox, "repo-b");
+    const repoInit = path.join(sandbox, "repo-init");
+    const repoLocal = path.join(sandbox, "repo-local");
+    mkdirSync(pgUserRoot, { recursive: true });
+    mkdirSync(defaultUserRoot, { recursive: true });
+    mkdirSync(repoB, { recursive: true });
+    mkdirSync(repoInit, { recursive: true });
+    mkdirSync(repoLocal, { recursive: true });
+
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@example.test",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@example.test",
+    };
+    const initGitRepo = (dir: string) => {
+      writeFileSync(path.join(dir, "README.md"), "# test\n");
+      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir, env: gitEnv });
+      execFileSync("git", ["add", "."], { cwd: dir, env: gitEnv });
+      execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir, env: gitEnv });
+    };
+    initGitRepo(repoB);
+    initGitRepo(repoInit);
+    rosterRepo(repoLocal, "repo-local");
+
+    let openCellCalls = 0;
+    const pgHost = await openDaemonHost({
+      daemonId: "pg-enforce-daemon",
+      userRoot: pgUserRoot,
+      requiredStorageBackend: "postgres",
+      storage: {
+        "repo-a": {
+          backend: "postgres",
+          connectionString: "postgresql://runtime@db.internal/harness",
+          authorityConnectionString: "postgresql://authority@db.internal/harness",
+          materialize: false,
+        },
+      },
+      openCell: async () => {
+        openCellCalls += 1;
+        throw new Error("openCell must not be invoked for repositories lacking postgres storage config");
+      },
+    });
+    const localHost = await openDaemonHost({
+      daemonId: "local-default-daemon",
+      userRoot: defaultUserRoot,
+    });
+    const localOwnerAuth = {
+      transportKind: "unix-socket" as const,
+      unixSocketOwnerBoundary: {
+        ownerUid: process.getuid?.() ?? 0,
+        source: "unix-socket-filesystem-owner-boundary" as const,
+      },
+    };
+    try {
+      // 1. daemon.repo.register for repo-b (missing from storage map) must fail BEFORE writing registry.json or opening SQLite
+      await assert.rejects(
+        () => pgHost.admin({ kind: "register", repoId: "repo-b", rootDir: repoB, mode: "local" }, localOwnerAuth),
+        /requires a valid postgres entry in daemon-storage\.json/u,
+      );
+      assert.equal(openCellCalls, 0, "rejected register must never invoke openCell");
+      assert.equal(
+        readDaemonRegistry({ userRoot: pgUserRoot }).repos.some((r) => r.repoId === "repo-b"),
+        false,
+        "rejected register must not persist repo-b into registry.json",
+      );
+      assert.equal(existsSync(sqliteLedgerPath(repoB)), false, "rejected register must not create a SQLite ledger");
+
+      // 2. init/bootstrap for repo-init (missing from storage map) must fail BEFORE opening SQLite or registering
+      await assert.rejects(
+        () =>
+          pgHost.bootstrap({ rootDir: repoInit, repoId: "repo-init", displayName: "Center Operator" }, localOwnerAuth),
+        /requires a valid postgres entry in daemon-storage\.json/u,
+      );
+      assert.equal(openCellCalls, 0, "rejected bootstrap must never invoke openCell");
+      assert.equal(existsSync(sqliteLedgerPath(repoInit)), false, "rejected bootstrap must not create a SQLite ledger");
+
+      // 3. remote-proxy register is still allowed under postgres enforcement, but switching it to local via update fails closed!
+      const proxyReg = await pgHost.admin(
+        { kind: "register", repoId: "repo-proxy", mode: "remote-proxy", endpoint: "tcp://127.0.0.1:7545" },
+        localOwnerAuth,
+      );
+      assert.equal(proxyReg.ok, true);
+      await assert.rejects(
+        () => pgHost.admin({ kind: "update", repoId: "repo-proxy", mode: "local", rootDir: repoB }, localOwnerAuth),
+        /requires a valid postgres entry in daemon-storage\.json/u,
+      );
+
+      // 4. Ordinary local daemon (no requiredStorageBackend) preserves default SQLite registration & attachment
+      const localReg = await localHost.admin(
+        { kind: "register", repoId: "repo-local", rootDir: repoLocal, mode: "local" },
+        localOwnerAuth,
+      );
+      assert.equal(localReg.ok, true);
+      assert.ok(
+        localHost.observabilitySnapshot().repos.some((r) => r.repoId === "repo-local" && r.state === "attached"),
+        "default local daemon without requiredStorageBackend must still attach SQLite repos normally",
+      );
+    } finally {
+      await pgHost.close();
+      await localHost.close();
       rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
   },
