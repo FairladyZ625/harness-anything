@@ -968,11 +968,11 @@
         "order": 79
       },
       {
-        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#evaluateLinuxArm64Smoke:384889fb0c821e5482209f42ac571619",
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#buildWorkspacePackage:a7bd49f3352fbc05b92180fdbad63507",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
-        "order": 426
+        "order": 428
       },
       {
         "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#packAndInstallArm64Packages:8ec7ff51fdb6cc1cb028b5bd54ed26a4",
@@ -982,7 +982,14 @@
         "order": 423
       },
       {
-        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#runBoundedCommandAsync.child:6e70257c1902d6692ee2c9c56db4a489",
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#removeDirectorySafely:3dbef057bf60e434ec4ed1f7ff722422",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 426
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#runBoundedCommandAsync.child:24d31ff23434f29d9ba20653414d112e",
         "route": "package-assets-build",
         "role": "technical-port",
         "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",

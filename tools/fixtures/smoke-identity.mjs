@@ -12,9 +12,54 @@ export async function smokeIdentity(root, repoId, options = {}) {
   const worker = new Worker(new URL("./smoke-identity-provider.mjs", import.meta.url), {
     workerData: { secret, password, repoId, ...(options.tls ? { tls: options.tls } : {}) },
   });
-  const [url] = await once(worker, "message");
+  let url;
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? Math.floor(options.timeoutMs) : null;
+  const controller = timeoutMs === null ? null : new AbortController();
+  const timer =
+    controller === null
+      ? null
+      : setTimeout(() => {
+          controller.abort(new Error(`smoke identity provider timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+  timer?.unref?.();
+  try {
+    [url] = await once(worker, "message", controller ? { signal: controller.signal } : undefined);
+  } catch (error) {
+    await worker.terminate();
+    if (controller?.signal.aborted) {
+      throw controller.signal.reason instanceof Error
+        ? controller.signal.reason
+        : new Error(`smoke identity provider timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
   const passwordFile = path.join(root, "administrator-password");
   writeFileSync(passwordFile, password, { mode: 0o600 });
+  const adminArgs = [
+    "bootstrap",
+    "--operation",
+    "bootstrap-admin",
+    "--username",
+    "owner",
+    "--email",
+    "owner@example.invalid",
+    "--display-name",
+    "Owner",
+    "--person-id",
+    "owner",
+    "--password-file",
+    passwordFile,
+  ];
+  const assertIdentityResult = (args, result, code) => {
+    if ([secret, password].some((value) => `${result.stdout}${result.stderr}`.includes(value)))
+      throw new Error("CLI exposed an identity credential");
+    const ok = code
+      ? result.status !== 0 && result.receipt?.code === code
+      : result.status === 0 && result.receipt?.ok === true;
+    if (!ok) throw new Error(`identity ${args[0]} ${args[1]} failed: ${JSON.stringify(result)}`);
+  };
   return {
     url,
     close: () => worker.terminate(),
@@ -35,33 +80,18 @@ export async function smokeIdentity(root, repoId, options = {}) {
       chmodSync(path.join(rbacRoot, "center-client-secret"), 0o600);
     },
     prepare(step) {
-      const check = (args, input, code) => {
-        const result = step(args, input);
-        if ([secret, password].some((value) => `${result.stdout}${result.stderr}`.includes(value)))
-          throw new Error("CLI exposed an identity credential");
-        const ok = code
-          ? result.status !== 0 && result.receipt?.code === code
-          : result.status === 0 && result.receipt?.ok === true;
-        if (!ok) throw new Error(`identity ${args[0]} ${args[1]} failed: ${JSON.stringify(result)}`);
-      };
-      const admin = [
-        "bootstrap",
-        "--operation",
-        "bootstrap-admin",
-        "--username",
-        "owner",
-        "--email",
-        "owner@example.invalid",
-        "--display-name",
-        "Owner",
-        "--person-id",
-        "owner",
-        "--password-file",
-        passwordFile,
-      ];
-      check(admin);
-      check(admin, undefined, "bootstrap_admin_closed");
-      check(["bootstrap", "--operation", "login"]);
+      assertIdentityResult(adminArgs, step(adminArgs, undefined));
+      assertIdentityResult(adminArgs, step(adminArgs, undefined), "bootstrap_admin_closed");
+      assertIdentityResult(
+        ["bootstrap", "--operation", "login"],
+        step(["bootstrap", "--operation", "login"], undefined),
+      );
+    },
+    async prepareAsync(step) {
+      assertIdentityResult(adminArgs, await step(adminArgs, undefined));
+      assertIdentityResult(adminArgs, await step(adminArgs, undefined), "bootstrap_admin_closed");
+      const loginArgs = ["bootstrap", "--operation", "login"];
+      assertIdentityResult(loginArgs, await step(loginArgs, undefined));
     },
   };
 }

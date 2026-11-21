@@ -481,7 +481,7 @@ export function env(userRoot, home) {
     HARNESS_DAEMON_USER_ROOT: userRoot,
   });
 }
-function resolveBinCommand(consumerDir, name) {
+export function resolveBinCommand(consumerDir, name) {
   const packageEntry = path.join(consumerDir, "node_modules/@harness-anything/cli/dist/cli/src/index.js");
   if (process.platform === "win32" && existsSync(packageEntry))
     return { file: process.execPath, argsPrefix: [packageEntry] };

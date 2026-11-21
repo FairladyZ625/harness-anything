@@ -64,6 +64,23 @@ function checkTarget(violations, packageName, files, label, target) {
     violations.push(`${packageName} ${label} target ${target} is not in the npm pack tarball`);
 }
 
+function normalizeBinTarget(target) {
+  return String(target).replace(/^\.\//u, "");
+}
+
+function normalizeBinEntries(bin, packageName) {
+  const map = new Map();
+  if (typeof bin === "string") {
+    const unscoped = String(packageName).includes("/") ? String(packageName).split("/").at(-1) : String(packageName);
+    map.set(unscoped, normalizeBinTarget(bin));
+  } else if (bin && typeof bin === "object") {
+    for (const [alias, target] of Object.entries(bin)) {
+      map.set(alias, normalizeBinTarget(target));
+    }
+  }
+  return map;
+}
+
 export function verifyTarballEntries(entries, sourceManifest, packageDir, root = process.cwd()) {
   const violations = [];
   const packedManifest = JSON.parse(entries.get("package.json")?.toString("utf8") ?? "null");
@@ -71,16 +88,35 @@ export function verifyTarballEntries(entries, sourceManifest, packageDir, root =
     violations.push(`${sourceManifest.name ?? packageDir} tarball does not contain package.json`);
     return violations;
   }
-  const packageName = packedManifest.name ?? packageDir;
+  const packageName = packedManifest.name ?? sourceManifest.name ?? packageDir;
   const publishExports = sourceManifest.publishConfig?.exports;
   if (publishExports !== undefined && JSON.stringify(packedManifest.exports) !== JSON.stringify(publishExports))
     violations.push(`${packageName} packed exports differ from publishConfig.exports`);
   const targets = [];
   collectTargets(packedManifest.exports, targets);
   for (const target of targets) checkTarget(violations, packageName, entries, "exports", target);
-  const binTargets =
-    typeof packedManifest.bin === "string" ? [packedManifest.bin] : Object.values(packedManifest.bin ?? {});
-  for (const target of binTargets) checkTarget(violations, packageName, entries, "bin", target);
+  const sourceBins = normalizeBinEntries(sourceManifest.bin, packageName);
+  const packedBins = normalizeBinEntries(packedManifest.bin, packageName);
+  const checkedBinTargets = new Set();
+  for (const [alias, expectedTarget] of sourceBins) {
+    if (!packedBins.has(alias)) {
+      violations.push(`${packageName} packed package.json is missing declared bin "${alias}" (${expectedTarget})`);
+    } else if (packedBins.get(alias) !== expectedTarget) {
+      violations.push(
+        `${packageName} packed bin "${alias}" target ${packedBins.get(alias)} differs from source ${expectedTarget}`,
+      );
+    }
+    if (!checkedBinTargets.has(expectedTarget)) {
+      checkedBinTargets.add(expectedTarget);
+      checkTarget(violations, packageName, entries, "bin", expectedTarget);
+    }
+  }
+  for (const packedTarget of packedBins.values()) {
+    if (!checkedBinTargets.has(packedTarget)) {
+      checkedBinTargets.add(packedTarget);
+      checkTarget(violations, packageName, entries, "bin", packedTarget);
+    }
+  }
   if (packageName === "@harness-anything/kernel") {
     const domain = path.join(root, packageDir, "src/domain");
     for (const file of ontologyFacetShardFiles(domain))

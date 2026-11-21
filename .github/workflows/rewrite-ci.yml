@@ -409,15 +409,16 @@ jobs:
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job pglite-node26
 
-  # dec_DBEC28020550D3F11A21C15FB4/CH2 (G6 / HA-06): native linux-arm64 build, native module load
-  # (node-pty + node:sqlite), CLI/daemon tarball verification + isolated install, and external OIDC
-  # center daemon + Fleet edge smoke on ubuntu-24.04-arm within a single 180s end-to-end budget.
+  # dec_DBEC28020550D3F11A21C15FB4/CH2 (G6 / HA-06): native linux-arm64 clean build, native module load
+  # (node-pty + node:sqlite), CLI/daemon tarball verification + isolated install executing public ha /
+  # harness-anything bins, and external OIDC center daemon + Fleet edge smoke on ubuntu-24.04-arm within
+  # a single 180s observable internal budget (outer 5m step / 7m job envelope preserves cleanup headroom).
   # Installs separately because the shared install artifact is built on linux-x64.
   linux-arm64-smoke:
     needs: install
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push') && needs.install.outputs.code != 'false'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -429,7 +430,7 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - run: node tools/run-manifest-gates.mjs --workflow-job linux-arm64-smoke
-        timeout-minutes: 3
+        timeout-minutes: 5
 
   windows-integration-shard:
     # The integration tier is where every POSIX host assumption lives: symlinks, deletable open
