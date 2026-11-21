@@ -59,11 +59,15 @@ function reserveFleetTransfer(
   sessionId: string,
   repoId: string,
   bytes: number,
+  chargeBulkTransfer = true,
 ) {
   const scope = { nodeId, repoId, sessionId };
   try {
     return (
-      options.commandResourceBudget?.reserve(scope, { memoryBytes: bytes, bulkTransfers: 1 }) ?? {
+      options.commandResourceBudget?.reserve(
+        scope,
+        chargeBulkTransfer ? { memoryBytes: bytes, bulkTransfers: 1 } : { memoryBytes: bytes },
+      ) ?? {
         release: () => undefined,
       }
     );
@@ -211,7 +215,14 @@ export async function serve(
             : "transport",
         (repoId, bytes) => {
           if (!nodeId) throw new FleetFault("authentication_required", "Authenticate before sending a Fleet transfer.");
-          return reserveFleetTransfer(options, nodeId, window.holderId, repoId, bytes);
+          return reserveFleetTransfer(
+            options,
+            nodeId,
+            window.holderId,
+            repoId,
+            bytes,
+            delivery?.bulkTransferReserved !== true,
+          );
         },
       )) {
         const line = `${JSON.stringify(encoded)}\n`,

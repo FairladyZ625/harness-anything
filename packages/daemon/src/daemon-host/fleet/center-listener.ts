@@ -155,6 +155,29 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const reserveDocShowBudget = (nodeId: string, repoId: string, sessionId: string) => {
+    try {
+      return resourceBudget.reserve({ nodeId, repoId, sessionId }, { bulkTransfers: 1 });
+    } catch (error) {
+      if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
+      throw error;
+    }
+  };
+  const deliverWithReservation = (
+    frame: FleetFrameV1,
+    reservation: { readonly release: () => void } | null,
+  ): Delivery =>
+    reservation
+      ? {
+          key: null,
+          bulkTransferReserved: true,
+          onComplete: () => reservation.release(),
+          onFailure: () => reservation.release(),
+          frames: (async function* () {
+            yield frame;
+          })(),
+        }
+      : immediate(frame);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
@@ -1264,16 +1287,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
         };
         const commandAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
-        let reservation;
-        try {
-          reservation =
-            command.kind === "doc-show"
-              ? resourceBudget.reserve({ nodeId, repoId: a.repoId, sessionId: window.holderId }, { bulkTransfers: 1 })
-              : null;
-        } catch (error) {
-          if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
-          throw error;
-        }
+        const reservation =
+          command.kind === "doc-show" ? reserveDocShowBudget(nodeId, a.repoId, window.holderId) : null;
         try {
           const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
@@ -1313,16 +1328,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             inReplyTo: frame.messageId,
             ...result,
           };
-          if (reservation)
-            return {
-              key: null,
-              onComplete: () => reservation.release(),
-              onFailure: () => reservation.release(),
-              frames: (async function* () {
-                yield response;
-              })(),
-            };
-          return immediate(response);
+          return deliverWithReservation(response, reservation);
         } catch (error) {
           reservation?.release();
           throw error;
@@ -1543,11 +1549,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
       const businessRead = FLEET_BUSINESS_READ_METHODS.has(frame.method);
       const binding = {
-        ...(await (frame.method === "repo.access.members.read" || businessRead ? repoAdmission(a) : auth(a))),
+        ...(await (businessRead
+          ? replicaAdmission(a)
+          : frame.method === "repo.access.members.read"
+            ? repoAdmission(a)
+            : auth(a))),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
       markDaemonOperationPhase("repository-admission");
-      let result;
+      let result,
+        reservation: { readonly release: () => void } | null = null;
       try {
         if (businessRead) {
           const parsed = parseDaemonRpcParams(frame.method, {
@@ -1585,10 +1596,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoDispatchCandidates(a.repoId, binding);
         } else if (frame.method === "repo.task.show" || frame.method === "repo.task.read") {
-          const action = actionForDaemonMethod(frame.method, frame.payload as JsonObject);
-          if (commandDescriptorForAction(action.kind).commandClass !== "repo-read")
-            throw new FleetFault("unsupported_command", `${action.kind} is not a read-only repository command.`);
+          const action = actionForDaemonMethod(frame.method, frame.payload as JsonObject),
+            descriptor = commandDescriptorForAction(action.kind),
+            edgeMode = descriptor.admission["remote-edge"];
+          if (
+            descriptor.commandClass !== "repo-read" ||
+            !("repoCellExecution" in descriptor) ||
+            descriptor.repoCellExecution !== "query-only" ||
+            edgeMode !== "edge-replica"
+          )
+            throw new FleetFault(
+              "unsupported_command",
+              `${action.kind} is not an allowed remote repository read command.`,
+            );
+          if (action.kind === "doc-show") reservation = reserveDocShowBudget(nodeId, a.repoId, window.holderId);
           const receipt = await observedRunCenterWriter(a.repoId, action, binding);
+          if (reservation) connectionSignal.throwIfAborted();
           if (
             "outcome" in receipt &&
             receipt.outcome === "op_rejected" &&
@@ -1624,6 +1647,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           }
         }
       } catch (error) {
+        reservation?.release();
         if (error instanceof FleetFault) throw error;
         const code = runtimeErrorCode(error);
         if (
@@ -1636,13 +1660,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         if (code && FLEET_READ_FAULT_CODES.has(code)) throw new FleetFault(code, runtimeErrorMessage(error));
         throw error;
       }
-      return immediate({
-        schema: "fleet.operational.read.result/v1",
-        messageId: mid(frame.messageId, "runtime-read"),
-        inReplyTo: frame.messageId,
-        result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
-        ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
-      });
+      return deliverWithReservation(
+        {
+          schema: "fleet.operational.read.result/v1",
+          messageId: mid(frame.messageId, "runtime-read"),
+          inReplyTo: frame.messageId,
+          result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
+          ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
+        },
+        reservation,
+      );
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };

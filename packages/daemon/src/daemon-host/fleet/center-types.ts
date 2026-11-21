@@ -98,7 +98,7 @@ export interface FleetCenterOptions {
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
-  /** Authenticates a registered node service account for the replication admission path only. */
+  /** Authenticates a registered node service account for replication and repository-read admission. */
   readonly verifyReplica?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext | null>;
   readonly buildDraining?: () => boolean;
   readonly onDeliverySettled?: () => void;
@@ -201,6 +201,7 @@ export type SessionWindow = {
 export type Delivery = {
   readonly signal?: AbortSignal;
   readonly key: string | null;
+  readonly bulkTransferReserved?: boolean;
   readonly frames: AsyncIterable<FleetFrameV1>;
   readonly beforeSend?: () => void;
   readonly onSent?: (bytes: number) => void;

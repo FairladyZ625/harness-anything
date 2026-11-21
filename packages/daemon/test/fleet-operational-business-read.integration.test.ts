@@ -1,12 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { runtimeDefinitionSnapshotArtifact } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import {
+  appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  openDispatchStream,
+} from "../src/daemon-host/dispatch-stream.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { FLEET_FRAME_BYTES } from "../src/daemon-host/fleet/command-protocol.ts";
 import { FleetRemoteError, openPeer, readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
+import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
 import {
   parseDaemonActionResult,
   parseDaemonReadResult,
@@ -577,5 +585,361 @@ test(
 
     assert.equal(fixture.eventCount(), eventsBefore, "denied and invalid reads append no canonical events");
     assert.deepEqual(fixture.transportErrors, [], "expected client/auth faults do not log unexpected transport errors");
+  },
+);
+
+test(
+  "fleet.operational.read/v1 admits registered node service-account tokens, enforces repo/agenda boundaries, counts edge-settled token usage, and rejects local-only diagnostics",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const { nodeId, repoId, taskId, executionId } = fixture.subject,
+      keycloak = fixture.owners.keycloak;
+
+    // Seed an Edge-executed settled dispatch whose stream file lives ONLY under a separate edge rootDir (F2).
+    const edgeRoot = path.join(fixture.root, "edge-node-root");
+    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(edgeRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    const artifact = runtimeDefinitionSnapshotArtifact(definition),
+      edgeReported = runtimeDispatchIdentity(repoId, "edge-settled-reported"),
+      edgeUnavailable = runtimeDispatchIdentity(repoId, "edge-settled-unavailable"),
+      startedAt = new Date(Date.now() - 120_000).toISOString(),
+      endedAt = new Date(Date.now() - 30_000).toISOString();
+
+    for (const [identity, label, metricsPayload] of [
+      [
+        edgeReported,
+        "edge-settled-reported",
+        {
+          inputTokens: 3_000,
+          cacheReadTokens: 500,
+          outputTokens: 1_000,
+          totalTokens: 4_500,
+          toolCallCount: 7,
+          usageUnavailable: false,
+        },
+      ],
+      [
+        edgeUnavailable,
+        "edge-settled-unavailable",
+        {
+          inputTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          toolCallCount: 2,
+          usageUnavailable: true,
+        },
+      ],
+    ] as const) {
+      openDispatchStream(edgeRoot, {
+        dispatchId: identity.dispatchId,
+        runtimeSessionId: identity.runtimeSessionId,
+        instanceId: definition.instanceId,
+        kindId: definition.kindId,
+        taskId,
+        executionId,
+        agentId: "agent-edge",
+        agentName: "Agent Edge",
+        model: "gpt-5",
+        startedAt,
+      });
+      appendRuntimeWorkerRecord(edgeRoot, identity.dispatchId, {
+        kind: "runtime_metrics",
+        ...metricsPayload,
+        compacted: false,
+        raw: { input_tokens: metricsPayload.inputTokens, output_tokens: metricsPayload.outputTokens },
+      });
+      assert.equal(
+        existsSync(dispatchStreamPath(fixture.repo, identity.dispatchId)),
+        false,
+        "center root must NOT have a local dispatch stream file for the edge-executed dispatch",
+      );
+      const req = await fixture.host.runtimeIngress(
+        repoId,
+        {
+          kind: "event",
+          type: "runtime_dispatch_requested",
+          opId: `op-req-${label}`,
+          payload: {
+            ...identity,
+            taskId,
+            executionId,
+            agentId: "agent-edge",
+            agentName: "Agent Edge",
+            startedAt,
+            instanceId: definition.instanceId,
+            installationId: installation.installationId,
+            kindId: definition.kindId,
+            dispatchKey: label,
+            definitionSnapshot: definition,
+            definitionSnapshotRef: artifact.ref,
+          },
+          resultBody: artifact.body,
+          dispatchContext: { role: "implementation", taskId, executionId, launchGeneration: 1 },
+        },
+        localAuthFixture(),
+      );
+      assert.equal(req.outcome, "applied", JSON.stringify(req));
+      const exited = await fixture.host.runtimeIngress(
+        repoId,
+        {
+          kind: "event",
+          type: "runtime_session_exited",
+          opId: `op-exit-${label}`,
+          payload: { runtimeSessionId: identity.runtimeSessionId },
+        },
+        localAuthFixture(),
+      );
+      assert.equal(exited.outcome, "applied", JSON.stringify(exited));
+      const resultBody = `edge settlement result for ${label}\n`,
+        resultSha = createHash("sha256").update(resultBody).digest("hex");
+      const settled = await fixture.host.runtimeIngress(
+        repoId,
+        {
+          kind: "event",
+          type: "runtime_session_outcome_observed",
+          opId: `op-outcome-${label}`,
+          payload: {
+            runtimeSessionId: identity.runtimeSessionId,
+            dispatchId: identity.dispatchId,
+            outcome: "succeeded",
+            exitCode: 0,
+            resultRef: `artifact:runtime-result/sha256/${resultSha}`,
+            result: { sha256: resultSha, size: Buffer.byteLength(resultBody), mediaType: "text/plain; charset=utf-8" },
+            endedAt,
+            runtimeMetrics: metricsPayload,
+          },
+          resultBody,
+        },
+        localAuthFixture(),
+      );
+      assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+    }
+
+    // Set up node-limited (owned by person-limited, granted repository-read on fleet-repo ONLY, not other-repo)
+    // and node-unregistered (passes TLS auth, has no active owner in nodeOwner).
+    keycloak.account("person-limited");
+    keycloak.permit("person-limited", repoId, ["repository-read"]);
+    keycloak.node("node-limited", "person-limited");
+
+    let doctorHealthCenterCalls = 0;
+    const center = await fixture.hold(
+      listenFleetTls({
+        host: {
+          ...fixture.host,
+          run: async (...args: Parameters<typeof fixture.host.run>) => {
+            if (args[1].kind === "doctor-health") doctorHealthCenterCalls += 1;
+            return fixture.host.run(...args);
+          },
+        },
+        stateRoot: fixture.stateRoot,
+        ...fixture.writerOptions,
+        key: fixture.key,
+        cert: fixture.cert,
+        verifyHuman: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bind(auth),
+        verifyReplica: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bindReplica!(auth),
+        onError: (entry) => fixture.transportErrors.push(entry),
+        authenticate: (node, secret) =>
+          [nodeId, "node-limited", "node-unregistered"].includes(node) && secret === "machine-secret",
+        nodeOwner: (node) => (node === "node-unregistered" ? null : fixture.owners.nodeOwner(node)),
+      }),
+    );
+
+    // Register a second repository `other-repo` on the same center host after listener boot.
+    const otherRepo = path.join(fixture.root, "other-repo");
+    mkdirSync(path.join(otherRepo, "harness"), { recursive: true });
+    initRepo(otherRepo);
+    writeFileSync(
+      path.join(otherRepo, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: other\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    git(otherRepo, "add", "harness");
+    git(otherRepo, "commit", "-qm", "other harness");
+    registerBootstrappedDaemonRepo({
+      repoId: "other-repo",
+      canonicalRoot: otherRepo,
+      userRoot: fixture.userRoot,
+      createConvenienceLinks: false,
+    });
+    await fixture.host.admin(
+      { kind: "register", rootDir: otherRepo, repoId: "other-repo", mode: "local" },
+      localAuthFixture(),
+    );
+
+    const mintNodeToken = async (targetNodeId: string) =>
+      requestFleetReplicaToken(
+        {
+          url: "https://keycloak.fixture",
+          realm: "harness",
+          nodeId: targetNodeId,
+          credential: `secret-${targetNodeId}`,
+          ca: fixture.cert.toString(),
+        },
+        keycloak.fetch,
+      );
+
+    const ownerNodeToken = await mintNodeToken(nodeId);
+    const limitedNodeToken = await mintNodeToken("node-limited");
+
+    // F1 positive: registered node service-account token succeeds across ALL 9 business read methods on authorized repo.
+    const limitedPeerOptions = {
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: "node-limited",
+      credential: "machine-secret",
+      repoId,
+      readAccessToken: async () => limitedNodeToken,
+    };
+    for (const entry of ALL_BUSINESS_READS) {
+      const payload =
+        entry.method === "repo.agentRuntime.tokenUsageDetail"
+          ? { range: "today", agentId: "agent-edge" }
+          : entry.payload;
+      const response = await readFleetOperationalClient({
+        ...limitedPeerOptions,
+        method: entry.method,
+        payload,
+      });
+      assert.equal(response.ok, true, `node token ${entry.method} must succeed: ${JSON.stringify(response)}`);
+    }
+
+    // F2 assertions over real Fleet TLS: center reports Edge-settled metrics even with zero center-local stream files.
+    const usage = parseDaemonReadResult(
+      "repo.agentRuntime.tokenUsage",
+      await readFleetOperationalClient({
+        ...limitedPeerOptions,
+        method: "repo.agentRuntime.tokenUsage",
+        payload: { range: "today" },
+      }),
+    );
+    assert.ok("totals" in usage);
+    if ("totals" in usage) {
+      assert.equal(usage.totals.totalTokens, 4_500);
+      assert.equal(usage.totals.toolCallCount, 9);
+      assert.equal(usage.totals.usageReportedDispatches, 1);
+      assert.equal(usage.totals.usageUnavailableDispatches, 1);
+      assert.equal(usage.agents.find((agent) => agent.agentId === "agent-edge")?.totalTokens, 4_500);
+    }
+    const detail = parseDaemonReadResult(
+      "repo.agentRuntime.tokenUsageDetail",
+      await readFleetOperationalClient({
+        ...limitedPeerOptions,
+        method: "repo.agentRuntime.tokenUsageDetail",
+        payload: { range: "today", agentId: "agent-edge" },
+      }),
+    );
+    assert.equal(detail.totals.totalTokens, 4_500);
+    assert.equal(detail.totals.usageReportedDispatches, 1);
+    assert.equal(detail.totals.usageUnavailableDispatches, 1);
+    const reportedSession = detail.sessions.find((row) => row.dispatchId === edgeReported.dispatchId)!;
+    const unavailableSession = detail.sessions.find((row) => row.dispatchId === edgeUnavailable.dispatchId)!;
+    assert.equal(reportedSession.usage, "reported");
+    assert.equal(reportedSession.totalTokens, 4_500);
+    assert.equal(reportedSession.toolCallCount, 7);
+    assert.equal(reportedSession.endedAt, endedAt);
+    assert.ok(reportedSession.durationMs !== null && reportedSession.durationMs > 0);
+    assert.equal(unavailableSession.usage, "unavailable");
+    assert.equal(unavailableSession.totalTokens, 0);
+    assert.equal(unavailableSession.toolCallCount, 2);
+
+    // F1 negative 1: node service-account token on unauthorized repository (`other-repo`) is 100% denied.
+    for (const entry of ALL_BUSINESS_READS) {
+      await assert.rejects(
+        readFleetOperationalClient({
+          ...limitedPeerOptions,
+          repoId: "other-repo",
+          method: entry.method,
+          payload: entry.payload,
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof FleetRemoteError, String(error));
+          assert.equal(error.code, "authorization_denied", `${entry.method} on other-repo: ${error.code}`);
+          return true;
+        },
+      );
+    }
+
+    // F1 negative 2: even an admin-owned node service-account token cannot cross-member read another person's agenda.
+    const ownAgenda = await readFleetOperationalClient({
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId,
+      credential: "machine-secret",
+      repoId,
+      readAccessToken: async () => ownerNodeToken,
+      method: "repo.agenda.read",
+      payload: { scopePersonId: "person-owner" },
+    });
+    assert.equal(ownAgenda.ok, true);
+    await assert.rejects(
+      readFleetOperationalClient({
+        port: center.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId,
+        credential: "machine-secret",
+        repoId,
+        readAccessToken: async () => ownerNodeToken,
+        method: "repo.agenda.read",
+        payload: { scopePersonId: "person-limited" },
+      }),
+      (error: unknown) => error instanceof FleetRemoteError && error.code === "authorization_denied",
+    );
+
+    // F1 negative 3: mismatched node service-account token (node-limited's token on node-one) is rejected cleanly.
+    await assert.rejects(
+      readFleetOperationalClient({
+        port: center.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId,
+        credential: "machine-secret",
+        repoId,
+        readAccessToken: async () => limitedNodeToken,
+        method: "repo.tasks.list",
+        payload: { limit: 10 },
+      }),
+      (error: unknown) => error instanceof FleetRemoteError && error.code === "fleet_replica_credential_rejected",
+    );
+
+    // F1 negative 4: unregistered node is rejected with node_owner_unregistered.
+    await assert.rejects(
+      readFleetOperationalClient({
+        port: center.port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId: "node-unregistered",
+        credential: "machine-secret",
+        repoId,
+        readAccessToken: async () => limitedNodeToken,
+        method: "repo.tasks.list",
+        payload: { limit: 10 },
+      }),
+      (error: unknown) => error instanceof FleetRemoteError && error.code === "node_owner_unregistered",
+    );
+
+    // F4: local doctor-health remains available, while Fleet repo.task.read rejects doctor-health & ledger-reconcile
+    // deterministically before entering host.run.
+    const localDoctor = await fixture.host.run(repoId, { kind: "doctor-health" }, localAuthFixture());
+    assert.equal(localDoctor.outcome, "applied", JSON.stringify(localDoctor));
+    for (const action of [{ kind: "doctor-health" }, { kind: "ledger-reconcile" }] as const) {
+      await assert.rejects(
+        readFleetOperationalClient({
+          ...limitedPeerOptions,
+          method: "repo.task.read",
+          payload: { action },
+        }),
+        (error: unknown) => error instanceof FleetRemoteError && error.code === "unsupported_command",
+      );
+    }
+    assert.equal(doctorHealthCenterCalls, 0, "Fleet repo.task.read must never enter host.run for doctor-health");
+    assert.deepEqual(fixture.transportErrors, [], "node token & diagnostic rejections must not log transport errors");
   },
 );

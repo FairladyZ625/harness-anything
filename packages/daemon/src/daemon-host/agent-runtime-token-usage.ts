@@ -2,7 +2,7 @@ import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain
 import type { TaskProjection } from "@harness-anything/kernel";
 import { dispatchLifecycleSummary, type DispatchLifecycleSummary } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "../runtime-engine/runtime-constants.ts";
-import { dispatchStreamRelativePath, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { dispatchStreamRelativePath, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";
 import {
   sessionOutcomeFields,
@@ -261,8 +261,24 @@ function planWindow(
   };
 }
 
-/** Each window dispatch uses bounded transcript head/tail windows (cached by mtime+size)
- * and one canonical lifecycle point read. Neither read scans its full history. */
+type CanonicalRuntimeDispatchMetrics = NonNullable<
+  ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number]["metrics"]
+>;
+
+type EffectiveRuntimeMetrics = {
+  readonly inputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens?: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly toolCallCount: number;
+  readonly usageUnavailable?: boolean;
+  readonly raw?: Readonly<Record<string, unknown>>;
+};
+
+/** Each window dispatch comes from the indexed canonical runtime dispatch page; only in-window
+ * matching dispatches probe local stream summaries, falling back to canonical settlement metrics
+ * when the dispatch ran on an edge node without a center-local stream file. */
 function windowDispatches(
   rootDir: string,
   projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle">,
@@ -270,12 +286,17 @@ function windowDispatches(
   pick: (header: DispatchStreamHeader) => boolean,
 ): {
   readonly header: DispatchStreamHeader;
-  readonly summary: DispatchStreamSummary | null;
+  readonly metrics: EffectiveRuntimeMetrics | null;
+  readonly endedAt: string | null;
   readonly lifecycle: DispatchLifecycleSummary;
 }[] {
   const selected = new Map<
     string,
-    { readonly header: DispatchStreamHeader; readonly summary: DispatchStreamSummary | null }
+    {
+      readonly header: DispatchStreamHeader;
+      readonly canonicalMetrics: CanonicalRuntimeDispatchMetrics | null;
+      readonly canonicalEndedAt: string | null;
+    }
   >();
   let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
   for (;;) {
@@ -285,27 +306,29 @@ function windowDispatches(
       limit: 200,
     });
     for (const row of page.rows) {
-      const payload = row.event.payload;
-      if (!payload.startedAt || !pick(projectedHeader(rootDir, row))) continue;
-      selected.set(payload.dispatchId, {
-        header: projectedHeader(rootDir, row),
-        summary: readDispatchStreamSummary(rootDir, payload.dispatchId),
+      const header = projectedHeader(rootDir, row);
+      if (!Number.isFinite(Date.parse(header.startedAt)) || !pick(header)) continue;
+      selected.set(header.dispatchId, {
+        header,
+        canonicalMetrics: row.metrics,
+        canonicalEndedAt: row.endedAt,
       });
     }
     if (page.done) break;
     if (!page.nextCursor) throw new Error("runtime dispatch page is incomplete without a next cursor");
     cursor = page.nextCursor;
   }
-  for (const header of readDispatchStreamHeaders(rootDir)) {
-    if (selected.has(header.dispatchId) || Date.parse(header.startedAt) < sinceMs || !pick(header)) continue;
-    selected.set(header.dispatchId, { header, summary: readDispatchStreamSummary(rootDir, header.dispatchId) });
-  }
-  return [...selected.values()].map((entry) => ({
-    ...entry,
-    lifecycle: dispatchLifecycleSummary(
-      projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [entry.header.dispatchId] }),
-    ),
-  }));
+  return [...selected.values()].map(({ header, canonicalMetrics, canonicalEndedAt }) => {
+    const summary = readDispatchStreamSummary(rootDir, header.dispatchId);
+    return {
+      header,
+      metrics: summary?.runtimeMetrics ?? canonicalMetrics,
+      endedAt: (summary === null ? null : exitOccurredAt(summary)) ?? canonicalEndedAt,
+      lifecycle: dispatchLifecycleSummary(
+        projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [header.dispatchId] }),
+      ),
+    };
+  });
 }
 
 function projectedHeader(
@@ -326,8 +349,8 @@ function projectedHeader(
     ...(payload.agentId ? { agentId: payload.agentId } : {}),
     ...(payload.agentName ? { agentName: payload.agentName } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
-    kindId: payload.kindId,
-    model: payload.definitionSnapshot.model,
+    ...(payload.kindId ? { kindId: payload.kindId } : {}),
+    ...(payload.definitionSnapshot.model ? { model: payload.definitionSnapshot.model } : {}),
   };
 }
 
@@ -370,7 +393,7 @@ export function readAgentRuntimeTokenUsage(input: {
   let pending = input.cut.status === "pending";
   // One walk covers both periods; the tail of the earlier window past `previousUntil` belongs
   // to neither, so its streams are never opened.
-  for (const { header, summary, lifecycle } of windowDispatches(
+  for (const { header, metrics, endedAt, lifecycle } of windowDispatches(
     input.rootDir,
     input.projection,
     previousSinceMs,
@@ -378,25 +401,25 @@ export function readAgentRuntimeTokenUsage(input: {
   )) {
     pending ||= lifecycle.status === "pending";
     if (startedMs(header) < sinceMs) {
-      accumulate(previous, "", "", header, summary, lifecycle);
+      accumulate(previous, "", "", header, metrics, lifecycle);
       continue;
     }
-    accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs, lifecycle);
-    accumulate(fleet, "", "", header, summary, lifecycle);
+    accumulateBucket(buckets, header.startedAt, header.model ?? null, metrics, sinceMs, bucketMs, lifecycle);
+    accumulate(fleet, "", "", header, metrics, lifecycle);
     if (header.agentId)
-      accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, summary, lifecycle);
+      accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, metrics, lifecycle);
     if (header.squadId)
       accumulate(
         squads,
         header.squadId,
         input.entityLabel(header.squadId) ?? header.squadId,
         header,
-        summary,
+        metrics,
         lifecycle,
       );
-    if (header.model) accumulate(models, header.model, header.model, header, summary, lifecycle);
+    if (header.model) accumulate(models, header.model, header.model, header, metrics, lifecycle);
     facts.push({
-      ...sessionRowOf(header, summary, lifecycle),
+      ...sessionRowOf(header, metrics, endedAt, lifecycle),
       agentId: header.agentId ?? null,
       agentName: header.agentName ?? null,
       kindId: header.kindId ?? null,
@@ -471,14 +494,19 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   let pending = input.cut.status === "pending";
   let memberName: string | null = null;
   const provenance = { unreported: 0, unitemized: 0 };
-  for (const { header, summary, lifecycle } of windowDispatches(input.rootDir, input.projection, sinceMs, pickMember)) {
+  for (const { header, metrics, endedAt, lifecycle } of windowDispatches(
+    input.rootDir,
+    input.projection,
+    sinceMs,
+    pickMember,
+  )) {
     pending ||= lifecycle.status === "pending";
     if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
-    sessions.push(sessionRowOf(header, summary, lifecycle));
-    const cacheWrite = cacheWriteProvenanceOf(summary);
+    sessions.push(sessionRowOf(header, metrics, endedAt, lifecycle));
+    const cacheWrite = cacheWriteProvenanceOf(metrics);
     if (cacheWrite === "unreported") provenance.unreported += 1;
     else if (cacheWrite === "unitemized") provenance.unitemized += 1;
-    accumulateBucket(buckets, header.startedAt, header.model ?? null, summary, sinceMs, bucketMs, lifecycle);
+    accumulateBucket(buckets, header.startedAt, header.model ?? null, metrics, sinceMs, bucketMs, lifecycle);
   }
   sessions.sort(
     (left, right) =>
@@ -707,13 +735,12 @@ function accumulateBucket(
   buckets: readonly MutableBucket[],
   startedAt: string,
   model: string | null,
-  summary: DispatchStreamSummary | null,
+  metrics: EffectiveRuntimeMetrics | null,
   sinceMs: number,
   bucketMs: number,
   lifecycle: DispatchLifecycleSummary,
 ): void {
-  const metrics = summary?.runtimeMetrics,
-    bucket = buckets[bucketIndexOf(buckets.length, startedAt, sinceMs, bucketMs)];
+  const bucket = buckets[bucketIndexOf(buckets.length, startedAt, sinceMs, bucketMs)];
   if (bucket === undefined) return;
   bucket.dispatchCount += 1;
   if (metrics) {
@@ -725,10 +752,10 @@ function accumulateBucket(
     bucket.toolCallCount += metrics.toolCallCount;
     bucket.costUsd += dispatchCost(model, metrics).costUsd;
   }
-  const provenance = cacheWriteProvenanceOf(summary);
+  const provenance = cacheWriteProvenanceOf(metrics);
   if (provenance === "unreported") bucket.cacheWriteUnreportedDispatches += 1;
   else if (provenance === "unitemized") bucket.cacheWriteUnitemizedDispatches += 1;
-  const usage = usageOf(summary, lifecycle);
+  const usage = usageOf(metrics, lifecycle);
   if (usage === "unavailable") bucket.usageUnavailableDispatches += 1;
   else if (usage === "reported") bucket.usageReportedDispatches += 1;
 }
@@ -738,10 +765,9 @@ function accumulate(
   key: string,
   name: string,
   header: DispatchStreamHeader,
-  summary: DispatchStreamSummary | null,
+  metrics: EffectiveRuntimeMetrics | null,
   lifecycle: DispatchLifecycleSummary,
 ): void {
-  const metrics = summary?.runtimeMetrics;
   const accumulator = map.get(key) ?? { ...emptyAccumulator(), name };
   accumulator.sessions.add(header.runtimeSessionId);
   if (metrics) {
@@ -755,36 +781,32 @@ function accumulate(
     accumulator.counters.costUsd += cost.costUsd;
     accumulator.counters.unpricedTokens += cost.unpricedTokens;
   }
-  const usage = usageOf(summary, lifecycle);
+  const usage = usageOf(metrics, lifecycle);
   if (usage === "unavailable") accumulator.usageUnavailableDispatches += 1;
   else if (usage === "reported") accumulator.usageReportedDispatches += 1;
-  const provenance = cacheWriteProvenanceOf(summary);
+  const provenance = cacheWriteProvenanceOf(metrics);
   if (provenance === "unreported") accumulator.cacheWriteUnreportedDispatches += 1;
   else if (provenance === "unitemized") accumulator.cacheWriteUnitemizedDispatches += 1;
   map.set(key, accumulator);
 }
 
 function usageOf(
-  summary: DispatchStreamSummary | null,
+  metrics: EffectiveRuntimeMetrics | null,
   lifecycle: DispatchLifecycleSummary,
 ): AgentRuntimeTokenUsageSessionRow["usage"] {
-  const metrics = summary?.runtimeMetrics;
   if (metrics) return metrics.usageUnavailable === true ? "unavailable" : "reported";
   return lifecycle.policy?.attemptSettled ? "unavailable" : "pending";
 }
 
 function sessionRowOf(
   header: DispatchStreamHeader,
-  summary: DispatchStreamSummary | null,
+  metrics: EffectiveRuntimeMetrics | null,
+  endedAt: string | null,
   lifecycle: DispatchLifecycleSummary,
 ): AgentRuntimeTokenUsageSessionRow {
-  const metrics = summary?.runtimeMetrics ?? null,
-    endedAt = summary === null ? null : exitOccurredAt(summary),
-    startedMs = Date.parse(header.startedAt),
-    durationMs =
-      endedAt !== null && Number.isFinite(startedMs) && Number.isFinite(Date.parse(endedAt))
-        ? Date.parse(endedAt) - startedMs
-        : null;
+  const startedMs = Date.parse(header.startedAt),
+    endedMs = endedAt === null ? Number.NaN : Date.parse(endedAt),
+    durationMs = Number.isFinite(startedMs) && Number.isFinite(endedMs) ? Math.max(0, endedMs - startedMs) : null;
   return {
     dispatchId: header.dispatchId,
     runtimeSessionId: header.runtimeSessionId,
@@ -803,16 +825,15 @@ function sessionRowOf(
     outputTokens: metrics?.outputTokens ?? 0,
     totalTokens: metrics?.totalTokens ?? 0,
     toolCallCount: metrics?.toolCallCount ?? 0,
-    usage: usageOf(summary, lifecycle),
+    usage: usageOf(metrics, lifecycle),
   };
 }
 /** Cache-write provenance of one dispatch, or null when its usage carries nothing to classify
  * (no metrics record, or a provider that reported no usage numbers at all). */
-function cacheWriteProvenanceOf(summary: DispatchStreamSummary | null): "unreported" | "unitemized" | null {
-  const metrics = summary?.runtimeMetrics ?? null;
+function cacheWriteProvenanceOf(metrics: EffectiveRuntimeMetrics | null): "unreported" | "unitemized" | null {
   if (metrics === null || metrics.usageUnavailable === true) return null;
   if (metrics.cacheWriteTokens !== undefined) return null;
-  return cacheWriteTokensOfUsage(metrics.raw) !== null ? "unitemized" : "unreported";
+  return metrics.raw !== undefined && cacheWriteTokensOfUsage(metrics.raw) !== null ? "unitemized" : "unreported";
 }
 function exitOccurredAt(summary: DispatchStreamSummary): string | null {
   let endedAt: string | null = null;

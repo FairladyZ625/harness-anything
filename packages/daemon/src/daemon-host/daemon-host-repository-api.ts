@@ -121,6 +121,8 @@ async function bindPersonalRead(
     if (
       binding.executionPrincipal !== undefined ||
       operator.executionPrincipal !== undefined ||
+      binding.keycloakAuthorization?.fleetReplicaPrincipal !== undefined ||
+      operator.keycloakAuthorization?.fleetReplicaPrincipal !== undefined ||
       operator.actor.principal.personId !== binding.actor.principal.personId
     )
       throw hostCodedError(

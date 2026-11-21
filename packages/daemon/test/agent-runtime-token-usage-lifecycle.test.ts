@@ -30,7 +30,51 @@ test("usage outcomes and pending receipts follow canonical lifecycle despite con
   let pending = false,
     settled = true;
   const projection = {
-      readRuntimeDispatchPage: () => ({ rows: [], nextCursor: null, done: true }),
+      readRuntimeDispatchPage: () => ({
+        rows: [
+          {
+            event: {
+              schema: "agent-runtime-event/v1" as const,
+              eventId: dispatchId,
+              workspaceRevision: 1,
+              opId: dispatchId,
+              actor: { principal: { personId: "fixture" }, executor: null },
+              source: "local" as const,
+              occurredAt: now,
+              type: "runtime_dispatch_requested" as const,
+              payload: {
+                dispatchId,
+                runtimeSessionId,
+                instanceId: "worker",
+                installationId: "installation-fixture",
+                kindId: "codex",
+                dispatchKey: dispatchId,
+                definitionSnapshotRef: "artifact:runtime-definition/fixture",
+                startedAt: now,
+                agentId: "worker",
+                definitionSnapshot: {
+                  schema: "agent-definition-snapshot/v1" as const,
+                  configVersion: 1,
+                  instanceId: "worker",
+                  installationId: "installation-fixture",
+                  kindId: "codex",
+                  providerId: "openai",
+                  model: "gpt-test",
+                  reasoningEffort: null,
+                  endpointKind: "official" as const,
+                  baseUrlHash: null,
+                  authMode: "subscription" as const,
+                },
+              },
+            },
+            metrics: null,
+            endedAt: null,
+            outcome: null,
+          },
+        ],
+        nextCursor: null,
+        done: true,
+      }),
       readDispatchLifecycle: (query: Parameters<ReturnType<typeof lifecycleReadForSync>>[0]) =>
         pending
           ? { status: "pending" as const, watermark: 2, sourceRevision: 3 }
