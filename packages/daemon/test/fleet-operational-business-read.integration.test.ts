@@ -508,7 +508,7 @@ test(
       );
     }
 
-    // 2. Cross-repository read: user granted only on fleet-repo is 100% denied on other-repo across all 9 methods.
+    // 2. Cross-repository read: user granted only on fleet-repo is 100% denied on other-repo across all 10 methods.
     for (const entry of ALL_BUSINESS_READS) {
       const payload = entry.method === "repo.task.show" ? { taskId: "task-other" } : entry.payload;
       await expectFleetError(
