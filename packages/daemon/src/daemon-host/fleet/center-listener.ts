@@ -70,7 +70,16 @@ import {
   uploadWindow,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
+import {
+  digestId,
+  immediate,
+  loadState,
+  mid,
+  ownedUpload,
+  serve,
+  withFleetRequestMetrics,
+  writeCenterDurableJson,
+} from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import {
   closeableCenterReplicationSlots,
@@ -1847,33 +1856,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
     });
   });
-  const trackedHandle: Parameters<typeof serve>[2] = (...args) => {
-    if (!options.onRequestStarted && !options.onRequestSettled) return observedHandle(...args);
-    let settled = false;
-    const settleRequest = (): void => {
-      if (settled) return;
-      settled = true;
-      options.onRequestSettled?.();
-    };
-    options.onRequestStarted?.();
-    return observedHandle(...args).then(
-      (delivery) => ({
-        ...delivery,
-        onComplete: () => {
-          settleRequest();
-          delivery.onComplete?.();
-        },
-        onFailure: (error: unknown) => {
-          settleRequest();
-          delivery.onFailure?.(error);
-        },
-      }),
-      (error: unknown) => {
-        settleRequest();
-        throw error;
-      },
-    );
-  };
+  const trackedHandle = withFleetRequestMetrics(options, observedHandle);
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
