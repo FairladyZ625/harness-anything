@@ -468,6 +468,8 @@ test(
     assert.equal(s2.outcome, "applied", JSON.stringify(s2));
     const session1 = String(s1.runtimeSessionId);
     const session2 = String(s2.runtimeSessionId);
+    const lostRespKey = "ctrl-f6-paused-replica-retry";
+    const lostRespPrompt = "F6 real CLI retry waits for paused Edge-B replica catch-up";
     await waitForProviderBound(f.host, session1, localAuth);
     await waitForProviderBound(f.host, session2, localAuth);
 
@@ -481,6 +483,26 @@ test(
     const hungReceipt1Gate = new Promise<void>((resolve) => {
       releaseHungReceipt1 = resolve;
     });
+    let releaseLostFirstResponse!: () => void;
+    const lostFirstResponseGate = new Promise<void>((resolve) => {
+      releaseLostFirstResponse = resolve;
+    });
+    let firstControlRequestCommittedResolve!: () => void;
+    const firstControlRequestCommitted = new Promise<void>((resolve) => {
+      firstControlRequestCommittedResolve = resolve;
+    });
+    let retryControlRequestCommittedResolve!: () => void;
+    const retryControlRequestCommitted = new Promise<void>((resolve) => {
+      retryControlRequestCommittedResolve = resolve;
+    });
+    let retryResponseExpected = false;
+    let retryResponseReceivedResolve!: () => void;
+    const retryResponseReceived = new Promise<void>((resolve) => {
+      retryResponseReceivedResolve = resolve;
+    });
+    let controlRequestCount = 0;
+    let firstControlRequestReceipt: Record<string, unknown> | null = null;
+    let retryControlRequestReceipt: Record<string, unknown> | null = null;
     let receipt1StillHung = true;
     (f.host as { runtimeIngress: typeof f.host.runtimeIngress }).runtimeIngress = async (
       targetRepoId,
@@ -496,10 +518,30 @@ test(
         await hungReceipt1Gate;
         receipt1StillHung = false;
       }
-      return origRuntimeIngress(targetRepoId, action, auth);
+      const receipt = await origRuntimeIngress(targetRepoId, action, auth);
+      const controlRequest =
+        action.kind === "event" &&
+        typeof action.payload.controlRequest === "object" &&
+        action.payload.controlRequest !== null
+          ? (action.payload.controlRequest as Record<string, unknown>)
+          : null;
+      if (controlRequest?.controlRequestId === lostRespKey) {
+        controlRequestCount += 1;
+        if (controlRequestCount === 1) {
+          firstControlRequestReceipt = receipt;
+          firstControlRequestCommittedResolve();
+          await lostFirstResponseGate;
+        } else if (controlRequestCount === 2) {
+          retryControlRequestReceipt = receipt;
+          retryResponseExpected = true;
+          retryControlRequestCommittedResolve();
+        }
+      }
+      return receipt;
     };
     t.after(() => {
       releaseHungReceipt1();
+      releaseLostFirstResponse();
       (f.host as { runtimeIngress: typeof f.host.runtimeIngress }).runtimeIngress = origRuntimeIngress;
     });
 
@@ -549,13 +591,34 @@ test(
     // unimpeded — proving the real CLI blocks on waitForFleetReplicaRevision until replication resumes!
     const openUpstreams = new Set<net.Socket>();
     const allProxySockets = new Set<net.Socket>();
+    const cliCommandUpstreams: net.Socket[] = [];
+    let captureCliConnections = false;
+    let firstCliConnectionResolve!: (socket: net.Socket) => void;
+    const firstCliConnection = new Promise<net.Socket>((resolve) => {
+      firstCliConnectionResolve = resolve;
+    });
+    let retryCliConnectionResolve!: (socket: net.Socket) => void;
+    const retryCliConnection = new Promise<net.Socket>((resolve) => {
+      retryCliConnectionResolve = resolve;
+    });
     const proxyServer = net.createServer((downstream) => {
       const upstream = net.connect({ host: "127.0.0.1", port: f.center.port });
       allProxySockets.add(downstream);
       allProxySockets.add(upstream);
       openUpstreams.add(upstream);
+      if (captureCliConnections) {
+        cliCommandUpstreams.push(upstream);
+        if (cliCommandUpstreams.length === 1) firstCliConnectionResolve(upstream);
+        if (cliCommandUpstreams.length === 2) retryCliConnectionResolve(upstream);
+      }
       downstream.pipe(upstream);
       upstream.pipe(downstream);
+      upstream.on("data", () => {
+        if (retryResponseExpected && upstream === cliCommandUpstreams[1]) {
+          retryResponseExpected = false;
+          retryResponseReceivedResolve();
+        }
+      });
       const cleanup = () => {
         openUpstreams.delete(upstream);
         allProxySockets.delete(downstream);
@@ -624,87 +687,100 @@ test(
     await pausedTransport.start();
     t.after(() => pausedTransport.stop());
 
-    // Commit the steer directly on Center (simulating lost first Center response after commit) while pausedEdgeB lags!
-    const lostRespKey = "ctrl-f6-paused-replica-retry";
-    const lostRespPrompt = "F6 real CLI retry waits for paused Edge-B replica catch-up";
-    const committedOnCenter = await f.host.steerRuntime(
-      repoId,
-      { runtimeSessionId: session1, prompt: lostRespPrompt, idempotencyKey: lostRespKey },
-      localAuth,
-    );
-    assert.equal(committedOnCenter.outcome, "applied", JSON.stringify(committedOnCenter));
-    const persistedRev = Number(committedOnCenter.revision);
     const staleReadBeforeCli = await pausedEdgeB.host.read(
       repoId,
       "repo.agentRuntime.sessions.read",
       { runtimeSessionId: session1 },
       localAuth,
     );
-    assert.ok(
-      staleReadBeforeCli.watermark < persistedRev,
-      `paused Edge-B watermark (${staleReadBeforeCli.watermark}) must lag persistedRev (${persistedRev})`,
-    );
-
-    // Invoke REAL CLI on pausedEdgeB with `--idempotency-key`: it MUST remain unsettled while replica is paused!
-    let cliSettled = false;
+    captureCliConnections = true;
     const cliEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
-    const cliPromise = new Promise<{
-      readonly code: number | null;
-      readonly receipt: Record<string, unknown>;
-      readonly stderr: string;
-    }>((resolve, reject) => {
-      const child = spawn(
-        process.execPath,
-        [
-          path.resolve("packages/cli/src/index.ts"),
-          "--root",
-          pausedEdgeB.edgeRoot,
-          "--json",
-          "runtime",
-          "steer",
-          session1,
-          "--prompt",
-          lostRespPrompt,
-          "--idempotency-key",
-          lostRespKey,
-        ],
-        {
-          env: {
-            ...cliEnv,
-            HARNESS_DAEMON_USER_ROOT: pausedEdgeB.edgeUser,
-            HARNESS_DAEMON_ID: pausedDaemonId,
+    const runSteerCli = () => {
+      let settled = false;
+      const promise = new Promise<{
+        readonly code: number | null;
+        readonly stdout: string;
+        readonly stderr: string;
+      }>((resolve) => {
+        const child = spawn(
+          process.execPath,
+          [
+            path.resolve("packages/cli/src/index.ts"),
+            "--root",
+            pausedEdgeB.edgeRoot,
+            "--json",
+            "runtime",
+            "steer",
+            session1,
+            "--prompt",
+            lostRespPrompt,
+            "--idempotency-key",
+            lostRespKey,
+          ],
+          {
+            env: {
+              ...cliEnv,
+              HARNESS_DAEMON_USER_ROOT: pausedEdgeB.edgeUser,
+              HARNESS_DAEMON_ID: pausedDaemonId,
+            },
+            stdio: ["ignore", "pipe", "pipe"],
           },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      let stdout = "",
-        stderr = "";
-      child.stdout.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString("utf8");
+        );
+        let stdout = "",
+          stderr = "";
+        child.stdout.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString("utf8");
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString("utf8");
+        });
+        child.on("error", (error) => {
+          settled = true;
+          resolve({ code: null, stdout, stderr: `${stderr}${String(error)}` });
+        });
+        child.on("close", (code) => {
+          settled = true;
+          resolve({ code, stdout, stderr });
+        });
       });
-      child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString("utf8");
-      });
-      child.on("error", reject);
-      child.on("close", (code) => {
-        cliSettled = true;
-        try {
-          resolve({ code, receipt: JSON.parse(stdout.trim()) as Record<string, unknown>, stderr });
-        } catch (error) {
-          reject(new Error(`CLI parse error (code=${code}): stdout=${stdout} stderr=${stderr}`, { cause: error }));
-        }
-      });
-    });
+      return { promise, isSettled: () => settled };
+    };
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    assert.equal(cliSettled, false, "F6: real CLI retry must stay unsettled while Edge-B replica lags persistedRev");
+    // The first real CLI call commits at Center; hold its response until the proxy drops the TLS socket.
+    const firstCli = runSteerCli();
+    const firstCliSocket = await firstCliConnection;
+    await firstControlRequestCommitted;
+    assert.equal(firstControlRequestReceipt?.outcome, "applied");
+    const persistedRev = Number(firstControlRequestReceipt?.revision);
+    assert.ok(Number.isSafeInteger(persistedRev) && persistedRev > staleReadBeforeCli.watermark);
+    firstCliSocket.destroy();
+    releaseLostFirstResponse();
+    const lostResponseResult = await firstCli.promise;
+    assert.notEqual(lostResponseResult.code, 0, JSON.stringify(lostResponseResult));
+    assert.equal(controlRequestCount, 1, "the Center committed the first CLI attempt before losing its response");
+
+    // Retry through the real CLI with the same idempotency key; its Center response must arrive before catch-up.
+    const retryCli = runSteerCli();
+    const retrySocket = await retryCliConnection;
+    await retryControlRequestCommitted;
+    assert.ok(retryControlRequestReceipt, "the retry must reach Center and resolve the existing request");
+    await retryResponseReceived;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(
+      retryCli.isSettled(),
+      false,
+      "F6: the real CLI retry must remain pending after Center responds while Edge-B replication is paused",
+    );
+    assert.ok(retrySocket.destroyed === false);
 
     // Resume Edge-B's resident replication stream -> CLI must resolve immediately with no_changes and revision === persistedRev!
     for (const sock of pausedUpstreams) sock.resume();
-    const cliResult = await cliPromise;
+    const cliResult = await retryCli.promise;
     assert.equal(cliResult.code, 0, JSON.stringify(cliResult));
-    assert.equal(cliResult.receipt.outcome, "no_changes", JSON.stringify(cliResult));
-    assert.equal(cliResult.receipt.revision, persistedRev);
+    const cliReceipt = JSON.parse(cliResult.stdout.trim()) as Record<string, unknown>;
+    assert.equal(cliReceipt.outcome, "no_changes", JSON.stringify(cliReceipt));
+    assert.equal(cliReceipt.revision, persistedRev);
+    assert.equal(controlRequestCount, 2, "the retry must reuse the same Center request without another write");
     const readAfterCli = await pausedEdgeB.host.read(
       repoId,
       "repo.agentRuntime.sessions.read",
