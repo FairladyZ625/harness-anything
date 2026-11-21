@@ -76,8 +76,14 @@ export function validateStorageReadWindow(
   limit: number,
   maximum: number = Number.MAX_SAFE_INTEGER,
   afterRevision: number = storageReadPolicy.defaultValue.minimumRevision,
+  beforeRevision?: number,
 ): boolean {
-  if (!Number.isSafeInteger(afterRevision) || afterRevision < storageReadPolicy.defaultValue.minimumRevision)
+  if (
+    !Number.isSafeInteger(afterRevision) ||
+    afterRevision < storageReadPolicy.defaultValue.minimumRevision ||
+    (beforeRevision !== undefined &&
+      (!Number.isSafeInteger(beforeRevision) || beforeRevision < storageReadPolicy.defaultValue.minimumRevision))
+  )
     return false;
   return Number.isSafeInteger(limit) && limit >= storageReadPolicy.defaultValue.minimumRows && limit <= maximum;
 }
@@ -85,7 +91,7 @@ export function validateStorageReadWindow(
 export const storageReadJudgment = {
   id: "storage-read-window",
   symbol: "packages/kernel/src/domain/storage-read-policy.ts#validateStorageReadWindow",
-  inputs: ["limit", "endpoint ceiling", "afterRevision"],
+  inputs: ["limit", "endpoint ceiling", "afterRevision", "beforeRevision"],
   output: "boolean",
   failureCodes: [],
   explain: "A read window uses safe integer rows and revisions within the endpoint ceiling.",
@@ -102,7 +108,7 @@ export const storageReadJudgment = {
   sources: [
     {
       candidateId:
-        "judgment:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#validateStorageReadWindow:6a8cdc60e632c4f815a114b3c3bede91",
+        "judgment:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#validateStorageReadWindow:20c776f3d1b13858a154104ccb706047",
       route: "storage bounded read validation",
     },
   ],

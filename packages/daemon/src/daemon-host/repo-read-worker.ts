@@ -22,6 +22,7 @@ export async function executeRepoReadRequest(request: RepoWriterRequestV1): Prom
     runtime = makeRepoReadRuntime({
       ...frame.config,
       now: () => frame.now ?? new Date().toISOString(),
+      fleetCursorSecret: () => frame.cursorSecret,
       runtimeInstances: () => frame.runtimeInstances ?? [],
       edgeConfig: () => frame.edge?.config ?? null,
     });

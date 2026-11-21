@@ -9,8 +9,14 @@ import {
   markDaemonOperationPhase,
   observeDaemonOperation,
 } from "../daemon-operation.ts";
-import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
-import { commandClassForAction, commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams, validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
+import {
+  actionForDaemonMethod,
+  commandClassForAction,
+  commandDescriptorForAction,
+  makeDaemonCommandReceipt,
+} from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonActionResult } from "../protocol/daemon-result-validation.ts";
 import { createFleetDeliveryDrain } from "../../fleet-sync/fleet/center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
@@ -32,6 +38,12 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  cursorSecretBytesOrNull,
+  finalizeFleetTokenUsageDetailResult,
+  fleetTokenUsageDetailCursorKey,
+  unwrapFleetTokenUsageDetailCursor,
+} from "@harness-anything/application/internal/queries/token-usage-detail-read.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   consumeKnownError,
@@ -68,7 +80,7 @@ import {
 } from "./center-listener-relocation.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { type FleetFrameV1 } from "./command-protocol.ts";
+import { fleetBusinessOperationalReadMethods, type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
 import {
@@ -92,6 +104,27 @@ const REPLICATION_HEAD_POLL_MS = 50;
 export const REPLICATION_KEEPALIVE_MS = 15_000;
 /** Active (unfinished) uploads one node may hold across all of its sessions. */
 const FLEET_NODE_ACTIVE_UPLOADS = 16;
+const FLEET_BUSINESS_READ_METHODS = new Set<string>(fleetBusinessOperationalReadMethods);
+const FLEET_READ_FAULT_CODES = new Set<string>([
+  "cursor_secret_unconfigured",
+  "entity_not_found",
+  "execution_scope_mismatch",
+  "human_confirmation_required",
+  "ingress_binding_forbidden",
+  "invalid_command",
+  "invalid_cursor",
+  "invalid_field",
+  "runtime_session_not_found",
+  "unsupported_command",
+]);
+const FLEET_TASK_READ_DENIAL_CODES = new Set<string>([
+  "authentication_required",
+  "authorization_denied",
+  "execution_scope_mismatch",
+  "human_confirmation_required",
+  "ingress_binding_forbidden",
+  "repo_mode_read_only",
+]);
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => {
@@ -128,7 +161,30 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     centerRelocated = readListenerCenterRelocated(options);
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
-  const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const resourceBudget = options.commandResourceBudget ?? createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const reserveDocShowBudget = (nodeId: string, repoId: string, sessionId: string) => {
+    try {
+      return resourceBudget.reserve({ nodeId, repoId, sessionId }, { bulkTransfers: 1 });
+    } catch (error) {
+      if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
+      throw error;
+    }
+  };
+  const deliverWithReservation = (
+    frame: FleetFrameV1,
+    reservation: { readonly release: () => void } | null,
+  ): Delivery =>
+    reservation
+      ? {
+          key: null,
+          bulkTransferReserved: true,
+          onComplete: () => reservation.release(),
+          onFailure: () => reservation.release(),
+          frames: (async function* () {
+            yield frame;
+          })(),
+        }
+      : immediate(frame);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
@@ -1238,16 +1294,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
         };
         const commandAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
-        let reservation;
-        try {
-          reservation =
-            command.kind === "doc-show"
-              ? resourceBudget.reserve({ nodeId, repoId: a.repoId, sessionId: window.holderId }, { bulkTransfers: 1 })
-              : null;
-        } catch (error) {
-          if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
-          throw error;
-        }
+        const reservation =
+          command.kind === "doc-show" ? reserveDocShowBudget(nodeId, a.repoId, window.holderId) : null;
         try {
           const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
@@ -1287,16 +1335,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             inReplyTo: frame.messageId,
             ...result,
           };
-          if (reservation)
-            return {
-              key: null,
-              onComplete: () => reservation.release(),
-              onFailure: () => reservation.release(),
-              frames: (async function* () {
-                yield response;
-              })(),
-            };
-          return immediate(response);
+          return deliverWithReservation(response, reservation);
         } catch (error) {
           reservation?.release();
           throw error;
@@ -1515,13 +1554,31 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "execution_scope_mismatch",
           "Runtime read repository must match the authenticated node request.",
         );
+      const businessRead = FLEET_BUSINESS_READ_METHODS.has(frame.method);
       const binding = {
-        ...(await (frame.method === "repo.access.members.read" ? repoAdmission(a) : auth(a))),
+        ...(await (businessRead
+          ? replicaAdmission(a)
+          : frame.method === "repo.access.members.read"
+            ? repoAdmission(a)
+            : auth(a))),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
       markDaemonOperationPhase("repository-admission");
-      let result;
+      let result,
+        reservation: { readonly release: () => void } | null = null;
       try {
+        if (businessRead) {
+          const parsed = parseDaemonRpcParams(frame.method, {
+            repo: { repoId: a.repoId },
+            payload: frame.payload,
+          });
+          if (!parsed.ok) throw new FleetFault("invalid_field", parsed.errors.join("; "));
+          if (frame.method === "observe.tail" && frame.payload.kind !== "events")
+            throw new FleetFault(
+              "execution_scope_mismatch",
+              `observe.tail kind ${String(frame.payload.kind)} is runtime-local and cannot be read through a repository-scoped Fleet read.`,
+            );
+        }
         if (frame.method === "repo.access.members.read") {
           if (Object.keys(frame.payload).length > 0)
             throw new FleetFault("invalid_field", "The repository directory read takes no payload.");
@@ -1542,13 +1599,71 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         } else if (frame.method === "repo.tasks.autoDispatchCandidates") {
           markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoDispatchCandidates(a.repoId, binding);
+        } else if (frame.method === "repo.task.show" || frame.method === "repo.task.read") {
+          const action = actionForDaemonMethod(frame.method, frame.payload as JsonObject),
+            descriptor = commandDescriptorForAction(action.kind),
+            edgeMode = descriptor.admission["remote-edge"];
+          if (
+            descriptor.commandClass !== "repo-read" ||
+            !("repoCellExecution" in descriptor) ||
+            descriptor.repoCellExecution !== "query-only" ||
+            edgeMode !== "edge-replica"
+          )
+            throw new FleetFault(
+              "unsupported_command",
+              `${action.kind} is not an allowed remote repository read command.`,
+            );
+          if (action.kind === "doc-show") reservation = reserveDocShowBudget(nodeId, a.repoId, window.holderId);
+          const receipt = await observedRunCenterWriter(a.repoId, action, binding);
+          if (reservation) connectionSignal.throwIfAborted();
+          if (
+            "outcome" in receipt &&
+            receipt.outcome === "op_rejected" &&
+            "code" in receipt &&
+            typeof receipt.code === "string" &&
+            FLEET_TASK_READ_DENIAL_CODES.has(receipt.code)
+          ) {
+            throw new FleetFault(
+              receipt.code,
+              "rejectionExplanation" in receipt && typeof receipt.rejectionExplanation === "string"
+                ? receipt.rejectionExplanation
+                : receipt.code,
+            );
+          }
+          const commandReceipt = makeDaemonCommandReceipt(action.kind, receipt);
+          result =
+            frame.method === "repo.task.show"
+              ? parseDaemonActionResult("repo.task.show", commandReceipt)
+              : commandReceipt;
         } else {
           markDaemonOperationPhase("projection-read");
           if (frame.method === "repo.task.dispatches") {
             const errors = validateTaskDispatchesPayload(frame.payload);
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
-          result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+          let readPayload = frame.payload as JsonObject;
+          const isDetailRead = frame.method === "repo.agentRuntime.tokenUsageDetail",
+            isPaginatedDetailRead =
+              isDetailRead && (frame.payload.limit !== undefined || frame.payload.cursor !== undefined),
+            outerDetailCursor = isDetailRead && typeof frame.payload.cursor === "string" ? frame.payload.cursor : null;
+          let detailCursorKey: Buffer | null = null;
+          if (isPaginatedDetailRead) {
+            const secretBytes = cursorSecretBytesOrNull(options.cursorSecret);
+            if (secretBytes === null)
+              throw new FleetFault(
+                "cursor_secret_unconfigured",
+                "Fleet token usage detail pagination requires a configured cursorSecret.",
+              );
+            detailCursorKey = fleetTokenUsageDetailCursorKey(a.repoId, secretBytes);
+            if (outerDetailCursor !== null) {
+              const innerCursor = unwrapFleetTokenUsageDetailCursor(detailCursorKey, a.repoId, outerDetailCursor);
+              if (innerCursor === null) throw new FleetFault("invalid_cursor", "Token usage detail cursor is invalid.");
+              readPayload = { ...readPayload, cursor: innerCursor };
+            }
+          }
+          result = await options.host.read(a.repoId, frame.method, readPayload, binding);
+          if (isDetailRead)
+            result = finalizeFleetTokenUsageDetailResult(detailCursorKey, a.repoId, outerDetailCursor, result);
           if (frame.method === "repo.fleet.overview.read") {
             const warning = versionWarnings.get(nodeId);
             if (warning !== undefined) {
@@ -1558,7 +1673,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           }
         }
       } catch (error) {
+        reservation?.release();
+        if (error instanceof FleetFault) throw error;
         const code = runtimeErrorCode(error);
+        if (code === "resource_exhausted") throw new FleetFault(code, runtimeErrorMessage(error), true);
         if (
           code &&
           ["authentication_required", "authorization_denied", "keycloak_unavailable", "projection_pending"].includes(
@@ -1566,15 +1684,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           )
         )
           throw new FleetFault(code, runtimeErrorMessage(error));
+        if (code && FLEET_READ_FAULT_CODES.has(code)) throw new FleetFault(code, runtimeErrorMessage(error));
         throw error;
       }
-      return immediate({
-        schema: "fleet.operational.read.result/v1",
-        messageId: mid(frame.messageId, "runtime-read"),
-        inReplyTo: frame.messageId,
-        result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
-        ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
-      });
+      return deliverWithReservation(
+        {
+          schema: "fleet.operational.read.result/v1",
+          messageId: mid(frame.messageId, "runtime-read"),
+          inReplyTo: frame.messageId,
+          result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
+          ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
+        },
+        reservation,
+      );
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };

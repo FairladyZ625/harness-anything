@@ -121,6 +121,8 @@ async function bindPersonalRead(
     if (
       binding.executionPrincipal !== undefined ||
       operator.executionPrincipal !== undefined ||
+      binding.fleetReplicaPrincipal !== undefined ||
+      operator.fleetReplicaPrincipal !== undefined ||
       operator.actor.principal.personId !== binding.actor.principal.personId
     )
       throw hostCodedError(

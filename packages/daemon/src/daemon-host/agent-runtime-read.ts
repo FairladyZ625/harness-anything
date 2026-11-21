@@ -144,7 +144,19 @@ export function makeAgentRuntimeReadModel(input: {
         ? runtimeKindForInstallation(installation).kindId
         : historicalRuntimeKindId(session, definition.snapshot),
       ...(installationError ? { installationState: "missing" as const, installationError } : {}),
-      ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
+      ...(metrics
+        ? {
+            metrics: {
+              inputTokens: metrics.inputTokens,
+              cacheReadTokens: metrics.cacheReadTokens,
+              outputTokens: metrics.outputTokens,
+              totalTokens: metrics.totalTokens,
+              toolCallCount: metrics.toolCallCount,
+              usageUnavailable: metrics.usageUnavailable,
+              compacted: null,
+            },
+          }
+        : {}),
       ...(occupancy ? { context: occupancy } : {}),
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,

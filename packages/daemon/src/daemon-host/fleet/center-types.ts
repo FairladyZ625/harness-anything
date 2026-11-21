@@ -47,6 +47,8 @@ export interface FleetCenterOptions {
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
+  /** Server-held cluster HMAC secret for stateless Fleet read cursors independent of TLS key rotation. */
+  readonly cursorSecret?: string | Buffer | Uint8Array;
   readonly replicaDiskQuotaBytes?: number;
   /** Maximum simultaneous base-backup archive builds across every repository in this center. */
   readonly replicationBaseBackupConcurrency?: number;
@@ -98,7 +100,7 @@ export interface FleetCenterOptions {
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
-  /** Authenticates a registered node service account for the replication admission path only. */
+  /** Authenticates a registered node service account for replication and repository-read admission. */
   readonly verifyReplica?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext | null>;
   readonly buildDraining?: () => boolean;
   readonly onDeliverySettled?: () => void;
@@ -201,6 +203,7 @@ export type SessionWindow = {
 export type Delivery = {
   readonly signal?: AbortSignal;
   readonly key: string | null;
+  readonly bulkTransferReserved?: boolean;
   readonly frames: AsyncIterable<FleetFrameV1>;
   readonly beforeSend?: () => void;
   readonly onSent?: (bytes: number) => void;

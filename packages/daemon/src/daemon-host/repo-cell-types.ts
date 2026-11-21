@@ -167,6 +167,8 @@ export interface RepoCellBinding {
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
   readonly sourceNodeId?: string;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
+  /** Center-created proof that a machine token was bound to this node and owner for replica reads. */
+  readonly fleetReplicaPrincipal?: { readonly nodeId: string; readonly personId: string; readonly expiresAt: number };
   /** Resolve a declared Artifact kind name to its stable `entity-kind/KND-…` identity at this turn. */
   readonly artifactKindResolver?: (kind: string) => string | null;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
@@ -678,6 +680,7 @@ export interface RepoCellApiContext {
   readonly input: {
     readonly repoId: string;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
+    readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
     readonly prepareDaemonGitEnvironment?: (
@@ -758,6 +761,7 @@ export interface RepoCellOpenInput {
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
   readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;

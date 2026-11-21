@@ -288,9 +288,15 @@ export interface TaskProjection {
   ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly readRuntimeDispatchPage: (query: {
     /** Task-scoped history pages seek each task time index, never materialize its history.
-     * Pages order by the UTC millisecond key of startedAt ?? occurredAt, then by dispatch ID. */
+     * Pages order by the UTC millisecond key of startedAt ?? occurredAt (asc or desc), then by dispatch ID asc. */
     readonly taskIds?: readonly string[];
+    readonly agentId?: string;
+    readonly squadId?: string;
+    readonly personId?: string;
     readonly startedAtGte: string;
+    readonly startedAtLte?: string;
+    readonly order?: "asc" | "desc";
+    readonly maxRevision?: number;
     readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
     readonly limit: number;
   }) => RuntimeDispatchPage;
@@ -307,12 +313,18 @@ export interface TaskProjection {
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
   /**
-   * One session's events narrowed to the requested types, revision ascending. Callers that need
-   * the newest outcome or liveness event read only the matching rows, never the whole session.
+   * One session's events narrowed to the requested types, revision ordered (default asc). Callers
+   * that need a bounded or watermark-pinned lookup pass maxRevision/limit/order so late events
+   * past maxRevision are never materialized.
    */
   readonly readRuntimeSessionEventsByType: (
     runtimeSessionIdValue: string,
     types: readonly AgentRuntimeEventType[],
+    options?: {
+      readonly maxRevision?: number;
+      readonly limit?: number;
+      readonly order?: "asc" | "desc";
+    },
   ) => readonly AgentRuntimeEventV1[];
   readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
   readonly readEventList: (query: EventListQuery) => EventListPage;
@@ -328,6 +340,10 @@ export interface TaskProjection {
           readonly nodeId?: string;
         }
       | { readonly fleetNodeIds: readonly string[] },
+    /** Exclusive upper revision bound for bounded window paging. */
+    beforeRevision?: number,
+    /** Revision scan order within (afterRevision, beforeRevision); defaults to asc without beforeRevision, desc with beforeRevision. */
+    order?: "asc" | "desc",
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];

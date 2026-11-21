@@ -94,6 +94,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly runtimePorts: DaemonRuntimePorts;
   readonly decisionPointExecutorFor: (repoId: string, rootDir: string) => ReturnType<typeof openDecisionPointExecutor>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-types.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;

@@ -286,24 +286,26 @@ export async function publishExit(
         active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
       );
     active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
+    // Keep runtimeMetrics on the 6-key baseline shape while carrying optional cacheWriteTokens at
+    // the top level of runtime_session_outcome_observed.payload (accepted by N-1 allowUnknownFields).
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
-      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,
       usageUnavailable: !active.usageReported,
     };
+    const outcomeCacheWriteTokens =
+      cacheWriteTokensOfUsage(active.rawUsage) === null ? undefined : active.cacheWriteTokens;
+    const streamRuntimeMetrics = {
+      ...runtimeMetrics,
+      ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
+    };
     active.stream.appendRuntimeMetrics?.(
-      { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
+      { ...streamRuntimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       endedAt,
     );
-    // The kernel event's runtimeMetrics copy stays the three-count shape its domain
-    // whitelist pins (validRuntimeDispatchMetrics): kernel consumers do not price, so the
-    // separate cache-write counter travels only in the stream records, where the token
-    // usage read side picks it up.
-    const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
     if (submittedStall)
       body +=
@@ -698,7 +700,8 @@ export async function publishExit(
         ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : reasonCode ? { reasonCode } : {}),
         dispatchId: active.dispatchId,
         endedAt,
-        runtimeMetrics: kernelMetrics,
+        runtimeMetrics,
+        ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,

@@ -109,12 +109,21 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
           ? path.resolve(edgeConfig.viewRoot, "repos", input.repoId, "views", edgeConfig.nodeId)
           : undefined,
         replicaPin = replicaRoot ? replicaGenerationReaders(replicaRoot).acquire() : null;
+      const detailPayload =
+          method === "read" && args[0] === "repo.agentRuntime.tokenUsageDetail"
+            ? (args[1] as Readonly<Record<string, unknown>> | undefined)
+            : undefined,
+        cursorSecret =
+          detailPayload !== undefined && (detailPayload.limit !== undefined || detailPayload.cursor !== undefined)
+            ? input.fleetCursorSecret?.()
+            : undefined;
       const payload: RepoReadPayload = {
         config,
         readerId,
         method,
         args,
         now,
+        ...(cursorSecret !== undefined ? { cursorSecret } : {}),
         runtimeInstances,
         ...(edgeConfig !== undefined
           ? {

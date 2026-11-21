@@ -629,8 +629,10 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
   try {
     const outcomes: Record<string, unknown>[] = [],
       metricsRecords: Record<string, unknown>[] = [],
+      archivedRecords: Record<string, unknown>[] = [],
       runtime = {
         ...tasklessSettlementRuntime(rootDir, "counters settle"),
+        task: { taskId: "task_000000000000000000000001", executionId: "exe_000000000000000000000001" },
         inputTokens: 110,
         cacheReadTokens: 20,
         cacheWriteTokens: 10,
@@ -654,7 +656,12 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
           rootDir,
           now: () => "2026-10-10T00:01:00.000Z",
           stream: { publish: () => ({}) },
-          remote: { archive: async () => ({ outcome: "applied" }) },
+          remote: {
+            archive: async (archive: Record<string, unknown>) => {
+              archivedRecords.push(archive);
+              return { outcome: "applied" };
+            },
+          },
         },
         resultMediaType: "text/markdown",
         runtimeResultText: () => "counters settle",
@@ -666,17 +673,20 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
         settleFallback: async () => undefined,
       } as unknown as RuntimeSpawnerContext;
     await publishExit(context, runtime, 0);
-    // The kernel event whitelist (validRuntimeDispatchMetrics) pins the payload copy to the
-    // three-count shape; the separate cache-write counter travels only in the stream records
-    // that the token usage read side prices.
-    assert.deepEqual(Object.keys(outcomes[0]?.runtimeMetrics ?? {}).sort(), [
-      "cacheReadTokens",
-      "inputTokens",
-      "outputTokens",
-      "toolCallCount",
-      "totalTokens",
-      "usageUnavailable",
-    ]);
+    // Canonical runtimeMetrics stays strictly 6-key while top-level payload.cacheWriteTokens
+    // carries itemized cache writes across both task-bound and taskless settlements (F15/F17/dec_659E15CF),
+    // and RuntimeDispatchArchive stays free of runtimeMetrics.
+    assert.deepEqual(outcomes[0]?.runtimeMetrics, {
+      inputTokens: 110,
+      cacheReadTokens: 20,
+      outputTokens: 25,
+      totalTokens: 135,
+      toolCallCount: 1,
+      usageUnavailable: false,
+    });
+    assert.equal(Object.keys((outcomes[0]?.runtimeMetrics as Record<string, unknown>) ?? {}).length, 6);
+    assert.equal(outcomes[0]?.cacheWriteTokens, 10);
+    assert.equal(Object.hasOwn(archivedRecords[0] ?? {}, "runtimeMetrics"), false);
     assert.deepEqual(metricsRecords[0], {
       inputTokens: 110,
       cacheReadTokens: 20,
@@ -688,6 +698,51 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
       compacted: false,
       raw: { cache_creation_input_tokens: 10 },
     });
+    // Taskless settlements (archive === null) also carry top-level payload.cacheWriteTokens (F17).
+    const tasklessOutcomes: Record<string, unknown>[] = [];
+    const tasklessRuntime = {
+      ...runtime,
+      task: null,
+      exitSettlement: undefined,
+      runtimeSessionId: "runtime-settlement-metrics-taskless",
+      dispatchId: "dispatch_111111111111111111111111",
+    } as ActiveRuntime;
+    context.processes.set(tasklessRuntime.runtimeSessionId, tasklessRuntime);
+    context.publishRuntimeEvent = async (type: string, payload: Record<string, unknown>) => {
+      if (type === "runtime_session_outcome_observed") tasklessOutcomes.push(payload);
+      return {};
+    };
+    await publishExit(context, tasklessRuntime, 0);
+    assert.equal(archivedRecords.length, 1, "taskless settlement must not publish a RuntimeDispatchArchive");
+    assert.equal(tasklessOutcomes[0]?.cacheWriteTokens, 10);
+    assert.equal(Object.keys((tasklessOutcomes[0]?.runtimeMetrics as Record<string, unknown>) ?? {}).length, 6);
+    // When the provider does not report cache writes, cacheWriteTokens stays omitted in both the
+    // canonical event and the stream record so provenance remains "unreported".
+    const unreportedOutcomes: Record<string, unknown>[] = [];
+    const unreportedRuntime = {
+      ...runtime,
+      exitSettlement: undefined,
+      runtimeSessionId: "runtime-settlement-metrics-unreported",
+      dispatchId: "dispatch_222222222222222222222222",
+      cacheWriteTokens: 0,
+      rawUsage: { input_tokens: 110, output_tokens: 25 },
+    } as ActiveRuntime;
+    context.processes.set(unreportedRuntime.runtimeSessionId, unreportedRuntime);
+    context.publishRuntimeEvent = async (type: string, payload: Record<string, unknown>) => {
+      if (type === "runtime_session_outcome_observed") unreportedOutcomes.push(payload);
+      return {};
+    };
+    await publishExit(context, unreportedRuntime, 0);
+    assert.deepEqual(Object.keys((unreportedOutcomes[0]?.runtimeMetrics as Record<string, unknown>) ?? {}).sort(), [
+      "cacheReadTokens",
+      "inputTokens",
+      "outputTokens",
+      "toolCallCount",
+      "totalTokens",
+      "usageUnavailable",
+    ]);
+    assert.equal(Object.hasOwn(unreportedOutcomes[0] ?? {}, "cacheWriteTokens"), false);
+    assert.equal(Object.hasOwn(archivedRecords[1] ?? {}, "runtimeMetrics"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

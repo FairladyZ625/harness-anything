@@ -92,6 +92,7 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("dispatchId", "string", false),
     field("endedAt", "string", false),
     field("runtimeMetrics", "json-object", false),
+    field("cacheWriteTokens", "number", false),
     field("attempt", "json-object", false),
     field("resultBody", "string", false),
   ]),

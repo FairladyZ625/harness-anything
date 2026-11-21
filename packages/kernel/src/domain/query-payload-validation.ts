@@ -3,6 +3,9 @@ import { domainStatuses } from "./lifecycle-status.ts";
 import { relationStates } from "./relation-state.ts";
 import { timestamp } from "./timestamp.ts";
 
+export const agentRuntimeTokenUsageRangeWords = Object.freeze(["today", "7d", "30d"] as const);
+export type AgentRuntimeTokenUsageRange = (typeof agentRuntimeTokenUsageRangeWords)[number];
+
 export type QueryPayloadKind = "task-list" | "relation-graph";
 
 export type QueryPayloadValidationIssue =

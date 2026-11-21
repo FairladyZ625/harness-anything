@@ -355,5 +355,6 @@ export interface RepoReadPayload {
     readonly pin?: import("../fleet-sync/fleet/replica-generation.ts").BorrowedReplicaGeneration;
   };
   readonly now?: string;
+  readonly cursorSecret?: string | Uint8Array;
   readonly runtimeInstances?: readonly RuntimeInstanceSummary[];
 }

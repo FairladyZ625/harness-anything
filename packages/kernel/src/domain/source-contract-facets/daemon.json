@@ -1391,7 +1391,7 @@
         "explain": "Telemetry DTO validator for `agent-runtime.token-usage-detail/v1` per-session token breakdown payloads.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail:9933e72a970d84fc4bb883873470203c",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail:cc8bf26f089940d28de00e76ce56b857",
             "route": "packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail"
           }
         ],

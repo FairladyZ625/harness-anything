@@ -464,6 +464,7 @@ interface RuntimePayloads {
     readonly dispatchId?: string;
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
+    readonly cacheWriteTokens?: number;
     readonly attempt?: {
       readonly classification:
         | "provider_fault"
@@ -500,6 +501,7 @@ interface RuntimePayloads {
 export interface RuntimeDispatchMetrics {
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens?: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
@@ -601,7 +603,7 @@ function validateAgentRuntimePayloadFields(
     : payloadFields[type];
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt", "orphanRecovery"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "cacheWriteTokens", "attempt", "orphanRecovery"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
@@ -770,6 +772,12 @@ function validateAgentRuntimePayloadFields(
             value.attempt.fallbackState !== "exhausted"))))
   )
     return ["runtime dispatch settlement metadata is invalid"];
+  if (
+    type === "runtime_session_outcome_observed" &&
+    value.cacheWriteTokens !== undefined &&
+    (!Number.isSafeInteger(value.cacheWriteTokens) || Number(value.cacheWriteTokens) < 0)
+  )
+    return ["runtime dispatch settlement metadata is invalid"];
   return [];
 }
 
@@ -821,10 +829,24 @@ function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProvid
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(runtimeEventValidationInput(value), true);
 }
+// Two-step expand-and-contract (dec_659E15CF): persisted readers accept optional non-negative
+// integer cacheWriteTokens now, while current writers emit only the 6-key baseline shape until
+// after the N-1 window (shrink/write-enable window: 2026-12-21).
 function runtimeEventValidationInput(value: unknown): unknown {
-  return isRecord(value) && writeSourceRuntimeSessionId(value.source) !== null
-    ? { ...value, source: "remote_direct" }
-    : value;
+  if (!isRecord(value)) return value;
+  const sourceNormalized =
+      writeSourceRuntimeSessionId(value.source) !== null ? { ...value, source: "remote_direct" } : value,
+    payload = isRecord(sourceNormalized.payload) ? sourceNormalized.payload : null,
+    metrics = payload && isRecord(payload.runtimeMetrics) ? payload.runtimeMetrics : null;
+  if (
+    metrics === null ||
+    !Object.hasOwn(metrics, "cacheWriteTokens") ||
+    !Number.isSafeInteger(metrics.cacheWriteTokens) ||
+    Number(metrics.cacheWriteTokens) < 0
+  )
+    return sourceNormalized;
+  const { cacheWriteTokens: _cacheWriteTokens, ...baselineMetrics } = metrics;
+  return { ...sourceNormalized, payload: { ...payload, runtimeMetrics: baselineMetrics } };
 }
 export function validateCurrentAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(value, false);

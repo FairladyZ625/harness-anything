@@ -1,8 +1,11 @@
+import { sha256Text } from "@harness-anything/kernel";
 import builtinCatalogData from "./model-pricing-catalog.json" with { type: "json" };
 import { parseModelPricingCatalog, type ModelPricingCatalog } from "./model-pricing-catalog.ts";
 
 /** Version of the synchronized public price catalog. */
 export let modelPricingVersion: string;
+/** Stable fingerprint of the active price catalog version and rates for cursor consistency. */
+export let modelPricingFingerprint: string;
 
 export interface ModelPrice {
   /** USD per 1M fresh input tokens (inputTokens minus cache reads and writes). */
@@ -40,8 +43,20 @@ const builtinCatalog = parseModelPricingCatalog(builtinCatalogData),
     ["deepseek-v4.1-flash", ["deepseek-v4-flash", "deepseek-flash"]],
   ]);
 
+function catalogPricingFingerprint(catalog: ModelPricingCatalog): string {
+  const entries = [...catalog.models]
+    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+    .map(
+      (model) =>
+        `${model.id}=${model.inputPerMillion},${model.cacheReadPerMillion},${model.cacheWritePerMillion},${model.outputPerMillion}`,
+    )
+    .join(";");
+  return sha256Text(`${catalog.version}\0${entries}`).slice(0, 16);
+}
+
 let prices: ModelPriceTable = pricesFromCatalog(builtinCatalog);
 modelPricingVersion = builtinCatalog.version;
+modelPricingFingerprint = catalogPricingFingerprint(builtinCatalog);
 
 /** Update the process-local read table after a complete catalog has been fetched and validated. */
 export function installModelPricingCatalog(value: unknown): void {
@@ -49,6 +64,7 @@ export function installModelPricingCatalog(value: unknown): void {
     nextPrices = pricesFromCatalog(catalog);
   prices = nextPrices;
   modelPricingVersion = catalog.version;
+  modelPricingFingerprint = catalogPricingFingerprint(catalog);
 }
 
 /** Unwrap known model wrappers and remove only the controlled runtime suffixes. */
