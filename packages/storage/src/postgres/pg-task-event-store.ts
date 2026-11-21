@@ -15,6 +15,8 @@ import {
   canonicalLedgerCut,
 } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import {
+  type AuditEventWindowBatch,
+  type AuditEventWindowQuery,
   type CanonicalCommandOutcome,
   type CanonicalEventAppendReceipt,
   type CanonicalEventQuery,
@@ -66,6 +68,7 @@ export type PostgresTaskEventStoreRequest =
   | { readonly operation: "prune"; readonly beforeSequence: number; readonly writerFence: PostgresWriterFence }
   | { readonly operation: "stream" }
   | { readonly operation: "batch"; readonly cursor: string | null; readonly maxItems: number }
+  | { readonly operation: "window"; readonly query: AuditEventWindowQuery }
   | {
       readonly operation: "events";
       readonly afterRevision?: number;
@@ -89,7 +92,8 @@ export type PostgresTaskEventStoreResult =
   | number
   | null
   | ReturnType<CanonicalEventStore["read"]>
-  | ReturnType<CanonicalEventStore["readBatch"]>;
+  | ReturnType<CanonicalEventStore["readBatch"]>
+  | AuditEventWindowBatch;
 
 export interface PostgresTaskEventCapabilityOptions extends PostgresAppendHooks {
   /** Borrowed from the async host. A4 owns pool creation, drain, and close. */
@@ -169,6 +173,7 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
         return null;
       case "stream":
       case "batch":
+      case "window":
         return (await executePostgresRead(pool, scope, request.operation, {
           ...request,
           repoId,

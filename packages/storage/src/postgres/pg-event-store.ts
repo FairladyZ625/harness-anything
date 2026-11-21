@@ -79,7 +79,8 @@ export type PostgresReadOperation =
   | "content-blob-range"
   | "content-blob-size"
   | "stream"
-  | "batch";
+  | "batch"
+  | "window";
 
 export async function executePostgresRead(
   pool: Pool,
@@ -120,6 +121,8 @@ export async function executePostgresRead(
           return readConfirmedHead(client, scope, repoId!, cut);
         case "events":
           return readEvents(client, scope, payload as ReadEventsPayload, cut?.confirmedRevision ?? 0);
+        case "window":
+          return readEventWindow(client, scope, payload as ReadEventWindowPayload, cut?.confirmedRevision ?? 0);
         case "event":
           return readEvent(client, scope, payload as ReadEventPayload, cut?.confirmedRevision ?? 0);
         case "document-retirement-revision": {
@@ -169,6 +172,16 @@ interface ReadEventsPayload {
   };
   readonly afterRevision?: number;
   readonly limit?: number;
+}
+interface ReadEventWindowPayload {
+  readonly repoId: string;
+  readonly query: {
+    readonly afterRevision: number;
+    readonly maxRevision?: number;
+    readonly after?: string;
+    readonly before?: string;
+    readonly limit: number;
+  };
 }
 interface ReadEventPayload {
   readonly repoId: string;
@@ -712,6 +725,87 @@ async function readEvents(
     values,
   );
   return result.rows.map(({ event_json }) => event_json);
+}
+
+async function readEventWindow(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  input: ReadEventWindowPayload,
+  sourceRevision: number,
+) {
+  const query = input.query;
+  if (!validateStorageReadWindow(query.limit, undefined, query.afterRevision))
+    throw new TaskEventStoreError("invalid_store", "event window cursor or size is invalid");
+  const upperRevision = query.maxRevision === undefined ? sourceRevision : Math.min(query.maxRevision, sourceRevision);
+  if (query.afterRevision >= upperRevision) {
+    return {
+      sourceRevision,
+      events: [] as readonly CanonicalEventV1[],
+      lastScannedRevision: query.afterRevision,
+      windowMaxRevision: upperRevision,
+      done: true,
+    };
+  }
+  let seekAfter = query.afterRevision;
+  let seekMax = upperRevision;
+  if (query.after !== undefined || query.before !== undefined) {
+    const boundClauses = ["tenant_id=$1", "project_id=$2", "repo_id=$3"];
+    const boundValues: unknown[] = [scope.tenantId, scope.projectId, input.repoId, query.afterRevision, upperRevision];
+    if (query.after !== undefined) {
+      boundValues.push(query.after);
+      boundClauses.push(`occurred_at>=$${boundValues.length}`);
+    }
+    if (query.before !== undefined) {
+      boundValues.push(query.before);
+      boundClauses.push(`occurred_at<=$${boundValues.length}`);
+    }
+    const bounds = (
+      await client.query<{ readonly min_rev: string | null; readonly max_rev: string | null }>(
+        `SELECT MIN(CASE WHEN revision>$4 AND revision<=$5 THEN revision END) AS min_rev, ` +
+          `MAX(CASE WHEN revision>$4 AND revision<=$5 THEN revision END) AS max_rev ` +
+          `FROM ha_events WHERE ${boundClauses.join(" AND ")}`,
+        boundValues,
+      )
+    ).rows[0];
+    if (!bounds || bounds.min_rev === null || bounds.max_rev === null) {
+      return {
+        sourceRevision,
+        events: [] as readonly CanonicalEventV1[],
+        lastScannedRevision: upperRevision,
+        windowMaxRevision: upperRevision,
+        done: true,
+      };
+    }
+    seekAfter = Math.max(query.afterRevision, Number(bounds.min_rev) - 1);
+    seekMax = Math.min(upperRevision, Number(bounds.max_rev));
+  }
+  const clauses = ["tenant_id=$1", "project_id=$2", "repo_id=$3", "revision>$4", "revision<=$5"];
+  const values: unknown[] = [scope.tenantId, scope.projectId, input.repoId, seekAfter, seekMax];
+  if (query.after !== undefined) {
+    values.push(query.after);
+    clauses.push(`occurred_at>=$${values.length}`);
+  }
+  if (query.before !== undefined) {
+    values.push(query.before);
+    clauses.push(`occurred_at<=$${values.length}`);
+  }
+  values.push(query.limit + 1);
+  const result = await client.query<{ readonly event_json: string }>(
+    `SELECT event_json FROM ha_events WHERE ${clauses.join(" AND ")} ORDER BY revision ASC LIMIT $${values.length}`,
+    values,
+  );
+  const hasMore = result.rows.length > query.limit;
+  const events = (hasMore ? result.rows.slice(0, query.limit) : result.rows).map(
+    ({ event_json }) => JSON.parse(event_json) as CanonicalEventV1,
+  );
+  const lastScannedRevision = hasMore ? events.at(-1)!.workspaceRevision : seekMax;
+  return {
+    sourceRevision,
+    events,
+    lastScannedRevision,
+    windowMaxRevision: seekMax,
+    done: !hasMore,
+  };
 }
 
 async function readEvent(client: PoolClient, scope: PostgresEventStoreScope, input: ReadEventPayload, through: number) {

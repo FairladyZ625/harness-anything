@@ -201,6 +201,12 @@ export const READ_PROBES = Object.freeze({
       ),
     size: (value) => JSON.parse(value.evidence).rows.length,
   },
+  "ledger-audit-export-date": {
+    // Fixed single-day UTC window while total history grows across all G38 dimensions.
+    reads: ["command:ledger-audit-export"],
+    run: ({ runtime }) => runtime.run({ kind: "ledger-audit-export", date: "2026-11-05", limit: 50 }, runtime.binding),
+    size: (value) => JSON.parse(value.evidence).events.length,
+  },
   "startup-adopt": {
     reads: ["background:startup-adopt"],
     run: ({ recovery }) => adoptRuntimes(recovery),

@@ -23,6 +23,19 @@ export function digestText(algorithm: AuditHashAlgorithm, text: string): string 
   return createHash(algorithm).update(text, "utf8").digest("hex");
 }
 
+export function createBytesDigestAccumulator(algorithm: AuditHashAlgorithm): {
+  readonly feed: (chunk: Uint8Array) => void;
+  readonly digest: () => AuditDigest;
+} {
+  const hash = createHash(algorithm);
+  return {
+    feed: (chunk: Uint8Array) => {
+      hash.update(chunk);
+    },
+    digest: () => `${algorithm}:${hash.digest("hex")}`,
+  };
+}
+
 export function createTextDigestAccumulator(algorithm: AuditHashAlgorithm): {
   readonly feed: (chunk: string) => void;
   readonly digest: () => AuditDigest;

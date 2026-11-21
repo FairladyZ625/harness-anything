@@ -7,6 +7,8 @@ import test from "node:test";
 import {
   createHostScratchDirectory,
   hostEnvironmentFilePath,
+  openCallerOutputLineWriter,
+  writeCallerOutputFile,
   writeHostEnvironmentFile,
 } from "../src/daemon-host/host-environment-io.ts";
 
@@ -48,4 +50,27 @@ test("scratch handles own separate directories and close only once", async (t) =
   await mkdir(first.directory);
   first.close();
   assert.deepEqual(await readdir(first.directory), []);
+});
+
+test("staged caller output writer preserves existing files on abort and publishes companion atomically on commit", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "ha-caller-output-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const entriesPath = path.join(directory, "audit-events.jsonl");
+  const manifestPath = path.join(directory, "audit-manifest.json");
+  await writeCallerOutputFile(entriesPath, "old-entries\n");
+  await writeCallerOutputFile(manifestPath, "old-manifest\n");
+
+  const aborted = await openCallerOutputLineWriter(entriesPath);
+  await aborted.writeLine("partial-new\n");
+  await aborted.abort();
+  assert.equal(await readFile(entriesPath, "utf8"), "old-entries\n");
+  assert.equal(await readFile(manifestPath, "utf8"), "old-manifest\n");
+  assert.deepEqual((await readdir(directory)).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
+
+  const committed = await openCallerOutputLineWriter(entriesPath);
+  await committed.writeLine("new-entries\n");
+  await committed.commit({ filePath: manifestPath, contents: "new-manifest\n" });
+  assert.equal(await readFile(entriesPath, "utf8"), "new-entries\n");
+  assert.equal(await readFile(manifestPath, "utf8"), "new-manifest\n");
+  assert.deepEqual((await readdir(directory)).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
 });

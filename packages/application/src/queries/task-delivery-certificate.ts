@@ -69,26 +69,35 @@ export function readTaskDeliveryCertificate(
     );
   }
   const completionEvent: TaskCompletedEvent = completedCandidate;
-  const execution = resolveCompletedExecution(current.snapshot.executions, completionEvent);
-  if (execution === null) {
-    throw cell.cellCodedError(
-      "task_delivery_execution_missing",
-      `Task ${taskId} has no native execution with a frozen submission for delivery-certificate/v1.`,
+  const isResolutionCompletion =
+    completionEvent.payload.externalResolution !== undefined || completionEvent.payload.siblingResolution !== undefined;
+
+  let execution: ExecutionV1 | null = null;
+  let reviewConsent = null;
+  if (!isResolutionCompletion) {
+    execution = resolveAcceptedNativeExecution(current.snapshot.executions, completionEvent);
+    if (execution === null) {
+      throw cell.cellCodedError(
+        "task_delivery_execution_missing",
+        `Task ${taskId} has no accepted native execution with a frozen submission for delivery-certificate/v1.`,
+      );
+    }
+    const consented = consentedApprovedReviewForExecution(
+      current.snapshot.reviews,
+      current.snapshot.consents ?? [],
+      execution,
+      current.snapshot.reviewDispositions ?? [],
     );
+    reviewConsent = consented?.consent ?? null;
   }
-  const consented = consentedApprovedReviewForExecution(
-    current.snapshot.reviews,
-    current.snapshot.consents ?? [],
-    execution,
-    current.snapshot.reviewDispositions ?? [],
-  );
+
   const certificate = buildDeliveryCertificate({
     algorithm: rawAlgorithm,
     repoId: cell.input.repoId,
     task,
     execution,
     reviews: current.snapshot.reviews,
-    reviewConsent: consented?.consent ?? null,
+    reviewConsent,
     completionEvent,
   });
   return cell.readResult(
@@ -102,7 +111,7 @@ export function readTaskDeliveryCertificate(
   );
 }
 
-function resolveCompletedExecution(
+function resolveAcceptedNativeExecution(
   executions: readonly import("@harness-anything/kernel").ProjectedExecution[],
   completionEvent: TaskCompletedEvent,
 ): ExecutionV1 | null {
@@ -110,15 +119,11 @@ function resolveCompletedExecution(
   if (fromEvent && fromEvent.schema === "execution/v1" && fromEvent.submission !== null) {
     return fromEvent;
   }
+  // Never fabricate a delivery from unaccepted/returned historical submissions: only an explicitly
+  // accepted native execution can supply a legacy completion that omitted payload.execution.
   for (let index = executions.length - 1; index >= 0; index -= 1) {
     const candidate = executions[index]!;
     if (isNativeExecution(candidate) && candidate.state === "accepted" && candidate.submission !== null) {
-      return candidate;
-    }
-  }
-  for (let index = executions.length - 1; index >= 0; index -= 1) {
-    const candidate = executions[index]!;
-    if (isNativeExecution(candidate) && candidate.submission !== null) {
       return candidate;
     }
   }

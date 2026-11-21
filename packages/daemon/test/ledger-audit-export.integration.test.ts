@@ -1,8 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   createAuditChainAccumulator,
@@ -11,9 +13,11 @@ import {
   type PersistedCanonicalEventV1,
 } from "@harness-anything/kernel";
 import {
+  createAuditCertificateChainCollector,
   verifyAuditSliceContent,
   verifyDeliveryCertificate,
 } from "@harness-anything/kernel/internal/integrity/audit-hash-chain.ts";
+import { sqliteLedgerPath } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -59,22 +63,39 @@ async function withCell(
   }
 }
 
-test("ledger-audit-export paginates canonical events across multiple pages and UTC date windows with sha256 and sm3", async () => {
+test("ledger-audit-export paginates canonical events, enforces cursor bounds & revision contiguity, and bounds UTC date reads", async () => {
   let currentTime = "2026-11-20T10:00:00.000Z";
   await withCell(
     "export-pages",
     () => currentTime,
-    async (cell) => {
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId: "task_day1_a", title: "Day 1 A", riskTier: "low" }, binding))
-          .outcome,
-        "applied",
-      );
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId: "task_day1_b", title: "Day 1 B", riskTier: "low" }, binding))
-          .outcome,
-        "applied",
-      );
+    async (cell, rootDir) => {
+      // Seed historical events on 2026-11-20 with many distinct persons (G4-03 cardinality + bounded date window)
+      for (let i = 0; i < 12; i += 1) {
+        const personBinding = withPolicyGroup(
+          {
+            actor: {
+              principal: { personId: `person-hist-${String(i).padStart(3, "0")}` },
+              executor: { kind: "agent" as const, id: "worker-hist" },
+            },
+            source: "local" as const,
+          },
+          "admin",
+        );
+        assert.equal(
+          (
+            await cell.run(
+              {
+                kind: "task-create",
+                taskId: `task_day1_${String(i).padStart(2, "0")}`,
+                title: `Day 1 ${i}`,
+                riskTier: "low",
+              },
+              personBinding,
+            )
+          ).outcome,
+          "applied",
+        );
+      }
       currentTime = "2026-11-21T15:30:00.000Z";
       assert.equal(
         (await cell.run({ kind: "task-create", taskId: "task_day2_a", title: "Day 2 A", riskTier: "low" }, binding))
@@ -82,7 +103,7 @@ test("ledger-audit-export paginates canonical events across multiple pages and U
         "applied",
       );
 
-      // Multi-page pagination with limit=2 across entire history (sm3)
+      // Multi-page pagination with limit=4 across entire history (sm3)
       const allEvents: PersistedCanonicalEventV1[] = [];
       let cursor: string | null = null;
       let pages = 0;
@@ -93,7 +114,7 @@ test("ledger-audit-export paginates canonical events across multiple pages and U
             {
               kind: "ledger-audit-export",
               algorithm: "sm3",
-              limit: 2,
+              limit: 4,
               ...(cursor === null ? {} : { cursor }),
             },
             binding,
@@ -107,12 +128,20 @@ test("ledger-audit-export paginates canonical events across multiple pages and U
         if (next === null) break;
         cursor = next;
       }
-      assert.ok(pages >= 2, `expected multi-page export, got ${pages} page(s)`);
+      assert.ok(pages >= 3, `expected multi-page export, got ${pages} page(s)`);
       assert.equal(allEvents.length, sourceRevision);
       assert.deepEqual(
         allEvents.map((e) => e.workspaceRevision),
         Array.from({ length: sourceRevision }, (_, i) => i + 1),
       );
+
+      // G4-03: Date-window export on 2026-11-21 jumps directly via occurred_at index (1 page, scannedCount === count === 1)
+      const day2Direct = evidence(
+        await cell.run({ kind: "ledger-audit-export", date: "2026-11-21", algorithm: "sha256", limit: 5 }, binding),
+      );
+      assert.equal(day2Direct.hasMore, false);
+      assert.equal(day2Direct.count, 1);
+      assert.equal(day2Direct.scannedCount, 1);
 
       // Date-window slicing + cross-day prevRootHash chaining (sha256)
       const day1Page = evidence(
@@ -120,8 +149,10 @@ test("ledger-audit-export paginates canonical events across multiple pages and U
       );
       assert.equal(day1Page.hasMore, false);
       const day1Manifest = day1Page.manifest as AuditExportManifestV1;
-      assert.ok(day1Manifest.eventCount >= 2);
+      assert.ok(day1Manifest.eventCount >= 12);
       assert.equal(day1Manifest.window.utcDate, "2026-11-20");
+      assert.equal(day1Manifest.attributionStatus, "complete");
+      assert.equal("distinctPersonIds" in day1Manifest.personAttribution, false);
 
       const day2Page = evidence(
         await cell.run(
@@ -137,9 +168,8 @@ test("ledger-audit-export paginates canonical events across multiple pages and U
       assert.equal(day2Page.hasMore, false);
       const day2Manifest = day2Page.manifest as AuditExportManifestV1;
       assert.equal(day2Manifest.prevRootHash, day1Manifest.rootHash);
-      assert.ok(day2Manifest.eventCount >= 1);
+      assert.equal(day2Manifest.eventCount, 1);
 
-      // Reconstruct JSONL from returned events and verify offline
       const acc1 = createAuditChainAccumulator({
         repoId: day1Manifest.repoId,
         algorithm: "sha256",
@@ -160,20 +190,39 @@ test("ledger-audit-export paginates canonical events across multiple pages and U
           manifest: day2Manifest,
           entriesContent: lines2,
           expectedPrevRootHash: day1Manifest.rootHash,
+          expectedRootHash: day2Manifest.rootHash,
         }).ok,
         true,
       );
+
+      // G4-05: --cursor below --from-revision MUST be rejected!
+      const badCursor = await cell.run({ kind: "ledger-audit-export", fromRevision: 5, cursor: "1" }, binding);
+      assert.equal(badCursor.outcome, "op_rejected");
+      assert.equal(badCursor.code, "invalid_command");
 
       // Invalid algorithm & limit rejected
       const badAlgo = await cell.run({ kind: "ledger-audit-export", algorithm: "md5" }, binding);
       assert.equal(badAlgo.outcome, "op_rejected");
       const badLimit = await cell.run({ kind: "ledger-audit-export", limit: 501 }, binding);
       assert.equal(badLimit.outcome, "op_rejected");
+
+      // G4-05: Direct SQLite row deletion BEFORE pure revision export MUST fail with audit_revision_gap!
+      const dbPath = sqliteLedgerPath(rootDir, 3);
+      const directDb = new DatabaseSync(dbPath);
+      try {
+        directDb.exec("PRAGMA foreign_keys = OFF;");
+        directDb.prepare("DELETE FROM event WHERE revision = 2").run();
+      } finally {
+        directDb.close();
+      }
+      const gapExport = await cell.run({ kind: "ledger-audit-export", fromRevision: 1, toRevision: 5 }, binding);
+      assert.equal(gapExport.outcome, "op_rejected");
+      assert.equal(gapExport.code, "audit_revision_gap");
     },
   );
 });
 
-test("task-delivery-certificate exports verifiable certificate for done tasks and rejects non-done tasks", async () => {
+test("task-delivery-certificate exports verifiable native, external-resolution, and sibling-resolution certificates and rejects non-done", async () => {
   await withCell(
     "delivery-cert",
     () => "2026-11-21T08:00:00.000Z",
@@ -182,7 +231,6 @@ test("task-delivery-certificate exports verifiable certificate for done tasks an
       const executionId = "exec_cert_done";
       const reviewId = "review_cert_done";
 
-      // Create a docs-task (ledger-only delivery) so completion doesn't require remote git refs
       const createReceipt = await cell.run(
         { kind: "task-create", taskId, title: "Cert Done", presetId: "docs-task" },
         binding,
@@ -200,7 +248,6 @@ test("task-delivery-certificate exports verifiable certificate for done tasks an
       assert.equal(missing.outcome, "op_rejected");
       assert.equal(missing.code, "entity_not_found");
 
-      // Realize task_plan.md, start, author closeout, submit, review, consent, and complete
       const packagePath = String((createReceipt as { readonly packagePath?: string }).packagePath);
       await realizeTaskPlanFixture(
         rootDir,
@@ -262,6 +309,18 @@ test("task-delivery-certificate exports verifiable certificate for done tasks an
       const completed = await cell.run({ kind: "task-complete", taskId }, binding);
       assert.equal(completed.outcome, "applied", JSON.stringify(completed));
 
+      // Export full SM3 audit slice, then verify BOTH sha256 and sm3 native certificates against it (G4-02!)
+      const sm3SlicePage = evidence(await cell.run({ kind: "ledger-audit-export", algorithm: "sm3" }, binding));
+      const sm3Manifest = sm3SlicePage.manifest as AuditExportManifestV1;
+      const sm3Acc = createAuditChainAccumulator({
+        repoId: sm3Manifest.repoId,
+        algorithm: "sm3",
+        window: sm3Manifest.window,
+      });
+      const sm3Lines = (sm3SlicePage.events as PersistedCanonicalEventV1[])
+        .map((e) => sm3Acc.addEvent(e).line)
+        .join("");
+
       for (const algorithm of ["sha256", "sm3"] as const) {
         const certReceipt = await cell.run({ kind: "task-delivery-certificate", taskId, algorithm }, binding);
         assert.equal(certReceipt.outcome, "applied", JSON.stringify(certReceipt));
@@ -272,6 +331,7 @@ test("task-delivery-certificate exports verifiable certificate for done tasks an
         assert.equal(envelope.schema, "task-delivery-certificate/v1");
         const cert = envelope.certificate;
         assert.equal(cert.schema, "delivery-certificate/v1");
+        assert.equal(cert.completionKind, "native");
         assert.equal(cert.algorithm, algorithm);
         assert.equal(cert.taskId, taskId);
         assert.equal(cert.executionId, executionId);
@@ -281,8 +341,186 @@ test("task-delivery-certificate exports verifiable certificate for done tasks an
         assert.equal(cert.completion.opId, completed.opId);
         assert.equal(cert.completion.workspaceRevision, completed.revision);
 
-        const verified = verifyDeliveryCertificate(cert, { expectedAlgorithm: algorithm });
+        const collector = createAuditCertificateChainCollector({
+          taskId,
+          completionOpId: cert.completion.opId,
+          executionId: cert.executionId,
+        });
+        assert.equal(
+          verifyAuditSliceContent({ manifest: sm3Manifest, entriesContent: sm3Lines, certificateCollector: collector })
+            .ok,
+          true,
+        );
+        const verified = verifyDeliveryCertificate(cert, {
+          expectedAlgorithm: algorithm,
+          expectedCertificateHash: cert.certificateHash,
+          chainEvidence: collector.evidence(),
+        });
         assert.equal(verified.ok, true, JSON.stringify(verified));
+      }
+
+      // G4-07: Sibling resolution completion (even after a prior unaccepted execution exists on the task!)
+      const factRec = await cell.run(
+        {
+          kind: "fact-record",
+          statement: "Sibling task task_cert_done fully satisfied the requirement.",
+          evidenceSource: "integration-test",
+          confidence: "high",
+          memoryClass: "episodic",
+          memoryTags: [],
+        },
+        binding,
+      );
+      assert.equal(factRec.outcome, "applied", JSON.stringify(factRec));
+      const factId = String(evidence(factRec).factId ?? (factRec as { readonly factId?: string }).factId);
+
+      const siblingTaskId = "task_sibling_resolved";
+      const sibCreate = await cell.run(
+        { kind: "task-create", taskId: siblingTaskId, title: "Sibling Resolved", presetId: "docs-task" },
+        binding,
+      );
+      assert.equal(sibCreate.outcome, "applied", JSON.stringify(sibCreate));
+      await waitForFixturePublication(cell, sibCreate.opId, binding);
+      const sibPkg = String((sibCreate as { readonly packagePath?: string }).packagePath);
+      await realizeTaskPlanFixture(
+        rootDir,
+        sibPkg,
+        async (documentPath) => {
+          const receipt = await cell.run({ kind: "doc-submit", paths: [documentPath] }, binding);
+          await waitForFixturePublication(cell, receipt.opId, binding);
+          return receipt;
+        },
+        "Sibling Resolved",
+      );
+      // Start & submit an unaccepted execution first to prove G4-07 NEVER fabricates it into the sibling certificate!
+      const sibStart = await cell.run(
+        { kind: "task-start", taskId: siblingTaskId, executionId: "exec_sib_unaccepted" },
+        binding,
+      );
+      assert.equal(sibStart.outcome, "applied", JSON.stringify(sibStart));
+      await waitForFixturePublication(cell, sibStart.opId, binding);
+      writeFileSync(
+        path.join(ledger, sibPkg, "closeout.md"),
+        "# Closeout\n\n## Summary\nDraft.\n\n## Verification\n- Draft.\n\n## Residual Risk\n- None.\n\n## Same Mechanism Elsewhere\n- None.\n",
+      );
+      const sibDoc = await cell.run({ kind: "doc-submit", taskId: siblingTaskId }, binding);
+      assert.equal(sibDoc.outcome, "applied", JSON.stringify(sibDoc));
+      await waitForFixturePublication(cell, sibDoc.opId, binding);
+      let sibSub = await cell.run(
+        { kind: "task-submit", taskId: siblingTaskId, executionId: "exec_sib_unaccepted" },
+        binding,
+      );
+      for (let attempt = 0; sibSub.outcome === "pending" && attempt < 4; attempt += 1) {
+        await waitForFixturePublication(cell, sibSub.opId, binding);
+        sibSub = await cell.run(
+          { kind: "task-submit", taskId: siblingTaskId, executionId: "exec_sib_unaccepted" },
+          binding,
+        );
+      }
+      assert.equal(sibSub.outcome, "applied", JSON.stringify(sibSub));
+
+      const sibComplete = await cell.run(
+        {
+          kind: "task-complete",
+          taskId: siblingTaskId,
+          resolvedBy: taskId,
+          resolutionRationale: "Delivered by sibling task_cert_done.",
+          resolutionFact: `fact/${factId}`,
+        },
+        binding,
+      );
+      assert.equal(sibComplete.outcome, "applied", JSON.stringify(sibComplete));
+
+      const sibCertReceipt = await cell.run(
+        { kind: "task-delivery-certificate", taskId: siblingTaskId, algorithm: "sm3" },
+        binding,
+      );
+      assert.equal(sibCertReceipt.outcome, "applied", JSON.stringify(sibCertReceipt));
+      const sibCert = (evidence(sibCertReceipt) as { readonly certificate: DeliveryCertificateV1 }).certificate;
+      assert.equal(sibCert.completionKind, "sibling-resolution");
+      assert.equal(sibCert.executionId, null);
+      assert.equal(sibCert.submission, null);
+      assert.equal(sibCert.submissionDigest, null);
+      assert.equal(sibCert.resolution?.kind, "sibling-resolution");
+      assert.equal(sibCert.resolution?.sourceTaskId, taskId);
+
+      // G4-07: External-resolution completion (by existing commit SHA, with zero native executions!)
+      const extTaskId = "task_external_resolved";
+      const extCreate = await cell.run(
+        { kind: "task-create", taskId: extTaskId, title: "External Resolved", presetId: "docs-task" },
+        binding,
+      );
+      assert.equal(extCreate.outcome, "applied", JSON.stringify(extCreate));
+      await waitForFixturePublication(cell, extCreate.opId, binding);
+      const extPkg = String((extCreate as { readonly packagePath?: string }).packagePath);
+      await realizeTaskPlanFixture(
+        rootDir,
+        extPkg,
+        async (documentPath) => {
+          const receipt = await cell.run({ kind: "doc-submit", paths: [documentPath] }, binding);
+          await waitForFixturePublication(cell, receipt.opId, binding);
+          return receipt;
+        },
+        "External Resolved",
+      );
+      const repoHeadSha = execFileSync("git", ["-C", rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      const extComplete = await cell.run(
+        {
+          kind: "task-complete",
+          taskId: extTaskId,
+          resolvedBy: repoHeadSha,
+          resolutionRationale: "Landed via external commit.",
+          resolutionFact: `fact/${factId}`,
+        },
+        binding,
+      );
+      assert.equal(extComplete.outcome, "applied", JSON.stringify(extComplete));
+
+      const extCertReceipt = await cell.run(
+        { kind: "task-delivery-certificate", taskId: extTaskId, algorithm: "sm3" },
+        binding,
+      );
+      assert.equal(extCertReceipt.outcome, "applied", JSON.stringify(extCertReceipt));
+      const extCert = (evidence(extCertReceipt) as { readonly certificate: DeliveryCertificateV1 }).certificate;
+      assert.equal(extCert.completionKind, "external-resolution");
+      assert.equal(extCert.executionId, null);
+      assert.equal(extCert.submission, null);
+      assert.equal(extCert.commitSha, repoHeadSha);
+      assert.equal(extCert.resolution?.kind, "external-resolution");
+      assert.equal(extCert.resolution?.commitSha, repoHeadSha);
+
+      // Cross-verify both sibling & external resolution certificates against exported sha256 audit slice
+      const fullSlice = evidence(await cell.run({ kind: "ledger-audit-export", algorithm: "sha256" }, binding));
+      const fullManifest = fullSlice.manifest as AuditExportManifestV1;
+      const fullAcc = createAuditChainAccumulator({
+        repoId: fullManifest.repoId,
+        algorithm: "sha256",
+        window: fullManifest.window,
+      });
+      const fullLines = (fullSlice.events as PersistedCanonicalEventV1[]).map((e) => fullAcc.addEvent(e).line).join("");
+      for (const [resTaskId, resCert] of [
+        [siblingTaskId, sibCert],
+        [extTaskId, extCert],
+      ] as const) {
+        const resCollector = createAuditCertificateChainCollector({
+          taskId: resTaskId,
+          completionOpId: resCert.completion.opId,
+          executionId: null,
+        });
+        assert.equal(
+          verifyAuditSliceContent({
+            manifest: fullManifest,
+            entriesContent: fullLines,
+            certificateCollector: resCollector,
+          }).ok,
+          true,
+        );
+        const resVerified = verifyDeliveryCertificate(resCert, {
+          expectedAlgorithm: "sm3",
+          expectedCertificateHash: resCert.certificateHash,
+          chainEvidence: resCollector.evidence(),
+        });
+        assert.equal(resVerified.ok, true, JSON.stringify(resVerified));
       }
     },
   );

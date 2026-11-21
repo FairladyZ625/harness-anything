@@ -34,12 +34,12 @@ export const hostEnvironmentIoPorts: readonly HostEnvironmentIoPort[] = Object.f
   {
     module: hostEnvironmentIoModule,
     scope: "openCallerOutputLineWriter",
-    effects: ["mkdir", "open"],
+    effects: ["mkdir", "open", "rename", "rm"],
   },
   {
     module: hostEnvironmentIoModule,
     scope: "writeCallerOutputFile",
-    effects: ["mkdir", "writeFile"],
+    effects: ["mkdir", "open", "writeFile", "rename", "rm"],
   },
   { module: hostEnvironmentIoModule, scope: "createHostScratchDirectory", effects: ["rmSync"] },
   {

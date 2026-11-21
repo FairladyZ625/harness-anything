@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -81,7 +81,7 @@ test("thin command parser routes ledger audit-export and task delivery-certifica
   }
 });
 
-test("CLI multi-page streaming audit-export, delivery-certificate export, and zero-daemon offline audit-verify", async () => {
+test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mixed-algorithm cert, raw-byte checks, and human errors", async () => {
   const workDir = mkdtempSync(path.join(tmpdir(), "ha-audit-cli-"));
   const emptyHome = path.join(workDir, "empty-home");
   try {
@@ -95,6 +95,7 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
       events: readonly PersistedCanonicalEventV1[],
       algorithm: AuditHashAlgorithm,
       prevRootHash?: string,
+      repoId = "repo-cli-test",
     ) => {
       return async (requested: { readonly action: Readonly<Record<string, unknown>> }) => {
         const limit = Number(requested.action.limit ?? 2);
@@ -111,7 +112,7 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
           ok: true,
           evidence: JSON.stringify({
             schema: "audit-export-page/v1",
-            repoId: "repo-cli-test",
+            repoId,
             sourceRevision: events.length,
             effectiveToRevision: toRev,
             algorithm,
@@ -126,6 +127,23 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
         };
       };
     };
+
+    // G4-03: Default export WITHOUT --output-dir returns a single bounded page (1 RPC call, never accumulates all pages)
+    let defaultCalls = 0;
+    const defaultParsed = parseThinCommand(["ledger", "audit-export", "--limit", "2", "--json"]);
+    assert.equal(defaultParsed.ok, true);
+    if (defaultParsed.ok) {
+      const inner = mockExportDaemon(fixture.events, "sha256");
+      const defaultRes = await runLedgerAuditExport(defaultParsed.command, async (req) => {
+        defaultCalls += 1;
+        return inner(req);
+      });
+      assert.equal(defaultCalls, 1);
+      assert.equal(defaultRes.ok, true);
+      const payload = JSON.parse(String(defaultRes.evidence)) as { readonly count: number; readonly hasMore: boolean };
+      assert.equal(payload.count, 2);
+      assert.equal(payload.hasMore, true);
+    }
 
     // Export Slice 1 (revs 1..3) and Slice 2 (revs 4..6) with SM3 & multi-page limit=2
     const slice1Dir = path.join(workDir, "slice-1");
@@ -168,7 +186,6 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
     assert.equal(parsed1Concurrent.ok, true);
     if (!parsed1Concurrent.ok) return;
 
-    // Concurrent exports to independent output dirs produce identical deterministic manifests without collision
     const [res1, res1Concurrent] = await Promise.all([
       runLedgerAuditExport(parsed1.command, mockExportDaemon(fixture.events, "sm3")),
       runLedgerAuditExport(parsed1Concurrent.command, mockExportDaemon(fixture.events, "sm3")),
@@ -177,6 +194,34 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
     assert.equal(res1.pagesRead, 2);
     const manifest1 = res1.manifest as AuditExportManifestV1;
     assert.equal(manifest1.rootHash, (res1Concurrent.manifest as AuditExportManifestV1).rootHash);
+
+    // G4-06: Failed auth on page 1 OR failure on page 2 MUST preserve pre-existing files in slice1Dir with zero .tmp residue!
+    const entries1Path = path.join(slice1Dir, "audit-events.jsonl");
+    const manifest1Path = path.join(slice1Dir, "audit-manifest.json");
+    const originalEntries1 = readFileSync(entries1Path, "utf8");
+    const originalManifest1 = readFileSync(manifest1Path, "utf8");
+
+    const authFailRes = await runLedgerAuditExport(parsed1.command, async () => ({
+      ok: false,
+      code: "actor_unauthorized",
+      summary: "forbidden",
+    }));
+    assert.equal(authFailRes.ok, false);
+    assert.equal(readFileSync(entries1Path, "utf8"), originalEntries1);
+    assert.equal(readFileSync(manifest1Path, "utf8"), originalManifest1);
+    assert.deepEqual(readdirSync(slice1Dir).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
+
+    let pageAttempt = 0;
+    const baseDaemon = mockExportDaemon(fixture.events, "sm3");
+    const midFailRes = await runLedgerAuditExport(parsed1.command, async (req) => {
+      pageAttempt += 1;
+      if (pageAttempt === 2) return { ok: false, code: "daemon_unavailable", summary: "mid-stream fail" };
+      return baseDaemon(req);
+    });
+    assert.equal(midFailRes.ok, false);
+    assert.equal(readFileSync(entries1Path, "utf8"), originalEntries1);
+    assert.equal(readFileSync(manifest1Path, "utf8"), originalManifest1);
+    assert.deepEqual(readdirSync(slice1Dir).sort(), ["audit-events.jsonl", "audit-manifest.json"]);
 
     const parsed2 = parseThinCommand([
       "ledger",
@@ -203,14 +248,15 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
     );
     assert.equal(res2.ok, true);
     assert.equal(res2.pagesRead, 2);
+    const manifest2 = res2.manifest as AuditExportManifestV1;
 
-    // Export delivery certificate to file via runTaskDeliveryCertificate
+    // G4-02: Export delivery certificate with SHA-256 while audit slices use SM3!
     const completionEvent = fixture.events.find((e) => e.type === "task_completed");
     assert.ok(completionEvent && completionEvent.type === "task_completed");
     const execution = fixture.snapshot.executions[0]!;
     assert.equal(execution.schema, "execution/v1");
     const cert = buildDeliveryCertificate({
-      algorithm: "sm3",
+      algorithm: "sha256",
       repoId: "repo-cli-test",
       task: fixture.snapshot.task!,
       execution,
@@ -224,7 +270,7 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
       "delivery-certificate",
       "task_cli_001",
       "--algorithm",
-      "sm3",
+      "sha256",
       "--output",
       certPath,
       "--json",
@@ -245,10 +291,10 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
     assert.equal(certRes.outputPath, certPath);
 
     // Real zero-daemon offline CLI subprocess invocation (empty HOME, no daemon, no DB!)
-    const runOfflineCli = (args: readonly string[]) => {
+    const runOfflineCli = (args: readonly string[], json = true) => {
       const child = spawnSync(
         process.execPath,
-        ["packages/cli/src/index.ts", "ledger", "audit-verify", ...args, "--json"],
+        ["packages/cli/src/index.ts", "ledger", "audit-verify", ...args, ...(json ? ["--json"] : [])],
         {
           cwd: repoRoot,
           encoding: "utf8",
@@ -256,85 +302,190 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
           timeout: 30_000,
         },
       );
-      return { status: child.status, body: JSON.parse(child.stdout.trim()) as Record<string, unknown> };
+      return {
+        status: child.status,
+        stdout: child.stdout,
+        stderr: child.stderr,
+        body: json ? (JSON.parse(child.stdout.trim()) as Record<string, unknown>) : null,
+      };
     };
 
-    // Positive: verify chained slice1 + slice2 + delivery certificate completely offline!
+    // G4-01 & G4-02 Positive: verify chained SM3 slice1+slice2 + SHA-256 cert with pinned trust anchors!
     const okRun = runOfflineCli([
       "--manifest",
-      path.join(slice1Dir, "audit-manifest.json"),
+      manifest1Path,
       "--manifest",
       path.join(slice2Dir, "audit-manifest.json"),
       "--certificate",
       certPath,
       "--algorithm",
       "sm3",
+      "--certificate-algorithm",
+      "sha256",
+      "--expected-root-hash",
+      manifest2.rootHash,
+      "--expected-certificate-hash",
+      cert.certificateHash,
     ]);
-    assert.equal(okRun.status, 0);
-    assert.equal(okRun.body.ok, true);
-    assert.equal(okRun.body.sliceCount, 2);
-    assert.equal(okRun.body.totalEvents, 6);
+    assert.equal(okRun.status, 0, JSON.stringify(okRun.body));
+    assert.equal(okRun.body?.ok, true);
+    assert.equal(okRun.body?.sliceCount, 2);
+    assert.equal(okRun.body?.totalEvents, 6);
+    assert.equal((okRun.body?.trustAnchor as { mode: string }).mode, "pinned");
 
-    // Negative 1: tamper one byte inside slice1 JSONL
-    const entries1Path = path.join(slice1Dir, "audit-events.jsonl");
-    const originalEntries1 = readFileSync(entries1Path, "utf8");
-    const tamperedEntries1 = originalEntries1.replace("Fixture", "Tamperd");
+    // G4-01 Negative: pinned --expected-root-hash rejects self-consistent forged replacement slice
+    const forgedDir = path.join(workDir, "forged-slice");
+    const forgedEvents = fixture.events.map((e, i) =>
+      i === 0 && e.type === "task_created"
+        ? { ...e, payload: { ...e.payload, task: { ...e.payload.task, title: "Replaced" } } }
+        : e,
+    );
+    const forgedParsed = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--algorithm",
+      "sm3",
+      "--from-revision",
+      "1",
+      "--to-revision",
+      "3",
+      "--output-dir",
+      forgedDir,
+      "--json",
+    ]);
+    assert.equal(forgedParsed.ok, true);
+    if (forgedParsed.ok) {
+      await runLedgerAuditExport(forgedParsed.command, mockExportDaemon(forgedEvents, "sm3"));
+      const forgedReject = runOfflineCli([
+        "--manifest",
+        path.join(forgedDir, "audit-manifest.json"),
+        "--expected-root-hash",
+        manifest1.rootHash,
+      ]);
+      assert.equal(forgedReject.status, 1);
+      assert.equal(forgedReject.body?.code, "audit_expected_root_hash_mismatch");
+    }
+
+    // G4-04 Negative: equal-length single-byte tamper + non-JSON default human stderr preserves line/field/message!
+    const tamperedEntries1 = originalEntries1.replace("task_cli_001", "task_cli_002");
+    assert.equal(Buffer.byteLength(tamperedEntries1), Buffer.byteLength(originalEntries1));
     writeFileSync(entries1Path, tamperedEntries1, "utf8");
-    const badByte = runOfflineCli(["--manifest", path.join(slice1Dir, "audit-manifest.json")]);
+    const badByte = runOfflineCli(["--manifest", manifest1Path]);
     assert.equal(badByte.status, 1);
-    assert.equal(badByte.body.ok, false);
-    assert.equal(badByte.body.code, "audit_entry_digest_mismatch");
-    assert.equal(badByte.body.line, 1);
+    assert.equal(badByte.body?.code, "audit_entry_digest_mismatch");
+    assert.equal(badByte.body?.line, 1);
+
+    const humanBadByte = runOfflineCli(["--manifest", manifest1Path], false);
+    assert.equal(humanBadByte.status, 1);
+    assert.match(humanBadByte.stderr, /audit_entry_digest_mismatch/u);
+    assert.match(humanBadByte.stderr, /line=1/u);
+    assert.match(humanBadByte.stderr, /field=eventDigest/u);
     writeFileSync(entries1Path, originalEntries1, "utf8");
 
-    // Negative 2: delete middle line in slice1 JSONL
-    const split1 = originalEntries1.trimEnd().split("\n");
-    writeFileSync(entries1Path, `${split1[0]}\n${split1[2]}\n`, "utf8");
-    const badDelete = runOfflineCli(["--manifest", path.join(slice1Dir, "audit-manifest.json")]);
-    assert.equal(badDelete.status, 1);
-    assert.equal(badDelete.body.code, "audit_chain_prev_hash_mismatch");
-    assert.equal(badDelete.body.line, 2);
+    // G4-04 Negative: deleting trailing LF byte or replacing LF with CRLF MUST fail!
+    writeFileSync(entries1Path, originalEntries1.slice(0, -1), "utf8");
+    const badNoLf = runOfflineCli(["--manifest", manifest1Path]);
+    assert.equal(badNoLf.status, 1);
+    assert.equal(badNoLf.body?.code, "audit_manifest_entries_digest_mismatch");
+    assert.equal(badNoLf.body?.line, 3);
+
+    writeFileSync(entries1Path, originalEntries1.replace("\n", "\r\n"), "utf8");
+    const badCrlf = runOfflineCli(["--manifest", manifest1Path]);
+    assert.equal(badCrlf.status, 1);
+    assert.equal(badCrlf.body?.code, "audit_manifest_entries_digest_mismatch");
+    assert.equal(badCrlf.body?.line, 1);
     writeFileSync(entries1Path, originalEntries1, "utf8");
 
-    // Negative 3: swap two lines in slice1 JSONL
-    writeFileSync(entries1Path, `${split1[1]}\n${split1[0]}\n${split1[2]}\n`, "utf8");
-    const badSwap = runOfflineCli(["--manifest", path.join(slice1Dir, "audit-manifest.json")]);
-    assert.equal(badSwap.status, 1);
-    assert.equal(badSwap.body.code, "audit_chain_prev_hash_mismatch");
-    assert.equal(badSwap.body.line, 1);
+    // G4-04 Negative: deleting last line reports expected line=3
+    const split1 = originalEntries1.slice(0, -1).split("\n");
+    writeFileSync(entries1Path, `${split1[0]}\n${split1[1]}\n`, "utf8");
+    const badTail = runOfflineCli(["--manifest", manifest1Path]);
+    assert.equal(badTail.status, 1);
+    assert.equal(badTail.body?.code, "audit_manifest_count_mismatch");
+    assert.equal(badTail.body?.line, 3);
     writeFileSync(entries1Path, originalEntries1, "utf8");
 
-    // Negative 4: tamper manifest rootHash
-    const manifest1Path = path.join(slice1Dir, "audit-manifest.json");
-    const originalManifest1 = readFileSync(manifest1Path, "utf8");
-    const forgedManifest = {
-      ...(JSON.parse(originalManifest1) as AuditExportManifestV1),
-      rootHash: `sm3:${"e".repeat(64)}`,
-    };
-    writeFileSync(manifest1Path, JSON.stringify(forgedManifest), "utf8");
-    const badRoot = runOfflineCli(["--manifest", manifest1Path]);
-    assert.equal(badRoot.status, 1);
-    assert.equal(badRoot.body.code, "audit_manifest_root_hash_mismatch");
-    writeFileSync(manifest1Path, originalManifest1, "utf8");
+    // G4-05 Negative: cross-repo chained slice rejected
+    const otherRepoDir = path.join(workDir, "other-repo-slice");
+    const parsedOtherRepo = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--algorithm",
+      "sm3",
+      "--from-revision",
+      "4",
+      "--to-revision",
+      "6",
+      "--prev-root-hash",
+      manifest1.rootHash,
+      "--output-dir",
+      otherRepoDir,
+      "--json",
+    ]);
+    assert.equal(parsedOtherRepo.ok, true);
+    if (parsedOtherRepo.ok) {
+      await runLedgerAuditExport(
+        parsedOtherRepo.command,
+        mockExportDaemon(fixture.events, "sm3", manifest1.rootHash, "repo-different"),
+      );
+      const crossRepoFail = runOfflineCli([
+        "--manifest",
+        manifest1Path,
+        "--manifest",
+        path.join(otherRepoDir, "audit-manifest.json"),
+      ]);
+      assert.equal(crossRepoFail.status, 1);
+      assert.equal(crossRepoFail.body?.code, "audit_slice_sequence_invalid");
+      assert.equal(crossRepoFail.body?.field, "repoId");
+    }
 
-    // Negative 5: tamper certificate submissionDigest and reviewConsent
-    const originalCert = readFileSync(certPath, "utf8");
-    const badSubCert = { ...JSON.parse(originalCert), submissionDigest: `sha256:${"0".repeat(64)}` };
-    writeFileSync(certPath, JSON.stringify(badSubCert), "utf8");
-    const badSubRun = runOfflineCli(["--certificate", certPath]);
-    assert.equal(badSubRun.status, 1);
-    assert.equal(badSubRun.body.code, "audit_certificate_submission_digest_mismatch");
+    // G4-08 Negative & Diagnostic: missing personId blocks strict verify AND --allow-unattributed returns distinct diagnostic status (exit 1, never ok:true)
+    const unattrDir = path.join(workDir, "unattr-slice");
+    const unattrEvents = fixture.events
+      .slice(0, 3)
+      .map((e, i) => (i === 1 ? ({ ...e, actor: { principal: { personId: "" }, executor: null } } as typeof e) : e));
+    const unattrParsed = parseThinCommand([
+      "ledger",
+      "audit-export",
+      "--algorithm",
+      "sha256",
+      "--from-revision",
+      "1",
+      "--to-revision",
+      "3",
+      "--output-dir",
+      unattrDir,
+      "--json",
+    ]);
+    assert.equal(unattrParsed.ok, true);
+    if (unattrParsed.ok) {
+      const unattrExport = await runLedgerAuditExport(unattrParsed.command, mockExportDaemon(unattrEvents, "sha256"));
+      assert.equal(unattrExport.ok, true);
+      assert.equal(unattrExport.attributionStatus, "incomplete");
+      assert.ok(Array.isArray(unattrExport.warnings) && unattrExport.warnings.length > 0);
+      const unattrManifestPath = path.join(unattrDir, "audit-manifest.json");
 
-    const badConsentCert = {
-      ...JSON.parse(originalCert),
-      reviewConsent: { ...JSON.parse(originalCert).reviewConsent, reviewDigest: `sha256:${"9".repeat(64)}` },
-    };
-    writeFileSync(certPath, JSON.stringify(badConsentCert), "utf8");
-    const badConsentRun = runOfflineCli(["--certificate", certPath]);
-    assert.equal(badConsentRun.status, 1);
-    assert.equal(badConsentRun.body.code, "audit_certificate_consent_mismatch");
+      const strictFail = runOfflineCli(["--manifest", unattrManifestPath]);
+      assert.equal(strictFail.status, 1);
+      assert.equal(strictFail.body?.ok, false);
+      assert.equal(strictFail.body?.code, "audit_person_attribution_missing");
+      assert.equal(strictFail.body?.line, 2);
 
-    // Negative 6: algorithm mismatch (in-process check for fast branch coverage)
+      const diagRun = runOfflineCli(["--manifest", unattrManifestPath, "--allow-unattributed"]);
+      assert.equal(diagRun.status, 1);
+      assert.equal(diagRun.body?.ok, false);
+      assert.equal(diagRun.body?.diagnostic, true);
+      assert.equal(diagRun.body?.verificationStatus, "diagnostic_incomplete_attribution");
+      assert.equal(diagRun.body?.strictVerified, false);
+      assert.equal(diagRun.body?.chainIntegrityOk, true);
+      assert.equal(diagRun.body?.attributionVerified, false);
+
+      const diagHuman = runOfflineCli(["--manifest", unattrManifestPath, "--allow-unattributed"], false);
+      assert.equal(diagHuman.status, 1);
+      assert.match(diagHuman.stderr, /diagnostic_incomplete_attribution/u);
+    }
+
+    // In-process algorithm mismatch branch check
     const receipts: Record<string, unknown>[] = [];
     const code = await runLedgerAuditVerify(
       ["ledger", "audit-verify", "--manifest", manifest1Path, "--algorithm", "sha256", "--json"],
@@ -343,7 +494,7 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
     assert.equal(code, 1);
     assert.equal(receipts[0]?.code, "audit_algorithm_mismatch");
 
-    // Confirm createAuditChainAccumulator still supports sha256 standalone verification
+    // Verify standalone SHA-256 export determinism
     const shaAcc = createAuditChainAccumulator({
       repoId: "repo-cli-test",
       algorithm: "sha256",
@@ -380,7 +531,7 @@ test("CLI multi-page streaming audit-export, delivery-certificate export, and ze
       );
       const shaOk = runOfflineCli(["--manifest", shaManifestPath, "--algorithm", "sha256"]);
       assert.equal(shaOk.status, 0);
-      assert.equal(shaOk.body.ok, true);
+      assert.equal(shaOk.body?.ok, true);
     }
   } finally {
     rmSync(workDir, { recursive: true, force: true });

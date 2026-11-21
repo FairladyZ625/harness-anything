@@ -1,12 +1,13 @@
+import { isUtf8 } from "node:buffer";
 import { createReadStream, readFileSync } from "node:fs";
 import path from "node:path";
-import { createInterface } from "node:readline";
 import type {
+  AuditCertificateChainCollector,
   AuditCertificateVerifyResult,
-  AuditExportEntryV1,
   AuditExportManifestV1,
   AuditExportWindowV1,
-  AuditSliceVerifyResult,
+  AuditSliceVerifyDiagnostic,
+  AuditSliceVerifySuccess,
   AuditVerifyFailure,
   DeliveryCertificateV1,
 } from "@harness-anything/kernel/internal/integrity/audit-hash-chain.ts";
@@ -39,7 +40,10 @@ interface ParsedAuditVerifyArgs {
   readonly entries: string | undefined;
   readonly certificate: string | undefined;
   readonly algorithm: AuditHashAlgorithm | undefined;
+  readonly certificateAlgorithm: AuditHashAlgorithm | undefined;
   readonly prevRootHash: AuditDigest | undefined;
+  readonly expectedRootHash: AuditDigest | undefined;
+  readonly expectedCertificateHash: AuditDigest | undefined;
   readonly skipPersonCheck: boolean;
   readonly json: boolean;
 }
@@ -50,22 +54,26 @@ export async function runLedgerAuditExport(
 ): Promise<Record<string, unknown>> {
   const { outputDir: rawOutputDir, ...baseAction } = command.action;
   const outputDir = typeof rawOutputDir === "string" && rawOutputDir !== "" ? path.resolve(rawOutputDir) : undefined;
-  if (outputDir === undefined && baseAction.cursor !== undefined) {
+  // Without --output-dir, return one bounded RPC page (O(pageSize) memory); never accumulate all pages in RAM.
+  if (outputDir === undefined) {
     return runDaemon({ ...command, action: baseAction as ThinCommand["action"] });
   }
   const kernel = await import("@harness-anything/kernel/internal/integrity/audit-hash-chain.ts");
-  const hostIo = outputDir === undefined ? null : await import("@harness-anything/daemon/internal/host-environment-io");
-  const entriesPath = outputDir === undefined ? undefined : path.join(outputDir, kernel.DEFAULT_AUDIT_ENTRIES_FILE);
-  const manifestPath = outputDir === undefined ? undefined : path.join(outputDir, "audit-manifest.json");
-  const lineWriter =
-    hostIo !== null && entriesPath !== undefined ? await hostIo.openCallerOutputLineWriter(entriesPath) : null;
-  const collectedEntries: AuditExportEntryV1[] = [];
+  const hostIo = await import("@harness-anything/daemon/internal/host-environment-io");
+  const entriesPath = path.join(outputDir, kernel.DEFAULT_AUDIT_ENTRIES_FILE);
+  const manifestPath = path.join(outputDir, "audit-manifest.json");
+  let lineWriter: Awaited<ReturnType<typeof hostIo.openCallerOutputLineWriter>> | null = null;
   let accumulator: ReturnType<typeof kernel.createAuditChainAccumulator> | null = null;
   let cursor: string | undefined = typeof baseAction.cursor === "string" ? baseAction.cursor : undefined;
   let pinnedToRevision: number | undefined =
     typeof baseAction.toRevision === "number" ? baseAction.toRevision : undefined;
   let pagesRead = 0;
   let sourceRevision = 0;
+  let manifest: AuditExportManifestV1;
+  let manifestWindow: AuditExportWindowV1 | null = null;
+  let expectedPureRevision: number | null = null;
+  let exportedEventCount = 0;
+  let lastExportedRevision: number | null = null;
   try {
     for (;;) {
       const pageAction: ThinCommand["action"] = {
@@ -75,48 +83,98 @@ export async function runLedgerAuditExport(
         ...(cursor === undefined ? {} : { cursor }),
       };
       const receipt = await runDaemon({ ...command, action: pageAction });
-      if (receipt.ok !== true) return receipt;
+      if (receipt.ok !== true) {
+        if (lineWriter !== null) await lineWriter.abort();
+        return receipt;
+      }
       const page = JSON.parse(String(receipt.evidence)) as AuditExportPagePayload;
       pagesRead += 1;
       if (accumulator === null) {
         sourceRevision = page.sourceRevision;
         pinnedToRevision = page.effectiveToRevision;
+        manifestWindow = {
+          ...page.window,
+          toRevision: page.effectiveToRevision >= 1 ? page.effectiveToRevision : null,
+        };
+        if (kernel.isPureRevisionWindow(manifestWindow)) {
+          const parsedCursor = cursor === undefined ? 0 : Number(cursor);
+          expectedPureRevision = Math.max(
+            manifestWindow.fromRevision ?? 1,
+            Number.isInteger(parsedCursor) && parsedCursor >= 0 ? parsedCursor + 1 : 1,
+          );
+        }
+        // Stage output only AFTER the first RPC page succeeds so auth/validation failures never touch outputDir.
+        lineWriter = await hostIo.openCallerOutputLineWriter(entriesPath);
         accumulator = kernel.createAuditChainAccumulator({
           repoId: page.repoId,
           algorithm: page.algorithm,
           prevRootHash: page.prevRootHash,
-          window: {
-            ...page.window,
-            toRevision: page.effectiveToRevision,
-          },
+          window: manifestWindow,
           entriesFile: kernel.DEFAULT_AUDIT_ENTRIES_FILE,
         });
       }
       for (const event of page.events) {
-        const { entry, line } = accumulator.addEvent(event);
-        if (lineWriter !== null) await lineWriter.writeLine(line);
-        else collectedEntries.push(entry);
+        if (expectedPureRevision !== null && event.workspaceRevision !== expectedPureRevision) {
+          await lineWriter!.abort();
+          return cliFailure(
+            "ledger-audit-export",
+            "audit_revision_gap",
+            `Audit chain revision gap: expected contiguous workspaceRevision ${expectedPureRevision}, got ${event.workspaceRevision}.`,
+          );
+        }
+        const { line } = accumulator.addEvent(event);
+        await lineWriter!.writeLine(line);
+        exportedEventCount += 1;
+        lastExportedRevision = event.workspaceRevision;
+        if (expectedPureRevision !== null) expectedPureRevision = event.workspaceRevision + 1;
       }
       if (!page.hasMore || page.page.nextCursor === null) break;
       cursor = page.page.nextCursor;
     }
+    if (expectedPureRevision !== null && manifestWindow?.toRevision !== null && manifestWindow !== null) {
+      const targetEnd = manifestWindow.toRevision;
+      if (
+        (exportedEventCount === 0 && expectedPureRevision <= targetEnd) ||
+        (lastExportedRevision !== null && lastExportedRevision !== targetEnd)
+      ) {
+        await lineWriter!.abort();
+        return cliFailure(
+          "ledger-audit-export",
+          "audit_revision_gap",
+          `Audit chain revision gap: window ended at workspaceRevision ${lastExportedRevision ?? "none"}, expected ${targetEnd}.`,
+        );
+      }
+    }
+    manifest = accumulator!.finalize();
+    const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
+    await lineWriter!.commit({ filePath: manifestPath, contents: manifestJson });
+  } catch (error) {
+    if (lineWriter !== null) await lineWriter.abort();
+    throw error;
   } finally {
     if (lineWriter !== null) await lineWriter.close();
   }
-  const manifest = accumulator!.finalize();
-  if (hostIo !== null && manifestPath !== undefined) {
-    await hostIo.writeCallerOutputFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  }
+  const warnings =
+    manifest.attributionStatus === "incomplete"
+      ? [
+          `${manifest.personAttribution.unattributedEvents} canonical write event(s) lack actor.principal.personId; ` +
+            "attribution proof is incomplete and strict audit-verify will reject this slice.",
+        ]
+      : undefined;
   return {
     ok: true,
     command: "ledger-audit-export",
     schema: "audit-export-receipt/v1",
     repoId: manifest.repoId,
     algorithm: manifest.algorithm,
+    attributionStatus: manifest.attributionStatus,
     pagesRead,
     sourceRevision,
     manifest,
-    ...(outputDir !== undefined ? { outputDir, entriesPath, manifestPath } : { entries: collectedEntries }),
+    outputDir,
+    entriesPath,
+    manifestPath,
+    ...(warnings === undefined ? {} : { warnings }),
   };
 }
 
@@ -157,18 +215,45 @@ export async function runLedgerAuditVerify(
   }
   const options = parsed.value;
   const kernel = await import("@harness-anything/kernel/internal/integrity/audit-hash-chain.ts");
+
+  let certPath: string | undefined;
+  let certValue: unknown;
+  let certificateCollector: AuditCertificateChainCollector | undefined;
+  if (options.certificate !== undefined) {
+    certPath = path.resolve(options.certificate);
+    const certJson = readJsonFile(certPath);
+    if (!certJson.ok) {
+      const failure = kernel.createAuditVerifyFailure(
+        "audit_certificate_invalid",
+        `Cannot read delivery certificate ${certPath}: ${certJson.error}`,
+      );
+      emit(auditVerifyErrorReceipt(failure, { certificatePath: certPath }), options.json);
+      return 1;
+    }
+    certValue = certJson.value;
+    if (options.manifests.length > 0) {
+      const target = kernel.extractDeliveryCertificateChainTarget(certValue);
+      if (target !== null) {
+        certificateCollector = kernel.createAuditCertificateChainCollector(target);
+      }
+    }
+  }
+
   const verifiedSlices: Array<
-    Extract<AuditSliceVerifyResult, { readonly ok: true }> & {
+    (AuditSliceVerifySuccess | AuditSliceVerifyDiagnostic) & {
       readonly manifestPath: string;
       readonly entriesPath: string;
     }
   > = [];
-  const allObservedEvents = new Map<
-    string,
-    { readonly workspaceRevision: number; readonly eventDigest: AuditDigest }
-  >();
   let expectedPrevRootHash: AuditDigest | undefined = options.prevRootHash;
   let totalEvents = 0;
+  let diagnosticUnattributed:
+    | (AuditSliceVerifyDiagnostic & {
+        readonly sliceIndex: number;
+        readonly manifestPath: string;
+        readonly entriesPath: string;
+      })
+    | null = null;
 
   for (let index = 0; index < options.manifests.length; index += 1) {
     const manifestPath = path.resolve(options.manifests[index]!);
@@ -178,35 +263,20 @@ export async function runLedgerAuditVerify(
         "audit_manifest_invalid",
         `Cannot read audit manifest ${manifestPath}: ${manifestResult.error}`,
       );
-      emit(
-        {
-          ...failure,
-          command: "ledger-audit-verify",
-          schema: "audit-verify-receipt/v1",
-          sliceIndex: index,
-          manifestPath,
-        },
-        options.json,
-      );
+      emit(auditVerifyErrorReceipt(failure, { sliceIndex: index, manifestPath }), options.json);
       return 1;
     }
+    const isLastSlice = index === options.manifests.length - 1;
     const created = kernel.createAuditSliceVerifier({
       manifest: manifestResult.value,
       ...(options.algorithm === undefined ? {} : { expectedAlgorithm: options.algorithm }),
       ...(expectedPrevRootHash === undefined ? {} : { expectedPrevRootHash }),
+      ...(isLastSlice && options.expectedRootHash !== undefined ? { expectedRootHash: options.expectedRootHash } : {}),
       requirePersonAttribution: !options.skipPersonCheck,
+      ...(certificateCollector === undefined ? {} : { certificateCollector }),
     });
     if (!created.ok) {
-      emit(
-        {
-          ...created,
-          command: "ledger-audit-verify",
-          schema: "audit-verify-receipt/v1",
-          sliceIndex: index,
-          manifestPath,
-        },
-        options.json,
-      );
+      emit(auditVerifyErrorReceipt(created, { sliceIndex: index, manifestPath }), options.json);
       return 1;
     }
     const manifestRecord = manifestResult.value as AuditExportManifestV1;
@@ -214,86 +284,115 @@ export async function runLedgerAuditVerify(
       options.entries !== undefined
         ? path.resolve(options.entries)
         : path.resolve(path.dirname(manifestPath), manifestRecord.entriesFile);
-    const streamResult = await verifyEntriesStream(entriesPath, created.verifier);
-    if (!streamResult.ok || streamResult.failure !== null) {
-      const failurePayload = streamResult.ok
-        ? streamResult.failure
-        : kernel.createAuditVerifyFailure(
-            "audit_entries_unreadable",
-            `Cannot read audit entries ${entriesPath}: ${streamResult.error}`,
-          );
+    const streamResult = await verifyEntriesRawStream(entriesPath, created.verifier, kernel.createAuditVerifyFailure);
+    if (!streamResult.ok) {
+      const failurePayload = kernel.createAuditVerifyFailure(
+        "audit_entries_unreadable",
+        `Cannot read audit entries ${entriesPath}: ${streamResult.error}`,
+      );
+      emit(auditVerifyErrorReceipt(failurePayload, { sliceIndex: index, manifestPath, entriesPath }), options.json);
+      return 1;
+    }
+    if (streamResult.failure !== null) {
       emit(
-        {
-          ...failurePayload,
-          command: "ledger-audit-verify",
-          schema: "audit-verify-receipt/v1",
-          sliceIndex: index,
-          manifestPath,
-          entriesPath,
-        },
+        auditVerifyErrorReceipt(streamResult.failure, { sliceIndex: index, manifestPath, entriesPath }),
         options.json,
       );
       return 1;
     }
     const finalized = created.verifier.finalize();
-    if (!finalized.ok) {
-      emit(
-        {
-          ...finalized,
-          command: "ledger-audit-verify",
-          schema: "audit-verify-receipt/v1",
-          sliceIndex: index,
-          manifestPath,
-          entriesPath,
-        },
-        options.json,
-      );
+    if (!finalized.ok && finalized.diagnostic !== true) {
+      emit(auditVerifyErrorReceipt(finalized, { sliceIndex: index, manifestPath, entriesPath }), options.json);
       return 1;
     }
+    const previous = verifiedSlices.at(-1);
+    if (previous !== undefined) {
+      const seqError = kernel.verifyAuditSliceSequence(previous, finalized);
+      if (seqError !== null) {
+        emit(auditVerifyErrorReceipt(seqError, { sliceIndex: index, manifestPath, entriesPath }), options.json);
+        return 1;
+      }
+    }
     verifiedSlices.push({ ...finalized, manifestPath, entriesPath });
+    if (!finalized.ok && finalized.diagnostic === true && diagnosticUnattributed === null) {
+      diagnosticUnattributed = { ...finalized, sliceIndex: index, manifestPath, entriesPath };
+    }
     expectedPrevRootHash = finalized.rootHash;
     totalEvents += finalized.eventCount;
-    if (options.certificate !== undefined) {
-      for (const [opId, info] of created.verifier.observedEvents) allObservedEvents.set(opId, info);
-    }
   }
 
   let certificateResult:
     | (Extract<AuditCertificateVerifyResult, { readonly ok: true }> & { readonly certificatePath: string })
     | undefined;
-  if (options.certificate !== undefined) {
-    const certificatePath = path.resolve(options.certificate);
-    const certJson = readJsonFile(certificatePath);
-    if (!certJson.ok) {
-      const failure = kernel.createAuditVerifyFailure(
-        "audit_certificate_invalid",
-        `Cannot read delivery certificate ${certificatePath}: ${certJson.error}`,
-      );
-      emit(
-        { ...failure, command: "ledger-audit-verify", schema: "audit-verify-receipt/v1", certificatePath },
-        options.json,
-      );
-      return 1;
-    }
-    const verified = kernel.verifyDeliveryCertificate(certJson.value, {
-      ...(options.algorithm === undefined ? {} : { expectedAlgorithm: options.algorithm }),
-      ...(options.manifests.length > 0 ? { verifiedEvents: allObservedEvents } : {}),
+  if (certPath !== undefined) {
+    const effectiveCertAlgorithm = options.certificateAlgorithm ?? options.algorithm;
+    const verified = kernel.verifyDeliveryCertificate(certValue, {
+      ...(effectiveCertAlgorithm === undefined ? {} : { expectedAlgorithm: effectiveCertAlgorithm }),
+      ...(options.expectedCertificateHash === undefined
+        ? {}
+        : { expectedCertificateHash: options.expectedCertificateHash }),
+      ...(options.manifests.length > 0 && certificateCollector !== undefined
+        ? { chainEvidence: certificateCollector.evidence() }
+        : {}),
     });
     if (!verified.ok) {
-      emit(
-        { ...verified, command: "ledger-audit-verify", schema: "audit-verify-receipt/v1", certificatePath },
-        options.json,
-      );
+      emit(auditVerifyErrorReceipt(verified, { certificatePath: certPath }), options.json);
       return 1;
     }
-    certificateResult = { ...verified, certificatePath };
+    certificateResult = { ...verified, certificatePath: certPath };
+  }
+
+  const trustAnchor = {
+    mode:
+      options.expectedRootHash !== undefined || options.expectedCertificateHash !== undefined
+        ? ("pinned" as const)
+        : ("self-consistent-only" as const),
+    ...(options.expectedRootHash === undefined ? {} : { expectedRootHash: options.expectedRootHash }),
+    ...(options.expectedCertificateHash === undefined
+      ? {}
+      : { expectedCertificateHash: options.expectedCertificateHash }),
+  };
+
+  if (diagnosticUnattributed !== null) {
+    emit(
+      {
+        ok: false,
+        diagnostic: true,
+        verificationStatus: "diagnostic_incomplete_attribution",
+        strictVerified: false,
+        chainIntegrityOk: true,
+        attributionVerified: false,
+        code: diagnosticUnattributed.code,
+        message: diagnosticUnattributed.message,
+        hint: diagnosticUnattributed.message,
+        line: diagnosticUnattributed.line,
+        workspaceRevision: diagnosticUnattributed.workspaceRevision,
+        opId: diagnosticUnattributed.opId,
+        field: diagnosticUnattributed.field,
+        sliceIndex: diagnosticUnattributed.sliceIndex,
+        manifestPath: diagnosticUnattributed.manifestPath,
+        entriesPath: diagnosticUnattributed.entriesPath,
+        command: "ledger-audit-verify",
+        schema: "audit-verify-receipt/v1",
+        trustAnchor,
+        sliceCount: verifiedSlices.length,
+        totalEvents,
+        slices: verifiedSlices,
+        ...(certificateResult === undefined ? {} : { certificate: certificateResult }),
+      },
+      options.json,
+    );
+    return 1;
   }
 
   emit(
     {
       ok: true,
+      verificationStatus: "verified",
+      strictVerified: true,
       command: "ledger-audit-verify",
       schema: "audit-verify-receipt/v1",
+      trustAnchor,
       sliceCount: verifiedSlices.length,
       totalEvents,
       slices: verifiedSlices,
@@ -304,28 +403,92 @@ export async function runLedgerAuditVerify(
   return 0;
 }
 
-async function verifyEntriesStream(
+function auditVerifyErrorReceipt(
+  failure: AuditVerifyFailure,
+  extra: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return {
+    ...failure,
+    hint: formatAuditVerifyErrorHint(failure),
+    command: "ledger-audit-verify",
+    schema: "audit-verify-receipt/v1",
+    ...extra,
+  };
+}
+
+function formatAuditVerifyErrorHint(failure: AuditVerifyFailure): string {
+  const coords = [
+    ...(failure.line === undefined ? [] : [`line=${failure.line}`]),
+    ...(failure.workspaceRevision === undefined ? [] : [`rev=${failure.workspaceRevision}`]),
+    ...(failure.opId === undefined ? [] : [`opId=${failure.opId}`]),
+    ...(failure.field === undefined ? [] : [`field=${failure.field}`]),
+  ];
+  return coords.length > 0 ? `${coords.join(" ")}: ${failure.message}` : failure.message;
+}
+
+async function verifyEntriesRawStream(
   entriesPath: string,
-  verifier: { readonly verifyLine: (rawLine: string, lineNumber: number) => AuditVerifyFailure | null },
+  verifier: {
+    readonly feedRawBytes: (chunk: Uint8Array) => void;
+    readonly verifyLine: (rawLine: string, lineNumber: number) => AuditVerifyFailure | null;
+  },
+  createFailure: (
+    errorCode: "audit_entry_parse_failed" | "audit_manifest_entries_digest_mismatch",
+    message: string,
+    detail?: { readonly line?: number; readonly field?: string },
+  ) => AuditVerifyFailure,
 ): Promise<
   { readonly ok: true; readonly failure: AuditVerifyFailure | null } | { readonly ok: false; readonly error: string }
 > {
   try {
-    const stream = createReadStream(entriesPath, { encoding: "utf8" });
-    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+    const stream = createReadStream(entriesPath);
+    let pending = Buffer.alloc(0);
     let lineNumber = 0;
     try {
-      for await (const line of rl) {
-        lineNumber += 1;
-        const failure = verifier.verifyLine(line, lineNumber);
-        if (failure !== null) {
-          rl.close();
-          stream.destroy();
-          return { ok: true, failure };
+      for await (const rawChunk of stream) {
+        const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk as Uint8Array);
+        verifier.feedRawBytes(chunk);
+        const combined = pending.length === 0 ? chunk : Buffer.concat([pending, chunk]);
+        let start = 0;
+        for (;;) {
+          const lfIndex = combined.indexOf(0x0a, start);
+          if (lfIndex === -1) break;
+          lineNumber += 1;
+          const lineBytes = combined.subarray(start, lfIndex);
+          if (!isUtf8(lineBytes)) {
+            stream.destroy();
+            return {
+              ok: true,
+              failure: createFailure(
+                "audit_entry_parse_failed",
+                `Line ${lineNumber}: invalid UTF-8 byte sequence in audit entries stream.`,
+                { line: lineNumber, field: "encoding" },
+              ),
+            };
+          }
+          const lineText = lineBytes.toString("utf8");
+          const failure = verifier.verifyLine(lineText, lineNumber);
+          if (failure !== null) {
+            stream.destroy();
+            return { ok: true, failure };
+          }
+          start = lfIndex + 1;
         }
+        pending = start < combined.length ? Buffer.from(combined.subarray(start)) : Buffer.alloc(0);
       }
     } finally {
-      rl.close();
+      stream.destroy();
+    }
+    if (pending.length > 0) {
+      lineNumber += 1;
+      return {
+        ok: true,
+        failure: createFailure(
+          "audit_manifest_entries_digest_mismatch",
+          `Line ${lineNumber}: audit entries file is missing its canonical trailing LF byte.`,
+          { line: lineNumber, field: "entriesDigest" },
+        ),
+      };
     }
     return { ok: true, failure: null };
   } catch (error) {
@@ -358,7 +521,10 @@ function parseAuditVerifyArgs(argv: readonly string[]):
   let entries: string | undefined;
   let certificate: string | undefined;
   let algorithm: AuditHashAlgorithm | undefined;
+  let certificateAlgorithm: AuditHashAlgorithm | undefined;
   let prevRootHash: AuditDigest | undefined;
+  let expectedRootHash: AuditDigest | undefined;
+  let expectedCertificateHash: AuditDigest | undefined;
   let skipPersonCheck = false;
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -394,11 +560,39 @@ function parseAuditVerifyArgs(argv: readonly string[]):
       }
       algorithm = next;
       index += 1;
+    } else if (token === "--certificate-algorithm") {
+      if (next !== "sha256" && next !== "sm3") {
+        return { ok: false, code: "invalid_field", message: "--certificate-algorithm must be sha256 or sm3.", json };
+      }
+      certificateAlgorithm = next;
+      index += 1;
     } else if (token === "--prev-root-hash") {
       if (!next || !/^(?:sha256|sm3):[0-9a-f]{64}$/u.test(next)) {
         return { ok: false, code: "invalid_field", message: "--prev-root-hash must be <sha256|sm3>:<64-hex>.", json };
       }
       prevRootHash = next as AuditDigest;
+      index += 1;
+    } else if (token === "--expected-root-hash") {
+      if (!next || !/^(?:sha256|sm3):[0-9a-f]{64}$/u.test(next)) {
+        return {
+          ok: false,
+          code: "invalid_field",
+          message: "--expected-root-hash must be <sha256|sm3>:<64-hex>.",
+          json,
+        };
+      }
+      expectedRootHash = next as AuditDigest;
+      index += 1;
+    } else if (token === "--expected-certificate-hash") {
+      if (!next || !/^(?:sha256|sm3):[0-9a-f]{64}$/u.test(next)) {
+        return {
+          ok: false,
+          code: "invalid_field",
+          message: "--expected-certificate-hash must be <sha256|sm3>:<64-hex>.",
+          json,
+        };
+      }
+      expectedCertificateHash = next as AuditDigest;
       index += 1;
     } else {
       return {
@@ -425,8 +619,35 @@ function parseAuditVerifyArgs(argv: readonly string[]):
       json,
     };
   }
+  if (expectedRootHash !== undefined && manifests.length === 0) {
+    return {
+      ok: false,
+      code: "invalid_field",
+      message: "--expected-root-hash requires at least one --manifest.",
+      json,
+    };
+  }
+  if ((expectedCertificateHash !== undefined || certificateAlgorithm !== undefined) && certificate === undefined) {
+    return {
+      ok: false,
+      code: "invalid_field",
+      message: "--expected-certificate-hash and --certificate-algorithm require --certificate.",
+      json,
+    };
+  }
   return {
     ok: true,
-    value: { manifests, entries, certificate, algorithm, prevRootHash, skipPersonCheck, json },
+    value: {
+      manifests,
+      entries,
+      certificate,
+      algorithm,
+      certificateAlgorithm,
+      prevRootHash,
+      expectedRootHash,
+      expectedCertificateHash,
+      skipPersonCheck,
+      json,
+    },
   };
 }

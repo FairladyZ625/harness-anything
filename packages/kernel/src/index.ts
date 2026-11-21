@@ -250,16 +250,17 @@ export {
   type AuditHashAlgorithm,
 } from "./integrity/stable-hash.ts";
 export {
+  AuditChainGapError,
   auditGenesisChainHash,
   buildDeliveryCertificate,
   createAuditChainAccumulator,
   DEFAULT_AUDIT_ENTRIES_FILE,
   isAuditDigest,
+  isPureRevisionWindow,
   type AuditCertificateVerifyResult,
   type AuditExportEntryV1,
   type AuditExportManifestV1,
   type AuditExportWindowV1,
-  type AuditSliceVerifyResult,
   type DeliveryCertificateV1,
 } from "./integrity/audit-hash-chain.ts";
 export { buildHandoffPacket, verifyHandoffPacketDigest } from "./handoff-packet.ts";

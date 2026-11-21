@@ -42,6 +42,41 @@ export function assertCanonicalFactoryLifecycle(input: {
     if (batch.done) break;
   } while (replay.length <= events.length);
   assert.deepEqual(replay, events);
+  if (store.readEventWindow !== undefined) {
+    const revWindow = store.readEventWindow({ afterRevision: 1, maxRevision: 4, limit: 2 });
+    assert.equal(revWindow.sourceRevision, events.length);
+    assert.deepEqual(
+      revWindow.events.map((event) => event.workspaceRevision),
+      [2, 3],
+    );
+    assert.equal(revWindow.done, false);
+    const revWindowNext = store.readEventWindow({
+      afterRevision: revWindow.lastScannedRevision,
+      maxRevision: 4,
+      limit: 2,
+    });
+    assert.deepEqual(
+      revWindowNext.events.map((event) => event.workspaceRevision),
+      [4],
+    );
+    assert.equal(revWindowNext.done, true);
+    const timeWindow = store.readEventWindow({
+      afterRevision: 0,
+      after: events[0]!.occurredAt,
+      before: events.at(-1)!.occurredAt,
+      limit: events.length + 1,
+    });
+    assert.equal(timeWindow.done, true);
+    assert.deepEqual(timeWindow.events, events);
+    const emptyWindow = store.readEventWindow({
+      afterRevision: 0,
+      after: "2099-01-01T00:00:00.000Z",
+      before: "2099-01-01T23:59:59.999Z",
+      limit: 10,
+    });
+    assert.equal(emptyWindow.done, true);
+    assert.equal(emptyWindow.events.length, 0);
+  }
   projection.rebuild();
   assert.deepEqual(projection.read(taskId).snapshot, snapshot);
   return { events, snapshot };

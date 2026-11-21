@@ -538,6 +538,13 @@
         "order": 67
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEventWindow:e172051cc81cdfb1b2233bdbaaf2cb98",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical",
+        "order": 71
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-event-store.ts#executePostgresAppend:d46dfe562b7c2878cfb10f47ef8d82e8",
         "route": "daemon-local-state",
         "role": "technical-port",

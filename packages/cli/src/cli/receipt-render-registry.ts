@@ -1,4 +1,9 @@
 import { consumeKnownError } from "../daemon/client.ts";
+import {
+  renderLedgerAuditExportReceipt,
+  renderLedgerAuditVerifyReceipt,
+  renderTaskDeliveryCertificateReceipt,
+} from "./receipt-render-audit.ts";
 import { renderTaskShow } from "./receipt-render-task-show.ts";
 import { isRecord, nonEmptyText } from "./receipt-render-values.ts";
 import { contractMigrationDryRunSummary, renderDispatchRow, renderRuntimeBatchRow } from "../cli-render.ts";
@@ -62,9 +67,12 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["vertical-kind-publish-schema", renderVerticalKindMutation],
   ["vertical-kind-retire", renderVerticalKindMutation],
   ["event-show", renderEventShowReceipt],
-  ["ledger-audit-export", renderLedgerAuditExportReceipt],
+  ["ledger-audit-export", (r) => renderLedgerAuditExportReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r)],
   ["ledger-audit-verify", renderLedgerAuditVerifyReceipt],
-  ["task-delivery-certificate", renderTaskDeliveryCertificateReceipt],
+  [
+    "task-delivery-certificate",
+    (r) => renderTaskDeliveryCertificateReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r),
+  ],
   ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
 
@@ -151,6 +159,8 @@ function renderCliReceiptBase(
 ): RenderedCliReceipt {
   if (receipt.schema === "squad-control-result/v1")
     return { stream: receipt.ok === true ? "stdout" : "stderr", text: String(receipt.summary) };
+  if (receipt.schema === "audit-verify-receipt/v1")
+    return { stream: receipt.ok === true ? "stdout" : "stderr", text: renderLedgerAuditVerifyReceipt(receipt) };
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
   if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt, explainRequestRefs) };
   if (receipt.command === "edge-join" && Array.isArray(receipt.repositories))
@@ -425,43 +435,6 @@ function renderEventListReceipt(receipt: Record<string, unknown>): string {
   return [
     ...(lines.length ? lines : ["No events."]),
     ...(nextCursor === null ? [] : [`more: use --cursor ${nextCursor}`]),
-  ].join("\n");
-}
-
-function renderLedgerAuditExportReceipt(receipt: Record<string, unknown>): string {
-  const manifest = isRecord(receipt.manifest) ? receipt.manifest : null;
-  if (!manifest) return renderSuccessfulReceipt(receipt);
-  return [
-    `audit-export: ok (${String(manifest.algorithm)}, ${String(manifest.eventCount)} events, rev ${String(manifest.firstRevision)}..${String(manifest.lastRevision)})`,
-    `rootHash: ${String(manifest.rootHash)}`,
-    ...(typeof receipt.manifestPath === "string" ? [`manifest: ${receipt.manifestPath}`] : []),
-    ...(typeof receipt.entriesPath === "string" ? [`entries: ${receipt.entriesPath}`] : []),
-  ].join("\n");
-}
-
-function renderLedgerAuditVerifyReceipt(receipt: Record<string, unknown>): string {
-  const cert = isRecord(receipt.certificate) ? receipt.certificate : null;
-  return [
-    `audit-verify: ok (slices=${String(receipt.sliceCount ?? 0)}, events=${String(receipt.totalEvents ?? 0)})`,
-    ...(cert
-      ? [`certificate: ${String(cert.taskId)} (${String(cert.algorithm)}) ${String(cert.certificateHash)}`]
-      : []),
-  ].join("\n");
-}
-
-function renderTaskDeliveryCertificateReceipt(receipt: Record<string, unknown>): string {
-  const parsed = parseEvidence(receipt);
-  const cert = isRecord(receipt.certificate)
-    ? receipt.certificate
-    : parsed && isRecord(parsed.certificate)
-      ? parsed.certificate
-      : parsed;
-  if (!cert || cert.schema !== "delivery-certificate/v1") return renderSuccessfulReceipt(receipt);
-  return [
-    `delivery-certificate: ${String(cert.taskId)} (${String(cert.algorithm)}, status=${String(cert.status)})`,
-    `submissionDigest: ${String(cert.submissionDigest)}`,
-    `certificateHash: ${String(cert.certificateHash)}`,
-    ...(typeof receipt.outputPath === "string" ? [`output: ${receipt.outputPath}`] : []),
   ].join("\n");
 }
 

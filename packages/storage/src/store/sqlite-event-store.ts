@@ -658,6 +658,7 @@ function openSqliteEventStoreInternal(
           );
       }),
     queryEvents: (input) => queryEvents(query, input),
+    readEventWindow: (input) => transaction(() => readSqliteEventWindow(db, query, input), true),
     readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     gitOutboxState: () => {
       if (!hasOutbox)
@@ -929,6 +930,87 @@ function queryEvents(
       "ORDER BY revision DESC LIMIT ?",
     values,
   ).map((row) => JSON.parse(String(row.event_json)) as CanonicalEventV1);
+}
+function readSqliteEventWindow(
+  db: DatabaseSync,
+  query: SqliteQuery,
+  input: {
+    readonly afterRevision: number;
+    readonly maxRevision?: number;
+    readonly after?: string;
+    readonly before?: string;
+    readonly limit: number;
+  },
+) {
+  const sourceRevision = readRevision(db);
+  const upperRevision = input.maxRevision === undefined ? sourceRevision : Math.min(input.maxRevision, sourceRevision);
+  if (input.afterRevision >= upperRevision) {
+    return {
+      sourceRevision,
+      events: [] as readonly CanonicalEventV1[],
+      lastScannedRevision: input.afterRevision,
+      windowMaxRevision: upperRevision,
+      done: true,
+    };
+  }
+  let seekAfter = input.afterRevision;
+  let seekMax = upperRevision;
+  if (input.after !== undefined || input.before !== undefined) {
+    const boundClauses: string[] = [];
+    const boundValues: (string | number)[] = [input.afterRevision, upperRevision, input.afterRevision, upperRevision];
+    if (input.after !== undefined) {
+      boundClauses.push("occurred_at>=?");
+      boundValues.push(input.after);
+    }
+    if (input.before !== undefined) {
+      boundClauses.push("occurred_at<=?");
+      boundValues.push(input.before);
+    }
+    const bounds = query(
+      `SELECT MIN(CASE WHEN revision>? AND revision<=? THEN revision END) AS min_rev, ` +
+        `MAX(CASE WHEN revision>? AND revision<=? THEN revision END) AS max_rev ` +
+        `FROM event WHERE ${boundClauses.join(" AND ")}`,
+      boundValues,
+    ).at(0);
+    if (!bounds || bounds.min_rev === null || bounds.max_rev === null) {
+      return {
+        sourceRevision,
+        events: [] as readonly CanonicalEventV1[],
+        lastScannedRevision: upperRevision,
+        windowMaxRevision: upperRevision,
+        done: true,
+      };
+    }
+    seekAfter = Math.max(input.afterRevision, Number(bounds.min_rev) - 1);
+    seekMax = Math.min(upperRevision, Number(bounds.max_rev));
+  }
+  const clauses = ["revision>?", "revision<=?"];
+  const values: (string | number)[] = [seekAfter, seekMax];
+  if (input.after !== undefined) {
+    clauses.push("occurred_at>=?");
+    values.push(input.after);
+  }
+  if (input.before !== undefined) {
+    clauses.push("occurred_at<=?");
+    values.push(input.before);
+  }
+  values.push(input.limit + 1);
+  const rows = query(
+    `SELECT event_json FROM event WHERE ${clauses.join(" AND ")} ORDER BY revision ASC LIMIT ?`,
+    values,
+  );
+  const hasMore = rows.length > input.limit;
+  const events = (hasMore ? rows.slice(0, input.limit) : rows).map(
+    (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
+  );
+  const lastScannedRevision = hasMore ? events.at(-1)!.workspaceRevision : seekMax;
+  return {
+    sourceRevision,
+    events,
+    lastScannedRevision,
+    windowMaxRevision: seekMax,
+    done: !hasMore,
+  };
 }
 function readEventIdentity(
   query: SqliteQuery,

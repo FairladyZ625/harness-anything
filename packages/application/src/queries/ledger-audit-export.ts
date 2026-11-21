@@ -1,10 +1,12 @@
 import {
+  AuditChainGapError,
   auditGenesisChainHash,
   createAuditChainAccumulator,
   DEFAULT_AUDIT_ENTRIES_FILE,
   EVENT_LIST_LIMIT_MAX,
   isAuditDigest,
   isAuditHashAlgorithm,
+  isPureRevisionWindow,
   type AuditDigest,
   type AuditExportEntryV1,
   type AuditExportManifestV1,
@@ -77,6 +79,13 @@ export function parseAuditExportQuery(
     }
     cursorRevision = Number(cursorText);
   }
+  const declaredStartAfter = fromRevision !== null ? fromRevision - 1 : 0;
+  if (cursorRevision !== null && cursorRevision < declaredStartAfter) {
+    throw cell.cellCodedError(
+      "invalid_command",
+      `Audit export --cursor (${cursorRevision}) cannot precede --from-revision (${fromRevision}).`,
+    );
+  }
   const utcDate = optionalText(action.date) ?? null;
   const rawAfter = optionalText(action.after) ?? null;
   const rawBefore = optionalText(action.before) ?? null;
@@ -117,7 +126,7 @@ export function parseAuditExportQuery(
       `Audit export --prev-root-hash must be a valid ${algorithm}:<64-hex> digest.`,
     );
   }
-  const startAfterRevision = cursorRevision !== null ? cursorRevision : fromRevision !== null ? fromRevision - 1 : 0;
+  const startAfterRevision = Math.max(cursorRevision ?? 0, declaredStartAfter);
 
   return {
     algorithm,
@@ -143,40 +152,94 @@ export function readAuditExportPage(
   binding: QueryBinding,
 ): WriteReceipt {
   const query = parseAuditExportQuery(cell, action);
-  const batch = cell.store.readBatch(String(query.startAfterRevision), query.limit);
-  const sourceRevision = batch.sourceRevision;
-  const effectiveToRevision =
-    query.window.toRevision === null ? sourceRevision : Math.min(query.window.toRevision, sourceRevision);
-  const inRange = batch.events.filter((event) => event.workspaceRevision <= effectiveToRevision);
-  const matched = inRange.filter((event) => eventMatchesTimeWindow(event, query.afterMs, query.beforeMs));
-  const lastScanned = inRange.at(-1)?.workspaceRevision ?? query.startAfterRevision;
-  const exhausted =
-    batch.done ||
-    batch.events.length < query.limit ||
-    lastScanned >= effectiveToRevision ||
-    (batch.events.at(-1)?.workspaceRevision ?? 0) >= effectiveToRevision;
-  const nextCursor = exhausted ? null : String(lastScanned);
+  let sourceRevision: number;
+  let effectiveToRevision: number;
+  let matched: readonly PersistedCanonicalEventV1[];
+  let scannedCount: number;
+  let nextCursor: string | null;
+
+  if (cell.store.readEventWindow !== undefined) {
+    const windowBatch = cell.store.readEventWindow({
+      afterRevision: query.startAfterRevision,
+      ...(query.window.toRevision === null ? {} : { maxRevision: query.window.toRevision }),
+      ...(query.window.after === null ? {} : { after: query.window.after }),
+      ...(query.window.before === null ? {} : { before: query.window.before }),
+      limit: query.limit,
+    });
+    sourceRevision = windowBatch.sourceRevision;
+    effectiveToRevision =
+      query.window.toRevision === null ? sourceRevision : Math.min(query.window.toRevision, sourceRevision);
+    matched = windowBatch.events;
+    scannedCount = windowBatch.events.length;
+    nextCursor = windowBatch.done ? null : String(windowBatch.lastScannedRevision);
+  } else {
+    const batch = cell.store.readBatch(String(query.startAfterRevision), query.limit);
+    sourceRevision = batch.sourceRevision;
+    effectiveToRevision =
+      query.window.toRevision === null ? sourceRevision : Math.min(query.window.toRevision, sourceRevision);
+    const inRange = batch.events.filter((event) => event.workspaceRevision <= effectiveToRevision);
+    matched = inRange.filter((event) => eventMatchesTimeWindow(event, query.afterMs, query.beforeMs));
+    scannedCount = inRange.length;
+    const lastScanned = inRange.at(-1)?.workspaceRevision ?? query.startAfterRevision;
+    const exhausted =
+      batch.done ||
+      batch.events.length < query.limit ||
+      lastScanned >= effectiveToRevision ||
+      (batch.events.at(-1)?.workspaceRevision ?? 0) >= effectiveToRevision;
+    nextCursor = exhausted ? null : String(lastScanned);
+  }
   const hasMore = nextCursor !== null;
+
+  // Enforce contiguous revisions on pure revision windows so deleted DB rows cannot be silently sealed.
+  if (isPureRevisionWindow(query.window)) {
+    const expectedStart = query.startAfterRevision + 1;
+    const expectedEnd = hasMore ? expectedStart + matched.length - 1 : effectiveToRevision;
+    if (effectiveToRevision >= expectedStart) {
+      const expectedCount = hasMore ? query.limit : effectiveToRevision - expectedStart + 1;
+      if (matched.length !== expectedCount) {
+        throw cell.cellCodedError(
+          "audit_revision_gap",
+          `Pure revision window ${expectedStart}..${expectedEnd} has missing canonical revisions (expected ${expectedCount}, read ${matched.length}).`,
+        );
+      }
+      for (let index = 0; index < matched.length; index += 1) {
+        const expectedRev = expectedStart + index;
+        if (matched[index]!.workspaceRevision !== expectedRev) {
+          throw cell.cellCodedError(
+            "audit_revision_gap",
+            `Contiguous revision gap detected at rev ${expectedRev} (got rev ${matched[index]!.workspaceRevision}).`,
+          );
+        }
+      }
+    }
+  }
 
   let singlePageSlice:
     | { readonly entries: readonly AuditExportEntryV1[]; readonly manifest: AuditExportManifestV1 }
     | undefined;
   if (!hasMore && query.cursor === null) {
-    const accumulator = createAuditChainAccumulator({
-      repoId: cell.input.repoId,
-      algorithm: query.algorithm,
-      prevRootHash: query.prevRootHash,
-      window: {
-        ...query.window,
-        toRevision: query.window.toRevision ?? effectiveToRevision,
-      },
-      entriesFile: DEFAULT_AUDIT_ENTRIES_FILE,
-    });
-    const entries: AuditExportEntryV1[] = [];
-    for (const event of matched) {
-      entries.push(accumulator.addEvent(event).entry);
+    try {
+      const accumulator = createAuditChainAccumulator({
+        repoId: cell.input.repoId,
+        algorithm: query.algorithm,
+        prevRootHash: query.prevRootHash,
+        window: {
+          ...query.window,
+          toRevision: effectiveToRevision >= 1 ? effectiveToRevision : null,
+        },
+        entriesFile: DEFAULT_AUDIT_ENTRIES_FILE,
+      });
+      const entries: AuditExportEntryV1[] = [];
+      for (const event of matched) {
+        entries.push(accumulator.addEvent(event).entry);
+      }
+      singlePageSlice = { entries, manifest: accumulator.finalize() };
+    } catch (error) {
+      if (error instanceof AuditChainGapError) {
+        throw cell.cellCodedError(error.code, error.message);
+      }
+      throw error;
     }
-    singlePageSlice = { entries, manifest: accumulator.finalize() };
   }
 
   return cell.readResult(
@@ -191,7 +254,7 @@ export function readAuditExportPage(
       window: query.window,
       events: matched,
       count: matched.length,
-      scannedCount: inRange.length,
+      scannedCount,
       hasMore,
       page: {
         limit: query.limit,
