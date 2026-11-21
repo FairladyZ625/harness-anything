@@ -774,14 +774,14 @@ export async function scheduleFallbackContinuation(args: {
           sameSessionProviderSessionId = sameSessionResume ? scheduledFallback.providerSessionId! : undefined,
           nextAttemptIndex = fallback.attemptIndex + 1,
           currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
-          naturalNextIndex = currentCandidateIndex + 1,
-          exhaustedPass = !sameSessionResume && naturalNextIndex >= fallback.candidates.length,
           nextCandidateIndex = sameSessionResume
             ? currentCandidateIndex
             : fallback.candidates.findIndex(
                 (candidate) =>
                   candidate.instance === plan.nextProvider.instance && candidate.model === plan.nextProvider.model,
               ),
+          // Settlement only wraps when no usable candidate follows the current one.
+          exhaustedPass = !sameSessionResume && nextCandidateIndex <= currentCandidateIndex,
           next = sameSessionResume
             ? (fallback.candidates[currentCandidateIndex] ?? plan.nextProvider)
             : fallback.candidates[nextCandidateIndex];

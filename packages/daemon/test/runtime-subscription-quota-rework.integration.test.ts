@@ -70,7 +70,17 @@ test("QUOTA-09 & QUOTA-16: Codex app-server stages ephemeral CODEX_HOME (zero au
     reset5h = "2026-11-21T15:00:00.000Z",
     reset7d = "2026-11-28T00:00:00.000Z";
   mkdirSync(bin, { recursive: true });
-  writeFileSync(modeFile, "both-zero");
+  writeFileSync(modeFile, "expired");
+  let refreshConsumed = false;
+  const server = await startLoopback((req, res) => {
+    if (req.method === "POST" && req.url === "/oauth/token") {
+      res.writeHead(refreshConsumed ? 401 : 200);
+      refreshConsumed = true;
+    } else {
+      res.writeHead(401);
+    }
+    res.end();
+  });
   const codexBin = writeProviderExecutable(
     path.join(bin, "codex"),
     `
@@ -85,19 +95,27 @@ test("QUOTA-09 & QUOTA-16: Codex app-server stages ephemeral CODEX_HOME (zero au
       }
       if (args[0] === "app-server") {
         const rl = readline.createInterface({ input: process.stdin });
-        rl.on("line", (line) => {
+        rl.on("line", async (line) => {
           const msg = JSON.parse(line);
           if (msg.method === "initialize") {
             console.log(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { serverInfo: { name: "codex-stub" } } }));
           } else if (msg.method === "model/list") {
             console.log(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { data: [{ model: "gpt-6-sol", isDefault: true }], nextCursor: null } }));
           } else if (msg.method === "account/rateLimits/read") {
-            // Simulate Codex proactive token refresh attempting to overwrite $CODEX_HOME/auth.json!
             const codexHome = process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex");
             const authPath = path.join(codexHome, "auth.json");
             const existing = fs.existsSync(authPath) ? JSON.parse(fs.readFileSync(authPath, "utf8")) : null;
             if (!existing || existing.tokens?.access_token !== "codex-real-unmutated-token") {
               process.exit(41);
+            }
+            if (mode === "expired") {
+              if (existing.tokens.refresh_token) {
+                await fetch(${JSON.stringify(server.baseUrl + "/oauth/token")}, {
+                  method: "POST", body: existing.tokens.refresh_token
+                });
+              }
+              console.log(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "expired" } }));
+              return;
             }
             fs.writeFileSync(authPath, JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: "MUTATED-BY-APP-SERVER" } }));
             fs.appendFileSync(${JSON.stringify(stagedDirLog)}, JSON.stringify({ home: process.env.HOME, codexHome }) + "\\n");
@@ -133,6 +151,7 @@ test("QUOTA-09 & QUOTA-16: Codex app-server stages ephemeral CODEX_HOME (zero au
       discover: () => [witness("codex", codexBin, "0.165.0")],
       providerHealth: health,
       now: () => clock,
+      quotaFetch: pinnedFetch(server, []),
     });
     store.command({
       kind: "runtime-instance-create",
@@ -155,7 +174,17 @@ test("QUOTA-09 & QUOTA-16: Codex app-server stages ephemeral CODEX_HOME (zero au
     writeFileSync(realAuthPath, originalAuthBody, { mode: 0o600 });
     const statBefore = statSync(realAuthPath);
 
+    const expired = await store.command({ kind: "runtime-instance-show", instanceId: "codex-isolated", probe: true });
+    const expiredInstance = expired.instance as {
+      readonly quota?: unknown;
+      readonly authReadiness: { readonly status: string };
+    };
+    assert.equal(refreshConsumed, false, "background probing consumed the issuer's one-time refresh token");
+    assert.equal(expiredInstance.quota, undefined);
+    assert.equal(expiredInstance.authReadiness.status, "ready");
+
     // 1. Both 5h and 7d are exhausted -> quotaExhaustedUntil is the later 7d reset.
+    writeFileSync(modeFile, "both-zero");
     await store.command({ kind: "runtime-instance-show", instanceId: "codex-isolated", probe: true });
     assert.equal(health.get("codex-isolated").quotaExhaustedUntil, reset7d);
 
@@ -225,6 +254,7 @@ test("QUOTA-09 & QUOTA-16: Codex app-server stages ephemeral CODEX_HOME (zero au
     assert.equal(statAfter2.mtimeMs, statBefore.mtimeMs);
     assert.equal(statAfter2.ino, statBefore.ino);
   } finally {
+    await server.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
@@ -300,6 +330,12 @@ test("QUOTA-18: External account switch outside Harness never inherits old accou
       }
       return;
     }
+    if (req.url === "/user") {
+      const id = req.headers.authorization === "token gho_copilot_account_a_111111111" ? 101 : 102;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id }));
+      return;
+    }
     res.writeHead(404);
     res.end();
   });
@@ -334,7 +370,7 @@ test("QUOTA-18: External account switch outside Harness never inherits old accou
     // --- Part A: Claude external credential switch ---
     writeFileSync(
       path.join(claudeDir, ".credentials.json"),
-      JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-account-a-token" } }),
+      JSON.stringify({ claudeAiOauth: { accountUuid: "account-a", accessToken: "sk-ant-oat01-account-a-token" } }),
       { mode: 0o600 },
     );
     store.command({
@@ -356,6 +392,10 @@ test("QUOTA-18: External account switch outside Harness never inherits old accou
 
     // 2. SAME account receives partial 5h-only healthy response -> MUST still preserve Account A's 7d=0!
     claudeResponseMode = "partial-5h-healthy";
+    writeFileSync(
+      path.join(claudeDir, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accountUuid: "account-a", accessToken: "sk-ant-oat01-account-a-refreshed" } }),
+    );
     const sameAccountPartial = await store.command({
       kind: "runtime-instance-show",
       instanceId: "claude-ext-switch",
@@ -374,7 +414,7 @@ test("QUOTA-18: External account switch outside Harness never inherits old accou
     //    then runs explicit probe returning partial 5h-only healthy response -> MUST NOT inherit Account A's 7d=0!
     writeFileSync(
       path.join(claudeDir, ".credentials.json"),
-      JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-account-b-token" } }),
+      JSON.stringify({ claudeAiOauth: { accountUuid: "account-b", accessToken: "sk-ant-oat01-account-b-token" } }),
       { mode: 0o600 },
     );
     const switchedAccountPartial = await store.command({

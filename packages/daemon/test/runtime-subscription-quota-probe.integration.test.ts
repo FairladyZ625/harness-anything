@@ -708,7 +708,7 @@ test("Codex OAuth wham/usage preserves isolated config.toml chatgpt_base_url, re
   }
 });
 
-test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallback & file precedence, and degrades on 429", async () => {
+test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallback & file precedence, and degrades on 429", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-quota-claude-")),
     userRoot = path.join(root, "user"),
     bin = path.join(root, "bin"),
@@ -722,10 +722,16 @@ test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallb
     credsRaw = JSON.stringify({
       claudeAiOauth: { accessToken: fileToken, subscriptionType: "max" },
     });
-  let mode: "ok" | "rate-limit" | "sonnet-zero" = "ok";
+  let mode: "ok" | "rate-limit" | "sonnet-zero" | "week-zero" = "ok";
   let keychainMode: "unlocked" | "locked" = "unlocked";
+  let keychainAccount = { accountUuid: "account-a", accessToken: keychainToken };
   let keychainCalls = 0;
-  const server = await startLoopbackServer((_req, res) => {
+  let pausedUsage: { readonly started: () => void; readonly resume: Promise<void> } | undefined;
+  const server = await startLoopbackServer(async (_req, res) => {
+    if (pausedUsage) {
+      pausedUsage.started();
+      await pausedUsage.resume;
+    }
     if (mode === "rate-limit") {
       res.writeHead(429, { "content-type": "application/json", "retry-after": "120" });
       res.end(JSON.stringify({ error: { message: `Rate limited for token ${fileToken}` } }));
@@ -735,7 +741,7 @@ test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallb
     res.end(
       JSON.stringify({
         five_hour: { utilization: 18, resets_at: "2026-11-21T15:00:00.000Z" },
-        seven_day: { utilization: 45, resets_at: "2026-11-27T00:00:00.000Z" },
+        seven_day: { utilization: mode === "week-zero" ? 100 : 45, resets_at: "2026-11-27T00:00:00.000Z" },
         seven_day_sonnet: { utilization: mode === "sonnet-zero" ? 100 : 10, resets_at: "2026-11-27T00:00:00.000Z" },
         extra_usage: { is_enabled: true, monthly_limit: 100, used_credits: 23.5, utilization: 23.5 },
       }),
@@ -784,7 +790,7 @@ test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallb
             // Simulates the exact macOS ACL case where item metadata exists, but secret read requires UI (-25308).
             return { status: "interaction_not_allowed", osStatus: -25308 };
           }
-          const payload = JSON.stringify({ claudeAiOauth: { accessToken: keychainToken, subscriptionType: "pro" } });
+          const payload = JSON.stringify({ claudeAiOauth: { ...keychainAccount, subscriptionType: "pro" } });
           return { status: "ok", secret: Buffer.from(payload, "utf8").toString("hex") };
         },
       });
@@ -818,6 +824,44 @@ test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallb
     assert.equal(server.requests.at(-1)?.headers.authorization, `Bearer ${keychainToken}`);
     assert.equal(server.requests.at(-1)?.headers["anthropic-beta"], "oauth-2025-04-20");
     assert.equal(((keychainRes.instance as Record<string, unknown>).quota as { plan: string }).plan, "pro");
+
+    await t.test("QUOTA-18: inaccessible Keychain preserves a confirmed 7d cooldown", async () => {
+      mode = "week-zero";
+      const exhausted = await store.command({ kind: "runtime-instance-show", instanceId: "claude-pro", probe: true });
+      assert.equal(health.get("claude-pro").quotaExhaustedUntil, "2026-11-27T00:00:00.000Z");
+      keychainMode = "locked";
+      try {
+        const unreadable = await store.command({
+          kind: "runtime-instance-show",
+          instanceId: "claude-pro",
+          probe: true,
+        });
+        const instance = unreadable.instance as Record<string, unknown>;
+        assert.equal((instance.authReadiness as Record<string, unknown>).status, "ready");
+        assert.deepEqual(instance.quota, (exhausted.instance as Record<string, unknown>).quota);
+        assert.equal(health.get("claude-pro").quotaExhaustedUntil, "2026-11-27T00:00:00.000Z");
+      } finally {
+        keychainMode = "unlocked";
+      }
+    });
+
+    await t.test(
+      "QUOTA-18: account switch while the Keychain-backed request is in flight fences its response",
+      async () => {
+        const started = Promise.withResolvers<void>();
+        const response = Promise.withResolvers<void>();
+        pausedUsage = { started: started.resolve, resume: response.promise };
+        const cached = store.listPublic().find((item) => item.instanceId === "claude-pro")?.quota;
+        const inFlight = store.authStatus("claude-pro");
+        const rejected = assert.rejects(inFlight, { code: "runtime_instance_probe_stale" });
+        await Promise.race([started.promise, rejected]);
+        keychainAccount = { accountUuid: "account-b", accessToken: "sk-ant-oat01-fake-new-keychain-token" };
+        pausedUsage = undefined;
+        response.resolve();
+        await rejected;
+        assert.deepEqual(store.listPublic().find((item) => item.instanceId === "claude-pro")?.quota, cached);
+      },
+    );
 
     // 3. When .credentials.json exists, it takes precedence over Keychain (Keychain is NOT called).
     writeFileSync(credsPath, credsRaw, { mode: 0o600 });

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
-import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import test, { type TestContext } from "node:test";
+import { openDispatchStream, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import {
   initialFallbackAttempt,
   scheduleFallbackContinuation,
@@ -199,34 +199,50 @@ test("post-tool missing providerSessionId, deterministic error, or quota_exhaust
   assert.equal(quota.recordFailureCalls, 1);
 });
 
-test("scheduleFallbackContinuation cancels pending same-session timer when closeSignal aborts", async (t) => {
+test("scheduleFallbackContinuation cancels pending same-session timer when closeSignal aborts", (t) =>
+  exerciseFallbackContinuation(t, true));
+test("QUOTA-17: wrapping past a frozen tail consumes the last provider retry round", { timeout: 10_000 }, (t) =>
+  exerciseFallbackContinuation(t, false),
+);
+
+async function exerciseFallbackContinuation(t: TestContext, abort: boolean) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "fallback-abort-"));
   const abortController = new AbortController();
+  const candidates = abort ? ["provider-a"] : ["provider-a", "provider-b", "provider-c"];
+  const candidateIndex = abort ? 0 : 1;
+  const rows = [health("provider-c", { frozen: true })];
+  const { promise: launchedAttempt, resolve: captureAttempt } = Promise.withResolvers<RuntimeFallbackAttempt>();
   let scheduled = 0;
   let launched = 0;
+  let clock = now;
   t.mock.timers.enable({ apis: ["setTimeout"] });
   try {
     const dispatchId = "dispatch_0123456789abcdef01234568";
+    const notBeforeAt = "2026-10-22T00:00:02.000Z";
+    const nextProvider = { instance: "provider-a", model: "model-a" };
+    const settlement = abort ? null : await settle({ candidates, rows, candidateIndex, maxRetries: 1 });
+    if (!abort) {
+      assert.equal(settlement?.fallback?.state, "scheduled");
+      assert.deepEqual(settlement?.fallback?.nextProvider, nextProvider);
+    }
     const writer = openDispatchStream(rootDir, {
       dispatchId,
       runtimeSessionId: "runtime_0123456789abcdef01234568",
+      executionId: null,
       taskId: null,
-      agentId: null,
-      role: null,
-      squadId: null,
       cwd: rootDir,
-      instanceId: "provider-a",
+      instanceId: candidates[candidateIndex]!,
       kindId: "codex",
       model: "model-a",
-      requestedAt: now,
+      startedAt: now,
       fallbackAttempt: {
         attemptGroupId: "attempt-group",
-        attemptIndex: 0,
-        candidateIndex: 0,
+        attemptIndex: candidateIndex,
+        candidateIndex,
         retryRound: 0,
         rootDispatchKey: "root",
         originalMission: "mission",
-        candidates: [{ instance: "provider-a", model: "model-a" }],
+        candidates: candidates.map((instance) => ({ instance, model: "model-a" })),
       },
       binding: {
         actor: { principal: { kind: "person", personId: "person_1", role: "owner" }, sessionId: "session_1" },
@@ -238,21 +254,21 @@ test("scheduleFallbackContinuation cancels pending same-session timer when close
     writer.appendFallbackState(
       {
         state: "scheduled",
-        notBeforeAt: "2026-10-22T00:00:02.000Z",
-        nextProvider: { instance: "provider-a", model: "model-a" },
+        notBeforeAt,
+        nextProvider,
         waitStartedAt: now,
         delayMs: 2_000,
-        sameSessionResume: true,
-        providerSessionId: "session-same-1",
+        ...(abort ? { sameSessionResume: true, providerSessionId: "session-same-1" } : {}),
       },
       now,
     );
+    assert.ok(readDispatchStream(rootDir, dispatchId)?.attemptOutcome);
     const context = {
       closed: () => false,
       closeSignal: abortController.signal,
       input: {
         rootDir,
-        now: () => now,
+        now: () => clock,
         remote: {
           readDispatchLifecycle: async () => ({
             status: "ready" as const,
@@ -260,6 +276,7 @@ test("scheduleFallbackContinuation cancels pending same-session timer when close
               {
                 controlLeafDispatchId: dispatchId,
                 policy: { fallbackPending: true, groupSettled: false },
+                successor: { schedule: { notBeforeAt, nextProvider, waitStartedAt: now } },
               },
             ],
           }),
@@ -273,20 +290,29 @@ test("scheduleFallbackContinuation cancels pending same-session timer when close
     await scheduleFallbackContinuation({
       context,
       dispatchId,
-      launch: async () => {
+      launch: async (_payload, _binding, next) => {
         launched += 1;
+        captureAttempt(next);
       },
     });
-    abortController.abort();
+    if (abort) abortController.abort();
+    clock = notBeforeAt;
     t.mock.timers.tick(5_000);
-    await Promise.resolve();
-    assert.equal(scheduled, 0);
-    assert.equal(launched, 0);
+    if (abort) {
+      await Promise.resolve();
+      assert.equal(scheduled, 0);
+      assert.equal(launched, 0);
+    } else {
+      const next = await launchedAttempt;
+      const exhausted = await settle({ candidates, rows, candidateIndex, retryRound: next.retryRound, maxRetries: 1 });
+      assert.equal(exhausted.fallback?.state, "exhausted");
+      assert.equal(next.retryRound, 1);
+    }
   } finally {
     t.mock.timers.reset();
     rmSync(rootDir, { recursive: true, force: true });
   }
-});
+}
 
 test("QUOTA-17: fallback chain keeps quota-exhausted successors for recovery, checks live model quota on hops, and honors quotaExhaustedUntil in terminal recoverAt", async () => {
   const makeInstance = (
@@ -464,6 +490,7 @@ async function settle(options: {
   readonly now?: string;
   readonly maxWaitSeconds?: number;
   readonly maxRetries?: number;
+  readonly candidateIndex?: number;
   readonly retryRound?: number;
   readonly backoffBaseSeconds?: number;
   readonly reason?: string;
@@ -486,7 +513,7 @@ async function settle(options: {
     const attempt: RuntimeFallbackAttempt = {
       attemptGroupId: "attempt-group",
       attemptIndex: options.sameSessionRetryCount ?? options.retryRound ?? 0,
-      candidateIndex: 0,
+      candidateIndex: options.candidateIndex ?? 0,
       retryRound: options.retryRound ?? 0,
       rootDispatchKey: "root",
       originalMission: "mission",

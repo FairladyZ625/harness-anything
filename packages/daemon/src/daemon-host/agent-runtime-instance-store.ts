@@ -14,7 +14,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { hash as cryptoHash } from "node:crypto";
 import { userInfo } from "node:os";
 import path from "node:path";
 import {
@@ -678,7 +677,7 @@ export function openRuntimeInstanceStore(input: {
             ? await currentAccountProbeTarget(config, witnessed)
             : undefined,
         quotaExecutablePath = probeTarget?.installation.executablePath ?? installation.executablePath;
-      let observedTokenFingerprint: string | undefined;
+      let accountFingerprint: string | undefined;
       const quotaProbeInput = {
         kindId: config.kindId,
         credentialSource: config.credentialSource,
@@ -691,28 +690,20 @@ export function openRuntimeInstanceStore(input: {
         ...(quotaKeychainLookup ? { runKeychainLookup: quotaKeychainLookup } : {}),
         ...(resolveGithubToken ? { resolveGithubToken: async () => startGithubToken ?? null } : {}),
         onCredentialFingerprint: (fingerprint: string) => {
-          observedTokenFingerprint = fingerprint;
+          accountFingerprint = fingerprint;
         },
       };
-      const effectiveAccountFingerprint = (): string =>
-        observedTokenFingerprint === undefined
-          ? startCredentialGen
-          : cryptoHash("sha256", Buffer.from(`${startCredentialGen}\0${observedTokenFingerprint}`), "hex");
-      const applyQuotaObservation = (
-        latest: RuntimeInstanceConfig,
-        quota: RuntimeSubscriptionQuotaV1,
-        allowRecoveryClear: boolean,
-      ): void => {
+      const accountChanged = (latest: RuntimeInstanceConfig): boolean =>
+        accountFingerprint !== undefined &&
+        latest.quotaAccountFingerprint?.startsWith("account:") === true &&
+        latest.quotaAccountFingerprint !== accountFingerprint;
+      const applyQuotaObservation = (latest: RuntimeInstanceConfig, quota: RuntimeSubscriptionQuotaV1): void => {
         const observedNow = nowIso();
-        const accountFingerprint = effectiveAccountFingerprint();
-        const sameAccount =
-          latest.quota !== undefined &&
-          latest.quotaAccountFingerprint !== undefined &&
-          latest.quotaAccountFingerprint === accountFingerprint;
-        const previousQuota = sameAccount ? latest.quota : undefined;
+        const changed = accountChanged(latest);
+        const previousQuota = changed ? undefined : latest.quota;
         const effectiveQuota = mergeSubscriptionQuotaObservation(previousQuota, quota, observedNow);
         markProbeCommitted(latest.instanceId, probeSeq);
-        persistQuota(latest, effectiveQuota, cut, accountFingerprint);
+        persistQuota(latest, effectiveQuota, cut, accountFingerprint ?? latest.quotaAccountFingerprint);
         const exhausted = findExhaustedSubscriptionQuotaWindow(effectiveQuota, observedNow, { models: latest.models });
         if (exhausted) {
           const exhaustionScope = subscriptionQuotaExhaustionScope(effectiveQuota, exhausted.window, latest.models);
@@ -724,12 +715,11 @@ export function openRuntimeInstanceStore(input: {
             ...(exhaustionScope.models ? { models: exhaustionScope.models } : {}),
           });
         } else if (
-          !sameAccount ||
-          (allowRecoveryClear &&
-            hasRecoveredSubscriptionQuota(effectiveQuota, observedNow, {
-              models: latest.models,
-              previousQuota,
-            }))
+          changed ||
+          hasRecoveredSubscriptionQuota(effectiveQuota, observedNow, {
+            models: latest.models,
+            previousQuota,
+          })
         ) {
           providerHealth.clearQuotaExhausted(latest.instanceId, observedNow);
         }
@@ -746,7 +736,7 @@ export function openRuntimeInstanceStore(input: {
         true,
         snapshot?.signal,
       );
-      currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
+      let current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
       if (result.modelCatalogReadiness || result.availableModels?.length) {
         markProbeCommitted(config.instanceId, probeSeq);
         persistAvailableModels(config, result.availableModels, cut);
@@ -756,28 +746,20 @@ export function openRuntimeInstanceStore(input: {
         try {
           quota = await accountProbe.probeQuota(quotaProbeInput);
         } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "runtime_instance_probe_stale") throw error;
           consumeKnownError(error);
         }
-        const latest = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
+        current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
         if (quota !== null) {
-          applyQuotaObservation(latest, quota, true);
+          applyQuotaObservation(current, quota);
           if (config.kindId === "codex" || config.kindId === "codex-acp") {
             result = { ...result, readiness: available("provider") };
           }
-        } else if (
-          latest.quota !== undefined &&
-          latest.quotaAccountFingerprint !== undefined &&
-          latest.quotaAccountFingerprint !== effectiveAccountFingerprint()
-        ) {
-          markProbeCommitted(latest.instanceId, probeSeq);
-          persistQuota(latest, undefined, cut, undefined);
-          providerHealth.clearQuotaExhausted(latest.instanceId, nowIso());
+        } else if (accountChanged(current)) {
+          persistQuota(current, undefined, cut);
+          providerHealth.clearQuotaExhausted(current.instanceId, nowIso());
         }
       }
-      // The final readiness publication is also an account effect. Revalidate after every
-      // asynchronous provider operation so a concurrent update/delete, same-instance re-login,
-      // credential swap, or out-of-order probe cannot overwrite a newer account state.
-      const current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
       markProbeCommitted(current.instanceId, probeSeq);
       return observed(rememberAuthReadiness(current.instanceId, result.readiness), result);
     }

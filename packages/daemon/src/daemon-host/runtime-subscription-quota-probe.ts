@@ -98,7 +98,7 @@ export interface SubscriptionQuotaProbeInput {
   readonly fetchImpl?: typeof fetch;
   readonly resolveGithubToken?: () => Promise<string | null>;
   readonly runKeychainLookup?: KeychainLookupRunner;
-  /** Optional observer receiving a SHA-256 hex digest of an ephemeral/keychain token when no file credential exists. */
+  /** Reports a verified account identity digest independent of OAuth token rotation. */
   readonly onCredentialFingerprint?: (fingerprint: string) => void;
 }
 
@@ -181,17 +181,14 @@ const agyStagedReadOnlyFiles = [
   path.join("antigravity-cli", "settings.json"),
 ] as const;
 
-const codexStagedReadOnlyFiles = ["auth.json", "config.toml"] as const;
-
 /**
- * Stages only the required read-only credential/config files into an ephemeral mode-0700
- * scratch directory so native provider CLIs (`codex app-server`, `agy -p /usage|/quota`)
- * can never proactively refresh or mutate the user's real `auth.json` or AGY home directory.
+ * Isolates native provider CLI file writes in a mode-0700 scratch directory.
  */
 function stageReadOnlyProbeHome(
   kind: "agy" | "codex",
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
+  codexAuth?: Record<string, unknown> | null,
 ): { readonly env: NodeJS.ProcessEnv; readonly cwd: string; readonly close: () => void } {
   const scratch = createHostScratchDirectory("providerProbeHome");
   try {
@@ -214,8 +211,19 @@ function stageReadOnlyProbeHome(
       const realCodexHome = resolveCodexHome(env);
       const stagedCodexHome = path.join(scratch.directory, ".codex");
       if (realCodexHome) {
-        for (const relativePath of codexStagedReadOnlyFiles) {
-          stageFile(path.join(realCodexHome, relativePath), path.join(stagedCodexHome, relativePath));
+        stageFile(path.join(realCodexHome, "config.toml"), path.join(stagedCodexHome, "config.toml"));
+        if (isRecord(codexAuth?.tokens)) {
+          const { access_token, id_token, account_id } = codexAuth.tokens;
+          // Codex requires a string refresh_token even in externally managed auth mode.
+          writeFileDurably(
+            path.join(stagedCodexHome, "auth.json"),
+            JSON.stringify({
+              auth_mode: "chatgptAuthTokens",
+              tokens: { access_token, id_token, account_id, refresh_token: "" },
+              last_refresh: codexAuth.last_refresh,
+            }),
+            0o600,
+          );
         }
       }
       if (platform !== "win32" && existsSync(stagedCodexHome)) chmodSync(stagedCodexHome, 0o700);
@@ -294,7 +302,11 @@ async function probeCodexQuota(
   platform: NodeJS.Platform,
   input: SubscriptionQuotaProbeInput,
 ): Promise<RuntimeSubscriptionQuotaV1 | null> {
-  const observedAt = input.now();
+  const observedAt = input.now(),
+    codexHome = resolveCodexHome(input.env),
+    auth = codexHome ? await readJsonFileReadOnly(path.join(codexHome, "auth.json"), input.signal) : null,
+    tokens = isRecord(auth?.tokens) ? auth.tokens : auth;
+  reportAccountFingerprint(input, nonEmptyString(tokens?.account_id));
   if (input.executablePath) {
     const rpcQuota = await probeCodexAppServerQuota(
       platform,
@@ -303,13 +315,14 @@ async function probeCodexQuota(
       input.signal,
       input.timeoutMs,
       observedAt,
+      auth,
     ).then(
       (quota) => quota,
       () => null,
     );
     if (rpcQuota !== null) return rpcQuota;
   }
-  return probeCodexOAuthQuota(input, observedAt);
+  return codexHome && auth ? probeCodexOAuthQuota(input, observedAt, codexHome, auth) : null;
 }
 
 async function probeCodexAppServerQuota(
@@ -319,8 +332,9 @@ async function probeCodexAppServerQuota(
   signal: AbortSignal,
   timeoutMs: number,
   observedAt: string,
+  auth: Record<string, unknown> | null,
 ): Promise<RuntimeSubscriptionQuotaV1 | null> {
-  const staged = stageReadOnlyProbeHome("codex", env, platform);
+  const staged = stageReadOnlyProbeHome("codex", env, platform, auth);
   try {
     let result: RuntimeSubscriptionQuotaV1 | null = null;
     await runExecutable(platform, executablePath, ["app-server"], {
@@ -351,9 +365,9 @@ async function probeCodexAppServerQuota(
 async function probeCodexOAuthQuota(
   input: SubscriptionQuotaProbeInput,
   observedAt: string,
+  codexHome: string,
+  auth: Record<string, unknown>,
 ): Promise<RuntimeSubscriptionQuotaV1 | null> {
-  const codexHome = resolveCodexHome(input.env);
-  if (!codexHome) return null;
   const configTomlPath = path.join(codexHome, "config.toml");
   const chatgptBaseUrl = existsSync(configTomlPath)
     ? parseCodexChatgptBaseUrl(readFileSync(configTomlPath, "utf8"))
@@ -363,8 +377,6 @@ async function probeCodexOAuthQuota(
   if (chatgptBaseUrl === null && input.hasCustomProviderBaseUrl === true) return null;
   const url = resolveCodexUsageUrl(chatgptBaseUrl);
   if (url === null) return null;
-  const auth = await readJsonFileReadOnly(path.join(codexHome, "auth.json"), input.signal);
-  if (!auth) return null;
   const tokens = isRecord(auth.tokens) ? auth.tokens : null;
   const accessToken = nonEmptyString(tokens?.access_token) ?? nonEmptyString(auth.access_token);
   if (!accessToken) return null;
@@ -393,7 +405,6 @@ async function probeClaudeOAuthQuota(
   const credentials = await readClaudeCredentialsReadOnly(platform, input);
   if (!credentials) return null;
   registerSecretValue(credentials.accessToken);
-  input.onCredentialFingerprint?.(cryptoHash("sha256", Buffer.from(`claude-oauth\0${credentials.accessToken}`), "hex"));
   const payload = await fetchQuotaJson({
     fetchImpl: input.fetchImpl ?? fetch,
     url: CLAUDE_OAUTH_USAGE_URL,
@@ -405,14 +416,26 @@ async function probeClaudeOAuthQuota(
     },
     signal: boundedHttpSignal(input.signal, input.timeoutMs),
     providerLabel: "Claude",
+  }).finally(async () => {
+    const active = await readClaudeCredentialsReadOnly(platform, input);
+    if (!active) throw runtimeInstanceError("runtime_quota_probe_failed", "Claude credentials could not be rechecked.");
+    if (active.accessToken !== credentials.accessToken || active.identity !== credentials.identity)
+      throw runtimeInstanceError("runtime_instance_probe_stale", "Claude credentials changed during the quota probe.");
+    reportAccountFingerprint(input, active.identity);
   });
   return parseClaudeOAuthUsage(payload, credentials.plan, input.now());
 }
 
+type ClaudeQuotaCredentials = {
+  readonly accessToken: string;
+  readonly plan: string | null;
+  readonly identity: string | null;
+};
+
 async function readClaudeCredentialsReadOnly(
   platform: NodeJS.Platform,
   input: SubscriptionQuotaProbeInput,
-): Promise<{ readonly accessToken: string; readonly plan: string | null } | null> {
+): Promise<ClaudeQuotaCredentials | null> {
   const configDir = resolveClaudeConfigDir(input.env);
   if (configDir) {
     const parsed = await readJsonFileReadOnly(path.join(configDir, ".credentials.json"), input.signal);
@@ -424,14 +447,19 @@ async function readClaudeCredentialsReadOnly(
   return readClaudeMacOsKeychainCredentials(platform, input);
 }
 
-function extractClaudeCredentials(
-  parsed: Record<string, unknown>,
-): { readonly accessToken: string; readonly plan: string | null } | null {
+function extractClaudeCredentials(parsed: Record<string, unknown>): ClaudeQuotaCredentials | null {
   const oauth = isRecord(parsed.claudeAiOauth) ? parsed.claudeAiOauth : isRecord(parsed.oauth) ? parsed.oauth : parsed;
   const accessToken = nonEmptyString(oauth.accessToken) ?? nonEmptyString(oauth.access_token);
   if (!accessToken) return null;
   const plan = sanitizeQuotaText(oauth.subscriptionType, 48) ?? sanitizeQuotaText(oauth.rateLimitTier, 48);
-  return { accessToken, plan };
+  const jwtPayload = accessToken.split(".")[1];
+  const claims = jwtPayload ? tryParseJsonObject(Buffer.from(jwtPayload, "base64url").toString("utf8")) : null;
+  const subject = nonEmptyString(oauth.accountUuid) ?? (claims?.ok ? nonEmptyString(claims.value.sub) : null);
+  return {
+    accessToken,
+    plan,
+    identity: subject ? JSON.stringify([subject, nonEmptyString(oauth.organizationUuid)]) : null,
+  };
 }
 
 async function readMacOsKeychainNonInteractive(
@@ -471,7 +499,7 @@ async function readMacOsKeychainNonInteractive(
 async function readClaudeMacOsKeychainCredentials(
   platform: NodeJS.Platform,
   input: SubscriptionQuotaProbeInput,
-): Promise<{ readonly accessToken: string; readonly plan: string | null } | null> {
+): Promise<ClaudeQuotaCredentials | null> {
   const timeoutMs = Math.min(input.timeoutMs, keychainReadTimeoutMs);
   const runner: KeychainLookupRunner =
     input.runKeychainLookup ?? ((request, options) => readMacOsKeychainNonInteractive(platform, request, options));
@@ -510,21 +538,32 @@ async function probeCopilotOAuthQuota(input: SubscriptionQuotaProbeInput): Promi
   const token = await readCopilotTokenReadOnly(input);
   if (!token) return null;
   registerSecretValue(token);
-  const payload = await fetchQuotaJson({
+  const options = {
     fetchImpl: input.fetchImpl ?? fetch,
+    signal: boundedHttpSignal(input.signal, input.timeoutMs),
+    providerLabel: "Copilot",
+  };
+  const authorization = `token ${token}`;
+  const identity = input.onCredentialFingerprint
+    ? fetchQuotaJson({ ...options, url: "https://api.github.com/user", headers: { Authorization: authorization } })
+    : null;
+  const usage = fetchQuotaJson({
+    ...options,
     url: COPILOT_USAGE_URL,
     headers: {
-      Authorization: `token ${token}`,
+      Authorization: authorization,
       Accept: "application/json",
       "Editor-Version": "vscode/1.96.2",
       "Editor-Plugin-Version": "copilot-chat/0.26.7",
       "User-Agent": "harness-anything",
       "X-Github-Api-Version": "2025-04-01",
     },
-    signal: boundedHttpSignal(input.signal, input.timeoutMs),
-    providerLabel: "Copilot",
   });
-  return parseCopilotQuota(payload, input.now());
+  const [account, payload] = await Promise.allSettled([identity, usage]);
+  if (account.status === "fulfilled" && typeof account.value?.id === "number")
+    reportAccountFingerprint(input, String(account.value.id));
+  if (payload.status === "rejected") throw payload.reason;
+  return parseCopilotQuota(payload.value, input.now());
 }
 
 /**
@@ -852,10 +891,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function reportAccountFingerprint(input: SubscriptionQuotaProbeInput, identity: string | null): void {
+  if (identity) input.onCredentialFingerprint?.(`account:${cryptoHash("sha256", identity, "hex")}`);
+}
+
 /**
  * Computes an in-memory SHA-256 fingerprint of an instance's active subscription credential files
  * (and Copilot env tokens) so an async probe started before a credential swap fails closed on commit.
- * Never persists, logs, or returns raw credential bytes.
+ * Used only as an in-flight fence, never as a persisted account identity.
  */
 export function subscriptionCredentialGeneration(
   kindId: RuntimeInstanceKind,
