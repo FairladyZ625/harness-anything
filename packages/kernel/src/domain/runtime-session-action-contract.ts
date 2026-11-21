@@ -78,6 +78,8 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("liveness", "string", true, ["live", "stale", "unknown"]),
     field("processGroupPid", "number", false),
     field("providerUnreachable", "json-object", false),
+    field("controlRequest", "json-object", false),
+    field("controlReceipt", "json-object", false),
   ]),
   runtime_session_cancelled: Object.freeze([runtimeSessionId]),
   runtime_session_exited: Object.freeze([runtimeSessionId]),
@@ -252,11 +254,18 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
-    noChanges =
-      (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
-      current === null &&
-      typeof input.action.dispatchId === "string" &&
-      input.action.dispatchId.length > 0
+    // A late Edge steer controlReceipt arriving after Center already recorded session exit
+    // must settle as no_changes instead of appending a liveness event to an exited session.
+    const lateControlReceiptOnExited =
+      event.type === "runtime_session_liveness_changed" &&
+      event.payload.controlReceipt !== undefined &&
+      (current === null || current.liveness === "exited");
+    noChanges = lateControlReceiptOnExited
+      ? true
+      : (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+          current === null &&
+          typeof input.action.dispatchId === "string" &&
+          input.action.dispatchId.length > 0
         ? false
         : reduceRuntimeSession(current, event) === current;
   } catch (error) {

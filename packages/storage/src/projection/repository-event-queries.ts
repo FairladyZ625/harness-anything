@@ -189,6 +189,15 @@ const RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL = [
   "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
 ].join(" ");
+const RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE workspace_revision > ?",
+  "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+  "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
+  `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
+  "ORDER BY workspace_revision LIMIT ?",
+].join(" ");
 const SCHEDULE_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
@@ -643,9 +652,13 @@ export function repositoryEventQueries(
     readRuntimeSessionEventsByType: (runtimeSessionIdValue, types, options) =>
       withRead((db) => {
         const requested = assertRuntimeEventTypes(types),
+          afterRevision = options?.afterRevision,
           maxRevision = options?.maxRevision,
-          limit = options?.limit,
+          windowed = afterRevision !== undefined || options?.limit !== undefined,
+          limit = windowed ? (options?.limit ?? 500) : options?.limit,
           order = options?.order ?? "asc";
+        if (afterRevision !== undefined && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
+          throw new Error("runtime session event read afterRevision must be a non-negative safe integer");
         if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
           throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
         if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
@@ -654,6 +667,10 @@ export function repositoryEventQueries(
           throw new Error("runtime session event read order must be asc or desc");
         const args: (string | number)[] = [runtimeSessionIdValue, JSON.stringify(requested)],
           clauses = [RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL];
+        if (afterRevision !== undefined) {
+          clauses.push("AND workspace_revision > ?");
+          args.push(afterRevision);
+        }
         if (maxRevision !== undefined) {
           clauses.push("AND workspace_revision <= ?");
           args.push(maxRevision);

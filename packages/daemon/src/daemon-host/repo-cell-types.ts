@@ -162,6 +162,8 @@ export interface RepoCellAutoClaimAssignment {
 
 export interface RepoCellBinding {
   readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
+  /** Center-local proof that a remote control request originated from the authorized Center control path. */
+  readonly trustedRemoteControl?: true;
   /** Git candidate names observed before entering the local document write turn. */
   readonly observedDocGitPaths?: readonly string[] | null;
   /** Worker-local session lifetime; stripped at every transport/persistence boundary. */

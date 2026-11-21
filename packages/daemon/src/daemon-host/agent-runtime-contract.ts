@@ -185,6 +185,17 @@ export interface AgentRuntimeSessionContextDto {
   readonly usedTokens: number;
   readonly windowTokens: number;
 }
+export interface AgentRuntimeControlReceiptDto {
+  readonly action: "steer";
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly status: "applied" | "rejected";
+  readonly dispatchId?: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
+  readonly occurredAt: string;
+}
 export interface AgentRuntimeSessionDto {
   /** Absent only on previous-version peers; remove optionality 2026-12-07. */
   readonly lifecycle?: DispatchLifecycleSummary;
@@ -220,6 +231,7 @@ export interface AgentRuntimeSessionDto {
   readonly streamCursor: string | null;
   readonly associations: readonly AgentRuntimeAssociationDto[];
   readonly attemptChain?: AgentRuntimeAttemptChainDto;
+  readonly controlReceipts?: readonly AgentRuntimeControlReceiptDto[];
   readonly activity: {
     readonly lastObservedAt: string;
     readonly outcome: DispatchAttemptOutcome | null;
@@ -646,6 +658,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
         "effectivePermissionMode",
         "requestedPermissionMode",
         "permissionModeSource",
+        "controlReceipts",
       ],
     ) &&
     typeof value.runtimeSessionId === "string" &&
@@ -676,6 +689,8 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     Array.isArray(value.associations) &&
     value.associations.every(validAssociation) &&
     (value.attemptChain === undefined || validAgentRuntimeAttemptChain(value.attemptChain)) &&
+    (value.controlReceipts === undefined ||
+      (Array.isArray(value.controlReceipts) && value.controlReceipts.every(validControlReceipt))) &&
     isAgentRuntimeContractRecord(value.activity) &&
     hasAgentRuntimeContractFields(
       value.activity,
@@ -694,6 +709,30 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0)) &&
     (value.activity.cancelledBy === undefined || validCancellationActor(value.activity.cancelledBy)) &&
     (value.activity.providerUnreachable === undefined || validProviderUnreachable(value.activity.providerUnreachable))
+  );
+}
+
+function validControlReceipt(value: unknown): value is AgentRuntimeControlReceiptDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["action", "controlRequestId", "requestOpId", "status", "occurredAt"],
+      ["dispatchId", "steerVersion", "reasonCode", "message"],
+    ) &&
+    value.action === "steer" &&
+    typeof value.controlRequestId === "string" &&
+    value.controlRequestId.length > 0 &&
+    typeof value.requestOpId === "string" &&
+    value.requestOpId.length > 0 &&
+    (value.status === "applied" || value.status === "rejected") &&
+    typeof value.occurredAt === "string" &&
+    value.occurredAt.length > 0 &&
+    (value.dispatchId === undefined || (typeof value.dispatchId === "string" && value.dispatchId.length > 0)) &&
+    (value.steerVersion === undefined ||
+      (Number.isSafeInteger(value.steerVersion) && Number(value.steerVersion) >= 0)) &&
+    (value.reasonCode === undefined || (typeof value.reasonCode === "string" && value.reasonCode.length > 0)) &&
+    (value.message === undefined || (typeof value.message === "string" && value.message.length > 0))
   );
 }
 

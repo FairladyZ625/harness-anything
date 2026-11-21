@@ -115,12 +115,18 @@ export function makeAgentRuntimeReadModel(input: {
       providerUnreachable = lifecycle.policy?.processAlive ? (session.providerUnreachable ?? null) : null,
       sessionEvents = input.projection.readRuntimeSessionEventsByType(session.runtimeSessionId, [
         "runtime_session_started",
+        "runtime_session_liveness_changed",
         "runtime_session_outcome_observed",
       ]),
       startedEvent = sessionEvents.findLast((event) => event.type === "runtime_session_started"),
       outcome = sessionEvents.findLast(
         (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
           event.type === "runtime_session_outcome_observed",
+      ),
+      controlReceipts = sessionEvents.flatMap((event) =>
+        event.type === "runtime_session_liveness_changed" && event.payload.controlReceipt
+          ? [{ ...event.payload.controlReceipt, occurredAt: event.occurredAt }]
+          : [],
       ),
       metrics = outcome?.payload.runtimeMetrics,
       occupancy =
@@ -184,6 +190,7 @@ export function makeAgentRuntimeReadModel(input: {
         };
       }),
       ...(attemptChain ? { attemptChain } : {}),
+      ...(controlReceipts.length > 0 ? { controlReceipts } : {}),
       activity: {
         lastObservedAt: observedSession.lastObservedAt,
         outcome: observedSession.outcome,

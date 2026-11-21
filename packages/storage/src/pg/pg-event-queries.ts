@@ -162,32 +162,42 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       async (client) => {
         const requested = assertRuntimeEventTypes(types),
           maxRevision = queryOptions?.maxRevision,
-          limit = queryOptions?.limit,
+          afterRevision = queryOptions?.afterRevision,
+          windowed = afterRevision !== undefined || queryOptions?.limit !== undefined,
+          limit = windowed ? (queryOptions?.limit ?? 500) : queryOptions?.limit,
           order = queryOptions?.order ?? "asc";
         if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
           throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
+        if (afterRevision !== undefined && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
+          throw new Error("runtime session event read afterRevision must be a non-negative safe integer");
         if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime session event read limit must be between 1 and 500");
         if (order !== "asc" && order !== "desc")
           throw new Error("runtime session event read order must be asc or desc");
-        const predicate =
-            maxRevision === undefined
-              ? "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])"
-              : "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[]) AND revision <= $9::bigint",
-          predicateValues =
-            maxRevision === undefined
-              ? [runtimeSessionId, requested, privateRuntimeEventTypes]
-              : [runtimeSessionId, requested, privateRuntimeEventTypes, maxRevision],
-          rows = await readEventRowsInTransaction(
-            client,
-            claims,
-            readers,
-            repoId,
-            predicate,
-            predicateValues,
-            order === "desc" ? "DESC" : "ASC",
-            limit,
-          );
+        const predicates = [
+            "runtime_session_id = $6",
+            "event_type = ANY($7::text[])",
+            "event_type <> ALL($8::text[])",
+          ],
+          predicateValues: unknown[] = [runtimeSessionId, requested, privateRuntimeEventTypes];
+        if (maxRevision !== undefined) {
+          predicates.push(`revision <= $${6 + predicateValues.length}::bigint`);
+          predicateValues.push(maxRevision);
+        }
+        if (afterRevision !== undefined) {
+          predicates.push(`revision > $${6 + predicateValues.length}::bigint`);
+          predicateValues.push(afterRevision);
+        }
+        const rows = await readEventRowsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          predicates.join(" AND "),
+          predicateValues,
+          order === "desc" ? "DESC" : "ASC",
+          limit,
+        );
         return rows
           .map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))

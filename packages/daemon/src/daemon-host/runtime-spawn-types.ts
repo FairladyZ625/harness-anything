@@ -46,6 +46,15 @@ import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts"
 import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
+export interface RuntimeSteerOutcome {
+  readonly status: "applied" | "rejected";
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
+}
+
 export interface RuntimeProcess {
   readonly pid: number;
   readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
@@ -54,6 +63,8 @@ export interface RuntimeProcess {
   readonly onExit: (
     listener: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => void,
   ) => void;
+  /** Fires when the worker host appends a correlated remote steer outcome (`steer_resumed` / `steer_dropped`). */
+  readonly onSteerOutcome?: (listener: (outcome: RuntimeSteerOutcome) => void) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
   /** Live descendants of this runtime's root process, excluding the root itself. The probe
@@ -95,6 +106,8 @@ export interface RuntimeCallbackRelay {
 export type RuntimeBinding = {
   /** Center-local proof from the current writer turn. Never carried by dispatch or RPC. */
   readonly orphanRecovery?: { readonly dispatchId: string; readonly audit: OrphanRuntimeRecoveryAudit };
+  /** Center-local proof that a remote control request originated from the authorized Center control path. */
+  readonly trustedRemoteControl?: true;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;

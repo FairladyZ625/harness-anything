@@ -190,6 +190,47 @@ export interface RuntimeProviderUnreachable {
   readonly lastError: string;
 }
 
+export interface RuntimeSteerRequestedExpected {
+  readonly repoId?: string;
+  readonly taskless?: true;
+  readonly taskId?: string;
+  readonly executionId?: string;
+  readonly dispatchId?: string;
+  readonly version?: number;
+}
+
+/**
+ * Expand-contract Step-1 (dec_659E15CF, expiry 2027-02-06): carried on `runtime_session_liveness_changed`
+ * during the N/N-1 compatibility window so previous-version Edge nodes can hydrate PG seeds and replay WAL.
+ */
+export type RuntimeControlRequest =
+  | {
+      readonly action: "cancel";
+      readonly controlRequestId: string;
+      readonly targetNodeId: string;
+      readonly reason?: string;
+    }
+  | {
+      readonly action: "steer";
+      readonly controlRequestId: string;
+      readonly targetNodeId: string;
+      readonly dispatchId: string;
+      readonly prompt: string;
+      readonly expected?: RuntimeSteerRequestedExpected;
+    };
+
+/** Correlated Edge->Center execution/rejection receipt for a remote runtime steer request. */
+export interface RuntimeControlReceipt {
+  readonly action: "steer";
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly status: "applied" | "rejected";
+  readonly dispatchId?: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
+}
+
 export interface RuntimeSession {
   readonly runtimeSessionId: string;
   readonly instanceId: string;
@@ -452,6 +493,8 @@ interface RuntimePayloads {
     readonly processGroupPid?: number;
     /** `null` clears a previously reported connection fault once real progress resumes. */
     readonly providerUnreachable?: RuntimeProviderUnreachable | null;
+    readonly controlRequest?: RuntimeControlRequest;
+    readonly controlReceipt?: RuntimeControlReceipt;
   };
   readonly runtime_session_cancelled: { readonly runtimeSessionId: string };
   readonly runtime_session_exited: { readonly runtimeSessionId: string };
@@ -511,14 +554,7 @@ interface RuntimePayloads {
     readonly controlRequestId: string;
     readonly targetNodeId: string;
     readonly prompt: string;
-    readonly expected?: {
-      readonly repoId?: string;
-      readonly taskless?: true;
-      readonly taskId?: string;
-      readonly executionId?: string;
-      readonly dispatchId?: string;
-      readonly version?: number;
-    };
+    readonly expected?: RuntimeSteerRequestedExpected;
   };
 }
 export interface RuntimeDispatchMetrics {
@@ -632,7 +668,7 @@ function validateAgentRuntimePayloadFields(
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
-          ? ["processGroupPid", "providerUnreachable"]
+          ? ["processGroupPid", "providerUnreachable", "controlRequest", "controlReceipt"]
           : type === "runtime_cancel_requested"
             ? ["reason"]
             : type === "runtime_steer_requested"
@@ -765,6 +801,24 @@ function validateAgentRuntimePayloadFields(
     !validRuntimeProviderUnreachable(value.providerUnreachable)
   )
     return ["runtime provider connectivity evidence is invalid"];
+  if (
+    type === "runtime_session_liveness_changed" &&
+    value.controlRequest !== undefined &&
+    value.controlReceipt !== undefined
+  )
+    return ["runtime control metadata is invalid"];
+  if (
+    type === "runtime_session_liveness_changed" &&
+    value.controlRequest !== undefined &&
+    !validRuntimeControlRequest(value.controlRequest, allowUnknownFields)
+  )
+    return ["runtime control request payload is invalid"];
+  if (
+    type === "runtime_session_liveness_changed" &&
+    value.controlReceipt !== undefined &&
+    !validRuntimeControlReceipt(value.controlReceipt, allowUnknownFields)
+  )
+    return ["runtime control receipt payload is invalid"];
   if (
     type === "runtime_session_outcome_observed" &&
     (!["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) ||
@@ -1279,6 +1333,52 @@ export function resolveScheduledPermissionMode(input: {
 }
 export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
   return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
+}
+function validRuntimeControlRequest(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!isRecord(value)) return false;
+  if (value.action === "cancel") {
+    const required = ["action", "controlRequestId", "targetNodeId"],
+      allowed = [...required, "reason"];
+    if (!hasRequiredFields(value, required)) return false;
+    if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
+    return (
+      isNonEmptyString(value.controlRequestId) &&
+      isNonEmptyString(value.targetNodeId) &&
+      (value.reason === undefined || isNonEmptyString(value.reason))
+    );
+  }
+  if (value.action === "steer") {
+    const required = ["action", "controlRequestId", "targetNodeId", "dispatchId", "prompt"],
+      allowed = [...required, "expected"];
+    if (!hasRequiredFields(value, required)) return false;
+    if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
+    return (
+      isNonEmptyString(value.controlRequestId) &&
+      isNonEmptyString(value.targetNodeId) &&
+      isNonEmptyString(value.dispatchId) &&
+      isNonEmptyString(value.prompt) &&
+      (value.expected === undefined || validRuntimeSteerRequestedExpected(value.expected, allowUnknownFields))
+    );
+  }
+  return false;
+}
+function validRuntimeControlReceipt(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!isRecord(value)) return false;
+  const required = ["action", "controlRequestId", "requestOpId", "status"],
+    allowed = [...required, "dispatchId", "steerVersion", "reasonCode", "message"];
+  if (!hasRequiredFields(value, required)) return false;
+  if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
+  return (
+    value.action === "steer" &&
+    isNonEmptyString(value.controlRequestId) &&
+    isNonEmptyString(value.requestOpId) &&
+    (value.status === "applied" || value.status === "rejected") &&
+    (value.dispatchId === undefined || isNonEmptyString(value.dispatchId)) &&
+    (value.steerVersion === undefined ||
+      (Number.isSafeInteger(value.steerVersion) && Number(value.steerVersion) >= 0)) &&
+    (value.reasonCode === undefined || isNonEmptyString(value.reasonCode)) &&
+    (value.message === undefined || isNonEmptyString(value.message))
+  );
 }
 function validRuntimeSteerRequestedExpected(value: unknown, allowUnknownFields: boolean): boolean {
   if (!isRecord(value)) return false;

@@ -320,11 +320,15 @@ export interface TaskProjection {
   readonly readRuntimeSessionEventsByType: (
     runtimeSessionIdValue: string,
     types: readonly AgentRuntimeEventType[],
+<<<<<<< HEAD
     options?: {
       readonly maxRevision?: number;
       readonly limit?: number;
       readonly order?: "asc" | "desc";
     },
+=======
+    options?: { readonly afterRevision?: number; readonly limit?: number },
+>>>>>>> ef08450638 (fix(fleet): converge remote runtime control loop (F2-F8))
   ) => readonly AgentRuntimeEventV1[];
   readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
   readonly readEventList: (query: EventListQuery) => EventListPage;

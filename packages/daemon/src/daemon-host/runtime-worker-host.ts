@@ -162,7 +162,11 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       dispatch !== null && dispatch.taskId !== null && dispatch.squadId === undefined && dispatch.role !== "read-only";
   // The control channel is the dispatch stream, not this process's stdin: the daemon that
   // steers may be a successor that adopted the host after a restart and has no pipe to it.
-  const control = { handler: null as ((prompt: string) => void) | null },
+  const control = {
+      handler: null as
+        | ((prompt: string, meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta) => void)
+        | null,
+    },
     // The host writes provider frames before any daemon reads them, so it is the only writer that
     // can stamp a reconnect with the provider-progress clock at creation time. The stamp is stable
     // across a failure run: only a non-reconnect frame advances it.
@@ -175,13 +179,22 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       occurredAt: new Date().toISOString(),
       ...value,
     });
-  const steerTail = tailRuntimeSteerCommands(stream, (prompt) => {
-    if (control.handler) control.handler(prompt);
+  const steerMetaFields = (meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta) =>
+    meta
+      ? {
+          ...(meta.controlRequestId ? { controlRequestId: meta.controlRequestId } : {}),
+          ...(meta.requestOpId ? { requestOpId: meta.requestOpId } : {}),
+          ...(meta.version !== undefined ? { version: meta.version } : {}),
+        }
+      : {};
+  const steerTail = tailRuntimeSteerCommands(stream, (prompt, meta) => {
+    if (control.handler) control.handler(prompt, meta);
     else
       append({
         kind: "steer_dropped",
         reason: "the provider session is not established yet",
         prompt,
+        ...steerMetaFields(meta),
       });
   });
   const relay = manifest.callbackRelay
@@ -199,6 +212,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
   let child: ReturnType<typeof spawn> | undefined,
     providerSessionId = manifest.providerSessionId ?? null,
     queuedPrompt: string | null = null,
+    queuedSteerMeta: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta | undefined,
     interruptTimer: NodeJS.Timeout | undefined;
   const activeTools = new Set<string>();
   // Continuations already granted to this dispatch: the bound is the dispatch's, not a process's.
@@ -211,7 +225,15 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     commandWorkObserved = false;
   process.once("SIGTERM", () => {
     terminationRequested = true;
+    if (queuedPrompt !== null && queuedSteerMeta?.controlRequestId)
+      append({
+        kind: "steer_dropped",
+        reason: "runtime was terminated before applying steer",
+        prompt: queuedPrompt,
+        ...steerMetaFields(queuedSteerMeta),
+      });
     queuedPrompt = null;
+    queuedSteerMeta = undefined;
     clearTimeout(interruptTimer);
     if (!settled) child?.kill("SIGTERM");
   });
@@ -243,12 +265,24 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         child.kill("SIGINT");
       }
     };
-    control.handler = (nextPrompt) => {
+    control.handler = (nextPrompt, meta) => {
       if (!declaration?.steer) {
-        append({ kind: "steer_dropped", reason: `${manifest.kindId ?? "this runtime"} declares no steer strategy` });
+        append({
+          kind: "steer_dropped",
+          reason: `${manifest.kindId ?? "this runtime"} declares no steer strategy`,
+          ...steerMetaFields(meta),
+        });
         return;
       }
+      if (queuedPrompt !== null && queuedSteerMeta?.controlRequestId)
+        append({
+          kind: "steer_dropped",
+          reason: "superseded by a newer steer request before resume",
+          prompt: queuedPrompt,
+          ...steerMetaFields(queuedSteerMeta),
+        });
       queuedPrompt = nextPrompt;
+      queuedSteerMeta = meta;
       if (activeTools.size === 0) interrupt();
       else if (!interruptTimer)
         interruptTimer = setTimeout(() => {
@@ -363,18 +397,47 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         providerSessionId
       ) {
         const resumed = continuationArgs(append, steer.resumeArgs, baseArgs, providerSessionId);
-        if (resumed === null) continuationRefused = true;
-        else {
+        if (resumed === null) {
+          if (queuedSteerMeta?.controlRequestId)
+            append({
+              kind: "steer_dropped",
+              reason: "failed to construct provider resume arguments",
+              prompt: queuedPrompt,
+              ...steerMetaFields(queuedSteerMeta),
+            });
+          queuedPrompt = null;
+          queuedSteerMeta = undefined;
+          continuationRefused = true;
+        } else {
           clearTimeout(interruptTimer);
           interruptTimer = undefined;
           args = [...resumed];
           prompt = queuedPrompt;
+          const appliedMeta = queuedSteerMeta;
           queuedPrompt = null;
+          queuedSteerMeta = undefined;
           activeTools.clear();
           interrupted = false;
-          append({ kind: "steer_resumed", providerSessionId, occurredAt: new Date().toISOString() });
+          append({
+            kind: "steer_resumed",
+            providerSessionId,
+            occurredAt: new Date().toISOString(),
+            ...steerMetaFields(appliedMeta),
+          });
           continue;
         }
+      }
+      if (queuedPrompt !== null && !terminationRequested) {
+        append({
+          kind: "steer_dropped",
+          reason: providerSessionId
+            ? "runtime could not apply steer after provider exit"
+            : "the provider session is not established yet",
+          prompt: queuedPrompt,
+          ...steerMetaFields(queuedSteerMeta),
+        });
+        queuedPrompt = null;
+        queuedSteerMeta = undefined;
       }
       if (
         !terminationRequested &&
