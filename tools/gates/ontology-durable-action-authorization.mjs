@@ -23,6 +23,7 @@ import {
   partitionAuthorizationSources,
 } from "./authorization-audit-shards.mjs";
 import {
+  AUTHORIZATION_CI_SHARD_COUNT,
   authorizationCiRun,
   readAuthorizationShards,
   serializeAuthorizationShard,
@@ -881,22 +882,16 @@ function auditAuthorization(rootDir, inputs, options) {
 }
 
 const SHARD_WORKER_MEMORY_BUDGET_BYTES = 6 * 1024 ** 3;
-const DEFAULT_SHARD_COUNT = 4;
 
 export function shardWorkerCount(
   parallelism = availableParallelism(),
   memoryBytes = Math.min(totalmem(), process.constrainedMemory() || Infinity),
   concurrencyCap = authorizationAuditConcurrencyLimit(),
 ) {
-  return Math.max(
-    1,
-    Math.min(
-      DEFAULT_SHARD_COUNT,
-      parallelism,
-      Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES),
-      concurrencyCap ?? Infinity,
-    ),
-  );
+  const memorySlots = Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES);
+  // Expand beyond four workers only when the shared checker has a memory slot of its own.
+  const maximumWorkers = memorySlots >= 7 ? 6 : 4;
+  return Math.max(1, Math.min(maximumWorkers, parallelism, memorySlots, concurrencyCap ?? Infinity));
 }
 
 export function authorizationAuditConcurrencyLimit(env = process.env) {
@@ -920,9 +915,6 @@ export async function auditAuthorizationPart(rootDir, inputs, changedFiles, opti
   const { sourceRoot, only, partition, shardCount, concurrency: requestedConcurrency } = options,
     workerBudget = shardWorkerCount(),
     slots = Math.max(1, Math.min(workerBudget, requestedConcurrency ?? workerBudget)),
-    count = shardCount ?? slots,
-    concurrency = Math.max(1, Math.min(count, slots)),
-    shards = new Array(count),
     today = options.today ?? new Date().toISOString().slice(0, 10);
   const { graph, scope, witnesses } = auditAuthorization(rootDir, inputs, {
     sourceRoot,
@@ -930,6 +922,12 @@ export async function auditAuthorizationPart(rootDir, inputs, changedFiles, opti
     changedFiles,
     prepareOnly: true,
   });
+  // A full local proof uses fixed partitions so workers can release their per-route caches
+  // before processing the entire inventory. CI has already partitioned that inventory.
+  const wholeInventory = scope.descriptorIds === null && only === undefined && partition === undefined;
+  const count = shardCount ?? (wholeInventory ? AUTHORIZATION_CI_SHARD_COUNT : slots);
+  const concurrency = Math.max(1, Math.min(count, slots));
+  const shards = new Array(count);
   const owner = shareAuthorizationTypes(graph, transportEntries(serverSourceGraph(graph)), witnesses);
   const groupQueue = new Int32Array(new SharedArrayBuffer(8));
   let failed = false;

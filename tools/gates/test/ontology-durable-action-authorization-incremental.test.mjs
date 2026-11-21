@@ -58,6 +58,9 @@ test("authorization admission is bounded by the runner CPU and memory budgets", 
   assert.equal(shardWorkerCount(4, 15.625 * gib), 2);
   assert.equal(shardWorkerCount(2, 24 * gib), 2);
   assert.equal(shardWorkerCount(8, 24 * gib), 4);
+  assert.equal(shardWorkerCount(8, 36 * gib), 4);
+  assert.equal(shardWorkerCount(8, 44 * gib), 6);
+  assert.equal(shardWorkerCount(8, 44 * gib, 2), 2);
   assert.equal(shardWorkerCount(4, 4 * gib), 1);
   assert.equal(shardWorkerCount(8, 24 * gib, 1), 1);
   assert.equal(authorizationAuditConcurrencyLimit({ HARNESS_AUTH_AUDIT_CONCURRENCY: "2" }), 2);

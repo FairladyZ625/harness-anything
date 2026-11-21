@@ -10,7 +10,6 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { readTestQuarantine } from "./test-quarantine.mjs";
@@ -455,7 +454,7 @@ export function runCommandAsync(
   label,
   command,
   failureHint = null,
-  { cwd = repoRoot, githubGroups = false, input, env = process.env } = {},
+  { cwd = repoRoot, githubGroups = false, input } = {},
 ) {
   return new Promise((resolve) => {
     const started = Date.now();
@@ -491,7 +490,7 @@ export function runCommandAsync(
     try {
       child = spawn(command, {
         cwd,
-        env,
+        env: process.env,
         shell: true,
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       });
@@ -523,14 +522,7 @@ export function runCommandAsync(
 
 const runManifestGate = (entry) => runCommand(entry.id, entry.command, entry.failureHint, { input: entry.input });
 const runManifestGateAsync = (entry, githubGroups = false) =>
-  runCommandAsync(entry.id, entry.command, entry.failureHint, {
-    githubGroups,
-    input: entry.input,
-    env:
-      entry.authorizationAuditConcurrency === undefined
-        ? process.env
-        : { ...process.env, HARNESS_AUTH_AUDIT_CONCURRENCY: String(entry.authorizationAuditConcurrency) },
-  });
+  runCommandAsync(entry.id, entry.command, entry.failureHint, { githubGroups, input: entry.input });
 
 /**
  * Run every gate in the plan and decide the aggregate verdict only at the end.
@@ -565,43 +557,30 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
 /**
  * Run a workflow job's gates with a bounded worker pool, then report every failure.
  *
- * The first submitted gate starts immediately; a worker takes the next gate when its current one
- * finishes. Results stay in plan order so a caller's failure list is stable across concurrency.
+ * The authorization proof starts after the pool drains so its own workers get the runner's CPU
+ * budget even when an incremental request falls back to full scope. Results stay in plan order
+ * so a caller's failure list is stable across concurrency.
  * Independent gates only: callers keep gates that write the same tree (typecheck) out of the pool.
  *
  * @param {any[]} plan
  * @param {{ execute?: typeof runManifestGateAsync, concurrency?: number, githubGroups?: boolean }} [options]
  */
-export function authorizationGateConcurrencyForPool(cpuCount = availableParallelism(), gateConcurrency = 1) {
-  const unclaimedCpus = Math.floor(cpuCount) - Math.max(1, Math.floor(gateConcurrency));
-  return Math.max(1, Math.min(4, unclaimedCpus));
-}
-
-export async function runManifestGatePlanParallel(
-  plan,
-  { execute, concurrency = 1, cpuCount = availableParallelism(), githubGroups = false } = {},
-) {
+export async function runManifestGatePlanParallel(plan, { execute, concurrency = 1, githubGroups = false } = {}) {
   const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
-  const authorizationEntry = plan.find((entry) => entry.id === "ontology-durable-action-authorization");
-  const requestedWorkers = Math.min(Math.max(1, Math.floor(concurrency)), plan.length);
-  const workerBudget = authorizationEntry ? Math.max(1, Math.floor(cpuCount) - 1) : requestedWorkers;
-  const workerCount = Math.min(requestedWorkers, workerBudget);
-  if (authorizationEntry) {
-    const inheritedCap = process.env.HARNESS_AUTH_AUDIT_CONCURRENCY;
-    const poolCap = authorizationGateConcurrencyForPool(cpuCount, workerCount);
-    const concurrencyCap = inheritedCap === undefined ? poolCap : Math.min(Number(inheritedCap), poolCap);
-    plan = plan.map((entry) =>
-      entry.id === authorizationEntry.id ? { ...entry, authorizationAuditConcurrency: concurrencyCap } : entry,
-    );
+  const ordinaryIndices = [];
+  const authorizationIndices = [];
+  for (const [index, entry] of plan.entries()) {
+    const indices = entry.id === "ontology-durable-action-authorization" ? authorizationIndices : ordinaryIndices;
+    indices.push(index);
   }
+  const order = [...ordinaryIndices, ...authorizationIndices];
+  const workerCount = Math.min(Math.max(1, concurrency), ordinaryIndices.length);
   const results = new Array(plan.length);
   let nextIndex = 0;
 
-  async function worker() {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= plan.length) return;
+  async function worker(endIndex) {
+    while (nextIndex < endIndex) {
+      const index = order[nextIndex++];
       const entry = plan[index];
       try {
         results[index] = { id: entry.id, ...(await run(entry)) };
@@ -612,7 +591,8 @@ export async function runManifestGatePlanParallel(
     }
   }
 
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(Array.from({ length: workerCount }, () => worker(ordinaryIndices.length)));
+  await worker(order.length);
   const completed = results.filter(Boolean);
   return {
     results: completed,

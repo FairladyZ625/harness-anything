@@ -7,7 +7,6 @@ import path from "node:path";
 import test from "node:test";
 import { commitAll, makeRepo, runGit, writeRepoFile } from "./gates/test/helpers.mjs";
 import {
-  authorizationGateConcurrencyForPool,
   buildManifestGatePlan,
   commandForPlatformShell,
   parseManifestGateArgs,
@@ -254,105 +253,51 @@ test("manifest gate runner keeps a bounded pool and reports every failure in pla
   assert.equal(maxActive, 2);
 });
 
-test("parallel gate pool budgets authorization workers against active gate concurrency", async () => {
-  const captured = [];
-  const active = new Set();
-  let authorizationOverlapped = false;
-  let maxActive = 0;
-  const plan = [
-    { id: "gate-before" },
-    { id: "ontology-durable-action-authorization" },
-    ...Array.from({ length: 5 }, (_, index) => ({ id: `gate-${index}` })),
-  ];
-  const result = await runManifestGatePlanParallel(plan, {
+test("parallel gate pool drains before an incremental authorization request can fall back to full proof", async () => {
+  const authorization = { id: "ontology-durable-action-authorization", input: '["tools/run-manifest-gates.mjs"]' };
+  const ordinary = Array.from({ length: 6 }, (_, index) => ({ id: `gate-${index}` }));
+  const started = [];
+  const releases = [];
+  const plan = [authorization, ...ordinary];
+  const resultPromise = runManifestGatePlanParallel(plan, {
     concurrency: 6,
-    cpuCount: 8,
-    execute: async (entry) => {
-      if (entry.id === "ontology-durable-action-authorization" && active.size > 0) {
-        authorizationOverlapped = true;
-      }
-      if (active.has("ontology-durable-action-authorization")) authorizationOverlapped = true;
-      active.add(entry.id);
-      maxActive = Math.max(maxActive, active.size);
-      captured.push(entry);
-      await new Promise((resolve) => setImmediate(resolve));
-      active.delete(entry.id);
-      return { ok: true };
+    execute: (entry) => {
+      started.push(entry);
+      if (entry === authorization) return Promise.resolve({ ok: false, durationMs: 0 });
+      return new Promise((resolve) => {
+        releases.push(() => resolve({ ok: entry !== ordinary[0], durationMs: 0 }));
+      });
     },
   });
 
-  assert.deepEqual(result.failedGateIds, []);
-  assert.equal(authorizationGateConcurrencyForPool(8), 4);
-  assert.equal(authorizationGateConcurrencyForPool(8, 6), 2);
-  assert.equal(authorizationGateConcurrencyForPool(2, 6), 1);
-  assert.equal(
-    captured.find((entry) => entry.id === "ontology-durable-action-authorization").authorizationAuditConcurrency,
-    2,
+  assert.deepEqual(started, ordinary, "ordinary gates use every configured pool slot");
+  for (const release of releases.slice(0, -1)) release();
+  await Promise.resolve();
+  assert.deepEqual(started, ordinary, "authorization waits for the last ordinary gate");
+  releases.at(-1)();
+
+  const result = await resultPromise;
+  assert.deepEqual(started, [...ordinary, authorization], "the authorization request is forwarded intact");
+  assert.deepEqual(
+    result.results.map(({ id }) => id),
+    plan.map(({ id }) => id),
   );
-  assert.equal(captured.find((entry) => entry.id === "gate-before").authorizationAuditConcurrency, undefined);
-  assert.equal(authorizationOverlapped, true);
-  assert.equal(maxActive, 6);
+  assert.deepEqual(result.failedGateIds, [authorization.id, ordinary[0].id]);
 });
 
-test("parallel gate pool reserves one CPU for authorization on small runners", async () => {
-  const captured = [];
-  let active = 0;
-  let maxActive = 0;
-  const result = await runManifestGatePlanParallel(
-    [
-      { id: "ontology-durable-action-authorization" },
-      ...Array.from({ length: 5 }, (_, index) => ({ id: `gate-${index}` })),
-    ],
-    {
-      concurrency: 6,
-      cpuCount: 2,
-      execute: async (entry) => {
-        active += 1;
-        maxActive = Math.max(maxActive, active);
-        captured.push(entry);
-        await new Promise((resolve) => setImmediate(resolve));
-        active -= 1;
-        return { ok: true };
-      },
+test("parallel gate pool runs an authorization-only plan with the gate's own worker budget", async () => {
+  const entry = { id: "ontology-durable-action-authorization" };
+  const started = [];
+  const result = await runManifestGatePlanParallel([entry], {
+    concurrency: 6,
+    execute: (gate) => {
+      started.push(gate);
+      return Promise.resolve({ ok: true, durationMs: 0 });
     },
-  );
+  });
 
+  assert.deepEqual(started, [entry]);
   assert.deepEqual(result.failedGateIds, []);
-  assert.equal(maxActive, 1);
-  assert.equal(
-    captured.find((entry) => entry.id === "ontology-durable-action-authorization").authorizationAuditConcurrency,
-    1,
-  );
-});
-
-test("parallel gate pool exposes the auth cap only to the authorization child", async () => {
-  const variable = "HARNESS_AUTH_AUDIT_CONCURRENCY";
-  const previous = process.env[variable];
-  const output = [];
-  const originalLog = console.log;
-  const originalError = console.error;
-  delete process.env[variable];
-  console.log = (...args) => output.push(args.join(" "));
-  console.error = (...args) => output.push(args.join(" "));
-  const command = `node -e "process.stdout.write('GATE_CAP=' + (process.env.${variable} || 'unset'))"`;
-  try {
-    const result = await runManifestGatePlanParallel(
-      [
-        { id: "ontology-durable-action-authorization", command },
-        ...Array.from({ length: 5 }, (_, index) => ({ id: `other-${index}`, command })),
-      ],
-      { concurrency: 6, cpuCount: 8 },
-    );
-    assert.deepEqual(result.failedGateIds, []);
-  } finally {
-    console.log = originalLog;
-    console.error = originalError;
-    if (previous === undefined) delete process.env[variable];
-    else process.env[variable] = previous;
-  }
-
-  assert.equal(output.filter((line) => line === "GATE_CAP=2").length, 1, output.join("\n"));
-  assert.equal(output.filter((line) => line === "GATE_CAP=unset").length, 5, output.join("\n"));
 });
 
 test("manifest gate runner appends shard args only to shardable gates", () => {
