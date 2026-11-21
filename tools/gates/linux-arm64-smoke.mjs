@@ -21,7 +21,6 @@ import { verifyTarballArchive } from "../check-package-tarball-exports.mjs";
 import { lastReceipt, smokeIdentity } from "../fixtures/smoke-identity.mjs";
 import { preparePackageExports, restorePackageExports } from "../package-exports-lifecycle.mjs";
 import { env as smokeEnv, resolveBinCommand, workspaceDependencyClosure } from "../smoke-cli-package.mjs";
-import { repoRoot } from "./git.mjs";
 import { normalizeRepoPath } from "./module-policy.mjs";
 
 export const DEFAULT_DEADLINE_MS = 180_000;
@@ -221,6 +220,16 @@ function processIsAlive(pid) {
   }
 }
 
+function processGroupIsAlive(pgid) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
 async function waitForChildExit(child, timeoutMs) {
   if (child.exitCode !== null || child.signalCode !== null) return true;
   return new Promise((resolve) => {
@@ -241,30 +250,52 @@ async function waitForChildExit(child, timeoutMs) {
   });
 }
 
+async function waitForProcessTreeExit(child, pgid, timeoutMs) {
+  const isGone = () =>
+    (child.exitCode !== null || child.signalCode !== null) && !processGroupIsAlive(pgid) && !processIsAlive(pgid);
+  if (isGone()) return true;
+  const maxPolls = Math.max(1, Math.ceil(Math.max(1, timeoutMs) / PID_POLL_INTERVAL_MS));
+  for (let attempt = 0; attempt < maxPolls && !isGone(); attempt += 1) {
+    await delay(PID_POLL_INTERVAL_MS);
+  }
+  return isGone();
+}
+
+function destroyChildStreams(child) {
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+  child.stdin?.destroy();
+}
+
 async function terminateProcessTree(
   child,
   { graceMs = PROCESS_TREE_KILL_GRACE_MS, cleanupTimeoutMs = CLEANUP_TIMEOUT_MS },
 ) {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
-  if (child.pid === undefined) {
-    child.kill("SIGKILL");
-    return waitForChildExit(child, cleanupTimeoutMs);
+  if (child.pid === undefined || process.platform === "win32") {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+      await waitForChildExit(child, cleanupTimeoutMs);
+    }
+    destroyChildStreams(child);
+    return child.exitCode !== null || child.signalCode !== null;
   }
-  if (process.platform === "win32") {
-    child.kill("SIGKILL");
-    return waitForChildExit(child, cleanupTimeoutMs);
+  const pgid = child.pid;
+  const leaderExited = () => child.exitCode !== null || child.signalCode !== null;
+  if (processGroupIsAlive(pgid)) {
+    signalProcessGroup(pgid, "SIGTERM");
+  } else if (!leaderExited() || processIsAlive(pgid)) {
+    signalProcess(pgid, "SIGTERM");
   }
-  const pgidAlive = signalProcessGroup(child.pid, "SIGTERM");
-  if (!pgidAlive) signalProcess(child.pid, "SIGTERM");
-  const exitedGracefully = await waitForChildExit(child, Math.min(graceMs, cleanupTimeoutMs));
+  const exitedGracefully = await waitForProcessTreeExit(child, pgid, Math.min(graceMs, cleanupTimeoutMs));
   if (!exitedGracefully) {
-    if (!signalProcessGroup(child.pid, "SIGKILL")) signalProcess(child.pid, "SIGKILL");
-    child.stdout?.destroy();
-    child.stderr?.destroy();
-    child.stdin?.destroy();
-    await waitForChildExit(child, cleanupTimeoutMs);
+    if (processGroupIsAlive(pgid)) signalProcessGroup(pgid, "SIGKILL");
+    if (processIsAlive(pgid)) signalProcess(pgid, "SIGKILL");
+    destroyChildStreams(child);
+    await waitForProcessTreeExit(child, pgid, cleanupTimeoutMs);
+  } else {
+    destroyChildStreams(child);
   }
-  return (child.exitCode !== null || child.signalCode !== null) && !processIsAlive(child.pid);
+  return leaderExited() && !processGroupIsAlive(pgid) && !processIsAlive(pgid);
 }
 
 async function attemptTerminateProcessTree(child, options) {
@@ -442,14 +473,21 @@ export async function verifyDaemonStoppedAndCleanup({
   if (!started && !pidAliveBefore) return { ok: true, errors: cleanupErrors };
   if (alreadyStopped && !pidAliveBefore) return { ok: true, errors: cleanupErrors };
 
-  const stopResult = await stopDaemon(cleanupTimeoutMs);
-  const stopConfirmedOk = stopResult.status === 0 && stopResult.receipt?.ok === true;
-  const stopConfirmedAlreadyGone = isConfirmedDaemonGone(stopResult);
-  if (!stopConfirmedOk && !stopConfirmedAlreadyGone) {
-    cleanupErrors.push(
-      `${label} cleanup daemon stop failed: status=${stopResult.status} timedOut=${Boolean(stopResult.timedOut)} code=${stopResult.receipt?.code ?? "none"} detail=${(stopResult.stderr || stopResult.stdout || stopResult.errorMessage || "").trim()}`,
-    );
-  }
+  const stopAttempt = await runAsyncCleanupStep(`${label} cleanup daemon stop`, async () => {
+    const stopResult = await stopDaemon(cleanupTimeoutMs);
+    const stopConfirmedOk = stopResult.status === 0 && stopResult.receipt?.ok === true;
+    const stopConfirmedAlreadyGone = isConfirmedDaemonGone(stopResult);
+    if (!stopConfirmedOk && !stopConfirmedAlreadyGone) {
+      return {
+        ok: false,
+        errors: [
+          `${label} cleanup daemon stop failed: status=${stopResult.status} timedOut=${Boolean(stopResult.timedOut)} code=${stopResult.receipt?.code ?? "none"} detail=${(stopResult.stderr || stopResult.stdout || stopResult.errorMessage || "").trim()}`,
+        ],
+      };
+    }
+    return { ok: true, errors: [] };
+  });
+  cleanupErrors.push(...stopAttempt.errors);
   const killResult = await terminateDaemonPidFile(userRoot, cleanupTimeoutMs);
   if (!killResult.ok) {
     cleanupErrors.push(`${label} cleanup pid termination failed: ${killResult.error ?? killResult.reason}`);
@@ -540,6 +578,42 @@ async function runAsyncCleanupStep(label, fn) {
   } catch (error) {
     return { ok: false, errors: [`${label} failed: ${error instanceof Error ? error.message : String(error)}`] };
   }
+}
+
+function extractErrorMessages(error) {
+  if (error instanceof AggregateError) {
+    const nested = error.errors.flatMap((entry) => extractErrorMessages(entry));
+    return nested.length > 0 ? nested : [error.message || String(error)];
+  }
+  return [error instanceof Error ? error.message : String(error)];
+}
+
+async function captureBodyOutcome(bodyFn) {
+  try {
+    return { ok: true, value: await bodyFn(), error: null };
+  } catch (error) {
+    return { ok: false, value: undefined, error };
+  }
+}
+
+export async function runWithResourceCleanups(bodyFn, cleanups) {
+  const bodyOutcome = await captureBodyOutcome(bodyFn);
+  const cleanupErrors = [];
+  for (const { label, run } of cleanups) {
+    const outcome = await runAsyncCleanupStep(label, run);
+    cleanupErrors.push(...outcome.errors);
+  }
+  if (!bodyOutcome.ok) {
+    if (cleanupErrors.length === 0) throw bodyOutcome.error;
+    const primaryMessages = extractErrorMessages(bodyOutcome.error);
+    const wrapped = new AggregateError(
+      [bodyOutcome.error, ...cleanupErrors.map((message) => new Error(message))],
+      `${primaryMessages.join("; ")}; cleanup errors: ${cleanupErrors.join("; ")}`,
+    );
+    wrapped.cause = bodyOutcome.error;
+    throw wrapped;
+  }
+  return { bodyResult: bodyOutcome.value, cleanupErrors };
 }
 
 function removeDirectorySafely(dirPath, label) {
@@ -704,9 +778,21 @@ export async function packAndInstallArm64Packages(rootDir, { tempRoot, budget, v
   // Typechecking runs in the dedicated PR typecheck lane; compile the full workspace closure
   // (including @harness-anything/daemon from clean dist/) in parallel inside the single 180s budget.
   const buildStart = Date.now();
-  const buildResults = await Promise.all(workspaces.map((name) => buildWorkspacePackage(rootDir, name, budget)));
-  for (const result of buildResults) {
-    if (!result.ok) errors.push(result.errorMessage);
+  const settledBuilds = await Promise.allSettled(
+    workspaces.map((name) => buildWorkspacePackage(rootDir, name, budget)),
+  );
+  const buildRejections = [];
+  for (const outcome of settledBuilds) {
+    if (outcome.status === "rejected") {
+      buildRejections.push(outcome.reason);
+    } else if (!outcome.value.ok) {
+      errors.push(outcome.value.errorMessage);
+    }
+  }
+  if (buildRejections.length > 0) {
+    if (buildRejections.length === 1 && errors.length === 0) throw buildRejections[0];
+    const allErrors = [...buildRejections, ...errors.map((message) => new Error(message))];
+    throw new AggregateError(allErrors, allErrors.flatMap((entry) => extractErrorMessages(entry)).join("; "));
   }
   if (errors.length > 0) return { ok: false, errors, checks, consumerDir, cliBins: null, daemonBin: null };
   checks.push(
@@ -720,7 +806,7 @@ export async function packAndInstallArm64Packages(rootDir, { tempRoot, budget, v
   // and live execution of installed `node_modules/.bin/ha` + `harness-anything` shims. Difference vs
   // package-policy: full npm pack prepack/postpack shell hooks are covered by the package-policy lane.
   const packStart = Date.now();
-  const packResults = await Promise.all(
+  const settledPacks = await Promise.allSettled(
     workspaces.map(async (name) => {
       const directory = name.slice("@harness-anything/".length);
       const packageDir = path.posix.join("packages", directory);
@@ -757,11 +843,21 @@ export async function packAndInstallArm64Packages(rootDir, { tempRoot, budget, v
       return { ok: true, errors: [], checks: pkgChecks, tarballPath };
     }),
   );
+  const packRejections = [];
   const tarballs = [];
-  for (const result of packResults) {
-    checks.push(...result.checks);
-    errors.push(...result.errors);
-    if (result.tarballPath) tarballs.push(result.tarballPath);
+  for (const outcome of settledPacks) {
+    if (outcome.status === "rejected") {
+      packRejections.push(outcome.reason);
+    } else {
+      checks.push(...outcome.value.checks);
+      errors.push(...outcome.value.errors);
+      if (outcome.value.tarballPath) tarballs.push(outcome.value.tarballPath);
+    }
+  }
+  if (packRejections.length > 0) {
+    if (packRejections.length === 1 && errors.length === 0) throw packRejections[0];
+    const allErrors = [...packRejections, ...errors.map((message) => new Error(message))];
+    throw new AggregateError(allErrors, allErrors.flatMap((entry) => extractErrorMessages(entry)).join("; "));
   }
   if (errors.length > 0) return { ok: false, errors, checks, consumerDir, cliBins: null, daemonBin: null };
   checks.push(`tarballs packed and verified in ${Date.now() - packStart}ms`);
@@ -933,271 +1029,281 @@ export async function runPackagedDaemonAndEdgeSmoke({ cliBins, tempRoot, budget 
   let edgeDaemonStopped = false;
 
   try {
-    identity = await smokeIdentity(tempRoot, "arm64smoke", {
-      tls: { key: readFileSync(tlsKey, "utf8"), cert: readFileSync(tlsCert, "utf8") },
-      timeoutMs: budget.remainingMs("smoke identity startup"),
-    });
-    identity.configure(centerUser);
+    const { bodyResult, cleanupErrors } = await runWithResourceCleanups(async () => {
+      identity = await smokeIdentity(tempRoot, "arm64smoke", {
+        tls: { key: readFileSync(tlsKey, "utf8"), cert: readFileSync(tlsCert, "utf8") },
+        timeoutMs: budget.remainingMs("smoke identity startup"),
+      });
+      identity.configure(centerUser);
 
-    const centerStarted = await center(["daemon", "start", "--service"]);
-    centerDaemonStarted = centerStarted.status === 0 && centerStarted.receipt?.ok === true;
-    record(
-      "packaged center daemon starts",
-      centerDaemonStarted,
-      `exit ${centerStarted.status} ${centerStarted.stderr.trim() || centerStarted.stdout.trim()}`,
-    );
-    if (!centerDaemonStarted) return { ok: false, errors, checks };
+      const centerStarted = await center(["daemon", "start", "--service"]);
+      centerDaemonStarted = centerStarted.status === 0 && centerStarted.receipt?.ok === true;
+      record(
+        "packaged center daemon starts",
+        centerDaemonStarted,
+        `exit ${centerStarted.status} ${centerStarted.stderr.trim() || centerStarted.stdout.trim()}`,
+      );
+      if (!centerDaemonStarted) return { ok: false };
 
-    await identity.prepareAsync(center);
-    checks.push("external HTTPS OIDC bootstrap-admin and center login succeeded");
+      await identity.prepareAsync(center);
+      checks.push("external HTTPS OIDC bootstrap-admin and center login succeeded");
 
-    const initialized = await center([
-      "init",
-      "--repo-id",
-      "arm64smoke",
-      "--person-id",
-      "owner",
-      "--display-name",
-      "Owner",
+      const initialized = await center([
+        "init",
+        "--repo-id",
+        "arm64smoke",
+        "--person-id",
+        "owner",
+        "--display-name",
+        "Owner",
+      ]);
+      record(
+        "packaged center init publishes scaffold",
+        initialized.status === 0 && initialized.receipt?.outcome === "applied",
+        `exit ${initialized.status} ${initialized.stderr.trim() || JSON.stringify(initialized.receipt)}`,
+      );
+      if (initialized.status !== 0) return { ok: false };
+
+      const centerConfigPath = path.join(centerRepo, "harness/harness.yaml");
+      record(
+        "center harness.yaml exists with LF line endings",
+        existsSync(centerConfigPath) && !readFileSync(centerConfigPath, "utf8").includes("\r"),
+        `${centerConfigPath} missing or contains CR`,
+      );
+
+      const centerStatus = await centerFullAlias(["daemon", "status"]);
+      record(
+        "installed harness-anything alias answers center daemon status from dist",
+        centerStatus.status === 0 && centerStatus.receipt?.ok === true && centerStatus.receipt?.entry === "dist",
+        `exit ${centerStatus.status} ${centerStatus.stderr.trim() || JSON.stringify(centerStatus.receipt)}`,
+      );
+
+      const created = await center([
+        "task",
+        "create",
+        "--admin",
+        "--id",
+        "arm64-center-task",
+        "--title",
+        "ARM64 Center Task",
+      ]);
+      record(
+        "center publishes initial task",
+        created.status === 0 && created.receipt?.outcome === "applied",
+        `exit ${created.status} ${created.stderr.trim() || JSON.stringify(created.receipt)}`,
+      );
+
+      const fact = await center([
+        "fact",
+        "record",
+        "--task",
+        "arm64-center-task",
+        "--statement",
+        "ARM64 center fact for edge verification.",
+        "--source",
+        "linux-arm64-smoke",
+      ]);
+      record("center publishes fact", fact.status === 0, `exit ${fact.status} ${fact.stderr.trim()}`);
+
+      const fleetStarted = await center([
+        "daemon",
+        "fleet",
+        "center",
+        "start",
+        "--port",
+        String(centerPort),
+        "--bind",
+        "127.0.0.1",
+        "--external-url",
+        `https://localhost:${centerPort}`,
+        "--key",
+        tlsKey,
+        "--cert",
+        tlsCert,
+        "--repo",
+        "arm64smoke",
+        "--quota-bytes",
+        "67108864",
+      ]);
+      const boundPort = Number(fleetStarted.receipt?.port);
+      record(
+        "center starts Fleet TLS listener",
+        fleetStarted.status === 0 && fleetStarted.receipt?.ok === true && boundPort === centerPort,
+        `exit ${fleetStarted.status} ${fleetStarted.stderr.trim() || JSON.stringify(fleetStarted.receipt)}`,
+      );
+      if (boundPort !== centerPort) return { ok: false };
+
+      const invite = await center([
+        "bootstrap",
+        "--operation",
+        "edge-join-create",
+        "--person-id",
+        "owner",
+        "--join-repo",
+        "arm64smoke",
+        "--join-group",
+        "admin",
+      ]);
+      const inviteLink = typeof invite.receipt?.link === "string" ? invite.receipt.link : "";
+      record(
+        "center creates pinned Fleet edge join invitation",
+        invite.status === 0 && invite.receipt?.ok === true && inviteLink.startsWith("harness-edge://join/"),
+        `exit ${invite.status} ${invite.stderr.trim() || JSON.stringify(invite.receipt)}`,
+      );
+      if (!inviteLink.startsWith("harness-edge://join/")) return { ok: false };
+
+      const edgeStarted = await edge(["daemon", "start", "--service"]);
+      edgeDaemonStarted = edgeStarted.status === 0 && edgeStarted.receipt?.ok === true;
+      record(
+        "isolated edge daemon starts without local rbac config",
+        edgeDaemonStarted && !existsSync(path.join(edgeUser, "rbac", "config.json")),
+        `exit ${edgeStarted.status} ${edgeStarted.stderr.trim() || edgeStarted.stdout.trim()}`,
+      );
+      if (!edgeDaemonStarted) return { ok: false };
+
+      const edgeJoined = parseCliResult(
+        await runInstalledBinAsync(
+          cliBins.harnessAnything,
+          ["--json", "edge", "join", inviteLink, "--root", edgeRepo, "--quota-bytes", "67108864"],
+          {
+            cwd: tempRoot,
+            env: edgeEnv,
+            timeoutMs: budget.remainingMs("harness-anything edge join"),
+            label: "harness-anything edge join",
+          },
+        ),
+      );
+      record(
+        "edge joins center over pinned TLS via installed harness-anything alias, authenticates via external OIDC, and completes initial sync",
+        edgeJoined.status === 0 && edgeJoined.receipt?.ok === true,
+        `exit ${edgeJoined.status} ${edgeJoined.stderr.trim() || JSON.stringify(edgeJoined.receipt)}`,
+      );
+      if (edgeJoined.status !== 0) return { ok: false };
+
+      const initialEdgeList = await edge(["task", "list"]);
+      const initialRows = Array.isArray(initialEdgeList.receipt?.rows) ? initialEdgeList.receipt.rows : [];
+      const hasInitialTask = initialRows.some(
+        (row) => row?.taskId === "arm64-center-task" && row?.title === "ARM64 Center Task",
+      );
+      record(
+        "edge reads back center task through isolated edge daemon",
+        initialEdgeList.status === 0 && initialEdgeList.receipt?.ok === true && hasInitialTask,
+        `exit ${initialEdgeList.status} rows=${JSON.stringify(initialRows)} stderr=${initialEdgeList.stderr.trim()}`,
+      );
+
+      const deltaCreated = await center([
+        "task",
+        "create",
+        "--admin",
+        "--id",
+        "arm64-edge-delta",
+        "--title",
+        "ARM64 Edge Delta Task",
+      ]);
+      record(
+        "center publishes second task for discriminating edge propagation check",
+        deltaCreated.status === 0 && deltaCreated.receipt?.outcome === "applied",
+        `exit ${deltaCreated.status} ${deltaCreated.stderr.trim() || JSON.stringify(deltaCreated.receipt)}`,
+      );
+      let deltaEdgeList = await edge(["task", "list"]);
+      let deltaRows = Array.isArray(deltaEdgeList.receipt?.rows) ? deltaEdgeList.receipt.rows : [];
+      const hasBoth = (rows) =>
+        rows.some((row) => row?.taskId === "arm64-center-task") &&
+        rows.some((row) => row?.taskId === "arm64-edge-delta" && row?.title === "ARM64 Edge Delta Task");
+      for (let attempt = 0; !hasBoth(deltaRows) && attempt < 15; attempt += 1) {
+        deltaEdgeList = await edge(["task", "list"]);
+        deltaRows = Array.isArray(deltaEdgeList.receipt?.rows) ? deltaEdgeList.receipt.rows : [];
+      }
+      record(
+        "edge discriminating readback reflects live center delta",
+        deltaEdgeList.status === 0 && deltaEdgeList.receipt?.ok === true && hasBoth(deltaRows),
+        `exit ${deltaEdgeList.status} rows=${JSON.stringify(deltaRows)} stderr=${deltaEdgeList.stderr.trim()}`,
+      );
+
+      const edgeStopped = await edge(["daemon", "stop"]);
+      const edgeStopOk = edgeStopped.status === 0 && edgeStopped.receipt?.ok === true;
+      record(
+        "edge daemon stops cleanly",
+        edgeStopOk,
+        `exit ${edgeStopped.status} receipt=${JSON.stringify(edgeStopped.receipt)} stderr=${edgeStopped.stderr.trim()}`,
+      );
+      let edgeAfter = await edge(["daemon", "status"]);
+      for (
+        let attempt = 0;
+        (edgeAfter.status === 0 || edgeAfter.receipt?.code === "daemon_stopping") && attempt < STOP_SETTLE_POLLS;
+        attempt += 1
+      ) {
+        await delay(100);
+        edgeAfter = await edge(["daemon", "status"]);
+      }
+      const edgeGone = isConfirmedDaemonGone(edgeAfter) && !daemonPidAlive(edgeUser);
+      edgeDaemonStopped = edgeStopOk && edgeGone;
+      record(
+        "edge daemon reports gone after stop",
+        edgeGone,
+        `status=${edgeAfter.status} timedOut=${Boolean(edgeAfter.timedOut)} code=${edgeAfter.receipt?.code ?? "none"} pidAlive=${daemonPidAlive(edgeUser)}`,
+      );
+
+      const centerStopped = await center(["daemon", "stop"]);
+      const centerStopOk = centerStopped.status === 0 && centerStopped.receipt?.ok === true;
+      record(
+        "center daemon stops cleanly",
+        centerStopOk,
+        `exit ${centerStopped.status} receipt=${JSON.stringify(centerStopped.receipt)} stderr=${centerStopped.stderr.trim()}`,
+      );
+      let centerAfter = await center(["daemon", "status"]);
+      for (
+        let attempt = 0;
+        (centerAfter.status === 0 || centerAfter.receipt?.code === "daemon_stopping") && attempt < STOP_SETTLE_POLLS;
+        attempt += 1
+      ) {
+        await delay(100);
+        centerAfter = await center(["daemon", "status"]);
+      }
+      const centerGone = isConfirmedDaemonGone(centerAfter) && !daemonPidAlive(centerUser);
+      centerDaemonStopped = centerStopOk && centerGone;
+      record(
+        "center daemon reports gone after stop",
+        centerGone,
+        `status=${centerAfter.status} timedOut=${Boolean(centerAfter.timedOut)} code=${centerAfter.receipt?.code ?? "none"} pidAlive=${daemonPidAlive(centerUser)}`,
+      );
+      return { ok: true };
+    }, [
+      {
+        label: "edge daemon cleanup",
+        run: () =>
+          verifyDaemonStoppedAndCleanup({
+            label: "edge",
+            userRoot: edgeUser,
+            started: edgeDaemonStarted,
+            alreadyStopped: edgeDaemonStopped,
+            stopDaemon: (timeoutMs) =>
+              runPackagedCli(cliBins.ha, "ha", edgeRepo, edgeEnv, ["daemon", "stop"], undefined, timeoutMs),
+          }),
+      },
+      {
+        label: "center daemon cleanup",
+        run: () =>
+          verifyDaemonStoppedAndCleanup({
+            label: "center",
+            userRoot: centerUser,
+            started: centerDaemonStarted,
+            alreadyStopped: centerDaemonStopped,
+            stopDaemon: (timeoutMs) =>
+              runPackagedCli(cliBins.ha, "ha", centerRepo, centerEnv, ["daemon", "stop"], undefined, timeoutMs),
+          }),
+      },
+      {
+        label: "identity worker close",
+        run: () => (identity !== null ? identity.close() : undefined),
+      },
     ]);
-    record(
-      "packaged center init publishes scaffold",
-      initialized.status === 0 && initialized.receipt?.outcome === "applied",
-      `exit ${initialized.status} ${initialized.stderr.trim() || JSON.stringify(initialized.receipt)}`,
-    );
-    if (initialized.status !== 0) return { ok: false, errors, checks };
-
-    const centerConfigPath = path.join(centerRepo, "harness/harness.yaml");
-    record(
-      "center harness.yaml exists with LF line endings",
-      existsSync(centerConfigPath) && !readFileSync(centerConfigPath, "utf8").includes("\r"),
-      `${centerConfigPath} missing or contains CR`,
-    );
-
-    const centerStatus = await centerFullAlias(["daemon", "status"]);
-    record(
-      "installed harness-anything alias answers center daemon status from dist",
-      centerStatus.status === 0 && centerStatus.receipt?.ok === true && centerStatus.receipt?.entry === "dist",
-      `exit ${centerStatus.status} ${centerStatus.stderr.trim() || JSON.stringify(centerStatus.receipt)}`,
-    );
-
-    const created = await center([
-      "task",
-      "create",
-      "--admin",
-      "--id",
-      "arm64-center-task",
-      "--title",
-      "ARM64 Center Task",
-    ]);
-    record(
-      "center publishes initial task",
-      created.status === 0 && created.receipt?.outcome === "applied",
-      `exit ${created.status} ${created.stderr.trim() || JSON.stringify(created.receipt)}`,
-    );
-
-    const fact = await center([
-      "fact",
-      "record",
-      "--task",
-      "arm64-center-task",
-      "--statement",
-      "ARM64 center fact for edge verification.",
-      "--source",
-      "linux-arm64-smoke",
-    ]);
-    record("center publishes fact", fact.status === 0, `exit ${fact.status} ${fact.stderr.trim()}`);
-
-    const fleetStarted = await center([
-      "daemon",
-      "fleet",
-      "center",
-      "start",
-      "--port",
-      String(centerPort),
-      "--bind",
-      "127.0.0.1",
-      "--external-url",
-      `https://localhost:${centerPort}`,
-      "--key",
-      tlsKey,
-      "--cert",
-      tlsCert,
-      "--repo",
-      "arm64smoke",
-      "--quota-bytes",
-      "67108864",
-    ]);
-    const boundPort = Number(fleetStarted.receipt?.port);
-    record(
-      "center starts Fleet TLS listener",
-      fleetStarted.status === 0 && fleetStarted.receipt?.ok === true && boundPort === centerPort,
-      `exit ${fleetStarted.status} ${fleetStarted.stderr.trim() || JSON.stringify(fleetStarted.receipt)}`,
-    );
-    if (boundPort !== centerPort) return { ok: false, errors, checks };
-
-    const invite = await center([
-      "bootstrap",
-      "--operation",
-      "edge-join-create",
-      "--person-id",
-      "owner",
-      "--join-repo",
-      "arm64smoke",
-      "--join-group",
-      "admin",
-    ]);
-    const inviteLink = typeof invite.receipt?.link === "string" ? invite.receipt.link : "";
-    record(
-      "center creates pinned Fleet edge join invitation",
-      invite.status === 0 && invite.receipt?.ok === true && inviteLink.startsWith("harness-edge://join/"),
-      `exit ${invite.status} ${invite.stderr.trim() || JSON.stringify(invite.receipt)}`,
-    );
-    if (!inviteLink.startsWith("harness-edge://join/")) return { ok: false, errors, checks };
-
-    const edgeStarted = await edge(["daemon", "start", "--service"]);
-    edgeDaemonStarted = edgeStarted.status === 0 && edgeStarted.receipt?.ok === true;
-    record(
-      "isolated edge daemon starts without local rbac config",
-      edgeDaemonStarted && !existsSync(path.join(edgeUser, "rbac", "config.json")),
-      `exit ${edgeStarted.status} ${edgeStarted.stderr.trim() || edgeStarted.stdout.trim()}`,
-    );
-    if (!edgeDaemonStarted) return { ok: false, errors, checks };
-
-    const edgeJoined = parseCliResult(
-      await runInstalledBinAsync(
-        cliBins.harnessAnything,
-        ["--json", "edge", "join", inviteLink, "--root", edgeRepo, "--quota-bytes", "67108864"],
-        {
-          cwd: tempRoot,
-          env: edgeEnv,
-          timeoutMs: budget.remainingMs("harness-anything edge join"),
-          label: "harness-anything edge join",
-        },
-      ),
-    );
-    record(
-      "edge joins center over pinned TLS via installed harness-anything alias, authenticates via external OIDC, and completes initial sync",
-      edgeJoined.status === 0 && edgeJoined.receipt?.ok === true,
-      `exit ${edgeJoined.status} ${edgeJoined.stderr.trim() || JSON.stringify(edgeJoined.receipt)}`,
-    );
-    if (edgeJoined.status !== 0) return { ok: false, errors, checks };
-
-    const initialEdgeList = await edge(["task", "list"]);
-    const initialRows = Array.isArray(initialEdgeList.receipt?.rows) ? initialEdgeList.receipt.rows : [];
-    const hasInitialTask = initialRows.some(
-      (row) => row?.taskId === "arm64-center-task" && row?.title === "ARM64 Center Task",
-    );
-    record(
-      "edge reads back center task through isolated edge daemon",
-      initialEdgeList.status === 0 && initialEdgeList.receipt?.ok === true && hasInitialTask,
-      `exit ${initialEdgeList.status} rows=${JSON.stringify(initialRows)} stderr=${initialEdgeList.stderr.trim()}`,
-    );
-
-    const deltaCreated = await center([
-      "task",
-      "create",
-      "--admin",
-      "--id",
-      "arm64-edge-delta",
-      "--title",
-      "ARM64 Edge Delta Task",
-    ]);
-    record(
-      "center publishes second task for discriminating edge propagation check",
-      deltaCreated.status === 0 && deltaCreated.receipt?.outcome === "applied",
-      `exit ${deltaCreated.status} ${deltaCreated.stderr.trim() || JSON.stringify(deltaCreated.receipt)}`,
-    );
-    let deltaEdgeList = await edge(["task", "list"]);
-    let deltaRows = Array.isArray(deltaEdgeList.receipt?.rows) ? deltaEdgeList.receipt.rows : [];
-    const hasBoth = (rows) =>
-      rows.some((row) => row?.taskId === "arm64-center-task") &&
-      rows.some((row) => row?.taskId === "arm64-edge-delta" && row?.title === "ARM64 Edge Delta Task");
-    for (let attempt = 0; !hasBoth(deltaRows) && attempt < 15; attempt += 1) {
-      deltaEdgeList = await edge(["task", "list"]);
-      deltaRows = Array.isArray(deltaEdgeList.receipt?.rows) ? deltaEdgeList.receipt.rows : [];
-    }
-    record(
-      "edge discriminating readback reflects live center delta",
-      deltaEdgeList.status === 0 && deltaEdgeList.receipt?.ok === true && hasBoth(deltaRows),
-      `exit ${deltaEdgeList.status} rows=${JSON.stringify(deltaRows)} stderr=${deltaEdgeList.stderr.trim()}`,
-    );
-
-    const edgeStopped = await edge(["daemon", "stop"]);
-    const edgeStopOk = edgeStopped.status === 0 && edgeStopped.receipt?.ok === true;
-    record(
-      "edge daemon stops cleanly",
-      edgeStopOk,
-      `exit ${edgeStopped.status} receipt=${JSON.stringify(edgeStopped.receipt)} stderr=${edgeStopped.stderr.trim()}`,
-    );
-    let edgeAfter = await edge(["daemon", "status"]);
-    for (
-      let attempt = 0;
-      (edgeAfter.status === 0 || edgeAfter.receipt?.code === "daemon_stopping") && attempt < STOP_SETTLE_POLLS;
-      attempt += 1
-    ) {
-      await delay(100);
-      edgeAfter = await edge(["daemon", "status"]);
-    }
-    const edgeGone = isConfirmedDaemonGone(edgeAfter) && !daemonPidAlive(edgeUser);
-    edgeDaemonStopped = edgeStopOk && edgeGone;
-    record(
-      "edge daemon reports gone after stop",
-      edgeGone,
-      `status=${edgeAfter.status} timedOut=${Boolean(edgeAfter.timedOut)} code=${edgeAfter.receipt?.code ?? "none"} pidAlive=${daemonPidAlive(edgeUser)}`,
-    );
-
-    const centerStopped = await center(["daemon", "stop"]);
-    const centerStopOk = centerStopped.status === 0 && centerStopped.receipt?.ok === true;
-    record(
-      "center daemon stops cleanly",
-      centerStopOk,
-      `exit ${centerStopped.status} receipt=${JSON.stringify(centerStopped.receipt)} stderr=${centerStopped.stderr.trim()}`,
-    );
-    let centerAfter = await center(["daemon", "status"]);
-    for (
-      let attempt = 0;
-      (centerAfter.status === 0 || centerAfter.receipt?.code === "daemon_stopping") && attempt < STOP_SETTLE_POLLS;
-      attempt += 1
-    ) {
-      await delay(100);
-      centerAfter = await center(["daemon", "status"]);
-    }
-    const centerGone = isConfirmedDaemonGone(centerAfter) && !daemonPidAlive(centerUser);
-    centerDaemonStopped = centerStopOk && centerGone;
-    record(
-      "center daemon reports gone after stop",
-      centerGone,
-      `status=${centerAfter.status} timedOut=${Boolean(centerAfter.timedOut)} code=${centerAfter.receipt?.code ?? "none"} pidAlive=${daemonPidAlive(centerUser)}`,
-    );
-  } finally {
-    const edgeCleanup = await verifyDaemonStoppedAndCleanup({
-      label: "edge",
-      userRoot: edgeUser,
-      started: edgeDaemonStarted,
-      alreadyStopped: edgeDaemonStopped,
-      stopDaemon: (timeoutMs) =>
-        runPackagedCli(cliBins.ha, "ha", edgeRepo, edgeEnv, ["daemon", "stop"], undefined, timeoutMs),
-    });
-    errors.push(...edgeCleanup.errors);
-
-    const centerCleanup = await verifyDaemonStoppedAndCleanup({
-      label: "center",
-      userRoot: centerUser,
-      started: centerDaemonStarted,
-      alreadyStopped: centerDaemonStopped,
-      stopDaemon: (timeoutMs) =>
-        runPackagedCli(cliBins.ha, "ha", centerRepo, centerEnv, ["daemon", "stop"], undefined, timeoutMs),
-    });
-    errors.push(...centerCleanup.errors);
-
-    if (identity !== null) {
-      const identityClose = await runAsyncCleanupStep("identity worker close", () => identity.close());
-      errors.push(...identityClose.errors);
-    }
+    errors.push(...cleanupErrors);
+    return { ok: errors.length === 0 && bodyResult?.ok !== false, errors, checks };
+  } catch (error) {
+    errors.push(...extractErrorMessages(error));
+    return { ok: false, errors, checks };
   }
-
-  return { ok: errors.length === 0, errors, checks };
 }
 
 export async function evaluateLinuxArm64Smoke(
@@ -1237,9 +1343,10 @@ export async function evaluateLinuxArm64Smoke(
       stageOk = (!result || result.ok !== false) && overtime === null;
       return result;
     } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
+      const errorMessages = extractErrorMessages(error);
+      errors.push(...errorMessages);
       stageOk = false;
-      return { ok: false, errors: [error instanceof Error ? error.message : String(error)], checks: [] };
+      return { ok: false, errors: errorMessages, checks: [] };
     } finally {
       budget.recordStage(name, stageStart, stageOk);
     }
@@ -1330,7 +1437,8 @@ function parseDeadlineArg(argv) {
 export async function main(argv = process.argv.slice(2)) {
   const requireLinuxArm64 = argv.includes("--require-linux-arm64");
   const deadlineMs = parseDeadlineArg(argv);
-  const result = await evaluateLinuxArm64Smoke(repoRoot(), { requireLinuxArm64, deadlineMs });
+  const rootDir = path.resolve(import.meta.dirname, "../..");
+  const result = await evaluateLinuxArm64Smoke(rootDir, { requireLinuxArm64, deadlineMs });
   for (const check of result.checks) console.log(`linux-arm64-smoke: ${check}`);
   for (const stage of result.stages) {
     console.log(`linux-arm64-smoke: stage ${stage.name} ${stage.durationMs}ms (${stage.ok ? "ok" : "failed"})`);

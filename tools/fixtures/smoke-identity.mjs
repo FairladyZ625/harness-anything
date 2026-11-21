@@ -12,7 +12,9 @@ export async function smokeIdentity(root, repoId, options = {}) {
   const worker = new Worker(new URL("./smoke-identity-provider.mjs", import.meta.url), {
     workerData: { secret, password, repoId, ...(options.tls ? { tls: options.tls } : {}) },
   });
+  const close = () => worker.terminate();
   let url;
+  let passwordFile;
   const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? Math.floor(options.timeoutMs) : null;
   const controller = timeoutMs === null ? null : new AbortController();
   const timer =
@@ -23,20 +25,22 @@ export async function smokeIdentity(root, repoId, options = {}) {
         }, timeoutMs);
   timer?.unref?.();
   try {
-    [url] = await once(worker, "message", controller ? { signal: controller.signal } : undefined);
+    try {
+      [url] = await once(worker, "message", controller ? { signal: controller.signal } : undefined);
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
+    passwordFile = path.join(root, "administrator-password");
+    writeFileSync(passwordFile, password, { mode: 0o600 });
   } catch (error) {
-    await worker.terminate();
+    await close();
     if (controller?.signal.aborted) {
       throw controller.signal.reason instanceof Error
         ? controller.signal.reason
         : new Error(`smoke identity provider timed out after ${timeoutMs}ms`);
     }
     throw error;
-  } finally {
-    if (timer !== null) clearTimeout(timer);
   }
-  const passwordFile = path.join(root, "administrator-password");
-  writeFileSync(passwordFile, password, { mode: 0o600 });
   const adminArgs = [
     "bootstrap",
     "--operation",
@@ -62,7 +66,7 @@ export async function smokeIdentity(root, repoId, options = {}) {
   };
   return {
     url,
-    close: () => worker.terminate(),
+    close,
     configure(userRoot) {
       const rbacRoot = path.join(userRoot, "rbac"),
         config = {
