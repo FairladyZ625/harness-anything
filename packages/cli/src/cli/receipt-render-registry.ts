@@ -1,4 +1,9 @@
 import { consumeKnownError } from "../daemon/client.ts";
+import {
+  renderLedgerAuditExportReceipt,
+  renderLedgerAuditVerifyReceipt,
+  renderTaskDeliveryCertificateReceipt,
+} from "./receipt-render-audit.ts";
 import { renderTaskShow } from "./receipt-render-task-show.ts";
 import { isRecord, nonEmptyText } from "./receipt-render-values.ts";
 import { contractMigrationDryRunSummary, renderDispatchRow, renderRuntimeBatchRow } from "../cli-render.ts";
@@ -62,6 +67,12 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["vertical-kind-publish-schema", renderVerticalKindMutation],
   ["vertical-kind-retire", renderVerticalKindMutation],
   ["event-show", renderEventShowReceipt],
+  ["ledger-audit-export", (r) => renderLedgerAuditExportReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r)],
+  ["ledger-audit-verify", renderLedgerAuditVerifyReceipt],
+  [
+    "task-delivery-certificate",
+    (r) => renderTaskDeliveryCertificateReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r),
+  ],
   ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
 
@@ -148,6 +159,8 @@ function renderCliReceiptBase(
 ): RenderedCliReceipt {
   if (receipt.schema === "squad-control-result/v1")
     return { stream: receipt.ok === true ? "stdout" : "stderr", text: String(receipt.summary) };
+  if (receipt.schema === "audit-verify-receipt/v1")
+    return { stream: receipt.ok === true ? "stdout" : "stderr", text: renderLedgerAuditVerifyReceipt(receipt) };
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
   if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt, explainRequestRefs) };
   if (receipt.command === "edge-join" && Array.isArray(receipt.repositories))

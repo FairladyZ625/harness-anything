@@ -118,6 +118,8 @@ import type {
   listEvents as listEventsImpl,
   showEvent as showEventImpl,
 } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
+import type { readAuditExportPage as readAuditExportPageImpl } from "@harness-anything/application/internal/queries/ledger-audit-export.ts";
+import type { readTaskDeliveryCertificate as readTaskDeliveryCertificateImpl } from "@harness-anything/application/internal/queries/task-delivery-certificate.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type {
   EntityActionCatalogRuntimes,
@@ -598,6 +600,8 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly listRelations: Bound<typeof listRelationsImpl>;
   readonly listEvents: Bound<typeof listEventsImpl>;
   readonly showEvent: Bound<typeof showEventImpl>;
+  readonly auditExportPage: Bound<typeof readAuditExportPageImpl>;
+  readonly taskDeliveryCertificate: Bound<typeof readTaskDeliveryCertificateImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly graphView: Bound<typeof graphViewImpl>;

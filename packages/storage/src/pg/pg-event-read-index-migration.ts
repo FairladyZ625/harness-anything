@@ -11,7 +11,11 @@ import {
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
-import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
+import {
+  PG_OCCURRED_AT_MS_INVALID_SENTINEL,
+  POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
+  POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
+} from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 
 const eventReadFields = {
@@ -109,6 +113,7 @@ const dispatchIndexes = [
 export function eventReadIndexDdl(): readonly string[] {
   return [
     ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
+    ...POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
     ...postgresScopeRlsStatements("ha_event_entity_refs", { ifNotExists: true }),
     /* @gate-identity state-store/task.projection.ha_fleet_node_tasks */ `CREATE TABLE IF NOT EXISTS ha_fleet_node_tasks (
       tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL, repo_id text NOT NULL,
@@ -401,6 +406,20 @@ export function eventReadIndexDdl(): readonly string[] {
             ORDER BY revision LIMIT 64 FOR UPDATE
           ), filled AS (
             UPDATE ha_events e SET ${pgDispatchPageTimeKey}=ha_dispatch_epoch_ms(e.dispatch_activity_at) FROM batch b
+            WHERE e.tenant_id=tenant AND e.project_id=project AND e.policy_epoch=epoch AND e.repo_id=repo
+              AND e.revision=b.revision RETURNING 1
+          ) SELECT count(*)::integer INTO processed FROM filled;
+        END IF;
+        IF processed = 0 THEN
+          WITH batch AS (
+            SELECT revision FROM ha_events
+            WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
+              AND occurred_at_ms IS NULL
+            ORDER BY revision LIMIT 64 FOR UPDATE
+          ), filled AS (
+            UPDATE ha_events e
+            SET occurred_at_ms=COALESCE(ha_occurred_at_epoch_ms(e.occurred_at), ${PG_OCCURRED_AT_MS_INVALID_SENTINEL}::bigint)
+            FROM batch b
             WHERE e.tenant_id=tenant AND e.project_id=project AND e.policy_epoch=epoch AND e.repo_id=repo
               AND e.revision=b.revision RETURNING 1
           ) SELECT count(*)::integer INTO processed FROM filled;

@@ -201,6 +201,56 @@ export const READ_PROBES = Object.freeze({
       ),
     size: (value) => JSON.parse(value.evidence).rows.length,
   },
+  "ledger-audit-export-date": {
+    // Fixed single-day UTC window while total history grows across all G38 dimensions.
+    reads: ["command:ledger-audit-export"],
+    run: ({ runtime }) => runtime.run({ kind: "ledger-audit-export", date: "2026-11-05", limit: 50 }, runtime.binding),
+    size: (value) => JSON.parse(value.evidence).events.length,
+  },
+  "ledger-audit-export-date-multipage": {
+    // Multi-page full-window date export (limit=50: 4 pages at 200 -> 40 pages at 2000).
+    // Proves O(N_window) linear scaling instead of O(N_window * pages) on both SQLite and PGlite.
+    reads: ["command:ledger-audit-export"],
+    sourceAudit: {
+      inputCollection: "matching date-window events across multiple pages",
+      maxPerInput: {
+        sqliteVmSteps: 4096,
+        sqliteScanPages: 256,
+        sqlRowsRead: 16,
+        sqlResultBytes: 16384,
+        sha256Calls: 32,
+        sha256Bytes: 32768,
+        gitProcesses: 4,
+        fileReadBytes: 16384,
+        directoryEntries: 8,
+      },
+    },
+    run: async ({ runtime }) => {
+      let cursor;
+      let totalEvents = 0;
+      let pages = 0;
+      for (;;) {
+        const receipt = await runtime.run(
+          {
+            kind: "ledger-audit-export",
+            date: "2026-08-11",
+            limit: 50,
+            ...(cursor === undefined ? {} : { cursor }),
+          },
+          runtime.binding,
+        );
+        assert.equal(receipt.outcome, "applied");
+        const page = JSON.parse(receipt.evidence);
+        totalEvents += page.events.length;
+        pages += 1;
+        if (!page.hasMore || page.page.nextCursor === null) break;
+        cursor = page.page.nextCursor;
+      }
+      assert.ok(pages >= 1);
+      return { ok: true, totalEvents, pages };
+    },
+    size: () => 1,
+  },
   "startup-adopt": {
     reads: ["background:startup-adopt"],
     run: ({ recovery }) => adoptRuntimes(recovery),

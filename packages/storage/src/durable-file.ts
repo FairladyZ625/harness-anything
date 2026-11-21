@@ -1,11 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
+  constants,
+  fstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
   readSync,
   renameSync,
+  rm,
   rmSync,
   writeFileSync,
   writeSync,
@@ -176,4 +179,96 @@ export function openTemporaryFile(file: string) {
       }
     },
   };
+}
+
+/** Private, expiring auxiliary files for a sorted date-window read. The data consists
+ * exclusively of fixed-width revision keys and is never used as canonical evidence. */
+const auditScratchTtlMs = 30 * 60_000;
+
+export function openAuditRevisionScratch(file: string) {
+  const pending = `${file}.pending`;
+  const descriptor =
+    /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ openSync(
+      pending,
+      "wx",
+      0o600,
+    );
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ closeSync(descriptor);
+  };
+  const write = (buffer: Buffer) => {
+    let offset = 0;
+    while (offset < buffer.length)
+      offset += /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ writeSync(
+        descriptor,
+        buffer,
+        offset,
+      );
+  };
+  return {
+    write,
+    seal(footer: Buffer) {
+      write(footer);
+      close();
+      /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ renameSync(
+        pending,
+        file,
+      );
+      // The timer owns only this export's immutable file and never holds the worker open.
+      setTimeout(() => {
+        /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ rm(
+          file,
+          {
+            force: true,
+          },
+          (error) => {
+            if (error) process.emitWarning(error);
+          },
+        );
+      }, auditScratchTtlMs).unref();
+    },
+    abort() {
+      try {
+        close();
+      } finally {
+        /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ rmSync(pending, {
+          force: true,
+        });
+      }
+    },
+  };
+}
+
+export function readAuditRevisionScratch<Value>(
+  file: string,
+  readPage: (readWords: (buffer: Buffer, index: number) => void, count: number) => Value,
+): Value | "missing" {
+  let descriptor: number;
+  try {
+    descriptor = /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ openSync(
+      file,
+      constants.O_RDONLY | constants.O_NOFOLLOW,
+    );
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw error;
+  }
+  try {
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.size < 8 || stat.size % 8 !== 0 || Date.now() - stat.mtimeMs >= auditScratchTtlMs)
+      return "missing";
+    return readPage((buffer, index) => {
+      let offset = 0;
+      while (offset < buffer.length) {
+        const read = readSync(descriptor, buffer, offset, buffer.length - offset, index * 8 + offset);
+        if (read === 0) throw new Error("Audit revision scratch ended mid-page");
+        offset += read;
+      }
+    }, stat.size / 8);
+  } finally {
+    /* @gate-identity state-store/document.source.storage.src.durable-file.filesystem-store */ closeSync(descriptor);
+  }
 }

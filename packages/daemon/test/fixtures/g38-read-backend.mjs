@@ -118,6 +118,7 @@ export async function openReadBackend(backend, dimension, size, { lowVisibility 
         queryEvents: (query) => canonical("events", { query }),
         readEventAtRevision: (value) => canonical("event", { key: "revision", value }),
         readBatch: (cursor, maxItems) => canonical("batch", { cursor, maxItems }),
+        readEventWindow: (query) => canonical("window", { query }),
         readContentBlob: (sha256) => canonical("content", { sha256 }),
         readContentBlobRange: (sha256, offset, maxBytes) => canonical("content-range", { sha256, offset, maxBytes }),
         readContentBlobSize: (sha256) => canonical("content-size", { sha256 }),

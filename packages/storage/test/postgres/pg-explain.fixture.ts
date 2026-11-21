@@ -29,8 +29,9 @@ export function tracedPgReads(pool: Pool, plans: unknown[], predicate: (sql: str
             if (key === "query")
               return async (...args: unknown[]) => {
                 if (typeof args[0] === "string" && predicate(args[0])) {
+                  const explainable = args[0].replace(/^DECLARE ha_audit_revisions NO SCROLL CURSOR FOR /u, "");
                   const result = await connection.query(
-                    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${args[0]}`,
+                    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${explainable}`,
                     args[1] as unknown[],
                   );
                   const plan = { sql: args[0], plan: result.rows[0]["QUERY PLAN"] };
@@ -70,4 +71,16 @@ export async function measurePgRead<T>(backend: string, method: string, read: ()
     `PG_READ_TIME ${backend} ${JSON.stringify({ method, phase: "warm-after-explain", elapsedMs: performance.now() - started })}\n`,
   );
   return result;
+}
+
+export function pgTableRowsVisited(plans: readonly unknown[], table: string): number {
+  return explainNodes(plans)
+    .filter((node) => node["Relation Name"] === table)
+    .reduce(
+      (total, node) =>
+        total +
+        (Number(node["Actual Rows"] ?? 0) + Number(node["Rows Removed by Filter"] ?? 0)) *
+          Number(node["Actual Loops"] ?? 1),
+      0,
+    );
 }

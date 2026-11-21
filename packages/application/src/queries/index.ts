@@ -19,6 +19,8 @@ export {
 export * from "./work-briefs-read.ts";
 export * from "./task-index-query.ts";
 export * from "./repo-cell-event-query.ts";
+export * from "./ledger-audit-export.ts";
+export * from "./task-delivery-certificate.ts";
 export * from "./repo-cell-graph-view.ts";
 export * from "./repo-query-payload.ts";
 export * from "./repo-cell-read-payloads.ts";

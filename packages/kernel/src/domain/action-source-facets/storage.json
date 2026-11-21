@@ -9,6 +9,30 @@
         "order": 147
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openAuditRevisionScratch.abort:174298e6746a6151a6dc28eccbac5a1d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openAuditRevisionScratch.seal:111a501a63975165f7a715b703218463",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#openAuditRevisionScratch.write"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openAuditRevisionScratch.seal:5c2d4e0ca4b872fcf3200293b7f6f7e8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rm"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openAuditRevisionScratch.seal:880388489dedcd7454a133ec49b4aa11",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openTemporaryFile.close:fe2dd164e2953bc3a73ed350f9390bac",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -538,11 +562,24 @@
         "order": 67
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-canonical-event-store.ts#makePgCanonicalEventStore.readEventWindow:e172051cc81cdfb1b2233bdbaaf2cb98",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgTaskQueryReader.executeCanonical",
+        "order": 71
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-event-store.ts#executePostgresAppend:d46dfe562b7c2878cfb10f47ef8d82e8",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
         "order": 76
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-event-window.ts#readPgEventWindow:2080a0dd225ea75f5d188f2d9c79b26e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/audit-window-revisions.ts#collectAuditWindowRevisions.append"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/postgres/pg-task-event-store.ts#makePostgresTaskEventStore.execute:4075f3a0b2ae6629f31ce101cd97835c",
@@ -993,6 +1030,24 @@
         "order": 139
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/store/audit-window-revisions.ts#auditWindowRevisionKey.start.append:51fba1f875c56498229366b593a009ac",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/durable-file.ts#openAuditRevisionScratch.write"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/audit-window-revisions.ts#collectAuditWindowRevisions.append:34ef2b333fa62b3b531b99e3062ea58a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/audit-window-revisions.ts#auditWindowRevisionKey.start.append"
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/audit-window-revisions.ts#collectAuditWindowRevisions.append:895aafe7af185951fba2558df45a97a7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/audit-window-revisions.ts#auditWindowRevisionKey.start.append"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/store/completion-generation-conversion.ts#runCompletionGenerationConversion:49a371bfa421cd001893e3db7af6ce8e",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -1341,6 +1396,12 @@
         "role": "technical-port",
         "port": "packages/storage/src/store/sqlite-event-store.ts#openSqliteEventStoreInternal.transaction.run",
         "order": 183
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-event-window.ts#readSqliteEventWindow:2080a0dd225ea75f5d188f2d9c79b26e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/store/audit-window-revisions.ts#collectAuditWindowRevisions.append"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/store/sqlite-git-outbox-publisher.ts#attachSqliteGitFollower.materialize:5d816a18cb88b2ffbb0adee0944a02fd",

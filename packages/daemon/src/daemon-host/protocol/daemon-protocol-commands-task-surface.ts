@@ -890,4 +890,29 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "task-delivery-certificate",
+    helpTier: "advanced",
+    repositoryRead: true,
+    phase: "Ledger-Read",
+    path: ["task", "delivery-certificate", "<task-id>"],
+    summary: "Export a tamper-evident delivery-certificate/v1 JSON for a done Task.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput(
+        "--algorithm",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["sha256", "sm3"] },
+      ),
+      cliInput(
+        "--output",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", pathReader: "cli-local" },
+      ),
+    ],
+  }),
 ] as const);

@@ -323,6 +323,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       return event && isTaskEvent(event) ? event : null;
     },
     readBatch: (cursor, maxItems) => sqliteEventBatch(sqlite, cursor, maxItems, readContent),
+    readEventWindow: sqlite.readEventWindow,
     readContentBlob: readContent,
     readContentBlobRange: (sha256, offset, maxBytes) => sqlite.readContentObjectRange(sha256, offset, maxBytes),
     readContentBlobSize: (sha256) => sqlite.readContentObjectSize(sha256),

@@ -1,4 +1,5 @@
 import type { TaskProjectionQueries } from "@harness-anything/kernel";
+import { isMigrationImportEvent } from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
@@ -8,6 +9,7 @@ export type PgTaskEventQueries = AsyncQueries<
   | "readTaskEventExists"
   | "readTaskSubmissionOperation"
   | "readTaskCompletion"
+  | "readTaskImportedEvent"
   | "readProgress"
   | "readSettingsEvent"
   | "listFactDomainTypes"
@@ -51,6 +53,18 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
         )
       )[0];
       return row ? (JSON.parse(row.event_json) as ReturnType<TaskProjectionQueries["readTaskCompletion"]>) : null;
+    },
+    readTaskImportedEvent: async (taskId) => {
+      const row = (
+        await readRows(
+          "task_index_id=$6 AND event_schema='migration-import-event/v1' AND event_type='entity_migrated' AND ha_read_index_json(event_json)#>>'{payload,entity,kind}'='task'",
+          [taskId],
+          true,
+        )
+      )[0];
+      if (!row) return null;
+      const event = JSON.parse(row.event_json);
+      return isMigrationImportEvent(event) && event.payload.entity.kind === "task" ? event : null;
     },
     readSettingsEvent: async () => {
       const row = (await readRows("event_schema='settings-event/v1'", [], true))[0];
