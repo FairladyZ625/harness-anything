@@ -1,5 +1,5 @@
 // Pure schema-free runtime constants shared by runtime-engine and protocol validators without Node builtins.
-export { agentRuntimeTokenUsageRangeWords } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+export { agentRuntimeTokenUsageRangeWords } from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 export const runtimeMcpPolicies = ["disabled", "inherit"] as const;
 export type RuntimeMcpPolicy = (typeof runtimeMcpPolicies)[number];
 export function isRuntimeMcpPolicy(value: unknown): value is RuntimeMcpPolicy {

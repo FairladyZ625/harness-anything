@@ -1,11 +1,13 @@
 import { timingSafeEqual } from "node:crypto";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import {
-  agentRuntimeTokenUsageRangeWords,
   tokenUsageOutcomeWords,
   type AgentRuntimeTokenUsageOutcome,
-  type AgentRuntimeTokenUsageRange,
 } from "@harness-anything/kernel/internal/domain/client-view-status.ts";
+import {
+  agentRuntimeTokenUsageRangeWords,
+  type AgentRuntimeTokenUsageRange,
+} from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 import {
   isDispatchLifecycleInput,
   type DispatchLifecycleInput,
@@ -707,12 +709,13 @@ function reconstructPinnedDispatchOutcome(
       projection.readEventList &&
       projection.readTaskOperation
     ) {
-      const reviewRows = projection.readEventList({
-        entity: `task/${payload.taskId}`,
-        type: "review_recorded",
-        revisionBound: pinnedWatermark + 1,
-        limit: sessionBound,
-      });
+      const reviewEventType = "review_recorded",
+        reviewRows = projection.readEventList({
+          entity: `task/${payload.taskId}`,
+          type: reviewEventType,
+          revisionBound: pinnedWatermark + 1,
+          limit: sessionBound,
+        });
       for (const entry of reviewRows.rows) {
         const reviewOp = projection.readTaskOperation(entry.opId);
         if (
