@@ -3,24 +3,16 @@ import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import nodeTest from "node:test";
-import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
-import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import test from "node:test";
+import { auditDurableActionAuthorization } from "../ontology-durable-action-authorization.mjs";
+import { auditWithBaseline, baselineAuthorizationInputs } from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import { sourceWitnesses, technicalPortEvidence } from "../authorization-source-proof.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
-const inputs = await loadAuthorizationInputs(repoRoot);
-
-// Whole-file execution exceeded the isolated runner's time budget. Preserve every case
-// and use the same bounded partitions as the other real-source authorization consumers.
-let testOrdinal = 0;
-function partitionedTest(name, fn) {
-  if (testOrdinalInPartition(testOrdinal++, process.env.HARNESS_TEST_PARTITION)) nodeTest(name, fn);
-}
-const test = partitionedTest;
+const inputs = await baselineAuthorizationInputs();
 
 function sourceCopy(t) {
   const dir = mkdtempSync(path.join(tmpdir(), "daemon-source-authority-"));
@@ -49,7 +41,7 @@ function sourceCopy(t) {
 }
 
 function audit(sourceRoot = repoRoot) {
-  return auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot, only: ["todo-add"] });
+  return auditWithBaseline(repoRoot, inputs, { sourceRoot, only: ["todo-add"] });
 }
 
 const todoSource = inputs.constants.actionDeclarations
@@ -151,7 +143,7 @@ test("a missing queued owner decision leaves its declared effect unproven", (t) 
 test("local maintenance sources require exact technical ports and cannot claim a canonical owner", () => {
   const local = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
   const run = (action, binding) =>
-    auditDurableActionAuthorization(
+    auditWithBaseline(
       repoRoot,
       {
         ...inputs,
@@ -201,14 +193,14 @@ test("local credential lookup and runtime append remain typed ports, not action 
   assert.equal(runtimeAppendSource.role, "technical-port");
   assert.equal(runtimeAppendSource.port, "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append");
   assert.equal(lookupSource.role, "technical-port");
-  const accepted = auditDurableActionAuthorization(repoRoot, inputs, { only: kinds });
+  const accepted = auditWithBaseline(repoRoot, inputs, { only: kinds });
   assert.deepEqual(accepted.findings, []);
   assert.equal(accepted.rows.find((row) => row.id === "runtime-run")?.ok, true);
   assert.equal(accepted.sourceRows.find((row) => row.id === runtimeAppendSource.candidateId)?.ok, true);
   assert.equal(accepted.sourceRows.find((row) => row.id === lookupSource.candidateId)?.authority, "technical-port");
   // A lookup certificate must not transfer to a different physical call, even when
   // both source identities are registered and the real runtime owner is authorized.
-  const borrowed = auditDurableActionAuthorization(
+  const borrowed = auditWithBaseline(
     repoRoot,
     {
       ...inputs,
@@ -411,7 +403,7 @@ const witnessSource = inputs.constants.actionDeclarations
   .find((action) => action.kind === "task-witness-rerun")
   .ontology.sources.find((source) => source.role === "effect").candidateId;
 test("the witness collector supplied port preserves its registered queued authority", () => {
-  const result = auditDurableActionAuthorization(repoRoot, inputs, { only: ["task-witness-rerun"] });
+  const result = auditWithBaseline(repoRoot, inputs, { only: ["task-witness-rerun"] });
   assert.deepEqual(result.findings, [], JSON.stringify(result.sourceRows));
   assert.equal(result.sourceRows.find((source) => source.id === witnessSource)?.ok, true);
 });
@@ -429,14 +421,14 @@ test("a detached witness catalog callback cannot borrow the collector publisher"
       file,
     ),
   );
-  const result = auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot: dir, only: ["task-witness-rerun"] });
+  const result = auditWithBaseline(repoRoot, inputs, { sourceRoot: dir, only: ["task-witness-rerun"] });
   assert.equal(result.rows.find((row) => row.id === "task-witness-rerun")?.ok, true);
   assert.equal(result.sourceRows.find((source) => source.id === witnessSource)?.ok, false);
   assert.ok(result.findings.some((finding) => finding.includes(witnessSource)));
 });
 
 test("manual task review reaches the authorized launch after preparing outside the writer", () => {
-  const result = auditDurableActionAuthorization(repoRoot, inputs, { only: ["task-dispatch-review"] });
+  const result = auditWithBaseline(repoRoot, inputs, { only: ["task-dispatch-review"] });
   assert.deepEqual(result.findings, []);
   assert.equal(result.rows.find(({ id }) => id === "task-dispatch-review")?.ok, true);
   assert.equal(result.sourceRows.find(({ kind }) => kind === "task-dispatch-review")?.ok, true);
