@@ -13,6 +13,7 @@ import type {
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
+  RuntimeControlReceiptStatus,
   RuntimeProviderUnreachable,
   RuntimeSession,
   RuntimeSessionReadQuery,
@@ -47,7 +48,7 @@ import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
 export interface RuntimeSteerOutcome {
-  readonly status: "applied" | "rejected";
+  readonly status: RuntimeControlReceiptStatus;
   readonly controlRequestId: string;
   readonly requestOpId: string;
   readonly steerVersion?: number;

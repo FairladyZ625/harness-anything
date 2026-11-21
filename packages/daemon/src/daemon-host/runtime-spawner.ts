@@ -1965,7 +1965,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     ) => steerRuntime(extracted, payload, binding, options),
     activeRuntimeSessionIds: (): readonly string[] => [...processes.keys()],
     activeRuntimeCount: (): number => processes.size,
-    isRuntimeActive: (runtimeSessionId: string): boolean => processes.has(runtimeSessionId),
+    isRuntimeActive: (runtimeSessionId: string): boolean => {
+      const runtimeHandles = processes;
+      return runtimeHandles.has(runtimeSessionId);
+    },
     isIdle: () => processes.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
