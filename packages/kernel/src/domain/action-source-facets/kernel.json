@@ -1966,6 +1966,18 @@
         "order": 30
       },
       {
+        "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#createTextDigestAccumulator.feed:cb1fdd6554d95ec7609d68d7a18fae5b",
+        "route": "repository-read",
+        "role": "support",
+        "order": 34
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#digestText:e17292dabe210a3672fe848725cc8b81",
+        "route": "repository-read",
+        "role": "support",
+        "order": 33
+      },
+      {
         "candidateId": "action:packages/kernel:packages/kernel/src/integrity/stable-hash.ts#sha256Bytes:b46bd6134bb1a6e160a70fe1b0801eba",
         "route": "repository-read",
         "role": "support",

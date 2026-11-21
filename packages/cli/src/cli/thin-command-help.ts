@@ -132,6 +132,22 @@ export const clientLocalCommands = [
     help: undefined,
   },
   {
+    id: "ledger-audit-verify",
+    path: ["ledger", "audit-verify"],
+    usage:
+      "ha ledger audit-verify [--manifest <path>]... [--entries <path>] [--certificate <path>] [--algorithm <sha256|sm3>] [--prev-root-hash <digest>] [--allow-unattributed] [--json]",
+    summary:
+      "Verify exported audit hash-chain slices and/or delivery-certificate/v1 files completely offline without a daemon or database.",
+    help: [
+      "    Pure offline verifier: zero daemon connection, zero database access.",
+      "    Recomputes canonical event digests (sha256 or sm3), prevChainHash -> chainHash continuity,",
+      "    manifest rootHash, cross-slice prevRootHash chaining, write personId attribution, and",
+      "    delivery-certificate/v1 submissionDigest, reviewConsent, and certificateHash integrity.",
+      "    Pass --manifest multiple times in chronological order to verify cross-day/cross-slice chaining.",
+      "    Pass --certificate with --manifest to cross-verify the completion event against the chain.",
+    ].join("\n"),
+  },
+  {
     id: "gui",
     path: ["gui"],
     usage: "ha gui [--browser [--parent-origin <origin>]] [--root <path>]",

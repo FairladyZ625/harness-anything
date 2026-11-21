@@ -1099,6 +1099,7 @@ export const daemonCliPresentationContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts#taskSurfaceProtocolCommands.helpTier:0ad5118f75336ee917582e43ce77c33b:4",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts#taskSurfaceProtocolCommands.helpTier:ef0d19ce89e0c8520ee6e11d64157b31:9",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts#taskSurfaceProtocolCommands.helpTier:ef0d19ce89e0c8520ee6e11d64157b31:10",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts#taskSurfaceProtocolCommands.helpTier:ef0d19ce89e0c8520ee6e11d64157b31:11",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts#taskExecutionProtocolCommands.helpTier:ef0d19ce89e0c8520ee6e11d64157b31",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts#taskExecutionProtocolCommands.helpTier:ef0d19ce89e0c8520ee6e11d64157b31:2",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts#taskExecutionProtocolCommands.helpTier:ef0d19ce89e0c8520ee6e11d64157b31:3",

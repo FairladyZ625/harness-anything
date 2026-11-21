@@ -84,6 +84,7 @@ export { compileCompletionGateWitness } from "./domain/completion-gate-publicati
 export { reduceTaskEvent } from "./domain/task-lifecycle.contract.ts";
 export type {
   ProofFor,
+  TaskCompletedEvent,
   TaskEventV1,
   TaskLifecycleCommand,
   TaskLifecycleSnapshot,
@@ -240,7 +241,27 @@ export {
 } from "./domain/completion-contract.ts";
 export type { FrozenGateRequirement, GateWitnessMappingV1 } from "./domain/completion-contract.ts";
 export { isHumanAttestationWitness } from "./domain/completion-gate-witness.ts";
-export { sha256Bytes, sha256Text, stableStringify } from "./integrity/stable-hash.ts";
+export {
+  isAuditHashAlgorithm,
+  sha256Bytes,
+  sha256Text,
+  stableStringify,
+  type AuditDigest,
+  type AuditHashAlgorithm,
+} from "./integrity/stable-hash.ts";
+export {
+  auditGenesisChainHash,
+  buildDeliveryCertificate,
+  createAuditChainAccumulator,
+  DEFAULT_AUDIT_ENTRIES_FILE,
+  isAuditDigest,
+  type AuditCertificateVerifyResult,
+  type AuditExportEntryV1,
+  type AuditExportManifestV1,
+  type AuditExportWindowV1,
+  type AuditSliceVerifyResult,
+  type DeliveryCertificateV1,
+} from "./integrity/audit-hash-chain.ts";
 export { buildHandoffPacket, verifyHandoffPacketDigest } from "./handoff-packet.ts";
 export type { HandoffPacketV1 } from "./handoff-packet.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";

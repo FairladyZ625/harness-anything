@@ -2623,6 +2623,20 @@
         "order": 2
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#openCallerOutputLineWriter.writeLine:7e4f160365b75c905b091553d20917fb",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.FileHandle.write",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#writeCallerOutputFile:e18f983206d258a0ee8a719881e31b56",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile",
+        "order": 4
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#writeHostEnvironmentFile:5aaa157fa2d3b319d38f729c5da71f4c",
         "route": "daemon-local-state",
         "role": "technical-port",

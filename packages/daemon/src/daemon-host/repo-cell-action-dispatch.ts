@@ -195,6 +195,8 @@ export function executeRepoAction(
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
   if (action.kind === "event-list") return cell.listEvents(action, binding);
   if (action.kind === "event-show") return cell.showEvent(action, binding);
+  if (action.kind === "ledger-audit-export") return cell.auditExportPage(action, binding);
+  if (action.kind === "task-delivery-certificate") return cell.taskDeliveryCertificate(action, binding);
   if (action.kind === "relation-triples") {
     const revision = cell.projection.readCut().sourceRevision,
       rows = declaredRelationTriples({

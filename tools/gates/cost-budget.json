@@ -1095,6 +1095,11 @@
             "cli-graph"
           ]
         },
+        "command:ledger-audit-export": {
+          "measurements": [
+            "cli-ledger-audit-export"
+          ]
+        },
         "command:ledger-reconcile": {
           "measurements": [
             "ledger-reconcile"
@@ -1174,6 +1179,11 @@
         "command:squad-status": {
           "measurements": [
             "cli-squad-status"
+          ]
+        },
+        "command:task-delivery-certificate": {
+          "measurements": [
+            "cli-task-delivery-certificate"
           ]
         },
         "command:task-dispatches": {

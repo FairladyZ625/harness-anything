@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { open, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -29,6 +29,32 @@ export async function writeHostEnvironmentFile(
   } finally {
     if (!published) await rm(temporary, { force: true });
   }
+}
+
+/** Open a streaming line writer for a caller-specified export artifact path. */
+export async function openCallerOutputLineWriter(filePath: string): Promise<{
+  readonly writeLine: (line: string) => Promise<void>;
+  readonly close: () => Promise<void>;
+}> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const handle = await open(filePath, "w");
+  let closed = false;
+  return {
+    writeLine: async (line: string) => {
+      await handle.write(line, undefined, "utf8");
+    },
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      await handle.close();
+    },
+  };
+}
+
+/** Write a single caller-specified export artifact file, creating parent directories if needed. */
+export async function writeCallerOutputFile(filePath: string, contents: string): Promise<void> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, contents, "utf8");
 }
 
 /** Cleanup can only name the directory this call acquired. */
