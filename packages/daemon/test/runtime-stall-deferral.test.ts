@@ -1,10 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDispatchStream, type DispatchStallEvidence } from "../src/daemon-host/dispatch-stream.ts";
+import {
+  descendantProcessRows,
+  liveDescendantPidsOf,
+  parseWindowsProcessRows,
+} from "../src/daemon-host/runtime-spawn-process.ts";
 import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/daemon-host/runtime-spawn-active.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
@@ -209,3 +216,53 @@ test("no live child process still triggers the stall at the base deadline", asyn
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("Windows process rows parse and traverse a multi-level descendant tree", () => {
+  const rows = parseWindowsProcessRows(
+    JSON.stringify([
+      { ProcessId: 100, ParentProcessId: 1 },
+      { ProcessId: 101, ParentProcessId: 100 },
+      { ProcessId: 102, ParentProcessId: 101 },
+      { ProcessId: 103, ParentProcessId: 999 },
+      { ProcessId: "invalid", ParentProcessId: 100 },
+    ]),
+  );
+  assert.deepEqual(rows, [
+    { pid: 100, parentPid: 1, processGroupId: 0 },
+    { pid: 101, parentPid: 100, processGroupId: 0 },
+    { pid: 102, parentPid: 101, processGroupId: 0 },
+    { pid: 103, parentPid: 999, processGroupId: 0 },
+  ]);
+  assert.deepEqual(
+    descendantProcessRows(rows, 100).map(({ pid }) => pid),
+    [100, 101, 102],
+  );
+  assert.deepEqual(parseWindowsProcessRows(JSON.stringify({ ProcessId: 103, ParentProcessId: 100 })), [
+    { pid: 103, parentPid: 100, processGroupId: 0 },
+  ]);
+});
+
+test("Windows process rows produce no descendants for an unrelated root", () => {
+  const rows = parseWindowsProcessRows(JSON.stringify([{ ProcessId: 200, ParentProcessId: 1 }]));
+  assert.deepEqual(descendantProcessRows(rows, 999), []);
+});
+
+test(
+  "Windows live descendant probe observes a real child process",
+  { skip: process.platform === "win32" ? false : "requires Windows Win32 process table semantics" },
+  async () => {
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60000)"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    try {
+      await once(child, "spawn");
+      const probe = await liveDescendantPidsOf(process.pid);
+      assert.equal(probe.available, true);
+      if (probe.available) assert.ok(probe.pids.includes(child.pid ?? -1));
+    } finally {
+      child.kill();
+      await once(child, "close").catch(() => undefined);
+    }
+  },
+);

@@ -230,13 +230,13 @@ export function observeResumeProcess(
   };
 }
 
-type PosixProcessRow = {
+type ProcessTableRow = {
   readonly pid: number;
   readonly parentPid: number;
   readonly processGroupId: number;
 };
 
-async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
+async function readPosixProcessRows(): Promise<readonly ProcessTableRow[]> {
   // Bounded: this table is also consulted on the stall watchdog's path, where a hung `ps` would
   // otherwise prevent the very settlement that decides the attempt.
   const output = await runProcessTextAsync(
@@ -255,11 +255,50 @@ async function readPosixProcessRows(): Promise<readonly PosixProcessRow[]> {
   });
 }
 
+async function readWindowsProcessRows(): Promise<readonly ProcessTableRow[]> {
+  const output = await runProcessTextAsync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress",
+    ],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { timeoutMs: daemonRuntimePolicy.defaultValue.process.processTableTimeoutMs },
+  );
+  return parseWindowsProcessRows(output);
+}
+
+export function parseWindowsProcessRows(output: string): readonly ProcessTableRow[] {
+  const parsed: unknown = JSON.parse(output);
+  const records = Array.isArray(parsed) ? parsed : [parsed];
+  return records.flatMap((record) => {
+    if (typeof record !== "object" || record === null || Array.isArray(record)) return [];
+    const row = record as { readonly ProcessId?: unknown; readonly ParentProcessId?: unknown };
+    const pid = row.ProcessId,
+      parentPid = row.ParentProcessId;
+    if (
+      typeof pid !== "number" ||
+      !Number.isInteger(pid) ||
+      pid < 1 ||
+      typeof parentPid !== "number" ||
+      !Number.isInteger(parentPid) ||
+      parentPid < 0
+    )
+      return [];
+    return [{ pid, parentPid, processGroupId: 0 }];
+  });
+}
+
 /** Probe live descendants; unavailable keeps the historical deadline. */
-async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProbeResult> {
-  if (!Number.isInteger(rootPid) || rootPid < 1 || process.platform === "win32") return { available: false };
+export async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProbeResult> {
+  if (!Number.isInteger(rootPid) || rootPid < 1) return { available: false };
   try {
-    const rows = await readPosixProcessRows();
+    const rows = process.platform === "win32" ? await readWindowsProcessRows() : await readPosixProcessRows();
     return {
       available: true,
       pids: descendantProcessRows(rows, rootPid)
@@ -271,7 +310,7 @@ async function liveDescendantPidsOf(rootPid: number): Promise<LiveDescendantProb
   }
 }
 
-function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number): readonly PosixProcessRow[] {
+export function descendantProcessRows(rows: readonly ProcessTableRow[], rootPid: number): readonly ProcessTableRow[] {
   const selected = new Set([rootPid]);
   let changed = true;
   while (changed) {
@@ -286,7 +325,7 @@ function descendantProcessRows(rows: readonly PosixProcessRow[], rootPid: number
 }
 
 function signalRuntimeTargets(
-  rows: readonly PosixProcessRow[],
+  rows: readonly ProcessTableRow[],
   rootPid: number,
   ownProcessGroupId: number | null,
   signal: NodeJS.Signals,
@@ -337,7 +376,7 @@ export async function terminateRuntimeTree(rootDir: string, dispatchId: string, 
     requestProcessGroupStop({ pid: rootPid, dispatch: { rootDir, dispatchId } });
     return;
   }
-  let allRows: readonly PosixProcessRow[];
+  let allRows: readonly ProcessTableRow[];
   try {
     allRows = await readPosixProcessRows();
   } catch (error) {
