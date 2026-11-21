@@ -7,6 +7,12 @@ import {
   requireSameProjectionCut,
   type ProjectionCut,
 } from "@harness-anything/application/internal/queries/projection-cut.ts";
+import {
+  selectPassiveTraceContext,
+  type GitHistoryPort,
+  type PassiveTraceSelection,
+  type TraceWorktreeCollision,
+} from "@harness-anything/application/internal/queries/file-trace-read.ts";
 
 /**
  * Dispatch-time causal context: the bounded slice of the causal graph a freshly
@@ -34,8 +40,8 @@ import {
  * in UTF-8 bytes — a provable hard bound the tests assert on real dispatch
  * captures; byte↔token ratios are deliberately not claimed. Fields render at
  * full length (a truncated clause is worse than an absent one), so the bound
- * falls on whole entries: a greedy fit in relation-distance order (identity,
- * first deriving decision, its evidence facts, remaining decisions, tails) sheds
+ * falls on whole entries: a greedy fit keeps active collisions and in-effect
+ * rejected redlines before lineage, evidence facts and the remaining details. It sheds
  * entries from the far end and names every dropped ref in a closing `<omitted>`
  * line, and the root is marked `truncated="yes"`. The size is measured, not
  * guessed: over the production ledger's 3,053 causal-neighborhood blocks
@@ -51,6 +57,9 @@ export const CAUSAL_CONTEXT_MAX_BYTES = 8192;
 const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
+  /** dec_9979850C7CE87C17271D78E4D1 CH3: passive reverse-trace tail caps. */
+  MAX_TRACE_DECISIONS = 2,
+  MAX_TRACE_FACTS = 3,
   ROOT_OPEN = "<task-context>",
   TRUNCATED_OPEN = '<task-context truncated="yes">',
   ROOT_CLOSE = "</task-context>",
@@ -74,6 +83,12 @@ interface BudgetFit {
 export function assembleTaskCausalContext(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
+  /**
+   * Host read and local dispatch entries pass their Git port (or null without a source worktree) to
+   * add the passive reverse trace of the task plan's code paths; the handoff store passes nothing
+   * and stays free of Git and of the extra reads (dec_9979850C7CE87C17271D78E4D1 CH1).
+   */
+  readonly gitHistory?: GitHistoryPort | null;
 }): string | null {
   const { projection, taskId } = input,
     ancestry = readTaskAncestry(projection, taskId),
@@ -150,14 +165,32 @@ export function assembleTaskCausalContext(input: {
   const servedFactRefs = factRefs.filter((ref) => facts.get(ref)?.archived !== true);
   const workPlan = work === null ? undefined : inheritedPlans.get(`task/${work.taskId}`),
     workGoal = workPlan === undefined ? null : planGoalSummary(workPlan.body);
+  const passive =
+    input.gitHistory === undefined
+      ? null
+      : readPassiveTrace(
+          projection,
+          taskId,
+          input.gitHistory,
+          decisionIds.slice(0, MAX_DECISIONS),
+          servedFactRefs,
+          reads,
+        );
   requireSameProjectionCut("dispatch causal context", reads);
-  if (work === null && parent === null && decisionIds.length === 0) return null;
+  if (
+    work === null &&
+    parent === null &&
+    decisionIds.length === 0 &&
+    (passive === null || passive.decisions.length + passive.facts.length + passive.collisions.length === 0)
+  )
+    return null;
   // Priority order is relation distance from the dispatched task: identity lines first,
   // then the first deriving decision's header, chosen anchor and load-bearing claims,
   // then the evidence layer — a fat work title can never starve the facts of all
   // budget. The remaining decisions, the work goal and the framing question are detail
   // tails the greedy fit sheds first.
-  const details: DetailLine[] = [],
+  const traceLines = passive === null ? null : passiveTraceLines(passive),
+    details: DetailLine[] = [...(traceLines?.priority ?? [])],
     tails: DetailLine[] = [];
   // The refs line already carries every canonical id, so identity lines stay
   // title-only — repeating the id in an attribute would spend budget twice.
@@ -222,14 +255,18 @@ export function assembleTaskCausalContext(input: {
   if (workGoal !== null && work !== null)
     tails.unshift(detail(`task/${work.taskId}`, `<goal ref="task/${work.taskId}">${xmlText(workGoal)}</goal>`));
   details.push(...(decisionBlocks[1] ?? []), ...tails);
+  if (traceLines !== null) details.push(...traceLines.tail);
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
     ...(parent === null || parent.taskId === work?.taskId ? [] : [`task/${parent.taskId}`]),
     ...decisionIds.slice(0, MAX_DECISIONS).map((decisionId) => `decision/${decisionId}`),
     ...servedFactRefs,
+    ...(passive?.decisions.map((decision) => `decision/${decision.decisionId}`) ?? []),
+    ...(passive?.facts.map((fact) => fact.ref) ?? []),
+    ...(passive?.collisions.map(({ taskId }) => `task/${taskId}`) ?? []),
   ];
   const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows),
-    factsNote = servedFactRefs.length > 0 ? FACTS_NOTE : null;
+    factsNote = servedFactRefs.length > 0 || (passive?.facts.length ?? 0) > 0 ? FACTS_NOTE : null;
   let remainingInlineBytes = 16 * 1024;
   const inherited = ancestors
     .slice()
@@ -306,6 +343,126 @@ function decisionExecutionSurface(
   ].join("\n\n");
 }
 
+/** The task's own plan names the code paths; their reverse trace joins the same verified cut. */
+function readPassiveTrace(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  gitHistory: GitHistoryPort | null,
+  forwardDecisionIds: readonly string[],
+  forwardFactRefs: readonly string[],
+  reads: ProjectionCut[],
+): PassiveTraceSelection | null {
+  const self = projection.readTaskIndex({ taskIds: [taskId] });
+  reads.push(self);
+  const packagePath = self.rows.find((row) => row.taskId === taskId)?.packagePath ?? null;
+  if (packagePath === null) return null;
+  const plan = projection.readDocument(`${packagePath}/task_plan.md`);
+  reads.push(plan);
+  if (plan.document === null) return null;
+  const selection = selectPassiveTraceContext({
+    projection,
+    taskId,
+    planBody: plan.document.body,
+    gitHistory,
+    excludeDecisionIds: forwardDecisionIds,
+    excludeFactRefs: forwardFactRefs,
+    maxDecisions: MAX_TRACE_DECISIONS,
+    maxFacts: MAX_TRACE_FACTS,
+  });
+  if (selection !== null) reads.push(...selection.reads);
+  return selection;
+}
+
+/** Every passive line names the plan path that produced it. */
+function passiveTraceLines(passive: PassiveTraceSelection): { priority: DetailLine[]; tail: DetailLine[] } {
+  const priority: DetailLine[] = [],
+    tail: DetailLine[] = [],
+    tracePath = (paths: readonly string[]) => xmlText(paths[0] ?? passive.paths[0] ?? "");
+  for (const decision of passive.decisions) {
+    const ref = `decision/${decision.decisionId}`,
+      path = tracePath(decision.tracePaths);
+    for (const option of decision.rejected)
+      if (option.whyNot.trim())
+        priority.push(
+          detail(
+            ref,
+            `<redline ref="${ref}/${xmlText(option.id)}" trace-path="${path}">${xmlText(`${option.summary} — Why Not: ${option.whyNot}`)}</redline>`,
+          ),
+        );
+    tail.push(
+      detail(
+        ref,
+        `<governs ref="${ref}" trace-path="${path}" title="${xmlText(decision.title)}">${xmlText(decision.summary)}</governs>`,
+      ),
+    );
+  }
+  for (const fact of passive.facts)
+    tail.push(
+      detail(
+        fact.ref,
+        `<anchored ref="${fact.ref}" trace-path="${tracePath(fact.tracePaths)}">${xmlText(fact.summary)} (src:${xmlText(fact.evidenceSource)})</anchored>`,
+      ),
+    );
+  return { priority: [...priority, ...collisionLines(passive.collisions)], tail };
+}
+
+function collisionLines(collisions: readonly (TraceWorktreeCollision & { matchReason?: string })[]): DetailLine[] {
+  return collisions.flatMap(({ taskId, tracePaths, matchReason }) => {
+    const ref = `task/${taskId}`,
+      warning =
+        matchReason === "branch_diff"
+          ? "Active task branch has unmerged commits."
+          : "Active worktree has uncommitted changes.";
+    return tracePaths.map((target) =>
+      detail(ref, `<collision ref="${ref}" trace-path="${escapeXml(target)}">${warning}</collision>`),
+    );
+  });
+}
+
+/** Edge dispatch receives canonical causal prose from the center, then adds edge-local Git evidence. */
+export function withLocalWorktreeCollisions(
+  context: string | null,
+  collisions: readonly TraceWorktreeCollision[],
+): string | null {
+  if (collisions.length === 0) return context;
+  const warnings = collisionLines(collisions),
+    end = context?.indexOf(`\n${ROOT_CLOSE}`) ?? -1;
+  if (end < 0 || context === null || !/^<task-context(?: truncated="yes")?>\n/u.test(context)) {
+    const block = renderWithinBudget(warnings, [...new Set(warnings.map(({ ref }) => ref))], null);
+    return context === null ? block : `${block}\n\n${context}`;
+  }
+  const [open, ...lines] = context.slice(0, end).split("\n"),
+    refs =
+      lines
+        .find((line) => line.startsWith("<refs>"))
+        ?.slice(6, -7)
+        .split(" ")
+        .filter(Boolean) ?? [],
+    omitted =
+      lines
+        .find((line) => line.startsWith("<omitted>"))
+        ?.slice(9, -10)
+        .split(" ")
+        .filter(Boolean) ?? [],
+    kept = lines.flatMap((line) => {
+      const ref = /^<[a-z]+ ref="([^"]+)"/u.exec(line)?.[1];
+      return ref === undefined ? [] : [detail(ref, line)];
+    }),
+    details = [
+      ...kept.filter(({ line }) => line.startsWith("<redline ")),
+      ...warnings,
+      ...kept.filter(({ line }) => !line.startsWith("<redline ")),
+    ],
+    block = renderWithinBudget(
+      details,
+      [...new Set([...refs, ...warnings.map(({ ref }) => ref)])],
+      lines.find((line) => line.startsWith("<note>")) ?? null,
+      open === TRUNCATED_OPEN,
+      omitted,
+    );
+  return block + context.slice(end + 1 + ROOT_CLOSE.length);
+}
+
 /**
  * Greedy fit in priority (relation-distance) order under a reserved refs line: `<refs>`
  * keeps every layer's canonical id queryable even when the detail entries must drop,
@@ -316,7 +473,13 @@ function decisionExecutionSurface(
  * (only a pathological id set can do that), refs are shed from the tail under the
  * widest root, so the refs line and every emitted line fit without a final clamp.
  */
-function renderWithinBudget(details: readonly DetailLine[], refs: readonly string[], factsNote: string | null): string {
+function renderWithinBudget(
+  details: readonly DetailLine[],
+  refs: readonly string[],
+  factsNote: string | null,
+  previouslyTruncated = false,
+  priorOmissions: readonly string[] = [],
+): string {
   const note = factsNote === null ? 0 : byteLength(factsNote) + 1;
   const mutable = [...refs];
   let refsLine = `<refs>${mutable.join(" ")}</refs>`;
@@ -334,9 +497,11 @@ function renderWithinBudget(details: readonly DetailLine[], refs: readonly strin
   // 16-byte-longer truncated form; fitting the whole root while emitting the truncated one
   // would overshoot the cap and cut `</task-context>` off a details-only shed. A whole-root
   // fit that sheds nothing is emitted as measured.
-  const whole = fitWithinBudget(details, refsLine, ROOT_OPEN, factsNote);
-  if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine, factsNote);
-  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN, factsNote);
+  if (!previouslyTruncated) {
+    const whole = fitWithinBudget(details, refsLine, ROOT_OPEN, factsNote);
+    if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine, factsNote);
+  }
+  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN, factsNote, priorOmissions);
   return renderBlock(TRUNCATED_OPEN, refsLine, truncated.kept, truncated.omittedLine, factsNote);
 }
 
@@ -346,6 +511,7 @@ function fitWithinBudget(
   refsLine: string,
   open: string,
   factsNote: string | null,
+  priorOmissions: readonly string[] = [],
 ): BudgetFit {
   let used =
     byteLength(open) +
@@ -355,7 +521,7 @@ function fitWithinBudget(
     1 +
     byteLength(ROOT_CLOSE);
   const kept: string[] = [],
-    omitted: string[] = [];
+    omitted = [...priorOmissions];
   let dropped = false;
   for (const entry of details) {
     const cost = byteLength(entry.line) + 1;

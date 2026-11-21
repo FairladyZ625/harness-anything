@@ -18,7 +18,12 @@ import { ensureRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { initializeTerminalMaterialization } from "./rebuildable-task-projection-write-model.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
-import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
+import {
+  EXECUTION_SUBMISSION_COMMIT_SQL,
+  ensureLeaseTaskActiveColumn,
+  REPOSITORY_READ_TABLES_SQL,
+  TASK_INDEX_TABLES_SQL,
+} from "./projection-tables.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
@@ -600,6 +605,9 @@ ${REPOSITORY_READ_TABLES_SQL}
     );
     CREATE INDEX IF NOT EXISTS entity_projection_task
       ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
+    CREATE INDEX IF NOT EXISTS entity_projection_execution_commit
+      ON entity_projection(${EXECUTION_SUBMISSION_COMMIT_SQL}, task_id, entity_kind)
+      WHERE entity_kind = 'execution';
     /* @gate-identity state-store/task.projection.edge */ CREATE TABLE IF NOT EXISTS edge (
       task_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,

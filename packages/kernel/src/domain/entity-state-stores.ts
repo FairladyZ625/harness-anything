@@ -166,6 +166,7 @@ const taskProjectionTables = Object.freeze(
     "decision_content_pin",
     "decision_review_event",
     "decision_fts",
+    "decision_applies_module",
     "dispatch_lifecycle_group",
     "dispatch_lifecycle_attempt",
     "dispatch_lifecycle_task_lease",

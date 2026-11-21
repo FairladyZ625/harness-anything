@@ -20,6 +20,7 @@ export * from "./work-briefs-read.ts";
 export * from "./task-index-query.ts";
 export * from "./repo-cell-event-query.ts";
 export * from "./repo-cell-graph-view.ts";
+export * from "./file-trace-read.ts";
 export * from "./repo-query-payload.ts";
 export * from "./repo-cell-read-payloads.ts";
 export * from "./evidence-payload.ts";
