@@ -1998,7 +1998,7 @@
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields, including orphan-recovery audit shape.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:13b9fffd29404a624b581fe413211b0d",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:16f63161c483052f14a0fda5b156c843",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ],
