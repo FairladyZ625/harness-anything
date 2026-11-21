@@ -310,7 +310,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       }),
     )) as RuntimeReceipt;
     assert.equal(probed.instance?.authReadiness?.status, "ready", JSON.stringify(probed));
-    assert.equal(probed.instance?.authReadiness?.basis, "provider", JSON.stringify(probed));
+    assert.equal(probed.instance?.authReadiness?.basis, "metadata", JSON.stringify(probed));
     const deleted = (await bridge.invoke(
       "daemon.runtimeInstance.delete",
       scopedRpcParams("daemon.runtimeInstance.delete", { instanceId: "codex-gui" }),
