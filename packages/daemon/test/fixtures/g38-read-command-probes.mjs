@@ -38,6 +38,7 @@ const selectors = {
   "receipt-show": { opId: "read-agent" },
   "vertical-kind-list": {},
   "vertical-kind-show": { kindId: "research" },
+  "vertical-list": {},
   "entity-list": { entityKind: "agent" },
   "agent-list": {},
   "squad-list": {},

@@ -547,11 +547,34 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       readonly type: string;
       readonly depth?: number;
       readonly value?: string;
+      readonly alt?: string;
       readonly children?: ReadonlyArray<MdastLikeNode>;
     };
-    const stripComments = (value: string): string => value.replace(/<!--[\s\S]*?-->/gu, "");
+    const invisibleTextRe = /(?:\s|\p{Cf}|\u034f|\u115f|\u1160|\u3164)/gu;
+    const hasVisible = (value: string): boolean => value.replace(invisibleTextRe, "").length > 0;
+    const decodeSimpleEntities = (value: string): string =>
+      value
+        .replace(/&#[xX]([0-9a-fA-F]{1,6});/gu, (_m, hex: string) => {
+          const code = Number.parseInt(hex, 16);
+          return code === 0 || code > 0x10ffff ? "\ufffd" : String.fromCodePoint(code);
+        })
+        .replace(/&#([0-9]{1,7});/gu, (_m, dec: string) => {
+          const code = Number.parseInt(dec, 10);
+          return code === 0 || code > 0x10ffff ? "\ufffd" : String.fromCodePoint(code);
+        })
+        .replace(/&nbsp;/gu, "\u00a0")
+        .replace(/&ZeroWidthSpace;/gu, "\u200b");
+    const stripCommentsAndTags = (value: string): string =>
+      decodeSimpleEntities(
+        value
+          .replace(/<!--[\s\S]*?-->/gu, "")
+          .replace(/<\?[\s\S]*?\?>/gu, "")
+          .replace(/<![A-Za-z][^>]*>/gu, "")
+          .replace(/<\/?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?\/?>/gu, ""),
+      );
     const collectInlineText = (node: MdastLikeNode): string => {
-      if (node.type === "html") return stripComments(node.value ?? "");
+      if (node.type === "html") return stripCommentsAndTags(node.value ?? "");
+      if (node.type === "image") return node.alt ?? "";
       if (typeof node.value === "string") return node.value;
       return (node.children ?? []).map(collectInlineText).join("");
     };
@@ -562,10 +585,10 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       const tree = fromMarkdown(doc) as unknown as { readonly children: ReadonlyArray<MdastLikeNode> };
       const isSubstantive = (node: MdastLikeNode): boolean => {
         if (node.type === "thematicBreak" || node.type === "definition") return false;
-        if (node.type === "code") return (node.value ?? "").trim().length > 0;
-        if (node.type === "html") return stripComments(node.value ?? "").trim().length > 0;
-        if (node.type === "heading") return collectInlineText(node).trim().length > 0;
-        if (node.type === "paragraph") return collectInlineText(node).trim().length > 0;
+        if (node.type === "code") return hasVisible(node.value ?? "");
+        if (node.type === "html") return hasVisible(stripCommentsAndTags(node.value ?? ""));
+        if (node.type === "heading") return hasVisible(collectInlineText(node));
+        if (node.type === "paragraph") return hasVisible(collectInlineText(node));
         if (node.type === "blockquote" || node.type === "list" || node.type === "listItem") {
           return (node.children ?? []).some(isSubstantive);
         }
@@ -621,6 +644,16 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
         "comment-only-atx-anchor",
         ["## <!-- hidden -->", "## Action Plan"],
         "## <!-- hidden -->\n\nSome text.\n\n## Action Plan\n\nProceed.\n",
+      ],
+      [
+        "whitespace-entity-atx-anchor",
+        ["## &#32;", "## Action Plan"],
+        "## &#32;\n\nSome text.\n\n## Action Plan\n\nProceed.\n",
+      ],
+      [
+        "empty-link-atx-anchor",
+        ["## [](/policy)", "## Action Plan"],
+        "## [](/policy)\n\nSome text.\n\n## Action Plan\n\nProceed.\n",
       ],
     ] as const) {
       const badDocFile = path.join(sandbox, `${label}.md`);
@@ -733,6 +766,33 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       ["blockquoteCommentOnly", `## Executive Summary\n\n> <!-- placeholder -->${actionTail}`],
       ["blockquoteNonEmptyHeading", `## Executive Summary\n\n> ### Quoted Milestone${actionTail}`],
       ["tableBody", `## Executive Summary\n\n| Metric | Value |\n| --- | --- |\n| Status | Green |${actionTail}`],
+      // HA09-2 visible rendered inline text (character references, empty links/images, emphasis, inline HTML)
+      ["whitespaceEntityDec", `## Executive Summary\n\n&#32;${actionTail}`],
+      ["whitespaceEntityHex", `## Executive Summary\n\n&#x20;${actionTail}`],
+      ["whitespaceEntityTab", `## Executive Summary\n\n&#9;${actionTail}`],
+      ["namedNbspEntity", `## Executive Summary\n\n&nbsp;${actionTail}`],
+      ["namedZeroWidthEntity", `## Executive Summary\n\n&ZeroWidthSpace;${actionTail}`],
+      ["emptyInlineLink", `## Executive Summary\n\n[](/policy)${actionTail}`],
+      ["whitespaceEntityLink", `## Executive Summary\n\n[&#32;](/policy)${actionTail}`],
+      ["commentOnlyLink", `## Executive Summary\n\n[<!-- hidden -->](/policy)${actionTail}`],
+      ["emptyImage", `## Executive Summary\n\n![](/diagram.png)${actionTail}`],
+      ["emptyInlineCode", `## Executive Summary\n\n\` \`${actionTail}`],
+      ["emphasizedWhitespaceEntity", `## Executive Summary\n\n*&#32;*${actionTail}`],
+      ["strongEmptyLink", `## Executive Summary\n\n**[](/policy)**${actionTail}`],
+      ["emptyReferenceLink", `## Executive Summary\n\n[&#32;][p]\n\n[p]: /policy${actionTail}`],
+      ["emptyInlineHtmlSpan", `## Executive Summary\n\n<span></span>${actionTail}`],
+      ["htmlBlockWhitespaceEntity", `## Executive Summary\n\n<div>&#32;</div>${actionTail}`],
+      ["htmlBlockNamedNbsp", `## Executive Summary\n\n<p>&nbsp;</p>${actionTail}`],
+      ["htmlBlockVisibleText", `## Executive Summary\n\n<div>Approved</div>${actionTail}`],
+      ["blockquoteEmptyLink", `## Executive Summary\n\n> [](/policy)${actionTail}`],
+      ["listWhitespaceEntity", `## Executive Summary\n\n- &#32;${actionTail}`],
+      ["visibleInlineLink", `## Executive Summary\n\n[Policy](/policy)${actionTail}`],
+      ["visibleImageAlt", `## Executive Summary\n\n![Architecture](/diagram.png)${actionTail}`],
+      ["visibleNamedEntity", `## Executive Summary\n\n&amp;${actionTail}`],
+      ["visibleAutolink", `## Executive Summary\n\n<https://example.com>${actionTail}`],
+      ["visibleInlineHtmlText", `## Executive Summary\n\n<span>Approved</span>${actionTail}`],
+      ["visibleInlineCode", `## Executive Summary\n\n\`verified\`${actionTail}`],
+      ["undefinedRefLiteral", `## Executive Summary\n\n[&#32;][undef]${actionTail}`],
     ];
     for (const [label, doc] of commonMarkCases) {
       const oracle = mdastRequiredSections(doc, required);
@@ -871,6 +931,10 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
       baselineCount: 2,
       driftedCount: 0,
       allFresh: true,
+      verifiedAnchors: [
+        { ref: "tasks/t1/artifacts/upstream-brief.md", expectedSha256: briefHash },
+        { ref: "tasks/t1/artifacts/upstream-spec.md", expectedSha256: specHash },
+      ],
     });
     const anchors = [{ path: manifestSubject.path, revision: manifestSubject.revision, blobSha256: manifestHash }];
     assert.deepEqual(
@@ -1026,6 +1090,84 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
     }).payload;
     assert.equal(independentDrifted.result, "fail");
     assert.match(independentDrifted.diagnostic, /Live upstream drift on "tasks\/task-upstream\/artifacts\/brief\.md"/u);
+
+    // Negative 1f (HA09-11): Direct canonical ref MUST bind to canonicalDocuments[ref] directly;
+    // supplying sourcePath pointing to a different accepted document (or even itself) must be rejected.
+    const substitutedRefFile = path.join(sandbox, "substituted-ref.json");
+    writeFileSync(
+      substitutedRefFile,
+      JSON.stringify({
+        schema: "office-collab/upstream-freshness/v1",
+        checkedAt: "2026-11-21T00:00:00Z",
+        baselines: [
+          {
+            ref: "tasks/task-upstream/artifacts/brief.md",
+            sourcePath: "tasks/other/artifacts/stale-v1.md",
+            expectedSha256: briefHash,
+          },
+        ],
+      }),
+    );
+    const substitutedRefSubject = {
+      path: "tasks/t1/artifacts/upstream-freshness.json",
+      revision: 1,
+      blobSha256: sha256(readFileSync(substitutedRefFile)),
+      file: substitutedRefFile,
+    };
+    const substitutedRefResult = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [substitutedRefSubject],
+      artifacts: [substitutedRefSubject],
+      canonicalDocuments: {
+        "tasks/task-upstream/artifacts/brief.md": {
+          path: "tasks/task-upstream/artifacts/brief.md",
+          revision: 4,
+          blobSha256: updatedBriefHash,
+        },
+        "tasks/other/artifacts/stale-v1.md": {
+          path: "tasks/other/artifacts/stale-v1.md",
+          revision: 1,
+          blobSha256: briefHash,
+        },
+      },
+    }).payload;
+    assert.equal(substitutedRefResult.result, "fail");
+    assert.match(substitutedRefResult.diagnostic, /sourcePath is not allowed for direct canonical ref/u);
+
+    // Negative 1g (HA09-11): Local artifacts/... copy with a relative artifacts/... sourcePath is rejected
+    const relativeSourcePathFile = path.join(sandbox, "relative-source-path.json");
+    writeFileSync(
+      relativeSourcePathFile,
+      JSON.stringify({
+        schema: "office-collab/upstream-freshness/v1",
+        checkedAt: "2026-11-21T00:00:00Z",
+        baselines: [
+          {
+            ref: "artifacts/upstream-brief.md",
+            sourcePath: "artifacts/upstream-spec.md",
+            expectedSha256: briefHash,
+          },
+        ],
+      }),
+    );
+    const relativeSourcePathSubject = {
+      path: "tasks/t1/artifacts/upstream-freshness.json",
+      revision: 1,
+      blobSha256: sha256(readFileSync(relativeSourcePathFile)),
+      file: relativeSourcePathFile,
+    };
+    const relativeSourcePathResult = runCheckScript(sandbox, scriptPath, {
+      schema: "witness-input/v1",
+      packagePath: "tasks/t1",
+      code: null,
+      subjects: [relativeSourcePathSubject],
+      artifacts: [relativeSourcePathSubject, validArtifacts[1]!],
+      canonicalDocuments: liveCanonicalV1,
+    }).payload;
+    assert.equal(relativeSourcePathResult.result, "fail");
+    assert.match(relativeSourcePathResult.diagnostic, /sourcePath must be a safe canonical ledger path/u);
 
     // Negative 2 (HA09-1): Self-reported external ref MUST fail closed even when observedSha256 === expectedSha256
     const extSelfReportedFile = path.join(sandbox, "ext-self-reported.json");

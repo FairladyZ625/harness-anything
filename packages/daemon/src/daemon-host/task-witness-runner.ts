@@ -14,7 +14,6 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { centerWitnessAction } from "@harness-anything/application/internal/commands/task-witness-action.ts";
 import { witnessAdapters } from "./repo-cell-witness-adapters.ts";
-import { canonicalBaselineDriftReason } from "./repo-cell-command-witness.ts";
 import { readTaskWitnessRequest, type TaskWitnessRequest } from "./task-witness-request.ts";
 
 /** Source execution owns no queue: claims and publication enter the RepoCell's existing writer. */
@@ -57,35 +56,18 @@ export async function runCompletionSources(
       source: "local",
     };
     const current = currentGateRun(execution, requirement.gateId);
-    const driftReason =
-      current?.state === "completed" && current.result === "pass" && requirement.witness.kind === "command"
-        ? canonicalBaselineDriftReason(context.extracted, requirement, execution)
-        : null;
     // A command is executed only by the request that accepted its claim. Existing running
-    // commands are owned by that invocation; terminal runs require an explicit owner rerun
-    // unless a live canonical upstream baseline declared by the gate has drifted.
+    // commands are owned by that invocation; terminal runs require an explicit owner rerun.
     if (
       current &&
-      driftReason === null &&
       (current.state !== "running" || (requirement.witness.kind === "command" && current.runId !== requestedRunId))
     )
       continue;
     let claimedExecution: ExecutionV1 = execution;
-    if (!current || driftReason !== null) {
+    if (!current) {
       const claim = await accept(
-        driftReason !== null
-          ? {
-              kind: "task-witness-rerun",
-              taskId,
-              executionId: execution.executionId,
-              gateId: requirement.gateId,
-              runId: current!.runId,
-              reason: driftReason,
-            }
-          : { kind: "task-witness-claim", taskId, executionId: execution.executionId, gateId: requirement.gateId },
-        driftReason !== null
-          ? { ...sourceActor, actor: { principal: initial.task.createdBy.principal, executor: null } }
-          : sourceActor,
+        { kind: "task-witness-claim", taskId, executionId: execution.executionId, gateId: requirement.gateId },
+        sourceActor,
       );
       if (claim.receipt.outcome !== "applied" || !claim.execution) {
         if (claim.receipt.outcome !== "no_changes")

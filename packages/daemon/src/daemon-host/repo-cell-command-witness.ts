@@ -3,8 +3,12 @@ import { devNull } from "node:os";
 import path from "node:path";
 import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
+  completionBlockers,
   completionEvidenceBasis,
+  completionGuidance,
   currentGateRun,
+  gateAppliesToSubmission,
+  isHumanAttestationWitness,
   validCompletionWitnessResult,
   type CompletionEvidenceV1,
   type CompletionWitnessResult,
@@ -27,6 +31,8 @@ interface LiveCanonicalDocumentAnchor {
   readonly blobSha256: string;
 }
 
+const UPSTREAM_FRESH_PREDICATE_TYPE = "office-collab/upstream-fresh/v1";
+const SHA256_RE = /^[0-9a-f]{64}$/u;
 const SAFE_CANONICAL_REF = /^(?!\/)(?:(?!\.\.?\/)[^/\\:<>"|?*\0]+\/)*(?!\.\.?$)[^/\\:<>"|?*\0]+$/u;
 const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
 
@@ -47,35 +53,50 @@ function parseJsonRecord(bytes: Uint8Array): ParsedJsonRecordResult {
   }
 }
 
-function canonicalPathForRef(packagePath: string, rawRef: unknown): string | null {
+function normalizeLedgerPath(rawRef: unknown): string | null {
   if (typeof rawRef !== "string") return null;
   const trimmed = rawRef.trim();
   if (!trimmed || !SAFE_CANONICAL_REF.test(trimmed)) return null;
   const normalized = path.posix.normalize(trimmed).normalize("NFC");
   if (
+    normalized !== trimmed ||
     normalized === "." ||
     normalized === ".." ||
     normalized.startsWith("../") ||
-    normalized.split("/").some((segment) => WINDOWS_RESERVED_SEGMENT.test(segment))
+    normalized.split("/").some((segment) => segment.length === 0 || WINDOWS_RESERVED_SEGMENT.test(segment))
   ) {
     return null;
   }
-  return normalized.startsWith("artifacts/") ? submissionArtifactPath(packagePath, normalized) : normalized;
+  return normalized;
+}
+
+function canonicalBaselinePath(packagePath: string, item: Record<string, unknown>): string | null {
+  const ref = normalizeLedgerPath(item.ref);
+  if (!ref) return null;
+  if (ref.startsWith("artifacts/")) {
+    if (item.sourcePath !== undefined) {
+      const sourcePath = normalizeLedgerPath(item.sourcePath);
+      return sourcePath && !sourcePath.startsWith("artifacts/") ? sourcePath : null;
+    }
+    return submissionArtifactPath(packagePath, ref);
+  }
+  // Direct canonical ledger refs bind strictly to themselves; sourcePath never substitutes another document.
+  return item.sourcePath === undefined ? ref : null;
 }
 
 function resolveLiveCanonicalDocuments(
   cell: RepoCellOperationalContext,
+  requirement: FrozenGateRequirement,
   packagePath: string,
   subjects: readonly { readonly path: string }[],
   accepted: ReadonlyMap<string, Uint8Array>,
 ): Record<string, LiveCanonicalDocumentAnchor | null> {
   const paths = new Set<string>();
-  const addRef = (rawRef: unknown): void => {
-    const resolved = canonicalPathForRef(packagePath, rawRef);
-    if (resolved) paths.add(resolved);
-  };
+  const isUpstreamFreshGate =
+    requirement.witness.kind === "command" && requirement.witness.predicateType === UPSTREAM_FRESH_PREDICATE_TYPE;
   for (const subject of subjects) {
     paths.add(subject.path);
+    if (!isUpstreamFreshGate) continue;
     const bytes = accepted.get(subject.path);
     if (!bytes) continue;
     const parsed = parseJsonRecord(bytes);
@@ -84,12 +105,10 @@ function resolveLiveCanonicalDocuments(
     if (Array.isArray(record.baselines)) {
       for (const baseline of record.baselines) {
         if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) continue;
-        const item = baseline as Record<string, unknown>;
-        addRef(item.ref);
-        addRef(item.sourcePath);
+        const resolved = canonicalBaselinePath(packagePath, baseline as Record<string, unknown>);
+        if (resolved) paths.add(resolved);
       }
     }
-    addRef(record.documentPath);
   }
   const canonicalDocuments: Record<string, LiveCanonicalDocumentAnchor | null> = {};
   for (const canonicalPath of paths) {
@@ -101,35 +120,104 @@ function resolveLiveCanonicalDocuments(
   return canonicalDocuments;
 }
 
-/** Returns a rerun reason when any live canonical upstream baseline declared by this gate drifted after prior pass. */
-export function canonicalBaselineDriftReason(
+/**
+ * Verifies every live canonical upstream anchor emitted by a passing `office-collab/upstream-fresh/v1`
+ * witness atomically inside the serial RepoCell `completeTask` write path, without mutating gate runs
+ * or affecting unrelated command gates.
+ */
+export function liveUpstreamFreshnessBlocker(
   cell: RepoCellOperationalContext,
-  requirement: FrozenGateRequirement,
-  execution: Snapshot["executions"][number],
-): string | null {
-  if (execution.schema !== "execution/v1" || !execution.submission) return null;
-  const packagePath = cell.projection.read(execution.taskId).packagePath;
-  if (!packagePath) return null;
-  const names =
-    requirement.subjects === undefined || requirement.subjects === "all-artifacts"
-      ? null
-      : requirement.subjects.map((name) => submissionArtifactPath(packagePath, name));
-  const readArtifact = createSubmissionArtifactReader(cell);
-  for (const anchor of execution.submission.artifacts ?? []) {
-    const artifactPath = submissionArtifactPath(packagePath, anchor.path);
-    if (names !== null && !names.includes(artifactPath)) continue;
-    const document = readArtifact(packagePath, anchor.path, anchor.revision, anchor.blobSha256);
-    const parsed = parseJsonRecord(Buffer.from(document.body, document.encoding));
-    if (!parsed.ok || !Array.isArray(parsed.value.baselines)) continue;
-    for (const baseline of parsed.value.baselines) {
-      if (!baseline || typeof baseline !== "object" || Array.isArray(baseline)) continue;
-      const item = baseline as Record<string, unknown>;
-      const canonicalPath = canonicalPathForRef(packagePath, item.sourcePath ?? item.ref);
-      const expectedSha256 = typeof item.expectedSha256 === "string" ? item.expectedSha256 : null;
-      if (!canonicalPath || !expectedSha256) continue;
-      const live = cell.projection.readDocument(canonicalPath).document;
-      if (!live || live.blobSha256 !== expectedSha256) {
-        return `Live canonical upstream baseline ${canonicalPath} changed since prior witness run.`;
+  snapshot: Snapshot,
+  executionId: string,
+): ReturnType<typeof completionBlockers>[number] | null {
+  const task = snapshot.task;
+  const execution = snapshot.executions.find(
+    (value) =>
+      value.schema === "execution/v1" && value.executionId === executionId && value.iteration === task?.iteration,
+  );
+  if (!task || !execution?.submission) return null;
+  for (const requirement of execution.submission.completionContract.gates) {
+    if (
+      !gateAppliesToSubmission(requirement, execution.submission) ||
+      requirement.witness.kind !== "command" ||
+      requirement.witness.predicateType !== UPSTREAM_FRESH_PREDICATE_TYPE
+    ) {
+      continue;
+    }
+    const activeRun = currentGateRun(execution, requirement.gateId);
+    if (!activeRun || activeRun.state !== "completed" || activeRun.result !== "pass") continue;
+    const witness = snapshot.gateWitnesses
+      .filter(
+        (value) =>
+          value.gateId === requirement.gateId &&
+          value.executionId === execution.executionId &&
+          value.iteration === execution.iteration &&
+          value.commitSha === execution.submission?.commitSha &&
+          value.provenance?.runId === activeRun.runId &&
+          !isHumanAttestationWitness(value),
+      )
+      .at(-1);
+    if (!witness || witness.result !== "pass") continue;
+    const rawAnchors = witness.predicate?.verifiedAnchors;
+    const rerunAction =
+      `ha task witness-rerun ${task.taskId} --execution-id ${executionId} ` +
+      `--gate ${requirement.gateId} --run-id ${activeRun.runId} --reason <reason>`;
+    if (!Array.isArray(rawAnchors) || rawAnchors.length === 0) {
+      return {
+        code: "gate_witness_missing",
+        gate: requirement.gateId,
+        next: completionGuidance(
+          snapshot,
+          executionId,
+          rerunAction,
+          `Upstream freshness witness for ${requirement.gateId} lacks verifiedAnchors; rerun ${requirement.gateId} before completion.`,
+        ),
+      };
+    }
+    for (const entry of rawAnchors) {
+      const record =
+        entry && typeof entry === "object" && !Array.isArray(entry) ? (entry as Record<string, unknown>) : null;
+      const ref = record ? normalizeLedgerPath(record.ref) : null;
+      const expectedSha256 =
+        record && typeof record.expectedSha256 === "string" && SHA256_RE.test(record.expectedSha256)
+          ? record.expectedSha256
+          : null;
+      if (!ref || !expectedSha256) {
+        return {
+          code: "gate_witness_missing",
+          gate: requirement.gateId,
+          next: completionGuidance(
+            snapshot,
+            executionId,
+            rerunAction,
+            `Upstream freshness witness for ${requirement.gateId} carries an invalid verifiedAnchor entry.`,
+          ),
+        };
+      }
+      const live = cell.projection.readDocument(ref).document;
+      if (!live) {
+        return {
+          code: "gate_witness_missing",
+          gate: requirement.gateId,
+          next: completionGuidance(
+            snapshot,
+            executionId,
+            rerunAction,
+            `Missing live canonical upstream anchor for "${ref}": upstream-fresh requires a current accepted canonical anchor.`,
+          ),
+        };
+      }
+      if (live.blobSha256 !== expectedSha256) {
+        return {
+          code: "gate_witness_missing",
+          gate: requirement.gateId,
+          next: completionGuidance(
+            snapshot,
+            executionId,
+            rerunAction,
+            `Live upstream drift on "${ref}": expected ${expectedSha256.slice(0, 12)}, live canonical ${live.blobSha256.slice(0, 12)}.`,
+          ),
+        };
       }
     }
   }
@@ -211,7 +299,7 @@ export async function collectCommandWitness(
       );
       await runProcessTextAsync("tar", ["-xf", archive, "-C", codeRoot], scratch.directory, env);
     }
-    const canonicalDocuments = resolveLiveCanonicalDocuments(cell, packagePath, subjects, accepted);
+    const canonicalDocuments = resolveLiveCanonicalDocuments(cell, requirement, packagePath, subjects, accepted);
     inputs["witness.json"] = Buffer.from(
       JSON.stringify({
         schema: "witness-input/v1",

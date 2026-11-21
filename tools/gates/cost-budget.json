@@ -1223,6 +1223,11 @@
             "cli-vertical-kind-show"
           ]
         },
+        "command:vertical-list": {
+          "measurements": [
+            "cli-vertical-list"
+          ]
+        },
         "command:work-list": {
           "measurements": [
             "cli-work-list"
@@ -1477,6 +1482,11 @@
             "repo.vertical.declaration.read"
           ]
         },
+        "method:repo.vertical.list": {
+          "measurements": [
+            "repo.vertical.list"
+          ]
+        },
         "method:repo.work.topology.read": {
           "measurements": [
             "repo.work.topology.read"
@@ -1552,7 +1562,6 @@
             "command:script-list",
             "command:template-list",
             "command:template-render",
-            "command:vertical-list",
             "command:vertical-validate",
             "method:repo.preset.audit",
             "method:repo.preset.check",
@@ -1563,7 +1572,6 @@
             "method:repo.script.list",
             "method:repo.template.list",
             "method:repo.template.render",
-            "method:repo.vertical.list",
             "method:repo.vertical.validate"
           ],
           "reason": "Read/validate current selected package assets or current active preset pointers (preset-system.ts, preset-catalog.ts); no canonical event, runtime, dispatch, output or relation history query. Canonical Settings selection is covered by cli-settings-read and repo.settings.read. Catalog size is the explicit result/input k."

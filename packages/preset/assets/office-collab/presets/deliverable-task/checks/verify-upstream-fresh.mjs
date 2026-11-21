@@ -6,7 +6,8 @@ const SCHEMA_ID = "office-collab/upstream-freshness/v1";
 const MANIFEST_PATH = "artifacts/upstream-freshness.json";
 const SHA256_RE = /^[0-9a-f]{64}$/u;
 const SAFE_ARTIFACT = /^artifacts\/(?:(?!\.\.?\/)[^/\\]+\/)*(?!\.\.?$)[^/\\]+$/u;
-const SAFE_LEDGER_PATH = /^(?!\/)(?:(?!\.\.?\/)[^/\\:]+\/)*(?!\.\.?$)[^/\\:]+$/u;
+const SAFE_LEDGER_PATH = /^(?!\/)(?:(?!\.\.?\/)[^/\\:<>"|?*\0]+\/)*(?!\.\.?$)[^/\\:<>"|?*\0]+$/u;
+const WINDOWS_RESERVED_SEGMENT = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
@@ -19,6 +20,23 @@ function findRootSubject(subjects, logicalPath) {
 
 function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function normalizeCanonicalLedgerPath(raw) {
+  if (!nonEmptyString(raw)) return null;
+  const trimmed = raw.trim();
+  if (!SAFE_LEDGER_PATH.test(trimmed)) return null;
+  const segments = trimmed.split("/");
+  if (
+    segments.some(
+      (segment) =>
+        segment.length === 0 || segment === "." || segment === ".." || WINDOWS_RESERVED_SEGMENT.test(segment),
+    )
+  ) {
+    return null;
+  }
+  const normalized = trimmed.normalize("NFC");
+  return normalized === trimmed ? normalized : null;
 }
 
 function derivePackagePath(witness, manifestSubject) {
@@ -144,6 +162,7 @@ if (!Array.isArray(manifest.baselines) || manifest.baselines.length === 0)
 
 let driftedCount = 0;
 const seenRefs = new Set();
+const verifiedAnchors = [];
 
 if (Array.isArray(manifest.baselines)) {
   for (const [index, entry] of manifest.baselines.entries()) {
@@ -171,21 +190,22 @@ if (Array.isArray(manifest.baselines)) {
         continue;
       }
     }
-    let sourcePath = null;
-    if (entry.sourcePath !== undefined) {
-      if (!nonEmptyString(entry.sourcePath) || !SAFE_LEDGER_PATH.test(entry.sourcePath.trim())) {
-        driftedCount += 1;
-        errors.push(`baselines[${index}].sourcePath must be a safe canonical ledger path.`);
-        continue;
-      }
-      sourcePath = entry.sourcePath.trim();
-    }
 
     if (ref.startsWith("artifacts/")) {
       if (!SAFE_ARTIFACT.test(ref)) {
         driftedCount += 1;
         errors.push(`baselines[${index}].ref "${ref}" is not a safe artifacts/... path.`);
         continue;
+      }
+      let sourcePath = null;
+      if (entry.sourcePath !== undefined) {
+        const normalizedSource = normalizeCanonicalLedgerPath(entry.sourcePath);
+        if (!normalizedSource || normalizedSource.startsWith("artifacts/")) {
+          driftedCount += 1;
+          errors.push(`baselines[${index}].sourcePath must be a safe canonical ledger path.`);
+          continue;
+        }
+        sourcePath = normalizedSource;
       }
       const subject = findRootSubject(readableArtifacts, ref);
       if (!subject) {
@@ -201,7 +221,7 @@ if (Array.isArray(manifest.baselines)) {
         );
         continue;
       }
-      const livePath = resolveCanonicalPath(packagePath, sourcePath ?? ref);
+      const livePath = sourcePath ?? resolveCanonicalPath(packagePath, ref);
       const liveAnchor = readLiveCanonicalAnchor(canonicalDocuments, livePath);
       if (!liveAnchor) {
         driftedCount += 1;
@@ -220,18 +240,27 @@ if (Array.isArray(manifest.baselines)) {
       if (entry.observedSha256 !== undefined && entry.observedSha256 !== actualFrozenSha256) {
         driftedCount += 1;
         errors.push(`Upstream observedSha256 disagrees with verified bytes for "${ref}".`);
+        continue;
       }
+      verifiedAnchors.push({ ref: livePath, expectedSha256: entry.expectedSha256 });
       continue;
     }
 
-    if (!SAFE_LEDGER_PATH.test(ref)) {
+    if (entry.sourcePath !== undefined) {
+      driftedCount += 1;
+      errors.push(
+        `baselines[${index}].sourcePath is not allowed for direct canonical ref "${ref}": a direct canonical ref must match its own live canonical document.`,
+      );
+      continue;
+    }
+    const livePath = normalizeCanonicalLedgerPath(ref);
+    if (!livePath) {
       driftedCount += 1;
       errors.push(
         `Unverifiable external upstream ref "${ref}": upstream-fresh only verifies accepted canonical ledger documents.`,
       );
       continue;
     }
-    const livePath = resolveCanonicalPath(packagePath, sourcePath ?? ref);
     const liveAnchor = readLiveCanonicalAnchor(canonicalDocuments, livePath);
     if (!liveAnchor) {
       driftedCount += 1;
@@ -250,7 +279,9 @@ if (Array.isArray(manifest.baselines)) {
     if (entry.observedSha256 !== undefined && entry.observedSha256 !== liveAnchor.blobSha256) {
       driftedCount += 1;
       errors.push(`Upstream observedSha256 disagrees with live canonical bytes for "${ref}".`);
+      continue;
     }
+    verifiedAnchors.push({ ref: livePath, expectedSha256: entry.expectedSha256 });
   }
 }
 
@@ -266,6 +297,7 @@ if (errors.length > 0 || driftedCount > 0) {
       baselineCount: manifest.baselines.length,
       driftedCount: 0,
       allFresh: true,
+      verifiedAnchors,
     },
     `Verified ${manifest.baselines.length} upstream baseline(s) with zero drift.`,
   );

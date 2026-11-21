@@ -53,6 +53,119 @@ function stripFrontmatter(body) {
   return match ? body.slice(match[0].length) : body;
 }
 
+const NAMED_ENTITIES = new Map([
+  ["Tab", "\t"],
+  ["NewLine", "\n"],
+  ["nbsp", "\u00a0"],
+  ["NonBreakingSpace", "\u00a0"],
+  ["shy", "\u00ad"],
+  ["ensp", "\u2002"],
+  ["emsp", "\u2003"],
+  ["emsp13", "\u2004"],
+  ["emsp14", "\u2005"],
+  ["numsp", "\u2007"],
+  ["puncsp", "\u2008"],
+  ["thinsp", "\u2009"],
+  ["ThinSpace", "\u2009"],
+  ["hairsp", "\u200a"],
+  ["VeryThinSpace", "\u200a"],
+  ["ZeroWidthSpace", "\u200b"],
+  ["NegativeThinSpace", "\u200b"],
+  ["NegativeMediumSpace", "\u200b"],
+  ["NegativeThickSpace", "\u200b"],
+  ["NegativeVeryThinSpace", "\u200b"],
+  ["zwnj", "\u200c"],
+  ["zwj", "\u200d"],
+  ["lrm", "\u200e"],
+  ["rlm", "\u200f"],
+  ["MediumSpace", "\u205f"],
+  ["ThickSpace", "\u205f\u200a"],
+  ["NoBreak", "\u2060"],
+  ["ApplyFunction", "\u2061"],
+  ["af", "\u2061"],
+  ["InvisibleTimes", "\u2062"],
+  ["it", "\u2062"],
+  ["InvisibleComma", "\u2063"],
+  ["ic", "\u2063"],
+  ["amp", "&"],
+  ["AMP", "&"],
+  ["lt", "<"],
+  ["LT", "<"],
+  ["gt", ">"],
+  ["GT", ">"],
+  ["quot", '"'],
+  ["QUOT", '"'],
+  ["apos", "'"],
+  ["copy", "\u00a9"],
+  ["COPY", "\u00a9"],
+  ["reg", "\u00ae"],
+  ["REG", "\u00ae"],
+  ["trade", "\u2122"],
+  ["mdash", "\u2014"],
+  ["ndash", "\u2013"],
+  ["hellip", "\u2026"],
+  ["bull", "\u2022"],
+  ["middot", "\u00b7"],
+  ["lsquo", "\u2018"],
+  ["rsquo", "\u2019"],
+  ["ldquo", "\u201c"],
+  ["rdquo", "\u201d"],
+]);
+
+const INVISIBLE_TEXT_RE = /(?:\s|\p{Cf}|\u034f|\u115f|\u1160|\u3164)/gu;
+const ASCII_PUNCTUATION_RE = /^[!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~]$/u;
+const UNICODE_PUNCTUATION_RE = /[\p{P}\p{S}]/u;
+
+function hasVisibleText(text) {
+  return text.replace(INVISIBLE_TEXT_RE, "").length > 0;
+}
+
+function normalizeLinkLabel(label) {
+  return label
+    .trim()
+    .replace(/[ \t\r\n]+/gu, " ")
+    .toLowerCase();
+}
+
+function decodeCharacterReferenceAt(text, start) {
+  if (text[start] !== "&") return null;
+  const numericHex = /^&#[xX]([0-9a-fA-F]{1,6});/u.exec(text.slice(start));
+  if (numericHex) {
+    const code = Number.parseInt(numericHex[1], 16);
+    const decoded = code === 0 || code > 0x10ffff ? "\ufffd" : String.fromCodePoint(code);
+    return { decoded, length: numericHex[0].length };
+  }
+  const numericDec = /^&#([0-9]{1,7});/u.exec(text.slice(start));
+  if (numericDec) {
+    const code = Number.parseInt(numericDec[1], 10);
+    const decoded = code === 0 || code > 0x10ffff ? "\ufffd" : String.fromCodePoint(code);
+    return { decoded, length: numericDec[0].length };
+  }
+  const named = /^&([A-Za-z][A-Za-z0-9]{1,31});/u.exec(text.slice(start));
+  if (named && NAMED_ENTITIES.has(named[1])) {
+    return { decoded: NAMED_ENTITIES.get(named[1]), length: named[0].length };
+  }
+  return null;
+}
+
+function decodeCharacterReferences(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "&") {
+      const entity = decodeCharacterReferenceAt(text, i);
+      if (entity) {
+        out += entity.decoded;
+        i += entity.length;
+        continue;
+      }
+    }
+    out += text[i];
+    i += 1;
+  }
+  return out;
+}
+
 function stripHtmlComments(text) {
   let out = "";
   let index = 0;
@@ -68,6 +181,58 @@ function stripHtmlComments(text) {
     index = end + 3;
   }
   return out;
+}
+
+function matchInlineHtmlAt(text, start) {
+  if (text[start] !== "<") return null;
+  const tail = text.slice(start);
+  const comment = /^<!--(?:>|->|[\s\S]*?-->)/u.exec(tail);
+  if (comment) return { length: comment[0].length, visible: "" };
+  const cdata = /^<!\[CDATA\[([\s\S]*?)\]\]>/u.exec(tail);
+  if (cdata) return { length: cdata[0].length, visible: cdata[1] };
+  const pi = /^<\?[\s\S]*?\?>/u.exec(tail);
+  if (pi) return { length: pi[0].length, visible: "" };
+  const decl = /^<![A-Za-z][^>]*>/u.exec(tail);
+  if (decl) return { length: decl[0].length, visible: "" };
+  const openTag =
+    /^<[A-Za-z][A-Za-z0-9-]*(?:[ \t\r\n]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t\r\n]*=[ \t\r\n]*(?:[^\s"'=<>`]+|'[^']*'|"[^"]*"))?)*[ \t\r\n]*\/?>/u.exec(
+      tail,
+    );
+  if (openTag) return { length: openTag[0].length, visible: "" };
+  const closeTag = /^<\/[A-Za-z][A-Za-z0-9-]*[ \t\r\n]*>/u.exec(tail);
+  if (closeTag) return { length: closeTag[0].length, visible: "" };
+  return null;
+}
+
+function matchAutolinkAt(text, start) {
+  if (text[start] !== "<") return null;
+  const tail = text.slice(start);
+  const uri = /^<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*)>/u.exec(tail);
+  if (uri) return { length: uri[0].length, visible: uri[1] };
+  const email =
+    /^<([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>/u.exec(
+      tail,
+    );
+  if (email) return { length: email[0].length, visible: email[1] };
+  return null;
+}
+
+function stripHtmlCommentsAndTags(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === "<") {
+      const html = matchInlineHtmlAt(text, i);
+      if (html) {
+        out += html.visible;
+        i += html.length;
+        continue;
+      }
+    }
+    out += text[i];
+    i += 1;
+  }
+  return stripHtmlComments(out);
 }
 
 function parseAtxHeading(line) {
@@ -277,8 +442,9 @@ function consumeLinkReferenceDefinition(text, start) {
     i += 1;
     leadingSpaces += 1;
   }
-  if (text[i] !== "[") return -1;
+  if (text[i] !== "[") return null;
   i += 1;
+  const labelStart = i;
   let labelLength = 0;
   let hasNonSpace = false;
   while (i < text.length) {
@@ -287,20 +453,21 @@ function consumeLinkReferenceDefinition(text, start) {
       labelLength += 2;
       hasNonSpace = true;
       i += 2;
-      if (labelLength > 999) return -1;
+      if (labelLength > 999) return null;
       continue;
     }
-    if (ch === "[") return -1;
+    if (ch === "[") return null;
     if (ch === "]") break;
     if (ch !== " " && ch !== "\t" && ch !== "\n") hasNonSpace = true;
     labelLength += 1;
-    if (labelLength > 999) return -1;
+    if (labelLength > 999) return null;
     i += 1;
   }
-  if (i >= text.length || text[i] !== "]" || !hasNonSpace || text[i + 1] !== ":") return -1;
+  if (i >= text.length || text[i] !== "]" || !hasNonSpace || text[i + 1] !== ":") return null;
+  const label = normalizeLinkLabel(text.slice(labelStart, i));
   const destStart = skipOptionalSpaceAndOneNewline(text, i + 2);
   const destEnd = parseLinkDestination(text, destStart);
-  if (destEnd < 0) return -1;
+  if (destEnd < 0) return null;
 
   // Try optional title when separated by whitespace or a single newline.
   const afterDestSpace = skipHorizontalSpaces(text, destEnd);
@@ -317,31 +484,378 @@ function consumeLinkReferenceDefinition(text, start) {
       }
     }
   }
-  if (titleEnd >= 0) return titleEnd;
+  if (titleEnd >= 0) return { end: titleEnd, label };
 
   // Otherwise destination itself must finish the line (or end of paragraph buffer).
-  if (afterDestSpace >= text.length) return afterDestSpace;
-  if (text[afterDestSpace] === "\n") return afterDestSpace + 1;
-  return -1;
+  if (afterDestSpace >= text.length) return { end: afterDestSpace, label };
+  if (text[afterDestSpace] === "\n") return { end: afterDestSpace + 1, label };
+  return null;
 }
 
 function splitParagraphDefinitions(lines) {
   const joined = lines.join("\n");
   let offset = 0;
-  let definitionCount = 0;
+  const labels = [];
   while (offset < joined.length) {
-    const next = consumeLinkReferenceDefinition(joined, offset);
-    if (next <= offset) break;
-    definitionCount += 1;
-    offset = next;
+    const match = consumeLinkReferenceDefinition(joined, offset);
+    if (!match || match.end <= offset) break;
+    labels.push(match.label);
+    offset = match.end;
   }
   const remainder = joined.slice(offset);
   const remainingLines = remainder.length === 0 ? [] : remainder.split("\n");
-  return { definitionCount, remainingLines };
+  return { definitionCount: labels.length, labels, remainingLines };
+}
+
+function parseInlineLinkDestination(text, start) {
+  if (start >= text.length) return -1;
+  if (text[start] === "<") {
+    let i = start + 1;
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === "\n" || ch === "<") return -1;
+      if (ch === "\\" && i + 1 < text.length) {
+        i += 2;
+        continue;
+      }
+      if (ch === ">") return i + 1;
+      i += 1;
+    }
+    return -1;
+  }
+  let i = start;
+  let parens = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) break;
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "(") {
+      parens += 1;
+      if (parens > 32) return -1;
+    } else if (ch === ")") {
+      if (parens === 0) break;
+      parens -= 1;
+    }
+    i += 1;
+  }
+  return parens === 0 ? i : -1;
+}
+
+function parseInlineLinkTail(text, start) {
+  if (text[start] !== "(") return -1;
+  let i = start + 1;
+  while (i < text.length && (text[i] === " " || text[i] === "\t" || text[i] === "\n" || text[i] === "\r")) i += 1;
+  if (text[i] === ")") return i + 1;
+  const destEnd = parseInlineLinkDestination(text, i);
+  if (destEnd < 0) return -1;
+  let j = destEnd;
+  while (j < text.length && (text[j] === " " || text[j] === "\t" || text[j] === "\n" || text[j] === "\r")) j += 1;
+  if (text[j] === ")") return j + 1;
+  if (j > destEnd) {
+    const titleEnd = parseLinkTitle(text, j);
+    if (titleEnd >= 0) {
+      let k = titleEnd;
+      while (k < text.length && (text[k] === " " || text[k] === "\t" || text[k] === "\n" || text[k] === "\r")) k += 1;
+      if (text[k] === ")") return k + 1;
+    }
+  }
+  return -1;
+}
+
+function matchCodeSpanAt(text, start) {
+  if (text[start] !== "`") return null;
+  let ticks = 0;
+  while (start + ticks < text.length && text[start + ticks] === "`") ticks += 1;
+  let i = start + ticks;
+  while (i < text.length) {
+    if (text[i] === "`") {
+      let run = 0;
+      while (i + run < text.length && text[i + run] === "`") run += 1;
+      if (run === ticks) {
+        let content = text.slice(start + ticks, i).replace(/\r?\n/gu, " ");
+        if (content.length >= 2 && content.startsWith(" ") && content.endsWith(" ") && /[^ ]/u.test(content)) {
+          content = content.slice(1, -1);
+        }
+        return { end: i + run, content };
+      }
+      i += run;
+      continue;
+    }
+    i += 1;
+  }
+  return { end: start + ticks, content: "`".repeat(ticks) };
+}
+
+function parseReferenceLabelAt(text, start) {
+  if (text[start] !== "[") return null;
+  let i = start + 1;
+  let len = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      len += 2;
+      i += 2;
+      if (len > 999) return null;
+      continue;
+    }
+    if (ch === "[") return null;
+    if (ch === "]") return { end: i + 1, raw: text.slice(start + 1, i) };
+    len += 1;
+    if (len > 999) return null;
+    i += 1;
+  }
+  return null;
+}
+
+function findBracketClose(text, openIndex) {
+  let i = openIndex + 1;
+  let depth = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      i = matchCodeSpanAt(text, i).end;
+      continue;
+    }
+    if (ch === "<") {
+      const auto = matchAutolinkAt(text, i);
+      if (auto) {
+        i += auto.length;
+        continue;
+      }
+      const html = matchInlineHtmlAt(text, i);
+      if (html) {
+        i += html.length;
+        continue;
+      }
+    }
+    if (ch === "[") {
+      depth += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === "]") {
+      if (depth === 0) return i;
+      depth -= 1;
+      i += 1;
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+function tryMatchLinkOrImageAt(text, start, definitions) {
+  const isImage = text[start] === "!" && text[start + 1] === "[";
+  const openIndex = isImage ? start + 1 : start;
+  if (text[openIndex] !== "[") return null;
+  const closeIndex = findBracketClose(text, openIndex);
+  if (closeIndex < 0) return null;
+  const inner = text.slice(openIndex + 1, closeIndex);
+  if (!isImage && containsLink(inner, definitions)) return null;
+
+  const after = closeIndex + 1;
+  if (text[after] === "(") {
+    const tailEnd = parseInlineLinkTail(text, after);
+    if (tailEnd >= 0) return { end: tailEnd, inner, isImage };
+  }
+  if (text[after] === "[") {
+    const ref = parseReferenceLabelAt(text, after);
+    if (ref) {
+      const key = ref.raw.length === 0 ? normalizeLinkLabel(inner) : normalizeLinkLabel(ref.raw);
+      if (key.length > 0 && definitions.has(key)) {
+        return { end: ref.end, inner, isImage };
+      }
+      return null;
+    }
+  }
+  const shortcutKey = normalizeLinkLabel(inner);
+  if (shortcutKey.length > 0 && definitions.has(shortcutKey)) {
+    return { end: after, inner, isImage };
+  }
+  return null;
+}
+
+function containsLink(text, definitions) {
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\" && i + 1 < text.length) {
+      i += 2;
+      continue;
+    }
+    if (ch === "`") {
+      i = matchCodeSpanAt(text, i).end;
+      continue;
+    }
+    if (ch === "<") {
+      const auto = matchAutolinkAt(text, i);
+      if (auto) {
+        i += auto.length;
+        continue;
+      }
+      const html = matchInlineHtmlAt(text, i);
+      if (html) {
+        i += html.length;
+        continue;
+      }
+    }
+    if (ch === "[" && (i === 0 || text[i - 1] !== "!")) {
+      const match = tryMatchLinkOrImageAt(text, i, definitions);
+      if (match) return true;
+    }
+    i += 1;
+  }
+  return false;
+}
+
+function isUnicodeWhitespace(ch) {
+  return ch === undefined || /\s/u.test(ch);
+}
+
+function isUnicodePunctuation(ch) {
+  return ch !== undefined && (ASCII_PUNCTUATION_RE.test(ch) || UNICODE_PUNCTUATION_RE.test(ch));
+}
+
+function extractVisibleInlineText(text, definitions) {
+  const tokens = [];
+  const pushText = (value) => {
+    if (value.length > 0) tokens.push({ kind: "text", value });
+  };
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === "\\") {
+      const next = text[i + 1];
+      if (next === "\n") {
+        i += 2;
+        continue;
+      }
+      if (next !== undefined && ASCII_PUNCTUATION_RE.test(next)) {
+        pushText(next);
+        i += 2;
+        continue;
+      }
+      pushText("\\");
+      i += 1;
+      continue;
+    }
+    if (ch === "`") {
+      const span = matchCodeSpanAt(text, i);
+      pushText(span.content);
+      i = span.end;
+      continue;
+    }
+    if (ch === "<") {
+      const auto = matchAutolinkAt(text, i);
+      if (auto) {
+        pushText(auto.visible);
+        i += auto.length;
+        continue;
+      }
+      const html = matchInlineHtmlAt(text, i);
+      if (html) {
+        pushText(html.visible);
+        i += html.length;
+        continue;
+      }
+      pushText("<");
+      i += 1;
+      continue;
+    }
+    if (ch === "[" || (ch === "!" && text[i + 1] === "[")) {
+      const link = tryMatchLinkOrImageAt(text, i, definitions);
+      if (link) {
+        pushText(extractVisibleInlineText(link.inner, definitions));
+        i = link.end;
+        continue;
+      }
+      if (ch === "!") {
+        pushText("![");
+        i += 2;
+      } else {
+        pushText("[");
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === "&") {
+      const entity = decodeCharacterReferenceAt(text, i);
+      if (entity) {
+        pushText(entity.decoded);
+        i += entity.length;
+        continue;
+      }
+      pushText("&");
+      i += 1;
+      continue;
+    }
+    if (ch === "*" || ch === "_") {
+      let run = 0;
+      while (i + run < text.length && text[i + run] === ch) run += 1;
+      const before = i > 0 ? text[i - 1] : undefined;
+      const after = i + run < text.length ? text[i + run] : undefined;
+      const leftFlanking =
+        !isUnicodeWhitespace(after) &&
+        (!isUnicodePunctuation(after) || isUnicodeWhitespace(before) || isUnicodePunctuation(before));
+      const rightFlanking =
+        !isUnicodeWhitespace(before) &&
+        (!isUnicodePunctuation(before) || isUnicodeWhitespace(after) || isUnicodePunctuation(after));
+      const canOpen = ch === "_" ? leftFlanking && (!rightFlanking || isUnicodePunctuation(before)) : leftFlanking;
+      const canClose = ch === "_" ? rightFlanking && (!leftFlanking || isUnicodePunctuation(after)) : rightFlanking;
+      tokens.push({ kind: "delim", char: ch, count: run, originalCount: run, canOpen, canClose });
+      i += run;
+      continue;
+    }
+    pushText(ch);
+    i += 1;
+  }
+
+  // CommonMark §6.2 emphasis delimiter matching: strip matched * / _ markers.
+  for (let closerIdx = 0; closerIdx < tokens.length; closerIdx += 1) {
+    const closer = tokens[closerIdx];
+    if (closer.kind !== "delim" || !closer.canClose || closer.count === 0) continue;
+    for (let openerIdx = closerIdx - 1; openerIdx >= 0 && closer.count > 0; openerIdx -= 1) {
+      const opener = tokens[openerIdx];
+      if (opener.kind !== "delim" || !opener.canOpen || opener.count === 0 || opener.char !== closer.char) continue;
+      if (
+        (opener.canClose || closer.canOpen) &&
+        closer.originalCount % 3 !== 0 &&
+        (opener.originalCount + closer.originalCount) % 3 === 0
+      ) {
+        continue;
+      }
+      const use = opener.count >= 2 && closer.count >= 2 ? 2 : 1;
+      opener.count -= use;
+      closer.count -= use;
+      for (let mid = openerIdx + 1; mid < closerIdx; mid += 1) {
+        if (tokens[mid].kind === "delim") {
+          tokens[mid].canOpen = false;
+          tokens[mid].canClose = false;
+        }
+      }
+      openerIdx = closerIdx;
+    }
+  }
+
+  let out = "";
+  for (const token of tokens) {
+    if (token.kind === "text") out += token.value;
+    else if (token.count > 0) out += token.char.repeat(token.count);
+  }
+  return out;
 }
 
 function parseCommonMarkAst(documentText) {
   const root = { type: "root", children: [] };
+  const definitions = new Set();
   const containers = [];
   let leaf = null;
 
@@ -354,7 +868,8 @@ function parseCommonMarkAst(documentText) {
   const closeLeaf = () => {
     if (leaf === null) return;
     if (leaf.kind === "paragraph") {
-      const { definitionCount, remainingLines } = splitParagraphDefinitions(leaf.lines);
+      const { definitionCount, labels, remainingLines } = splitParagraphDefinitions(leaf.lines);
+      for (const label of labels) definitions.add(label);
       for (let i = 0; i < definitionCount; i += 1) appendNode({ type: "definition" });
       if (remainingLines.length > 0) {
         const text = remainingLines.map((line) => line.trim()).join("\n");
@@ -465,7 +980,8 @@ function parseCommonMarkAst(documentText) {
         if (setext) {
           // CommonMark §4.3 + §4.7: extract leading link reference definitions first.
           // If nothing remains, the underline cannot form a Setext heading.
-          const { definitionCount, remainingLines } = splitParagraphDefinitions(leaf.lines);
+          const { definitionCount, labels, remainingLines } = splitParagraphDefinitions(leaf.lines);
+          for (const label of labels) definitions.add(label);
           for (let i = 0; i < definitionCount; i += 1) appendNode({ type: "definition" });
           leaf = null;
           if (remainingLines.length > 0) {
@@ -564,39 +1080,43 @@ function parseCommonMarkAst(documentText) {
   }
   closeContainersTo(0);
   closeLeaf();
-  return root;
+  return { root, definitions };
 }
 
-function nodeHasVisibleContent(node) {
+function nodeHasVisibleContent(node, definitions) {
   switch (node.type) {
     case "definition":
     case "thematicBreak":
       return false;
     case "code":
-      return node.value.trim().length > 0;
+      return hasVisibleText(node.value);
     case "html":
-      return stripHtmlComments(node.value).trim().length > 0;
+      return hasVisibleText(decodeCharacterReferences(stripHtmlCommentsAndTags(node.value)));
     case "paragraph":
-      return stripHtmlComments(node.text).trim().length > 0;
+      return hasVisibleText(extractVisibleInlineText(node.text, definitions));
     case "heading":
-      return stripHtmlComments(node.text).trim().length > 0;
+      return hasVisibleText(extractVisibleInlineText(node.text, definitions));
     case "blockquote":
     case "listItem":
-      return node.children.some(nodeHasVisibleContent);
+      return node.children.some((child) => nodeHasVisibleContent(child, definitions));
     default:
       return false;
   }
 }
 
 function checkRequiredSections(documentText, requiredHeadingSpecs) {
-  const ast = parseCommonMarkAst(documentText);
+  const { root: ast, definitions } = parseCommonMarkAst(documentText);
   const missing = [];
   const empty = [];
   for (const target of requiredHeadingSpecs) {
     const matchingIndices = [];
     for (let i = 0; i < ast.children.length; i += 1) {
       const node = ast.children[i];
-      if (node.type === "heading" && node.depth === target.depth && node.text === target.text) {
+      if (
+        node.type === "heading" &&
+        node.depth === target.depth &&
+        (node.text === target.text || extractVisibleInlineText(node.text, definitions).trim() === target.visibleText)
+      ) {
         matchingIndices.push(i);
       }
     }
@@ -612,7 +1132,7 @@ function checkRequiredSections(documentText, requiredHeadingSpecs) {
           if (current.depth <= target.depth) break;
           continue;
         }
-        if (nodeHasVisibleContent(current)) {
+        if (nodeHasVisibleContent(current, definitions)) {
           hasBody = true;
           break;
         }
@@ -696,10 +1216,12 @@ if (!Array.isArray(manifest.requiredSections) || manifest.requiredSections.lengt
   const seenNormalized = new Set();
   const invalidAnchors = [];
   let hasDuplicates = false;
+  const emptyDefs = new Set();
   for (const item of manifest.requiredSections) {
     const raw = item.trim();
     const parsed = parseAtxHeading(raw);
-    if (!parsed || stripHtmlComments(parsed.text).trim().length === 0) {
+    const visibleText = parsed ? extractVisibleInlineText(parsed.text, emptyDefs).trim() : "";
+    if (!parsed || !hasVisibleText(visibleText)) {
       invalidAnchors.push(raw);
       continue;
     }
@@ -708,7 +1230,7 @@ if (!Array.isArray(manifest.requiredSections) || manifest.requiredSections.lengt
       continue;
     }
     seenNormalized.add(parsed.normalized);
-    requiredHeadingSpecs.push({ raw, depth: parsed.depth, text: parsed.text });
+    requiredHeadingSpecs.push({ raw, depth: parsed.depth, text: parsed.text, visibleText });
   }
   if (invalidAnchors.length > 0) {
     errors.push(

@@ -1749,11 +1749,19 @@ test(
     assert.equal((await run({ kind: "doc-submit", paths: [upstreamCharterLogical] })).outcome, "applied");
 
     // 4. Attempting to complete the frozen v1 downstream submission (which initially passed at submit)
-    // must detect live canonical upstream drift, rerun upstream-fresh, and reject completion.
+    // must detect live canonical upstream drift atomically in completeTask and reject completion
+    // WITHOUT mutating gateRuns or forging an owner rerun (HA09-12 / HA09-13).
+    const beforeCompleteShow = await cliJson(0, "task", "show", staleDownstreamTaskId);
     const staleComplete = await run({ kind: "task-complete", taskId: staleDownstreamTaskId });
     assert.equal(staleComplete.outcome, "op_rejected", JSON.stringify(staleComplete));
     assert.equal(staleComplete.code, "gate_witness_missing", JSON.stringify(staleComplete));
     assert.match(JSON.stringify(staleComplete), /Live upstream drift/u);
+    const afterCompleteShow = await cliJson(0, "task", "show", staleDownstreamTaskId);
+    assert.equal(
+      JSON.stringify((afterCompleteShow as { evidence?: unknown }).evidence),
+      JSON.stringify((beforeCompleteShow as { evidence?: unknown }).evidence),
+      "completeTask rejection on live upstream drift must not mutate gateRuns or task revision",
+    );
 
     // 4b. Pre-submit drift: a new downstream submission carrying frozen v1 copy after upstream already advanced to v2
     // must also fail upstream-fresh immediately and block completion.
