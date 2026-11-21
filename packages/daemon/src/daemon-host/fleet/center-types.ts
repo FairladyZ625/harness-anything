@@ -47,8 +47,8 @@ export interface FleetCenterOptions {
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
-  /** Optional cluster-shared HMAC secret for stateless Fleet read cursors independent of TLS key rotation. */
-  readonly cursorSecret?: string | Buffer;
+  /** Server-held cluster HMAC secret for stateless Fleet read cursors independent of TLS key rotation. */
+  readonly cursorSecret?: string | Buffer | Uint8Array;
   readonly replicaDiskQuotaBytes?: number;
   /** Maximum simultaneous base-backup archive builds across every repository in this center. */
   readonly replicationBaseBackupConcurrency?: number;

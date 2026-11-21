@@ -272,6 +272,7 @@ test("F10: unpaginated tokenUsageDetail returns >500 sessions in exact baseline 
       range: "today",
       member: { kind: "agent", agentId: "agent-f10" },
       limit: 50,
+      cursorSecret: "test-paging-compat-secret-32bytes",
       entityLabel: () => null,
       cut,
       projection: repo.projection,
@@ -676,6 +677,7 @@ test("F12: two-step expand-and-contract keeps canonical events baseline 6-key + 
           range: "today",
           member: { kind: "agent", agentId: "agent-edge-f12" },
           limit: 10,
+          cursorSecret: "test-f12-poison-secret-32bytes",
           entityLabel: () => null,
           cut,
           projection: poisonedProjection,
@@ -736,7 +738,8 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
           : {}),
       });
     }
-    const page1Cut = repo.projection.readCut(),
+    const pagingSecret = "test-f13-f14-cursor-secret-32bytes",
+      page1Cut = repo.projection.readCut(),
       page1 = readAgentRuntimeTokenUsageDetail({
         rootDir: repo.rootDir,
         now: beforeMidnightNow,
@@ -744,6 +747,7 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
         member: { kind: "agent", agentId: "agent-f13" },
         personId: "person-a",
         limit: 2,
+        cursorSecret: pagingSecret,
         entityLabel: () => null,
         cut: page1Cut,
         projection: repo.projection,
@@ -880,6 +884,7 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
             personId: "person-a",
             limit: 2,
             cursor,
+            cursorSecret: pagingSecret,
             entityLabel: () => null,
             cut: newCut,
             projection: reader,
@@ -1012,6 +1017,7 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
             now: afterMidnightNow,
             ...badCall,
             limit: 2,
+            cursorSecret: pagingSecret,
             entityLabel: () => null,
             cut: newCut,
             projection: trapProjection,
@@ -1127,6 +1133,7 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
       }) as typeof fs.openSync;
       syncBuiltinESMExports();
 
+      const pagingSecret = "test-f11-cold-cursor-secret-32bytes";
       // Page 1 on hot reader:
       const page1 = readAgentRuntimeTokenUsageDetail({
         rootDir: repo.rootDir,
@@ -1134,6 +1141,7 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
         range: "today",
         member: { kind: "agent", agentId: "agent-target" },
         limit: pageSize,
+        cursorSecret: pagingSecret,
         entityLabel: () => null,
         cut,
         projection: spiedHot,
@@ -1142,7 +1150,7 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
       assert.equal(streamOpens, 0, "Page 1 paginated read must open 0 local .jsonl stream files");
       assert.ok(page1.page?.nextCursor);
 
-      // Measure Page 2 on the COLD SECOND READER INSTANCE: must be strictly O(pageSize), 0 window rescan!
+      // Measure Page 2 on the COLD SECOND READER INSTANCE: must be strictly O(pageSize), 0 window rescan, 0 lifecycle group_json reads!
       const page1Rows = rowsReturned;
       pageCalls = 0;
       rowsReturned = 0;
@@ -1155,6 +1163,7 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
         member: { kind: "agent", agentId: "agent-target" },
         limit: pageSize,
         cursor: page1.page!.nextCursor!,
+        cursorSecret: pagingSecret,
         entityLabel: () => null,
         cut,
         projection: spiedCold,
@@ -1172,6 +1181,7 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
           member: { kind: "agent", agentId: "agent-target" },
           limit: pageSize,
           cursor,
+          cursorSecret: pagingSecret,
           entityLabel: () => null,
           cut,
           projection: spiedCold,
@@ -1228,8 +1238,8 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
   assert.equal(large.coldPage2Stats.pageCalls, 1);
   assert.equal(small.coldPage2Stats.rowsReturned, 5);
   assert.equal(large.coldPage2Stats.rowsReturned, 5);
-  assert.equal(small.coldPage2Stats.lifecycleCalls, 1);
-  assert.equal(large.coldPage2Stats.lifecycleCalls, 1);
+  assert.equal(small.coldPage2Stats.lifecycleCalls, 0);
+  assert.equal(large.coldPage2Stats.lifecycleCalls, 0);
   assert.equal(small.coldPage2Stats.streamOpens, 0);
   assert.equal(large.coldPage2Stats.streamOpens, 0);
   assert.ok(

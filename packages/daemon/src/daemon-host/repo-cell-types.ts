@@ -680,6 +680,7 @@ export interface RepoCellApiContext {
   readonly input: {
     readonly repoId: string;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
+    readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
     readonly prepareDaemonGitEnvironment?: (
@@ -760,6 +761,7 @@ export interface RepoCellOpenInput {
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
   readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;

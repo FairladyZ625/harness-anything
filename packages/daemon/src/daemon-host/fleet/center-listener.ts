@@ -39,6 +39,7 @@ import {
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
+  cursorSecretBytesOrNull,
   finalizeFleetTokenUsageDetailResult,
   fleetTokenUsageDetailCursorKey,
   unwrapFleetTokenUsageDetailCursor,
@@ -105,6 +106,7 @@ export const REPLICATION_KEEPALIVE_MS = 15_000;
 const FLEET_NODE_ACTIVE_UPLOADS = 16;
 const FLEET_BUSINESS_READ_METHODS = new Set<string>(fleetBusinessOperationalReadMethods);
 const FLEET_READ_FAULT_CODES = new Set<string>([
+  "cursor_secret_unconfigured",
   "entity_not_found",
   "execution_scope_mismatch",
   "human_confirmation_required",
@@ -1640,21 +1642,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
           let readPayload = frame.payload as JsonObject;
-          const detailCursorKey =
-            frame.method === "repo.agentRuntime.tokenUsageDetail"
-              ? fleetTokenUsageDetailCursorKey(a.repoId, options.cursorSecret)
-              : null;
-          const outerDetailCursor =
-            frame.method === "repo.agentRuntime.tokenUsageDetail" && typeof frame.payload.cursor === "string"
-              ? frame.payload.cursor
-              : null;
-          if (outerDetailCursor !== null && detailCursorKey !== null) {
-            const innerCursor = unwrapFleetTokenUsageDetailCursor(detailCursorKey, a.repoId, outerDetailCursor);
-            if (innerCursor === null) throw new FleetFault("invalid_cursor", "Token usage detail cursor is invalid.");
-            readPayload = { ...readPayload, cursor: innerCursor };
+          const isDetailRead = frame.method === "repo.agentRuntime.tokenUsageDetail",
+            isPaginatedDetailRead =
+              isDetailRead && (frame.payload.limit !== undefined || frame.payload.cursor !== undefined),
+            outerDetailCursor = isDetailRead && typeof frame.payload.cursor === "string" ? frame.payload.cursor : null;
+          let detailCursorKey: Buffer | null = null;
+          if (isPaginatedDetailRead) {
+            const secretBytes = cursorSecretBytesOrNull(options.cursorSecret);
+            if (secretBytes === null)
+              throw new FleetFault(
+                "cursor_secret_unconfigured",
+                "Fleet token usage detail pagination requires a configured cursorSecret.",
+              );
+            detailCursorKey = fleetTokenUsageDetailCursorKey(a.repoId, secretBytes);
+            if (outerDetailCursor !== null) {
+              const innerCursor = unwrapFleetTokenUsageDetailCursor(detailCursorKey, a.repoId, outerDetailCursor);
+              if (innerCursor === null) throw new FleetFault("invalid_cursor", "Token usage detail cursor is invalid.");
+              readPayload = { ...readPayload, cursor: innerCursor };
+            }
           }
           result = await options.host.read(a.repoId, frame.method, readPayload, binding);
-          if (frame.method === "repo.agentRuntime.tokenUsageDetail" && detailCursorKey !== null)
+          if (isDetailRead)
             result = finalizeFleetTokenUsageDetailResult(detailCursorKey, a.repoId, outerDetailCursor, result);
           if (frame.method === "repo.fleet.overview.read") {
             const warning = versionWarnings.get(nodeId);

@@ -11,6 +11,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import {
+  cursorSecretBytesOrNull,
   finalizeFleetTokenUsageDetailResult,
   fleetTokenUsageDetailCursorKey,
   isValidTokenUsageDetailCursor,
@@ -218,6 +219,7 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
     readonly options?: { readonly maxRevision?: number; readonly limit?: number; readonly order?: "asc" | "desc" };
   }> = [];
 
+  let readDispatchLifecycleCalls = 0;
   const projection: TokenUsageDetailProjection = {
     readRuntimeDispatchPage: (query) => {
       const startIndex = query.cursor ? 1 : 0,
@@ -235,6 +237,7 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
       };
     },
     readDispatchLifecycle: (query) => {
+      readDispatchLifecycleCalls += 1;
       const ids = query.by === "dispatch" ? query.dispatchIds : [];
       return {
         status: "ready",
@@ -262,13 +265,15 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
     readTaskOperation: (opId) => (opId === d1Sub.opId ? { event: d1Sub, watermark: 99 } : null),
   };
 
-  const pricingV1 = makePricing("2026-11-20", "1111111111111111", 1.0);
+  const testSecret = "app-cluster-cursor-secret-32bytes",
+    pricingV1 = makePricing("2026-11-20", "1111111111111111", 1.0);
   const page1 = readTokenUsageDetailPage({
     repoId: "repo-canonical",
     now: nowIso,
     range: "today",
     member: { kind: "agent", agentId: "agent-app" },
     limit: 1,
+    cursorSecret: testSecret,
     pricing: pricingV1,
     entityLabel: () => null,
     projection,
@@ -279,9 +284,10 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
   assert.equal(page1.pricing.version, "2026-11-20");
   assert.ok(page1.page?.nextCursor);
 
-  // Page 2 at pinnedWatermark=7: d1's current view has revision=99 > 7, so reconstructPinnedDispatchOutcome
-  // runs with bounded { maxRevision: 7, order: "desc", limit } and folds execution_submitted(rev 3) + stopped(rev 4)
+  // Page 2 at pinnedWatermark=7: continuation pages MUST NOT call readDispatchLifecycle at all (0 group_json reads, F11),
+  // reconstructing directly from bounded canonical events at <= 7 and folding execution_submitted(rev 3) + stopped(rev 4)
   // -> authoritative displayStatus = "succeeded" (NOT raw "stopped")!
+  readDispatchLifecycleCalls = 0;
   const page2 = readTokenUsageDetailPage({
     repoId: "repo-canonical",
     now: nowIso,
@@ -289,11 +295,17 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
     member: { kind: "agent", agentId: "agent-app" },
     limit: 1,
     cursor: page1.page!.nextCursor!,
+    cursorSecret: testSecret,
     pricing: pricingV1,
     entityLabel: () => null,
     projection,
     cut: { status: "ready", watermark: 99, sourceRevision: 99 },
   });
+  assert.equal(
+    readDispatchLifecycleCalls,
+    0,
+    "F11: cursor continuation must NEVER query current dispatch_lifecycle_attempt/group_json",
+  );
   assert.equal(page2.sessions.length, 1);
   assert.equal(page2.sessions[0]!.dispatchId, d1.payload.dispatchId);
   assert.equal(
@@ -304,6 +316,10 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
   assert.equal(page2.pricing.version, "2026-11-20");
   assert.equal(page2.page?.nextCursor, null);
   assert.ok(sessionQueryCalls.length >= 2);
+  assert.ok(
+    sessionQueryCalls.some((call) => call.types.includes("runtime_session_cancelled")),
+    "F13: coreSessionEvents must include runtime_session_cancelled",
+  );
   for (const call of sessionQueryCalls) {
     assert.equal(call.options?.maxRevision, 7, "F11: readRuntimeSessionEventsByType must receive maxRevision");
     assert.equal(call.options?.order, "desc", "F11: readRuntimeSessionEventsByType must scan desc");
@@ -327,6 +343,7 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
           member: { kind: "agent", agentId: "agent-app" },
           limit: 1,
           cursor: page1.page!.nextCursor!,
+          cursorSecret: testSecret,
           pricing: driftedPricing,
           entityLabel: () => null,
           projection,
@@ -345,6 +362,7 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
         range: "today",
         member: { kind: "agent", agentId: "agent-app" },
         limit: 1,
+        cursorSecret: testSecret,
         maxWindowSessions: 1,
         pricing: pricingV1,
         entityLabel: () => null,
@@ -354,11 +372,44 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
     (error: unknown) => (error as { code?: string })?.code === "resource_exhausted",
   );
 
-  // F18: canonical repoId cursor key rejects cross-repo and mismatched secret cursors while accepting same repoId.
+  // F20: missing or empty cursorSecret MUST fail closed with cursor_secret_unconfigured (never empty repoId-only HMAC!).
+  assert.equal(cursorSecretBytesOrNull(undefined), null);
+  assert.equal(cursorSecretBytesOrNull(""), null);
+  assert.equal(cursorSecretBytesOrNull(Buffer.alloc(0)), null);
+  assert.ok(cursorSecretBytesOrNull(testSecret) !== null);
+  for (const missingSecret of [undefined, "", Buffer.alloc(0)]) {
+    assert.throws(
+      () =>
+        readTokenUsageDetailPage({
+          repoId: "repo-canonical",
+          now: nowIso,
+          range: "today",
+          member: { kind: "agent", agentId: "agent-app" },
+          limit: 1,
+          ...(missingSecret === undefined ? {} : { cursorSecret: missingSecret }),
+          pricing: pricingV1,
+          entityLabel: () => null,
+          projection,
+          cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+        }),
+      (error: unknown) => (error as { code?: string })?.code === "cursor_secret_unconfigured",
+    );
+  }
+  assert.throws(
+    () => fleetTokenUsageDetailCursorKey("repo-canonical", ""),
+    (error: unknown) => (error as { code?: string })?.code === "cursor_secret_unconfigured",
+  );
+  assert.throws(
+    () => finalizeFleetTokenUsageDetailResult(null, "repo-canonical", null, page1),
+    (error: unknown) => (error as { code?: string })?.code === "cursor_secret_unconfigured",
+  );
+
+  // F18 + F20: canonical repoId + server cursorSecret rejects cross-repo and mismatched-secret cursors.
   assert.equal(
     isValidTokenUsageDetailCursor(page1.page!.nextCursor!, {
       repoId: "repo-canonical",
       nowMs: Date.parse(nowIso),
+      cursorSecret: testSecret,
       pricingVersion: "2026-11-20",
       pricingFingerprint: "1111111111111111",
     }),
@@ -366,8 +417,17 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
   );
   assert.equal(
     isValidTokenUsageDetailCursor(page1.page!.nextCursor!, {
+      repoId: "repo-canonical",
+      nowMs: Date.parse(nowIso),
+      cursorSecret: "wrong-secret",
+    }),
+    false,
+  );
+  assert.equal(
+    isValidTokenUsageDetailCursor(page1.page!.nextCursor!, {
       repoId: "other-repo",
       nowMs: Date.parse(nowIso),
+      cursorSecret: testSecret,
     }),
     false,
   );
@@ -383,4 +443,118 @@ test("F19 + F11 + F13 + F18: pure application query pins pricing version/fingerp
   );
   assert.equal(unwrapFleetTokenUsageDetailCursor(keyOther, "repo-canonical", wrapped.page.nextCursor), null);
   assert.equal(unwrapFleetTokenUsageDetailCursor(keyA, "other-repo", wrapped.page.nextCursor), null);
+});
+
+test("F13 + F11: pre-watermark runtime_session_cancelled + post-watermark exit folds to settling/unknown (never running) with 0 readDispatchLifecycle calls", () => {
+  const nowIso = "2026-11-21T12:00:00.000Z",
+    testSecret = "cancel-regression-secret-32bytes";
+  const d1 = makeDispatchEvent(1, "dispatch_00000000000000000000bb01", "sess-cancelled", "2026-11-21T11:00:00.000Z"),
+    d1Start = makeStartedEvent(2, "sess-cancelled", "2026-11-21T11:00:01.000Z"),
+    d1Cancel: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_cancelled" }> = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_session_cancelled",
+      eventId: "ev-cancel-3",
+      opId: "op-cancel-3",
+      workspaceRevision: 3,
+      occurredAt: "2026-11-21T11:00:02.000Z",
+      actor: { principal: { personId: "person-a" }, executor: null },
+      source: "local",
+      payload: { runtimeSessionId: "sess-cancelled" },
+    },
+    d2 = makeDispatchEvent(4, "dispatch_00000000000000000000bb02", "sess-newest", "2026-11-21T11:10:00.000Z"),
+    d2Start = makeStartedEvent(5, "sess-newest", "2026-11-21T11:10:01.000Z"),
+    d1Exit: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_exited" }> = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_session_exited",
+      eventId: "ev-exit-10",
+      opId: "op-exit-10",
+      workspaceRevision: 10,
+      occurredAt: "2026-11-21T11:15:00.000Z",
+      actor: { principal: { personId: "person-a" }, executor: null },
+      source: "local",
+      payload: { runtimeSessionId: "sess-cancelled" },
+    };
+
+  let d2Group: DispatchLifecycleGroup | null = null;
+  for (const ev of [d2, d2Start]) {
+    const step = reduceDispatchLifecycle(d2Group, ev as never);
+    if (step.kind === "applied") d2Group = step.group;
+  }
+  const d2View = dispatchLifecycleView(d2Group!, d2.payload.dispatchId);
+
+  const rows: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"] = [
+    { event: d2, metrics: null, endedAt: null, outcome: null },
+    { event: d1, metrics: null, endedAt: null, outcome: null },
+  ];
+
+  let lifecycleCalls = 0;
+  const projection: TokenUsageDetailProjection = {
+    readRuntimeDispatchPage: (query) => {
+      const startIndex = query.cursor ? 1 : 0,
+        slice = rows.slice(startIndex, startIndex + query.limit);
+      return {
+        rows: slice,
+        done: startIndex + slice.length >= rows.length,
+        nextCursor:
+          startIndex + slice.length < rows.length
+            ? {
+                startedAt: slice.at(-1)!.event.payload.startedAt!,
+                dispatchId: slice.at(-1)!.event.payload.dispatchId,
+              }
+            : null,
+      };
+    },
+    readDispatchLifecycle: () => {
+      lifecycleCalls += 1;
+      return { status: "ready", watermark: 5, sourceRevision: 5, rows: [d2View], nextCursor: null };
+    },
+    readRuntimeSessionEventsByType: (sessionId, types, options) => {
+      if (sessionId !== "sess-cancelled") return [];
+      const all = [d1Start, d1Cancel, d1Exit].filter(
+        (ev) =>
+          types.includes(ev.type) &&
+          (options?.maxRevision === undefined || ev.workspaceRevision <= options.maxRevision),
+      );
+      const ordered = options?.order === "desc" ? all.toReversed() : all;
+      return options?.limit === undefined ? ordered : ordered.slice(0, options.limit);
+    },
+  };
+
+  const pricing = makePricing("2026-11-20", "1111111111111111", 1.0);
+  const page1 = readTokenUsageDetailPage({
+    repoId: "repo-cancel",
+    now: nowIso,
+    range: "today",
+    member: { kind: "agent", agentId: "agent-app" },
+    limit: 1,
+    cursorSecret: testSecret,
+    pricing,
+    entityLabel: () => null,
+    projection,
+    cut: { status: "ready", watermark: 5, sourceRevision: 5 },
+  });
+  assert.ok(page1.page?.nextCursor);
+
+  lifecycleCalls = 0;
+  const page2 = readTokenUsageDetailPage({
+    repoId: "repo-cancel",
+    now: nowIso,
+    range: "today",
+    member: { kind: "agent", agentId: "agent-app" },
+    limit: 1,
+    cursor: page1.page!.nextCursor!,
+    cursorSecret: testSecret,
+    pricing,
+    entityLabel: () => null,
+    projection,
+    cut: { status: "ready", watermark: 10, sourceRevision: 10 },
+  });
+  assert.equal(lifecycleCalls, 0, "F11: continuation must not read current dispatch_lifecycle projection");
+  assert.equal(page2.sessions.length, 1);
+  assert.equal(page2.sessions[0]!.dispatchId, d1.payload.dispatchId);
+  assert.equal(
+    page2.sessions[0]!.outcome,
+    "unknown",
+    "F13: pre-watermark runtime_session_cancelled + post-watermark exit must fold to settling/unknown (never running)",
+  );
 });

@@ -13,6 +13,7 @@ import {
   openDispatchStream,
 } from "../src/daemon-host/dispatch-stream.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
+import { resolveFleetCursorSecret } from "../src/daemon-host/fleet-center-config.ts";
 import { FLEET_FRAME_BYTES } from "../src/daemon-host/fleet/command-protocol.ts";
 import { FleetRemoteError, openPeer, readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
 import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
@@ -861,6 +862,7 @@ test(
         ...fixture.writerOptions,
         key: fixture.key,
         cert: fixture.cert,
+        cursorSecret: resolveFleetCursorSecret(path.join(fixture.userRoot, "fleet")),
         verifyHuman: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bind(auth),
         verifyReplica: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bindReplica!(auth),
         onError: (entry) => fixture.transportErrors.push(entry),
@@ -1341,6 +1343,7 @@ test(
       global: { bulkTransfers: 8, memoryBytes: tightMemoryBytes },
     });
 
+    const bulkCursorSecret = "test-fleet-bulk-cursor-secret-32";
     const center = await fixture.hold(
       listenFleetTls({
         host: {
@@ -1354,6 +1357,7 @@ test(
                 member: { kind: "agent", agentId: "agent-bulk" },
                 ...(typeof payload.limit === "number" ? { limit: payload.limit } : {}),
                 ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
+                cursorSecret: bulkCursorSecret,
                 entityLabel: () => null,
                 cut: { status: "ready", watermark: totalRows, sourceRevision: totalRows },
                 projection: bulkProjection as never,
@@ -1367,6 +1371,7 @@ test(
         ...fixture.writerOptions,
         key: fixture.key,
         cert: fixture.cert,
+        cursorSecret: bulkCursorSecret,
         verifyHuman: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bind(auth),
         verifyReplica: (auth) => createIdentitySession(fixture.userRoot, { fetch: keycloak.fetch }).bindReplica!(auth),
         onError: (entry) => fixture.transportErrors.push(entry),

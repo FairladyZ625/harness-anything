@@ -9,6 +9,7 @@ import { dispatchLifecycleSummary, type DispatchLifecycleSummary } from "@harnes
 import {
   agentRuntimeTokenUsageRanges,
   buildTokenUsageBucketLadder,
+  cursorSecretBytesOrNull,
   isValidTokenUsageDetailCursor,
   planTokenUsageWindow,
   readTokenUsageDetailPage,
@@ -410,7 +411,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   readonly personId?: string;
   readonly limit?: number;
   readonly cursor?: string;
-  readonly cursorSecret?: string | Buffer;
+  readonly cursorSecret?: string | Buffer | Uint8Array;
   readonly maxUnpaginatedSessions?: number;
   readonly maxWindowSessions?: number;
   readonly entityLabel: (squadId: string) => string | null;
@@ -544,6 +545,7 @@ export function agentRuntimeTokenUsageDetailHandler(context: {
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
   readonly limit?: number;
   readonly cursor?: string;
+  readonly cursorSecret?: string | Buffer | Uint8Array;
   readonly maxUnpaginatedSessions?: number;
 }): AgentRuntimeTokenUsageDetailResult {
   const nowIso = context.now(),
@@ -553,16 +555,22 @@ export function agentRuntimeTokenUsageDetailHandler(context: {
   const maxLimit = storageReadPolicy.defaultValue.pageSizes.standard;
   if (context.limit !== undefined && (!positiveInteger(context.limit) || context.limit > maxLimit))
     throw coded("invalid_command", `Token usage detail limit must be an integer from 1 to ${maxLimit}.`);
-  if (
-    context.cursor !== undefined &&
-    !isValidTokenUsageDetailCursor(context.cursor, {
-      repoId,
-      nowMs,
-      pricingVersion: modelPricingVersion,
-      pricingFingerprint: modelPricingFingerprint,
-    })
-  )
-    throw coded("invalid_cursor", "Token usage detail cursor is invalid.");
+  if (context.limit !== undefined || context.cursor !== undefined) {
+    const secretBytes = cursorSecretBytesOrNull(context.cursorSecret);
+    if (secretBytes === null)
+      throw coded("cursor_secret_unconfigured", "Token usage detail cursor signing secret is not configured.");
+    if (
+      context.cursor !== undefined &&
+      !isValidTokenUsageDetailCursor(context.cursor, {
+        repoId,
+        nowMs,
+        cursorSecret: secretBytes,
+        pricingVersion: modelPricingVersion,
+        pricingFingerprint: modelPricingFingerprint,
+      })
+    )
+      throw coded("invalid_cursor", "Token usage detail cursor is invalid.");
+  }
   const cut = context.projection.readCut();
   return readAgentRuntimeTokenUsageDetail({
     rootDir: context.rootDir,
@@ -572,6 +580,7 @@ export function agentRuntimeTokenUsageDetailHandler(context: {
     member: context.member,
     ...(context.limit === undefined ? {} : { limit: context.limit }),
     ...(context.cursor === undefined ? {} : { cursor: context.cursor }),
+    ...(context.cursorSecret === undefined ? {} : { cursorSecret: context.cursorSecret }),
     ...(context.maxUnpaginatedSessions === undefined ? {} : { maxUnpaginatedSessions: context.maxUnpaginatedSessions }),
     entityLabel: entityLabelOf(cut, context.projection),
     cut,
@@ -599,7 +608,11 @@ export function agentRuntimeTokenUsageMemberOf(
 
 export function agentRuntimeTokenUsageReadHandlers(context: {
   readonly rootDir: string;
-  readonly input?: { readonly repoId: string };
+  readonly input?: {
+    readonly repoId: string;
+    readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
+  };
+  readonly cursorSecret?: string | Buffer | Uint8Array | (() => string | Buffer | Uint8Array | undefined);
   readonly now: () => string;
   readonly projection: Pick<
     TaskProjection,
@@ -613,7 +626,7 @@ export function agentRuntimeTokenUsageReadHandlers(context: {
     | "readTaskOperation"
     | "readTaskCompletion"
     | "readEventList"
-    | "readRuntimeDispatchById"
+    | "readRuntimeDispatchesByAttemptGroup"
   >;
   readonly cellCodedError: (code: string, text: string) => Error;
 }): {
@@ -674,18 +687,30 @@ export function agentRuntimeTokenUsageReadHandlers(context: {
       const nowIso = context.now(),
         nowMs = Date.parse(nowIso),
         cursor = payload.cursor === undefined ? undefined : payload.cursor;
-      if (
-        cursor !== undefined &&
-        (typeof cursor !== "string" ||
-          !Number.isFinite(nowMs) ||
-          !isValidTokenUsageDetailCursor(cursor, {
-            repoId,
-            nowMs,
-            pricingVersion: modelPricingVersion,
-            pricingFingerprint: modelPricingFingerprint,
-          }))
-      )
-        throw context.cellCodedError("invalid_cursor", "Token usage detail cursor is invalid.");
+      let cursorSecret: Buffer | undefined;
+      if (limit !== undefined || cursor !== undefined) {
+        const rawSecret = context.cursorSecret ?? context.input?.fleetCursorSecret,
+          resolvedSecret = cursorSecretBytesOrNull(typeof rawSecret === "function" ? rawSecret() : rawSecret);
+        if (resolvedSecret === null)
+          throw context.cellCodedError(
+            "cursor_secret_unconfigured",
+            "Token usage detail cursor signing secret is not configured.",
+          );
+        cursorSecret = resolvedSecret;
+        if (
+          cursor !== undefined &&
+          (typeof cursor !== "string" ||
+            !Number.isFinite(nowMs) ||
+            !isValidTokenUsageDetailCursor(cursor, {
+              repoId,
+              nowMs,
+              cursorSecret,
+              pricingVersion: modelPricingVersion,
+              pricingFingerprint: modelPricingFingerprint,
+            }))
+        )
+          throw context.cellCodedError("invalid_cursor", "Token usage detail cursor is invalid.");
+      }
       const isRemoteFleetRead =
         binding?.fleetReplicaPrincipal !== undefined ||
         (typeof binding?.source === "object" &&
@@ -693,12 +718,15 @@ export function agentRuntimeTokenUsageReadHandlers(context: {
           "kind" in binding.source &&
           binding.source.kind === "node");
       return agentRuntimeTokenUsageDetailHandler({
-        ...context,
+        rootDir: context.rootDir,
+        now: context.now,
+        projection: context.projection,
         repoId,
         range,
         member,
         ...(limit === undefined ? {} : { limit }),
         ...(cursor === undefined ? {} : { cursor }),
+        ...(cursorSecret === undefined ? {} : { cursorSecret }),
         ...(isRemoteFleetRead ? { maxUnpaginatedSessions: maxLimit } : {}),
       });
     },

@@ -140,7 +140,7 @@ export type TokenUsageDetailProjection = Pick<TaskProjection, "readRuntimeDispat
       | "readTaskOperation"
       | "readTaskCompletion"
       | "readEventList"
-      | "readRuntimeDispatchById"
+      | "readRuntimeDispatchesByAttemptGroup"
     >
   >;
 
@@ -321,15 +321,23 @@ function hmacSha256(keyBytes: Buffer, message: string): Buffer {
   return Buffer.from(sha256Bytes(Buffer.concat([opad, innerDigest])), "hex");
 }
 
-/** Canonical cursor HMAC key derived solely from repository identity and optional cluster secret —
- * independent of local mount path (`rootDir`) and ephemeral TLS listener private keys (F18). */
-function detailCursorKey(repoId: string, cursorSecret?: string | Buffer): Buffer {
-  const secretBytes =
-    cursorSecret === undefined
-      ? Buffer.alloc(0)
-      : typeof cursorSecret === "string"
-        ? Buffer.from(cursorSecret, "utf8")
-        : Buffer.from(cursorSecret);
+export function cursorSecretBytesOrNull(cursorSecret: string | Buffer | Uint8Array | undefined): Buffer | null {
+  if (cursorSecret === undefined) return null;
+  const bytes = typeof cursorSecret === "string" ? Buffer.from(cursorSecret, "utf8") : Buffer.from(cursorSecret);
+  return bytes.byteLength > 0 ? bytes : null;
+}
+
+function requireCursorSecretBytes(cursorSecret: string | Buffer | Uint8Array | undefined): Buffer {
+  const bytes = cursorSecretBytesOrNull(cursorSecret);
+  if (bytes === null)
+    throw coded("cursor_secret_unconfigured", "Token usage detail cursor signing secret is not configured.");
+  return bytes;
+}
+
+/** Canonical cursor HMAC key derived solely from repository identity and server-held cluster secret —
+ * independent of local mount path (`rootDir`) and ephemeral TLS listener private keys (F18/F20). */
+function detailCursorKey(repoId: string, cursorSecret: string | Buffer | Uint8Array): Buffer {
+  const secretBytes = requireCursorSecretBytes(cursorSecret);
   return Buffer.from(
     sha256Bytes(
       Buffer.concat([
@@ -343,13 +351,8 @@ function detailCursorKey(repoId: string, cursorSecret?: string | Buffer): Buffer
   );
 }
 
-export function fleetTokenUsageDetailCursorKey(repoId: string, cursorSecret?: string | Buffer): Buffer {
-  const secretBytes =
-    cursorSecret === undefined
-      ? Buffer.alloc(0)
-      : typeof cursorSecret === "string"
-        ? Buffer.from(cursorSecret, "utf8")
-        : Buffer.from(cursorSecret);
+export function fleetTokenUsageDetailCursorKey(repoId: string, cursorSecret: string | Buffer | Uint8Array): Buffer {
+  const secretBytes = requireCursorSecretBytes(cursorSecret);
   return Buffer.from(
     sha256Bytes(
       Buffer.concat([
@@ -388,7 +391,7 @@ export function unwrapFleetTokenUsageDetailCursor(
 }
 
 export function finalizeFleetTokenUsageDetailResult(
-  secretKey: Buffer,
+  secretKey: Buffer | null,
   repoId: string,
   outerCursor: string | null,
   result: unknown,
@@ -404,6 +407,11 @@ export function finalizeFleetTokenUsageDetailResult(
       );
     return result;
   }
+  if (secretKey === null)
+    throw coded(
+      "cursor_secret_unconfigured",
+      "Fleet token usage detail pagination requires a configured cursorSecret.",
+    );
   if (!isRecord(result.page)) return result;
   const wrappedNext =
     typeof result.page.nextCursor === "string"
@@ -415,7 +423,7 @@ export function finalizeFleetTokenUsageDetailResult(
   };
 }
 
-function encodeDetailCursor(cursor: DetailCursor, repoId: string, cursorSecret?: string | Buffer): string {
+function encodeDetailCursor(cursor: DetailCursor, repoId: string, cursorSecret: string | Buffer | Uint8Array): string {
   const totals = cursor.snapshot.totals,
     totalsTuple = [
       totals.sessionCount,
@@ -489,16 +497,18 @@ function decodeDetailCursor(
   options: {
     readonly repoId: string;
     readonly nowMs: number;
-    readonly cursorSecret?: string | Buffer;
+    readonly cursorSecret?: string | Buffer | Uint8Array;
   },
 ): DetailCursor | null {
+  const verifiedSecret = cursorSecretBytesOrNull(options.cursorSecret);
+  if (verifiedSecret === null) return null;
   const maxCursorChars = storageReadPolicy.defaultValue.pageSizes.progress * 2;
   if (!value || value.length > maxCursorChars) return null;
   const parts = value.split(".");
   if (parts.length !== 3 || parts[0] !== "v3") return null;
   const [, sig, body] = parts;
   if (!sig || !body || !/^[A-Za-z0-9_-]+$/u.test(sig) || !/^[A-Za-z0-9_-]+$/u.test(body)) return null;
-  const expectedSig = hmacSha256(detailCursorKey(options.repoId, options.cursorSecret), `v3.${body}`),
+  const expectedSig = hmacSha256(detailCursorKey(options.repoId, verifiedSecret), `v3.${body}`),
     actualSig = Buffer.from(sig, "base64url");
   if (
     actualSig.toString("base64url") !== sig ||
@@ -629,7 +639,7 @@ export function isValidTokenUsageDetailCursor(
   options: {
     readonly repoId: string;
     readonly nowMs: number;
-    readonly cursorSecret?: string | Buffer;
+    readonly cursorSecret: string | Buffer | Uint8Array;
     readonly pricingVersion?: string;
     readonly pricingFingerprint?: string;
   },
@@ -656,14 +666,14 @@ function canonicalCacheWriteProvenance(metrics: DispatchProjectionRow["metrics"]
 }
 
 /** Reconstruct authoritative dispatch+task lifecycle at `<= pinnedWatermark` in O(1) bounded reads:
- * session events use SQL `maxRevision` + `DESC LIMIT` so post-watermark events and heartbeat floods
- * never increase query work; task delivery (`execution_submitted`/`review_recorded`) and completion
- * events at `<= pinnedWatermark` are folded through the kernel reducer so delivered stopped attempts
- * preserve `displayStatus = "succeeded"` (F11 + F13). */
+ * session events use SQL `maxRevision` + `DESC LIMIT` (including `runtime_session_cancelled`) so
+ * post-watermark events and heartbeat floods never read current `dispatch_lifecycle_attempt/group_json`
+ * or inflate query work; task delivery (`execution_submitted`/`review_recorded`) and completion events
+ * at `<= pinnedWatermark` are folded through the kernel reducer so delivered stopped attempts preserve
+ * `displayStatus = "succeeded"` and pre-watermark cancel + post-watermark exit folds to `unknown` (F11 + F13). */
 function reconstructPinnedDispatchOutcome(
   projection: TokenUsageDetailProjection,
   row: DispatchProjectionRow,
-  currentView: DispatchLifecycleView | undefined,
   pinnedWatermark: number,
   pinnedSourceRevision: number,
 ): AgentRuntimeTokenUsageOutcome {
@@ -679,7 +689,12 @@ function reconstructPinnedDispatchOutcome(
 
   const coreSessionEvents = projection.readRuntimeSessionEventsByType(
       payload.runtimeSessionId,
-      ["runtime_session_started", "runtime_session_exited", "runtime_session_outcome_observed"],
+      [
+        "runtime_session_started",
+        "runtime_session_cancelled",
+        "runtime_session_exited",
+        "runtime_session_outcome_observed",
+      ],
       { maxRevision: pinnedWatermark, order: "desc", limit: sessionBound },
     ),
     latestLiveness = projection.readRuntimeSessionEventsByType(
@@ -733,20 +748,6 @@ function reconstructPinnedDispatchOutcome(
       inputs.push(completion);
   }
 
-  if (currentView !== undefined && projection.readRuntimeDispatchById) {
-    const position = currentView.groupDispatchIds.indexOf(payload.dispatchId),
-      nextDispatchId = position >= 0 ? currentView.groupDispatchIds[position + 1] : undefined;
-    if (nextDispatchId !== undefined) {
-      const nextRow = projection.readRuntimeDispatchById(nextDispatchId);
-      if (
-        nextRow !== null &&
-        nextRow.event.workspaceRevision <= pinnedWatermark &&
-        isDispatchLifecycleInput(nextRow.event)
-      )
-        inputs.push(nextRow.event);
-    }
-  }
-
   const byRevision = new Map<number, DispatchLifecycleInput>();
   for (const event of inputs) {
     if (event.workspaceRevision <= pinnedWatermark) byRevision.set(event.workspaceRevision, event);
@@ -757,11 +758,31 @@ function reconstructPinnedDispatchOutcome(
     const step = reduceDispatchLifecycle(group, event);
     if (step.kind === "applied") group = step.group;
   }
+  let view = group === null ? null : dispatchLifecycleView(group, payload.dispatchId);
+  if (group !== null && view?.policy.fallbackPending && projection.readRuntimeDispatchesByAttemptGroup) {
+    const successors = projection
+      .readRuntimeDispatchesByAttemptGroup(group.attemptGroupId)
+      .filter(
+        (candidate) =>
+          candidate.event.workspaceRevision > group!.revision &&
+          candidate.event.workspaceRevision <= pinnedWatermark &&
+          isDispatchLifecycleInput(candidate.event),
+      )
+      .sort((left, right) => left.event.workspaceRevision - right.event.workspaceRevision);
+    for (const successor of successors) {
+      const step = reduceDispatchLifecycle(group, successor.event as DispatchLifecycleInput);
+      if (step.kind === "applied") {
+        group = step.group;
+        view = dispatchLifecycleView(group, payload.dispatchId);
+        break;
+      }
+    }
+  }
   const summary = dispatchLifecycleSummary({
     status: "ready",
     watermark: pinnedWatermark,
     sourceRevision: pinnedSourceRevision,
-    rows: group === null ? [] : [dispatchLifecycleView(group, payload.dispatchId)],
+    rows: view === null ? [] : [view],
     nextCursor: null,
   });
   return tokenUsageOutcomeWords.includes(summary.displayStatus as AgentRuntimeTokenUsageOutcome)
@@ -774,29 +795,32 @@ function resolvePinnedPageSessions(
   rows: readonly DispatchProjectionRow[],
   pinnedWatermark: number,
   pinnedSourceRevision: number,
+  options: { readonly pinnedContinuation: boolean; readonly snapshotPending?: boolean },
 ): {
   readonly pending: boolean;
   readonly sessions: readonly AgentRuntimeTokenUsageSessionRow[];
 } {
   if (rows.length === 0) return { pending: false, sessions: [] };
-  const dispatchIds = rows.map((row) => row.event.payload.dispatchId),
-    viewsByDispatch = new Map<string, DispatchLifecycleView>();
-  let pending = false;
-  for (let offset = 0; offset < dispatchIds.length; offset += DISPATCH_LIFECYCLE_PAGE_LIMIT) {
-    const chunk = dispatchIds.slice(offset, offset + DISPATCH_LIFECYCLE_PAGE_LIMIT),
-      lifecycleRead = projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: chunk });
-    if (lifecycleRead.status === "pending") {
-      pending = true;
-      continue;
+  const viewsByDispatch = new Map<string, DispatchLifecycleView>();
+  let pending = options.snapshotPending === true;
+  if (!options.pinnedContinuation) {
+    const dispatchIds = rows.map((row) => row.event.payload.dispatchId);
+    for (let offset = 0; offset < dispatchIds.length; offset += DISPATCH_LIFECYCLE_PAGE_LIMIT) {
+      const chunk = dispatchIds.slice(offset, offset + DISPATCH_LIFECYCLE_PAGE_LIMIT),
+        lifecycleRead = projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: chunk });
+      if (lifecycleRead.status === "pending") {
+        pending = true;
+        continue;
+      }
+      for (const view of lifecycleRead.rows) viewsByDispatch.set(view.attempt.dispatchId, view);
     }
-    for (const view of lifecycleRead.rows) viewsByDispatch.set(view.attempt.dispatchId, view);
   }
   const sessions = rows.map((row): AgentRuntimeTokenUsageSessionRow => {
     const payload = row.event.payload,
       startedAt = payload.startedAt ?? row.event.occurredAt,
       metrics = row.metrics,
       settled = row.outcome !== null,
-      view = viewsByDispatch.get(payload.dispatchId);
+      view = options.pinnedContinuation ? undefined : viewsByDispatch.get(payload.dispatchId);
     let outcome: AgentRuntimeTokenUsageOutcome = "unknown";
     if (!pending) {
       if (view !== undefined && view.revision <= pinnedWatermark) {
@@ -810,7 +834,7 @@ function resolvePinnedPageSessions(
         if (tokenUsageOutcomeWords.includes(summary.displayStatus as AgentRuntimeTokenUsageOutcome))
           outcome = summary.displayStatus as AgentRuntimeTokenUsageOutcome;
       } else {
-        outcome = reconstructPinnedDispatchOutcome(projection, row, view, pinnedWatermark, pinnedSourceRevision);
+        outcome = reconstructPinnedDispatchOutcome(projection, row, pinnedWatermark, pinnedSourceRevision);
       }
     }
     const startedMs = Date.parse(startedAt),
@@ -858,7 +882,7 @@ export function readTokenUsageDetailPage(input: {
   readonly personId?: string;
   readonly limit?: number;
   readonly cursor?: string;
-  readonly cursorSecret?: string | Buffer;
+  readonly cursorSecret?: string | Buffer | Uint8Array;
   readonly maxWindowSessions?: number;
   readonly pricing: TokenUsagePricingContext;
   readonly entityLabel: (squadId: string) => string | null;
@@ -876,14 +900,15 @@ export function readTokenUsageDetailPage(input: {
     limit = input.limit ?? maxLimit;
   if (input.limit !== undefined && (!positiveInteger(input.limit) || input.limit > maxLimit))
     throw coded("invalid_command", `Token usage detail limit must be an integer from 1 to ${maxLimit}.`);
-  const decodedCursor =
-    input.cursor === undefined
-      ? null
-      : decodeDetailCursor(input.cursor, {
-          repoId: input.repoId,
-          nowMs,
-          ...(input.cursorSecret === undefined ? {} : { cursorSecret: input.cursorSecret }),
-        });
+  const verifiedCursorSecret = requireCursorSecretBytes(input.cursorSecret),
+    decodedCursor =
+      input.cursor === undefined
+        ? null
+        : decodeDetailCursor(input.cursor, {
+            repoId: input.repoId,
+            nowMs,
+            cursorSecret: verifiedCursorSecret,
+          });
   if (input.cursor !== undefined && decodedCursor === null)
     throw coded("invalid_cursor", "Token usage detail cursor is invalid.");
   const member = input.member,
@@ -946,7 +971,7 @@ export function readTokenUsageDetailPage(input: {
           snapshot,
         },
         input.repoId,
-        input.cursorSecret,
+        verifiedCursorSecret,
       );
 
   if (decodedCursor !== null) {
@@ -961,7 +986,10 @@ export function readTokenUsageDetailPage(input: {
         limit,
       }),
       matchedRows = page.rows.filter(matchesMember),
-      resolved = resolvePinnedPageSessions(input.projection, matchedRows, pinnedWatermark, pinnedSourceRevision),
+      resolved = resolvePinnedPageSessions(input.projection, matchedRows, pinnedWatermark, pinnedSourceRevision, {
+        pinnedContinuation: true,
+        snapshotPending: decodedCursor.snapshot.status === "pending",
+      }),
       pending = decodedCursor.snapshot.status === "pending" || resolved.pending,
       nextCursor =
         !page.done && resolved.sessions.length > 0
@@ -1089,7 +1117,9 @@ export function readTokenUsageDetailPage(input: {
     cursor = page.nextCursor;
   }
 
-  const resolved = resolvePinnedPageSessions(input.projection, firstPageRows, pinnedWatermark, pinnedSourceRevision),
+  const resolved = resolvePinnedPageSessions(input.projection, firstPageRows, pinnedWatermark, pinnedSourceRevision, {
+      pinnedContinuation: false,
+    }),
     pending = input.cut.status === "pending" || resolved.pending,
     frozenTotals: AgentRuntimeTokenUsageTotals = {
       sessionCount: trackedSessionIds.size,

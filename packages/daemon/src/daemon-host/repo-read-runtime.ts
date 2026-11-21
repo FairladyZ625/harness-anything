@@ -51,7 +51,7 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 export function makeRepoReadRuntime(
   input: Pick<
     RepoCellOpenInput,
-    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances"
+    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances" | "fleetCursorSecret"
   > & { readonly edgeConfig?: () => FleetEdgeConfig | null },
 ) {
   input = { ...input, storage: nodeMaterializationStorage(input) };
@@ -279,6 +279,7 @@ export function makeRepoReadRuntime(
         input: {
           repoId: input.repoId,
           edgeConfig,
+          ...(input.fleetCursorSecret ? { fleetCursorSecret: input.fleetCursorSecret } : {}),
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
         },
         state: "attached",

@@ -11,7 +11,11 @@ import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts"
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
-import { readFleetCenterCertificatePaths, readFleetCenterConfig } from "./fleet-center-config.ts";
+import {
+  readFleetCenterCertificatePaths,
+  readFleetCenterConfig,
+  resolveFleetCursorSecret,
+} from "./fleet-center-config.ts";
 import {
   keycloakNodeRegistry,
   prepareFleetCenterAdmission,
@@ -903,6 +907,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimePorts,
     decisionPointExecutorFor,
     runtimeDaemonRoute,
+    fleetCursorSecret: () =>
+      resolveFleetCursorSecret(
+        readFleetCenterConfig(input.userRoot, input.daemonId)?.stateRoot ?? path.join(input.userRoot, "fleet"),
+      ),
     keycloakCenter,
     keycloakSession,
     scheduleScheduler,

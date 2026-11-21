@@ -1672,6 +1672,7 @@ test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + 
       ["agent runtime token usage detail is invalid"],
     );
 
+    const cursorSecret = "test-token-usage-detail-secret-32";
     const collected: (typeof full.sessions)[number][] = [];
     let cursor: string | undefined;
     let pages = 0;
@@ -1682,6 +1683,7 @@ test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + 
         range: "today",
         member: { kind: "agent", agentId: "terra" },
         limit: 2,
+        cursorSecret,
         ...(cursor ? { cursor } : {}),
         entityLabel: () => null,
         cut: CUT,
@@ -1721,6 +1723,7 @@ test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + 
           range: "today",
           member: { kind: "agent", agentId: "terra" },
           limit: 501,
+          cursorSecret,
           entityLabel: () => null,
           cut: CUT,
           projection,
@@ -1735,6 +1738,7 @@ test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + 
           range: "today",
           member: { kind: "agent", agentId: "terra" },
           cursor: "not-a-valid-cursor!!!",
+          cursorSecret,
           entityLabel: () => null,
           cut: CUT,
           projection,

@@ -178,6 +178,7 @@ export async function performOpenRegistered(
       defaultWriterEpochFence: context.writerEpochFence(repo.repoId),
       ...(context.input.now ? { now: context.input.now } : {}),
       runtimeDaemonRoute: context.runtimeDaemonRoute,
+      ...(context.fleetCursorSecret ? { fleetCursorSecret: context.fleetCursorSecret } : {}),
       keycloakCenter: context.keycloakCenter,
       keycloakSession: context.keycloakSession,
       ...(repo.authoredBranch ? { authoredBranch: repo.authoredBranch } : {}),
