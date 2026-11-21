@@ -268,11 +268,8 @@ jobs:
       matrix:
         partition: [1, 2, 3, 4]
     env:
-      # All partitions derive from the same tier manifest. The expensive mutation suite uses a
-      # measured weighted assignment to keep its four partitions balanced.
       HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
       HARNESS_TEST_PARTITION_STRATEGY: measured
-      HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
     steps:
       - uses: actions/checkout@v4
         with:
@@ -318,7 +315,7 @@ jobs:
     env:
       # Preserve the full CRLF checkout and dedicated boundary gate on all four test partitions.
       HARNESS_TEST_PARTITION: ${{ matrix.partition }}/${{ strategy.job-total }}
-      HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
+      HARNESS_TEST_PARTITION_STRATEGY: measured
     steps:
       - name: Convert line endings on checkout the way a Windows host does
         run: git config --global core.autocrlf true

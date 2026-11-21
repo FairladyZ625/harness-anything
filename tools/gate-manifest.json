@@ -4848,7 +4848,11 @@
           "tools/gates/ontology-durable-action-authorization.mjs",
           "tools/gates/authorization-ci-shards.mjs",
           "tools/gates/test/ontology-durable-action-authorization.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-*.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-scenarios.mjs",
           "tools/gates/test/ontology-durable-action-authorization-incremental.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-incremental-scenarios.mjs",
+          "tools/gates/test/scenario-shards.mjs",
           "tools/gate-manifest.json"
         ]
       },
@@ -4873,8 +4877,8 @@
       "positiveControl": {
         "status": "covered",
         "evidence": [
-          "tools/gates/test/ontology-durable-action-authorization.test.mjs",
-          "tools/gates/test/ontology-durable-action-authorization-incremental.test.mjs"
+          "tools/gates/test/ontology-durable-action-authorization-scenarios.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-incremental-scenarios.mjs"
         ]
       }
     },

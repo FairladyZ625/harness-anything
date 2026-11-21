@@ -15,6 +15,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { parse } from "yaml";
+import { scenarioShards } from "./gates/test/scenario-shards.mjs";
 
 // A bounded wait whose timer never keeps the test process alive on its own.
 function boundedWait(ms) {
@@ -167,7 +169,6 @@ test("measured file partitions balance durations and preserve the exact discover
     "light-a.test.mjs",
     "light-b.test.mjs",
     "light-c.test.mjs",
-    "shared.test.mjs",
   ];
   const weights = {
     "heavy-a.test.mjs": 100_000,
@@ -177,50 +178,68 @@ test("measured file partitions balance durations and preserve the exact discover
     "light-b.test.mjs": 1_000,
     "light-c.test.mjs": 1_000,
   };
-  const sharedFiles = ["shared.test.mjs"];
   const measured = Array.from({ length: 2 }, (_, index) =>
-    partitionTestFiles(files, `${index + 1}/2`, sharedFiles, { strategy: "measured", weightOverrides: weights }),
+    partitionTestFiles(files, `${index + 1}/2`, [], { strategy: "measured", weightOverrides: weights }),
   );
-  const ordinal = Array.from({ length: 2 }, (_, index) => partitionTestFiles(files, `${index + 1}/2`, sharedFiles));
+  const ordinal = Array.from({ length: 2 }, (_, index) => partitionTestFiles(files, `${index + 1}/2`));
   const load = (partition) => partition.reduce((sum, file) => sum + (weights[file] ?? 0), 0);
   assert.ok(Math.max(...measured.map(load)) < Math.max(...ordinal.map(load)));
-  const measuredFileCounts = new Map();
-  for (const file of measured.flat()) measuredFileCounts.set(file, (measuredFileCounts.get(file) ?? 0) + 1);
-  assert.deepEqual([...measuredFileCounts.keys()].sort(), files.sort());
-  assert.equal(measuredFileCounts.get("shared.test.mjs"), 2);
-  assert.ok([...measuredFileCounts].filter(([file]) => file !== "shared.test.mjs").every(([, count]) => count === 1));
+  assert.deepEqual(measured.flat().sort(), files.sort());
   assert.deepEqual(
     measured[0].filter((file) => measured[1].includes(file)),
-    sharedFiles,
-    "only explicitly shared scenario files may occur in multiple partitions",
+    [],
+  );
+  assert.throws(
+    () => partitionTestFiles(files, "1/2", [files[0]], { strategy: "measured", weightOverrides: weights }),
+    /one owner per file/u,
   );
 });
 
-test("discovered fast and contract files are covered once except the scenario-partitioned shared file", () => {
-  const tiers = discoverTestTierManifest(process.cwd());
-  const sharedFile = "tools/gates/test/ontology-durable-action-authorization.test.mjs";
+test("each discovered fast and contract test file has exactly one CI partition", () => {
+  const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8"));
+  const job = workflow.jobs["fast-contract"];
+  assert.equal(job.env.HARNESS_TEST_PARTITION_STRATEGY, "measured");
+  assert.equal(job.env.HARNESS_TEST_PARTITION_SHARED_FILES, undefined);
+  const tiers = discoverTestTierManifest(repoRoot);
+  assert.deepEqual(Object.values(tiers).flat().sort(), discoverTestFiles(repoRoot).sort());
+  const weights = JSON.parse(readFileSync(path.join(repoRoot, "tools/fast-contract-test-weights.json"), "utf8"));
+  const indices = job.strategy.matrix.partition;
+  assert.deepEqual(indices, [1, 2, 3, 4]);
   for (const tier of ["fast", "contract"]) {
     const files = tiers[tier];
-    const sharedFiles = tier === "contract" ? [sharedFile] : [];
-    const partitions = Array.from({ length: 4 }, (_, index) =>
-      partitionTestFiles(files, `${index + 1}/4`, sharedFiles, { strategy: "measured", weightOverrides: {} }),
+    const partitions = indices.map((index) =>
+      partitionTestFiles(files, `${index}/${indices.length}`, [], { strategy: "measured", weightOverrides: weights }),
     );
-    const fileCounts = new Map();
-    for (const file of partitions.flat()) fileCounts.set(file, (fileCounts.get(file) ?? 0) + 1);
-    assert.deepEqual([...fileCounts.keys()].sort(), [...files].sort(), `${tier} union`);
-    for (const file of files) {
-      assert.equal(fileCounts.get(file), sharedFiles.includes(file) ? 4 : 1, `${tier} count for ${file}`);
-    }
+    assert.deepEqual(partitions.flat().sort(), [...files].sort(), `${tier} partition union and file counts`);
     for (let left = 0; left < partitions.length; left += 1) {
       for (let right = left + 1; right < partitions.length; right += 1) {
         assert.deepEqual(
           partitions[left].filter((file) => partitions[right].includes(file)),
-          sharedFiles,
-          `${tier} partitions ${left + 1}/${right + 1} overlap only on declared shared files`,
+          [],
+          `${tier} partitions ${left + 1}/${right + 1} must be disjoint`,
         );
       }
     }
   }
+});
+
+test("scenario entrypoints register a disjoint union and reject stale assignments", () => {
+  const scenarios = scenarioShards([4, 3, 2, 1, 2]);
+  const names = ["first", "second", "third", "fourth", "fifth"];
+  const run = () => undefined;
+  for (const name of names.slice(0, -1)) scenarios.add(name, run);
+  assert.throws(() => scenarios.register(1, run), /covers 5 of 4 registered cases/u);
+  scenarios.add(names.at(-1), run);
+  scenarios.addFirst("common", run);
+  const registered = [];
+  for (const group of [1, 2, 3, 4]) {
+    scenarios.register(group, (name, callback) => {
+      assert.equal(callback, run);
+      registered.push(name);
+    });
+  }
+  assert.deepEqual(registered, ["fourth", "common", "third", "fifth", "second", "first"]);
+  assert.throws(() => scenarios.add("unassigned", run), /Invalid scenario shard/u);
 });
 
 test("testOrdinalInPartition splits the slow shared suite exactly by registration order", () => {

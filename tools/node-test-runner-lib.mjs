@@ -71,10 +71,10 @@ export function partitionTestFiles(
     return files.filter((file, fileIndex) => shared.has(file) || fileIndex % partition.count === partition.index - 1);
   }
   if (strategy !== "measured") throw new Error(`unknown test partition strategy: ${strategy}`);
+  if (sharedFiles.length > 0) throw new Error("measured test partitions require one owner per file");
 
   const partitions = Array.from({ length: partition.count }, (_, index) => ({ index, files: [], weightMs: 0 }));
   const weightedFiles = files
-    .filter((file) => !shared.has(file))
     .map((file) => {
       const weightMs = weightOverrides[file] ?? defaultWeightMs;
       if (!Number.isFinite(weightMs) || weightMs <= 0) throw new Error(`invalid test file weight: ${file}`);
@@ -90,7 +90,7 @@ export function partitionTestFiles(
     lightest.weightMs += entry.weightMs;
   }
 
-  return [...files.filter((file) => shared.has(file)), ...partitions[partition.index - 1].files];
+  return partitions[partition.index - 1].files;
 }
 
 export function coverageReporterArgs(coveragePath) {
