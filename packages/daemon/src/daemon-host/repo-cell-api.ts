@@ -478,7 +478,7 @@ export function createRepoCellApi(
         context.requiredCellText(payload.taskId, "taskId"),
         context.rootDir,
         binding?.actor,
-      ),
+      ).completion,
     "repo.tasks.runtimeContext.read": (payload) =>
       readTaskRuntimeContext(
         context.rootDir,

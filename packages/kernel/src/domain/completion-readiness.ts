@@ -56,10 +56,35 @@ export interface CompletionBlocker {
   readonly gate: string;
   readonly next: CompletionNext;
 }
+type ReviewDispatchFailure = {
+  readonly dispatchId?: string;
+  readonly code?: string;
+  readonly reason: string;
+};
+
+export function reviewDispatchCommand(taskId: string, executionId?: string): string {
+  return `ha task dispatch-review ${taskId}${executionId === undefined ? "" : ` --execution-id ${executionId}`}`;
+}
+
+export function reviewDispatchFailureGuidance(
+  taskId: string,
+  failure: ReviewDispatchFailure,
+  executionId?: string,
+): Pick<CompletionNext, "action" | "reason"> {
+  const label = failure.dispatchId
+      ? `Latest review dispatch ${failure.dispatchId} failed`
+      : "Latest review dispatch failed",
+    code = failure.code ? ` (${failure.code})` : "",
+    action = reviewDispatchCommand(taskId, executionId);
+  return { action, reason: `${label}${code}: ${failure.reason}.` };
+}
+
 export interface CompletionReadinessContext {
   readonly actor?: ActorAxes;
   /** Active reviewer attempts for this exact submitted cut, read from the dispatch projection. */
   readonly activeReviewDispatchIds?: readonly string[];
+  /** Latest failed or exhausted review dispatch for this cut when no active reviewer or verdict exists. */
+  readonly latestReviewDispatchFailure?: ReviewDispatchFailure | null;
   /** `missing`: the task contract declares no closeout document (an older contract generation). */
   readonly closeout: "ready" | "missing";
   readonly closeoutPath: string;
@@ -406,18 +431,23 @@ function evaluateCompletion(
         `The reviewer is already dispatched for this submitted cut (${context.activeReviewDispatchIds.join(", ")}); ` +
           "inspect its progress and wait for its verdict.",
       );
+    const reviewFailure = context.latestReviewDispatchFailure;
+    if (reviewFailure) {
+      const { action, reason } = reviewDispatchFailureGuidance(task.taskId, reviewFailure);
+      return one("review_pending", "review", action, `${reason} Re-dispatch with ${action}.`);
+    }
     if (route.kind === "re-review")
       return one(
         "review_pending",
         "review",
-        `ha task dispatch-review ${task.taskId}`,
+        reviewDispatchCommand(task.taskId),
         `The cut waits on a scoped re-review of ${route.pending.map((item) => `${item.reviewId}/${item.finding.findingId}`).join(", ")} ` +
           `against the diff since ${route.sinceCommit ?? "the previous review"}; wait for the dispatched reviewer's verdict or dispatch one.`,
       );
     return one(
       "review_pending",
       "review",
-      `ha task dispatch-review ${task.taskId}`,
+      reviewDispatchCommand(task.taskId),
       "The submitted cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
     );
   }
@@ -442,7 +472,7 @@ function evaluateCompletion(
       "review",
       effectiveReviews.length
         ? `ha task rework ${task.taskId} --reason <why the owner is returning this cut>`
-        : `ha task dispatch-review ${task.taskId}`,
+        : reviewDispatchCommand(task.taskId),
       "The current review verdict does not approve this cut; the owner can return it to implementation.",
     );
   }

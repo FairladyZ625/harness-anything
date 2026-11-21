@@ -78,6 +78,8 @@ export {
   taskCompletionNext,
   taskCompletionAction,
   completionGuidance,
+  reviewDispatchCommand,
+  reviewDispatchFailureGuidance,
   type CompletionReadinessContext,
 } from "./domain/completion-readiness.ts";
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";

@@ -6,10 +6,10 @@ import {
   reduceDispatchLifecycle,
   type AgentRuntimeEventV1,
   type DispatchLifecycleGroup,
-  type DispatchLifecycleQuery,
   type DispatchLifecycleRead,
   type DispatchLifecycleView,
   type TaskEventV1,
+  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import {
   dispatchLifecycleTaskId,
@@ -49,12 +49,12 @@ export function lifecycleReadFor(
   }[],
 ) {
   const views = lifecycleFixtureViews(entries);
-  return async (query: DispatchLifecycleQuery): Promise<DispatchLifecycleRead> => selectLifecycleViews(views, query);
+  return async (query: LifecycleFixtureQuery): Promise<DispatchLifecycleRead> => selectLifecycleViews(views, query);
 }
 
 export function lifecycleReadForSync(entries: Parameters<typeof lifecycleReadFor>[0]) {
   const views = lifecycleFixtureViews(entries);
-  return (query: DispatchLifecycleQuery) => selectLifecycleViews(views, query);
+  return (query: LifecycleFixtureQuery) => selectLifecycleViews(views, query);
 }
 
 function lifecycleFixtureViews(entries: Parameters<typeof lifecycleReadFor>[0]): DispatchLifecycleView[] {
@@ -130,14 +130,16 @@ function lifecycleFixtureViews(entries: Parameters<typeof lifecycleReadFor>[0]):
   });
 }
 
+type LifecycleFixtureQuery = Parameters<TaskProjectionQueries["readDispatchLifecycle"]>[0];
+
 function selectLifecycleViews(
   views: readonly DispatchLifecycleView[],
-  query: DispatchLifecycleQuery,
+  query: LifecycleFixtureQuery,
 ): DispatchLifecycleRead {
   let rows: readonly DispatchLifecycleView[];
   if (query.by === "session") rows = views.filter(({ attempt }) => attempt.runtimeSessionId === query.runtimeSessionId);
-  else if (query.by === "dispatch") {
-    if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+  else if (query.by === "dispatch" || query.by === "dispatch-batch") {
+    if (query.by === "dispatch" && query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
       throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
     rows = views.filter(({ attempt }) => query.dispatchIds.includes(attempt.dispatchId));
   } else if (query.by === "group") rows = views.filter(({ attemptGroupId }) => attemptGroupId === query.attemptGroupId);
@@ -158,7 +160,7 @@ export function lifecycleSummaryFor(entry: Parameters<typeof lifecycleReadFor>[0
 
 /** A test read port over accepted runtime and task events: the same kernel fold the projections run. */
 export function dispatchLifecycleReadOf(events: () => readonly (AgentRuntimeEventV1 | TaskEventV1)[]) {
-  return (query: DispatchLifecycleQuery): DispatchLifecycleRead => {
+  return (query: LifecycleFixtureQuery): DispatchLifecycleRead => {
     const groups = new Map<string, DispatchLifecycleGroup>(),
       bySession = new Map<string, { readonly groupId: string; readonly dispatchId: string }>(),
       leases = new Map<string, DispatchTaskLease>();
@@ -235,9 +237,9 @@ export function dispatchLifecycleReadOf(events: () => readonly (AgentRuntimeEven
               ? []
               : [dispatchLifecycleView(group, address.dispatchId)];
           })()
-        : query.by === "dispatch"
+        : query.by === "dispatch" || query.by === "dispatch-batch"
           ? (() => {
-              if (query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
+              if (query.by === "dispatch" && query.dispatchIds.length > DISPATCH_LIFECYCLE_PAGE_LIMIT)
                 throw new Error(`dispatch lifecycle point reads accept at most ${DISPATCH_LIFECYCLE_PAGE_LIMIT} ids`);
               return [...groups.values()].flatMap((group) =>
                 group.attempts

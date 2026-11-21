@@ -9,7 +9,6 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
-  archiveDispatchStream,
   readDispatchStream,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
@@ -17,6 +16,7 @@ import {
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
+import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { listLocalSkillSnapshotSessionIds, reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
 import { createActiveRuntime, attachActiveRuntime, isRuntimeProcessProvenStopped } from "./runtime-spawn-active.ts";
@@ -277,7 +277,7 @@ async function restoreRuntime(
   if (header.fallbackAttempt) await context.reconcileFallback(header.dispatchId);
   if (lifecycle.policy.attemptSettled) {
     if (streamSummary && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
-      archiveDispatchStream(context.input.rootDir, header.dispatchId);
+      await releaseFallbackResources(context, lifecycle, header.role, header.cwd);
     removeRuntimeCallbackRelay(header.dispatchId);
     return true;
   }

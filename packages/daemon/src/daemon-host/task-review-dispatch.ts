@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createEntityStore } from "@harness-anything/storage";
+import { recordedReviewFailureForCut } from "@harness-anything/application/queries";
 import {
   reviewDispatchFailureWarning,
   completionGateIds,
@@ -28,8 +29,8 @@ import { decisionLifecycleProtocolCommands } from "./protocol/daemon-protocol-co
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { reviewDispatchKey } from "./review-dispatch-key.ts";
-import { activeCutReviewDispatches, reviewAttemptEnded } from "./review-dispatch-state.ts";
+import { reviewDispatchKey, reviewResumeFallbackDispatchKey } from "./review-dispatch-key.ts";
+import { activeCutReviewDispatches, reviewDispatchGroupSettled } from "./review-dispatch-state.ts";
 
 export { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
@@ -281,7 +282,7 @@ export async function dispatchDecisionReview(
     return (
       target?.kind === "decision" &&
       target.decisionId === decisionId &&
-      !reviewAttemptEnded(cell, event.payload.runtimeSessionId) &&
+      !reviewDispatchGroupSettled(cell, event.payload) &&
       !reviewRecorded(target.digest, event.payload.runtimeSessionId)
     );
   });
@@ -297,7 +298,7 @@ export async function dispatchDecisionReview(
     existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   while (
     existing !== null &&
-    reviewAttemptEnded(cell, ids.runtimeSessionId) &&
+    reviewDispatchGroupSettled(cell, existing.payload) &&
     !reviewRecorded(digest, ids.runtimeSessionId)
   ) {
     attempt += 1;
@@ -377,7 +378,9 @@ export async function dispatchDecisionReview(
     });
   if (authorizationDecision.outcome !== "allowed")
     throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, null, false, {
+    trustedDecisionReview: true,
+  });
   // The spawner resolved the concrete instance; read it from the dispatch event this spawn just
   // applied so the receipt names the agent and instance that will run the review.
   const dispatched = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event,
@@ -436,7 +439,7 @@ function completedReviewerDispatchesForTask(
         typeof payload.dispatchKey === "string" &&
         (payload.dispatchKey.startsWith(seatPrefix) || payload.dispatchKey.startsWith(lanePrefix)) &&
         payload.dispatchKey !== input.dispatchKey &&
-        reviewAttemptEnded(cell, payload.runtimeSessionId)
+        reviewDispatchGroupSettled(cell, payload)
       );
     })
     .sort((left, right) => String(right.payload.startedAt ?? "").localeCompare(String(left.payload.startedAt ?? "")));
@@ -870,7 +873,7 @@ export async function spawnCutReviewDispatch(
           review.executionId === input.execution.executionId &&
           review.submissionDigest === submissionDigest(submission),
       );
-    if (cutReviewed || !reviewAttemptEnded(cell, existing.payload.runtimeSessionId))
+    if (cutReviewed || !reviewDispatchGroupSettled(cell, existing.payload))
       return {
         outcome: "already_dispatched",
         ids: {
@@ -1070,7 +1073,7 @@ export async function spawnCutReviewDispatch(
     await prepareAndLaunch(payload);
   } catch (error) {
     if (continuation?.resume && runtimeErrorCode(error) === "runtime_resume_failed") {
-      const fallbackKey = `${key}:resume-fallback`,
+      const fallbackKey = reviewResumeFallbackDispatchKey(key),
         fallbackIds = reviewDispatchIds(cell.input.repoId, fallbackKey),
         fallbackPayload = {
           ...payload,
@@ -1104,17 +1107,25 @@ export async function spawnCutReviewDispatch(
   return { outcome: alreadyDispatched ? "already_dispatched" : "dispatched", ids };
 }
 
+function readReviewAttemptDispatch(cell: RepoCellOperationalContext, key: string) {
+  return (
+    cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ??
+    cell.projection.readRuntimeDispatchByDispatchKey(reviewResumeFallbackDispatchKey(key))?.event ??
+    null
+  );
+}
+
 /** The idempotent attempt chain of one review cut: advance only after the prior session ended. */
 function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string) {
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
-    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
-  while (existing !== null && reviewAttemptEnded(cell, existing.payload.runtimeSessionId)) {
+    existing = readReviewAttemptDispatch(cell, key);
+  while (existing !== null && reviewDispatchGroupSettled(cell, existing.payload)) {
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
     ids = reviewDispatchIds(cell.input.repoId, key);
-    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+    existing = readReviewAttemptDispatch(cell, key);
   }
   return {
     key,
@@ -1198,10 +1209,7 @@ export async function dispatchInReviewCutReview(
     };
   const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
   if (placement.kind === "node") {
-    const failure =
-      current.snapshot.task.reviewDispatchFailure?.executionId === execution.executionId
-        ? current.snapshot.task.reviewDispatchFailure
-        : undefined;
+    const failure = recordedReviewFailureForCut(current.snapshot.task.reviewDispatchFailure, execution);
     const step = {
       ...receipt,
       ...(failure ? { reviewDispatchFailure: failure } : {}),
@@ -1511,10 +1519,7 @@ export async function prepareTaskReviewDispatch(
         ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
         ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
       };
-      const failure =
-        snapshot.task?.reviewDispatchFailure?.executionId === execution.executionId
-          ? snapshot.task.reviewDispatchFailure
-          : undefined;
+      const failure = recordedReviewFailureForCut(snapshot.task?.reviewDispatchFailure, execution);
       steps.push({ ...target, kind: "node", nodeId: placement.nodeId, intent, failure });
       continue;
     }

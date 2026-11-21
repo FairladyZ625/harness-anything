@@ -689,7 +689,13 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
-    const { budgetRefusal, ...fallbackDisposition } = fallback ?? { fallbackState: null };
+    const {
+      budgetRefusal,
+      exhaustedReason: _exhaustedReason,
+      ...fallbackDisposition
+    } = fallback ?? {
+      fallbackState: null,
+    };
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -842,7 +848,7 @@ async function publishTerminalOutcome(
       reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
     });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-    if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
+    await releaseFallbackResources(context, lifecycle, active.role, active.cwd, archiveAllowed);
     const onExitCommand = active.onExitCommand;
     if (typeof onExitCommand === "string")
       setImmediate(() =>

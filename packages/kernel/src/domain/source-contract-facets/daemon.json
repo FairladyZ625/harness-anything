@@ -1242,7 +1242,7 @@
         "explain": "Review dispatch routing adapter verifying target Agent existence, active status, and non-squad reviewer target kind.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/review-dispatch-admission.ts#assertReviewerTarget:5312efcd7192a933cf27c553f28e5a53",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/review-dispatch-admission.ts#assertReviewerTarget:e0fd58bf4faefde149ae7b02d66be63d",
             "route": "packages/daemon/src/daemon-host/review-dispatch-admission.ts#assertReviewerTarget"
           }
         ],

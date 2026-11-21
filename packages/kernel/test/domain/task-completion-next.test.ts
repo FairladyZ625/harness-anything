@@ -45,6 +45,30 @@ test("completion observes an already dispatched reviewer and preserves dispatch 
     taskCompletionNext(submitted, { ...context, activeReviewDispatchIds: [] }).next?.action,
     "ha task dispatch-review task-1",
   );
+  const exhausted = taskCompletionNext(submitted, {
+    ...context,
+    activeReviewDispatchIds: [],
+    latestReviewDispatchFailure: {
+      dispatchId: "dispatch_deadbeef",
+      code: "provider_quota",
+      reason: "Provider fallback exhausted after 2 attempt(s): HTTP 429 capacity exhausted",
+    },
+  });
+  assert.equal(exhausted.blocker?.code, "review_pending");
+  assert.equal(exhausted.next?.action, "ha task dispatch-review task-1");
+  assert.match(exhausted.next?.reason ?? "", /dispatch_deadbeef/u);
+  assert.match(exhausted.next?.reason ?? "", /HTTP 429 capacity exhausted/u);
+  assert.match(exhausted.next?.reason ?? "", /ha task dispatch-review task-1/u);
+  // Active review dispatches still take precedence over any historical failure.
+  const activeRetry = taskCompletionNext(submitted, {
+    ...context,
+    activeReviewDispatchIds: ["dispatch_retry_live"],
+    latestReviewDispatchFailure: {
+      dispatchId: "dispatch_deadbeef",
+      reason: "previous failure",
+    },
+  });
+  assert.equal(activeRetry.next?.action, "ha task dispatches task-1");
 });
 
 // A task whose work already happened outside Harness has no execution to submit: the blocker

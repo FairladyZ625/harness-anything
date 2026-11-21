@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
+import { reviewDispatchKey } from "@harness-anything/application/queries";
+import type { ExecutionV1 } from "@harness-anything/kernel";
 
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import {
@@ -198,9 +200,11 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ).outcome,
       "applied",
     );
+    const shown = await cell.run({ kind: "task-show", taskId: "task_review" }, binding);
+    const { executions } = JSON.parse(String(shown.evidence)) as { executions: ExecutionV1[] };
     const reviewFailure = {
       executionId: "exe_review",
-      dispatchKey: "review:agenda:failed",
+      dispatchKey: reviewDispatchKey("task_review", executions[0]!),
       code: "protocol_version_unsupported",
       message: "Node edge-one build aaaa differs from center bbbb; run git pull --ff-only, then build CLI and daemon.",
       failedAt: "2026-11-17T00:00:00.000Z",
