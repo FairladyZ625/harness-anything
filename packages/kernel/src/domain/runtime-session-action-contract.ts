@@ -260,15 +260,13 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
-    const reduced = reduceRuntimeSession(current, event);
-    noChanges =
-      isRuntimeControlCarrierEvent(event) ||
-      ((event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
-        current === null &&
-        typeof input.action.dispatchId === "string" &&
-        input.action.dispatchId.length > 0)
-        ? false
-        : reduced === current;
+    const preSessionTerminal =
+      (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+      current === null &&
+      typeof input.action.dispatchId === "string" &&
+      input.action.dispatchId.length > 0;
+    const reduced = preSessionTerminal ? null : reduceRuntimeSession(current, event);
+    noChanges = isRuntimeControlCarrierEvent(event) || preSessionTerminal ? false : reduced === current;
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);
