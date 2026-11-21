@@ -764,8 +764,9 @@ test("the shared provider stub fixture forwards probe argv on every platform", a
     });
     const calls = JSON.parse(readFileSync(witness, "utf8")) as string[][];
     assert.deepEqual(calls[2], ["login", "status"]);
-    assert.equal(calls[3]?.[0], "exec");
-    assert.ok(calls[3]?.includes("argv-model"));
+    assert.deepEqual(calls[3], ["app-server"]);
+    assert.equal(calls[4]?.[0], "exec");
+    assert.ok(calls[4]?.includes("argv-model"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

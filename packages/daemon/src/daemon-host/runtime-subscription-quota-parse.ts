@@ -42,13 +42,19 @@ export function resolveCodexUsageUrl(rawBaseUrl: string | null): string | null {
   return `${parsed.origin}${cleanPath}/wham/usage`;
 }
 
+export interface ParseAgyQuotaOptions {
+  readonly expectedCommand?: "usage" | "quota";
+}
+
 /**
- * Parses both `agy -p /quota --output-format json` (`command.data.groups[].buckets[]`)
- * and `>=1.2.2` `/usage --output-format json` (`data.groups[].buckets[]` or `groups[].buckets[]`).
+ * Parses both `agy -p /usage --output-format json` (`>=1.2.2` `command.name === "usage"` with
+ * flat or nested `remaining.remaining_fraction`, plus `data.groups[]` / bare `groups[]`)
+ * and legacy `agy -p /quota --output-format json` (`command.data.groups[].buckets[]`).
  */
 export function parseAgyQuotaResponse(
   output: string,
   observedAt = new Date().toISOString(),
+  options: ParseAgyQuotaOptions = {},
 ): RuntimeSubscriptionQuotaV1 {
   let parsed: unknown;
   try {
@@ -57,7 +63,9 @@ export function parseAgyQuotaResponse(
     throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response is not valid JSON.");
   }
   const root = requireRecord(parsed, "AGY quota response");
-  const data = agyQuotaDataRecord(root);
+  if (root.ok === false || (root.error !== undefined && root.error !== null))
+    throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response reported a command failure.");
+  const data = agyQuotaDataRecord(root, options.expectedCommand);
   if (!Array.isArray(data.groups) || data.groups.length === 0)
     throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response has no groups array.");
   const windows: RuntimeQuotaWindowV1[] = [];
@@ -70,17 +78,19 @@ export function parseAgyQuotaResponse(
       sanitizeQuotaText(group.display_name, maxWindowLabelLength) ??
       sanitizeQuotaText(group.name, maxWindowLabelLength) ??
       sanitizeQuotaText(group.group_id, maxWindowLabelLength);
+    const groupModels = sanitizeQuotaModelList(group.models ?? group.model_ids);
     for (let bucketIndex = 0; bucketIndex < group.buckets.length; bucketIndex += 1) {
       if (windows.length >= maxWindowCount) break;
       const bucket = requireRecord(group.buckets[bucketIndex], "AGY quota bucket");
       if (bucket.disabled === true) continue;
-      const fraction = agyBucketRemainingFraction(bucket);
-      if (fraction === null)
+      const fractionState = agyBucketRemainingFraction(bucket);
+      if (fractionState.kind === "invalid")
         throw runtimeInstanceError(
           "runtime_quota_response_invalid",
-          "AGY quota bucket has no numeric remaining_fraction.",
+          "AGY quota bucket has a non-numeric remaining_fraction.",
         );
-      const remainingFraction = unroundedRemainingFraction(fraction);
+      if (fractionState.kind === "missing") continue;
+      const remainingFraction = unroundedRemainingFraction(fractionState.value);
       const fallbackId = `bucket-${groupIndex + 1}-${bucketIndex + 1}`;
       const rawId =
         sanitizeQuotaId(bucket.bucket_id) ??
@@ -96,18 +106,25 @@ export function parseAgyQuotaResponse(
         bucketLabel && groupLabel && bucketLabel.toLowerCase() !== groupLabel.toLowerCase()
           ? `${groupLabel} · ${bucketLabel}`.slice(0, maxWindowLabelLength).trim()
           : (bucketLabel ?? groupLabel ?? id);
-      const resetsAt = parseIsoTimestamp(bucket.reset_time ?? bucket.resets_at);
+      const remainingObj = isRecord(bucket.remaining) ? bucket.remaining : null;
+      const resetsAt = parseIsoTimestamp(
+        bucket.reset_time ?? bucket.resets_at ?? remainingObj?.reset_time ?? remainingObj?.resets_at,
+      );
+      const bucketModels = sanitizeQuotaModelList(bucket.models ?? bucket.model_ids) ?? groupModels;
       windows.push({
         id,
         label: combinedLabel,
         kind: inferWindowKind(id, combinedLabel, "bucket"),
         scope: "primary",
+        ...(bucketModels ? { models: bucketModels } : {}),
         remainingFraction,
         usedPercent: usedPercentFromRemaining(remainingFraction),
         resetsAt,
       });
     }
   }
+  if (windows.length === 0)
+    throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota response has no usable buckets.");
   const plan =
     sanitizeQuotaText(data.plan, maxPlanLength) ??
     sanitizeQuotaText(data.plan_name, maxPlanLength) ??
@@ -121,9 +138,36 @@ export function parseAgyQuotaResponse(
   };
 }
 
-function agyQuotaDataRecord(root: Record<string, unknown>): Record<string, unknown> {
+function agyQuotaDataRecord(
+  root: Record<string, unknown>,
+  expectedCommand?: "usage" | "quota",
+): Record<string, unknown> {
   if (root.command !== undefined) {
     const command = requireRecord(root.command, "AGY quota command response");
+    if (
+      command.ok === false ||
+      command.success === false ||
+      (typeof command.status === "string" && command.status.trim().toLowerCase() === "error") ||
+      (command.error !== undefined && command.error !== null)
+    ) {
+      throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota command envelope reported failure.");
+    }
+    if (expectedCommand !== undefined) {
+      const normalizedName =
+        typeof command.name === "string" ? command.name.trim().replace(/^\/+/u, "").toLowerCase() : null;
+      if (expectedCommand === "usage" && normalizedName !== "usage") {
+        throw runtimeInstanceError(
+          "runtime_quota_response_invalid",
+          "AGY /usage envelope did not report command usage.",
+        );
+      }
+      if (normalizedName !== null && normalizedName !== expectedCommand) {
+        throw runtimeInstanceError(
+          "runtime_quota_response_invalid",
+          "AGY command envelope name did not match request.",
+        );
+      }
+    }
     return requireRecord(command.data, "AGY quota command data");
   }
   if (root.data !== undefined) return requireRecord(root.data, "AGY quota data");
@@ -131,14 +175,51 @@ function agyQuotaDataRecord(root: Record<string, unknown>): Record<string, unkno
   throw runtimeInstanceError("runtime_quota_response_invalid", "AGY quota command response is invalid.");
 }
 
-function agyBucketRemainingFraction(bucket: Record<string, unknown>): number | null {
-  if (typeof bucket.remaining_fraction === "number" && Number.isFinite(bucket.remaining_fraction))
-    return bucket.remaining_fraction;
-  if (typeof bucket.remainingFraction === "number" && Number.isFinite(bucket.remainingFraction))
-    return bucket.remainingFraction;
-  if (typeof bucket.remaining_percent === "number" && Number.isFinite(bucket.remaining_percent))
-    return bucket.remaining_percent / 100;
-  return null;
+function agyBucketRemainingFraction(
+  bucket: Record<string, unknown>,
+): { readonly kind: "value"; readonly value: number } | { readonly kind: "missing" } | { readonly kind: "invalid" } {
+  const candidates: ReadonlyArray<readonly [unknown, number]> = [
+    [bucket.remaining_fraction, 1],
+    [bucket.remainingFraction, 1],
+    [bucket.remaining_percent, 100],
+  ];
+  for (const [raw, divisor] of candidates) {
+    if (raw === undefined || raw === null) continue;
+    if (typeof raw === "number" && Number.isFinite(raw)) return { kind: "value", value: raw / divisor };
+    return { kind: "invalid" };
+  }
+  if (bucket.remaining !== undefined && bucket.remaining !== null) {
+    if (!isRecord(bucket.remaining)) return { kind: "invalid" };
+    const nested: ReadonlyArray<readonly [unknown, number]> = [
+      [bucket.remaining.remaining_fraction, 1],
+      [bucket.remaining.remainingFraction, 1],
+      [bucket.remaining.fraction, 1],
+      [bucket.remaining.remaining_percent, 100],
+    ];
+    for (const [raw, divisor] of nested) {
+      if (raw === undefined || raw === null) continue;
+      if (typeof raw === "number" && Number.isFinite(raw)) return { kind: "value", value: raw / divisor };
+      return { kind: "invalid" };
+    }
+  }
+  return { kind: "missing" };
+}
+
+function sanitizeQuotaModelList(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const models: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (models.length >= maxWindowCount) break;
+    const raw = isRecord(entry) ? (entry.id ?? entry.model_id ?? entry.name) : entry;
+    const cleaned = sanitizeQuotaText(raw, 128);
+    if (cleaned === null) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    models.push(cleaned);
+  }
+  return models.length > 0 ? models : undefined;
 }
 
 export function parseCodexRateLimits(

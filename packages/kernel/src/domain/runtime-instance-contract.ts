@@ -124,8 +124,12 @@ export const runtimeInstanceAccountJudgments = [
     output: "{ window: RuntimeQuotaWindowV1; resetAt: string } | null",
     failureCodes: ["quota_exhausted"],
     explain:
-      "dec_DA1602487428A58E8B446ECE38/CH1: selects the latest future reset timestamp among exhausted blocking subscription quota windows to drive providerHealth cooldown without blocking healthy accounts or auxiliary-only exhaustion.",
-    consumers: ["packages/daemon/src/daemon-host/agent-runtime-instance-store.ts"],
+      "dec_DA1602487428A58E8B446ECE38/CH1: selects the effective future reset timestamp when applicable subscription quota windows are exhausted without blocking healthy accounts, inapplicable buckets, or mixed-model instances with remaining capacity.",
+    consumers: [
+      "packages/daemon/src/daemon-host/agent-runtime-instance-store.ts",
+      "packages/daemon/src/daemon-host/runtime-spawn-mission.ts",
+      "packages/gui/src/renderer/components/runtime/RuntimeQuotaPanel.tsx",
+    ],
     sources: [],
   },
 ] as const satisfies readonly OntologyJudgmentDeclaration[];
@@ -199,6 +203,7 @@ export const runtimeSubscriptionQuotaPolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.keychainReadTimeoutMs:b1bfba8c9c523b10bbb9185fdfd9345e",
     "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.credentialReadAttempts:81246ed60d1cf8f23b1ebeb4a9c73963",
     "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.credentialReadRetryDelayMs:cf49d065af3e487c044efb7455becd55",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-subscription-quota-probe.ts#readClaudeMacOsKeychainCredentials.lookup.userInteractionAllowed:d4f92b820b86ad1e748567f64c0a7f3c",
     "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-subscription-quota-probe.ts#readJsonFileReadOnly:c22f3094b5d2319b7f1265c430e53f65",
     "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-instance-store.ts#openRuntimeInstanceStore.authStatus.result:8ed210046ca5bd996ec03ac4ba76f907",
   ].map((candidateId) => ({ candidateId, route: "runtime-instance subscription quota" })),

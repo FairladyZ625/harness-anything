@@ -5,6 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { RuntimeInstanceSummary, RuntimeSubscriptionQuotaV1 } from "@harness-anything/daemon/protocol";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
+import { RuntimeQuotaCard, RuntimeQuotaRailBadge } from "../src/renderer/components/runtime/RuntimeQuotaPanel.tsx";
 import { ProviderRail } from "../src/renderer/components/runtime/RuntimeRail.tsx";
 import { runtimeInstanceClient } from "../src/renderer/runtime-instance-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -22,7 +23,7 @@ const sampleQuota: RuntimeSubscriptionQuotaV1 = {
       scope: "primary",
       remainingFraction: 0,
       usedPercent: 100,
-      resetsAt: "2026-11-21T15:00:00.000Z",
+      resetsAt: "2099-11-21T15:00:00.000Z",
     },
     {
       id: "seven_day",
@@ -31,7 +32,7 @@ const sampleQuota: RuntimeSubscriptionQuotaV1 = {
       scope: "primary",
       remainingFraction: 0.64,
       usedPercent: 36,
-      resetsAt: "2026-11-28T00:00:00.000Z",
+      resetsAt: "2099-11-28T00:00:00.000Z",
     },
   ],
   credits: { remaining: 75, limit: 100, unlimited: false },
@@ -190,5 +191,73 @@ describe("subscription quota rendering and IPC validation", () => {
       },
     });
     await expect(runtimeInstanceClient.show("claude-max")).rejects.toThrow(/invalid subscription quota/iu);
+  });
+
+  it("uses shared domain applicability so expired windows or inapplicable AGY Argon buckets do not mark a Gemini instance Exhausted", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const agyQuota: RuntimeSubscriptionQuotaV1 = {
+      schemaVersion: 1,
+      observedAt: "2026-11-21T10:00:00.000Z",
+      source: "agy-cli",
+      plan: "Pro",
+      windows: [
+        {
+          id: "gemini-weekly",
+          label: "Gemini",
+          kind: "weekly",
+          scope: "primary",
+          remainingFraction: 0.83,
+          usedPercent: 17,
+          resetsAt: "2026-11-28T00:00:00.000Z",
+        },
+        {
+          id: "argon-weekly",
+          label: "Argon",
+          kind: "weekly",
+          scope: "primary",
+          remainingFraction: 0,
+          usedPercent: 100,
+          resetsAt: "2026-11-28T00:00:00.000Z",
+        },
+      ],
+    };
+    await act(async () =>
+      root!.render(
+        createElement("div", null, [
+          createElement(RuntimeQuotaCard, {
+            key: "card",
+            quota: agyQuota,
+            models: ["gemini-4-hydrogen-low"],
+            now: "2026-11-21T12:00:00.000Z",
+          }),
+          createElement(RuntimeQuotaRailBadge, {
+            key: "badge",
+            quota: agyQuota,
+            models: ["gemini-4-hydrogen-low"],
+            now: "2026-11-21T12:00:00.000Z",
+          }),
+        ]),
+      ),
+    );
+    expect(container.querySelector('[data-testid="runtime-card-quota"]')?.textContent).not.toContain("Exhausted");
+    expect(container.querySelector('[data-testid="rail-runtime-quota"]')?.textContent).toContain("Gemini 83%");
+
+    // Expired reset time (past `now`) also clears the Exhausted badge.
+    const expiredQuota: RuntimeSubscriptionQuotaV1 = {
+      ...sampleQuota,
+      windows: [{ ...sampleQuota.windows[0]!, resetsAt: "2026-11-21T09:00:00.000Z" }],
+    };
+    await act(async () =>
+      root!.render(
+        createElement(RuntimeQuotaCard, {
+          quota: expiredQuota,
+          models: ["claude-opus-5-5"],
+          now: "2026-11-21T12:00:00.000Z",
+        }),
+      ),
+    );
+    expect(container.querySelector('[data-testid="runtime-card-quota"]')?.textContent).not.toContain("Exhausted");
   });
 });

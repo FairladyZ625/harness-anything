@@ -91,6 +91,8 @@ export interface AgentRuntimeInstanceDto extends AgentRuntimeInstanceCommonDto {
     readonly reason: string | null;
     readonly lastFailureAt: string | null;
     readonly lastResetAt: string | null;
+    readonly quotaExhaustedUntil?: string | null;
+    readonly quotaObservedAt?: string | null;
   };
 }
 export interface AgentRuntimeAssociationDto {

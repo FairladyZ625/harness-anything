@@ -21,6 +21,7 @@ import {
   type DispatchTerminalOutcome,
   type TrustedManagedCwdKind,
 } from "./dispatch-stream.ts";
+import { effectiveProviderBlockedUntil } from "../runtime-engine/runtime-provider-health.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type {
@@ -237,8 +238,8 @@ function fallbackAvailabilitySummary(
   return candidates
     .map((candidate) => {
       const row = health?.get(candidate.instance),
-        recovery = row?.frozen ? "manual解冻" : (row?.frozenUntil ?? row?.cooldownUntil ?? "unknown");
-      return `${candidate.instance}: ${row?.reason ?? "provider unavailable"}; recover at ${recovery}`;
+        recovery = row?.frozen ? "manual解冻" : (effectiveProviderBlockedUntil(row) ?? "unknown");
+      return `${candidate.instance}: ${row?.reason ?? (row?.quotaExhaustedUntil ? "quota_exhausted" : "provider unavailable")}; recover at ${recovery}`;
     })
     .join("; ");
 }
@@ -264,7 +265,7 @@ function nextFallbackCandidate(
   for (let index = fromIndex; index < candidates.length; index += 1) {
     const row = health?.get(candidates[index]!.instance);
     if (row?.frozen) continue;
-    const blockedUntil = row?.frozenUntil ?? row?.cooldownUntil,
+    const blockedUntil = effectiveProviderBlockedUntil(row),
       blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN;
     if (!Number.isFinite(blockedMs) || blockedMs <= observedAt) return { index, recoverAt: null };
     if (cooling === null || blockedMs < cooling.recoverAt!) cooling = { index, recoverAt: blockedMs };

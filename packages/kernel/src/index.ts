@@ -337,7 +337,7 @@ export {
 export {
   findExhaustedSubscriptionQuotaWindow,
   formatSubscriptionQuotaSummary,
-  hasPrimarySubscriptionQuotaWindow,
+  hasRecoveredSubscriptionQuota,
   validRuntimeSubscriptionQuota,
   type RuntimeQuotaCreditsV1,
   type RuntimeQuotaWindowKind,

@@ -6,7 +6,12 @@ import type {
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
-import { consumeKnownError, documentWorkspacePath, resolveHarnessLayout } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  documentWorkspacePath,
+  findExhaustedSubscriptionQuotaWindow,
+  resolveHarnessLayout,
+} from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import {
@@ -291,22 +296,27 @@ export function resolveRuntimeInstanceCandidates(input: {
     )
       continue;
     const model = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
+    const now = input.now ?? new Date().toISOString();
     const providerHealth = input.health?.find((row) => row.instanceId === instance.instanceId),
-      healthUntil = providerHealth?.frozen ? null : (providerHealth?.frozenUntil ?? providerHealth?.cooldownUntil),
+      healthUntil = providerHealth?.frozen ? null : effectiveProviderBlockedUntil(providerHealth),
       healthBlocked =
         providerHealth?.frozen === true ||
-        (healthUntil !== null &&
-          healthUntil !== undefined &&
-          Date.parse(healthUntil) > Date.parse(input.now ?? new Date().toISOString())),
+        (healthUntil !== null && healthUntil !== undefined && Date.parse(healthUntil) > Date.parse(now)),
+      modelQuotaBlocked =
+        !healthBlocked && instance.quota && model
+          ? findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [model] })
+          : null,
       reason = !instance.enabled
         ? "runtime_instance_disabled"
         : healthBlocked
-          ? `runtime_provider_unavailable (${providerHealth?.reason ?? "cooldown"}; recover at ${healthUntil})`
-          : !agentRuntimeModelMatches(instance.models, model ?? instance.defaultModel)
-            ? `agent_model_unavailable (${model})`
-            : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
-              ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
-              : undefined;
+          ? `runtime_provider_unavailable (${providerHealth?.reason ?? (providerHealth?.quotaExhaustedUntil ? "quota_exhausted" : "cooldown")}; recover at ${healthUntil})`
+          : modelQuotaBlocked
+            ? `runtime_provider_unavailable (quota_exhausted:${modelQuotaBlocked.window.id}; recover at ${modelQuotaBlocked.resetAt})`
+            : !agentRuntimeModelMatches(instance.models, model ?? instance.defaultModel)
+              ? `agent_model_unavailable (${model})`
+              : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
+                ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
+                : undefined;
     if (reason) unavailable.push(`${instance.kindId}/${instance.instanceId}: ${reason}`);
   }
   const detail = unavailable.length ? ` Candidates: ${unavailable.join("; ")}` : "";
@@ -374,12 +384,15 @@ export function resolveRuntimeInstanceCandidates(input: {
         instance.authReadiness.status === "ready" || instance.authReadiness.code === "runtime_auth_not_checked",
     )
     .filter((instance) => {
+      const now = input.now ?? new Date().toISOString();
       const health = input.health?.find((row) => row.instanceId === instance.instanceId),
-        blockedUntil = effectiveProviderBlockedUntil(health);
-      return !(
-        health?.frozen ||
-        (blockedUntil && Date.parse(blockedUntil) > Date.parse(input.now ?? new Date().toISOString()))
-      );
+        blockedUntil = effectiveProviderBlockedUntil(health),
+        targetModel = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model,
+        modelQuotaBlocked =
+          instance.quota !== undefined &&
+          targetModel !== undefined &&
+          findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [targetModel] }) !== null;
+      return !health?.frozen && (!blockedUntil || Date.parse(blockedUntil) <= Date.parse(now)) && !modelQuotaBlocked;
     });
   if (ready.length === 0)
     throw runtimeSpawnError(

@@ -911,6 +911,7 @@ process.exit(9);
       userRoot,
       env: { HOME: home, PATH: [path.dirname(executablePath), process.env.PATH].filter(Boolean).join(path.delimiter) },
       discover: () => [installation],
+      quotaFetch: async () => new Response(null, { status: 401 }),
     });
     store.create({
       schemaVersion: 2,

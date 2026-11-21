@@ -85,6 +85,12 @@ export function parseClientRpcResponse(method: string, result: JsonObject): Json
     return parseDaemonReadResponse(method, result) as unknown as JsonObject;
   return result;
 }
+function safeDiagnosticShape(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
+}
+
 function parseRuntimeInstanceRpcResponse(
   method: "daemon.runtimeInstance.list" | "daemon.runtimeInstance.show",
   result: JsonObject,
@@ -99,18 +105,23 @@ function parseRuntimeInstanceRpcResponse(
   if (method === "daemon.runtimeInstance.list" && !Array.isArray(result.instances))
     throw new DaemonProtocolContractError(
       "invalid_result",
-      validationError(method, "instances", result.instances, "must be an array"),
+      validationError(method, "instances", safeDiagnosticShape(result.instances), "must be an array"),
     );
   for (const [field, entry] of rows) {
     if (!isJsonObject(entry) || typeof entry.instanceId !== "string")
       throw new DaemonProtocolContractError(
         "invalid_result",
-        validationError(method, field, entry, "must be a runtime instance summary"),
+        validationError(method, field, safeDiagnosticShape(entry), "must be a runtime instance summary"),
       );
     if (entry.quota !== undefined && !validRuntimeSubscriptionQuota(entry.quota))
       throw new DaemonProtocolContractError(
         "invalid_result",
-        validationError(method, `${field}.quota`, entry.quota, "must be a valid RuntimeSubscriptionQuotaV1"),
+        validationError(
+          method,
+          `${field}.quota`,
+          safeDiagnosticShape(entry.quota),
+          "must be a valid RuntimeSubscriptionQuotaV1",
+        ),
       );
   }
   return result;

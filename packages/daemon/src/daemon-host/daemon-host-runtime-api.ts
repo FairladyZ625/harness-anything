@@ -739,7 +739,13 @@ export function createDaemonHostRuntimeApi(
                 "",
                 "NODE\tID\tNAME\tKIND\tMODEL\tENABLED\tHEALTH\tREASON\tRECOVER AT",
                 ...(instances as Record<string, unknown>[]).map((row) => {
-                  const health = row.providerHealth as Record<string, unknown>;
+                  const health = row.providerHealth as Record<string, unknown>,
+                    stringField = (value: unknown): string | null => (typeof value === "string" ? value : null),
+                    blockedUntil = effectiveProviderBlockedUntil({
+                      cooldownUntil: stringField(health.cooldownUntil),
+                      frozenUntil: stringField(health.frozenUntil),
+                      quotaExhaustedUntil: stringField(health.quotaExhaustedUntil),
+                    });
                   return [
                     health.nodeId,
                     row.instanceId,
@@ -747,12 +753,9 @@ export function createDaemonHostRuntimeApi(
                     row.kindId,
                     Array.isArray(row.models) ? row.models.join(",") : "",
                     row.enabled ? "enabled" : "disabled",
-                    health.frozen ? "frozen" : health.cooldownUntil ? "cooldown" : "ready",
-                    health.reason ?? "-",
-                    effectiveProviderBlockedUntil({
-                      cooldownUntil: typeof health.cooldownUntil === "string" ? health.cooldownUntil : null,
-                      frozenUntil: typeof health.frozenUntil === "string" ? health.frozenUntil : null,
-                    }) ?? "-",
+                    health.frozen ? "frozen" : blockedUntil ? "cooldown" : "ready",
+                    health.reason ?? (health.quotaExhaustedUntil ? "quota_exhausted" : "-"),
+                    blockedUntil ?? "-",
                   ].join("\t");
                 }),
               ]
@@ -813,19 +816,33 @@ export function createDaemonHostRuntimeApi(
         env = Object.fromEntries(
           Object.entries(command.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         ),
-        result = cell.terminal.spawnTrusted(
-          {
-            idempotencyKey: context.requiredText(payload.idempotencyKey, "idempotencyKey"),
-            name: `${command.name} · ${operation === "logout" ? "Sign out" : "Sign in"}`,
-            executablePath: command.executablePath,
-            args: command.args,
-            env,
-            cwd: command.cwd,
-            publicCwd: `runtime-instance:${command.instanceId}`,
-            profile: "runtime-auth",
+        idempotencyKey = context.requiredText(payload.idempotencyKey, "idempotencyKey");
+      let settled = false;
+      const result = cell.terminal.spawnTrusted(
+        {
+          idempotencyKey,
+          name: `${command.name} · ${operation === "logout" ? "Sign out" : "Sign in"}`,
+          executablePath: command.executablePath,
+          args: command.args,
+          env,
+          cwd: command.cwd,
+          publicCwd: `runtime-instance:${command.instanceId}`,
+          profile: "runtime-auth",
+          onExit: (exitCode) => {
+            settled = true;
+            context.instances.completeAuthSession(
+              command.instanceId,
+              idempotencyKey,
+              operation as "login" | "logout",
+              exitCode,
+            );
           },
-          { ...serverBinding, authorizationDecision },
-        ) as JsonObject;
+        },
+        { ...serverBinding, authorizationDecision },
+      ) as JsonObject;
+      if (!settled && result.state === "running") {
+        context.instances.beginAuthSession(command.instanceId, idempotencyKey);
+      }
       return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject };
     },
   };

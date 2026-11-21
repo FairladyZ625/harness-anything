@@ -68,6 +68,7 @@ type Session = {
   runtimeAuthController?: AbortController;
   runtimeAuthDeadline?: NodeJS.Timeout;
   runtimeAuthAbort?: () => void;
+  onExit?: (exitCode: number) => void;
   readonly subscribers: Map<string, Subscriber>;
 };
 type Subscriber = {
@@ -113,6 +114,7 @@ type SpawnLaunch = {
   readonly durability: LocalTerminalDurability;
   readonly warning: TerminalBackendWarningCode | null;
   readonly tmuxNamespace: string | null;
+  readonly onExit?: (exitCode: number) => void;
 };
 
 export interface TerminalHost {
@@ -135,6 +137,7 @@ export interface TrustedTerminalLaunch {
   readonly cwd: string;
   readonly publicCwd: string;
   readonly profile: "runtime-auth";
+  readonly onExit?: (exitCode: number) => void;
 }
 export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
   const sessions = new Map<string, Session>(),
@@ -302,6 +305,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         durability: "daemon-process",
         warning: null,
         tmuxNamespace: null,
+        ...(launch.onExit ? { onExit: launch.onExit } : {}),
       });
     },
     attach,
@@ -465,6 +469,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
       acceptedThrough: 0,
       frames: [],
       frameBytes: 0,
+      ...(launch.onExit ? { onExit: launch.onExit } : {}),
       subscribers: new Map(),
     };
     sessions.set(session.sessionId, session);
@@ -578,6 +583,9 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     session.status = "exited";
     session.attachable = false;
     session.exitCode = exitCode;
+    const onExit = session.onExit;
+    delete session.onExit;
+    onExit?.(exitCode);
     if (!session.exitPublished) {
       session.exitPublished = true;
       publishTerminalFrame(session, "exit", "", null);

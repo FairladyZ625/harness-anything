@@ -180,4 +180,127 @@ test("AGY quota parser rejects malformed /quota and /usage response shapes", () 
     invalidShape,
   );
   assert.throws(() => parseAgyQuotaResponse(JSON.stringify({ unexpected: true })), invalidShape);
+  assert.throws(
+    () =>
+      parseAgyQuotaResponse(
+        JSON.stringify({ ok: false, command: { name: "usage", ok: false, error: "not logged in" } }),
+        "2026-11-15T00:00:00.000Z",
+        { expectedCommand: "usage" },
+      ),
+    invalidShape,
+  );
+  assert.throws(
+    () =>
+      parseAgyQuotaResponse(
+        JSON.stringify({
+          command: { name: "other", data: { groups: [{ buckets: [{ remaining_fraction: 0.5 }] }] } },
+        }),
+        "2026-11-15T00:00:00.000Z",
+        { expectedCommand: "usage" },
+      ),
+    invalidShape,
+  );
+});
+
+test("AGY quota probe prefers /usage with nested remaining.remaining_fraction, skips null buckets, enforces non-interactive env, and avoids browser launch on expired login", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-agy-usage-")),
+    traceFile = path.join(root, "trace.jsonl"),
+    browserMarker = path.join(root, "browser-launched"),
+    resetAt = "2026-11-22T06:00:00.000Z";
+  writeFileSync(traceFile, "");
+  const agyUsage = writeProviderExecutable(
+    path.join(root, "agy-usage"),
+    `
+      const fs = require("node:fs");
+      const args = process.argv.slice(2);
+      fs.appendFileSync(${JSON.stringify(traceFile)}, JSON.stringify({
+        args,
+        ci: process.env.CI,
+        browser: process.env.BROWSER,
+        noBrowser: process.env.NO_BROWSER,
+        noAutoUpdate: process.env.AGY_CLI_DISABLE_AUTO_UPDATE,
+        noUpdateNotifier: process.env.NO_UPDATE_NOTIFIER,
+        ssh: Boolean(process.env.SSH_CONNECTION),
+      }) + "\\n");
+      if (process.env.EXPIRED_LOGIN === "1") {
+        // A real CLI would only attempt browser launch when BROWSER !== "false" and CI !== "1".
+        if (process.env.BROWSER !== "false" || process.env.CI !== "1" || process.env.NO_BROWSER !== "1") {
+          fs.writeFileSync(${JSON.stringify(browserMarker)}, "launched");
+        }
+        console.log(JSON.stringify({ ok: false, command: { name: args[1].slice(1), ok: false, error: "login expired" } }));
+        process.exit(1);
+      }
+      if (args[1] === "/usage") {
+        console.log(JSON.stringify({
+          ok: true,
+          command: {
+            name: "usage",
+            ok: true,
+            data: {
+              plan: "Pro",
+              groups: [
+                {
+                  group_id: "gemini",
+                  display_name: "Gemini",
+                  models: ["gemini-4-hydrogen-low"],
+                  buckets: [
+                    { bucket_id: "unmetered", display_name: "Unmetered", remaining: { remaining_fraction: null } },
+                    { bucket_id: "gemini-weekly", display_name: "Weekly", remaining: { remaining_fraction: 0.77, reset_time: ${JSON.stringify(resetAt)} } }
+                  ]
+                }
+              ]
+            }
+          }
+        }));
+        process.exit(0);
+      }
+      process.exit(2);
+    `,
+  );
+  try {
+    const probe = createRuntimeInstanceAccountProbe(process.platform);
+    const home = path.join(root, "home");
+    const quota = await probe.probeQuota({
+      kindId: "agy",
+      credentialSource: "instance",
+      executablePath: agyUsage,
+      env: { HOME: home },
+      now: () => "2026-11-21T10:00:00.000Z",
+    });
+    assert.ok(quota);
+    assert.equal(quota.plan, "Pro");
+    assert.equal(quota.windows.length, 1);
+    assert.equal(quota.windows[0]?.id, "gemini-weekly");
+    assert.equal(quota.windows[0]?.remainingFraction, 0.77);
+    assert.equal(quota.windows[0]?.resetsAt, resetAt);
+    assert.deepEqual(quota.windows[0]?.models, ["gemini-4-hydrogen-low"]);
+
+    const events = readFileSync(traceFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(events.length, 1, "/usage succeeded without falling back to /quota");
+    assert.deepEqual(events[0]?.args, ["-p", "/usage", "--output-format", "json"]);
+    assert.equal(events[0]?.ci, "1");
+    assert.equal(events[0]?.browser, "false");
+    assert.equal(events[0]?.noBrowser, "1");
+    assert.equal(events[0]?.noAutoUpdate, "1");
+    assert.equal(events[0]?.noUpdateNotifier, "1");
+    assert.equal(events[0]?.ssh, true);
+
+    // Expired login fails closed without launching a browser.
+    await assert.rejects(
+      probe.probeQuota({
+        kindId: "agy",
+        credentialSource: "instance",
+        executablePath: agyUsage,
+        env: { HOME: home, EXPIRED_LOGIN: "1" },
+        now: () => "2026-11-21T10:00:00.000Z",
+      }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_quota_probe_failed",
+    );
+    assert.throws(() => readFileSync(browserMarker, "utf8"), /ENOENT/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

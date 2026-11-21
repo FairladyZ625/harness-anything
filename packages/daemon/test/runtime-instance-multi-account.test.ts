@@ -254,6 +254,7 @@ test("AGY login, catalog and quota probes, and launch use the same bound install
       executions.map(({ installationId, args }) => [installationId, args]),
       [
         [second.installationId, ["models"]],
+        [second.installationId, ["-p", "/usage", "--output-format", "json"]],
         [second.installationId, ["-p", "/quota", "--output-format", "json"]],
         [second.installationId, ["models"]],
       ],
@@ -557,9 +558,9 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
     assert.ok(ultra.availableModels?.every((model) => model.includes("carbon")));
     assert.ok(pro.availableModels?.every((model) => model.includes("hydrogen")));
     assert.equal(store.runtimeProviderHealth, ports.runtimeProviderHealth);
-    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").cooldownUntil, resetAt);
-    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").reason, "quota_exhausted");
-    assert.equal(ports.runtimeProviderHealth.get("agy-pro").cooldownUntil, null);
+    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").quotaExhaustedUntil, resetAt);
+    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").cooldownUntil, null);
+    assert.equal(ports.runtimeProviderHealth.get("agy-pro").quotaExhaustedUntil, null);
 
     store.command({
       kind: "runtime-instance-create",
@@ -614,15 +615,20 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
             readonly sshConnection: string | null;
           },
       );
-    assert.equal(traceRows.length, 5);
+    assert.equal(traceRows.length, 7);
     assert.deepEqual(
       traceRows.map(({ home }) => home).sort(),
-      ["agy-ultra", "agy-ultra", "agy-pro", "agy-pro", "agy-pro"]
+      ["agy-ultra", "agy-ultra", "agy-ultra", "agy-pro", "agy-pro", "agy-pro", "agy-pro"]
         .map((instanceId) => path.join(userRoot, "runtime-instances", instanceId, "home"))
         .sort(),
     );
     for (const { args, sshConnection } of traceRows) {
-      assert.deepEqual(args, args[0] === "models" ? ["models"] : ["-p", "/quota", "--output-format", "json"]);
+      assert.ok(
+        JSON.stringify(args) === JSON.stringify(["models"]) ||
+          JSON.stringify(args) === JSON.stringify(["-p", "/usage", "--output-format", "json"]) ||
+          JSON.stringify(args) === JSON.stringify(["-p", "/quota", "--output-format", "json"]),
+        JSON.stringify(args),
+      );
       assert.equal(sshConnection, "127.0.0.1 0 127.0.0.1 22");
     }
   } finally {

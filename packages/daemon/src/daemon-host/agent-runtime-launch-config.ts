@@ -525,6 +525,7 @@ export async function providerSubscriptionReadiness(
       readonly effort: string | null;
       readonly fast: boolean;
       readonly permissionMode: RuntimePermissionMode;
+      readonly skipLoginStatus?: boolean;
     };
   },
   platform: NodeJS.Platform,
@@ -582,11 +583,13 @@ export async function providerSubscriptionReadiness(
       }
       return jsonAuthStateReadiness(path.join(directory, probe.file), probe, hint);
     }
-    await runExecutable(platform, input.installation.executablePath, probe, {
-      env: input.env,
-      timeoutMs: declaration.auth.subscriptionProbeTimeoutMs,
-      captureOutput: false,
-    });
+    if (!input.codexProbe?.skipLoginStatus) {
+      await runExecutable(platform, input.installation.executablePath, probe, {
+        env: input.env,
+        timeoutMs: declaration.auth.subscriptionProbeTimeoutMs,
+        captureOutput: false,
+      });
+    }
     if (input.codexProbe && input.installation.kindId === "codex") {
       const prompt = "Reply with exactly READY. Do not use tools or inspect files.",
         args = codexProbeArgs(

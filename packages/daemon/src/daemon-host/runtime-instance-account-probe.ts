@@ -6,7 +6,11 @@ import { parseRuntimeModelCatalogOutput, runExecutable } from "./agent-runtime-i
 import type { RuntimeCredentialSource, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
 import { probeSessionModelCatalog } from "./runtime-account-model-catalog.ts";
-import { probeProviderSubscriptionQuota, type KeychainLookupRunner } from "./runtime-subscription-quota-probe.ts";
+import {
+  agyNonInteractiveProbeEnv,
+  probeProviderSubscriptionQuota,
+  type KeychainLookupRunner,
+} from "./runtime-subscription-quota-probe.ts";
 
 export interface RuntimeAccountModelCatalog {
   readonly models: readonly string[];
@@ -34,10 +38,12 @@ export function createRuntimeInstanceAccountProbe(
         if (probe === undefined) return null;
         if (probe.kind !== "command") return probeSessionModelCatalog(platform, input, probe.kind, signal, timeoutMs);
         if (input.kindId === "agy") agyAccountHome(input.env);
+        const commandEnv = input.kindId === "agy" ? agyNonInteractiveProbeEnv(input.env) : input.env;
         const output = await runExecutable(platform, input.executablePath, probe.args, {
-            env: input.env,
+            env: commandEnv,
             timeoutMs,
             captureOutput: true,
+            input: "",
             signal,
           }),
           models = parseRuntimeModelCatalogOutput(input.kindId, output);

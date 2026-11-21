@@ -23,7 +23,7 @@ import {
   findExhaustedSubscriptionQuotaWindow,
   findRuntimeOperatorSubscriptionConflict,
   formatSubscriptionQuotaSummary,
-  hasPrimarySubscriptionQuotaWindow,
+  hasRecoveredSubscriptionQuota,
   runtimeInstanceAccountCutMatches,
   type RuntimeInstanceAccountCut,
   type RuntimeSubscriptionQuotaV1,
@@ -113,7 +113,7 @@ import {
 } from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 import { appendAgyAccountDirectories, createRuntimeInstanceAccountProbe } from "./runtime-instance-account-probe.ts";
-import type { KeychainLookupRunner } from "./runtime-subscription-quota-probe.ts";
+import { subscriptionCredentialGeneration, type KeychainLookupRunner } from "./runtime-subscription-quota-probe.ts";
 import {
   openRuntimeProviderHealthStore,
   type RuntimeProviderHealthStore,
@@ -214,8 +214,9 @@ export function openRuntimeInstanceStore(input: {
     target = path.join(input.userRoot, "runtime-instances.json"),
     installationsTarget = path.join(input.userRoot, "runtime-installations.json"),
     instancesRoot = path.join(input.userRoot, "runtime-instances"),
-    readiness = new Map<string, RuntimeAuthReadiness>(),
+    readiness = new Map<string, RuntimeAuthReadiness | undefined>(),
     accountRevisions = new Map<string, number>(),
+    activeAuthSessions = new Map<string, readonly string[]>(),
     probeSequences = new Map<string, number>(),
     committedProbeSequences = new Map<string, number>();
   let cachedInstances: readonly RuntimeInstanceConfig[] | null = null,
@@ -272,12 +273,68 @@ export function openRuntimeInstanceStore(input: {
     probeSequences.set(instanceId, next);
     return next;
   }
-  function currentProbeCommit(cut: RuntimeInstanceAccountCut, probeSeq: number): RuntimeInstanceConfig {
+  function hasActiveAuthSession(instanceId: string): boolean {
+    return (activeAuthSessions.get(instanceId)?.length ?? 0) > 0;
+  }
+  function beginAuthSession(instanceId: string, sessionKey: string): void {
+    const id = runtimeInstanceId(instanceId);
+    const active = activeAuthSessions.get(id) ?? [];
+    if (!active.includes(sessionKey)) activeAuthSessions.set(id, [...active, sessionKey]);
+    bumpAccountRevision(id);
+    rememberAuthReadiness(
+      id,
+      unavailable("runtime_auth_in_progress", "Provider-native authentication is running in this instance terminal."),
+    );
+  }
+  function completeAuthSession(
+    instanceId: string,
+    sessionKey: string,
+    _action: "login" | "logout",
+    exitCode: number,
+  ): void {
+    const id = runtimeInstanceId(instanceId);
+    const active = activeAuthSessions.get(id);
+    if (active)
+      activeAuthSessions.set(
+        id,
+        active.filter((entry) => entry !== sessionKey),
+      );
+    bumpAccountRevision(id);
+    if (exitCode === 0) {
+      const current = readOne(id);
+      if (current && current.quota !== undefined) {
+        const cleared = runtimeInstanceConfig({ ...current, quota: undefined }, platform);
+        persist(read().map((entry) => (entry.instanceId === id ? cleared : entry)));
+      }
+      readiness.set(id, undefined);
+      providerHealth.clear(id);
+    } else if (readiness.get(id)?.code === "runtime_auth_in_progress" && !hasActiveAuthSession(id)) {
+      readiness.set(id, undefined);
+    }
+  }
+  function currentProbeCommit(
+    cut: RuntimeInstanceAccountCut,
+    probeSeq: number,
+    expectedCredentialGeneration?: string,
+  ): RuntimeInstanceConfig {
     const current = currentAccountForCut(cut);
+    if (hasActiveAuthSession(cut.instanceId))
+      throw runtimeInstanceError(
+        "runtime_instance_probe_stale",
+        `Runtime instance ${cut.instanceId} is running a provider-native authentication session.`,
+      );
     if ((committedProbeSequences.get(cut.instanceId) ?? 0) > probeSeq)
       throw runtimeInstanceError(
         "runtime_instance_probe_stale",
         `Runtime instance ${cut.instanceId} completed a newer account probe before this response arrived.`,
+      );
+    if (
+      expectedCredentialGeneration !== undefined &&
+      subscriptionCredentialGeneration(current.kindId, authEnvironment(current)) !== expectedCredentialGeneration
+    )
+      throw runtimeInstanceError(
+        "runtime_instance_probe_stale",
+        `Runtime instance ${cut.instanceId} credentials changed while its account probe was running.`,
       );
     return current;
   }
@@ -524,6 +581,10 @@ export function openRuntimeInstanceStore(input: {
       config = snapshot?.config ?? readOne(instanceId, witnessed);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    if (hasActiveAuthSession(config.instanceId))
+      return observed(
+        unavailable("runtime_auth_in_progress", "Provider-native authentication is running in this instance terminal."),
+      );
     const cut = accountCut(config),
       installation = witnessed.find(
         (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
@@ -559,94 +620,133 @@ export function openRuntimeInstanceStore(input: {
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
       const probeSeq = nextProbeSequence(config.instanceId),
+        startCredentialGen = subscriptionCredentialGeneration(config.kindId, env),
         probeTarget =
           !input.subscriptionReady && isAgyAccountConfig(config)
             ? await currentAccountProbeTarget(config, witnessed)
-            : undefined;
-      const codexProbe =
-        !input.subscriptionReady && config.kindId === "codex" && config.models.length > 0
-          ? {
+            : undefined,
+        quotaExecutablePath = probeTarget?.installation.executablePath ?? installation.executablePath,
+        quotaProbeInput = {
+          kindId: config.kindId,
+          credentialSource: config.credentialSource,
+          ...(quotaExecutablePath ? { executablePath: quotaExecutablePath } : {}),
+          env,
+          hasCustomProviderBaseUrl: runtimeBaseUrl(config) !== undefined,
+          signal: snapshot?.signal,
+          now: nowIso,
+          fetchImpl: quotaFetch,
+          ...(quotaKeychainLookup ? { runKeychainLookup: quotaKeychainLookup } : {}),
+          ...(resolveGithubToken ? { resolveGithubToken: () => resolveGithubToken(operatorEnvironment) } : {}),
+        };
+      const applyQuotaObservation = (
+        latest: RuntimeInstanceConfig,
+        quota: RuntimeSubscriptionQuotaV1,
+        allowRecoveryClear: boolean,
+      ): void => {
+        markProbeCommitted(latest.instanceId, probeSeq);
+        persistQuota(latest, quota, cut);
+        const observedNow = nowIso();
+        const exhausted = findExhaustedSubscriptionQuotaWindow(quota, observedNow, { models: latest.models });
+        if (exhausted) {
+          providerHealth.recordQuotaExhausted({
+            instanceId: latest.instanceId,
+            occurredAt: observedNow,
+            resetAt: exhausted.resetAt,
+          });
+        } else if (allowRecoveryClear && hasRecoveredSubscriptionQuota(quota, observedNow, { models: latest.models })) {
+          providerHealth.clearQuotaExhausted(latest.instanceId, observedNow);
+        }
+      };
+      let result: RuntimeSubscriptionProbeResult;
+      // Codex read-only path: check native `codex login status` first, then read-only quota
+      // (`app-server` RPC / `wham/usage` OAuth) WITHOUT triggering `codex exec` inference.
+      // Only fall back to `codex exec` when neither read-only endpoint answers (e.g. custom
+      // gateway, older CLI, or revoked refresh token requiring provider error diagnostics).
+      if (!input.subscriptionReady && config.kindId === "codex") {
+        const loginResult = await probeSubscription(
+          installation,
+          env,
+          config.isolationState,
+          undefined,
+          config,
+          witnessed,
+          true,
+          snapshot?.signal,
+        );
+        currentProbeCommit(cut, probeSeq, startCredentialGen);
+        if (loginResult.readiness.status !== "ready") {
+          result = loginResult;
+        } else {
+          let quota: RuntimeSubscriptionQuotaV1 | null = null;
+          try {
+            quota = await accountProbe.probeQuota(quotaProbeInput);
+          } catch (error) {
+            consumeKnownError(error);
+          }
+          const latestAfterQuota = currentProbeCommit(cut, probeSeq, startCredentialGen);
+          if (quota !== null) {
+            applyQuotaObservation(latestAfterQuota, quota, true);
+            result = { ...loginResult, readiness: available("provider") };
+          } else if (config.models.length === 0) {
+            result = loginResult;
+          } else {
+            const codexProbe = {
               config,
               cwd: path.join(instancesRoot, config.instanceId),
               model: selectRuntimeModel(config),
               effort: selectRuntimeEffort(config),
               fast: selectRuntimeFast(config),
               permissionMode: "read-only" as const,
-            }
-          : undefined;
-      if (codexProbe)
-        /* @gate-identity state-store/runtime-instance.store */ mkdirSync(codexProbe.cwd, {
-          recursive: true,
-          mode: 0o700,
-        });
-      const result = await (async () => {
-        const result = await probeSubscription(
+              skipLoginStatus: true,
+            };
+            /* @gate-identity state-store/runtime-instance.store */ mkdirSync(codexProbe.cwd, {
+              recursive: true,
+              mode: 0o700,
+            });
+            result = await probeSubscription(
+              installation,
+              env,
+              config.isolationState,
+              codexProbe,
+              config,
+              witnessed,
+              true,
+              snapshot?.signal,
+            );
+            currentProbeCommit(cut, probeSeq, startCredentialGen);
+          }
+        }
+      } else {
+        result = await probeSubscription(
           installation,
           env,
           config.isolationState,
-          codexProbe,
+          undefined,
           config,
           witnessed,
           true,
           snapshot?.signal,
         );
-        currentProbeCommit(cut, probeSeq);
+        currentProbeCommit(cut, probeSeq, startCredentialGen);
         if (result.modelCatalogReadiness || result.availableModels?.length) {
           markProbeCommitted(config.instanceId, probeSeq);
           persistAvailableModels(config, result.availableModels, cut);
         }
-        const canProbeQuota =
-          result.readiness.status === "ready" || result.readiness.code === "runtime_quota_unavailable";
-        if (!canProbeQuota) {
-          currentProbeCommit(cut, probeSeq);
-          return result;
-        }
-        if (!input.subscriptionReady) {
-          const quotaExecutablePath =
-            probeTarget?.installation.executablePath ??
-            (await currentAccountProbeTarget(config, witnessed).then(
-              (target) => target.installation.executablePath,
-              () => undefined,
-            ));
+        if (result.readiness.status === "ready" && !input.subscriptionReady) {
           let quota: RuntimeSubscriptionQuotaV1 | null = null;
           try {
-            quota = await accountProbe.probeQuota({
-              kindId: config.kindId,
-              credentialSource: config.credentialSource,
-              ...(quotaExecutablePath ? { executablePath: quotaExecutablePath } : {}),
-              env,
-              hasCustomProviderBaseUrl: runtimeBaseUrl(config) !== undefined,
-              signal: snapshot?.signal,
-              now: nowIso,
-              fetchImpl: quotaFetch,
-              ...(quotaKeychainLookup ? { runKeychainLookup: quotaKeychainLookup } : {}),
-              ...(resolveGithubToken ? { resolveGithubToken: () => resolveGithubToken(operatorEnvironment) } : {}),
-            });
+            quota = await accountProbe.probeQuota(quotaProbeInput);
           } catch (error) {
             consumeKnownError(error);
           }
-          const latest = currentProbeCommit(cut, probeSeq);
-          if (quota !== null) {
-            markProbeCommitted(latest.instanceId, probeSeq);
-            persistQuota(latest, quota, cut);
-            const observedNow = nowIso();
-            const exhausted = findExhaustedSubscriptionQuotaWindow(quota, observedNow, { models: latest.models });
-            if (exhausted)
-              providerHealth.recordQuotaExhausted({
-                instanceId: latest.instanceId,
-                occurredAt: observedNow,
-                resetAt: exhausted.resetAt,
-              });
-            else if (result.readiness.status === "ready" && hasPrimarySubscriptionQuotaWindow(quota, latest.models))
-              providerHealth.clearQuotaExhausted(latest.instanceId, observedNow);
-          }
+          const latest = currentProbeCommit(cut, probeSeq, startCredentialGen);
+          if (quota !== null) applyQuotaObservation(latest, quota, true);
         }
-        return result;
-      })();
+      }
       // The final readiness publication is also an account effect. Revalidate after every
       // asynchronous provider operation so a concurrent update/delete, same-instance re-login,
-      // or out-of-order probe cannot overwrite a newer account state.
-      const current = currentProbeCommit(cut, probeSeq);
+      // credential swap, or out-of-order probe cannot overwrite a newer account state.
+      const current = currentProbeCommit(cut, probeSeq, startCredentialGen);
       markProbeCommitted(current.instanceId, probeSeq);
       return observed(rememberAuthReadiness(current.instanceId, result.readiness), result);
     }
@@ -790,11 +890,6 @@ export function openRuntimeInstanceStore(input: {
         mode: 0o700,
       });
     bumpAccountRevision(config.instanceId);
-    clearAccountState(config);
-    if (config.quota !== undefined) {
-      const cleared = runtimeInstanceConfig({ ...config, quota: undefined }, platform);
-      persist(read().map((entry) => (entry.instanceId === config.instanceId ? cleared : entry)));
-    }
     rememberAuthReadiness(
       config.instanceId,
       unavailable("runtime_auth_in_progress", `Provider-native ${action} is running in this instance terminal.`),
@@ -1609,6 +1704,8 @@ export function openRuntimeInstanceStore(input: {
     authStatus,
     refreshAccount,
     prepareAuthCommand,
+    beginAuthSession,
+    completeAuthSession,
     prepareLaunch,
     prepareCloudRelay,
     reclaimRuntimeTempDirectory,

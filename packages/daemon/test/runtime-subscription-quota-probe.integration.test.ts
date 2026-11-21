@@ -164,8 +164,8 @@ test("AGY quota probe parses multi-group buckets, caches for O(1) list/show, coo
     assert.equal(quota.windows.length, 2);
     assert.equal(quota.windows[0]?.remainingFraction, 0);
     assert.equal(quota.windows[1]?.remainingFraction, 0.62);
-    assert.equal(health.get("agy-main").reason, "quota_exhausted");
-    assert.equal(health.get("agy-main").cooldownUntil, resetFuture);
+    assert.equal(health.get("agy-main").quotaExhaustedUntil, resetFuture);
+    assert.equal(health.get("agy-main").failureStreak, 0);
 
     // Non-probe list and show read cached quota in O(1) with ZERO subprocess calls.
     const traceBeforeRead = readFileSync(traceFile, "utf8");
@@ -182,8 +182,9 @@ test("AGY quota probe parses multi-group buckets, caches for O(1) list/show, coo
       clock = `2026-11-21T10:0${repeat + 1}:00.000Z`;
       await store.command({ kind: "runtime-instance-show", instanceId: "agy-main", probe: true });
     }
-    assert.equal(health.get("agy-main").failureStreak, 1);
+    assert.equal(health.get("agy-main").failureStreak, 0);
     assert.equal(health.get("agy-main").frozenUntil, null);
+    assert.equal(health.get("agy-main").quotaExhaustedUntil, resetFuture);
     assert.throws(
       () =>
         resolveRuntimeInstanceCandidates({
@@ -198,11 +199,11 @@ test("AGY quota probe parses multi-group buckets, caches for O(1) list/show, coo
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_model_not_ready",
     );
 
-    // When quota recovers > 0%, providerHealth cooldown clears cleanly and dispatch admits it again.
+    // When quota recovers > 0%, providerHealth quotaExhaustedUntil clears cleanly and dispatch admits it again.
     writeFileSync(modeFile, "healthy");
     clock = "2026-11-21T10:05:00.000Z";
     const recovered = await store.command({ kind: "runtime-instance-show", instanceId: "agy-main", probe: true });
-    assert.equal(health.get("agy-main").cooldownUntil, null);
+    assert.equal(health.get("agy-main").quotaExhaustedUntil, null);
     assert.equal(health.get("agy-main").failureStreak, 0);
     assert.equal(
       ((recovered.instance as Record<string, unknown>).quota as typeof quota).windows[0]?.remainingFraction,
@@ -218,16 +219,84 @@ test("AGY quota probe parses multi-group buckets, caches for O(1) list/show, coo
       runtimeKind: "agy",
     });
     assert.equal(candidates[0], "agy-main");
+
+    // Mixed-model AGY instance: exhausted Argon/unknown Imagen/Claude buckets never block Gemini dispatch,
+    // while Claude dispatch skips the instance when Claude/GPT is 0%.
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-mixed",
+      name: "AGY Mixed",
+      kindId: "agy",
+      installationId: "agy-install",
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low", "claude-opus-5-5"],
+      authMode: "subscription",
+      credentialSource: "instance",
+    });
+    const mixedWindow = (id: string, label: string, remainingFraction: number) => ({
+      id,
+      label,
+      kind: "weekly" as const,
+      scope: "primary" as const,
+      remainingFraction,
+      usedPercent: Math.round((1 - remainingFraction) * 1000) / 10,
+      resetsAt: "2026-11-28T00:00:00.000Z",
+    });
+    const mixedInstance = {
+      ...store.listPublic().find((entry) => entry.instanceId === "agy-mixed")!,
+      availableModels: ["gemini-4-hydrogen-low", "claude-opus-5-5"],
+      authReadiness: { status: "ready" as const, code: null, hint: null, basis: "provider" as const },
+      quota: {
+        schemaVersion: 1 as const,
+        observedAt: "2026-11-21T10:00:00.000Z",
+        source: "agy-cli",
+        plan: "Pro",
+        windows: [
+          mixedWindow("gemini-weekly", "Gemini · Weekly", 0.835),
+          mixedWindow("argon-weekly", "Argon · Weekly", 0),
+          mixedWindow("imagen-weekly", "Imagen · Weekly", 0),
+          mixedWindow("claude-weekly", "Claude/GPT · Weekly", 0),
+        ],
+      },
+    };
+    assert.deepEqual(
+      resolveRuntimeInstanceCandidates({
+        agent: null,
+        sessions: [],
+        allowedInstanceIds: ["agy-mixed"],
+        instances: [mixedInstance],
+        health: [],
+        now: "2026-11-21T12:00:00.000Z",
+        runtimeKind: "agy",
+        model: "gemini-4-hydrogen-low",
+      }),
+      ["agy-mixed"],
+    );
+    assert.throws(
+      () =>
+        resolveRuntimeInstanceCandidates({
+          agent: null,
+          sessions: [],
+          allowedInstanceIds: ["agy-mixed"],
+          instances: [mixedInstance],
+          health: [],
+          now: "2026-11-21T12:00:00.000Z",
+          runtimeKind: "agy",
+          model: "claude-opus-5-5",
+        }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_model_not_ready",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test("Codex probes quota via app-server RPC even when codex exec fails with runtime_quota_unavailable, and ignores auxiliary code_review exhaustion", async () => {
+test("Codex read-only quota probe via app-server RPC never invokes codex exec inference, keeps authReadiness ready, and auto-recovers after resetAt expiry", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-quota-codex-rpc-")),
     userRoot = path.join(root, "user"),
     bin = path.join(root, "bin"),
     modeFile = path.join(root, "mode.txt"),
+    execMarker = path.join(root, "exec-called"),
     resetPrimary = "2026-11-21T15:00:00.000Z",
     resetWeekly = "2026-11-28T00:00:00.000Z";
   mkdirSync(bin, { recursive: true });
@@ -244,12 +313,8 @@ test("Codex probes quota via app-server RPC even when codex exec fails with runt
         process.exit(0);
       }
       if (args[0] === "exec") {
-        if (mode === "exhausted") {
-          console.log(JSON.stringify({ type: "turn.failed", error: { status: 429, message: "usage limit reached" } }));
-          process.exit(1);
-        }
-        console.log(JSON.stringify({ type: "turn.completed" }));
-        process.exit(0);
+        fs.writeFileSync(${JSON.stringify(execMarker)}, "called");
+        process.exit(99);
       }
       if (args[0] === "app-server") {
         const rl = readline.createInterface({ input: process.stdin });
@@ -309,10 +374,15 @@ test("Codex probes quota via app-server RPC even when codex exec fails with runt
       isolationState: "operator-environment",
     });
 
-    // Even when `codex exec` fails with `runtime_quota_unavailable`, quota probe STILL runs and records resetAt.
+    // Explicit probe reads app-server quota WITHOUT invoking `codex exec` inference; authReadiness stays ready.
     const probed = await store.command({ kind: "runtime-instance-show", instanceId: "codex-rpc", probe: true });
     const probedInstance = probed.instance as Record<string, unknown>;
-    assert.equal((probedInstance.authReadiness as Record<string, unknown>).code, "runtime_quota_unavailable");
+    assert.deepEqual(probedInstance.authReadiness, { status: "ready", code: null, hint: null, basis: "provider" });
+    assert.throws(
+      () => readFileSync(execMarker, "utf8"),
+      /ENOENT/u,
+      "codex exec must never run for read-only quota probe",
+    );
     const quota = probedInstance.quota as {
       readonly source: string;
       readonly plan: string | null;
@@ -332,17 +402,42 @@ test("Codex probes quota via app-server RPC even when codex exec fails with runt
     assert.equal(quota.windows[2]?.id, "code-review");
     assert.equal(quota.windows[2]?.scope, "auxiliary");
     assert.equal(quota.credits?.remaining, 42.5);
-    assert.equal(health.get("codex-rpc").reason, "quota_exhausted");
-    // Only primary (resetPrimary) blocks, NOT auxiliary code-review (resetWeekly).
-    assert.equal(health.get("codex-rpc").cooldownUntil, resetPrimary);
+    assert.equal(health.get("codex-rpc").quotaExhaustedUntil, resetPrimary);
 
-    // When primary has 0.4% remaining (99.6% used) and auxiliary code_review is still 0%, account recovers!
+    // Excluded before resetPrimary, and AUTOMATICALLY re-admitted after resetPrimary expires without another probe!
+    assert.throws(
+      () =>
+        resolveRuntimeInstanceCandidates({
+          agent: null,
+          sessions: [],
+          allowedInstanceIds: ["codex-rpc"],
+          instances: store.listPublic(),
+          health: health.list(),
+          now: "2026-11-21T14:00:00.000Z",
+          runtimeKind: "codex",
+        }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_model_not_ready",
+    );
+    assert.deepEqual(
+      resolveRuntimeInstanceCandidates({
+        agent: null,
+        sessions: [],
+        allowedInstanceIds: ["codex-rpc"],
+        instances: store.listPublic(),
+        health: health.list(),
+        now: "2026-11-21T15:01:00.000Z",
+        runtimeKind: "codex",
+      }),
+      ["codex-rpc"],
+    );
+
+    // When primary has 0.4% remaining (99.6% used) and auxiliary code_review is still 0%, quota exhaustion clears!
     writeFileSync(modeFile, "tiny-positive");
     const recovered = await store.command({ kind: "runtime-instance-show", instanceId: "codex-rpc", probe: true });
     const recoveredQuota = (recovered.instance as Record<string, unknown>).quota as typeof quota;
     assert.equal(recoveredQuota.windows[0]?.remainingFraction, 0.004);
-    assert.equal(health.get("codex-rpc").cooldownUntil, null);
-    assert.equal(health.get("codex-rpc").failureStreak, 0);
+    assert.equal(health.get("codex-rpc").quotaExhaustedUntil, null);
+    assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -542,12 +637,17 @@ test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallb
         providerHealth: health,
         now: () => "2026-11-21T10:00:00.000Z",
         quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
-        quotaKeychainLookup: async (args) => {
+        quotaKeychainLookup: async (request) => {
           keychainCalls += 1;
-          if (keychainMode === "locked") return { exitCode: 36, stdout: "" };
-          if (!args.includes("-w")) return { exitCode: 0, stdout: "keychain: login.keychain-db\n" };
+          assert.equal(request.service, "Claude Code-credentials");
+          assert.equal(request.authenticationUI, "fail");
+          assert.equal(request.userInteractionAllowed, false);
+          if (keychainMode === "locked") {
+            // Simulates the exact macOS ACL case where item metadata exists, but secret read requires UI (-25308).
+            return { status: "interaction_not_allowed", osStatus: -25308 };
+          }
           const payload = JSON.stringify({ claudeAiOauth: { accessToken: keychainToken, subscriptionType: "pro" } });
-          return { exitCode: 0, stdout: Buffer.from(payload, "utf8").toString("hex") };
+          return { status: "ok", secret: Buffer.from(payload, "utf8").toString("hex") };
         },
       });
     store.command({
@@ -661,10 +761,8 @@ test("Copilot quota pins https://api.github.com, aligns account precedence, and 
       now: () => "2026-11-21T10:00:00.000Z",
       quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
     });
-    storeAmbiguous.command({
+    const copilotBase = {
       kind: "runtime-instance-create",
-      instanceId: "copilot-ambiguous",
-      name: "Copilot Ambiguous",
       kindId: "copilot",
       installationId: "copilot-install",
       providerId: "github",
@@ -672,13 +770,39 @@ test("Copilot quota pins https://api.github.com, aligns account precedence, and 
       authMode: "subscription",
       credentialSource: "operator",
       isolationState: "operator-environment",
-    });
+    };
+    storeAmbiguous.command({ ...copilotBase, instanceId: "copilot-ambiguous", name: "Copilot Ambiguous" });
     const ambiguous = await storeAmbiguous.command({
       kind: "runtime-instance-show",
       instanceId: "copilot-ambiguous",
       probe: true,
     });
     assert.equal((ambiguous.instance as Record<string, unknown>).quota, undefined);
+    assert.equal(requestedUrls.length, 0);
+
+    // 1b. Editor-only ~/.config/github-copilot/hosts.json is NEVER treated as CLI account credentials.
+    const editorOnlyHome = path.join(root, "editor-only-home");
+    mkdirSync(path.join(editorOnlyHome, ".config", "github-copilot"), { recursive: true, mode: 0o700 });
+    writeFileSync(
+      path.join(editorOnlyHome, ".config", "github-copilot", "hosts.json"),
+      JSON.stringify({ "github.com": { user: "ide-user", oauth_token: "gho_editor_only_token_999" } }),
+      { mode: 0o600 },
+    );
+    const storeEditorOnly = openRuntimeInstanceStore({
+      userRoot: path.join(userRoot, "editor-only"),
+      platform: "darwin",
+      env: { PATH: bin, HOME: editorOnlyHome },
+      discover: () => [witness("copilot", copilotBin, "1.0.0")],
+      now: () => "2026-11-21T10:00:00.000Z",
+      quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
+    });
+    storeEditorOnly.command({ ...copilotBase, instanceId: "copilot-editor-only", name: "Copilot Editor Only" });
+    const editorRes = await storeEditorOnly.command({
+      kind: "runtime-instance-show",
+      instanceId: "copilot-editor-only",
+      probe: true,
+    });
+    assert.equal((editorRes.instance as Record<string, unknown>).quota, undefined);
     assert.equal(requestedUrls.length, 0);
 
     // 2. Setting active user in ~/.copilot/config.json resolves exact matching account (bob -> userBToken).
@@ -713,24 +837,29 @@ test("Copilot quota pins https://api.github.com, aligns account precedence, and 
       now: () => "2026-11-21T10:00:00.000Z",
       quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
     });
-    storeEnv.command({
-      kind: "runtime-instance-create",
-      instanceId: "copilot-main",
-      name: "Copilot Main",
-      kindId: "copilot",
-      installationId: "copilot-install",
-      providerId: "github",
-      models: ["gpt-5"],
-      authMode: "subscription",
-      credentialSource: "operator",
-      isolationState: "operator-environment",
-    });
+    storeEnv.command({ ...copilotBase, instanceId: "copilot-main", name: "Copilot Main" });
     const probed = await storeEnv.command({ kind: "runtime-instance-show", instanceId: "copilot-main", probe: true });
     assert.equal(requestedUrls.at(-1), "https://api.github.com/copilot_internal/user");
     assert.equal(server.requests.at(-1)?.headers.authorization, `token ${copilotEnvToken}`);
-    assert.equal(health.get("copilot-main").reason, "quota_exhausted");
-    assert.equal(health.get("copilot-main").cooldownUntil, resetDate);
+    assert.equal(health.get("copilot-main").quotaExhaustedUntil, resetDate);
     assert.doesNotMatch(JSON.stringify(probed), new RegExp(`${copilotEnvToken}|${ghEnvToken}|${userBToken}`, "u"));
+
+    // 4. Conflicting credentials: empty GH_TOKEN="" + GITHUB_TOKEN="other" + launch resolver gh token
+    //    MUST align with launch (`applyGithubLaunchCredential` injects GH_TOKEN from resolver, winning over GITHUB_TOKEN).
+    const ghResolvedToken = "gho_launch_resolved_gh_token_555555555";
+    const otherGithubToken = "gho_conflicting_github_env_666666666";
+    const storeConflict = openRuntimeInstanceStore({
+      userRoot: path.join(userRoot, "conflict"),
+      platform: "darwin",
+      env: { PATH: bin, HOME: home, GH_TOKEN: "", GITHUB_TOKEN: otherGithubToken },
+      discover: () => [witness("copilot", copilotBin, "1.0.0")],
+      resolveGithubToken: async () => ghResolvedToken,
+      now: () => "2026-11-21T10:00:00.000Z",
+      quotaFetch: pinnedLoopbackFetch(server, requestedUrls),
+    });
+    storeConflict.command({ ...copilotBase, instanceId: "copilot-conflict", name: "Copilot Conflict" });
+    await storeConflict.command({ kind: "runtime-instance-show", instanceId: "copilot-conflict", probe: true });
+    assert.equal(server.requests.at(-1)?.headers.authorization, `token ${ghResolvedToken}`);
   } finally {
     await server.close();
     rmSync(root, { recursive: true, force: true });
@@ -757,8 +886,15 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     res.writeHead(200, { "content-type": "application/json" });
     res.end("{}");
   });
-  let serverMode: "redirect" | "error-leak" | "tainted-fields" | "credits-only" | "race-1" | "race-2" | "slow-relogin" =
-    "redirect";
+  let serverMode:
+    | "redirect"
+    | "error-leak"
+    | "tainted-fields"
+    | "credits-only"
+    | "zero-no-reset"
+    | "race-1"
+    | "race-2"
+    | "slow-relogin" = "redirect";
   let releaseFirst: (() => void) | null = null;
   let firstStarted: (() => void) | null = null;
   let firstStartedPromise = new Promise<void>((resolve) => {
@@ -790,6 +926,11 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     if (serverMode === "credits-only") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ extra_usage: { is_enabled: true, monthly_limit: 50, used_credits: 10 } }));
+      return;
+    }
+    if (serverMode === "zero-no-reset") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ five_hour: { utilization: 100, resets_at: null } }));
       return;
     }
     if (serverMode === "race-1") {
@@ -885,7 +1026,7 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       new RegExp(secretToken, "u"),
     );
 
-    // 4. Credits-only response NEVER clears an active quota_exhausted cooldown, and healthy probe NEVER clears manual freeze.
+    // 4. Credits-only and 0%-without-resetAt NEVER clear quota exhaustion, and healthy quota NEVER clears 503 or freeze.
     health.recordQuotaExhausted({
       instanceId: "claude-sec",
       occurredAt: "2026-11-21T10:00:00.000Z",
@@ -893,19 +1034,23 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     });
     serverMode = "credits-only";
     await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true });
-    assert.equal(health.get("claude-sec").reason, "quota_exhausted");
-    assert.equal(health.get("claude-sec").cooldownUntil, "2026-11-22T00:00:00.000Z");
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-22T00:00:00.000Z");
+
+    serverMode = "zero-no-reset";
+    await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true });
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, "2026-11-22T00:00:00.000Z");
 
     health.recordFailure({
       instanceId: "claude-sec",
-      reason: "manual freeze",
+      reason: "HTTP 503",
       occurredAt: "2026-11-21T10:00:00.000Z",
-      permanentFreeze: true,
+      cooldownBaseSeconds: 3600,
     });
     serverMode = "tainted-fields";
     await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec", probe: true });
-    assert.equal(health.get("claude-sec").frozen, true);
-    assert.equal(health.get("claude-sec").reason, "manual freeze");
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, null);
+    assert.equal(health.get("claude-sec").reason, "HTTP 503");
+    assert.equal(health.get("claude-sec").cooldownUntil, "2026-11-21T11:00:00.000Z");
     health.reset("claude-sec", "2026-11-21T10:01:00.000Z");
 
     // 5. Two concurrent probes finishing out of order: older probe (1) cannot overwrite newer probe (2).
@@ -923,43 +1068,70 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
       readonly quota?: { readonly windows: ReadonlyArray<{ readonly remainingFraction: number }> };
     };
     assert.equal(afterRace.quota?.windows[0]?.remainingFraction, 0.9);
-    assert.equal(health.get("claude-sec").cooldownUntil, null);
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, null);
 
-    // 6. Same-instance re-login clears persisted quota & health and invalidates in-flight probe.
-    health.recordQuotaExhausted({
+    // 6. Mid-login credential swap & settlement fencing:
+    //    - Cancelled login (exit 1) preserves existing health cooldown.
+    //    - Probe started AFTER prepareAuthCommand (while old creds are on disk) cannot commit after new creds land!
+    health.recordFailure({
       instanceId: "claude-sec",
+      reason: "HTTP 503",
       occurredAt: "2026-11-21T10:00:00.000Z",
-      resetAt: "2026-11-22T00:00:00.000Z",
+      cooldownBaseSeconds: 3600,
     });
+    store.prepareAuthCommand("claude-sec", "login");
+    store.beginAuthSession("claude-sec", "login-cancelled");
+    assert.equal((await store.authStatus("claude-sec")).code, "runtime_auth_in_progress");
+    store.completeAuthSession("claude-sec", "login-cancelled", "login", 1);
+    assert.equal(health.get("claude-sec").reason, "HTTP 503");
+    assert.equal(health.get("claude-sec").cooldownUntil, "2026-11-21T11:00:00.000Z");
+
+    // Probe started between prepareAuthCommand and credential swap is fenced by credential generation!
     firstStartedPromise = new Promise<void>((resolve) => {
       firstStarted = resolve;
     });
     serverMode = "slow-relogin";
-    const inflightBeforeLogin = store.authStatus("claude-sec");
-    await firstStartedPromise;
     store.prepareAuthCommand("claude-sec", "login");
-    // Persisted quota and cooldown are immediately cleared on re-login.
-    const duringLogin = (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" }))
-      .instance as Record<string, unknown>;
-    assert.equal(duringLogin.quota, undefined);
-    assert.equal(health.get("claude-sec").cooldownUntil, null);
+    const midLoginOldProbe = store.authStatus("claude-sec");
+    await firstStartedPromise;
+    // New account credentials land on disk before the slow old-account probe finishes.
+    writeFileSync(
+      path.join(claudeDir, ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "sk-ant-oat01-brand-new-account-token-999" } }),
+      { mode: 0o600 },
+    );
+    store.completeAuthSession("claude-sec", "login-succeeded", "login", 0);
     releaseFirst?.();
     await assert.rejects(
-      inflightBeforeLogin,
+      midLoginOldProbe,
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_instance_probe_stale",
     );
-    assert.equal(health.get("claude-sec").cooldownUntil, null);
-
-    // 7. Daemon client RPC result validation rejects malformed quota on daemon.runtimeInstance.list & show.
-    assert.throws(
-      () =>
-        parseClientRpcResponse("daemon.runtimeInstance.list", {
-          schema: "command-receipt/v2",
-          ok: true,
-          instances: [{ instanceId: "x", authReadiness: { status: "ready" }, quota: { windows: "bad" } }],
-        }),
-      /invalid_result|RuntimeSubscriptionQuotaV1/u,
+    assert.equal(health.get("claude-sec").quotaExhaustedUntil, null);
+    assert.equal(
+      (await store.command({ kind: "runtime-instance-show", instanceId: "claude-sec" })).instance?.quota,
+      undefined,
     );
+
+    // 7. Daemon client RPC result validation rejects malformed quota WITHOUT echoing untrusted secret strings.
+    let listError: unknown;
+    try {
+      parseClientRpcResponse("daemon.runtimeInstance.list", {
+        schema: "command-receipt/v2",
+        ok: true,
+        instances: [
+          {
+            instanceId: "x",
+            authReadiness: { status: "ready" },
+            quota: { plan: secretToken, [secretToken]: "bad", windows: "bad" },
+          },
+        ],
+      });
+    } catch (error) {
+      listError = error;
+    }
+    assert.ok(listError instanceof Error);
+    assert.match(listError.message, /instances\[0\]\.quota/u);
+    assert.doesNotMatch(listError.message, new RegExp(secretToken, "u"));
     assert.throws(
       () =>
         parseClientRpcResponse("daemon.runtimeInstance.show", {

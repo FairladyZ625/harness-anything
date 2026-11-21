@@ -113,7 +113,7 @@ test("provider health fallback cooldown reads the shared policy default", () => 
   }
 });
 
-test("quota health transitions are idempotent on repeated resetAt and preserve manual freezes or non-quota failures", () => {
+test("quota health transitions are orthogonal to transport failures and manual freezes (503 -> quota -> recovery)", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-quota-"));
   try {
     const store = openRuntimeProviderHealthStore(root),
@@ -133,50 +133,74 @@ test("quota health transitions are idempotent on repeated resetAt and preserve m
       occurredAt: "2026-11-21T10:10:00.000Z",
       resetAt: "2026-11-22T00:00:00.000Z",
     });
-    assert.equal(first.failureStreak, 1);
-    assert.equal(second.failureStreak, 1);
-    assert.equal(third.failureStreak, 1);
+    assert.equal(first.failureStreak, 0);
+    assert.equal(second.failureStreak, 0);
+    assert.equal(third.failureStreak, 0);
     assert.equal(third.frozenUntil, null);
-    assert.equal(third.cooldownUntil, resetAt);
+    assert.equal(third.cooldownUntil, null);
+    assert.equal(third.quotaExhaustedUntil, resetAt);
+    assert.equal(effectiveProviderBlockedUntil(third), resetAt);
 
-    // Clearing quota_exhausted succeeds for a pure quota cooldown.
+    // Clearing quota_exhausted clears quotaExhaustedUntil cleanly.
     const cleared = store.clearQuotaExhausted("codex-quota", "2026-11-21T11:00:00.000Z");
-    assert.equal(cleared.cooldownUntil, null);
-    assert.equal(cleared.failureStreak, 0);
+    assert.equal(cleared.quotaExhaustedUntil, null);
+    assert.equal(effectiveProviderBlockedUntil(cleared), null);
 
-    // Permanent freeze and non-quota failures are NEVER cleared by clearQuotaExhausted.
+    // Permanent freeze is preserved across quota exhaustion and quota recovery.
     store.recordFailure({
       instanceId: "frozen-account",
       reason: "manual freeze",
       occurredAt: "2026-11-21T10:00:00.000Z",
       permanentFreeze: true,
     });
+    store.recordQuotaExhausted({
+      instanceId: "frozen-account",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      resetAt,
+    });
     const afterQuotaClear = store.clearQuotaExhausted("frozen-account", "2026-11-21T11:00:00.000Z");
     assert.equal(afterQuotaClear.frozen, true);
     assert.equal(afterQuotaClear.reason, "manual freeze");
+    assert.equal(afterQuotaClear.quotaExhaustedUntil, null);
 
-    store.recordFailure({
+    // Active HTTP 503 cooldown -> subsequent quota_exhausted -> quota recovery MUST preserve HTTP 503 cooldown & reason!
+    const after503 = store.recordFailure({
       instanceId: "network-account",
       reason: "HTTP 503",
       occurredAt: "2026-11-21T10:00:00.000Z",
-      cooldownBaseSeconds: 300,
+      cooldownBaseSeconds: 3600,
     });
-    const afterNetworkClear = store.clearQuotaExhausted("network-account", "2026-11-21T11:00:00.000Z");
-    assert.equal(afterNetworkClear.reason, "HTTP 503");
-    assert.equal(afterNetworkClear.failureStreak, 1);
+    assert.equal(after503.cooldownUntil, "2026-11-21T11:00:00.000Z");
+    const after503AndQuota = store.recordQuotaExhausted({
+      instanceId: "network-account",
+      occurredAt: "2026-11-21T10:05:00.000Z",
+      resetAt: "2026-11-21T12:00:00.000Z",
+    });
+    assert.equal(after503AndQuota.reason, "HTTP 503");
+    assert.equal(after503AndQuota.cooldownUntil, "2026-11-21T11:00:00.000Z");
+    assert.equal(after503AndQuota.quotaExhaustedUntil, "2026-11-21T12:00:00.000Z");
+    assert.equal(effectiveProviderBlockedUntil(after503AndQuota), "2026-11-21T12:00:00.000Z");
+    const afterQuotaRecovery = store.clearQuotaExhausted("network-account", "2026-11-21T10:15:00.000Z");
+    assert.equal(afterQuotaRecovery.quotaExhaustedUntil, null);
+    assert.equal(afterQuotaRecovery.reason, "HTTP 503");
+    assert.equal(afterQuotaRecovery.failureStreak, 1);
+    assert.equal(afterQuotaRecovery.cooldownUntil, "2026-11-21T11:00:00.000Z");
+    assert.equal(effectiveProviderBlockedUntil(afterQuotaRecovery), "2026-11-21T11:00:00.000Z");
 
-    // effectiveProviderBlockedUntil always prefers the later of frozenUntil and cooldownUntil.
+    // effectiveProviderBlockedUntil always prefers the latest of frozenUntil, cooldownUntil, and quotaExhaustedUntil.
     assert.equal(
       effectiveProviderBlockedUntil({
         cooldownUntil: "2026-11-28T00:00:00.000Z",
         frozenUntil: "2026-11-21T10:30:00.000Z",
+        quotaExhaustedUntil: "2026-11-29T00:00:00.000Z",
       }),
-      "2026-11-28T00:00:00.000Z",
+      "2026-11-29T00:00:00.000Z",
     );
     assert.equal(
       effectiveProviderBlockedUntil({
         cooldownUntil: "2026-11-21T10:30:00.000Z",
         frozenUntil: "2026-11-22T00:00:00.000Z",
+        quotaExhaustedUntil: null,
       }),
       "2026-11-22T00:00:00.000Z",
     );

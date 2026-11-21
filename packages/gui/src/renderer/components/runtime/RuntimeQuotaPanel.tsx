@@ -1,4 +1,9 @@
-import type { RuntimeQuotaWindowV1, RuntimeSubscriptionQuotaV1 } from "@harness-anything/daemon/protocol";
+import {
+  findExhaustedSubscriptionQuotaWindow,
+  selectSubscriptionQuotaHeadlineWindow,
+  type RuntimeQuotaWindowV1,
+  type RuntimeSubscriptionQuotaV1,
+} from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
@@ -20,22 +25,21 @@ function quotaTone(fraction: number): "bad" | "wait" | "done" {
   return "done";
 }
 
-function tightestWindow(quota: RuntimeSubscriptionQuotaV1): RuntimeQuotaWindowV1 | null {
-  const primary = quota.windows.filter((window) => window.scope !== "auxiliary");
-  const candidates = primary.length > 0 ? primary : quota.windows;
-  let lowest: RuntimeQuotaWindowV1 | null = null;
-  for (const window of candidates) {
-    if (lowest === null || window.remainingFraction < lowest.remainingFraction) lowest = window;
-  }
-  return lowest;
-}
-
 function formatCreditNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/u, "");
 }
 
-export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptionQuotaV1 }) {
-  const exhausted = quota.windows.some((window) => window.scope !== "auxiliary" && window.remainingFraction <= 0);
+export function RuntimeQuotaCard({
+  quota,
+  models,
+  now,
+}: {
+  readonly quota: RuntimeSubscriptionQuotaV1;
+  readonly models?: readonly string[];
+  readonly now?: string;
+}) {
+  const effectiveNow = now ?? new Date().toISOString();
+  const exhausted = findExhaustedSubscriptionQuotaWindow(quota, effectiveNow, { models }) !== null;
   const observed = formatTime(quota.observedAt, { style: "time" }) ?? quota.observedAt;
   return (
     <Card testId="runtime-card-quota">
@@ -116,11 +120,21 @@ export function RuntimeQuotaCard({ quota }: { readonly quota: RuntimeSubscriptio
   );
 }
 
-export function RuntimeQuotaRailBadge({ quota }: { readonly quota: RuntimeSubscriptionQuotaV1 }) {
-  const lowest = tightestWindow(quota);
-  if (!lowest) return null;
-  const percentLabel = remainingPercentText(lowest),
-    tone = lowest.remainingFraction <= 0 ? "bad" : lowest.remainingFraction <= 0.2 ? "wait" : "neutral",
+export function RuntimeQuotaRailBadge({
+  quota,
+  models,
+  now,
+}: {
+  readonly quota: RuntimeSubscriptionQuotaV1;
+  readonly models?: readonly string[];
+  readonly now?: string;
+}) {
+  const effectiveNow = now ?? new Date().toISOString();
+  const headline = selectSubscriptionQuotaHeadlineWindow(quota, effectiveNow, { models });
+  if (!headline) return null;
+  const lowest = headline.window,
+    percentLabel = remainingPercentText(lowest),
+    tone = headline.exhausted ? "bad" : lowest.remainingFraction <= 0.2 ? "wait" : "neutral",
     fullReset = lowest.resetsAt
       ? (formatTime(lowest.resetsAt, { style: "date-time-seconds" }) ?? lowest.resetsAt)
       : null,

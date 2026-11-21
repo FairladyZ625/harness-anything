@@ -146,7 +146,7 @@ export function ProviderRail({
                         )}
                       />
                     </span>
-                    {instance.quota ? <RuntimeQuotaRailBadge quota={instance.quota} /> : null}
+                    {instance.quota ? <RuntimeQuotaRailBadge quota={instance.quota} models={instance.models} /> : null}
                     {tail ? <span className="min-w-0 truncate font-mono">{tail}</span> : null}
                   </span>
                 }

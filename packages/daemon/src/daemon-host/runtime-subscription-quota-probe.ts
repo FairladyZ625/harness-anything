@@ -1,12 +1,18 @@
+import { hash as cryptoHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { RuntimeSubscriptionQuotaV1 } from "@harness-anything/kernel";
 import { runtimeSubscriptionQuotaPolicy } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-config.ts";
 import { runExecutable, runExecutableResult } from "./agent-runtime-installation-discovery.ts";
-import { parseCodexChatgptBaseUrl } from "./agent-runtime-instance-storage.ts";
+import {
+  parseCodexChatgptBaseUrl,
+  providerAuthFile,
+  providerConfigDirectory,
+} from "./agent-runtime-instance-storage.ts";
 import type { RuntimeCredentialSource, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
+import { applyGithubLaunchCredential } from "./runtime-github-credentials.ts";
 import { registerSecretValue, scrubSecretText } from "../runtime-engine/secret-scrub.ts";
 import {
   CLAUDE_OAUTH_USAGE_URL,
@@ -27,10 +33,55 @@ const credentialReadRetryDelayMs = runtimeSubscriptionQuotaPolicy.defaultValue.c
 const credentialReadAttempts = runtimeSubscriptionQuotaPolicy.defaultValue.credentialReadAttempts;
 const claudeKeychainService = "Claude Code-credentials";
 
+export interface KeychainLookupRequest {
+  readonly service: string;
+  readonly authenticationUI: "fail";
+  readonly userInteractionAllowed: false;
+}
+
+export type KeychainLookupResult =
+  | { readonly status: "ok"; readonly secret: string }
+  | { readonly status: "not_found" }
+  | { readonly status: "interaction_not_allowed"; readonly osStatus: number }
+  | { readonly status: "error"; readonly osStatus?: number };
+
 export type KeychainLookupRunner = (
-  args: readonly string[],
+  request: KeychainLookupRequest,
   options: { readonly signal: AbortSignal; readonly timeoutMs: number; readonly env: NodeJS.ProcessEnv },
-) => Promise<{ readonly exitCode: number | null; readonly stdout: string }>;
+) => Promise<KeychainLookupResult>;
+
+/**
+ * Native macOS Security.framework non-interactive generic-password lookup via JXA.
+ * Disables UI at BOTH CDSA (`SecKeychainSetUserInteractionAllowed(false)`) and modern
+ * SecItem (`kSecUseAuthenticationUI: kSecUseAuthenticationUIFail`) layers so locked
+ * keychains or ACL-protected items fail immediately with `-25308` instead of opening dialogs.
+ */
+const macOsNonInteractiveKeychainScript = [
+  'ObjC.import("Foundation");',
+  'ObjC.import("Security");',
+  "function run(argv) {",
+  "  var service = argv && argv.length > 0 ? String(argv[0]) : '';",
+  "  if (!service) return JSON.stringify({ status: 'error' });",
+  "  var uiStatus = $.SecKeychainSetUserInteractionAllowed(false);",
+  "  if (uiStatus !== 0) return JSON.stringify({ status: 'error', osStatus: Number(uiStatus) });",
+  "  var query = $.NSMutableDictionary.dictionary;",
+  '  query.setObjectForKey($("genp"), $("class"));',
+  '  query.setObjectForKey($(service), $("svce"));',
+  '  query.setObjectForKey($(true), $("r_Data"));',
+  '  query.setObjectForKey($("m_LimitOne"), $("m_Limit"));',
+  '  query.setObjectForKey($("u_AuthUIF"), $("u_AuthUI"));',
+  "  var out = Ref();",
+  "  var status = Number($.SecItemCopyMatching(query, out));",
+  "  if (status === -25308) return JSON.stringify({ status: 'interaction_not_allowed', osStatus: status });",
+  "  if (status === -25300) return JSON.stringify({ status: 'not_found' });",
+  "  if (status !== 0) return JSON.stringify({ status: 'error', osStatus: status });",
+  "  var raw = out[0];",
+  "  var nsData = raw && typeof raw.length === 'number' ? raw : ObjC.castRefToObject(raw);",
+  "  var text = $.NSString.alloc.initWithDataEncoding(nsData, $.NSUTF8StringEncoding);",
+  "  if (!text) return JSON.stringify({ status: 'error' });",
+  "  return JSON.stringify({ status: 'ok', secret: ObjC.unwrap(text) });",
+  "}",
+].join("\n");
 
 export interface SubscriptionQuotaProbeInput {
   readonly kindId: RuntimeInstanceKind;
@@ -72,6 +123,19 @@ export async function probeProviderSubscriptionQuota(
   return null;
 }
 
+export function agyNonInteractiveProbeEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    // Enforce non-interactive headless background execution: suppress browser launch and CLI auto-update.
+    CI: "1",
+    BROWSER: "false",
+    NO_BROWSER: "1",
+    AGY_CLI_DISABLE_AUTO_UPDATE: "1",
+    NO_UPDATE_NOTIFIER: "1",
+    ...(env.SSH_CONNECTION ? {} : { SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 22" }),
+  };
+}
+
 export async function probeAgyCliQuota(
   platform: NodeJS.Platform,
   executablePath: string,
@@ -81,14 +145,37 @@ export async function probeAgyCliQuota(
   observedAt: string,
 ): Promise<RuntimeSubscriptionQuotaV1> {
   requireAccountHome(env, "AGY");
-  const result = await runExecutableResult(platform, executablePath, ["-p", "/quota", "--output-format", "json"], {
-    env,
+  const probeEnv = agyNonInteractiveProbeEnv(env);
+  // Prefer modern `agy -p /usage --output-format json` (>=1.2.2); fall back to legacy `/quota`
+  // when `/usage` is unsupported or returns an unrecognized command envelope.
+  const usageResult = await runExecutableResult(platform, executablePath, ["-p", "/usage", "--output-format", "json"], {
+    env: probeEnv,
     timeoutMs,
+    input: "",
     signal,
   });
-  if (result.exitCode !== 0)
-    throw runtimeInstanceError("runtime_quota_probe_failed", `AGY quota probe exited with status ${result.exitCode}.`);
-  return parseAgyQuotaResponse(result.stdout, observedAt);
+  if (usageResult.exitCode === 0) {
+    const parsedUsage = tryParseAgyQuota(usageResult.stdout, observedAt, { expectedCommand: "usage" });
+    if (parsedUsage.ok) return parsedUsage.value;
+  }
+  if (signal.aborted) throw signal.reason;
+  const legacyResult = await runExecutableResult(
+    platform,
+    executablePath,
+    ["-p", "/quota", "--output-format", "json"],
+    {
+      env: probeEnv,
+      timeoutMs,
+      input: "",
+      signal,
+    },
+  );
+  if (legacyResult.exitCode !== 0)
+    throw runtimeInstanceError(
+      "runtime_quota_probe_failed",
+      `AGY quota probe exited with status ${legacyResult.exitCode}.`,
+    );
+  return parseAgyQuotaResponse(legacyResult.stdout, observedAt, { expectedCommand: "quota" });
 }
 
 async function probeCodexQuota(
@@ -231,25 +318,61 @@ function extractClaudeCredentials(
   return { accessToken, plan };
 }
 
+async function readMacOsKeychainNonInteractive(
+  platform: NodeJS.Platform,
+  request: KeychainLookupRequest,
+  options: { readonly signal: AbortSignal; readonly timeoutMs: number; readonly env: NodeJS.ProcessEnv },
+): Promise<KeychainLookupResult> {
+  const result = await runExecutableResult(
+    platform,
+    "/usr/bin/osascript",
+    ["-l", "JavaScript", "-e", macOsNonInteractiveKeychainScript, "--", request.service],
+    {
+      env: options.env,
+      timeoutMs: options.timeoutMs,
+      input: "",
+      signal: options.signal,
+    },
+  );
+  if (result.exitCode !== 0) return { status: "error" };
+  const parsed = tryParseJsonObject(result.stdout);
+  if (!parsed.ok) return { status: "error" };
+  const status = parsed.value.status;
+  if (status === "ok" && typeof parsed.value.secret === "string") return { status: "ok", secret: parsed.value.secret };
+  if (status === "not_found") return { status: "not_found" };
+  if (status === "interaction_not_allowed") {
+    return {
+      status: "interaction_not_allowed",
+      osStatus: typeof parsed.value.osStatus === "number" ? parsed.value.osStatus : -25308,
+    };
+  }
+  return {
+    status: "error",
+    ...(typeof parsed.value.osStatus === "number" ? { osStatus: parsed.value.osStatus } : {}),
+  };
+}
+
 async function readClaudeMacOsKeychainCredentials(
   platform: NodeJS.Platform,
   input: SubscriptionQuotaProbeInput,
 ): Promise<{ readonly accessToken: string; readonly plan: string | null } | null> {
   const timeoutMs = Math.min(input.timeoutMs, keychainReadTimeoutMs);
   const runner: KeychainLookupRunner =
-    input.runKeychainLookup ?? ((args, options) => runExecutableResult(platform, "/usr/bin/security", args, options));
+    input.runKeychainLookup ?? ((request, options) => readMacOsKeychainNonInteractive(platform, request, options));
   const keychainSignal = AbortSignal.any([input.signal, AbortSignal.timeout(timeoutMs)]);
-  const readKeychain = (args: readonly string[]) =>
-    runner(args, { signal: keychainSignal, timeoutMs, env: input.env }).then(
-      (result) => result,
-      () => null,
-    );
-  // Metadata check first (no `-w`): exits non-zero without touching ACL when absent.
-  const exists = await readKeychain(["find-generic-password", "-s", claudeKeychainService]);
-  if (!exists || exists.exitCode !== 0) return null;
-  const secret = await readKeychain(["find-generic-password", "-s", claudeKeychainService, "-w"]);
-  if (!secret || secret.exitCode !== 0) return null;
-  const parsed = parseKeychainJsonPayload(secret.stdout);
+  const lookup = await runner(
+    {
+      service: claudeKeychainService,
+      authenticationUI: "fail",
+      userInteractionAllowed: false,
+    },
+    { signal: keychainSignal, timeoutMs, env: input.env },
+  ).then(
+    (result) => result,
+    () => null,
+  );
+  if (!lookup || lookup.status !== "ok") return null;
+  const parsed = parseKeychainJsonPayload(lookup.secret);
   return parsed ? extractClaudeCredentials(parsed) : null;
 }
 
@@ -289,32 +412,32 @@ async function probeCopilotOAuthQuota(input: SubscriptionQuotaProbeInput): Promi
 }
 
 /**
- * Aligns Copilot token resolution with Copilot CLI & daemon launch precedence:
- * 1. `COPILOT_GITHUB_TOKEN` -> `GH_TOKEN` -> `GITHUB_TOKEN`
- * 2. Operator injected GitHub token (applied as `GH_TOKEN` at launch for operator instances)
- * 3. Configured active `github.com` account in local Copilot `hosts.json`/`apps.json`
- *    (returns null rather than guessing when multiple accounts exist without an active match).
+ * Reuses the exact daemon launch GitHub credential injection (`applyGithubLaunchCredential`)
+ * and Copilot CLI authentication precedence so quota always reflects the launched account:
+ * 1. Apply the store's launch GitHub token (`GH_TOKEN`) to a copy of the instance environment.
+ * 2. Read `COPILOT_GITHUB_TOKEN` -> `GH_TOKEN` -> `GITHUB_TOKEN` from that launch-effective env.
+ * 3. Only when no launch env token is present, match the active `github.com` user in CLI-owned
+ *    `~/.copilot/{config,hosts,apps}.json` (never editor `~/.config/github-copilot/*` files).
  */
 async function readCopilotTokenReadOnly(input: SubscriptionQuotaProbeInput): Promise<string | null> {
-  const fromEnv =
-    nonEmptyString(input.env.COPILOT_GITHUB_TOKEN) ??
-    nonEmptyString(input.env.GH_TOKEN) ??
-    nonEmptyString(input.env.GITHUB_TOKEN);
-  if (fromEnv) return fromEnv;
-  if (input.credentialSource === "operator" && input.resolveGithubToken) {
-    const resolved = nonEmptyString(await input.resolveGithubToken());
-    if (resolved) return resolved;
+  const effectiveEnv: NodeJS.ProcessEnv = { ...input.env };
+  if (input.resolveGithubToken) {
+    const launchToken = await input.resolveGithubToken().then(
+      (token) => usableEnvToken(token),
+      () => null,
+    );
+    applyGithubLaunchCredential(effectiveEnv, launchToken);
   }
-  const home = input.env.HOME ?? input.env.USERPROFILE;
+  const fromEnv =
+    usableEnvToken(effectiveEnv.COPILOT_GITHUB_TOKEN) ??
+    usableEnvToken(effectiveEnv.GH_TOKEN) ??
+    usableEnvToken(effectiveEnv.GITHUB_TOKEN);
+  if (fromEnv) return fromEnv;
+  const home = effectiveEnv.HOME ?? effectiveEnv.USERPROFILE;
   if (!home) return null;
   const active = await readCopilotActiveAccount(home, input.signal);
   if (active.host !== null && active.host !== "github.com") return null;
-  const candidates = [
-    path.join(home, ".copilot", "hosts.json"),
-    path.join(home, ".copilot", "apps.json"),
-    path.join(home, ".config", "github-copilot", "hosts.json"),
-    path.join(home, ".config", "github-copilot", "apps.json"),
-  ];
+  const candidates = [path.join(home, ".copilot", "hosts.json"), path.join(home, ".copilot", "apps.json")];
   const matchedEntries: Array<{ readonly user: string | null; readonly token: string }> = [];
   for (const candidate of candidates) {
     const parsed = await readJsonFileReadOnly(candidate, input.signal);
@@ -335,6 +458,11 @@ async function readCopilotTokenReadOnly(input: SubscriptionQuotaProbeInput): Pro
   }
   const distinctTokens = new Set(matchedEntries.map((entry) => entry.token));
   return distinctTokens.size === 1 ? [...distinctTokens][0]! : null;
+}
+
+function usableEnvToken(value: unknown): string | null {
+  const token = nonEmptyString(value);
+  return token && !/\s/u.test(token) ? token : null;
 }
 
 async function readCopilotActiveAccount(
@@ -424,6 +552,26 @@ function tryParseJsonObject(
   }
 }
 
+function tryParseAgyQuota(
+  output: string,
+  observedAt: string,
+  options: { readonly expectedCommand?: "usage" | "quota" },
+): { readonly ok: true; readonly value: RuntimeSubscriptionQuotaV1 } | { readonly ok: false } {
+  try {
+    return { ok: true, value: parseAgyQuotaResponse(output, observedAt, options) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function tryReadFileBytes(filePath: string): { readonly ok: true; readonly value: Buffer } | { readonly ok: false } {
+  try {
+    return { ok: true, value: readFileSync(filePath) };
+  } catch {
+    return { ok: false };
+  }
+}
+
 function tryReadJsonObject(
   filePath: string,
 ): { readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false } {
@@ -490,4 +638,57 @@ function nonEmptyString(value: unknown): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Computes an in-memory SHA-256 fingerprint of an instance's active subscription credential files
+ * (and Copilot env tokens) so an async probe started before a credential swap fails closed on commit.
+ * Never persists, logs, or returns raw credential bytes.
+ */
+export function subscriptionCredentialGeneration(kindId: RuntimeInstanceKind, env: NodeJS.ProcessEnv): string {
+  const chunks: Buffer[] = [Buffer.from(`${kindId}\0`)];
+  const candidates: string[] = [];
+  const home = nonEmptyString(env.HOME) ?? nonEmptyString(env.USERPROFILE);
+  if (kindId === "codex" || kindId === "codex-acp") {
+    const codexHome = resolveCodexHome(env);
+    if (codexHome) candidates.push(path.join(codexHome, "auth.json"));
+  } else if (kindId === "claude" || kindId === "claude-acp") {
+    const claudeDir = resolveClaudeConfigDir(env);
+    if (claudeDir) candidates.push(path.join(claudeDir, ".credentials.json"));
+  } else if (kindId === "agy" || kindId === "agy-acp") {
+    if (home) {
+      const configDir = providerConfigDirectory(home, kindId);
+      candidates.push(
+        path.join(configDir, "antigravity-oauth-token"),
+        path.join(configDir, "antigravity-cli", "antigravity-oauth-token"),
+        path.join(configDir, "oauth_creds.json"),
+        path.join(configDir, "jetski_state.pbtxt"),
+      );
+    }
+  } else if (kindId === "copilot") {
+    for (const key of ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"] as const) {
+      chunks.push(Buffer.from(`env:${key}=${usableEnvToken(env[key]) ?? ""}\0`));
+    }
+    if (home) {
+      candidates.push(
+        path.join(home, ".copilot", "config.json"),
+        path.join(home, ".copilot", "hosts.json"),
+        path.join(home, ".copilot", "apps.json"),
+      );
+    }
+  } else {
+    const authFile = providerAuthFile(kindId);
+    if (home && authFile) candidates.push(path.join(providerConfigDirectory(home, kindId), authFile));
+  }
+  for (const filePath of candidates) {
+    chunks.push(Buffer.from(`file:${filePath}\0`));
+    if (existsSync(filePath)) {
+      const file = tryReadFileBytes(filePath);
+      chunks.push(file.ok ? Buffer.concat([Buffer.from("present:"), file.value]) : Buffer.from("unreadable"));
+    } else {
+      chunks.push(Buffer.from("absent"));
+    }
+    chunks.push(Buffer.from("\0"));
+  }
+  return cryptoHash("sha256", Buffer.concat(chunks), "hex");
 }

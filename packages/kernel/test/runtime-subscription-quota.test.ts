@@ -4,10 +4,11 @@ import test from "node:test";
 import {
   findExhaustedSubscriptionQuotaWindow,
   formatSubscriptionQuotaSummary,
-  hasPrimarySubscriptionQuotaWindow,
+  hasRecoveredSubscriptionQuota,
   validRuntimeSubscriptionQuota,
   type RuntimeSubscriptionQuotaV1,
 } from "@harness-anything/kernel";
+import { selectSubscriptionQuotaHeadlineWindow } from "../src/domain/runtime-subscription-quota.ts";
 
 const validQuota: RuntimeSubscriptionQuotaV1 = {
   schemaVersion: 1,
@@ -214,7 +215,7 @@ test("findExhaustedSubscriptionQuotaWindow picks the latest future reset among p
     "seven_day_sonnet",
   );
 
-  // AGY multi-family buckets scope to the instance's configured model family.
+  // AGY multi-family, dedicated sub-family (Argon/Carbon/Hydrogen), unknown buckets, and mixed-model accounts.
   const agyMultiFamily: RuntimeSubscriptionQuotaV1 = {
     schemaVersion: 1,
     observedAt: now,
@@ -222,12 +223,12 @@ test("findExhaustedSubscriptionQuotaWindow picks the latest future reset among p
     plan: "Ultra",
     windows: [
       {
-        id: "gemini-5h",
-        label: "Gemini · 5h",
-        kind: "session",
+        id: "gemini-weekly",
+        label: "Gemini · Weekly",
+        kind: "weekly",
         scope: "primary",
-        remainingFraction: 0.8,
-        usedPercent: 20,
+        remainingFraction: 0.835,
+        usedPercent: 16.5,
         resetsAt: "2026-11-22T00:00:00.000Z",
       },
       {
@@ -239,17 +240,117 @@ test("findExhaustedSubscriptionQuotaWindow picks the latest future reset among p
         usedPercent: 100,
         resetsAt: "2026-11-28T00:00:00.000Z",
       },
+      {
+        id: "argon-weekly",
+        label: "Argon · Weekly",
+        kind: "weekly",
+        scope: "primary",
+        remainingFraction: 0,
+        usedPercent: 100,
+        resetsAt: "2026-11-26T00:00:00.000Z",
+      },
+      {
+        id: "imagen-weekly",
+        label: "Imagen · Weekly",
+        kind: "weekly",
+        scope: "primary",
+        remainingFraction: 0,
+        usedPercent: 100,
+        resetsAt: "2026-11-29T00:00:00.000Z",
+      },
     ],
   };
+  // Exhausted Argon, Claude/GPT, and unknown Imagen buckets never cool down a Gemini Hydrogen/Carbon instance.
   assert.equal(findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, { models: ["gemini-4-hydrogen-low"] }), null);
+  assert.equal(findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, { models: ["gemini-4-carbon-high"] }), null);
+  // Argon model hits the dedicated Argon bucket, Claude hits Claude/GPT, Imagen hits unknown Imagen bucket.
+  assert.equal(
+    findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, { models: ["gemini-4-argon-high"] })?.window.id,
+    "argon-weekly",
+  );
   assert.equal(
     findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, { models: ["claude-opus-5-5"] })?.window.id,
     "claude-7d",
   );
+  assert.equal(
+    findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, { models: ["imagen-3"] })?.window.id,
+    "imagen-weekly",
+  );
+  // Mixed-model instance (Gemini healthy + Claude exhausted) is NOT whole-instance exhausted.
+  assert.equal(
+    findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, {
+      models: ["gemini-4-hydrogen-low", "claude-opus-5-5"],
+    }),
+    null,
+  );
+  // Mixed-model instance where EVERY configured model is exhausted returns the earliest model unblock time.
+  assert.equal(
+    findExhaustedSubscriptionQuotaWindow(agyMultiFamily, now, {
+      models: ["gemini-4-argon-high", "claude-opus-5-5"],
+    })?.resetAt,
+    "2026-11-26T00:00:00.000Z",
+  );
+  // Provider-declared `models[]` on a bucket takes precedence over text inference.
+  const explicitModelsQuota: RuntimeSubscriptionQuotaV1 = {
+    schemaVersion: 1,
+    observedAt: now,
+    source: "agy-cli",
+    plan: "Pro",
+    windows: [
+      {
+        id: "pool-a",
+        label: "Pool A",
+        kind: "bucket",
+        scope: "primary",
+        models: ["gemini-4-hydrogen-low"],
+        remainingFraction: 0.5,
+        usedPercent: 50,
+        resetsAt: "2026-11-22T00:00:00.000Z",
+      },
+      {
+        id: "pool-b",
+        label: "Pool B",
+        kind: "bucket",
+        scope: "primary",
+        models: ["gemini-4-argon-low"],
+        remainingFraction: 0,
+        usedPercent: 100,
+        resetsAt: "2026-11-26T00:00:00.000Z",
+      },
+    ],
+  };
+  assert.equal(validRuntimeSubscriptionQuota(explicitModelsQuota), true);
+  assert.equal(
+    findExhaustedSubscriptionQuotaWindow(explicitModelsQuota, now, { models: ["gemini-4-hydrogen-low"] }),
+    null,
+  );
+  assert.equal(
+    findExhaustedSubscriptionQuotaWindow(explicitModelsQuota, now, { models: ["gemini-4-argon-low"] })?.window.id,
+    "pool-b",
+  );
 
-  // Credits-only snapshots report no primary windows.
-  assert.equal(hasPrimarySubscriptionQuotaWindow({ ...validQuota, windows: [] }), false);
-  assert.equal(hasPrimarySubscriptionQuotaWindow(validQuota), true);
+  // Credits-only and 0%-without-resetAt snapshots NEVER count as positive recovery.
+  assert.equal(hasRecoveredSubscriptionQuota({ ...validQuota, windows: [] }, now), false);
+  assert.equal(
+    hasRecoveredSubscriptionQuota(
+      {
+        ...validQuota,
+        windows: [{ ...validQuota.windows[0]!, remainingFraction: 0, usedPercent: 100, resetsAt: null }],
+      },
+      now,
+    ),
+    false,
+  );
+  assert.equal(hasRecoveredSubscriptionQuota(validQuota, now), true);
+
+  // Headline selector ignores inapplicable buckets and expired windows.
+  const headline = selectSubscriptionQuotaHeadlineWindow(agyMultiFamily, now, {
+    models: ["gemini-4-hydrogen-low"],
+  });
+  assert.equal(headline?.window.id, "gemini-weekly");
+  assert.equal(headline?.exhausted, false);
+  const expiredHeadline = selectSubscriptionQuotaHeadlineWindow(onlyPast, now, { models: ["gpt-6-sol"] });
+  assert.equal(expiredHeadline?.exhausted, false);
 });
 
 test("formatSubscriptionQuotaSummary renders plan, remaining percentages (including <1%), reset times, and credits", () => {

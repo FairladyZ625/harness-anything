@@ -58,6 +58,7 @@ type Props = {
     readonly frozen: boolean;
     readonly frozenUntil: string | null;
     readonly reason: string | null;
+    readonly quotaExhaustedUntil?: string | null;
   };
   readonly onClearFreeze?: () => void;
   readonly projectOrder?: number;
@@ -216,18 +217,24 @@ export function RuntimeCard({
         </CardBody>
       </Card>
 
-      {instance.quota && <RuntimeQuotaCard quota={instance.quota} />}
+      {instance.quota && <RuntimeQuotaCard quota={instance.quota} models={instance.models} />}
 
       {providerHealth && (
         <Card testId="runtime-card-health">
           <CardHead>
             <CardTitle>{t("agentRuntime.providerHealthTitle", { node: providerHealth.nodeId })}</CardTitle>
             <StatusTag
-              tone={providerHealth.frozen ? "bad" : providerHealth.cooldownUntil ? "wait" : "neutral"}
+              tone={
+                providerHealth.frozen
+                  ? "bad"
+                  : providerHealth.cooldownUntil || providerHealth.quotaExhaustedUntil
+                    ? "wait"
+                    : "neutral"
+              }
               label={t(
                 providerHealth.frozen
                   ? "agentRuntime.providerHealthFrozen"
-                  : providerHealth.cooldownUntil
+                  : providerHealth.cooldownUntil || providerHealth.quotaExhaustedUntil
                     ? "agentRuntime.providerHealthCooldown"
                     : "agentRuntime.providerHealthReady",
               )}
@@ -236,13 +243,22 @@ export function RuntimeCard({
           <CardBody>
             <FieldGrid>
               <Field label={t("agentRuntime.providerFailureStreak")} value={String(providerHealth.failureStreak)} />
-              <Field label={t("agentRuntime.providerFailureReason")} value={providerHealth.reason ?? "-"} />
+              <Field
+                label={t("agentRuntime.providerFailureReason")}
+                value={providerHealth.reason ?? (providerHealth.quotaExhaustedUntil ? "quota_exhausted" : "-")}
+              />
               <Field
                 label={t("agentRuntime.providerRecoverAt")}
                 value={
-                  formatTime(providerHealth.frozenUntil ?? providerHealth.cooldownUntil ?? "", {
-                    style: "date-time-seconds",
-                  }) ?? "-"
+                  formatTime(
+                    providerHealth.frozenUntil ??
+                      providerHealth.cooldownUntil ??
+                      providerHealth.quotaExhaustedUntil ??
+                      "",
+                    {
+                      style: "date-time-seconds",
+                    },
+                  ) ?? "-"
                 }
               />
             </FieldGrid>
