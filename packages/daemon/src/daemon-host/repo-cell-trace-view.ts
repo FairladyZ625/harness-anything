@@ -102,25 +102,22 @@ function readDirtyWorktreeCollisions(
       const worktree = path.join(directory, taskId);
       if (!lstatSync(path.join(worktree, ".git"), { throwIfNoEntry: false })?.isFile()) continue;
       probes++;
-      const status = runGitHistoryLog(
-        worktree,
-        [
-          "--no-optional-locks",
-          "--literal-pathspecs",
-          "-c",
-          "core.fsmonitor=false",
-          "-c",
-          "core.untrackedCache=false",
-          "status",
-          "--porcelain=v1",
-          "-z",
-          "--no-renames",
-          "--untracked-files=all",
-          "--ignore-submodules=all",
-          "--",
-          ...targets,
-        ],
-      );
+      const status = runGitHistoryLog(worktree, [
+        "--no-optional-locks",
+        "--literal-pathspecs",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.untrackedCache=false",
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--no-renames",
+        "--untracked-files=all",
+        "--ignore-submodules=all",
+        "--",
+        ...targets,
+      ]);
       // A disappearing, inaccessible or slow peer worktree is advisory. Continue sampling the others.
       if (!status.ok) continue;
       const changed = status.stdout
