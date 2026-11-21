@@ -202,7 +202,7 @@ function releaseFailedTaskClaim<Args extends unknown[]>(
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const dispatchState = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
-  const processes = new Map<string, ActiveRuntime>(),
+  const activeRuntimeHandles = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
@@ -234,7 +234,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     parseProviderFrame,
     bindProvider: (active, identity) => runtimeSpawnerDelegates.bindProvider(extracted, active, identity),
     isStructuredSuccessResult,
-    processes,
+    processes: activeRuntimeHandles,
     ownsModelSlot: (runtimeSessionId) => modelSlotQueue.position(runtimeSessionId) === 0,
     providerErrorLimit,
     publishRuntimeEvent,
@@ -1321,7 +1321,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (role !== "reviewer" || inheritedFallback !== undefined) return;
         const targetPath = resolveManagedReviewWorktreePath(input.rootDir, cwd);
         if (targetPath === null) return;
-        const inUseBySibling = [...processes.values()].some(
+        const inUseBySibling = [...activeRuntimeHandles.values()].some(
           (entry) =>
             entry.runtimeSessionId !== runtimeSessionId &&
             (entry.cwd === cwd ||
@@ -1705,7 +1705,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       fallbackAttempt: fallbackAttempt ?? null,
       resumeProviderSessionId: providerSessionId ?? null,
     });
-    processes.set(runtimeSessionId, active);
+    activeRuntimeHandles.set(runtimeSessionId, active);
     input.recordLifecycle?.({
       event: "runtime_spawn",
       runtimeSessionId,
@@ -1922,20 +1922,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       options?: { readonly remoteControlRequestId?: string; readonly remoteControlOpId?: string },
     ) => steerRuntime(extracted, payload, binding, options),
-    activeRuntimeSessionIds: (): readonly string[] => [...processes.keys()],
-    activeRuntimeCount: (): number => processes.size,
+    activeRuntimeSessionIds: (): readonly string[] => [...activeRuntimeHandles.keys()],
+    activeRuntimeCount: (): number => activeRuntimeHandles.size,
     isRuntimeActive: (runtimeSessionId: string): boolean => {
-      const runtimeHandles = processes;
+      const runtimeHandles = activeRuntimeHandles;
       return runtimeHandles.has(runtimeSessionId);
     },
     activeDispatchId: (runtimeSessionId: string): string | null => {
-      const runtimeHandles = processes;
+      const runtimeHandles = activeRuntimeHandles;
       return runtimeHandles.get(runtimeSessionId)?.dispatchId ?? null;
     },
     activeRuntimeForSelector: (
       selector: { readonly dispatchId: string } | { readonly runtimeSessionId: string },
     ): { readonly runtimeSessionId: string; readonly dispatchId: string } | null => {
-      const runtimeHandles = processes;
+      const runtimeHandles = activeRuntimeHandles;
       if ("runtimeSessionId" in selector) {
         const active = runtimeHandles.get(selector.runtimeSessionId);
         return active ? { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId } : null;
@@ -1947,7 +1947,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       return null;
     },
     flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
-      const runtimeHandles = processes;
+      const runtimeHandles = activeRuntimeHandles;
       const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
       const { readAllPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
       const { readDispatchStreamHeader } = await import("./dispatch-stream.ts");
@@ -1964,7 +1964,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         await flushReceipts(extracted, dispatchId, runtimeSessionId, binding);
       }
     },
-    isIdle: () => processes.size === 0 && exiting.size === 0,
+    isIdle: () => activeRuntimeHandles.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
       fallbackAbort.abort(new DOMException("Runtime spawner closed.", "AbortError"));
