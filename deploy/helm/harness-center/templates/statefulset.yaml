@@ -6,7 +6,7 @@ metadata:
   labels:
     {{- include "harness-center.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "harness-center.fullname" . }}
+  serviceName: {{ include "harness-center.headlessServiceName" . }}
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:

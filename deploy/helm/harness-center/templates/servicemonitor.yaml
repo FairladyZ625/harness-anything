@@ -12,6 +12,7 @@ spec:
   selector:
     matchLabels:
       {{- include "harness-center.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics
   endpoints:
     - port: metrics
       path: {{ .Values.metrics.path }}

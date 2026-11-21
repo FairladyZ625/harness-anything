@@ -12,11 +12,74 @@ export function createDaemonHostLifecycleApi(
   | "status"
   | "writeQueues"
   | "observabilitySnapshot"
+  | "probeSnapshot"
   | "pendingFleetDeliveries"
   | "startAttachments"
   | "attachmentsSettled"
   | "close"
 > {
+  // Resident sorted repo ID cache: avoids O(R log R) sorting on every Prometheus scrape
+  // while membership across cells/warming/unavailable is unchanged.
+  let cachedSortedRepoIds: string[] = [];
+  let cachedRepoIdSet = new Set<string>();
+
+  const syncSortedRepoIds = (): readonly string[] => {
+    let unchanged = true;
+    for (const id of context.cells.keys()) {
+      if (!cachedRepoIdSet.has(id)) {
+        unchanged = false;
+        break;
+      }
+    }
+    if (unchanged) {
+      for (const id of context.warming.keys()) {
+        if (!cachedRepoIdSet.has(id)) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) {
+      for (const id of context.unavailable.keys()) {
+        if (!cachedRepoIdSet.has(id)) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (unchanged) {
+      for (const id of cachedSortedRepoIds) {
+        if (!context.cells.has(id) && !context.warming.has(id) && !context.unavailable.has(id)) {
+          unchanged = false;
+          break;
+        }
+      }
+    }
+    if (!unchanged) {
+      const nextSet = new Set<string>();
+      for (const id of context.cells.keys()) nextSet.add(id);
+      for (const id of context.warming.keys()) nextSet.add(id);
+      for (const id of context.unavailable.keys()) nextSet.add(id);
+      cachedRepoIdSet = nextSet;
+      cachedSortedRepoIds = [...nextSet].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+    }
+    return cachedSortedRepoIds;
+  };
+
+  const readPublishedRepoStatus = (repoId: string) => {
+    const warmingStatus = context.warming.get(repoId);
+    if (warmingStatus) return warmingStatus;
+    const cell = context.cells.get(repoId);
+    if (cell) return cell.publishedStatus ? cell.publishedStatus() : cell.status();
+    return context.unavailable.get(repoId);
+  };
+
+  const isIdentityRequired = (): boolean => {
+    if (context.input.requireIdentityReady !== undefined) return context.input.requireIdentityReady;
+    const raw = process.env.HARNESS_DAEMON_REQUIRE_IDENTITY;
+    return raw === "1" || raw === "true";
+  };
+
   return {
     status: () => {
       const { entry, ...observedBuild } = context.buildObserver.status(),
@@ -120,33 +183,9 @@ export function createDaemonHostLifecycleApi(
         .map((status) => ({ repoId: status.repoId, queueDepth: status.queueDepth ?? null })),
     observabilitySnapshot: () => {
       const repos: RepoMetricsSnapshot[] = [];
-      const seen = new Set<string>();
-      for (const cell of context.cells.values()) {
-        const cellStatus = cell.status();
-        const status = context.warming.get(cellStatus.repoId) ?? cellStatus;
-        seen.add(status.repoId);
-        repos.push({
-          repoId: status.repoId,
-          state: status.state,
-          queueDepth: status.queueDepth ?? null,
-          projectionWatermark: status.projectionWatermark ?? null,
-          ledgerRevision: status.ledgerRevision ?? null,
-        });
-      }
-      for (const status of context.warming.values()) {
-        if (seen.has(status.repoId)) continue;
-        seen.add(status.repoId);
-        repos.push({
-          repoId: status.repoId,
-          state: status.state,
-          queueDepth: status.queueDepth ?? null,
-          projectionWatermark: status.projectionWatermark ?? null,
-          ledgerRevision: status.ledgerRevision ?? null,
-        });
-      }
-      for (const status of context.unavailable.values()) {
-        if (seen.has(status.repoId)) continue;
-        seen.add(status.repoId);
+      for (const repoId of syncSortedRepoIds()) {
+        const status = readPublishedRepoStatus(repoId);
+        if (!status) continue;
         repos.push({
           repoId: status.repoId,
           state: status.state,
@@ -166,6 +205,30 @@ export function createDaemonHostLifecycleApi(
             pendingDeliveries: 0,
           };
       return { repos, fleet };
+    },
+    probeSnapshot: () => {
+      const reasons: string[] = [];
+      if (context.closing) reasons.push("closing");
+      if (context.initialAttachmentsSettled && !context.initialAttachmentsSettled()) {
+        reasons.push("initial_attachments_pending");
+      }
+      if (context.warming.size > 0) reasons.push("repos_warming");
+      let hasUnavailableRepo = context.unavailable.size > 0;
+      if (!hasUnavailableRepo) {
+        for (const cell of context.cells.values()) {
+          const status = cell.publishedStatus ? cell.publishedStatus() : cell.status();
+          if (status.state === "unavailable") {
+            hasUnavailableRepo = true;
+            break;
+          }
+        }
+      }
+      if (hasUnavailableRepo) reasons.push("repos_unavailable");
+      if (context.fleetCenterRestoreFailed?.()) reasons.push("fleet_center_unavailable");
+      if (isIdentityRequired() && context.identityReady && !context.identityReady()) {
+        reasons.push("identity_not_configured");
+      }
+      return { ready: reasons.length === 0, reasons };
     },
     pendingFleetDeliveries: () => context.fleetCenter?.pendingDeliveries() ?? 0,
     startAttachments: () => {

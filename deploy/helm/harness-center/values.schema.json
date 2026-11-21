@@ -24,7 +24,9 @@
     },
     "replicaCount": {
       "type": "integer",
-      "minimum": 1
+      "const": 1,
+      "minimum": 1,
+      "maximum": 1
     },
     "image": {
       "type": "object",
@@ -53,7 +55,21 @@
         "backend": { "type": "string", "enum": ["postgres", "sqlite"] },
         "existingSecret": { "type": "string" },
         "secretKey": { "type": "string", "minLength": 1 }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "backend": { "const": "postgres" } },
+            "required": ["backend"]
+          },
+          "then": {
+            "required": ["existingSecret"],
+            "properties": {
+              "existingSecret": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      ]
     },
     "identity": {
       "type": "object",
@@ -92,7 +108,17 @@
         "enabled": { "type": "boolean" },
         "bind": { "type": "string", "minLength": 1 },
         "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "path": { "type": "string", "pattern": "^/" },
+        "path": {
+          "type": "string",
+          "pattern": "^/[^\\s?#]*$",
+          "not": {
+            "anyOf": [
+              { "pattern": "^/+(\\.+/)*(?:healthz|readyz)/*$" },
+              { "pattern": "(?:^|/)\\.\\.?(?:/|$)" },
+              { "pattern": "//" }
+            ]
+          }
+        },
         "bearerTokenExistingSecret": { "type": "string" },
         "bearerTokenSecretKey": { "type": "string" }
       }

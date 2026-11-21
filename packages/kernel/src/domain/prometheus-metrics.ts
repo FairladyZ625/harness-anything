@@ -137,7 +137,7 @@ export function createRpcMetricsAccumulator(options?: {
 
 export function formatPrometheusMetrics(snapshot: DaemonMetricsSnapshot): string {
   const lines: string[] = [];
-  const sortedRepos = [...snapshot.repos].sort((left, right) => left.repoId.localeCompare(right.repoId));
+  const sortedRepos = orderedRepos(snapshot.repos);
 
   pushHeader(lines, PROMETHEUS_METRIC_NAMES.daemonUp, "gauge", "Whether the Harness Anything daemon process is up.");
   pushSample(lines, PROMETHEUS_METRIC_NAMES.daemonUp, undefined, 1);
@@ -443,6 +443,15 @@ export function formatPrometheusMetrics(snapshot: DaemonMetricsSnapshot): string
   pushSample(lines, PROMETHEUS_METRIC_NAMES.projectionLagRevisionsMax, undefined, maxLag);
 
   return `${lines.join("\n")}\n`;
+}
+
+function orderedRepos(repos: readonly RepoMetricsSnapshot[]): readonly RepoMetricsSnapshot[] {
+  for (let index = 1; index < repos.length; index += 1) {
+    if (repos[index - 1]!.repoId > repos[index]!.repoId) {
+      return [...repos].sort((left, right) => (left.repoId < right.repoId ? -1 : left.repoId > right.repoId ? 1 : 0));
+    }
+  }
+  return repos;
 }
 
 function normalizeBuckets(buckets: readonly number[]): readonly number[] {

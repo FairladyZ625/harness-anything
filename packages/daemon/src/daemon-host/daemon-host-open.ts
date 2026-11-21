@@ -157,7 +157,12 @@ import { createNodeRetirement } from "./fleet/node-retirement.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
 
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
-import { createIdentityManagement, createIdentitySession, managedListenerProblem } from "./authorization-provider.ts";
+import {
+  createIdentityManagement,
+  createIdentitySession,
+  managedListenerProblem,
+  readProviderMode,
+} from "./authorization-provider.ts";
 
 import { openSkillEvalProduction } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
@@ -812,6 +817,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
+  let fleetCenterRestoreFailed = false;
+  const hasConfiguredIdentity = (): boolean => {
+    const mode = readProviderMode(input.userRoot);
+    return mode === "external" || mode === "managed";
+  };
+  let identityReady = hasConfiguredIdentity();
+  const markIdentityConfigured = <T>(outcome: T): T => {
+    if (!identityReady && hasConfiguredIdentity()) identityReady = true;
+    return outcome;
+  };
   let initialAttachments: Promise<void> | null = null,
     initialAttachmentsSettled = false,
     replicaSyncStartQueued = false,
@@ -1143,6 +1158,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     set fleetCenter(value) {
       fleetCenter = value;
+      if (value !== null) fleetCenterRestoreFailed = false;
     },
     edgeRuntimeOwners,
     fleetVersionWarnings,
@@ -1171,6 +1187,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     settleControl,
     buildObserver,
     startInitialAttachments,
+    initialAttachmentsSettled: () =>
+      initialAttachmentsSettled || (repos.length === 0 && warming.size === 0 && openings.size === 0),
+    fleetCenterRestoreFailed: () => fleetCenterRestoreFailed,
+    identityReady: () => identityReady,
     waitForWarming,
     closeSignal: closeController.signal,
     get closing() {
@@ -1389,7 +1409,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           request.mode === "external" ||
           (request.mode === "managed" && request.operation !== "listener" && request.operation !== "listener-set")
         )
-          return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
+          return oidc
+            .configureAuthority(() => managedRbac.run(request), requireLoginTarget())
+            .then(markIdentityConfigured);
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (usesRegisteredAuthority && request.repoId) {
@@ -1551,7 +1573,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           binding: localSystemBinding(input.userRoot),
           actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
           evaluatedAtCut: "daemon-rbac:current",
-        }).then(() => managedRbac.run(request));
+        })
+          .then(() => managedRbac.run(request))
+          .then(markIdentityConfigured);
       })();
     },
     close: async () => {
@@ -1796,6 +1820,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       await accessAdmin.resumeEdgeJoinTunnels(started.center.port);
     }
   } catch (error) {
+    fleetCenterRestoreFailed = true;
     input.recordLifecycle?.({
       event: "fleet_center_restore_failed",
       error: error instanceof Error ? error.message : String(error),

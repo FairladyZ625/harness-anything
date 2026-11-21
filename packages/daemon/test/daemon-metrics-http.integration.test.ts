@@ -1,18 +1,25 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createRpcMetricsAccumulator, PROMETHEUS_TEXT_CONTENT_TYPE } from "@harness-anything/kernel";
+import {
+  createRpcMetricsAccumulator,
+  formatPrometheusMetrics,
+  PROMETHEUS_TEXT_CONTENT_TYPE,
+} from "@harness-anything/kernel";
 import { daemonPackageVersion } from "../src/daemon-host/build-identity.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { createDaemonHostLifecycleApi } from "../src/daemon-host/daemon-host-lifecycle-api.ts";
+import { openRepoCellProxy } from "../src/daemon-host/repo-cell-proxy.ts";
+import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
 import { resolveDaemonMetricsConfig, startDaemonMetricsServer } from "../src/daemon-host/metrics-http-server.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { fleetEdgeConfigPath } from "../src/daemon-host/client/fleet-edge-config.ts";
 
-test("resolveDaemonMetricsConfig defaults to disabled and enforces safe validation", () => {
+test("resolveDaemonMetricsConfig defaults to disabled and rejects invalid ports and reserved probe paths", async () => {
   assert.equal(resolveDaemonMetricsConfig({}), null);
   assert.equal(resolveDaemonMetricsConfig({ HARNESS_DAEMON_METRICS_PORT: "" }), null);
 
@@ -43,6 +50,41 @@ test("resolveDaemonMetricsConfig defaults to disabled and enforces safe validati
     () => resolveDaemonMetricsConfig({ HARNESS_DAEMON_METRICS_PORT: "9090", HARNESS_DAEMON_METRICS_PATH: "metrics" }),
     /path/iu,
   );
+
+  // F-G7-13: reject reserved probe paths and normalized/traversal variants on both config and server start
+  for (const forbiddenPath of [
+    "/healthz",
+    "/readyz",
+    "/healthz/",
+    "/readyz/",
+    "//healthz",
+    "/./readyz",
+    "/metrics/../healthz",
+  ]) {
+    assert.throws(
+      () =>
+        resolveDaemonMetricsConfig({
+          HARNESS_DAEMON_METRICS_PORT: "9090",
+          HARNESS_DAEMON_METRICS_PATH: forbiddenPath,
+        }),
+      /path/iu,
+      `resolveDaemonMetricsConfig must reject ${forbiddenPath}`,
+    );
+    await assert.rejects(
+      () =>
+        startDaemonMetricsServer({
+          config: { bind: "127.0.0.1", port: 0, path: forbiddenPath, bearerToken: null },
+          daemonId: "reserved-path-reject",
+          collectSnapshot: () => {
+            throw new Error("should not be called");
+          },
+          isLive: () => true,
+          isReady: () => true,
+        }),
+      /path/iu,
+      `startDaemonMetricsServer must reject ${forbiddenPath}`,
+    );
+  }
 });
 
 test(
@@ -159,78 +201,288 @@ test(
   },
 );
 
-test("metrics scrape executes in O(1) bounded work independent of historical RPC volume and with zero disk/DB scans", async () => {
-  const rpc = createRpcMetricsAccumulator();
-  let snapshotCalls = 0;
-  let cellStatusReads = 0;
-  let fleetConnectionMetricReads = 0;
-  let forbiddenSlowPathCalls = 0;
+test(
+  "readyz distinguishes process liveness from storage unavailable, failed Fleet restore, and missing required identity, and recovers to 200",
+  { timeout: 60_000 },
+  async () => {
+    // 1. Live startDaemon with failed Fleet restore & required identity -> /healthz 200, /readyz 503 with exact reasons
+    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-readyz-daemon-"));
+    const daemonId = "readyz-test";
+    const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+    let running: Awaited<ReturnType<typeof startDaemon>> | undefined;
+    try {
+      // Seed a center.json referencing an unregistered authority repo so openDaemonHost hits fleet_center_restore_failed
+      saveFleetCenterConfig(userRoot, daemonId, {
+        port: 7545,
+        bind: "127.0.0.1",
+        repoId: "missing-authority-repo",
+        keyPath: path.join(userRoot, "missing.key"),
+        certPath: path.join(userRoot, "missing.crt"),
+        stateRoot: path.join(userRoot, "fleet"),
+        quotaBytes: 1024 * 1024,
+      });
 
-  // Build a minimal DaemonHostApiContext where any disk/DB slow path (statusCuts, fleet.status)
-  // throws immediately, proving observabilitySnapshot() reads strictly in-memory O(1) headers.
-  const cells = new Map(
-    Array.from({ length: 8 }, (_, index) => {
-      const repoId = `repo-${index}`;
-      return [
-        repoId,
-        {
+      running = await startDaemon({
+        userRoot,
+        daemonId,
+        endpoint,
+        buildSupersessionEnabled: false,
+        requireIdentityReady: true,
+        metrics: {
+          bind: "127.0.0.1",
+          port: 0,
+          path: "/metrics",
+          bearerToken: null,
+        },
+      });
+      assert.ok("stop" in running);
+      assert.ok(running.metricsEndpoint);
+      const origin = new URL(running.metricsEndpoint).origin;
+
+      // Process is live (/healthz -> 200)
+      const healthz = await fetch(`${origin}/healthz`);
+      assert.equal(healthz.status, 200);
+      assert.equal(((await healthz.json()) as { status: string }).status, "live");
+
+      // Service is NOT ready (/readyz -> 503) because Fleet restore failed and required identity is missing
+      const readyz = await fetch(`${origin}/readyz`);
+      assert.equal(readyz.status, 503);
+      const body = (await readyz.json()) as { ok: boolean; status: string; reasons?: string[] };
+      assert.equal(body.ok, false);
+      assert.equal(body.status, "not_ready");
+      assert.ok(
+        body.reasons?.includes("fleet_center_unavailable"),
+        `expected fleet_center_unavailable in ${JSON.stringify(body)}`,
+      );
+      assert.ok(
+        body.reasons?.includes("identity_not_configured"),
+        `expected identity_not_configured in ${JSON.stringify(body)}`,
+      );
+    } finally {
+      if (running && "stop" in running) await running.stop();
+      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+
+    // 2. Lifecycle readiness state transitions: unavailable repo, fleet restore failure, and pending identity -> 503 -> recovery -> 200
+    const cells = new Map();
+    const warming = new Map();
+    const unavailable = new Map();
+    let initialSettled = false;
+    let fleetRestoreFailed = true;
+    let identityConfigured = false;
+
+    const lifecycle = createDaemonHostLifecycleApi({
+      input: { userRoot: "/virtual-readyz", daemonId: "readyz-transitions", requireIdentityReady: true },
+      cells,
+      warming,
+      unavailable,
+      closing: false,
+      initialAttachmentsSettled: () => initialSettled,
+      fleetCenterRestoreFailed: () => fleetRestoreFailed,
+      identityReady: () => identityConfigured,
+    } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
+
+    const server = await startDaemonMetricsServer({
+      config: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
+      daemonId: "readyz-transitions",
+      collectSnapshot: () => ({
+        daemonId: "readyz-transitions",
+        version: "0.1.0",
+        commit: "test",
+        uptimeSeconds: 1,
+        processResidentMemoryBytes: 1_000,
+        processHeapUsedBytes: 500,
+        activeRuntimeSessions: 0,
+        rpc: createRpcMetricsAccumulator().snapshot(0),
+        fleet: {
+          centerEnabled: false,
+          activeConnections: 0,
+          authenticatedNodes: 0,
+          replicationStreams: 0,
+          pendingDeliveries: 0,
+        },
+        repos: lifecycle.observabilitySnapshot().repos,
+      }),
+      isLive: () => true,
+      isReady: () => lifecycle.probeSnapshot(),
+    });
+    const origin = new URL(server.endpoint).origin;
+    try {
+      // Initial attachments pending + fleet failed + identity unconfigured -> 503
+      let res = await fetch(`${origin}/readyz`);
+      assert.equal(res.status, 503);
+      let payload = (await res.json()) as { reasons: string[] };
+      assert.ok(payload.reasons.includes("initial_attachments_pending"));
+      assert.ok(payload.reasons.includes("fleet_center_unavailable"));
+      assert.ok(payload.reasons.includes("identity_not_configured"));
+
+      // Storage attach fails -> repo lands in unavailable -> still 503 while /healthz stays 200
+      initialSettled = true;
+      fleetRestoreFailed = false;
+      identityConfigured = true;
+      unavailable.set("center", {
+        repoId: "center",
+        rootDir: "/virtual/center",
+        mode: "local",
+        state: "unavailable",
+        generation: null,
+        queueDepth: null,
+        lastError: "postgres connection refused",
+        causeClass: "infrastructure",
+        recoveryMs: null,
+        materialization: null,
+      });
+
+      assert.equal((await fetch(`${origin}/healthz`)).status, 200);
+      res = await fetch(`${origin}/readyz`);
+      assert.equal(res.status, 503);
+      payload = (await res.json()) as { reasons: string[] };
+      assert.deepEqual(payload.reasons, ["repos_unavailable"]);
+
+      // Storage recovers -> repo moves from unavailable to attached cell -> /readyz transitions to 200
+      unavailable.delete("center");
+      cells.set("center", {
+        publishedStatus: () => ({
+          repoId: "center",
+          rootDir: "/virtual/center",
+          mode: "local",
+          state: "attached",
+          generation: 1,
+          queueDepth: 0,
+          projectionWatermark: 10,
+          ledgerRevision: 10,
+          lastError: null,
+          causeClass: null,
+          recoveryMs: 0,
+          materialization: null,
+        }),
+        status: () => {
+          throw new Error("readiness must read publishedStatus when available");
+        },
+      });
+      res = await fetch(`${origin}/readyz`);
+      assert.equal(res.status, 200);
+      assert.equal(((await res.json()) as { status: string }).status, "ready");
+    } finally {
+      await server.close();
+    }
+  },
+);
+
+test(
+  "metrics scrape uses pure in-memory RepoCellProxy publishedStatus (zero disk reads on remote-edge replica-only) and linear O(R) formatting",
+  { timeout: 60_000 },
+  async () => {
+    const sandbox = mkdtempSync(path.join(tmpdir(), "ha-edge-o1-scrape-"));
+    const userRoot = path.join(sandbox, "user");
+    const repoRoot = path.join(sandbox, "repo");
+    const viewRoot = path.join(sandbox, "views");
+    mkdirSync(userRoot, { recursive: true });
+    mkdirSync(repoRoot, { recursive: true });
+    mkdirSync(viewRoot, { recursive: true });
+
+    // Seed a valid fleet-edge.json so openRepoCellProxy enters the real remote-edge replicaOnly branch
+    // when its writer worker fails to open.
+    const edgeCfgPath = fleetEdgeConfigPath(userRoot, "edge-repo");
+    mkdirSync(path.dirname(edgeCfgPath), { recursive: true });
+    writeFileSync(
+      edgeCfgPath,
+      JSON.stringify({
+        schema: "fleet-edge-config/v1",
+        repoId: "edge-repo",
+        host: "127.0.0.1",
+        port: 7545,
+        nodeId: "edge-node-1",
+        credential: "dummy-cred",
+        caPath: path.join(sandbox, "ca.pem"),
+        viewRoot,
+        quotaBytes: 1024 * 1024,
+      }),
+    );
+
+    const edgeCell = await openRepoCellProxy(
+      {
+        repoId: "edge-repo",
+        rootDir: repoRoot,
+        userRoot,
+        ownerId: "o1-test",
+        mode: "remote-edge",
+      },
+      {
+        createWriterWorker: () => {
+          throw new Error("simulated edge writer attach failure");
+        },
+      },
+    );
+
+    try {
+      // Corrupt fleet-edge.json on disk AFTER open: if observabilitySnapshot() touched disk (via replicaStatus),
+      // JSON.parse in readFleetEdgeConfig would throw!
+      writeFileSync(edgeCfgPath, "{invalid-json-must-not-be-read-on-scrape");
+
+      const cells = new Map();
+      cells.set("edge-repo", edgeCell);
+      for (let i = 0; i < 64; i += 1) {
+        const repoId = `repo-${String(63 - i).padStart(3, "0")}`; // deliberately inserted in reverse order
+        cells.set(repoId, {
+          publishedStatus: () => ({
+            repoId,
+            rootDir: `/virtual/${repoId}`,
+            mode: "local" as const,
+            state: "attached" as const,
+            generation: 1,
+            queueDepth: i % 4,
+            projectionWatermark: 1000 - (i % 5),
+            ledgerRevision: 1000,
+            lastError: null,
+            causeClass: null,
+            recoveryMs: 0,
+            materialization: null,
+          }),
           status: () => {
-            cellStatusReads += 1;
-            return {
-              repoId,
-              rootDir: `/virtual/${repoId}`,
-              mode: "local" as const,
-              state: "attached" as const,
-              generation: 1,
-              queueDepth: index % 3,
-              projectionWatermark: 1000 - index,
-              ledgerRevision: 1000,
-              lastError: null,
-              causeClass: null,
-              recoveryMs: 0,
-              materialization: null,
-            };
+            throw new Error("observabilitySnapshot must read publishedStatus(), not slow status()");
           },
           statusCuts: () => {
-            forbiddenSlowPathCalls += 1;
-            throw new Error("observabilitySnapshot must not invoke statusCuts slow path");
+            throw new Error("observabilitySnapshot must not invoke statusCuts()");
           },
+        });
+      }
+
+      const rpc = createRpcMetricsAccumulator();
+      const lifecycle = createDaemonHostLifecycleApi({
+        input: { userRoot: "/nonexistent-o1-proof-root", daemonId: "o1-proof" },
+        cells,
+        warming: new Map(),
+        unavailable: new Map(),
+        fleetCenter: {
+          connectionMetrics: () => ({
+            activeConnections: 3,
+            authenticatedNodes: 2,
+            replicationStreams: 2,
+            pendingDeliveries: 1,
+          }),
+          status: () => {
+            throw new Error("observabilitySnapshot must not invoke fleetCenter.status()");
+          },
+          pendingDeliveries: () => 1,
         },
-      ];
-    }),
-  );
+      } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
 
-  const lifecycle = createDaemonHostLifecycleApi({
-    // Non-existent userRoot proves observabilitySnapshot never reads registry.json from disk.
-    input: { userRoot: "/nonexistent-o1-proof-root", daemonId: "o1-proof" },
-    cells,
-    warming: new Map(),
-    unavailable: new Map(),
-    fleetCenter: {
-      connectionMetrics: () => {
-        fleetConnectionMetricReads += 1;
-        return {
-          activeConnections: 3,
-          authenticatedNodes: 2,
-          replicationStreams: 2,
-          pendingDeliveries: 1,
-        };
-      },
-      status: () => {
-        forbiddenSlowPathCalls += 1;
-        throw new Error("observabilitySnapshot must not invoke fleetCenter.status() DB slot scan");
-      },
-      pendingDeliveries: () => 1,
-    },
-  } as unknown as Parameters<typeof createDaemonHostLifecycleApi>[0]);
+      // First scrape populates resident sorted order; second scrape reuses cached order with zero sorting
+      const snap1 = lifecycle.observabilitySnapshot();
+      const snap2 = lifecycle.observabilitySnapshot();
+      assert.equal(snap1.repos.length, 65);
+      assert.deepEqual(
+        snap2.repos.map((r) => r.repoId),
+        [...snap2.repos.map((r) => r.repoId)].sort(),
+        "observabilitySnapshot must return pre-sorted repos without requiring formatPrometheusMetrics to re-sort",
+      );
+      assert.equal(snap2.repos[0]?.repoId, "edge-repo");
+      assert.equal(snap2.repos[0]?.state, "unavailable");
 
-  const server = await startDaemonMetricsServer({
-    config: { bind: "127.0.0.1", port: 0, path: "/metrics", bearerToken: null },
-    daemonId: "o1-proof",
-    collectSnapshot: () => {
-      snapshotCalls += 1;
-      const observed = lifecycle.observabilitySnapshot();
-      return {
+      // Confirm formatPrometheusMetrics formats pre-sorted repos cleanly and preserves constant RPC cardinality
+      for (let i = 0; i < 10; i += 1) rpc.observeDuration(0.015, true);
+      const smallText = formatPrometheusMetrics({
         daemonId: "o1-proof",
         version: "0.1.0",
         commit: "test",
@@ -239,39 +491,35 @@ test("metrics scrape executes in O(1) bounded work independent of historical RPC
         processHeapUsedBytes: 500_000,
         activeRuntimeSessions: 2,
         rpc: rpc.snapshot(0),
-        fleet: observed.fleet,
-        repos: observed.repos,
-      };
-    },
-    isReady: () => true,
-    isLive: () => true,
-  });
+        fleet: snap2.fleet,
+        repos: snap2.repos,
+      });
+      const smallRpcLines = smallText.split("\n").filter((line) => line.startsWith("ha_daemon_rpc_")).length;
 
-  try {
-    for (let i = 0; i < 10; i += 1) rpc.observeDuration(0.015, true);
-    const smallBody = await (await fetch(server.endpoint)).text();
-    const smallLines = smallBody.split("\n").filter((line) => line.startsWith("ha_daemon_rpc_")).length;
-
-    for (let i = 0; i < 10_000; i += 1) rpc.observeDuration((i % 100) / 1000, i % 20 !== 0);
-    const largeBody = await (await fetch(server.endpoint)).text();
-    const largeLines = largeBody.split("\n").filter((line) => line.startsWith("ha_daemon_rpc_")).length;
-
-    assert.equal(snapshotCalls, 2, "each scrape invokes snapshot collector once");
-    assert.equal(cellStatusReads, 16, "each scrape reads each loaded cell status exactly once");
-    assert.equal(fleetConnectionMetricReads, 2, "each scrape reads O(1) fleet connection metrics once");
-    assert.equal(forbiddenSlowPathCalls, 0, "scrape performs zero disk or DB scans");
-    assert.equal(
-      largeLines,
-      smallLines,
-      "RPC metric line cardinality stays constant O(1) after 10,000 additional RPCs",
-    );
-    assert.ok(largeBody.includes("ha_daemon_rpc_duration_seconds_count 10010\n"));
-    assert.ok(largeBody.includes("ha_daemon_fleet_connections_active 3\n"));
-    assert.ok(largeBody.includes("ha_daemon_projection_lag_revisions_max 7\n"));
-  } finally {
-    await server.close();
-  }
-});
+      for (let i = 0; i < 10_000; i += 1) rpc.observeDuration((i % 100) / 1000, i % 20 !== 0);
+      const largeText = formatPrometheusMetrics({
+        daemonId: "o1-proof",
+        version: "0.1.0",
+        commit: "test",
+        uptimeSeconds: 11,
+        processResidentMemoryBytes: 1_000_000,
+        processHeapUsedBytes: 500_000,
+        activeRuntimeSessions: 2,
+        rpc: rpc.snapshot(0),
+        fleet: snap2.fleet,
+        repos: snap2.repos,
+      });
+      const largeRpcLines = largeText.split("\n").filter((line) => line.startsWith("ha_daemon_rpc_")).length;
+      assert.equal(largeRpcLines, smallRpcLines, "RPC metric cardinality stays constant O(1) after 10,000 RPCs");
+      assert.ok(largeText.includes("ha_daemon_rpc_duration_seconds_count 10010\n"));
+      assert.ok(largeText.includes("ha_daemon_fleet_connections_active 3\n"));
+      assert.ok(largeText.includes("ha_daemon_projection_lag_revisions_max 4\n"));
+    } finally {
+      await edgeCell.close();
+      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);
 
 test("daemonPackageVersion resolves installed package.json version when npm_package_version is unset", () => {
   const pkg = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../package.json"), "utf8")) as {

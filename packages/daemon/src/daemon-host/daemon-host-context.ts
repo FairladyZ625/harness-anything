@@ -207,6 +207,9 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly settleControl: (pending: DaemonControlReceipt, ok: boolean, error?: unknown) => void;
   readonly buildObserver: DaemonBuildObserver;
   readonly startInitialAttachments: () => Promise<void>;
+  readonly initialAttachmentsSettled?: () => boolean;
+  readonly fleetCenterRestoreFailed?: () => boolean;
+  readonly identityReady?: () => boolean;
   readonly waitForWarming: (repoId: string) => Promise<void>;
   closing: boolean;
   initialAttachments: Promise<void> | null;

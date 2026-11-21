@@ -72,6 +72,7 @@ export async function openRepoCellProxy(
   const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(userRoot, input.repoId) : null);
   let runtimeSignalVersion = 0;
   let replicaOnly = false;
+  let lastPublishedReplicaStatus: ReturnType<RepoCell["status"]> | null = null;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
@@ -119,7 +120,10 @@ export async function openRepoCellProxy(
       }),
       replicaStatus = () => {
         const config = edgeConfig();
-        if (!config) return baseStatus();
+        if (!config) {
+          lastPublishedReplicaStatus = baseStatus();
+          return lastPublishedReplicaStatus;
+        }
         const viewDir = path.join(config.viewRoot, "repos", input.repoId, "views", config.nodeId),
           generation = readReplicaGeneration(viewDir),
           health = readReplicaHealth(viewDir),
@@ -127,8 +131,8 @@ export async function openRepoCellProxy(
         // A center-token/network failure affects synchronization, not the readability of a
         // generation already installed on this edge. Keep it on replica read warnings; only a
         // model failure makes that generation unavailable to repository reads.
-        if (generation !== null && health.modelFailure === null)
-          return {
+        if (generation !== null && health.modelFailure === null) {
+          lastPublishedReplicaStatus = {
             ...baseStatus(),
             state: "attached" as const,
             projectionReadable: true,
@@ -136,17 +140,24 @@ export async function openRepoCellProxy(
             lastError: null,
             causeClass: null,
           };
-        if (failure !== null)
-          return {
+          return lastPublishedReplicaStatus;
+        }
+        if (failure !== null) {
+          lastPublishedReplicaStatus = {
             ...baseStatus(),
             lastError: failure.message,
             causeClass: causeClassOf(Object.assign(new Error(failure.message), { code: failure.code })),
           };
-        return baseStatus();
+          return lastPublishedReplicaStatus;
+        }
+        lastPublishedReplicaStatus = baseStatus();
+        return lastPublishedReplicaStatus;
       },
       rejectWrite = async (): Promise<never> => {
         throw cellCodedError("repo_unavailable", lastError);
-      };
+      },
+      initialReplicaStatus = baseStatus();
+    lastPublishedReplicaStatus = initialReplicaStatus;
     supervisor = {
       status: replicaStatus,
       request: rejectWrite,
@@ -401,6 +412,13 @@ export async function openRepoCellProxy(
     runtime,
     status: () => {
       const status = supervisor.status();
+      if (!closed && status.state === "attached") return status;
+      const { projectionWatermark: _watermark, ledgerRevision: _revision, ...unreadable } = status;
+      return unreadable;
+    },
+    publishedStatus: () => {
+      const status =
+        replicaOnly && lastPublishedReplicaStatus !== null ? lastPublishedReplicaStatus : supervisor.status();
       if (!closed && status.state === "attached") return status;
       const { projectionWatermark: _watermark, ledgerRevision: _revision, ...unreadable } = status;
       return unreadable;

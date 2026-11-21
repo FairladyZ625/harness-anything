@@ -1,6 +1,7 @@
 import { hash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import path from "node:path";
 import {
   PROMETHEUS_TEXT_CONTENT_TYPE,
   formatPrometheusMetrics,
@@ -14,11 +15,37 @@ export interface DaemonMetricsHttpConfig {
   readonly bearerToken: string | null;
 }
 
+export interface DaemonReadinessResult {
+  readonly ready: boolean;
+  readonly reasons?: readonly string[];
+}
+
 export interface DaemonMetricsServer {
   readonly bind: string;
   readonly port: number;
   readonly endpoint: string;
   readonly close: () => Promise<void>;
+}
+
+const RESERVED_PROBE_PATHS = new Set(["/healthz", "/readyz"]);
+
+function parseDaemonMetricsPath(rawPath: string): string {
+  const metricsPath = rawPath.trim();
+  if (!metricsPath.startsWith("/") || /[\s\r\n?#]/u.test(metricsPath)) {
+    throw new Error(`Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (must start with '/').`);
+  }
+  if (metricsPath.includes("//") || /(?:^|\/)\.\.?(?:\/|$)/u.test(metricsPath)) {
+    throw new Error(
+      `Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (must be a canonical path without dot segments or empty segments).`,
+    );
+  }
+  const normalized = path.posix.normalize(metricsPath).replace(/\/+$/u, "") || "/";
+  if (RESERVED_PROBE_PATHS.has(normalized)) {
+    throw new Error(
+      `Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (conflicts with reserved probe path ${normalized}).`,
+    );
+  }
+  return metricsPath;
 }
 
 export function resolveDaemonMetricsConfig(
@@ -42,10 +69,7 @@ export function resolveDaemonMetricsConfig(
     throw new Error(`Invalid daemon metrics bind address: ${JSON.stringify(bind)}.`);
   }
 
-  const metricsPath = (overrides?.path ?? env.HARNESS_DAEMON_METRICS_PATH ?? "/metrics").trim();
-  if (!metricsPath.startsWith("/") || /[\s\r\n?]/u.test(metricsPath)) {
-    throw new Error(`Invalid daemon metrics path: ${JSON.stringify(metricsPath)} (must start with '/').`);
-  }
+  const metricsPath = parseDaemonMetricsPath(overrides?.path ?? env.HARNESS_DAEMON_METRICS_PATH ?? "/metrics");
 
   const rawToken = env.HARNESS_DAEMON_METRICS_BEARER_TOKEN;
   const bearerToken = rawToken !== undefined && rawToken.length > 0 ? rawToken : null;
@@ -63,14 +87,17 @@ export async function startDaemonMetricsServer(options: {
   readonly daemonId: string;
   readonly collectSnapshot: () => DaemonMetricsSnapshot;
   readonly isLive: () => boolean;
-  readonly isReady: () => boolean;
+  readonly isReady: () => boolean | DaemonReadinessResult;
   readonly onError?: (error: unknown, context: { readonly pathname: string }) => void;
 }): Promise<DaemonMetricsServer> {
-  const expectedTokenHash = options.config.bearerToken === null ? null : sha256Digest(options.config.bearerToken);
+  const validatedPath = parseDaemonMetricsPath(options.config.path);
+  const config: DaemonMetricsHttpConfig = { ...options.config, path: validatedPath };
+  const serverOptions = { ...options, config };
+  const expectedTokenHash = config.bearerToken === null ? null : sha256Digest(config.bearerToken);
 
   const server: Server = createServer((request, response) => {
     const handled = invokeSafely(() => {
-      handleRequest(request, response, options, expectedTokenHash);
+      handleRequest(request, response, serverOptions, expectedTokenHash);
     });
     if (!handled.ok) {
       const pathname = parsePathname(request.url ?? "/");
@@ -127,7 +154,7 @@ function handleRequest(
     readonly daemonId: string;
     readonly collectSnapshot: () => DaemonMetricsSnapshot;
     readonly isLive: () => boolean;
-    readonly isReady: () => boolean;
+    readonly isReady: () => boolean | DaemonReadinessResult;
     readonly onError?: (error: unknown, context: { readonly pathname: string }) => void;
   },
   expectedTokenHash: Buffer | null,
@@ -160,12 +187,18 @@ function handleRequest(
   }
 
   if (pathname === "/readyz") {
-    const readyResult = invokeSafely(() => options.isLive() && options.isReady());
+    const readyResult = invokeSafely<DaemonReadinessResult>(() => {
+      if (!options.isLive()) return { ready: false, reasons: ["stopping"] };
+      const raw = options.isReady();
+      return typeof raw === "boolean" ? { ready: raw } : raw;
+    });
     if (!readyResult.ok) reportMetricsError(options.onError, readyResult.error, pathname);
-    const ready = readyResult.ok && readyResult.value;
+    const ready = readyResult.ok && readyResult.value.ready;
+    const reasons = readyResult.ok && !ready ? readyResult.value.reasons : undefined;
     const payload = JSON.stringify({
       ok: ready,
       status: !readyResult.ok ? "error" : ready ? "ready" : "not_ready",
+      ...(reasons && reasons.length > 0 ? { reasons } : {}),
       daemonId: options.daemonId,
       pid: process.pid,
     });

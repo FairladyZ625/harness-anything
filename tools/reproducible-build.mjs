@@ -10,13 +10,14 @@
 import { execFile as childExecFile, spawnSync } from "node:child_process";
 import { hash } from "node:crypto";
 import {
-  cpSync,
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -97,17 +98,20 @@ function removeBuildInfoFiles(rootDir) {
 }
 
 /**
- * Computes a deterministic, sorted SHA-256 manifest for all regular files under rootDir.
+ * Walks rootDir in deterministic POSIX-path order and collects every deliverable entry
+ * (regular files with normalized executable mode, plus symbolic links with target).
+ * Rejects unsupported filesystem entry types (FIFOs, sockets, devices) fail-closed so
+ * manifest, tar.gz archive, and output directory always represent the exact same tree.
  */
-export function computeDirectoryManifest(rootDir, options = {}) {
+function collectDeliverableEntries(rootDir, options = {}) {
   const ignoreSet = new Set(options.ignoreFiles ?? []);
-  const files = [];
+  const entries = [];
 
   const walk = (directory) => {
-    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+    const dirEntries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
       left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
     );
-    for (const entry of entries) {
+    for (const entry of dirEntries) {
       if (DEFAULT_IGNORED_SEGMENTS.has(entry.name)) continue;
       const fullPath = path.join(directory, entry.name);
       const relativePath = path.relative(rootDir, fullPath).split(path.sep).join("/");
@@ -117,18 +121,72 @@ export function computeDirectoryManifest(rootDir, options = {}) {
         walk(fullPath);
       } else if (stat.isFile()) {
         const bytes = readFileSync(fullPath);
-        files.push({
+        const mode = (stat.mode & 0o111) !== 0 ? "0755" : "0644";
+        entries.push({
           path: relativePath,
+          fullPath,
+          type: "file",
+          mode,
           size: bytes.length,
           sha256: sha256Buffer(bytes),
+          bytes,
         });
+      } else if (stat.isSymbolicLink()) {
+        const linkTarget = readlinkSync(fullPath);
+        entries.push({
+          path: relativePath,
+          fullPath,
+          type: "symlink",
+          mode: "0777",
+          size: 0,
+          linkTarget,
+          sha256: sha256String(`symlink:${linkTarget}`),
+        });
+      } else {
+        throw new Error(`Unsupported deliverable entry type at ${relativePath}`);
       }
     }
   };
 
   walk(rootDir);
-  files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
-  const canonicalLines = files.map((file) => `${file.sha256}  ${file.size}  ${file.path}`).join("\n");
+  entries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  return entries;
+}
+
+function manifestEntryFingerprint(entry) {
+  const type = entry.type ?? "file";
+  const mode = entry.mode ?? "0644";
+  if (type === "symlink") {
+    return `symlink  ${mode}  ${entry.sha256}  ${entry.path} -> ${entry.linkTarget ?? ""}`;
+  }
+  return `file  ${mode}  ${entry.sha256}  ${entry.size}  ${entry.path}`;
+}
+
+/**
+ * Computes a deterministic, sorted SHA-256 manifest covering file type, normalized POSIX
+ * executable mode, symlink target, size, and content digest for all deliverable entries.
+ */
+export function computeDirectoryManifest(rootDir, options = {}) {
+  const entries = collectDeliverableEntries(rootDir, options);
+  const files = entries.map((entry) =>
+    entry.type === "symlink"
+      ? {
+          path: entry.path,
+          type: "symlink",
+          mode: entry.mode,
+          size: 0,
+          linkTarget: entry.linkTarget,
+          sha256: entry.sha256,
+        }
+      : {
+          path: entry.path,
+          type: "file",
+          mode: entry.mode,
+          size: entry.size,
+          sha256: entry.sha256,
+        },
+  );
+  const canonicalLines = files.map((file) => manifestEntryFingerprint(file)).join("\n");
   const artifactDigest = sha256String(canonicalLines);
   return {
     artifactDigest,
@@ -139,46 +197,44 @@ export function computeDirectoryManifest(rootDir, options = {}) {
 
 /**
  * Emits a bit-for-bit reproducible POSIX USTAR .tar.gz archive in pure Node.js:
- * sorted POSIX paths, fixed uid/gid=0, empty uname/gname, fixed mtime=sourceDateEpoch,
+ * sorted POSIX paths, regular files and symlinks, normalized executable modes,
+ * fixed uid/gid=0, empty uname/gname, fixed mtime=sourceDateEpoch,
  * and normalized gzip header (zero MTIME, OS=0xff).
  */
 export function createDeterministicTarGz(rootDir, options = {}) {
   const sourceDateEpoch = Number.isSafeInteger(options.sourceDateEpoch) ? options.sourceDateEpoch : 0;
-  const ignoreSet = new Set(options.ignoreFiles ?? []);
-  const entries = [];
-
-  const walk = (directory) => {
-    const names = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
-    );
-    for (const entry of names) {
-      if (DEFAULT_IGNORED_SEGMENTS.has(entry.name)) continue;
-      const fullPath = path.join(directory, entry.name);
-      const relativePath = path.relative(rootDir, fullPath).split(path.sep).join("/");
-      if (ignoreSet.has(relativePath)) continue;
-      const stat = lstatSync(fullPath);
-      if (stat.isDirectory()) {
-        walk(fullPath);
-      } else if (stat.isFile()) {
-        entries.push({ relativePath, fullPath, mode: (stat.mode & 0o111) !== 0 ? 0o755 : 0o644 });
-      }
-    }
-  };
-  walk(rootDir);
-  entries.sort((left, right) =>
-    left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0,
-  );
+  const entries = collectDeliverableEntries(rootDir, options);
 
   const chunks = [];
   for (const entry of entries) {
-    const content = readFileSync(entry.fullPath);
-    const { name, prefix } = splitUstarPath(entry.relativePath);
+    const { name, prefix } = splitUstarPath(entry.path);
+    if (entry.type === "symlink") {
+      if (Buffer.byteLength(entry.linkTarget, "utf8") > 100) {
+        throw new Error(
+          `Archive symlink target exceeds POSIX USTAR 100-byte limit: ${entry.path} -> ${entry.linkTarget}`,
+        );
+      }
+      const header = buildUstarHeader({
+        name,
+        prefix,
+        typeflag: 0x32,
+        mode: 0o777,
+        size: 0,
+        mtime: sourceDateEpoch,
+        linkname: entry.linkTarget,
+      });
+      chunks.push(header);
+      continue;
+    }
+    const content = entry.bytes;
     const header = buildUstarHeader({
       name,
       prefix,
-      mode: entry.mode,
+      typeflag: 0x30,
+      mode: Number.parseInt(entry.mode, 8),
       size: content.length,
       mtime: sourceDateEpoch,
+      linkname: "",
     });
     chunks.push(header, content);
     const remainder = content.length % 512;
@@ -198,6 +254,25 @@ export function createDeterministicTarGz(rootDir, options = {}) {
   return gzipped;
 }
 
+function writeDeliverableDirectory(stagingDir, outDir) {
+  const entries = collectDeliverableEntries(stagingDir);
+  mkdirSync(outDir, { recursive: true });
+  for (const entry of entries) {
+    const destination = path.join(outDir, ...entry.path.split("/"));
+    mkdirSync(path.dirname(destination), { recursive: true });
+    if (lstatSync(destination, { throwIfNoEntry: false })) {
+      rmSync(destination, { recursive: true, force: true });
+    }
+    if (entry.type === "symlink") {
+      symlinkSync(entry.linkTarget, destination);
+    } else {
+      const mode = Number.parseInt(entry.mode, 8);
+      writeFileSync(destination, entry.bytes, { mode });
+      chmodSync(destination, mode);
+    }
+  }
+}
+
 function splitUstarPath(posixPath) {
   if (Buffer.byteLength(posixPath, "utf8") <= 100) {
     return { name: posixPath, prefix: "" };
@@ -214,7 +289,7 @@ function splitUstarPath(posixPath) {
   throw new Error(`Archive path exceeds POSIX USTAR 255-byte limit: ${posixPath}`);
 }
 
-function buildUstarHeader({ name, prefix, mode, size, mtime }) {
+function buildUstarHeader({ name, prefix, typeflag = 0x30, mode, size, mtime, linkname = "" }) {
   const header = Buffer.alloc(512, 0);
   writeAscii(header, 0, 100, name);
   writeOctal(header, 100, 8, mode);
@@ -223,7 +298,8 @@ function buildUstarHeader({ name, prefix, mode, size, mtime }) {
   writeOctal(header, 124, 12, size);
   writeOctal(header, 136, 12, mtime);
   header.fill(0x20, 148, 156); // checksum placeholder spaces
-  header[156] = 0x30; // typeflag '0' regular file
+  header[156] = typeflag; // '0' regular file, '2' symbolic link
+  if (linkname) writeAscii(header, 157, 100, linkname);
   writeAscii(header, 257, 6, "ustar\0");
   writeAscii(header, 263, 2, "00");
   writeAscii(header, 345, 155, prefix);
@@ -360,6 +436,7 @@ export async function buildReproducibleBundle(options) {
 
     const buildEnv = {
       ...process.env,
+      ...(options.env ?? {}),
       SOURCE_DATE_EPOCH: String(sourceDateEpoch),
       TZ: "UTC",
       LC_ALL: "C",
@@ -373,11 +450,18 @@ export async function buildReproducibleBundle(options) {
       if (!options.offlineCacheDir || !existsSync(path.resolve(options.offlineCacheDir))) {
         throw new Error(`Offline npm cache directory does not exist: ${options.offlineCacheDir}`);
       }
+      // Explicitly include locked devDependencies (e.g. TypeScript compiler) during offline install:
+      // NODE_ENV=production or npm_config_omit=dev would otherwise omit dev:true packages in package-lock.json.
+      const installEnv = { ...buildEnv };
+      delete installEnv.NODE_ENV;
+      delete installEnv.npm_config_omit;
+      delete installEnv.NPM_CONFIG_OMIT;
       await runCommand(
         "npm",
         [
           "ci",
           "--offline",
+          "--include=dev",
           "--cache",
           path.resolve(options.offlineCacheDir),
           "--ignore-scripts",
@@ -385,7 +469,7 @@ export async function buildReproducibleBundle(options) {
           "--no-fund",
         ],
         staging,
-        buildEnv,
+        installEnv,
       );
     } else if (dependencyMode === "mirror") {
       const store = path.join(repository, "node_modules");
@@ -433,9 +517,7 @@ export async function buildReproducibleBundle(options) {
     }
 
     if (options.outputDir) {
-      const outDir = path.resolve(options.outputDir);
-      mkdirSync(outDir, { recursive: true });
-      cpSync(staging, outDir, { recursive: true });
+      writeDeliverableDirectory(staging, path.resolve(options.outputDir));
     }
 
     return {
@@ -454,27 +536,37 @@ export async function buildReproducibleBundle(options) {
 }
 
 export async function verifyReproducibleBuild(options) {
-  const buildA = await buildReproducibleBundle({
+  // Pin a mutable ref (e.g. HEAD or a branch) to one immutable commit SHA before running both builds.
+  const repository = path.resolve(options.repository ?? process.cwd());
+  const resolved = resolveRevision(repository, options.revision ?? "HEAD");
+  if (!resolved.ok) throw new Error(resolved.detail);
+  const pinnedCommit = resolved.commit;
+  const sourceDateEpoch =
+    options.sourceDateEpoch !== undefined
+      ? Number(options.sourceDateEpoch)
+      : resolveCommitEpoch(repository, pinnedCommit);
+
+  const pinnedOptions = {
     ...options,
+    repository,
+    revision: pinnedCommit,
+    sourceDateEpoch,
     outputDir: undefined,
     archivePath: undefined,
-  });
-  const buildB = await buildReproducibleBundle({
-    ...options,
-    outputDir: undefined,
-    archivePath: undefined,
-  });
+  };
+  const buildA = await buildReproducibleBundle(pinnedOptions);
+  const buildB = await buildReproducibleBundle(pinnedOptions);
 
   const differences = [];
-  const mapA = new Map(buildA.manifest.files.map((file) => [file.path, file.sha256]));
-  const mapB = new Map(buildB.manifest.files.map((file) => [file.path, file.sha256]));
+  const mapA = new Map(buildA.manifest.files.map((file) => [file.path, manifestEntryFingerprint(file)]));
+  const mapB = new Map(buildB.manifest.files.map((file) => [file.path, manifestEntryFingerprint(file)]));
   const allPaths = [...new Set([...mapA.keys(), ...mapB.keys()])].sort();
 
   for (const filePath of allPaths) {
-    const digestA = mapA.get(filePath) ?? null;
-    const digestB = mapB.get(filePath) ?? null;
-    if (digestA !== digestB) {
-      differences.push({ path: filePath, buildA: digestA, buildB: digestB });
+    const fingerprintA = mapA.get(filePath) ?? null;
+    const fingerprintB = mapB.get(filePath) ?? null;
+    if (fingerprintA !== fingerprintB) {
+      differences.push({ path: filePath, buildA: fingerprintA, buildB: fingerprintB });
     }
   }
 
@@ -484,7 +576,7 @@ export async function verifyReproducibleBuild(options) {
 
   return {
     ok,
-    commit: buildA.commit,
+    commit: pinnedCommit,
     sourceDateEpoch: buildA.sourceDateEpoch,
     artifactDigest: buildA.artifactDigest,
     archiveSha256: buildA.archiveSha256,
@@ -523,6 +615,23 @@ export function verifyBuildManifest(options) {
     const found = actualMap.get(filePath);
     if (!found) {
       errors.push(`missing file: ${filePath}`);
+      continue;
+    }
+    const expectedType = expected.type ?? "file";
+    const expectedMode = expected.mode ?? "0644";
+    if (found.type !== expectedType) {
+      errors.push(`type mismatch for ${filePath}: expected ${expectedType}, got ${found.type}`);
+      continue;
+    }
+    if (found.mode !== expectedMode) {
+      errors.push(`mode mismatch for ${filePath}: expected ${expectedMode}, got ${found.mode}`);
+    }
+    if (expectedType === "symlink") {
+      if (found.linkTarget !== expected.linkTarget) {
+        errors.push(
+          `symlink target mismatch for ${filePath}: expected ${String(expected.linkTarget)}, got ${found.linkTarget}`,
+        );
+      }
       continue;
     }
     if (found.sha256 !== expected.sha256 || found.size !== expected.size) {

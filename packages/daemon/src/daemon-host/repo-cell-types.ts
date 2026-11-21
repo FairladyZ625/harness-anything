@@ -478,6 +478,8 @@ export interface RepoCell {
   readonly attach: AgentRuntimeStreamHub["attach"];
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
+  /** Pure in-memory published status snapshot for observability scrapes; never performs synchronous disk I/O. */
+  readonly publishedStatus?: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
   readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */

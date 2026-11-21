@@ -82,6 +82,8 @@ export async function startDaemon(input: {
   readonly shutdownDeadlineExceeded?: () => void;
   /** Optional opt-in read-only Prometheus/health HTTP listener. Defaults to HARNESS_DAEMON_METRICS_* env. */
   readonly metrics?: DaemonMetricsHttpConfig | null;
+  /** When true, /readyz requires external/managed identity configuration before reporting ready. */
+  readonly requireIdentityReady?: boolean;
 }): Promise<DaemonServeStart> {
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket
@@ -452,7 +454,7 @@ export async function startDaemon(input: {
           };
         },
         isLive: () => !stopping,
-        isReady: () => !stopping && !host!.observabilitySnapshot().repos.some((repo) => repo.state === "warming"),
+        isReady: () => (stopping ? { ready: false, reasons: ["stopping"] } : host!.probeSnapshot()),
         onError: (error, { pathname }) =>
           lifecycle.record({
             event: "diagnostics",

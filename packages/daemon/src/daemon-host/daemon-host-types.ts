@@ -313,6 +313,11 @@ export interface DaemonHost {
     readonly repos: readonly RepoMetricsSnapshot[];
     readonly fleet: FleetMetricsSnapshot;
   };
+  /** Pure in-memory readiness probe judgment separating process liveness from service readiness. */
+  readonly probeSnapshot: () => {
+    readonly ready: boolean;
+    readonly reasons: readonly string[];
+  };
   readonly configureNodeAutoClaim: (policy: unknown, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;
@@ -340,6 +345,8 @@ export interface DaemonHostOpenInput {
     credential: string,
   ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
   readonly runtimeFile?: string;
+  /** When true, /readyz requires external/managed identity configuration to be present before advertising ready. */
+  readonly requireIdentityReady?: boolean;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   readonly buildDraining?: () => boolean;

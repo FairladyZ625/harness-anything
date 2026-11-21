@@ -3,6 +3,7 @@
 
 # Select "Deployment" for stateless PostgreSQL-backed centers (materialize: false)
 # or "StatefulSet" when persistent per-pod storage is required.
+# Single-authority writer topology requires replicaCount: 1.
 workloadKind: Deployment
 
 replicaCount: 1
@@ -49,9 +50,10 @@ daemon:
 
 # External PostgreSQL configuration mounted as a Kubernetes Secret at <userRoot>/daemon-storage.json.
 # Runtime and authority connection strings must live only in the referenced Secret, never in values.yaml.
+# Required when storage.backend=postgres so the daemon never silently falls back to local SQLite.
 storage:
   backend: postgres
-  existingSecret: ""
+  existingSecret: "harness-center-storage"
   secretKey: daemon-storage.json
 
 # External OIDC / Keycloak identity authority.

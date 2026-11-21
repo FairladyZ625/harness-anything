@@ -8,18 +8,19 @@ The daemon provides an opt-in, read-only HTTP server implemented on Node's built
 
 Enable it via environment variables or CLI flags on `harness-anything-daemon serve`:
 
-| Environment variable | CLI flag | Default | Purpose |
-| --- | --- | --- | --- |
-| `HARNESS_DAEMON_METRICS_PORT` | `--metrics-port` | unset (disabled) | TCP port (`0..65535`) for `/metrics`, `/healthz`, and `/readyz` |
-| `HARNESS_DAEMON_METRICS_BIND` | `--metrics-bind` | `127.0.0.1` | Bind host (`0.0.0.0` inside containers when scraped in-cluster) |
-| `HARNESS_DAEMON_METRICS_PATH` | `--metrics-path` | `/metrics` | Scrape path (must start with `/`) |
-| `HARNESS_DAEMON_METRICS_BEARER_TOKEN` | — | unset | Optional Bearer token required on `/metrics` (verified with constant-time digest comparison; responds with RFC 6750 `WWW-Authenticate: Bearer` on `401`) |
+| Environment variable                  | CLI flag         | Default          | Purpose                                                                                                                                                  |
+| ------------------------------------- | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HARNESS_DAEMON_METRICS_PORT`         | `--metrics-port` | unset (disabled) | TCP port (`0..65535`) for `/metrics`, `/healthz`, and `/readyz`                                                                                          |
+| `HARNESS_DAEMON_METRICS_BIND`         | `--metrics-bind` | `127.0.0.1`      | Bind host (`0.0.0.0` inside containers when scraped in-cluster)                                                                                          |
+| `HARNESS_DAEMON_METRICS_PATH`         | `--metrics-path` | `/metrics`       | Canonical scrape path (must start with `/`, must not conflict with `/healthz` or `/readyz`)                                                              |
+| `HARNESS_DAEMON_METRICS_BEARER_TOKEN` | —                | unset            | Optional Bearer token required on `/metrics` (verified with constant-time digest comparison; responds with RFC 6750 `WWW-Authenticate: Bearer` on `401`) |
+| `HARNESS_DAEMON_REQUIRE_IDENTITY`     | —                | unset (`0`)      | When `1`/`true`, `/readyz` returns `503` (`identity_not_configured`) until identity configuration is present                                             |
 
 ### Endpoints
 
-- `GET /metrics` (`HEAD` allowed): returns Prometheus exposition format (`text/plain; version=0.0.4; charset=utf-8`). All counters, gauges, histograms, and bounded-window latency quantiles are assembled in `O(1)` bounded work per loaded repository from resident in-memory state plus a single-row projection watermark read—never scanning ledger tables, enumerating directories, or reading `registry.json`. `ha_daemon_build_info` resolves the installed `@harness-anything/daemon` package version even when launched directly via `node` outside npm.
-- `GET /healthz`: returns `200` while the daemon is live and `503` during shutdown or probe failure.
-- `GET /readyz`: returns `200` when the daemon is live and no loaded repository cell is `warming`; otherwise returns `503`.
+- `GET /metrics` (`HEAD` allowed): returns Prometheus exposition format (`text/plain; version=0.0.4; charset=utf-8`). All counters, gauges, histograms, and bounded-window latency quantiles are assembled strictly from resident in-memory host/writer state (`publishedStatus()`) with zero synchronous disk reads, zero ledger table scans, zero `registry.json` reads, and linear `O(R)` output formatting without per-scrape sorting when repository membership is unchanged. `ha_daemon_build_info` resolves the installed `@harness-anything/daemon` package version even when launched directly via `node` outside npm.
+- `GET /healthz`: process liveness probe; returns `200` (`live`) while the daemon process is running and `503` during shutdown or probe failure.
+- `GET /readyz`: service readiness probe; returns `200` (`ready`) only when the daemon is live, initial attachments have settled, no repository is `warming` or `unavailable`, any configured Fleet center listener restored cleanly, and (when `HARNESS_DAEMON_REQUIRE_IDENTITY=1`) identity configuration is ready; otherwise returns `503` (`not_ready`) with machine-readable `reasons`.
 - Collector or probe exceptions are isolated per request, recorded through the daemon diagnostics log, and answered with bounded `500` (`/metrics`) or `503` (`/healthz`, `/readyz`) responses without terminating the daemon.
 - Non-`GET`/`HEAD` requests return `405 Method Not Allowed`; unknown routes return `404 Not Found`.
 
@@ -34,7 +35,7 @@ Enable it via environment variables or CLI flags on `harness-anything-daemon ser
 
 ## Reproducible offline build verification
 
-`tools/reproducible-build.mjs` builds workspace deliverables from a pinned Git commit inside clean archive trees with `SOURCE_DATE_EPOCH` pinned to the commit timestamp, deterministic USTAR/gzip archive packaging, and sorted SHA-256 manifests (`harness-anything/reproducible-build-manifest/v1`).
+`tools/reproducible-build.mjs` builds workspace deliverables from a pinned Git commit inside clean archive trees with `SOURCE_DATE_EPOCH` pinned to the commit timestamp, installs locked build-time `devDependencies` via `npm ci --offline --include=dev` in `--offline-cache` mode, verifies unified deliverable entries (regular files, normalized POSIX executable modes, and symbolic links) across `build-manifest.json`, output directories, and deterministic USTAR/gzip archives (`harness-anything/reproducible-build-manifest/v1`).
 
 ```bash
 # Build a deterministic bundle from a pre-seeded offline npm cache
@@ -44,13 +45,13 @@ node tools/reproducible-build.mjs build \
   --out ./out/bundle \
   --archive ./out/bundle.tar.gz
 
-# Run two independent clean builds and verify bit-for-bit digest parity
+# Run two independent clean builds against one pinned commit and verify bit-for-bit parity
 node tools/reproducible-build.mjs verify \
   --revision HEAD \
   --mirror-node-modules \
   --verify-archive
 
-# Verify an extracted bundle offline against its build-manifest.json
+# Verify an extracted bundle offline against its build-manifest.json (bytes, mode bits, symlinks)
 node tools/reproducible-build.mjs verify-manifest \
   --bundle ./out/bundle
 ```
@@ -59,9 +60,11 @@ node tools/reproducible-build.mjs verify-manifest \
 
 The generic chart at [deploy/helm/harness-center/Chart.yaml](../deploy/helm/harness-center/Chart.yaml) targets external PostgreSQL (see [PostgreSQL daemon deployment](postgres-daemon.md)) and external OIDC/Keycloak (see [Server Daemon operations](operations-server-daemon.md)):
 
-- **Stateless vs. stateful workloads**: set `workloadKind: Deployment` (default) for PostgreSQL-backed stateless centers (`materialize: false`), or `workloadKind: StatefulSet` when persistent per-pod volumes (`volumeClaimTemplates`) are needed.
-- **External OIDC / Keycloak and Fleet TLS startup wiring**: the chart mounts `/etc/harness/entrypoint/start-center.sh` from `entrypoint-configmap.yaml` as the container entrypoint (aligned with `deploy/center.Dockerfile` paths `/opt/ha/current/packages/daemon/dist/index.js` and `/opt/ha/current/packages/cli/dist/cli/src/index.js`):
-  - When `identity.mode=external`, `identity.issuerUrl`, and `identity.existingClientSecret` are set, the entrypoint starts the daemon, waits for its local Unix socket, and runs `ha bootstrap --mode external --url ... --realm ... --client-id ... --client-secret-stdin < /etc/harness/oidc/<clientSecretKey>` whenever `<userRoot>/rbac/config.json` is not yet present.
-  - When `fleet.enabled=true`, `fleet.authorityRepoId`, and `fleet.tlsExistingSecret` are set, the entrypoint idempotently writes `harness-daemon-registry/v2` and `fleet-center-config/v1` referencing `/etc/harness/fleet-tls/{tlsCertKey,tlsKeyKey}` before daemon launch so `openDaemonHost` restores and binds the Fleet TLS listener on boot. Operators who omit `fleet.authorityRepoId` can instead run `ha bootstrap --operation login` and `ha daemon fleet center start` interactively over the pod's local socket.
-- **Secret isolation**: database connection strings (`daemon-storage.json`), Fleet TLS keypairs, OIDC client secrets, and optional Prometheus scrape Bearer tokens are mounted exclusively from Kubernetes Secrets referenced by name in `values.yaml`.
-- **Kubernetes probes & Prometheus Operator**: wires `/healthz` and `/readyz` probes by default, plus opt-in `ServiceMonitor` (`metrics.serviceMonitor.enabled: true`) and `PrometheusRule` (`metrics.prometheusRule.enabled: true`, alerting on `up == 0 or absent(ha_daemon_up) == 1`, queue saturation, projection lag, and aggregated `sum(rate(...{outcome="error"}[5m])) / clamp_min(sum(rate(...[5m])), 1e-9)` RPC error ratio).
+- **Single-authority topology & workloads**: `replicaCount` is locked to `1` in both `values.schema.json` and render-time template checks (avoiding PostgreSQL writer fencing or split SQLite volumes). Set `workloadKind: Deployment` (default) for stateless PostgreSQL-backed centers (`materialize: false`), or `workloadKind: StatefulSet` (paired with a governing headless Service `clusterIP: None`) when persistent per-pod volumes (`volumeClaimTemplates`) are required.
+- **PostgreSQL enforcement**: when `storage.backend=postgres`, `storage.existingSecret` is mandatory and `start-center.sh` validates `<userRoot>/daemon-storage.json` before launch so the daemon never silently falls back to local SQLite.
+- **External OIDC / Keycloak and Fleet TLS lifecycle (`start-center.sh`)**:
+  - Reconciles `harness-daemon-registry/v2` and `fleet-center-config/v1` atomically on every start/upgrade when `fleet.enabled=true` with `fleet.authorityRepoId` and `fleet.tlsExistingSecret`, and removes stale persisted `center.json` when `fleet.enabled=false`.
+  - On first boot with `identity.mode=external`, `identity.issuerUrl`, and `identity.existingClientSecret`, starts the daemon with `HARNESS_DAEMON_REQUIRE_IDENTITY=1` (keeping `/readyz` at `503` while `/healthz` passes), runs `ha bootstrap --mode external --client-secret-stdin`, drains the temporary bootstrap daemon with a signal-safe wait loop, and hands off via `exec node` so the daemon runs directly as PID 1.
+  - On subsequent starts, fails closed if persisted `rbac/config.json` or `center-client-secret` drifted from Helm values, directing operators to the native authorized rotation flow (`ha bootstrap --operation login` + `ha bootstrap --mode external`).
+- **Separated Service boundaries**: `service.yaml` exposes only `fleet-tls` (`ClusterIP`/`NodePort`/`LoadBalancer`), while `service-metrics.yaml` always uses `ClusterIP` exclusively for the `metrics` port and is targeted by `ServiceMonitor` (`app.kubernetes.io/component: metrics`).
+- **Release-scoped Prometheus Operator alerts**: `PrometheusRule` scopes all alerts (`HarnessDaemonDown`, `HarnessWriteQueueSaturated`, `HarnessProjectionLagHigh`, `HarnessRpcErrorRateHigh`) by `namespace` and the release's dedicated `service` label so multiple releases never mask or dilute each other.

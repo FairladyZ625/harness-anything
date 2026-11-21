@@ -1,0 +1,23 @@
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harness-center.metricsServiceName" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.service.metricsPort | quote }}
+    prometheus.io/path: {{ .Values.metrics.path | quote }}
+spec:
+  # Always ClusterIP: metrics and probe ports must never be co-exposed on an external Fleet LoadBalancer/NodePort Service.
+  type: ClusterIP
+  selector:
+    {{- include "harness-center.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+{{- end }}

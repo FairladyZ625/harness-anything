@@ -1,10 +1,22 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { gunzipSync } from "node:zlib";
 import {
   buildReproducibleBundle,
   computeDirectoryManifest,
@@ -13,7 +25,45 @@ import {
   verifyReproducibleBuild,
 } from "./reproducible-build.mjs";
 
-function createFixtureGitRepo({ nondeterministic = false, resolveWorkspaceDep = false } = {}) {
+function parseUstarEntries(tarGzBytes) {
+  const tar = gunzipSync(tarGzBytes);
+  const entries = [];
+  let offset = 0;
+  while (offset + 512 <= tar.length) {
+    const header = tar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) break;
+    const readStr = (start, len) =>
+      header
+        .subarray(start, start + len)
+        .toString("utf8")
+        .replace(/\0.*$/u, "");
+    const name = readStr(0, 100);
+    const prefix = readStr(345, 155);
+    const fullPath = prefix ? `${prefix}/${name}` : name;
+    const mode = Number.parseInt(readStr(100, 8).trim(), 8).toString(8).padStart(4, "0");
+    const size = Number.parseInt(readStr(124, 12).trim() || "0", 8);
+    const typeflag = String.fromCharCode(header[156]);
+    const linkTarget = readStr(157, 100);
+    offset += 512;
+    const content = size > 0 ? tar.subarray(offset, offset + size) : Buffer.alloc(0);
+    const blocks = Math.ceil(size / 512);
+    offset += blocks * 512;
+    entries.push({
+      path: fullPath,
+      type: typeflag === "2" ? "symlink" : "file",
+      mode,
+      size,
+      ...(typeflag === "2" ? { linkTarget } : { content }),
+    });
+  }
+  return entries;
+}
+
+function createFixtureGitRepo({
+  nondeterministic = false,
+  resolveWorkspaceDep = false,
+  includeExecutableAndSymlink = false,
+} = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-repro-repo-"));
   mkdirSync(path.join(dir, "packages/sample/src"), { recursive: true });
   writeFileSync(
@@ -67,6 +117,13 @@ function createFixtureGitRepo({ nondeterministic = false, resolveWorkspaceDep = 
     )}\n`,
   );
   writeFileSync(path.join(dir, "packages/sample/src/index.js"), 'export const greeting = "hello-deterministic";\n');
+  if (includeExecutableAndSymlink) {
+    mkdirSync(path.join(dir, "packages/sample/bin"), { recursive: true });
+    const binPath = path.join(dir, "packages/sample/bin/run.sh");
+    writeFileSync(binPath, "#!/bin/sh\necho deterministic\n", { mode: 0o755 });
+    chmodSync(binPath, 0o755);
+    symlinkSync("run.sh", path.join(dir, "packages/sample/bin/run-link.sh"));
+  }
   writeFileSync(
     path.join(dir, "packages/sample/build.mjs"),
     nondeterministic
@@ -113,7 +170,7 @@ function createFixtureGitRepo({ nondeterministic = false, resolveWorkspaceDep = 
   git(["add", "."]);
   git(["commit", "-q", "-m", "fixture"]);
   const commit = git(["rev-parse", "HEAD"]);
-  return { dir, commit };
+  return { dir, commit, git };
 }
 
 test("verifyReproducibleBuild confirms two independent offline builds produce bit-for-bit identical digests and tar.gz", async () => {
@@ -121,7 +178,7 @@ test("verifyReproducibleBuild confirms two independent offline builds produce bi
   try {
     const result = await verifyReproducibleBuild({
       repository: dir,
-      revision: commit,
+      revision: "HEAD",
       targetWorkspaces: ["@repro/sample"],
       dependencyMode: "none",
       createArchive: true,
@@ -139,19 +196,236 @@ test("verifyReproducibleBuild confirms two independent offline builds produce bi
   }
 });
 
-test("verifyBuildManifest detects byte tampering, deleted files, and extra injected files", async () => {
-  const { dir, commit } = createFixtureGitRepo({ nondeterministic: false });
+test("offline-cache mode installs locked devDependencies (compiler) under hostile NODE_ENV=production and isolated PATH", async () => {
+  const sandbox = mkdtempSync(path.join(tmpdir(), "ha-repro-offline-cache-"));
+  const toolPkgDir = path.join(sandbox, "repro-compiler");
+  const repoDir = path.join(sandbox, "repo");
+  const cacheDir = path.join(sandbox, "npm-cache");
+  const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
+  const nodeBinDir = path.dirname(process.execPath);
+  // Isolated PATH containing only node/npm and POSIX /bin/sh (no global compilers like tsc or repro-compiler).
+  const isolatedBinDir = path.join(sandbox, "isolated-bin");
+  mkdirSync(isolatedBinDir, { recursive: true });
+  if (process.platform !== "win32") {
+    symlinkSync(process.execPath, path.join(isolatedBinDir, "node"));
+    symlinkSync(path.join(nodeBinDir, "npm"), path.join(isolatedBinDir, "npm"));
+    symlinkSync("/bin/sh", path.join(isolatedBinDir, "sh"));
+  }
+  const isolatedEnv = {
+    PATH: process.platform === "win32" ? `${nodeBinDir}${path.delimiter}${process.env.PATH ?? ""}` : isolatedBinDir,
+    HOME: path.join(sandbox, "empty-home"),
+    NODE_ENV: "production",
+    npm_config_omit: "dev",
+  };
+  mkdirSync(isolatedEnv.HOME, { recursive: true });
+  mkdirSync(toolPkgDir, { recursive: true });
+  mkdirSync(path.join(repoDir, "packages/sample/src"), { recursive: true });
+  mkdirSync(cacheDir, { recursive: true });
+
+  try {
+    // 1. Create a real local devDependency compiler package and pack it into a tarball
+    writeFileSync(
+      path.join(toolPkgDir, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "repro-compiler",
+          version: "1.0.0",
+          bin: { "repro-compiler": "./cli.cjs" },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    writeFileSync(
+      path.join(toolPkgDir, "cli.cjs"),
+      [
+        "#!/usr/bin/env node",
+        'const fs = require("node:fs");',
+        'fs.mkdirSync("dist", { recursive: true });',
+        'const src = fs.readFileSync("src/index.js", "utf8");',
+        'fs.writeFileSync("dist/index.js", `// compiled-by=repro-compiler@1.0.0 epoch=${process.env.SOURCE_DATE_EPOCH}\\n${src}`);',
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    chmodSync(path.join(toolPkgDir, "cli.cjs"), 0o755);
+
+    const packRes = spawnSync(npmBin, ["pack", "--pack-destination", sandbox], {
+      cwd: toolPkgDir,
+      encoding: "utf8",
+      env: { ...process.env, HOME: isolatedEnv.HOME },
+      ...(process.platform === "win32" ? { shell: true } : {}),
+    });
+    assert.equal(packRes.status, 0, `npm pack failed: ${packRes.stderr}`);
+    const tarballPath = path.join(sandbox, packRes.stdout.trim().split(/\r?\n/u).at(-1));
+
+    // 2. Create a repo locking repro-compiler as devDependencies (dev: true in package-lock.json)
+    writeFileSync(
+      path.join(repoDir, "package.json"),
+      `${JSON.stringify(
+        {
+          name: "offline-cache-fixture",
+          version: "0.1.0",
+          private: true,
+          type: "module",
+          workspaces: ["packages/*"],
+          devDependencies: {
+            "repro-compiler": `file:${tarballPath}`,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    writeFileSync(
+      path.join(repoDir, "packages/sample/package.json"),
+      `${JSON.stringify(
+        {
+          name: "@repro/sample",
+          version: "0.1.0",
+          type: "module",
+          scripts: {
+            build: "repro-compiler",
+          },
+          exports: { ".": "./src/index.js" },
+          publishConfig: { exports: { ".": "./dist/index.js" } },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    writeFileSync(path.join(repoDir, "packages/sample/src/index.js"), 'export const value = "offline-ok";\n');
+
+    // Seed the offline cache and generate a real package-lock.json with dev:true on repro-compiler
+    const seedInstall = spawnSync(
+      npmBin,
+      ["install", "--include=dev", "--cache", cacheDir, "--ignore-scripts", "--no-audit", "--no-fund"],
+      {
+        cwd: repoDir,
+        encoding: "utf8",
+        env: { ...process.env, HOME: isolatedEnv.HOME },
+        ...(process.platform === "win32" ? { shell: true } : {}),
+      },
+    );
+    assert.equal(seedInstall.status, 0, `seed npm install failed: ${seedInstall.stderr}`);
+
+    const lock = JSON.parse(readFileSync(path.join(repoDir, "package-lock.json"), "utf8"));
+    assert.equal(
+      lock.packages?.["node_modules/repro-compiler"]?.dev,
+      true,
+      "fixture lockfile must mark repro-compiler as dev:true to prove F-G7-05",
+    );
+
+    // Commit clean repository without node_modules
+    rmSync(path.join(repoDir, "node_modules"), { recursive: true, force: true });
+    const gitEnv = {
+      ...process.env,
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@example.test",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@example.test",
+      GIT_AUTHOR_DATE: "2026-11-21T00:00:00Z",
+      GIT_COMMITTER_DATE: "2026-11-21T00:00:00Z",
+    };
+    assert.equal(spawnSync("git", ["init", "-q"], { cwd: repoDir, env: gitEnv }).status, 0);
+    assert.equal(spawnSync("git", ["add", "."], { cwd: repoDir, env: gitEnv }).status, 0);
+    assert.equal(
+      spawnSync("git", ["commit", "-q", "-m", "offline-cache-fixture"], { cwd: repoDir, env: gitEnv }).status,
+      0,
+    );
+    const commit = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: repoDir,
+      encoding: "utf8",
+      env: gitEnv,
+    }).stdout.trim();
+
+    // 3. Run two real --offline-cache builds under isolated PATH and hostile NODE_ENV=production
+    const result = await verifyReproducibleBuild({
+      repository: repoDir,
+      revision: commit,
+      targetWorkspaces: ["@repro/sample"],
+      dependencyMode: "offline-cache",
+      offlineCacheDir: cacheDir,
+      createArchive: true,
+      env: isolatedEnv,
+    });
+
+    assert.equal(result.ok, true, `real offline-cache dual build must succeed: ${JSON.stringify(result.differences)}`);
+    assert.equal(result.differences.length, 0);
+    assert.equal(result.builds[0].artifactDigest, result.builds[1].artifactDigest);
+    assert.equal(result.builds[0].archiveSha256, result.builds[1].archiveSha256);
+    assert.match(result.archiveSha256, /^sha256:[a-f0-9]{64}$/u);
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("verifyBuildManifest detects byte, executable-mode, symlink-target, type, missing, and extra tampering, and output dir matches tar.gz 1:1", async () => {
+  const { dir, commit } = createFixtureGitRepo({ nondeterministic: false, includeExecutableAndSymlink: true });
   const outDir = mkdtempSync(path.join(tmpdir(), "ha-repro-out-"));
+  const archiveDir = mkdtempSync(path.join(tmpdir(), "ha-repro-archive-"));
+  const archivePath = path.join(archiveDir, "bundle.tar.gz");
   try {
     const built = await buildReproducibleBundle({
       repository: dir,
       revision: commit,
       outputDir: outDir,
+      archivePath,
       targetWorkspaces: ["@repro/sample"],
       dependencyMode: "none",
     });
     const manifestPath = path.join(outDir, "build-manifest.json");
     assert.equal(verifyBuildManifest({ bundleDir: outDir, manifestPath }).ok, true);
+
+    // Confirm output directory, manifest, and USTAR tar.gz archive are structurally equivalent (files + modes + symlinks)
+    const tarEntries = parseUstarEntries(readFileSync(archivePath)).filter(
+      (entry) => entry.path !== "build-manifest.json",
+    );
+    const manifestEntries = built.manifest.files;
+    assert.equal(tarEntries.length, manifestEntries.length, "tar.gz and manifest must have identical entry counts");
+    for (let i = 0; i < manifestEntries.length; i += 1) {
+      const m = manifestEntries[i];
+      const t = tarEntries[i];
+      assert.equal(t.path, m.path);
+      assert.equal(t.type, m.type);
+      assert.equal(t.mode, m.mode);
+      assert.equal(t.size, m.size);
+      const outPath = path.join(outDir, ...m.path.split("/"));
+      const outStat = lstatSync(outPath);
+      if (m.type === "symlink") {
+        assert.equal(outStat.isSymbolicLink(), true, `${m.path} must be a symlink in outputDir`);
+        assert.equal(readlinkSync(outPath), m.linkTarget);
+        assert.equal(t.linkTarget, m.linkTarget);
+      } else {
+        assert.equal(outStat.isFile(), true, `${m.path} must be a regular file in outputDir`);
+        const outMode = (outStat.mode & 0o111) !== 0 ? "0755" : "0644";
+        assert.equal(outMode, m.mode);
+      }
+    }
+
+    // Executable bit tampering rejected (F-G7-06)
+    const binTarget = path.join(outDir, "packages/sample/bin/run.sh");
+    chmodSync(binTarget, 0o644);
+    const modeCheck = verifyBuildManifest({ bundleDir: outDir, manifestPath });
+    assert.equal(modeCheck.ok, false, "executable mode tampering must fail verifyBuildManifest");
+    assert.ok(modeCheck.errors.some((entry) => entry.includes("mode mismatch") && entry.includes("run.sh")));
+    chmodSync(binTarget, 0o755);
+
+    // Symlink target tampering rejected (F-G7-06)
+    const linkTarget = path.join(outDir, "packages/sample/bin/run-link.sh");
+    unlinkSync(linkTarget);
+    symlinkSync("../src/index.js", linkTarget);
+    const linkCheck = verifyBuildManifest({ bundleDir: outDir, manifestPath });
+    assert.equal(linkCheck.ok, false, "symlink target tampering must fail verifyBuildManifest");
+    assert.ok(linkCheck.errors.some((entry) => entry.includes("symlink target mismatch")));
+
+    // Symlink replaced with regular file rejected (type mismatch)
+    unlinkSync(linkTarget);
+    writeFileSync(linkTarget, "not-a-symlink\n");
+    const typeCheck = verifyBuildManifest({ bundleDir: outDir, manifestPath });
+    assert.equal(typeCheck.ok, false, "file type substitution must fail verifyBuildManifest");
+    assert.ok(typeCheck.errors.some((entry) => entry.includes("type mismatch")));
+    unlinkSync(linkTarget);
+    symlinkSync("run.sh", linkTarget);
 
     // Extra unexpected file rejected
     const extraPath = path.join(outDir, "packages/sample/dist/injected.js");
@@ -176,13 +450,15 @@ test("verifyBuildManifest detects byte tampering, deleted files, and extra injec
     assert.equal(missingCheck.ok, false);
     assert.ok(missingCheck.errors.some((entry) => entry.includes("missing")));
 
-    // Confirm built digest matches computeDirectoryManifest when clean
+    // Confirm built digest matches computeDirectoryManifest when restored clean
     writeFileSync(target, original);
     const recomputed = computeDirectoryManifest(outDir, { ignoreFiles: ["build-manifest.json"] });
     assert.equal(recomputed.artifactDigest, built.manifest.artifactDigest);
+    assert.equal(verifyBuildManifest({ bundleDir: outDir, manifestPath }).ok, true);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     rmSync(outDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(archiveDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
 
@@ -210,8 +486,10 @@ test("createDeterministicTarGz emits bit-for-bit identical gzipped tar regardles
     writeFileSync(path.join(dirA, "b.txt"), "beta\n");
     writeFileSync(path.join(dirA, "a.txt"), "alpha\n");
     writeFileSync(path.join(dirA, "sub/c.txt"), "gamma\n");
+    symlinkSync("../a.txt", path.join(dirA, "sub/a-link.txt"));
 
     mkdirSync(path.join(dirB, "sub"), { recursive: true });
+    symlinkSync("../a.txt", path.join(dirB, "sub/a-link.txt"));
     writeFileSync(path.join(dirB, "sub/c.txt"), "gamma\n");
     writeFileSync(path.join(dirB, "a.txt"), "alpha\n");
     writeFileSync(path.join(dirB, "b.txt"), "beta\n");

@@ -1,4 +1,6 @@
 {{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- $svc := include "harness-center.metricsServiceName" . }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -13,39 +15,39 @@ spec:
     - name: harness-center.rules
       rules:
         - alert: HarnessDaemonDown
-          expr: up{job="{{ include "harness-center.fullname" . }}"} == 0 or absent(ha_daemon_up) == 1
+          expr: up{namespace="{{ $ns }}",service="{{ $svc }}"} == 0 or absent(up{namespace="{{ $ns }}",service="{{ $svc }}"})
           for: 1m
           labels:
             severity: critical
           annotations:
             summary: "Harness Anything daemon is down"
-            description: "The Harness Anything center daemon scrape target is down (up == 0) or ha_daemon_up is absent for more than 1 minute."
+            description: "The Harness Anything center daemon metrics target ({{ $ns }}/{{ $svc }}) is down (up == 0) or missing from service discovery for more than 1 minute."
         - alert: HarnessWriteQueueSaturated
-          expr: ha_daemon_write_queue_depth_total > {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }}
+          expr: ha_daemon_write_queue_depth_total{namespace="{{ $ns }}",service="{{ $svc }}"} > {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }}
           for: 2m
           labels:
             severity: warning
           annotations:
             summary: "Harness Anything single-writer queue backlog"
-            description: "Total single-writer queue depth exceeded {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }} for 2 minutes."
+            description: "Total single-writer queue depth for {{ $ns }}/{{ $svc }} exceeded {{ .Values.metrics.prometheusRule.writeQueueDepthThreshold }} for 2 minutes."
         - alert: HarnessProjectionLagHigh
-          expr: ha_daemon_projection_lag_revisions_max > {{ .Values.metrics.prometheusRule.projectionLagThreshold }}
+          expr: ha_daemon_projection_lag_revisions_max{namespace="{{ $ns }}",service="{{ $svc }}"} > {{ .Values.metrics.prometheusRule.projectionLagThreshold }}
           for: 3m
           labels:
             severity: warning
           annotations:
             summary: "Harness Anything projection lag elevated"
-            description: "Maximum projection lag exceeded {{ .Values.metrics.prometheusRule.projectionLagThreshold }} revisions for 3 minutes."
+            description: "Maximum projection lag for {{ $ns }}/{{ $svc }} exceeded {{ .Values.metrics.prometheusRule.projectionLagThreshold }} revisions for 3 minutes."
         - alert: HarnessRpcErrorRateHigh
           expr: |
             (
-              sum(rate(ha_daemon_rpc_requests_total{outcome="error"}[5m]))
-              / clamp_min(sum(rate(ha_daemon_rpc_requests_total[5m])), 1e-9)
+              sum(rate(ha_daemon_rpc_requests_total{namespace="{{ $ns }}",service="{{ $svc }}",outcome="error"}[5m]))
+              / clamp_min(sum(rate(ha_daemon_rpc_requests_total{namespace="{{ $ns }}",service="{{ $svc }}"}[5m])), 1e-9)
             ) > {{ .Values.metrics.prometheusRule.rpcErrorRatioThreshold }}
           for: 5m
           labels:
             severity: warning
           annotations:
             summary: "Harness Anything RPC error rate elevated"
-            description: "Daemon RPC error ratio exceeded {{ .Values.metrics.prometheusRule.rpcErrorRatioThreshold }} over the last 5 minutes."
+            description: "Daemon RPC error ratio for {{ $ns }}/{{ $svc }} exceeded {{ .Values.metrics.prometheusRule.rpcErrorRatioThreshold }} over the last 5 minutes."
 {{- end }}

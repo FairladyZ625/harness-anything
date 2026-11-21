@@ -1,3 +1,4 @@
+{{- include "harness-center.validateValues" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,12 +10,15 @@ data:
   HARNESS_DAEMON_USER_ROOT: {{ .Values.daemon.userRoot | quote }}
   HARNESS_DAEMON_ENTRY: {{ .Values.daemon.entrypoint | quote }}
   HARNESS_CLI_ENTRY: {{ .Values.daemon.cliEntrypoint | quote }}
+  HARNESS_STORAGE_BACKEND: {{ .Values.storage.backend | quote }}
+  HARNESS_FLEET_ENABLED: {{ .Values.fleet.enabled | quote }}
   {{- if .Values.metrics.enabled }}
   HARNESS_DAEMON_METRICS_BIND: {{ .Values.metrics.bind | quote }}
   HARNESS_DAEMON_METRICS_PORT: {{ .Values.metrics.port | quote }}
   HARNESS_DAEMON_METRICS_PATH: {{ .Values.metrics.path | quote }}
   {{- end }}
   {{- if and (eq .Values.identity.mode "external") .Values.identity.issuerUrl .Values.identity.existingClientSecret }}
+  HARNESS_DAEMON_REQUIRE_IDENTITY: "1"
   HARNESS_OIDC_ISSUER_URL: {{ .Values.identity.issuerUrl | quote }}
   HARNESS_OIDC_REALM: {{ .Values.identity.realm | quote }}
   HARNESS_OIDC_CLIENT_ID: {{ .Values.identity.clientId | quote }}
