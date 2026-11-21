@@ -18,7 +18,6 @@ import {
 import { eventAt } from "../store/task-event-store.fixtures.ts";
 import { explainNodes, tracedPgReads } from "../postgres/pg-explain.fixture.ts";
 import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
-import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";

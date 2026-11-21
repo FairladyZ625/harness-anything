@@ -646,7 +646,7 @@ function verifyCertificateAgainstChain(
       reviewsVerifiedCount += 1;
     } else if (
       fullTaskLifecycleCovered ||
-      isTimestampStrictlyInsideIntervals(review.reviewedAt, coverageIntervals.timestamps)
+      timestampStrictlyInsideIntervals(review.reviewedAt, coverageIntervals.timestamps)
     ) {
       return {
         ok: false,
@@ -699,7 +699,7 @@ function verifyCertificateAgainstChain(
       consentVerified = true;
     } else if (
       fullExecutionConsentWindowCovered ||
-      isTimestampStrictlyInsideIntervals(cert.reviewConsent.consentedAt, coverageIntervals.timestamps)
+      timestampStrictlyInsideIntervals(cert.reviewConsent.consentedAt, coverageIntervals.timestamps)
     ) {
       return {
         ok: false,
@@ -938,11 +938,7 @@ function intervalSetCoversSpan(intervals: readonly ClosedNumericInterval[], star
   return intervals.some((interval) => interval.start <= start && interval.end >= end);
 }
 
-function isTimestampStrictlyInsideIntervals(
-  timestampText: string,
-  intervals: readonly ClosedNumericInterval[],
-): boolean {
+function timestampStrictlyInsideIntervals(timestampText: string, intervals: readonly ClosedNumericInterval[]): boolean {
   const target = Date.parse(timestampText);
-  if (Number.isNaN(target)) return false;
-  return intervals.some((interval) => target > interval.start && target < interval.end);
+  return !Number.isNaN(target) && intervals.some((interval) => target > interval.start && target < interval.end);
 }

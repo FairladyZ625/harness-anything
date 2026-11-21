@@ -15,7 +15,6 @@ import {
   buildHistoricalTimestampFixtures,
   HISTORICAL_TIMESTAMP_CASES,
 } from "../canonical-factory.assertions.ts";
-import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { eventAt } from "./task-event-store.fixtures.ts";
 import { assertWriterEpochFactory } from "../writer-epoch-factory.assertions.ts";
 import { withTempStoreAsync } from "./helpers.ts";
