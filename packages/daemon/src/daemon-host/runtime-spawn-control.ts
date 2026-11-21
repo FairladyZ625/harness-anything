@@ -2,7 +2,9 @@ import { orphanRuntimeStopDisposition } from "@harness-anything/kernel/internal/
 import { readOrphanRuntimeRecoveryAuthority } from "./runtime-online-binding.ts";
 import {
   observeRuntimeDispatchOwnerGroup,
+  readRuntimeDispatchOwner,
   readRuntimeDispatchOwnerEvidence,
+  type RuntimeDispatchOwner,
 } from "./runtime-dispatch-owner-evidence.ts";
 import { auditedOrphanTerminal } from "./runtime-orphan-recovery.ts";
 import { createHash } from "node:crypto";
@@ -17,6 +19,7 @@ import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from
 import {
   appendRuntimeWorkerRecord,
   findLiveDispatchStreamPath,
+  isValidDispatchStreamId,
   readDispatchStream,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
@@ -72,22 +75,26 @@ export async function cancelRuntime(
     throw runtimeSpawnError("invalid_field", "Recovery reason must not be empty.");
   if (payload.idempotencyKey !== undefined && !idempotencyKey)
     throw runtimeSpawnError("invalid_field", "Runtime cancel idempotencyKey must not be empty.");
-  // Authorize against the active handle Map or canonical dispatch via O(1) direct header lookup (F4).
+  // Authorize against the active handle Map or canonical dispatch via O(1) point lookup (F4).
+  // Never scan session liveness history here; PID evidence is read lazily only on recovery paths.
   const runtimeHandles = context.processes;
   let active = runtimeHandles.get(runtimeSessionId);
-  const directActiveHeader = active ? readDispatchStreamHeader(context.input.rootDir, active.dispatchId) : null,
-    canonicalDispatch =
+  const directActiveHeader =
+      active && isValidDispatchStreamId(active.dispatchId)
+        ? readDispatchStreamHeader(context.input.rootDir, active.dispatchId)
+        : null,
+    canonicalDispatch: RuntimeDispatchOwner | RuntimeDispatchOwnerEvidence | null =
       directActiveHeader !== null
         ? null
         : context.input.remote?.readRuntimeDispatch
           ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-          : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId),
-    matchingHeader =
-      directActiveHeader ??
-      (canonicalDispatch?.payload?.dispatchId
-        ? (readDispatchStreamHeader(context.input.rootDir, canonicalDispatch.payload.dispatchId) ?? undefined)
-        : undefined),
-    ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
+          : readRuntimeDispatchOwner(context.requiredRuntimeProjection(context.input), runtimeSessionId);
+  let matchingHeader =
+    directActiveHeader ??
+    (canonicalDispatch?.payload?.dispatchId && isValidDispatchStreamId(canonicalDispatch.payload.dispatchId)
+      ? (readDispatchStreamHeader(context.input.rootDir, canonicalDispatch.payload.dispatchId) ?? undefined)
+      : undefined);
+  const ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
     isCenter = context.input.runtimeNode === undefined && context.input.remote === undefined,
     remoteEdgeTargetNodeId =
       isCenter &&
@@ -186,7 +193,7 @@ export async function cancelRuntime(
         "runtime_session_liveness_changed",
         {
           runtimeSessionId,
-          liveness: attempt.attempt.process === "unknown" ? "unknown" : "live",
+          liveness: session.liveness === "exited" ? "unknown" : session.liveness,
           controlRequest: {
             action: "cancel",
             controlRequestId,
@@ -221,11 +228,20 @@ export async function cancelRuntime(
     if (attempt ? attempt.attempt.outcome !== null : session?.outcome !== null && session?.outcome !== undefined)
       return context.controlReceipt(opId, runtimeSessionId, "already-exited");
   }
+  if (
+    matchingHeader === undefined &&
+    attempt?.attempt.dispatchId &&
+    isValidDispatchStreamId(attempt.attempt.dispatchId)
+  ) {
+    const attemptHeader = readDispatchStreamHeader(context.input.rootDir, attempt.attempt.dispatchId);
+    if (attemptHeader?.runtimeSessionId === runtimeSessionId) matchingHeader = attemptHeader;
+  }
   // Only a live stream is a control channel a recovery can adopt. An archived stream is the
   // history of a stopped dispatch: it remains authorization and stop-proof evidence only.
   const targetDispatchId = matchingHeader?.dispatchId ?? canonicalDispatch?.payload?.dispatchId,
     hasLiveDispatch =
       targetDispatchId !== undefined &&
+      isValidDispatchStreamId(targetDispatchId) &&
       (ruling !== null || matchingHeader !== undefined) &&
       findLiveDispatchStreamPath(context.input.rootDir, targetDispatchId) !== null;
   let ownerGroup: { readonly evidence: RuntimeDispatchOwnerEvidence | null; readonly pid: number | null } | undefined,
@@ -529,15 +545,16 @@ export async function cancelRuntime(
 async function readOwnerProcessGroup(
   context: RuntimeSpawnerContext,
   runtimeSessionId: string,
-  canonicalDispatch: RuntimeDispatchOwnerEvidence | null,
+  canonicalDispatch: RuntimeDispatchOwner | RuntimeDispatchOwnerEvidence | null,
   ownerBinding: Pick<RuntimeDispatchOwnerEvidence, "actor" | "source"> | null | undefined,
   matchingHeader: DispatchStreamHeader | undefined,
 ): Promise<{ readonly evidence: RuntimeDispatchOwnerEvidence | null; readonly pid: number | null }> {
   const evidence =
-    canonicalDispatch ??
-    (context.input.remote?.readRuntimeDispatch
-      ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-      : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId));
+    canonicalDispatch && "processGroupPid" in canonicalDispatch
+      ? canonicalDispatch
+      : context.input.remote?.readRuntimeDispatch
+        ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+        : readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId);
   const pid =
     evidence &&
     ownerBinding &&
@@ -673,6 +690,14 @@ export async function steerRuntime(
   if (!view?.policy.canSteer)
     throw refuse("runtime_steer_unavailable", "The canonical lifecycle has no running control target.");
   if (!active) throw refuse("runtime_steer_unavailable", "Runtime control transport is unavailable.");
+  if (
+    (options?.remoteControlRequestId !== undefined || options?.remoteControlOpId !== undefined) &&
+    active.steerReceiptCapable === false
+  )
+    throw refuse(
+      "runtime_steer_unsupported",
+      "Adopted legacy worker does not support correlated remote steer receipts.",
+    );
   if (!active.providerSessionId)
     throw refuse("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
   const remoteDedupKey = options?.remoteControlOpId ?? options?.remoteControlRequestId ?? null,
@@ -842,14 +867,17 @@ async function requestRemoteEdgeSteer(
     if (input.expected.version !== undefined) {
       const latestApplied = projection.readRuntimeSessionEventsByType(
         runtimeSessionId,
-        ["runtime_session_liveness_changed"],
+        ["runtime_session_provider_bound", "runtime_session_liveness_changed"],
         { filter: "applied_steer_receipt", order: "desc", limit: 1 },
       )[0];
+      const latestReceipt =
+        latestApplied?.type === "runtime_session_liveness_changed" ||
+        latestApplied?.type === "runtime_session_provider_bound"
+          ? latestApplied.payload.controlReceipt
+          : undefined;
       const observedVersion =
-        latestApplied?.type === "runtime_session_liveness_changed" &&
-        latestApplied.payload.controlReceipt?.status === "applied" &&
-        typeof latestApplied.payload.controlReceipt.steerVersion === "number"
-          ? latestApplied.payload.controlReceipt.steerVersion
+        latestReceipt?.status === "applied" && typeof latestReceipt.steerVersion === "number"
+          ? latestReceipt.steerVersion
           : -1;
       if (observedVersion >= 0 && input.expected.version < observedVersion)
         throw runtimeSpawnError(
@@ -864,7 +892,7 @@ async function requestRemoteEdgeSteer(
     "runtime_session_liveness_changed",
     {
       runtimeSessionId,
-      liveness: view.attempt.process === "unknown" ? "unknown" : "live",
+      liveness: session.liveness === "exited" ? "unknown" : session.liveness,
       controlRequest: {
         action: "steer",
         controlRequestId,

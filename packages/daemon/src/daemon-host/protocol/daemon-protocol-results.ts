@@ -646,6 +646,9 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;
     readonly includeControlReceipts?: boolean;
+    readonly controlReceiptRequestOpId?: string;
+    readonly controlReceiptsCursor?: string;
+    readonly controlReceiptsLimit?: number;
   };
   readonly "repo.agentRuntime.events.read": {
     readonly runtimeSessionId: string;

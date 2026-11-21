@@ -24,8 +24,12 @@ import { countActiveDispatchStreams } from "./dispatch-stream.ts";
 import {
   advanceDispatchControlCursor,
   hasPendingSteerReceipts,
+  PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+  pendingSteerReceiptCount,
   readDispatchControlCursor,
+  readSettledControlOpIdsAboveCursor,
   recordPendingSteerReceipt,
+  recordSettledControlAboveCursor,
 } from "./dispatch-steer-state.ts";
 import type { RuntimeSteerSelector } from "./runtime-steer-target.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
@@ -325,6 +329,7 @@ export function openFleetEdgeRuntime(input: {
   const workQueue = createFleetEdgeRuntimeWorkQueue((error) => {
     console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
     ready = null;
+    adoptedOnce = false;
   });
   const schedule = workQueue.schedule;
   const runScheduleCommand: typeof runFleetScheduleCommandClient = async (options) => {
@@ -1147,8 +1152,44 @@ export function openFleetEdgeRuntime(input: {
         );
     },
     ...(input.launch ? { launch: input.launch } : {}),
+    onPendingSteerReceipt: () => triggerReceiptFlush(),
     schedule,
   });
+  let receiptFlushInFlight: Promise<void> | null = null,
+    receiptFlushDirty = false,
+    receiptPumpClosed = false,
+    receiptRetryTimer: NodeJS.Timeout | null = null;
+  const scheduleReceiptRetry = (): void => {
+    if (receiptPumpClosed || receiptRetryTimer !== null) return;
+    receiptRetryTimer = setTimeout(() => {
+      receiptRetryTimer = null;
+      triggerReceiptFlush();
+    }, 250);
+    receiptRetryTimer.unref?.();
+  };
+  /** F13: Dedicated non-blocking receipt uplink pump completely decoupled from control drain and workQueue. */
+  const triggerReceiptFlush = (): void => {
+    if (receiptPumpClosed) return;
+    receiptFlushDirty = true;
+    if (receiptFlushInFlight !== null) return;
+    receiptFlushInFlight = (async () => {
+      while (receiptFlushDirty && !receiptPumpClosed) {
+        receiptFlushDirty = false;
+        const { request } = context();
+        if (!hasPendingSteerReceipts(request.workspaceRoot)) break;
+        try {
+          await spawner.flushPendingSteerReceipts(await controlBinding(request));
+        } catch (error) {
+          console.error("[runtime-steer-receipts] background flush deferred:", error);
+          if (hasPendingSteerReceipts(request.workspaceRoot)) scheduleReceiptRetry();
+          break;
+        }
+      }
+    })().finally(() => {
+      receiptFlushInFlight = null;
+      if (receiptFlushDirty && !receiptPumpClosed) triggerReceiptFlush();
+    });
+  };
   const squad = makeFleetSquadCoordinator({
     readDispatchLifecycle,
     get request() {
@@ -1182,6 +1223,17 @@ export function openFleetEdgeRuntime(input: {
       const dispatchId = spawner.activeDispatchId(runtimeSessionId);
       if (dispatchId) advanceDispatchControlCursor(input.resolveLocation().workspaceRoot, dispatchId, revision);
     },
+    readSettledAboveCursor: (runtimeSessionId) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      return dispatchId ? readSettledControlOpIdsAboveCursor(input.resolveLocation().workspaceRoot, dispatchId) : [];
+    },
+    recordSettledAboveCursor: (runtimeSessionId, opId, revision) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      if (dispatchId)
+        recordSettledControlAboveCursor(input.resolveLocation().workspaceRoot, dispatchId, opId, revision);
+    },
+    isSteerBackpressured: () =>
+      pendingSteerReceiptCount(input.resolveLocation().workspaceRoot) >= PENDING_STEER_RECEIPT_HIGH_WATERMARK,
     readControlEventsPage: async (runtimeSessionId, afterRevision, limit) => {
       const request = input.resolveLocation();
       return readRuntimeProjection(request, (projection) => {
@@ -1233,7 +1285,7 @@ export function openFleetEdgeRuntime(input: {
         },
       );
     },
-    reportSteerRejection: async (controlRequest, rejection) => {
+    reportSteerRejection: (controlRequest, rejection) => {
       const { request } = context();
       recordPendingSteerReceipt(
         request.workspaceRoot,
@@ -1248,20 +1300,21 @@ export function openFleetEdgeRuntime(input: {
           message: rejection.message,
         },
       );
-      await spawner.flushPendingSteerReceipts(await controlBinding(request));
+      // F13: Wake the detached background receipt pump without awaiting any network RPC inside drain().
+      triggerReceiptFlush();
     },
     schedule,
   });
   let ready: Promise<void> | null = null;
+  let adoptedOnce = false;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
         void spawner.adopt().then(
-          () => {
+          (recovered) => {
+            if (!runtimeRecoveryError(recovered)) adoptedOnce = true;
             void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
-            void Promise.resolve(controlBinding(input.resolveLocation()))
-              .then((binding) => spawner.flushPendingSteerReceipts(binding))
-              .catch((error: unknown) => console.error("[runtime-steer-receipts]", error));
+            if (hasPendingSteerReceipts(input.resolveLocation().workspaceRoot)) triggerReceiptFlush();
             schedule(() => squad.reconcile());
           },
           (error: unknown) => console.error("[runtime-recovery]", error),
@@ -1269,6 +1322,7 @@ export function openFleetEdgeRuntime(input: {
       });
       ready = attempt.catch((error: unknown) => {
         ready = null;
+        adoptedOnce = false;
         throw error;
       });
     }
@@ -1324,20 +1378,35 @@ export function openFleetEdgeRuntime(input: {
         executionSignalContext.run(connectionSignal, async () => {
           const { request } = context();
           const hasPendingReceipts = hasPendingSteerReceipts(request.workspaceRoot);
-          const hasActiveStreams =
-            spawner.activeRuntimeCount() > 0 || countActiveDispatchStreams(request.workspaceRoot) > 0;
-          if (!hasActiveStreams && !hasPendingReceipts) return;
+          const hasActiveHandles = spawner.activeRuntimeCount() > 0;
+          if (!adoptedOnce) {
+            const hasDiskStreams = hasActiveHandles || countActiveDispatchStreams(request.workspaceRoot) > 0;
+            if (!hasDiskStreams && !hasPendingReceipts) {
+              adoptedOnce = true;
+              return;
+            }
+            await ensureReady();
+            const recovered = hasDiskStreams ? await spawner.adopt() : [];
+            const failed = runtimeRecoveryError(recovered);
+            if (!failed) adoptedOnce = true;
+            await remoteControl.drain();
+            if (hasPendingSteerReceipts(request.workspaceRoot)) triggerReceiptFlush();
+            await schedule(async () => {
+              await squad.flushPublications();
+              await pullRuntimeReplica();
+            });
+            if (failed) throw failed;
+            return;
+          }
+          // Steady-state ACK path (F4 & F13): zero readdirSync and zero spawner.adopt();
+          // pending receipt uplinks run asynchronously off the control drain.
+          if (hasPendingReceipts) triggerReceiptFlush();
+          if (!hasActiveHandles) return;
           await ensureReady();
-          const recovered = hasActiveStreams ? await spawner.adopt() : [];
           await remoteControl.drain();
-          if (hasPendingSteerReceipts(request.workspaceRoot))
-            await spawner.flushPendingSteerReceipts(await controlBinding(request));
           await schedule(async () => {
             await squad.flushPublications();
-            await pullRuntimeReplica();
           });
-          const failed = runtimeRecoveryError(recovered);
-          if (failed) throw failed;
         }),
       ),
     run: async (
@@ -1520,6 +1589,11 @@ export function openFleetEdgeRuntime(input: {
       })) as JsonObject;
     },
     close: () => {
+      receiptPumpClosed = true;
+      if (receiptRetryTimer !== null) {
+        clearTimeout(receiptRetryTimer);
+        receiptRetryTimer = null;
+      }
       workQueue.close();
       spawner.close();
     },

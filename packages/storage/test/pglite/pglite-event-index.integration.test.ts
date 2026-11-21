@@ -178,4 +178,154 @@ pgliteIntegrationSuite("PGlite event indexes", () => {
       await backend.close();
     }
   });
+
+  test("F4: runtime control request and control receipt partial indexes exclude 2000+ unrelated liveness events under RLS", async () => {
+    const scope = { tenantId: "rt-ctrl-idx", projectId: "rt-ctrl-idx", policyEpoch: 1 },
+      repoId = "rt-ctrl-idx",
+      sessionId = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      backend = await createPGliteStorageBackend({ repoId, storage: { backend: "pglite", scope } });
+    try {
+      await withPostgresTransaction(
+        backend.pool,
+        async (client) => {
+          await client.query(
+            `INSERT INTO ha_repo_heads(tenant_id,project_id,policy_epoch,repo_id,revision,head_op_id,head_event_digest,head_digest,readers)
+            VALUES($1,$2,$3,$4,2003,'fixture','fixture','fixture',ARRAY['unrelated'])`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+          );
+          await client.query(
+            `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_digest,occurred_at,entity_refs,event_json)
+            SELECT $1,$2,$3,$4,n,'live-'||n,'live-'||n,'runtime_session_liveness_changed','fixture','2026-11-21T00:00:00.000Z',
+              ARRAY['runtime-session/'||$5],
+              json_build_object(
+                'schema','agent-runtime-event/v1','type','runtime_session_liveness_changed',
+                'opId','live-'||n,'eventId','live-'||n,'workspaceRevision',n,'occurredAt','2026-11-21T00:00:00.000Z',
+                'actor',json_build_object('principal',json_build_object('personId','owner'),'executor',NULL),
+                'source','local',
+                'payload',json_build_object('runtimeSessionId',$5,'liveness','live')
+              )::text
+            FROM generate_series(1,2000)n`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, sessionId],
+          );
+          await client.query(
+            `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_digest,occurred_at,entity_refs,event_json)
+            VALUES
+              ($1,$2,$3,$4,2001,'op-steer-target','evt-steer-target','runtime_session_liveness_changed','fixture','2026-11-21T00:00:01.000Z',
+                ARRAY['runtime-session/'||$5],
+                json_build_object(
+                  'schema','agent-runtime-event/v1','type','runtime_session_liveness_changed',
+                  'opId','op-steer-target','eventId','evt-steer-target','workspaceRevision',2001,'occurredAt','2026-11-21T00:00:01.000Z',
+                  'actor',json_build_object('principal',json_build_object('personId','owner'),'executor',NULL),
+                  'source','local',
+                  'payload',json_build_object('runtimeSessionId',$5,'liveness','live','controlRequest',
+                    json_build_object('action','steer','controlRequestId','ctrl-1','targetNodeId','node-a','dispatchId','dispatch_aaaaaaaaaaaaaaaaaaaaaaaa','prompt','go'))
+                )::text),
+              ($1,$2,$3,$4,2002,'op-cancel-target','evt-cancel-target','runtime_session_liveness_changed','fixture','2026-11-21T00:00:02.000Z',
+                ARRAY['runtime-session/'||$5],
+                json_build_object(
+                  'schema','agent-runtime-event/v1','type','runtime_session_liveness_changed',
+                  'opId','op-cancel-target','eventId','evt-cancel-target','workspaceRevision',2002,'occurredAt','2026-11-21T00:00:02.000Z',
+                  'actor',json_build_object('principal',json_build_object('personId','owner'),'executor',NULL),
+                  'source','local',
+                  'payload',json_build_object('runtimeSessionId',$5,'liveness','live','controlRequest',
+                    json_build_object('action','cancel','controlRequestId','ctrl-cancel','targetNodeId','node-a'))
+                )::text),
+              ($1,$2,$3,$4,2003,'op-rcpt-target','evt-rcpt-target','runtime_session_provider_bound','fixture','2026-11-21T00:00:03.000Z',
+                ARRAY['runtime-session/'||$5],
+                json_build_object(
+                  'schema','agent-runtime-event/v1','type','runtime_session_provider_bound',
+                  'opId','op-rcpt-target','eventId','evt-rcpt-target','workspaceRevision',2003,'occurredAt','2026-11-21T00:00:03.000Z',
+                  'actor',json_build_object('principal',json_build_object('personId','owner'),'executor',NULL),
+                  'source',json_build_object('kind','node','nodeId','node-a'),
+                  'payload',json_build_object('runtimeSessionId',$5,'providerSessionId','thread-1','transcriptRef','provider:codex/thread-1','controlReceipt',
+                    json_build_object('action','steer','controlRequestId','ctrl-1','requestOpId','op-steer-target','status','applied','steerVersion',1))
+                )::text)`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, sessionId],
+          );
+          await client.query(
+            `INSERT INTO ha_projection_meta(tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision)
+            VALUES($1,$2,$3,5,2003,2003)`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          );
+          await client.query(
+            `INSERT INTO ha_repo_sync_watermarks(tenant_id,project_id,repo_id,replication_history,
+              confirmed_revision,confirmed_sequence,readers,policy_epoch)
+             SELECT tenant_id,project_id,repo_id,replication_history,revision,0,readers,policy_epoch
+             FROM ha_repo_heads WHERE repo_id=$1`,
+            [repoId],
+          );
+          await client.query("ANALYZE");
+          await client.query("CREATE ROLE rt_ctrl_reader NOLOGIN NOBYPASSRLS");
+          await client.query("GRANT USAGE ON SCHEMA public TO rt_ctrl_reader");
+          await client.query(
+            "GRANT SELECT ON ha_events,ha_event_entity_refs,ha_projection_values,ha_projection_meta,ha_repo_heads,ha_replication_positions,ha_repo_sync_watermarks TO rt_ctrl_reader",
+          );
+        },
+        scope,
+      );
+      await backend.pool.query("SET ROLE rt_ctrl_reader");
+      const plans: unknown[] = [],
+        pool = tracedPgReads(backend.pool, plans, (sql) => /^\s*SELECT[\s\S]*FROM ha_events/u.test(sql)),
+        source = createPgTaskProjectionSource({ pool, scope, repoId, ownsPool: false });
+
+      const controls = await source.readRuntimeSessionEventsByType(
+        sessionId,
+        ["runtime_session_liveness_changed", "runtime_cancel_requested", "runtime_steer_requested"],
+        { filter: "control_request", afterRevision: 0, limit: 10 },
+      );
+      assert.deepEqual(
+        controls.map((e) => e.opId),
+        ["op-steer-target", "op-cancel-target"],
+      );
+      const cancels = await source.readRuntimeSessionEventsByType(
+        sessionId,
+        ["runtime_session_liveness_changed", "runtime_cancel_requested"],
+        { filter: "cancel_control_request", afterRevision: 0, limit: 1 },
+      );
+      assert.deepEqual(
+        cancels.map((e) => e.opId),
+        ["op-cancel-target"],
+      );
+      const receipts = await source.readRuntimeSessionEventsByType(
+        sessionId,
+        ["runtime_session_provider_bound", "runtime_session_liveness_changed"],
+        { filter: "control_receipt", afterRevision: 0, limit: 10 },
+      );
+      assert.deepEqual(
+        receipts.map((e) => e.opId),
+        ["op-rcpt-target"],
+      );
+      const applied = await source.readRuntimeSessionEventsByType(
+        sessionId,
+        ["runtime_session_provider_bound", "runtime_session_liveness_changed"],
+        { filter: "applied_steer_receipt", order: "desc", limit: 1 },
+      );
+      assert.deepEqual(
+        applied.map((e) => e.opId),
+        ["op-rcpt-target"],
+      );
+      const byReqOp = await source.readRuntimeSessionEventsByType(
+        sessionId,
+        ["runtime_session_provider_bound", "runtime_session_liveness_changed"],
+        { filter: "control_receipt", requestOpId: "op-steer-target", limit: 1 },
+      );
+      assert.deepEqual(
+        byReqOp.map((e) => e.opId),
+        ["op-rcpt-target"],
+      );
+
+      const scans = explainNodes(plans).filter((row) => String(row["Relation Name"]) === "ha_events");
+      assert.equal(scans.length, 5, `expected 5 traced ha_events plans, got: ${JSON.stringify(scans)}`);
+      for (const scan of scans) {
+        const examined =
+          (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]);
+        assert.ok(
+          examined <= 2,
+          `F4 PG control/receipt scan touched unrelated liveness rows under RLS (examined=${examined}): ${JSON.stringify(scan)}`,
+        );
+      }
+    } finally {
+      await backend.close();
+    }
+  });
 });

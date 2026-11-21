@@ -255,6 +255,8 @@ export type ActiveRuntime = {
   stalledAt: string | null;
   recordProviderProgress: (() => void) | null;
   recordWorkspaceProgress: ((observedAtMs?: number) => void | Promise<void>) | null;
+  /** Whether the underlying worker host emits correlated remote steer outcome records (F17). */
+  readonly steerReceiptCapable?: boolean;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;
@@ -586,5 +588,7 @@ export interface RuntimeSpawnerInput {
    * settlement. The callback owns authorization and the single-writer queue; settlement only
    * supplies bytes read from the dispatch's worktree and rechecks the resulting projection. */
   readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
+  /** Notifies an external non-blocking receipt pump when a durable pending steer receipt is recorded (F13). */
+  readonly onPendingSteerReceipt?: () => void;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

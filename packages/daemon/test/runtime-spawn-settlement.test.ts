@@ -1349,11 +1349,15 @@ test("a stalled dispatch settles through the process-tree path and never masks i
   }
 });
 
-test("F14: transient steer receipt flush failure during publishTerminalOutcome never blocks exited/cancelled/outcome publication", async () => {
+test("F13/F14: hung or failing steer receipt uplink during publishTerminalOutcome never blocks exited/cancelled/outcome publication", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-f14-"));
   try {
     const runtime = tasklessSettlementRuntime(rootDir, "worker result"),
       published: string[] = [];
+    let releaseHungReceipt!: () => void;
+    const hungReceiptGate = new Promise<void>((resolve) => {
+      releaseHungReceipt = resolve;
+    });
     runtime.cancelRequested = true;
     runtime.cancelOpId = "op-cancel-f14";
     recordPendingSteerReceipt(rootDir, runtime.dispatchId, "canonical", runtime.runtimeSessionId, {
@@ -1378,6 +1382,7 @@ test("F14: transient steer receipt flush failure during publishTerminalOutcome n
       markProtocolError: () => undefined,
       publishRuntimeEvent: async (type: string) => {
         if (type === "runtime_session_liveness_changed") {
+          await hungReceiptGate;
           throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
         }
         published.push(type);
@@ -1386,7 +1391,10 @@ test("F14: transient steer receipt flush failure during publishTerminalOutcome n
       settleFallback: async () => undefined,
     } as unknown as RuntimeSpawnerContext;
 
+    const startedAt = Date.now();
     await publishExit(context, runtime, null);
+    const elapsedMs = Date.now() - startedAt;
+    assert.ok(elapsedMs < 2_000, `publishExit must not wait on a hung receipt RPC (took ${elapsedMs}ms)`);
 
     assert.deepEqual(published, [
       "runtime_session_exited",
@@ -1398,6 +1406,8 @@ test("F14: transient steer receipt flush failure during publishTerminalOutcome n
       1,
       "unacknowledged steer receipt must stay durable in pending index for asynchronous replay",
     );
+    releaseHungReceipt();
+    await new Promise((resolve) => setTimeout(resolve, 25));
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

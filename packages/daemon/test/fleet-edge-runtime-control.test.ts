@@ -28,13 +28,26 @@ import {
   advanceDispatchControlCursor,
   hasPendingSteerReceipts,
   markSteerReceiptAcked,
+  PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+  pendingSteerReceiptCount,
   prepareDispatchSteerAppend,
   readAllPendingSteerReceipts,
   readDispatchControlCursor,
+  readDispatchSteerState,
+  readSettledControlOpIdsAboveCursor,
   reconcileDispatchSteerStateFromStream,
   recordPendingSteerReceipt,
+  recordSettledControlAboveCursor,
+  removeDispatchSteerState,
   steerReceiptOpId,
 } from "../src/daemon-host/dispatch-steer-state.ts";
+import { readRuntimeDispatchOwner } from "../src/daemon-host/runtime-dispatch-owner-evidence.ts";
+import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
+import { validateAgentRuntimeSession } from "../src/daemon-host/agent-runtime-contract.ts";
+import { advanceAttempt } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
+import { steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { createActiveRuntime } from "../src/daemon-host/runtime-spawn-active.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import {
   findRuntimeSteerHeader,
   readRuntimeSteerVersion,
@@ -1262,4 +1275,629 @@ test("F13: full page of deferred steers never blocks or starves a subsequent can
     "cancel must terminate session immediately despite full page of deferred steers",
   );
   assert.equal(executionOrder[0], "cancel:ctrl-cancel-urgent", "cancel must execute before deferred steers");
+});
+
+test("F4: readRuntimeDispatchOwner performs O(1) owner lookup with zero liveness history scans", () => {
+  let livenessScanCalls = 0;
+  const owner = readRuntimeDispatchOwner(
+    {
+      readRuntimeSession: () => baseSession("runtime_f4owner0000000000000000"),
+      readRuntimeDispatch: () =>
+        ({
+          schema: "agent-runtime-event/v1",
+          eventId: "evt-disp",
+          opId: "op-disp",
+          type: "runtime_dispatch_requested",
+          workspaceRevision: 1,
+          actor,
+          source: { kind: "node", nodeId: "node-a" },
+          occurredAt: "2026-11-21T02:00:00.000Z",
+          payload: {
+            dispatchId: "dispatch_f40000000000000000000001",
+            runtimeSessionId: "runtime_f4owner0000000000000000",
+            instanceId: "instance-1",
+            installationId: "install-1",
+            kindId: "codex",
+            dispatchKey: "k1",
+            definitionSnapshotRef: "artifact:runtime-definition/sha256/" + "a".repeat(64),
+            startedAt: "2026-11-21T02:00:00.000Z",
+          },
+        }) as unknown as Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
+      readRuntimeSessionEventsByType: () => {
+        livenessScanCalls += 1;
+        throw new Error("readRuntimeDispatchOwner must never scan liveness history");
+      },
+    } as never,
+    "runtime_f4owner0000000000000000",
+  );
+  assert.equal(owner?.payload.dispatchId, "dispatch_f40000000000000000000001");
+  assert.equal(livenessScanCalls, 0);
+});
+
+test("F12: pending receipt store retains >512 items without loss, out-of-order backpressure prevents eviction on restart, and rejection persists before cursor advances", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f12-backpressure-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_12f12f12f12f12f12f12f12f",
+    runtimeSessionId = "runtime_12f12f12f12f12f12f12f12f";
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId,
+    instanceId: "inst-1",
+    startedAt: "2026-11-21T02:00:00.000Z",
+  });
+
+  // Part A: Record 520 pending receipts across dispatches (>512); item 513..520 must NEVER drop earlier items!
+  for (let i = 1; i <= 520; i += 1) {
+    const dId = `dispatch_${String(i).padStart(24, "0")}`;
+    recordPendingSteerReceipt(rootDir, dId, "repo-f12", `runtime_${String(i).padStart(24, "0")}`, {
+      status: "applied",
+      controlRequestId: `ctrl-bulk-${i}`,
+      requestOpId: `op-bulk-${i}`,
+      steerVersion: 1,
+    });
+  }
+  assert.equal(pendingSteerReceiptCount(rootDir), 520, "all 520 pending receipts must be retained without drop");
+  assert.equal(readAllPendingSteerReceipts(rootDir)[0]?.outcome.requestOpId, "op-bulk-1");
+  assert.equal(readAllPendingSteerReceipts(rootDir)[519]?.outcome.requestOpId, "op-bulk-520");
+
+  // While pending receipts >= 512, consumer backpressures steers while STILL executing cancel immediately!
+  let steerCallsUnderBackpressure = 0;
+  let cancelCallsUnderBackpressure = 0;
+  const bpEvents: RemoteRuntimeControlEvent[] = [
+    livenessSteerControlEvent({
+      runtimeSessionId,
+      dispatchId,
+      controlRequestId: "ctrl-bp-steer",
+      opId: "op-bp-steer",
+      prompt: "Blocked by receipt backpressure",
+      workspaceRevision: 10,
+    }),
+    {
+      schema: "agent-runtime-event/v1",
+      eventId: "evt-bp-cancel",
+      opId: "op-bp-cancel",
+      type: "runtime_session_liveness_changed",
+      workspaceRevision: 11,
+      actor,
+      source: "local",
+      occurredAt: "2026-11-21T02:00:01.000Z",
+      payload: {
+        runtimeSessionId,
+        liveness: "live",
+        controlRequest: {
+          action: "cancel",
+          controlRequestId: "ctrl-bp-cancel",
+          targetNodeId: "node-a",
+        },
+      },
+    },
+  ];
+  const bpConsumer = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [runtimeSessionId],
+    isRuntimeActive: (id) => id === runtimeSessionId,
+    isSteerBackpressured: () => pendingSteerReceiptCount(rootDir) >= PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+    readControlEventsPage: async (_sid, afterRevision, limit) => ({
+      events: bpEvents.filter((e) => e.workspaceRevision > afterRevision).slice(0, limit),
+      scannedToRevision: 11,
+    }),
+    readCancelControlEvent: async (_sid, afterRevision) => {
+      const cancel = bpEvents.find((e) => e.workspaceRevision > afterRevision && e.opId === "op-bp-cancel") ?? null;
+      return { event: cancel, scannedToRevision: 11 };
+    },
+    executeCancel: async () => {
+      cancelCallsUnderBackpressure += 1;
+    },
+    executeSteer: async () => {
+      steerCallsUnderBackpressure += 1;
+    },
+    schedule: async (work) => {
+      await work();
+    },
+  });
+  await bpConsumer.drain();
+  assert.equal(steerCallsUnderBackpressure, 0, "receipt backlog >= 512 must backpressure steers");
+  assert.equal(cancelCallsUnderBackpressure, 1, "cancel must never be blocked by receipt backpressure");
+
+  // Part B: Early deferred steer pins cursor while later steers succeed out-of-order; restart must NEVER re-deliver them!
+  const oooEvents: RemoteRuntimeControlEvent[] = [1, 2, 3, 4, 5, 6].map((rev) =>
+    livenessSteerControlEvent({
+      runtimeSessionId,
+      dispatchId,
+      controlRequestId: `ctrl-ooo-${rev}`,
+      opId: `op-ooo-${rev}`,
+      prompt: `OOO steer ${rev}`,
+      workspaceRevision: rev,
+    }),
+  );
+  let allowFirst = false;
+  const executedOoo: string[] = [];
+  const makeOooConsumer = () =>
+    createFleetEdgeRuntimeControlConsumer({
+      nodeId: () => "node-a",
+      activeRuntimeSessionIds: () => [runtimeSessionId],
+      isRuntimeActive: (id) => id === runtimeSessionId,
+      readDurableCursor: () => readDispatchControlCursor(rootDir, dispatchId),
+      advanceDurableCursor: (_sid, rev) => advanceDispatchControlCursor(rootDir, dispatchId, rev),
+      readSettledAboveCursor: () => readSettledControlOpIdsAboveCursor(rootDir, dispatchId),
+      recordSettledAboveCursor: (_sid, opId, rev) => recordSettledControlAboveCursor(rootDir, dispatchId, opId, rev),
+      maxOutOfOrderSteers: 3,
+      readControlEventsPage: async (_sid, afterRevision, limit) => ({
+        events: oooEvents.filter((e) => e.workspaceRevision > afterRevision).slice(0, limit),
+        scannedToRevision: 6,
+      }),
+      executeCancel: async () => undefined,
+      executeSteer: async (req) => {
+        if (req.opId === "op-ooo-1" && !allowFirst) {
+          throw Object.assign(new Error("temporarily busy"), { code: "runtime_steer_unavailable" });
+        }
+        executedOoo.push(req.opId);
+      },
+      schedule: async (work) => {
+        await work();
+      },
+      pageLimit: 6,
+      maxPagesPerDrain: 1,
+    });
+  const ooo1 = makeOooConsumer();
+  await ooo1.drain();
+  // op-ooo-1 deferred, op-ooo-2..4 succeeded (hitting maxOutOfOrderSteers=3), op-ooo-5..6 backpressured!
+  assert.deepEqual(executedOoo, ["op-ooo-2", "op-ooo-3", "op-ooo-4"]);
+  assert.equal(readDispatchControlCursor(rootDir, dispatchId), 0, "cursor stays pinned below deferred rev 1");
+  assert.equal(readSettledControlOpIdsAboveCursor(rootDir, dispatchId).length, 3);
+
+  // Restart with fresh consumer while op-ooo-1 is still pinned: op-ooo-2..4 must NOT re-execute!
+  const ooo2 = makeOooConsumer();
+  await ooo2.drain();
+  assert.deepEqual(executedOoo, ["op-ooo-2", "op-ooo-3", "op-ooo-4"], "settled out-of-order opIds survive restart");
+
+  // Unblock op-ooo-1: cursor jumps forward, prunes settledAboveCursor, and drains op-ooo-5..6!
+  allowFirst = true;
+  await ooo2.drain();
+  await ooo2.drain();
+  assert.deepEqual(executedOoo, ["op-ooo-2", "op-ooo-3", "op-ooo-4", "op-ooo-1", "op-ooo-5", "op-ooo-6"]);
+  assert.equal(readDispatchControlCursor(rootDir, dispatchId), 6);
+  assert.deepEqual(readSettledControlOpIdsAboveCursor(rootDir, dispatchId), []);
+
+  // Part C: Rejection persistence failure keeps cursor pinned BEFORE the rejected revision!
+  const rejDispatch = "dispatch_121212121212121212121299",
+    rejSession = "runtime_121212121212121212121299";
+  openDispatchStream(rootDir, {
+    dispatchId: rejDispatch,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId: rejSession,
+    instanceId: "inst-1",
+    startedAt: "2026-11-21T02:00:00.000Z",
+  });
+  let failRejectionPersist = true;
+  const rejEvent = livenessSteerControlEvent({
+    runtimeSessionId: rejSession,
+    dispatchId: rejDispatch,
+    controlRequestId: "ctrl-rej-1",
+    opId: "op-rej-1",
+    prompt: "Target mismatch",
+    workspaceRevision: 50,
+  });
+  const rejConsumer = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => "node-a",
+    activeRuntimeSessionIds: () => [rejSession],
+    isRuntimeActive: (id) => id === rejSession,
+    readDurableCursor: () => readDispatchControlCursor(rootDir, rejDispatch),
+    advanceDurableCursor: (_sid, rev) => advanceDispatchControlCursor(rootDir, rejDispatch, rev),
+    readControlEventsPage: async (_sid, afterRevision) => ({
+      events: afterRevision < 50 ? [rejEvent] : [],
+      scannedToRevision: 50,
+    }),
+    executeCancel: async () => undefined,
+    executeSteer: async () => {
+      throw Object.assign(new Error("mismatch"), { code: "runtime_steer_target_changed" });
+    },
+    reportSteerRejection: async () => {
+      if (failRejectionPersist) throw Object.assign(new Error("disk busy"), { code: "busy" });
+    },
+    schedule: async (work) => {
+      await work();
+    },
+  });
+  await rejConsumer.drain();
+  assert.equal(
+    readDispatchControlCursor(rootDir, rejDispatch),
+    49,
+    "cursor must NOT advance past rev 50 while rejection persistence is deferred",
+  );
+  failRejectionPersist = false;
+  await rejConsumer.drain();
+  assert.equal(readDispatchControlCursor(rootDir, rejDispatch), 50, "cursor advances once rejection persists");
+});
+
+test("F17: legacy stream hydration preserves existing steer version before cursor write, and adopted N-1 worker rejects remote steer while preserving local steer", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f17-rolling-upgrade-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const dispatchId = "dispatch_171717171717171717171717",
+    runtimeSessionId = "runtime_171717171717171717171717";
+  // Create a legacy stream WITHOUT steerReceiptProtocolVersion and WITHOUT a sidecar file!
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId,
+    instanceId: "inst-1",
+    startedAt: "2026-11-21T02:00:00.000Z",
+    binding: { actor, source: { kind: "node", nodeId: "node-a" } },
+    executionOwner: { nodeId: "node-a" },
+  });
+  removeDispatchSteerState(rootDir, dispatchId);
+  const streamPath = dispatchStreamPath(rootDir, dispatchId);
+  for (let v = 1; v <= 3; v += 1) {
+    appendDispatchStreamRecord(streamPath, {
+      kind: "steer_requested",
+      opId: `op-legacy-${v}`,
+      runtimeSessionId,
+      version: v,
+      prompt: `Legacy steer ${v}`,
+    });
+  }
+  assert.equal(readDispatchSteerState(rootDir, dispatchId), null, "legacy stream begins with no sidecar");
+
+  // Advancing controlCursorRevision on a rolling upgrade MUST hydrate version=3 instead of writing version=0!
+  advanceDispatchControlCursor(rootDir, dispatchId, 42);
+  const hydrated = readDispatchSteerState(rootDir, dispatchId);
+  assert.equal(hydrated?.version, 3, "rolling-upgrade cursor write must preserve legacy steer version=3");
+  assert.equal(hydrated?.controlCursorRevision, 42);
+  assert.deepEqual(hydrated?.opIds, ["op-legacy-1", "op-legacy-2", "op-legacy-3"]);
+
+  // Adopted N-1 worker (`steerReceiptCapable: false`) rejects remote steer with runtime_steer_unsupported
+  // while local steer STILL succeeds and increments version 3 -> 4!
+  const active = createActiveRuntime({
+    process: {
+      pid: 99999,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+      terminate: () => undefined,
+    },
+    dispatchId,
+    runtimeSessionId,
+    dispatchOpId: "op-disp-17",
+    instanceId: "inst-1",
+    kindId: "codex",
+    resolvedProviderDirectory: null,
+    permissionMode: null,
+    agent: null,
+    role: null,
+    delegatedBy: null,
+    squadId: null,
+    publicationOwner: "runtime",
+    parentRuntimeSessionId: null,
+    binding: { actor, source: { kind: "node", nodeId: "node-a" } },
+    task: null,
+    decisionReviewTarget: null,
+    schedule: null,
+    cwd: rootDir,
+    prompt: "legacy worker",
+    onExitCommand: null,
+    model: "gpt-5.6-sol",
+    reasoningEffort: null,
+    fast: false,
+    tokenLimit: null,
+    stallTimeoutMs: 60_000,
+    lastProgressAtMs: Date.now(),
+    steerReceiptCapable: false,
+    startedAt: "2026-11-21T02:00:00.000Z",
+    stream: {} as never,
+    resumeProviderSessionId: null,
+    providerSessionId: "thread-legacy-1",
+  });
+  const spawnerContext = {
+    input: {
+      repoId: "repo-f17",
+      rootDir,
+      runtimeNode: { nodeId: "node-a" },
+      now: () => "2026-11-21T02:01:00.000Z",
+      remote: {
+        readDispatchLifecycle: async () => ({
+          status: "ready",
+          watermark: 42,
+          sourceRevision: 42,
+          rows: [
+            {
+              attempt: {
+                dispatchId,
+                runtimeSessionId,
+                kindId: "codex",
+                phase: "running",
+                process: "alive",
+                stopProof: "none",
+                outcome: null,
+                fence: { verified: true, owner: "node:node-a" },
+              },
+              policy: { processAlive: true, canSteer: true, attemptSettled: false, groupSettled: false },
+              controlLeafDispatchId: dispatchId,
+            },
+          ],
+        }),
+      },
+    },
+    processes: new Map([[runtimeSessionId, active]]),
+    runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+  } as unknown as RuntimeSpawnerContext;
+
+  await assert.rejects(
+    steerRuntime(
+      spawnerContext,
+      { runtimeSessionId, prompt: "Remote steer against N-1 worker" },
+      { actor, source: { kind: "node", nodeId: "node-a" } },
+      { remoteControlRequestId: "ctrl-remote-n1", remoteControlOpId: "op-remote-n1" },
+    ),
+    { code: "runtime_steer_unsupported" },
+  );
+  assert.equal(readRuntimeSteerVersion(rootDir, dispatchId), 3, "rejected remote steer must not mutate version");
+
+  const localSteer = await steerRuntime(
+    spawnerContext,
+    { runtimeSessionId, prompt: "Local steer still allowed on adopted N-1 worker", expected: { version: 3 } },
+    { actor, source: { kind: "node", nodeId: "node-a" } },
+  );
+  assert.equal(localSteer.outcome, "applied");
+  assert.equal(readRuntimeSteerVersion(rootDir, dispatchId), 4);
+});
+
+test("F18: controlRequest and controlReceipt carrier events preserve exact unknown/stale liveness, attachable, lastObservedAt, and attempt.process", () => {
+  const unknownSession: RuntimeSession = {
+    ...baseSession("runtime_f18000000000000000000000"),
+    liveness: "unknown",
+    attachable: false,
+    lastObservedAt: "2026-11-21T01:00:00.000Z",
+  };
+  const controlReqEvent: AgentRuntimeEventV1 = {
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-f18-req",
+    opId: "op-f18-req",
+    type: "runtime_session_liveness_changed",
+    workspaceRevision: 10,
+    actor,
+    source: "local",
+    occurredAt: "2026-11-21T02:00:00.000Z",
+    payload: {
+      runtimeSessionId: unknownSession.runtimeSessionId,
+      liveness: "live", // even if carrier field says live, reducer MUST preserve unknown!
+      controlRequest: {
+        action: "cancel",
+        controlRequestId: "ctrl-f18-cancel",
+        targetNodeId: "node-a",
+      },
+    },
+  };
+  const afterReq = reduceRuntimeSession(unknownSession, controlReqEvent);
+  assert.strictEqual(
+    afterReq,
+    unknownSession,
+    "controlRequest must not mutate unknown liveness/attachable/lastObservedAt",
+  );
+
+  const providerBoundReceipt: AgentRuntimeEventV1 = {
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-f18-rcpt",
+    opId: "op-f18-rcpt",
+    type: "runtime_session_provider_bound",
+    workspaceRevision: 11,
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:01:00.000Z",
+    payload: {
+      runtimeSessionId: unknownSession.runtimeSessionId,
+      providerSessionId: unknownSession.providerSessionId!,
+      transcriptRef: unknownSession.transcriptRef!,
+      controlReceipt: {
+        action: "steer",
+        controlRequestId: "ctrl-f18-steer",
+        requestOpId: "op-f18-steer",
+        status: "rejected",
+        reasonCode: "runtime_cancelled",
+      },
+    },
+  };
+  assert.deepEqual(validateCurrentAgentRuntimeEvent(providerBoundReceipt), []);
+  assert.strictEqual(
+    reduceRuntimeSession(unknownSession, providerBoundReceipt),
+    unknownSession,
+    "controlReceipt on provider_bound must preserve unknown session unchanged",
+  );
+  // Also survives after exit!
+  const exitedSession: RuntimeSession = { ...unknownSession, liveness: "exited", outcome: "cancelled" };
+  assert.strictEqual(
+    reduceRuntimeSession(exitedSession, providerBoundReceipt),
+    exitedSession,
+    "F5: controlReceipt on provider_bound must persist cleanly even after session exited",
+  );
+
+  // Dispatch lifecycle attempt.process must stay "unknown" (never flipped to "alive")!
+  const attempt = {
+    dispatchId: "dispatch_f18000000000000000000000",
+    runtimeSessionId: unknownSession.runtimeSessionId,
+    attemptGroupId: "dispatch_f18000000000000000000000",
+    attemptIndex: 0,
+    instanceId: "instance-1",
+    installationId: "install-1",
+    kindId: "codex",
+    taskId: null,
+    executionId: null,
+    phase: "running" as const,
+    process: "unknown" as const,
+    stopProof: "none" as const,
+    outcome: null,
+    exitCode: null,
+    reasonCode: null,
+    classification: null,
+    faultClass: null,
+    fallbackState: null,
+    fallbackNotBeforeAt: null,
+    successorDispatchId: null,
+    effectivePermissionMode: "unknown" as const,
+    requestedPermissionMode: null,
+    permissionModeSource: "unknown" as const,
+    fence: { verified: true as const, owner: "node:node-a" as const },
+    startedAt: "2026-11-21T01:00:00.000Z",
+    endedAt: null,
+    lastObservedAt: "2026-11-21T01:00:00.000Z",
+  };
+  const nextAttempt = advanceAttempt(attempt, controlReqEvent);
+  assert.strictEqual(
+    nextAttempt,
+    attempt,
+    "dispatch-lifecycle must not promote unknown process to alive on control carrier",
+  );
+});
+
+test("F19: controlReceipts cursor pagination reaches >500 receipts and requestOpId point lookup uses partial index", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f19-receipts-page-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["-C", rootDir, "init", "-q"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
+  execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);
+  execFileSync("git", ["-C", rootDir, "commit", "--allow-empty", "-qm", "base"]);
+  const repoId = "f19-repo",
+    sessionId = "runtime_191919191919191919191919",
+    store = makeTaskEventStore({ rootDir, repoId }),
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+  t.after(async () => {
+    projection.close();
+    await store.drain();
+  });
+  let rev = 1;
+  const appendEvent = (event: Omit<AgentRuntimeEventV1, "workspaceRevision">) => {
+    const full = { ...event, workspaceRevision: rev } as AgentRuntimeEventV1;
+    store.append({
+      event: full,
+      plan: canonicalEventWritePlan(full, "agent-runtime/v1", full.opId),
+      blobs: [],
+    });
+    rev += 1;
+  };
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-inst-19",
+    opId: "op-inst-19",
+    type: "runtime_installation_observed",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:00:00.000Z",
+    payload: {
+      installationId: "install-1",
+      kindId: "codex",
+      protocolFamily: "codex-cli",
+      hostRef: "host:local",
+      version: "1.0.0",
+      discoverySource: "wrapper",
+      capabilities: ["stream"],
+    },
+  });
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-start-19",
+    opId: "op-start-19",
+    type: "runtime_session_started",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:00:00.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      instanceId: "inst-1",
+      installationId: "install-1",
+      kindId: "codex",
+      definitionSnapshotRef: `artifact:runtime-definition/sha256/${"a".repeat(64)}`,
+      launchGeneration: 1,
+      attachable: true,
+    },
+  });
+  appendEvent({
+    schema: "agent-runtime-event/v1",
+    eventId: "evt-bind-19",
+    opId: "op-bind-19",
+    type: "runtime_session_provider_bound",
+    actor,
+    source: { kind: "node", nodeId: "node-a" },
+    occurredAt: "2026-11-21T02:00:01.000Z",
+    payload: {
+      runtimeSessionId: sessionId,
+      providerSessionId: "thread-19",
+      transcriptRef: "provider:codex/thread-19",
+    },
+  });
+  for (let i = 1; i <= 520; i += 1) {
+    appendEvent({
+      schema: "agent-runtime-event/v1",
+      eventId: `evt-rcpt-19-${i}`,
+      opId: `op-rcpt-19-${i}`,
+      type: "runtime_session_provider_bound",
+      actor,
+      source: { kind: "node", nodeId: "node-a" },
+      occurredAt: "2026-11-21T02:00:02.000Z",
+      payload: {
+        runtimeSessionId: sessionId,
+        providerSessionId: "thread-19",
+        transcriptRef: "provider:codex/thread-19",
+        controlReceipt: {
+          action: "steer",
+          controlRequestId: `ctrl-19-${i}`,
+          requestOpId: `op-req-19-${i}`,
+          status: "applied",
+          steerVersion: i,
+        },
+      },
+    });
+  }
+  projection.catchUp();
+
+  const readModel = makeAgentRuntimeReadModel({ projection, store });
+  // Default read omits controlReceipts & controlReceiptsPage.
+  const defaultRead = readModel.session({ runtimeSessionId: sessionId });
+  assert.deepEqual(validateAgentRuntimeSession(defaultRead), []);
+  assert.equal(defaultRead.session.controlReceipts, undefined);
+  assert.equal(defaultRead.controlReceiptsPage, undefined);
+
+  // Page 1 returns 500 receipts with hasMore=true and nextCursor.
+  const page1 = readModel.session({ runtimeSessionId: sessionId, includeControlReceipts: true });
+  assert.deepEqual(validateAgentRuntimeSession(page1), []);
+  assert.equal(page1.session.controlReceipts?.length, 500);
+  assert.equal(page1.controlReceiptsPage?.hasMore, true);
+  assert.ok(page1.controlReceiptsPage?.nextCursor?.startsWith("receipt:"));
+
+  // Page 2 resumes from nextCursor and returns receipts #501..#520 with hasMore=false!
+  const page2 = readModel.session({
+    runtimeSessionId: sessionId,
+    controlReceiptsCursor: page1.controlReceiptsPage!.nextCursor!,
+  });
+  assert.deepEqual(validateAgentRuntimeSession(page2), []);
+  assert.equal(page2.session.controlReceipts?.length, 20);
+  assert.equal(page2.session.controlReceipts?.[0]?.requestOpId, "op-req-19-501");
+  assert.equal(page2.session.controlReceipts?.[19]?.requestOpId, "op-req-19-520");
+  assert.equal(page2.controlReceiptsPage?.hasMore, false);
+  assert.equal(page2.controlReceiptsPage?.nextCursor, null);
+
+  // Point lookup by requestOpId reads receipt #515 directly in O(1)!
+  const point = readModel.session({
+    runtimeSessionId: sessionId,
+    controlReceiptRequestOpId: "op-req-19-515",
+  });
+  assert.deepEqual(validateAgentRuntimeSession(point), []);
+  assert.equal(point.session.controlReceipts?.length, 1);
+  assert.equal(point.session.controlReceipts?.[0]?.controlRequestId, "ctrl-19-515");
+  assert.equal(point.session.controlReceipts?.[0]?.steerVersion, 515);
+
+  // Verify SQLite uses event_index_runtime_control_receipt_req partial index for requestOpId lookup!
+  const db = new DatabaseSync(projection.path, { readOnly: true });
+  t.after(() => db.close());
+  const reqPlan = db
+    .prepare(
+      "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE workspace_revision > ? AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.payload.runtimeSessionId') = ? AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') = ? ORDER BY workspace_revision ASC LIMIT ?",
+    )
+    .all(0, sessionId, "op-req-19-515", 1) as { detail: string }[];
+  assert.ok(
+    reqPlan.some((row) => row.detail.includes("event_index_runtime_control_receipt_req")),
+    `expected event_index_runtime_control_receipt_req partial index, got: ${JSON.stringify(reqPlan)}`,
+  );
 });

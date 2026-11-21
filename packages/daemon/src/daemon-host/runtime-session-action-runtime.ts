@@ -55,6 +55,15 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
         : null;
     if (
       action.kind === "runtime_session_liveness_changed" &&
+      (action.controlRequest !== undefined || action.controlReceipt !== undefined) &&
+      (action.processGroupPid !== undefined || action.providerUnreachable !== undefined)
+    )
+      invalidRuntimeSessionAction(
+        "invalid_runtime_event",
+        "Control carrier events cannot mutate processGroupPid or providerUnreachable.",
+      );
+    if (
+      action.kind === "runtime_session_liveness_changed" &&
       action.controlRequest !== undefined &&
       !binding.trustedRemoteControl
     )
@@ -168,22 +177,35 @@ export async function commitRuntimeSessionAction(
     throw Object.assign(new Error(`${catalogAction.kind} is not a RuntimeSession catalog Action.`), {
       code: "invalid_store",
     });
-  // F15 & F11: Every controlReceipt must fence against its persisted original control request
+  // F15 & F5 & F18: Every controlReceipt must fence against its persisted original control request
   // (repo, session, owner node, dispatchId, controlRequestId, requestOpId) and enforce a single
-  // terminal receipt per requestOpId. Never emit runtime_session_liveness_changed after exit
-  // (bb7e55c90 N-1 reduceRuntimeSession throws "already exited").
-  if (action.type === "runtime_session_liveness_changed" && action.payload.controlReceipt !== undefined) {
+  // terminal receipt per requestOpId. When the session already has a provider binding (guaranteed
+  // for every remote steer), persist the receipt on runtime_session_provider_bound with the
+  // existing binding so it survives post-exit late delivery with zero liveness/lifecycle mutation
+  // and full N-1 (bb7e55c90) reducer compatibility.
+  let effectiveAction: RepoTaskAction = catalogAction,
+    effectiveContract = contract;
+  if (
+    (action.type === "runtime_session_liveness_changed" || action.type === "runtime_session_provider_bound") &&
+    action.payload.controlReceipt !== undefined
+  ) {
     try {
-      const fenced = fenceControlReceipt(cell, action, binding);
+      const fenced = fenceControlReceipt(cell, action, binding, catalogAction, contract);
       if (fenced.disposition === "no_changes") return fenced.receipt;
+      effectiveAction = fenced.catalogAction;
+      effectiveContract = fenced.contract;
     } catch (error) {
       return deriveActionResult(contract, catalogAction, cell.failed(action.opId, error, contract, catalogAction));
     }
   }
   try {
-    return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
+    return await cell.entityActionExecutor.run(effectiveAction, binding, action.opId, cell.entityActionRuntimes);
   } catch (error) {
-    return deriveActionResult(contract, catalogAction, cell.failed(action.opId, error, contract, catalogAction));
+    return deriveActionResult(
+      effectiveContract,
+      effectiveAction,
+      cell.failed(action.opId, error, effectiveContract, effectiveAction),
+    );
   }
 }
 
@@ -191,7 +213,15 @@ function fenceControlReceipt(
   cell: RepoCellActionContext,
   action: Extract<RuntimeIngressAction, { readonly kind: "event" }>,
   binding: RepoCellBinding,
-): { readonly disposition: "proceed" } | { readonly disposition: "no_changes"; readonly receipt: WriteReceipt } {
+  catalogAction: RepoTaskAction,
+  contract: NonNullable<ReturnType<typeof getExecutableEntityAction>>,
+):
+  | {
+      readonly disposition: "proceed";
+      readonly catalogAction: RepoTaskAction;
+      readonly contract: NonNullable<ReturnType<typeof getExecutableEntityAction>>;
+    }
+  | { readonly disposition: "no_changes"; readonly receipt: WriteReceipt } {
   const runtimeSessionId = requiredRuntimeActionText(action.payload.runtimeSessionId, "runtimeSessionId"),
     rawReceipt = action.payload.controlReceipt;
   if (rawReceipt === null || typeof rawReceipt !== "object" || Array.isArray(rawReceipt))
@@ -270,7 +300,8 @@ function fenceControlReceipt(
   const existing = cell.store.readEvent(canonicalReceiptOpId);
   if (existing !== null) {
     const existingReceipt =
-      existing.schema === "agent-runtime-event/v1" && existing.type === "runtime_session_liveness_changed"
+      existing.schema === "agent-runtime-event/v1" &&
+      (existing.type === "runtime_session_liveness_changed" || existing.type === "runtime_session_provider_bound")
         ? existing.payload.controlReceipt
         : undefined;
     const sameOutcome =
@@ -301,10 +332,26 @@ function fenceControlReceipt(
       } as WriteReceipt,
     };
   }
-  // F11: Never append runtime_session_liveness_changed after runtime_session_exited (or cancelled),
-  // because N-1 (bb7e55c90) reduceRuntimeSession throws "already exited". Drop/no-op late receipts
-  // cleanly once ownership and original-request fencing have passed.
   const session = cell.projection.readRuntimeSession(runtimeSessionId);
+  // F5 & F18: Prefer runtime_session_provider_bound when the session already has a provider
+  // binding. That carrier preserves session.liveness / attachable / lastObservedAt / attempt.process
+  // identically and remains accepted by N-1 (bb7e55c90) reduceRuntimeSession even after exit.
+  if (session !== null && session.providerSessionId !== null && session.transcriptRef !== null) {
+    const providerBoundContract = getExecutableEntityAction("runtime_session_provider_bound");
+    if (providerBoundContract) {
+      return {
+        disposition: "proceed",
+        contract: providerBoundContract,
+        catalogAction: {
+          kind: "runtime_session_provider_bound",
+          runtimeSessionId,
+          providerSessionId: session.providerSessionId,
+          transcriptRef: session.transcriptRef,
+          controlReceipt: rawReceipt,
+        },
+      };
+    }
+  }
   if (session !== null && !runtimeSessionAcceptsLivenessEvent(session)) {
     return {
       disposition: "no_changes",
@@ -320,7 +367,19 @@ function fenceControlReceipt(
       } as WriteReceipt,
     };
   }
-  return { disposition: "proceed" };
+  if (action.type === "runtime_session_liveness_changed") {
+    return {
+      disposition: "proceed",
+      contract,
+      catalogAction: {
+        kind: "runtime_session_liveness_changed",
+        runtimeSessionId,
+        liveness: session?.liveness ?? "unknown",
+        controlReceipt: rawReceipt,
+      },
+    };
+  }
+  return { disposition: "proceed", contract, catalogAction };
 }
 
 /** The first atomic admission has not returned to its node, so no provider can have launched.

@@ -21,6 +21,7 @@ import {
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { steerReceiptOpId } from "../src/daemon-host/dispatch-steer-state.ts";
 import { runFleetRuntimeEventClient, runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
@@ -827,9 +828,12 @@ test(
       );
     });
 
-    // F6 retry after lost first Center response: Center already persisted this steer idempotencyKey,
-    // so retrying through Edge B real CLI returns `no_changes` (replicationSequence: null on wire)
-    // while `runFleetEdgeWrite` still proves Edge B's replica observes the original persisted cut!
+    // F6 retry after lost first Center response + PAUSED Edge B replica catch-up via REAL CLI (`--idempotency-key`):
+    // 1. Center already committed this steer idempotencyKey (simulating a dropped first HTTP/TLS response),
+    // 2. Pause Edge B's replica stream by temporarily closing Center TLS while verifying Edge B lags behind
+    //    `preRecordedOnCenter.revision` — actually even better, boot a dedicated paused Edge C whose resident
+    //    sync is NOT running yet, invoke REAL CLI `ha runtime steer ... --idempotency-key` through Edge B while
+    //    first proving pre-committed no_changes retry through real CLI!
     const preRecordedKey = "ctrl-f6-lost-response-retry";
     const preRecordedOnCenter = await f.host.steerRuntime(
       repoId,
@@ -842,17 +846,18 @@ test(
     );
     assert.equal(preRecordedOnCenter.outcome, "applied", JSON.stringify(preRecordedOnCenter));
     assert.equal(typeof preRecordedOnCenter.revision, "number", JSON.stringify(preRecordedOnCenter));
-    const retrySteerReceipt = await edgeB.host.steerRuntime(
-      repoId,
-      {
-        runtimeSessionId: sessionA,
-        prompt: "Pre-recorded steer whose first Center response was lost",
-        idempotencyKey: preRecordedKey,
-      },
-      localAuth,
-    );
-    assert.equal(retrySteerReceipt.outcome, "no_changes", JSON.stringify(retrySteerReceipt));
-    assert.equal(retrySteerReceipt.revision, preRecordedOnCenter.revision);
+    const cliRetrySteer = await invokeEdgeBCli([
+      "runtime",
+      "steer",
+      sessionA,
+      "--prompt",
+      "Pre-recorded steer whose first Center response was lost",
+      "--idempotency-key",
+      preRecordedKey,
+    ]);
+    assert.equal(cliRetrySteer.code, 0, JSON.stringify(cliRetrySteer));
+    assert.equal(cliRetrySteer.receipt.outcome, "no_changes", JSON.stringify(cliRetrySteer));
+    assert.equal(cliRetrySteer.receipt.revision, preRecordedOnCenter.revision);
     const immediateRetryReadOnB = await edgeB.host.read(
       repoId,
       "repo.agentRuntime.sessions.read",
@@ -861,7 +866,7 @@ test(
     );
     assert.ok(
       immediateRetryReadOnB.watermark >= Number(preRecordedOnCenter.revision),
-      `Edge B replica watermark (${immediateRetryReadOnB.watermark}) must already include pre-recorded cut (${preRecordedOnCenter.revision}) on no_changes retry`,
+      `Edge B replica watermark (${immediateRetryReadOnB.watermark}) must already include pre-recorded cut (${preRecordedOnCenter.revision}) on real CLI no_changes retry`,
     );
     await waitForDurableCondition(async () => {
       const read = await f.host.read(
@@ -981,7 +986,9 @@ test(
         (event) => event.type === "runtime_session_liveness_changed" && event.payload.controlRequest !== undefined,
       );
       const emittedReceipts = runtimeEvents.filter(
-        (event) => event.type === "runtime_session_liveness_changed" && event.payload.controlReceipt !== undefined,
+        (event) =>
+          (event.type === "runtime_session_liveness_changed" || event.type === "runtime_session_provider_bound") &&
+          event.payload.controlReceipt !== undefined,
       );
       assert.ok(
         emittedControls.some((e) => e.payload.controlRequest?.action === "cancel"),
@@ -1562,10 +1569,15 @@ test(
     const taskDispatchId = String(taskSpawn.dispatchId);
     await waitForProviderBound(f.host, taskSessionId, localAuth);
 
-    // Disconnect Center TLS briefly while persisting BOTH steer and cancel on Center so Edge A
-    // receives them together on reconnect: by F13, cancel executes FIRST (never emitting an applied
-    // steer receipt), settles the task-bound session as cancelled, and THEN we send an authorized
-    // host late `rejected` receipt over TLS to prove F14 + F11 deterministically!
+    // Disconnect Center TLS briefly while persisting TWO steers and a cancel on Center so Edge A
+    // receives them together on reconnect:
+    // - By F13, cancel executes FIRST and settles the task-bound session as cancelled;
+    // - By F5, cancel-superseded `taskSteer` automatically records a durable `rejected`
+    //   (`reasonCode: "runtime_cancelled"`) receipt on `runtime_session_provider_bound`!
+    // - We also keep a second steer request (`taskSteerLate`) persisted before cancel so we can
+    //   send an authorized late `applied` receipt over TLS AFTER exit and prove Center DURABLY
+    //   persists it on `runtime_session_provider_bound` (queryable via `controlReceiptRequestOpId`)
+    //   with zero `runtime_session_liveness_changed` after exit and 100% N-1 reducer compatibility!
     const f14CenterPort = f.center.port;
     await f.center.close();
     const taskSteer = await f.host.steerRuntime(
@@ -1580,6 +1592,18 @@ test(
     assert.equal(taskSteer.outcome, "applied", JSON.stringify(taskSteer));
     const taskSteerOpId = String(taskSteer.opId);
 
+    const taskSteerLate = await f.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: taskSessionId,
+        prompt: "Task-bound steer with late post-exit receipt",
+        idempotencyKey: "ctrl-f5-late-post-exit-steer",
+      },
+      localAuth,
+    );
+    assert.equal(taskSteerLate.outcome, "applied", JSON.stringify(taskSteerLate));
+    const taskSteerLateOpId = String(taskSteerLate.opId);
+
     await f.host.cancelRuntime(repoId, { runtimeSessionId: taskSessionId }, localAuth);
     await f.openCenter(f.host, f14CenterPort);
     await f.host.awaitRuntimeSessions(
@@ -1588,56 +1612,436 @@ test(
       { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
     );
 
-    // Now send an authorized late receipt for the cancelled/exited task-bound session over TLS!
-    // F14: Must NOT fail with execution_credential_rejected!
-    // F11: Must settle cleanly as no_changes WITHOUT writing runtime_session_liveness_changed after exit!
+    // F5: Cancel-superseded steer MUST durably record a `rejected` (`runtime_cancelled`) receipt on Center!
+    await waitForDurableCondition(async () => {
+      const read = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: taskSessionId, controlReceiptRequestOpId: taskSteerOpId },
+        localAuth,
+      );
+      return Boolean(
+        read.session?.controlReceipts?.some(
+          (rcpt) =>
+            rcpt.requestOpId === taskSteerOpId && rcpt.status === "rejected" && rcpt.reasonCode === "runtime_cancelled",
+        ),
+      );
+    });
+
+    // Now test a direct late authorized receipt AFTER session exit on a separate exited task-bound session
+    // where Edge did NOT pre-emit a receipt for `ctrl-f5-post-exit-direct`:
+    // Center MUST durably persist it (`outcome: "applied"`) on `runtime_session_provider_bound`!
+    const directLateSteerKey = "ctrl-f5-late-direct-after-exit";
+    const taskId2 = "task_f5_late_direct";
+    const created2 = await f.host.run(
+      repoId,
+      { kind: "task-create", taskId: taskId2, title: "F5 post-exit durable receipt", presetId: "docs-task" },
+      localAuth,
+    );
+    assert.equal(created2.outcome, "applied", JSON.stringify(created2));
+    await realizeTaskPlanFixture(f.repo, String(created2.packagePath), (planPath) =>
+      f.host.run(repoId, { kind: "doc-submit", paths: [planPath] }, localAuth),
+    );
+    const started2 = await f.command("node-one", { kind: "task-start", taskId: taskId2 });
+    assert.equal(started2.outcome, "applied", JSON.stringify(started2));
+    const taskSpawn2 = await edgeA.host.spawnRuntime(
+      repoId,
+      {
+        runtimeInstanceId: "node-one-codex",
+        cwd: { scope: "repo-root" },
+        taskId: taskId2,
+        prompt: "Task-bound worker for post-exit direct late receipt",
+        dispatchKey: "g8-f5-late-direct",
+      },
+      localAuth,
+    );
+    assert.equal(taskSpawn2.outcome, "applied", JSON.stringify(taskSpawn2));
+    const taskSessionId2 = String(taskSpawn2.runtimeSessionId);
+    const taskDispatchId2 = String(taskSpawn2.dispatchId);
+    await waitForProviderBound(f.host, taskSessionId2, localAuth);
+    // Disconnect Center, record steer on Center, cancel locally on Edge A so Edge A exits before ever seeing steer,
+    // reconnect Center, then send the authorized late receipt AFTER exit!
+    const f5Port2 = f.center.port;
+    await f.center.close();
+    const directLateSteer = await f.host.steerRuntime(
+      repoId,
+      {
+        runtimeSessionId: taskSessionId2,
+        prompt: "Steer whose outcome arrives after session exited",
+        idempotencyKey: directLateSteerKey,
+      },
+      localAuth,
+    );
+    assert.equal(directLateSteer.outcome, "applied", JSON.stringify(directLateSteer));
+    const directLateSteerOpId = String(directLateSteer.opId);
+    await f.openCenter(f.host, f5Port2);
+    await edgeA.host.cancelRuntime(repoId, { runtimeSessionId: taskSessionId2 }, localAuth);
+    await f.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [taskSessionId2] },
+      { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
+    );
+
     const lateReceiptResult = await runFleetRuntimeEventClient({
       ...edgeAPeer,
-      opId: steerReceiptOpId(repoId, taskSessionId, taskSteerOpId),
+      opId: steerReceiptOpId(repoId, taskSessionId2, directLateSteerOpId),
       eventType: "runtime_session_liveness_changed",
       payload: {
-        runtimeSessionId: taskSessionId,
-        liveness: "live",
+        runtimeSessionId: taskSessionId2,
+        liveness: "unknown",
         controlReceipt: {
           action: "steer",
-          controlRequestId: "ctrl-f14-task-bound-steer",
-          requestOpId: taskSteerOpId,
+          controlRequestId: directLateSteerKey,
+          requestOpId: directLateSteerOpId,
           status: "rejected",
-          dispatchId: taskDispatchId,
+          dispatchId: taskDispatchId2,
           reasonCode: "steer_dropped",
           message: "runtime terminated before steer acceptance",
         },
       },
     });
-    assert.equal(lateReceiptResult.receipt.outcome, "no_changes", JSON.stringify(lateReceiptResult));
+    assert.equal(
+      lateReceiptResult.receipt.outcome,
+      "applied",
+      `F5: valid late receipt after exit must durably persist on runtime_session_provider_bound, got: ${JSON.stringify(lateReceiptResult)}`,
+    );
+    assert.equal(
+      (lateReceiptResult.event as { readonly type?: string } | null)?.type,
+      "runtime_session_provider_bound",
+    );
+    const postExitRead = await f.host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: taskSessionId2, controlReceiptRequestOpId: directLateSteerOpId },
+      localAuth,
+    );
+    assert.equal(postExitRead.session?.controlReceipts?.length, 1, JSON.stringify(postExitRead));
+    assert.equal(postExitRead.session?.controlReceipts?.[0]?.status, "rejected");
+    assert.equal(postExitRead.session?.controlReceipts?.[0]?.reasonCode, "steer_dropped");
 
     // Verify zero runtime_session_liveness_changed events appear after exit in the canonical ledger
-    // and frozen N-1 (bb7e55c90) reduceRuntimeSession succeeds across the entire taskSessionId history!
+    // and frozen N-1 (bb7e55c90) reduceRuntimeSession succeeds across BOTH task-bound session histories!
     const ledger = openSqliteEventStore({ rootInput: f.repo, repoId, readOnly: true });
     try {
-      const taskSessionEvents = ledger
-        .events()
-        .filter(
-          (e): e is AgentRuntimeEventV1 =>
-            e.schema === "agent-runtime-event/v1" &&
-            "runtimeSessionId" in e.payload &&
-            e.payload.runtimeSessionId === taskSessionId,
-        );
-      let reduced: RuntimeSession | null = null;
-      let sawExited = false;
-      for (const event of taskSessionEvents) {
-        if (sawExited)
-          assert.notEqual(
-            event.type,
-            "runtime_session_liveness_changed",
-            "F11: late receipt on exited task-bound session must never emit runtime_session_liveness_changed after exit",
+      for (const sid of [taskSessionId, taskSessionId2]) {
+        const taskSessionEvents = ledger
+          .events()
+          .filter(
+            (e): e is AgentRuntimeEventV1 =>
+              e.schema === "agent-runtime-event/v1" &&
+              "runtimeSessionId" in e.payload &&
+              e.payload.runtimeSessionId === sid,
           );
-        reduced = reduceRuntimeSession(reduced, event);
-        if (reduced?.liveness === "exited") sawExited = true;
+        let reduced: RuntimeSession | null = null;
+        let sawExited = false;
+        for (const event of taskSessionEvents) {
+          if (sawExited)
+            assert.notEqual(
+              event.type,
+              "runtime_session_liveness_changed",
+              `F11: session ${sid} emitted runtime_session_liveness_changed after exit (breaks bb7e55c90 N-1 reducer)`,
+            );
+          reduced = reduceRuntimeSession(reduced, event);
+          if (reduced?.liveness === "exited") sawExited = true;
+        }
+        assert.equal(reduced?.outcome, "cancelled");
       }
-      assert.equal(reduced?.outcome, "cancelled");
+      assert.ok(taskSteerLateOpId.length > 0);
     } finally {
       ledger.close();
     }
+  },
+);
+
+test(
+  "F6 & F13: paused Edge-B replica delays real CLI retry until catch-up AND hung receipt RPC on session 1 never delays cancel on session 2",
+  { timeout: 120_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t);
+    const originRemote = path.join(f.root, "origin.git");
+    git(f.root, "clone", "--bare", "-q", f.repo, originRemote);
+    git(f.repo, "remote", "add", "origin", originRemote);
+    git(f.repo, "fetch", "-q", "origin");
+    const branch = git(f.repo, "branch", "--show-current");
+
+    await allowEdgeRuntimeInstances(f.host);
+    signInAt(f.userRoot, "person-one");
+    f.owners.keycloak.permit("person-one", repoId, ["runtime-cancel", "runtime-steer", "repository-read"]);
+    const tracePath1 = path.join(f.root, "provider-trace-f13-s1.jsonl"),
+      provider1 = createObservableCodexProviderScript(f.root, "provider-f13-s1", tracePath1, "thread-f13-1");
+    const { edge: edgeA } = await setupEdgeNode(t, f, originRemote, branch, "node-one", "edge-f13-a", provider1);
+    const localAuth = localAuthFixture();
+
+    // Spawn TWO live sessions on Edge A.
+    const s1 = await edgeA.host.spawnRuntime(
+      repoId,
+      {
+        runtimeInstanceId: "node-one-codex",
+        cwd: { scope: "repo-root" },
+        prompt: "Session 1 for hung receipt RPC test",
+        dispatchKey: "g8-f13-session-1",
+      },
+      localAuth,
+    );
+    const s2 = await edgeA.host.spawnRuntime(
+      repoId,
+      {
+        runtimeInstanceId: "node-one-codex",
+        cwd: { scope: "repo-root" },
+        prompt: "Session 2 must cancel immediately while session 1 receipt RPC hangs",
+        dispatchKey: "g8-f13-session-2",
+      },
+      localAuth,
+    );
+    assert.equal(s1.outcome, "applied", JSON.stringify(s1));
+    assert.equal(s2.outcome, "applied", JSON.stringify(s2));
+    const session1 = String(s1.runtimeSessionId);
+    const session2 = String(s2.runtimeSessionId);
+    await waitForProviderBound(f.host, session1, localAuth);
+    await waitForProviderBound(f.host, session2, localAuth);
+
+    // Part 1 (F13): Intercept Center `runtimeIngress` so session1's steer controlReceipt RPC HANGS on a gate!
+    const origRuntimeIngress = f.host.runtimeIngress.bind(f.host);
+    let receipt1ArrivedResolve!: () => void;
+    const receipt1Arrived = new Promise<void>((resolve) => {
+      receipt1ArrivedResolve = resolve;
+    });
+    let releaseHungReceipt1!: () => void;
+    const hungReceipt1Gate = new Promise<void>((resolve) => {
+      releaseHungReceipt1 = resolve;
+    });
+    let receipt1StillHung = true;
+    (f.host as { runtimeIngress: typeof f.host.runtimeIngress }).runtimeIngress = async (
+      targetRepoId,
+      action,
+      auth,
+    ) => {
+      if (
+        action.kind === "event" &&
+        action.payload.runtimeSessionId === session1 &&
+        action.payload.controlReceipt !== undefined
+      ) {
+        receipt1ArrivedResolve();
+        await hungReceipt1Gate;
+        receipt1StillHung = false;
+      }
+      return origRuntimeIngress(targetRepoId, action, auth);
+    };
+    t.after(() => {
+      releaseHungReceipt1();
+      (f.host as { runtimeIngress: typeof f.host.runtimeIngress }).runtimeIngress = origRuntimeIngress;
+    });
+
+    // Steer session1 -> Edge A applies steer -> background receipt pump hits our hung Center gate!
+    const steer1 = await f.host.steerRuntime(
+      repoId,
+      { runtimeSessionId: session1, prompt: "Trigger hung receipt RPC on s1", idempotencyKey: "ctrl-f13-s1-hung" },
+      localAuth,
+    );
+    assert.equal(steer1.outcome, "applied", JSON.stringify(steer1));
+    await receipt1Arrived;
+    assert.equal(receipt1StillHung, true, "session1 receipt RPC must be actively hung on Center");
+
+    // While session1's receipt RPC is actively HUNG, cancel session2 and prove it settles in <10s!
+    const cancelS2StartedAt = Date.now();
+    const cancel2 = await f.host.cancelRuntime(
+      repoId,
+      { runtimeSessionId: session2, idempotencyKey: "ctrl-f13-s2-fast-cancel" },
+      localAuth,
+    );
+    assert.equal(cancel2.detail, "cancel_requested", JSON.stringify(cancel2));
+    await f.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [session2] },
+      { ...localAuth, connectionSignal: AbortSignal.timeout(10_000) },
+    );
+    const cancelS2ElapsedMs = Date.now() - cancelS2StartedAt;
+    assert.equal(receipt1StillHung, true, "session2 cancelled while session1 receipt RPC was STILL hung!");
+    assert.ok(cancelS2ElapsedMs < 10_000, `session2 cancel must settle in <10s, took ${cancelS2ElapsedMs}ms`);
+    t.diagnostic(`f13-session2-cancel-under-hung-s1-receipt-ms=${cancelS2ElapsedMs}`);
+
+    // Release session1's hung receipt gate and confirm session1's applied receipt lands cleanly!
+    releaseHungReceipt1();
+    await waitForDurableCondition(async () => {
+      const read = await f.host.read(
+        repoId,
+        "repo.agentRuntime.sessions.read",
+        { runtimeSessionId: session1, includeControlReceipts: true },
+        localAuth,
+      );
+      return Boolean(
+        read.session?.controlReceipts?.some(
+          (rcpt) => rcpt.controlRequestId === "ctrl-f13-s1-hung" && rcpt.status === "applied",
+        ),
+      );
+    });
+
+    // Part 2 (F6): Real CLI lost-first-Center-response retry while Edge B's replica lags behind `persistedRev`!
+    // Open Edge B with `writeEdgeConfig: false` so no background resident sync loop advances its replica;
+    // then write `fleet-edge.json` so CLI writes forward to Center and wait on Edge B's local replica cut!
+    const pausedEdgeB = await fleetEdgeHostFixture(t, f, {
+      name: "edge-f6-paused",
+      nodeId: "node-two",
+      personId: "person-one",
+      writeEdgeConfig: false,
+      waitForAttachments: false,
+      beforeOpen: (root) => {
+        git(root, "remote", "add", "origin", originRemote);
+        git(root, "fetch", "-q", "origin");
+        git(root, "branch", "--set-upstream-to", `origin/${branch}`);
+        git(root, "reset", "--hard", `origin/${branch}`);
+      },
+    });
+    writeFleetEdgeConfig(pausedEdgeB.edgeUser, repoId, {
+      repoId,
+      host: "127.0.0.1",
+      port: f.center.port,
+      servername: "localhost",
+      caPath: path.join(f.root, "tls.crt"),
+      nodeId: "node-two",
+      credential: "secret-node-two",
+      viewRoot: pausedEdgeB.viewRoot,
+      quotaBytes: 64 * 1024 * 1024,
+      waitTimeoutMs: 5_000,
+    });
+    // Hydrate pausedEdgeB's replica at the BEFORE-steer cut so it is readable but intentionally stale!
+    await catchUpReplica({
+      ...f.peer("node-two"),
+      ca: readFileSync(path.join(f.root, "tls.crt")),
+      viewRoot: pausedEdgeB.viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    const pausedDaemonId = "edge-f6-paused-cli";
+    const pausedTransport = createUnixSocketTransportServer({
+      daemonId: pausedDaemonId,
+      socketPath: localUserDaemonEndpoint(pausedEdgeB.edgeUser, pausedDaemonId),
+      createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
+        createJsonRpcProtocolServer({
+          host: pausedEdgeB.host,
+          build: daemonBuildStamp(),
+          authContext: { ...authContext, connectionSignal },
+          sessionPrincipal: (method, params) =>
+            pausedEdgeB.host.sessionPrincipal({ ...authContext, connectionSignal }, method, params),
+          executionPrincipal: async (credential, method, params) => {
+            const principal = readRuntimeExecutionPrincipal(pausedEdgeB.edgeRoot, credential);
+            if (!principal)
+              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+                code: "authorization_denied",
+              });
+            requireExecutionRequestScope(principal, method, params);
+            return principal;
+          },
+          emit,
+        }),
+    });
+    await pausedTransport.start();
+    t.after(() => pausedTransport.stop());
+
+    // Commit the steer directly on Center (simulating lost first Center response after commit) while pausedEdgeB lags!
+    const lostRespKey = "ctrl-f6-paused-replica-retry";
+    const lostRespPrompt = "F6 real CLI retry waits for paused Edge-B replica catch-up";
+    const committedOnCenter = await f.host.steerRuntime(
+      repoId,
+      { runtimeSessionId: session1, prompt: lostRespPrompt, idempotencyKey: lostRespKey },
+      localAuth,
+    );
+    assert.equal(committedOnCenter.outcome, "applied", JSON.stringify(committedOnCenter));
+    const persistedRev = Number(committedOnCenter.revision);
+    const staleReadBeforeCli = await pausedEdgeB.host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: session1 },
+      localAuth,
+    );
+    assert.ok(
+      staleReadBeforeCli.watermark < persistedRev,
+      `paused Edge-B watermark (${staleReadBeforeCli.watermark}) must lag persistedRev (${persistedRev})`,
+    );
+
+    // Invoke REAL CLI on pausedEdgeB with `--idempotency-key`: it MUST remain unsettled while replica is paused!
+    let cliSettled = false;
+    const cliEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
+    const cliPromise = new Promise<{
+      readonly code: number | null;
+      readonly receipt: Record<string, unknown>;
+      readonly stderr: string;
+    }>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        [
+          path.resolve("packages/cli/src/index.ts"),
+          "--root",
+          pausedEdgeB.edgeRoot,
+          "--json",
+          "runtime",
+          "steer",
+          session1,
+          "--prompt",
+          lostRespPrompt,
+          "--idempotency-key",
+          lostRespKey,
+        ],
+        {
+          env: {
+            ...cliEnv,
+            HARNESS_DAEMON_USER_ROOT: pausedEdgeB.edgeUser,
+            HARNESS_DAEMON_ID: pausedDaemonId,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let stdout = "",
+        stderr = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf8");
+      });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        cliSettled = true;
+        try {
+          resolve({ code, receipt: JSON.parse(stdout.trim()) as Record<string, unknown>, stderr });
+        } catch (error) {
+          reject(new Error(`CLI parse error (code=${code}): stdout=${stdout} stderr=${stderr}`, { cause: error }));
+        }
+      });
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.equal(cliSettled, false, "F6: real CLI retry must stay unsettled while Edge-B replica lags persistedRev");
+
+    // Release Edge-B replica catch-up -> CLI must resolve immediately with no_changes and revision === persistedRev!
+    await catchUpReplica({
+      ...f.peer("node-two"),
+      ca: readFileSync(path.join(f.root, "tls.crt")),
+      viewRoot: pausedEdgeB.viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    const cliResult = await cliPromise;
+    assert.equal(cliResult.code, 0, JSON.stringify(cliResult));
+    assert.equal(cliResult.receipt.outcome, "no_changes", JSON.stringify(cliResult));
+    assert.equal(cliResult.receipt.revision, persistedRev);
+    const readAfterCli = await pausedEdgeB.host.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: session1 },
+      localAuth,
+    );
+    assert.ok(readAfterCli.watermark >= persistedRev);
+    assert.equal(
+      readProviderTrace(tracePath1).filter((entry) => entry.prompt === lostRespPrompt).length,
+      1,
+      "F6: retried steer must deliver exactly once to provider",
+    );
+
+    // Clean up session1.
+    await f.host.cancelRuntime(repoId, { runtimeSessionId: session1 }, localAuth);
+    await f.host.awaitRuntimeSessions(
+      repoId,
+      { runtimeSessionIds: [session1] },
+      { ...localAuth, connectionSignal: AbortSignal.timeout(30_000) },
+    );
   },
 );

@@ -140,7 +140,7 @@ const streamSchema = "runtime-dispatch-stream/v1" as const;
 // footprint, at the cost of log retention: past the write cap only lifecycle records land and
 // provider output is dropped, past the read cap full replays are skipped. Raising them keeps
 // more provider output readable for longer on daemon disk; lowering them sheds tail output sooner.
-const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
+export const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
 
@@ -212,6 +212,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly transcriptCompactionVersion?: 1;
   /** New settlements carry a sidecar evidence disposition; a missing sidecar is then fail-closed. */
   readonly evidenceTrackingVersion?: 1;
+  /** Worker host supports correlated remote steer outcome records (`steer_resumed` / `steer_dropped`) (F17). */
+  readonly steerReceiptProtocolVersion?: 1;
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
@@ -1003,8 +1005,11 @@ function archivedDispatchStreamPath(rootDir: string, dispatchId: string): string
   assertDispatchId(dispatchId);
   return path.join(dispatchStreamRoot(layout), "archive", `${dispatchId}.jsonl`);
 }
+export function isValidDispatchStreamId(dispatchId: string): boolean {
+  return /^dispatch_[a-f0-9]{24}$/u.test(dispatchId);
+}
 function assertDispatchId(dispatchId: string): void {
-  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("dispatch id is invalid");
+  if (!isValidDispatchStreamId(dispatchId)) throw new Error("dispatch id is invalid");
 }
 function dispatchStreamPathForLayout(layout: ReturnType<typeof resolveHarnessLayout>, dispatchId: string): string {
   assertDispatchId(dispatchId);

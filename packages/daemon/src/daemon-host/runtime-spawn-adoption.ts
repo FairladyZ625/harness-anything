@@ -316,16 +316,20 @@ async function restoreRuntime(
       binding,
     );
   if (context.closed?.()) return false;
-  // F12: Reconcile per-dispatch steer state against the stream tail once on adoption so a crash
-  // between stream append and sidecar write never re-delivers a steer after daemon restart.
-  reconcileDispatchSteerStateFromStream(
-    context.input.rootDir,
-    stream.header.dispatchId,
-    dispatchStreamPath(context.input.rootDir, stream.header.dispatchId),
-    readRuntimeWorkerChunk,
-    parseRecord,
-    { forceTailScan: true },
-  );
+  // F12 & F17: Reconcile (or hydrate from a legacy stream) per-dispatch steer state once on
+  // adoption when the stream is within the read ceiling (`fullStream !== null`), so a crash
+  // between stream append and sidecar write never re-delivers a steer and oversized truncated
+  // streams (>200 MiB) are never scanned end-to-end.
+  if (fullStream !== null) {
+    reconcileDispatchSteerStateFromStream(
+      context.input.rootDir,
+      stream.header.dispatchId,
+      dispatchStreamPath(context.input.rootDir, stream.header.dispatchId),
+      readRuntimeWorkerChunk,
+      parseRecord,
+      { forceTailScan: true },
+    );
+  }
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,
     stream.header.dispatchId,
@@ -387,6 +391,7 @@ async function restoreRuntime(
     providerUnreachable: session?.providerUnreachable ?? null,
     workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
     stalledAt: streamSummary?.stalledAt ?? null,
+    steerReceiptCapable: stream.header.steerReceiptProtocolVersion === 1,
     startedAt: stream.header.startedAt,
     stream: reopenDispatchStream(context.input.rootDir, stream.header),
     fallbackAttempt: stream.header.fallbackAttempt ?? null,

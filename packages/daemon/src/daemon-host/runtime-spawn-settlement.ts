@@ -795,14 +795,16 @@ async function publishTerminalOutcome(
     cancelled = active
       ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
       : payload.outcome === "cancelled";
-  // F14: Best-effort pre-exit steer receipt flush so receipts land before runtime_session_exited
-  // when Center is reachable (keeping N-1 compatibility), yet a transient receipt failure NEVER
-  // blocks exited/cancelled/outcome publication or resource release.
-  const [receiptFlush] = await Promise.allSettled([
-    flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding),
-  ]);
-  if (receiptFlush.status === "rejected")
-    console.error(`[runtime-steer-receipts] pre-exit flush deferred for ${dispatchId}:`, receiptFlush.reason);
+  // F13 & F5: Never block exited/cancelled/outcome publication on steer receipt uplink RPCs.
+  // Pending receipts stay durable in pending-steer-receipts.json and drain via the dedicated
+  // background receipt pump (persisted on runtime_session_provider_bound even after exit).
+  if (context.triggerSteerReceiptFlush) {
+    context.triggerSteerReceiptFlush();
+  } else if (!context.closed?.()) {
+    void flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding).catch((error: unknown) =>
+      console.error(`[runtime-steer-receipts] background flush deferred for ${dispatchId}:`, error),
+    );
+  }
   const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
   if (!stopAlreadyProven)
     await context.publishRuntimeEvent(

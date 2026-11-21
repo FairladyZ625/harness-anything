@@ -279,12 +279,18 @@ export interface AgentRuntimeSettlement {
   readonly code: string | null;
   readonly reason: string | null;
 }
+export interface AgentRuntimeControlReceiptsPageDto {
+  readonly cursor: string | null;
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
+}
 export type AgentRuntimeSessionResult = {
   readonly ok: true;
   readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
   readonly session: AgentRuntimeSessionDto;
   readonly result: { readonly ref: string; readonly text: string } | null;
   readonly settlement: AgentRuntimeSettlement | null;
+  readonly controlReceiptsPage?: AgentRuntimeControlReceiptsPageDto;
   readonly watermark: number;
   readonly sourceRevision: number;
 };
@@ -418,15 +424,11 @@ export function validateAgentRuntimeOverview(value: unknown): readonly string[] 
 }
 export function validateAgentRuntimeSession(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "ok",
-      "status",
-      "session",
-      "result",
-      "settlement",
-      "watermark",
-      "sourceRevision",
-    ]) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["ok", "status", "session", "result", "settlement", "watermark", "sourceRevision"],
+      ["controlReceiptsPage"],
+    ) &&
     value.ok === true &&
     ["ready", "pending"].includes(String(value.status)) &&
     validSession(value.session) &&
@@ -436,11 +438,21 @@ export function validateAgentRuntimeSession(value: unknown): readonly string[] {
         typeof value.result.ref === "string" &&
         typeof value.result.text === "string")) &&
     validSettlement(value.settlement) &&
+    (value.controlReceiptsPage === undefined || validControlReceiptsPage(value.controlReceiptsPage)) &&
     Number.isInteger(value.watermark) &&
     Number.isInteger(value.sourceRevision) &&
     safeKeys(value)
     ? []
     : ["agent runtime session is invalid"];
+}
+function validControlReceiptsPage(value: unknown): value is AgentRuntimeControlReceiptsPageDto {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, ["cursor", "nextCursor", "hasMore"]) &&
+    (value.cursor === null || /^receipt:\d+$/u.test(String(value.cursor))) &&
+    (value.nextCursor === null || /^receipt:\d+$/u.test(String(value.nextCursor))) &&
+    typeof value.hasMore === "boolean"
+  );
 }
 export function validateAgentRuntimeEvents(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&

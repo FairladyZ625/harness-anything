@@ -483,6 +483,7 @@ interface RuntimePayloads {
     readonly runtimeSessionId: string;
     readonly providerSessionId: string;
     readonly transcriptRef: string;
+    readonly controlReceipt?: RuntimeControlReceipt;
   };
   readonly runtime_session_task_bound: {
     readonly runtimeSessionId: string;
@@ -671,38 +672,40 @@ function validateAgentRuntimePayloadFields(
       ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "cacheWriteTokens", "attempt", "orphanRecovery"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
-        : type === "runtime_session_liveness_changed"
-          ? ["processGroupPid", "providerUnreachable", "controlRequest", "controlReceipt"]
-          : type === "runtime_cancel_requested"
-            ? ["reason"]
-            : type === "runtime_steer_requested"
-              ? ["expected"]
-              : type === "runtime_dispatch_requested"
-                ? [
-                    "startedAt",
-                    "resumedFromDispatchId",
-                    "handoffEnabled",
-                    "handoffCheckpointId",
-                    "acceptedCommit",
-                    "resumeProviderSessionId",
-                    "taskId",
-                    "executionId",
-                    "attemptGroupId",
-                    "attemptIndex",
-                    "agentId",
-                    "agentName",
-                    "agentDeclarationDigest",
-                    "skillSnapshotDigest",
-                    "squadId",
-                    "squadRun",
-                    "cwd",
-                    "role",
-                    "launchedPermissionMode",
-                    "requestedPermissionMode",
-                    "permissionModeSource",
-                    "reviewTarget",
-                  ]
-                : [];
+        : type === "runtime_session_provider_bound"
+          ? ["controlReceipt"]
+          : type === "runtime_session_liveness_changed"
+            ? ["processGroupPid", "providerUnreachable", "controlRequest", "controlReceipt"]
+            : type === "runtime_cancel_requested"
+              ? ["reason"]
+              : type === "runtime_steer_requested"
+                ? ["expected"]
+                : type === "runtime_dispatch_requested"
+                  ? [
+                      "startedAt",
+                      "resumedFromDispatchId",
+                      "handoffEnabled",
+                      "handoffCheckpointId",
+                      "acceptedCommit",
+                      "resumeProviderSessionId",
+                      "taskId",
+                      "executionId",
+                      "attemptGroupId",
+                      "attemptIndex",
+                      "agentId",
+                      "agentName",
+                      "agentDeclarationDigest",
+                      "skillSnapshotDigest",
+                      "squadId",
+                      "squadRun",
+                      "cwd",
+                      "role",
+                      "launchedPermissionMode",
+                      "requestedPermissionMode",
+                      "permissionModeSource",
+                      "reviewTarget",
+                    ]
+                  : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, requiredFields) ||
@@ -818,7 +821,7 @@ function validateAgentRuntimePayloadFields(
   )
     return ["runtime control request payload is invalid"];
   if (
-    type === "runtime_session_liveness_changed" &&
+    (type === "runtime_session_liveness_changed" || type === "runtime_session_provider_bound") &&
     value.controlReceipt !== undefined &&
     !validRuntimeControlReceipt(value.controlReceipt, allowUnknownFields)
   )
@@ -1101,6 +1104,8 @@ export function reduceRuntimeSession(
         throw new RuntimeSessionFieldConflictError(`runtime session ${sessionId} provider binding changed`);
       return current;
     }
+    if (event.payload.controlReceipt !== undefined)
+      throw new Error(`runtime session ${sessionId} has no provider binding for control receipt`);
     return {
       ...current,
       providerSessionId: event.payload.providerSessionId,
@@ -1155,6 +1160,7 @@ export function reduceRuntimeSession(
   }
   if (event.type === "runtime_session_liveness_changed") {
     if (!runtimeSessionAcceptsLivenessEvent(current)) throw new Error(`runtime session ${sessionId} already exited`);
+    if (isRuntimeControlCarrierEvent(event)) return current;
     return {
       ...current,
       liveness: event.payload.liveness,
@@ -1211,6 +1217,14 @@ export function reduceRuntimeSession(
 /** Canonical domain judgment: whether a RuntimeSession can still accept a `runtime_session_liveness_changed` event (F11 / N-1 reducer invariant). */
 export function runtimeSessionAcceptsLivenessEvent(session: Pick<RuntimeSession, "liveness">): boolean {
   return session.liveness !== "exited";
+}
+
+/** Canonical domain judgment: whether an event is a remote control request/receipt carrier that must not forge process liveness or lastObservedAt (F18). */
+export function isRuntimeControlCarrierEvent(event: AgentRuntimeEventV1): boolean {
+  if (event.type === "runtime_session_liveness_changed")
+    return event.payload.controlRequest !== undefined || event.payload.controlReceipt !== undefined;
+  if (event.type === "runtime_session_provider_bound") return event.payload.controlReceipt !== undefined;
+  return false;
 }
 
 export function markRuntimeSessionUnknown(session: RuntimeSession): RuntimeSession {

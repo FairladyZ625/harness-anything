@@ -124,6 +124,8 @@ export interface RuntimeSpawnerContext {
     terminal: RuntimeAttemptTerminal,
   ) => Promise<FallbackSettlement | void>;
   readonly reconcileFallback: (dispatchId: string) => void | Promise<void>;
+  /** Non-blocking wake for the background steer receipt uplink pump (F13). */
+  readonly triggerSteerReceiptFlush?: () => void;
 }
 
 /** The runtime environment is the sole delivery point for its short-lived execution secret. */

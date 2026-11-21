@@ -1455,7 +1455,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         // payload keeps frame.opId correlation-only while preserving the same observation's replay
         // identity across different requests.
         const controlReceipt =
-          frame.eventType === "runtime_session_liveness_changed" &&
+          (frame.eventType === "runtime_session_liveness_changed" ||
+            frame.eventType === "runtime_session_provider_bound") &&
           typeof frame.payload.controlReceipt === "object" &&
           frame.payload.controlReceipt !== null &&
           !Array.isArray(frame.payload.controlReceipt)

@@ -3,6 +3,7 @@ export * from "./domain/index.ts";
 export {
   clampPermissionMode,
   compareRuntimeActivity,
+  isRuntimeControlCarrierEvent,
   latestRuntimeActivityAt,
   resolveScheduledPermissionMode,
   runtimeArchiveText,

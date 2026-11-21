@@ -362,6 +362,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ),
         dispatchId,
       }),
+    ...(input.onPendingSteerReceipt ? { triggerSteerReceiptFlush: input.onPendingSteerReceipt } : {}),
   };
   async function spawnClaimAttempt(
     claim: RuntimeTaskClaimScope,
@@ -1269,6 +1270,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
         evidenceTrackingVersion: 1,
+        steerReceiptProtocolVersion: 1,
         ...(tokenLimit === null ? {} : { tokenLimit }),
         stallTimeoutMs,
         resumeProviderSessionId: providerSessionId ?? null,
@@ -1741,6 +1743,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       stallTimeoutMs,
       lastProgressAtMs: Date.parse(streamStartedAt),
       lastRealProgressAtMs: Date.parse(streamStartedAt),
+      steerReceiptCapable: true,
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,

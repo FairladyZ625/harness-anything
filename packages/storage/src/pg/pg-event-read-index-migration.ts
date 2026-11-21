@@ -63,6 +63,20 @@ const eventReadFields = {
   dispatch_started_at: "v#>>'{payload,startedAt}'",
   dispatch_activity_at: "COALESCE(v#>>'{payload,startedAt}',v->>'occurredAt')",
   registers_domain_type: "v#>>'{payload,registersDomainType}'",
+  runtime_control_kind: `CASE WHEN NEW.event_type='runtime_cancel_requested'
+    OR (NEW.event_type='runtime_session_liveness_changed' AND v#>>'{payload,controlRequest,action}'='cancel')
+    THEN 'cancel'
+    WHEN NEW.event_type='runtime_steer_requested'
+    OR (NEW.event_type='runtime_session_liveness_changed' AND v#>>'{payload,controlRequest,action}'='steer')
+    THEN 'steer' END`,
+  runtime_control_receipt_status: `CASE WHEN NEW.event_type IN ('runtime_session_provider_bound','runtime_session_liveness_changed')
+    AND v#>>'{payload,controlReceipt,status}' IN ('applied','rejected')
+    THEN CASE WHEN v#>>'{payload,controlReceipt,status}'='applied' AND v#>'{payload,controlReceipt,steerVersion}' IS NOT NULL
+      THEN 'applied_versioned'
+      ELSE v#>>'{payload,controlReceipt,status}' END END`,
+  runtime_control_receipt_req_op_id: `CASE WHEN NEW.event_type IN ('runtime_session_provider_bound','runtime_session_liveness_changed')
+    AND v#>>'{payload,controlReceipt,requestOpId}' IS NOT NULL
+    THEN v#>>'{payload,controlReceipt,requestOpId}' END`,
   task_index_id: `CASE v->>'schema'
     WHEN 'task-progress-event/v1' THEN v#>>'{payload,taskId}'
     WHEN 'agent-runtime-event/v1' THEN CASE NEW.event_type
@@ -326,6 +340,21 @@ export function eventReadIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,repo_id,executor_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_session_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,runtime_session_id,revision)`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_control ON ha_events
+      (${eventScope},runtime_session_id,revision)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_kind IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_cancel_control ON ha_events
+      (${eventScope},runtime_session_id,revision)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_kind='cancel'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_control_receipt ON ha_events
+      (${eventScope},runtime_session_id,revision DESC)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_receipt_status IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_applied_steer_receipt ON ha_events
+      (${eventScope},runtime_session_id,revision DESC)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_receipt_status='applied_versioned'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_control_receipt_req ON ha_events
+      (${eventScope},runtime_session_id,runtime_control_receipt_req_op_id)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_receipt_req_op_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_fact_anchor_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,fact_anchor_id,revision) WHERE fact_anchor_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_type_time_revision ON ha_events

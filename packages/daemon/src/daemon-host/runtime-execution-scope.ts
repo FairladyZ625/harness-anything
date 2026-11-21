@@ -277,7 +277,7 @@ export function requireCurrentExecutionScope(input: {
   const livenessObservation = ingress?.type === "runtime_session_liveness_changed";
   const controlReceiptIngress =
     input.hostSettlement === true &&
-    livenessObservation &&
+    (livenessObservation || ingress?.type === "runtime_session_provider_bound") &&
     isJsonObject(ingress.payload) &&
     isJsonObject(ingress.payload.controlReceipt) &&
     ingress.payload.controlRequest === undefined;

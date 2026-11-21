@@ -1,5 +1,6 @@
 import { createAgentRuntimeEvent } from "./agent-runtime-event.ts";
 import {
+  isRuntimeControlCarrierEvent,
   reduceRuntimeSession,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventType,
@@ -65,7 +66,12 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("attachable", "boolean"),
     field("taskBinding", "json-object", false),
   ]),
-  runtime_session_provider_bound: Object.freeze([runtimeSessionId, field("providerSessionId"), field("transcriptRef")]),
+  runtime_session_provider_bound: Object.freeze([
+    runtimeSessionId,
+    field("providerSessionId"),
+    field("transcriptRef"),
+    field("controlReceipt", "json-object", false),
+  ]),
   runtime_session_task_bound: Object.freeze([
     runtimeSessionId,
     field("taskId"),
@@ -254,13 +260,15 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
+    const reduced = reduceRuntimeSession(current, event);
     noChanges =
-      (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
-      current === null &&
-      typeof input.action.dispatchId === "string" &&
-      input.action.dispatchId.length > 0
+      isRuntimeControlCarrierEvent(event) ||
+      ((event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
+        current === null &&
+        typeof input.action.dispatchId === "string" &&
+        input.action.dispatchId.length > 0)
         ? false
-        : reduceRuntimeSession(current, event) === current;
+        : reduced === current;
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);

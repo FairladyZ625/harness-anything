@@ -237,7 +237,6 @@ export function readRuntimeSteerVersion(
     streamOffset: offset,
     controlCursorRevision: 0,
     opIds: collectedOpIds.slice(-512),
-    pendingReceipts: [],
     ackedReceiptOpIds: [],
   });
   return count;

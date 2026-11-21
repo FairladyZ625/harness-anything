@@ -227,6 +227,8 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
     return Object.fromEntries(
       Object.entries(value)
         .filter(([key]) => {
+          if (key === "controlReceiptsPage")
+            return method !== "repo.agentRuntime.sessions.read" || !("session" in value);
           if (key === "nodeId") return !sessionRead || !("runtimeSessionId" in value);
           return !hiddenKeys.has(key) || !("dispatchId" in value || "runtimeSessionId" in value);
         })

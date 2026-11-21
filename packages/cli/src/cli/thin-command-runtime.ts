@@ -140,6 +140,7 @@ function parseRuntimeControl(
         runtimeSessionId: id,
         ...(flags.one.has("--ruling") ? { ruling: flags.one.get("--ruling") } : {}),
         ...(flags.one.has("--reason") ? { reason: flags.one.get("--reason") } : {}),
+        ...(flags.one.has("--idempotency-key") ? { idempotencyKey: flags.one.get("--idempotency-key") } : {}),
       },
       route.method,
     );
@@ -165,6 +166,7 @@ function parseRuntimeControl(
       ...prompt,
       ...(promptFile ? { promptFile } : {}),
       ...(expected ? { expected } : {}),
+      ...(flags.one.has("--idempotency-key") ? { idempotencyKey: flags.one.get("--idempotency-key") } : {}),
     },
     route.method,
   );

@@ -102,6 +102,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
       : lastProgressAtMs;
   return {
     ...base,
+    steerReceiptCapable: base.steerReceiptCapable ?? true,
     releaseAuthorization: base.binding.retainAuthorization?.(),
     stallTimeoutMs,
     fallbackAttempt: base.fallbackAttempt ?? null,
@@ -456,10 +457,15 @@ export function attachActiveRuntime(
       outcome,
     );
     if (context.closed?.()) return;
-    context.input.schedule(async () => {
-      if (context.closed?.()) return;
-      await flushPendingSteerReceipts(context, active.dispatchId, runtimeSessionId, active.binding);
-    }, active.binding);
+    // F13: Never queue receipt uplink RPCs on the control workQueue; wake the dedicated
+    // non-blocking receipt pump (or detached async flush when standalone).
+    if (context.triggerSteerReceiptFlush) {
+      context.triggerSteerReceiptFlush();
+      return;
+    }
+    void flushPendingSteerReceipts(context, active.dispatchId, runtimeSessionId, active.binding).catch(
+      (error: unknown) => console.error("[runtime-steer-receipts] background flush deferred:", error),
+    );
   });
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
 }
@@ -487,7 +493,7 @@ export async function flushPendingSteerReceipts(
         "runtime_session_liveness_changed",
         {
           runtimeSessionId,
-          liveness: "live",
+          liveness: "unknown",
           controlReceipt: {
             action: "steer",
             controlRequestId: outcome.controlRequestId,
