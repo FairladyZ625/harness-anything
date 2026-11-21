@@ -1,7 +1,6 @@
 import { timestamp } from "./timestamp.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord } from "./contract-validation.ts";
 import type { RuntimeProviderHealthStatus } from "./operational-status.ts";
-export type { RuntimeProviderHealthStatus } from "./operational-status.ts";
 
 export const runtimeQuotaWindowKinds = Object.freeze(["session", "weekly", "monthly", "bucket"] as const);
 export type RuntimeQuotaWindowKind = (typeof runtimeQuotaWindowKinds)[number];
