@@ -15,6 +15,7 @@ import {
   blockingOf,
   todoIsOpen,
   closeoutReadiness,
+  currentSubmittedExecutions,
   deriveRelationId,
   freshnessReasonOf,
   isTerminalDecisionState,
@@ -34,6 +35,7 @@ import {
   taskVisibility,
   workspaceTaskStatus,
   resolveHarnessLayout,
+  reviewDispatchCommand,
   hasEffectiveReviewForExecution,
   type FreshnessReason,
   type FreshnessReasonInput,
@@ -922,26 +924,38 @@ export function makeTaskQueryReadModel(input: {
       undispatchedReviews = attentionOnly
         ? []
         : (() => {
-            const unreviewedCandidates = underReview.flatMap((row) => {
-                const snapshot = projection.read(row.taskId).snapshot,
-                  execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
-                if (
-                  !execution?.submission ||
-                  hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions)
-                )
-                  return [];
-                return [{ row, execution, recordedFailure: snapshot.task?.reviewDispatchFailure }];
+            const targets = new Map(
+                (inReview?.rows ?? []).flatMap(({ taskId, snapshot }) => {
+                  const cuts = currentSubmittedExecutions(snapshot);
+                  return cuts
+                    .filter(
+                      (execution) =>
+                        !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
+                    )
+                    .map((execution) => {
+                      const recordedFailure = snapshot.task?.reviewDispatchFailure;
+                      return [
+                        cutReviewTargetKey(taskId, execution.executionId),
+                        {
+                          taskId,
+                          execution,
+                          ...(recordedFailure ? { recordedFailure } : {}),
+                          command: reviewDispatchCommand(taskId, cuts.length > 1 ? execution.executionId : undefined),
+                        },
+                      ] as const;
+                    });
+                }),
+              ),
+              unreviewedCandidates = underReview.flatMap((row) => {
+                const target = targets.get(cutReviewTargetKey(row.taskId, row.executionId));
+                return target ? [{ row, target }] : [];
               }),
               cutStates = readCutReviewDispatchStates(
                 projection,
-                unreviewedCandidates.map(({ row, execution, recordedFailure }) => ({
-                  taskId: row.taskId,
-                  execution,
-                  ...(recordedFailure ? { recordedFailure } : {}),
-                })),
+                unreviewedCandidates.map(({ target }) => target),
               );
-            return unreviewedCandidates.flatMap(({ row, execution }) => {
-              const state = cutStates.get(cutReviewTargetKey(row.taskId, execution.executionId));
+            return unreviewedCandidates.flatMap(({ row, target }) => {
+              const state = cutStates.get(cutReviewTargetKey(row.taskId, row.executionId));
               if (state && state.activeDispatches.length > 0) return [];
               const failure = state?.latestFailure ?? null;
               return [
@@ -953,7 +967,7 @@ export function makeTaskQueryReadModel(input: {
                     (failure
                       ? `; ${reviewDispatchFailureWarning({ code: failure.code ?? "review_dispatch_failed", message: failure.reason })}`
                       : "") +
-                    `; run ha task dispatch-review ${row.taskId}.`,
+                    `; run ${target.command}.`,
                 },
               ];
             });

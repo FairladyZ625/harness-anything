@@ -56,6 +56,7 @@ export {
   providerFallbackDispatchKey,
   readCutReviewDispatchState,
   readCutReviewDispatchStates,
+  recordedReviewFailureForCut,
   reviewAttemptEnded,
   reviewDispatchDiagnostic,
   reviewDispatchFailureWarning,

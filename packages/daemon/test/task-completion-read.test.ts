@@ -55,7 +55,7 @@ test("single-task completion read carries the canonical next and validates its r
       }),
       readRelationQuery: () => ({ ...readyCut, rows: [] }),
     } as unknown as TaskProjection,
-    result = readTaskCompletion(projection, taskId);
+    { completion: result } = readTaskCompletion(projection, taskId);
   const canonical = taskCompletionNext(snapshot, {
     closeout: "ready",
     closeoutPath: "tasks/task-1/closeout.md",
@@ -154,7 +154,7 @@ test("a ready submitted low-risk cut exposes ha task complete instead of a null 
       }),
       readRelationQuery: () => ({ ...readyCut, rows: [] }),
     } as unknown as TaskProjection,
-    result = readTaskCompletion(projection, taskId);
+    { completion: result } = readTaskCompletion(projection, taskId);
   assert.equal(result.completionBlocker, null);
   assert.equal(result.completionNext?.action, `ha task complete ${taskId}`);
   assert.match(result.completionNext?.reason ?? "", /lifted independent review and consent/u);

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { createEntityStore } from "@harness-anything/storage";
+import { recordedReviewFailureForCut } from "@harness-anything/application/queries";
 import {
   reviewDispatchFailureWarning,
   completionGateIds,
@@ -1208,10 +1209,7 @@ export async function dispatchInReviewCutReview(
     };
   const placement = taskExecutionPlacement(cell, taskId, execution.executionId);
   if (placement.kind === "node") {
-    const failure =
-      current.snapshot.task.reviewDispatchFailure?.executionId === execution.executionId
-        ? current.snapshot.task.reviewDispatchFailure
-        : undefined;
+    const failure = recordedReviewFailureForCut(current.snapshot.task.reviewDispatchFailure, execution);
     const step = {
       ...receipt,
       ...(failure ? { reviewDispatchFailure: failure } : {}),
@@ -1521,10 +1519,7 @@ export async function prepareTaskReviewDispatch(
         ...(typeof action.effort === "string" ? { effort: action.effort as TaskReviewDispatchIntentV1["effort"] } : {}),
         ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
       };
-      const failure =
-        snapshot.task?.reviewDispatchFailure?.executionId === execution.executionId
-          ? snapshot.task.reviewDispatchFailure
-          : undefined;
+      const failure = recordedReviewFailureForCut(snapshot.task?.reviewDispatchFailure, execution);
       steps.push({ ...target, kind: "node", nodeId: placement.nodeId, intent, failure });
       continue;
     }

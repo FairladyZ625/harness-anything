@@ -100,14 +100,30 @@ export function reviewDispatchGroupSettled(
 function cutReviewDispatchesForTarget(
   projection: Pick<TaskProjectionQueries, "readRuntimeDispatchesByTaskExecution">,
   taskId: string,
-  execution: ExecutionV1,
+  executionId: string,
+  baseKey: string,
 ): ReturnType<TaskProjectionQueries["readRuntimeDispatchesByTaskExecution"]> {
-  const baseKey = reviewDispatchKey(taskId, execution);
   return projection
-    .readRuntimeDispatchesByTaskExecution(taskId, execution.executionId)
+    .readRuntimeDispatchesByTaskExecution(taskId, executionId)
     .filter(
       ({ event }) => event.payload.role === "reviewer" && isCutReviewDispatchKey(event.payload.dispatchKey, baseKey),
     );
+}
+
+/** A routing failure with an opaque legacy key cannot be attributed across submit amendments.
+ * Digest-bearing legacy keys (including keys predating reviewer qualification) still identify a cut. */
+export function recordedReviewFailureForCut(
+  failure: TaskReviewDispatchFailureV1 | undefined,
+  execution: ExecutionV1,
+  baseKey?: string,
+): TaskReviewDispatchFailureV1 | undefined {
+  if (failure?.executionId !== execution.executionId || !execution.submission) return undefined;
+  return isCutReviewDispatchKey(
+    failure.dispatchKey.replace(/^complete-review:/u, "task-review:"),
+    baseKey ?? reviewDispatchKey(execution.taskId, execution),
+  )
+    ? failure
+    : undefined;
 }
 
 function compactReviewFailureReason(value: string): string {
@@ -147,11 +163,14 @@ export function readCutReviewDispatchStates(
   const results = new Map<string, CutReviewDispatchState>();
   if (targets.length === 0) return results;
 
-  const dispatchesByTarget = targets.map((target) => ({
-      target,
-      key: cutReviewTargetKey(target.taskId, target.execution.executionId),
-      dispatches: cutReviewDispatchesForTarget(projection, target.taskId, target.execution),
-    })),
+  const dispatchesByTarget = targets.map(({ taskId, execution, recordedFailure }) => {
+      const baseKey = reviewDispatchKey(taskId, execution);
+      return {
+        key: cutReviewTargetKey(taskId, execution.executionId),
+        dispatches: cutReviewDispatchesForTarget(projection, taskId, execution.executionId, baseKey),
+        recordedFailure: recordedReviewFailureForCut(recordedFailure, execution, baseKey),
+      };
+    }),
     allDispatchIds = [
       ...new Set(
         dispatchesByTarget.flatMap(({ dispatches }) => dispatches.map(({ event }) => event.payload.dispatchId)),
@@ -165,7 +184,7 @@ export function readCutReviewDispatchStates(
       lifecycleRead?.status === "ready" ? lifecycleRead.rows.map((row) => [row.attempt.dispatchId, row]) : [],
     );
 
-  for (const { target, key, dispatches } of dispatchesByTarget) {
+  for (const { key, dispatches, recordedFailure } of dispatchesByTarget) {
     const activeDispatches: ReturnType<TaskProjectionQueries["readRuntimeDispatchesByTaskExecution"]>[number][] = [];
     if (lifecycleRead === null) {
       for (const row of dispatches) {
@@ -229,17 +248,16 @@ export function readCutReviewDispatchStates(
       }
     }
 
-    const matchingRecorded: RankedReviewFailure | null =
-      target.recordedFailure?.executionId === target.execution.executionId
-        ? {
-            failure: {
-              code: target.recordedFailure.code,
-              reason: compactReviewFailureReason(target.recordedFailure.message),
-              failedAt: target.recordedFailure.failedAt,
-            },
-            terminalRevision: -1,
-          }
-        : null;
+    const matchingRecorded: RankedReviewFailure | null = recordedFailure
+      ? {
+          failure: {
+            code: recordedFailure.code,
+            reason: compactReviewFailureReason(recordedFailure.message),
+            failedAt: recordedFailure.failedAt,
+          },
+          terminalRevision: -1,
+        }
+      : null;
 
     const selected =
       bestFailure === null

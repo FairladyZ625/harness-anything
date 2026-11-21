@@ -62,7 +62,7 @@ test("task show states the expected-version optimistic-concurrency commands rese
   );
 });
 
-test("task show exposes automatic review dispatch failure and its retry command", () => {
+test("task show uses per-execution review diagnostics even when completion selection is ambiguous", () => {
   const rendered = renderCliReceipt({
     ok: true,
     command: "task-show",
@@ -77,17 +77,26 @@ test("task show exposes automatic review dispatch failure and its retry command"
           executionId: "execution-edge-1",
           dispatchKey: "review-key-1",
           code: "runtime_spawn_failed",
-          message:
-            "Node edge-one could not start the automatic reviewer. Ask the task owner to retry with ha task dispatch-review task-one.",
+          message: "Stale failure from the previous cut",
           failedAt: "2026-11-07T00:00:00.000Z",
         },
       },
+      completionBlocker: { code: "execution_ambiguous", gate: "execution" },
+      completionNext: { reason: "Owner must resolve current execution candidates.", action: "ha task show task-one" },
+      reviewDispatchFailures: [
+        {
+          executionId: "execution-edge-1",
+          reason: "Latest review dispatch failed (runtime_spawn_failed): node edge-one could not start the reviewer.",
+          action: "ha task dispatch-review task-one --execution-id execution-edge-1",
+        },
+      ],
     }),
   });
   assert.match(
     rendered.text,
-    /^review dispatch failed: runtime_spawn_failed; Node edge-one could not start the automatic reviewer\. Ask the task owner to retry with ha task dispatch-review task-one\.$/mu,
+    /execution_ambiguous[\s\S]*runtime_spawn_failed[\s\S]*ha task dispatch-review task-one --execution-id execution-edge-1/u,
   );
+  assert.doesNotMatch(rendered.text, /Stale failure from the previous cut/u);
 });
 
 test("task show labels the delivery baseline as the start-frozen comparison cut, not the delivery head", () => {
@@ -168,13 +177,10 @@ for (const [code, message] of [
                   status: "in_review",
                   currentNode: "review",
                   completionGateIds: [],
-                  reviewDispatchFailure: {
-                    executionId: "exe-current",
-                    dispatchKey: "review:cut",
-                    code,
-                    message,
-                    failedAt: "2026-11-17T00:00:00Z",
-                  },
+                },
+                completionNext: {
+                  reason: `Latest review dispatch failed (${code}): ${message}`,
+                  action: "ha task dispatch-review task-one",
                 },
               }),
             }

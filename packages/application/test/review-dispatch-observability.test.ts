@@ -670,6 +670,40 @@ test("pre-admission fallback exhaustion ranks by authoritative canonical termina
   assert.equal(stateWithLaterSnapshot.latestFailure?.failedAt, "2026-11-21T10:03:00.000Z");
 });
 
+test("recorded routing failures are attributed only to the current submission digest after amend", () => {
+  const taskId = "task-amended",
+    executionId = "exe-amended",
+    original = makeSubmittedExecution(taskId, executionId, "1".repeat(40)),
+    amended = makeSubmittedExecution(taskId, executionId, "2".repeat(40)),
+    projection: CutReviewDispatchProjection = {
+      readRuntimeDispatchesByTaskExecution: () => [],
+      readRuntimeSessionEventsByType: () => [],
+    },
+    failure = {
+      executionId,
+      dispatchKey: reviewDispatchKey(taskId, original, "closeout-reviewer"),
+      code: "agent_runtime_unavailable",
+      message: "Original cut routing failed",
+      failedAt: "2026-11-21T10:01:00.000Z",
+    },
+    read = (execution: typeof original, recordedFailure: typeof failure) =>
+      readCutReviewDispatchState(projection, { taskId, execution, recordedFailure }).latestFailure;
+
+  assert.equal(read(original, failure)?.reason, failure.message);
+  assert.equal(read(amended, failure), null);
+  assert.equal(read(amended, { ...failure, dispatchKey: "task-review:legacy-unscoped" }), null);
+
+  const currentKey = reviewDispatchKey(taskId, amended);
+  for (const dispatchKey of [
+    currentKey,
+    `${currentKey}:reviewer:closeout-reviewer:attempt1`,
+    currentKey.replace(/^task-review:/u, "complete-review:"),
+  ]) {
+    const current = { ...failure, dispatchKey, message: "Amended cut routing failed" };
+    assert.equal(read(amended, current)?.reason, current.message);
+  }
+});
+
 test("shared review dispatch key suffix helpers recognize combined :resume-fallback:fallback:N and :fallback:N:resume-fallback keys in flight and exhausted", () => {
   const exec = makeSubmittedExecution("task-combo", "exe-combo", "5".repeat(40)),
     base = reviewDispatchKey("task-combo", exec, "closeout-reviewer"),

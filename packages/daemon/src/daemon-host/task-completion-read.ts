@@ -5,10 +5,10 @@ import {
   assessFactRetirement,
   consumeKnownError,
   currentExecutionCuts,
+  currentSubmittedExecutions,
   deliveryTargetRef,
   INITIAL_SETTINGS_V1,
   hasEffectiveReviewForExecution,
-  isNativeExecution,
   resolveHarnessLayout,
   reviewsForExecution,
   type CloseoutSnapshot,
@@ -23,6 +23,7 @@ import {
   type TaskLifecycleSnapshot,
   type RepositorySettingsV1,
   reviewReverifyRoute,
+  reviewDispatchFailureGuidance,
 } from "@harness-anything/kernel";
 import { locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
@@ -33,6 +34,11 @@ import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from ".
 import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { cutReviewTargetKey, readCutReviewDispatchStates } from "@harness-anything/application/queries";
 
+type ReviewDispatchDiagnostic = ReturnType<typeof reviewDispatchFailureGuidance> & { readonly executionId: string };
+type CompletionContext = CompletionReadinessContext & {
+  readonly reviewDispatchFailures?: readonly ReviewDispatchDiagnostic[];
+};
+
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
   projection: TaskProjectionQueries,
@@ -41,7 +47,7 @@ export function readCompletionContext(
   status: "ready" | "pending",
   rootDir?: string,
   actor?: ActorIdentity,
-): CompletionReadinessContext {
+): CompletionContext {
   const taskRead = projection.read(taskId),
     contractPath = taskRead.packagePath ? `${taskRead.packagePath}/task-contract.json` : null,
     completedArchive =
@@ -80,59 +86,42 @@ export function readCompletionContext(
       state: "active",
     }).status,
     closeoutGates = readEffectiveCloseoutGates(projection, snapshot),
+    reviewCuts =
+      snapshot.task?.status === "in_review" && closeoutGates.review !== false
+        ? currentSubmittedExecutions(snapshot)
+        : [],
     // The executor gate only asks for dispatch proof while an independent review is still owed.
     // Reading lineage otherwise would add a dispatch scan to every task read for a value no
     // judgment consumes, and a read that cannot answer it would turn into a false "no dispatch".
-    executorlessReview =
-      snapshot.task?.status === "in_review" && closeoutGates.review !== false
-        ? snapshot.executions.find(
-            (execution) =>
-              isNativeExecution(execution) &&
-              execution.iteration === snapshot.task?.iteration &&
-              execution.state === "submitted" &&
-              execution.actor.executor === null &&
-              reviewsForExecution(snapshot.reviews, execution).length === 0,
-          )
-        : undefined,
-    reviewCutStates =
-      snapshot.task?.status === "in_review" && closeoutGates.review !== false
-        ? readCutReviewDispatchStates(
-            projection,
-            snapshot.executions
-              .filter(isNativeExecution)
-              .filter((execution) => execution.iteration === snapshot.task?.iteration && execution.submission !== null)
-              .map((execution) => ({
-                taskId,
-                execution,
-                ...(snapshot.task?.reviewDispatchFailure
-                  ? { recordedFailure: snapshot.task.reviewDispatchFailure }
-                  : {}),
-              })),
-          )
-        : null,
-    unreviewedCut =
-      snapshot.task?.status === "in_review" && closeoutGates.review !== false
-        ? snapshot.executions
-            .filter(isNativeExecution)
-            .find(
-              (execution) =>
-                execution.iteration === snapshot.task?.iteration &&
-                execution.submission !== null &&
-                !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
-            )
-        : undefined,
+    executorlessReview = reviewCuts.find(
+      (execution) => execution.actor.executor === null && reviewsForExecution(snapshot.reviews, execution).length === 0,
+    ),
+    unreviewedCuts = reviewCuts.filter(
+      (execution) => !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
+    ),
+    recordedFailure = snapshot.task.reviewDispatchFailure,
+    reviewCutStates = readCutReviewDispatchStates(
+      projection,
+      unreviewedCuts.map((execution) => ({ taskId, execution, ...(recordedFailure ? { recordedFailure } : {}) })),
+    ),
+    onlyCut = reviewCuts.length === 1 ? reviewCuts[0] : undefined,
+    onlyCutState = onlyCut ? reviewCutStates.get(cutReviewTargetKey(taskId, onlyCut.executionId)) : undefined,
+    reviewDispatchFailures = unreviewedCuts.flatMap(({ executionId }) => {
+      const failure = reviewCutStates.get(cutReviewTargetKey(taskId, executionId))?.latestFailure;
+      return failure
+        ? [
+            {
+              executionId,
+              ...reviewDispatchFailureGuidance(taskId, failure, reviewCuts.length > 1 ? executionId : undefined),
+            },
+          ]
+        : [];
+    }),
     common = {
       ...(actor === undefined ? {} : { actor }),
-      activeReviewDispatchIds:
-        reviewCutStates === null
-          ? []
-          : [...reviewCutStates.values()].flatMap(({ activeDispatches }) =>
-              activeDispatches.map(({ event }) => event.payload.dispatchId),
-            ),
-      latestReviewDispatchFailure:
-        unreviewedCut && reviewCutStates !== null
-          ? (reviewCutStates.get(cutReviewTargetKey(taskId, unreviewedCut.executionId))?.latestFailure ?? null)
-          : null,
+      activeReviewDispatchIds: onlyCutState?.activeDispatches.map(({ event }) => event.payload.dispatchId) ?? [],
+      latestReviewDispatchFailure: onlyCutState?.latestFailure ?? null,
+      reviewDispatchFailures,
       closeoutGates,
       ...(executorlessReview
         ? {
@@ -340,7 +329,10 @@ export function readTaskCompletion(
   taskId: string,
   rootDir?: string,
   actor?: ActorIdentity,
-): DaemonTaskCompletionResult {
+): {
+  readonly completion: DaemonTaskCompletionResult;
+  readonly reviewDispatchFailures: readonly ReviewDispatchDiagnostic[];
+} {
   // The same judgment task show, task dispatches, task read-set, task review and the task document
   // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.
@@ -366,12 +358,15 @@ export function readTaskCompletion(
       consumeKnownError(error);
     }
   return {
-    ok: true,
-    taskId,
-    completionNext: next,
-    completionBlocker: blocker === null ? null : { code: blocker.code, gate: blocker.gate },
-    factRetirement,
-    reviewReverify: read.snapshot.task ? reviewReverifyView(read.snapshot, read.snapshot.task.iteration) : null,
+    completion: {
+      ok: true,
+      taskId,
+      completionNext: next,
+      completionBlocker: blocker === null ? null : { code: blocker.code, gate: blocker.gate },
+      factRetirement,
+      reviewReverify: read.snapshot.task ? reviewReverifyView(read.snapshot, read.snapshot.task.iteration) : null,
+    },
+    reviewDispatchFailures: context.reviewDispatchFailures ?? [],
   };
 }
 
