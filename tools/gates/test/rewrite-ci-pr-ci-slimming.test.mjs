@@ -331,8 +331,8 @@ test("CH1 merges the G38 read matrix into two PGlite sets and one SQLite set", (
   assert.ok(reads && sqlite);
   const pgliteSets = [...workflowText.matchAll(/dimensions: ([^\n]+)/gu)].map((match) => match[1]);
   assert.deepEqual(pgliteSets, [
-    "task-history,runtime-sessions,dispatches,task-outputs",
-    "relations,relation-visibility,event-bytes,source-events",
+    "dispatches,runtime-sessions,task-history,relation-visibility",
+    "task-outputs,source-events,relations,event-bytes",
   ]);
   assert.match(workflowText, /G38_DIMENSION: \$\{\{ matrix\.dimensions \}\}/u);
   assert.match(

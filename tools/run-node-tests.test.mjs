@@ -199,6 +199,7 @@ test("each discovered fast and contract test file has exactly one CI partition",
   const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8"));
   const job = workflow.jobs["fast-contract"];
   assert.equal(job.env.HARNESS_TEST_PARTITION_STRATEGY, "measured");
+  assert.equal(job.env.HARNESS_TEST_CONCURRENCY, 4);
   assert.equal(job.env.HARNESS_TEST_PARTITION_SHARED_FILES, undefined);
   const tiers = discoverTestTierManifest(repoRoot);
   assert.deepEqual(Object.values(tiers).flat().sort(), discoverTestFiles(repoRoot).sort());

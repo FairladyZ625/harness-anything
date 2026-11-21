@@ -270,6 +270,7 @@ jobs:
     env:
       HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
       HARNESS_TEST_PARTITION_STRATEGY: measured
+      HARNESS_TEST_CONCURRENCY: 4
     steps:
       - uses: actions/checkout@v4
         with:
