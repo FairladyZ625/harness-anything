@@ -628,10 +628,10 @@
       {
         "id": "tools/integration-test-shards.mjs#validateIntegrationTestShards",
         "symbol": "tools/integration-test-shards.mjs#validateIntegrationTestShards",
-        "explain": "Checks shard assignment, override coverage, per-shard budget, and wall-time spread for the integration manifest.",
+        "explain": "Checks shard assignment, override coverage, per-shard work and wall-time budgets, and wall-time spread for the integration manifest.",
         "sources": [
           {
-            "candidateId": "judgment:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:4b4a5203e7f04764be9f0c627b94cd85",
+            "candidateId": "judgment:tools:tools/integration-test-shards.mjs#validateIntegrationTestShards:e265d0c9f42b44b36e603bdea5cec590",
             "route": "tools/integration-test-shards.mjs#validateIntegrationTestShards"
           }
         ],

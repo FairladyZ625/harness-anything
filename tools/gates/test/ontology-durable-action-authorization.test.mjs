@@ -32,11 +32,11 @@ const inputs = await baselineAuthorizationInputs();
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
-// Explicit partitions spread the mutation cases across four workers. New cases must
-// update this map; their measured durations are recorded by the test runner.
+// These mutation cases use independent worktrees, so four workers share the file but never a case.
+// The assignment balances measured case durations from runs 44891743885, 44925574438, and 44940024765.
 const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 1, 3, 4,
-  4, 4, 2, 3, 2,
+  2, 1, 2, 4, 4, 1, 4, 4, 1, 2, 4, 2, 2, 1, 4, 1, 4, 1, 3, 3, 3, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 3, 2, 1, 2, 1, 4, 2,
+  4, 3, 3, 3, 2, 3, 3, 2,
 ];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
@@ -516,7 +516,7 @@ partitionedTest("a worktree root anchors on its own kernel sources instead of th
   assert.equal(realpathSync(members.get("authorize").getSourceFile().fileName), realpathSync(path.join(dir, file)));
 });
 
-test("effect sources name their owner descriptor or a declared native entry", () => {
+partitionedTest("effect sources name their owner descriptor or a declared native entry", () => {
   const nativeEntryRoutes = new Set(
     inputs.constants.actionDeclarations.flatMap((action) =>
       action.ontology?.authority ? Object.keys(action.ontology.entries ?? {}) : [],
@@ -533,7 +533,7 @@ test("effect sources name their owner descriptor or a declared native entry", ()
   }
 });
 
-test("an undeclared native effect route cannot bypass descriptor ownership", async (t) => {
+partitionedTest("an undeclared native effect route cannot bypass descriptor ownership", async (t) => {
   const { writeRepoFile } = await import("./helpers.mjs");
   const root = mkdtempSync(path.join(tmpdir(), "native-route-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -555,7 +555,7 @@ test("an undeclared native effect route cannot bypass descriptor ownership", asy
   await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
 });
 
-test("a source cannot borrow another action's authorization route", async (t) => {
+partitionedTest("a source cannot borrow another action's authorization route", async (t) => {
   const { writeRepoFile } = await import("./helpers.mjs");
   const root = mkdtempSync(path.join(tmpdir(), "source-route-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -1390,3 +1390,9 @@ partitionedTest("authorization rejects a foreign route in a package action shard
     return true;
   });
 });
+
+assert.equal(
+  partitionTestOrdinal,
+  authorizationTestPartitionAssignments.length,
+  "every durable case has a CI partition",
+);

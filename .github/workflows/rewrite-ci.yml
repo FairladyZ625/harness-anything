@@ -268,10 +268,10 @@ jobs:
       matrix:
         partition: [1, 2, 3, 4]
     env:
-      # All partitions derive from the same tier manifest. The expensive mutation suite uses a
-      # measured weighted assignment to keep its four partitions balanced.
       HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
+      HARNESS_TEST_PARTITION_STRATEGY: measured
       HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
+      HARNESS_TEST_CONCURRENCY: 4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -382,6 +382,7 @@ jobs:
       - if: needs.install.outputs.code != 'false'
         env:
           HARNESS_INTEGRATION_DURATION_LOG: ${{ runner.temp }}/integration-durations-shard-${{ matrix.shard }}.log
+          HARNESS_TEST_CONCURRENCY: 3
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
       - if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.install.outputs.code != 'false'
         uses: actions/upload-artifact@v4
@@ -681,9 +682,9 @@ jobs:
       matrix:
         include:
           - set: 1
-            dimensions: task-history,runtime-sessions,dispatches,task-outputs
+            dimensions: source-events,dispatches,runtime-sessions,task-history,relation-visibility
           - set: 2
-            dimensions: relations,relation-visibility,event-bytes,source-events
+            dimensions: task-outputs,relations,event-bytes
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
