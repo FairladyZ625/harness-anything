@@ -158,62 +158,64 @@ for (const kind of ["local", "cloud"] as const) {
       git(rootDir, "config", "user.email", "runtime-target@example.invalid");
       git(rootDir, "add", "harness");
       git(rootDir, "commit", "-qm", "fixture");
-      const cell = await openBootstrappedRepoCell({
-        repoId,
-        rootDir,
-        ownerId: "runtime-target",
-        runtimeDaemonRoute: {
-          userRoot: rootDir,
-          daemonId: "runtime-target",
-          endpoint: path.join(rootDir, "fixture.sock"),
-        },
-        ...(kind === "cloud"
-          ? {
-              cloudRuntime: {
-                instanceTargets: { [instanceId]: { hostId: "sandbox-host", version: "1.0.0" } },
-                request: (hostId, method, params, signal) => {
-                  assert.equal(hostId, "sandbox-host");
-                  return cloud.request(method, params, signal);
+      const openCell = () =>
+        openBootstrappedRepoCell({
+          repoId,
+          rootDir,
+          ownerId: "runtime-target",
+          runtimeDaemonRoute: {
+            userRoot: rootDir,
+            daemonId: "runtime-target",
+            endpoint: path.join(rootDir, "fixture.sock"),
+          },
+          ...(kind === "cloud"
+            ? {
+                cloudRuntime: {
+                  instanceTargets: { [instanceId]: { hostId: "sandbox-host", version: "1.0.0" } },
+                  request: (hostId, method, params, signal) => {
+                    assert.equal(hostId, "sandbox-host");
+                    return cloud.request(method, params, signal);
+                  },
                 },
-              },
-            }
-          : {}),
-        runtimeInstances: () => [
-          {
-            schemaVersion: 2,
-            instanceId,
-            name: "Runtime target fixture",
-            kindId: definition.kindId,
-            installationId: definition.installationId,
-            providerId: definition.providerId,
-            models: [definition.model],
-            defaultModel: definition.model,
-            enabled: true,
-            permissionMode: "workspace-write",
-            codex: {},
-            authMode: "api-key",
-            authState: "configured",
-            authReadiness: { status: "ready", code: null, hint: null },
-            isolationState: "enforced",
-          },
-        ],
-        prepareRuntimeLaunch: async (_id, request) => ({
-          definition,
-          protocolFamily: "codex-jsonl",
-          installation: {
-            installationId: definition.installationId,
-            kindId: definition.kindId,
+              }
+            : {}),
+          runtimeInstances: () => [
+            {
+              schemaVersion: 2,
+              instanceId,
+              name: "Runtime target fixture",
+              kindId: definition.kindId,
+              installationId: definition.installationId,
+              providerId: definition.providerId,
+              models: [definition.model],
+              defaultModel: definition.model,
+              enabled: true,
+              permissionMode: "workspace-write",
+              codex: {},
+              authMode: "api-key",
+              authState: "configured",
+              authReadiness: { status: "ready", code: null, hint: null },
+              isolationState: "enforced",
+            },
+          ],
+          prepareRuntimeLaunch: async (_id, request) => ({
+            definition,
+            protocolFamily: "codex-jsonl",
+            installation: {
+              installationId: definition.installationId,
+              kindId: definition.kindId,
+              executablePath,
+              version: "1.0.0",
+              observedAt: "2026-11-22T00:00:00.000Z",
+            },
             executablePath,
-            version: "1.0.0",
-            observedAt: "2026-11-22T00:00:00.000Z",
-          },
-          executablePath,
-          args: ["exec", "--json", ...codexFreshPermissionArgs["workspace-write"], "-"],
-          env: { PATH: process.env.PATH },
-          cwd: request.cwd,
-          prompt: request.prompt,
-        }),
-      });
+            args: ["exec", "--json", ...codexFreshPermissionArgs["workspace-write"], "-"],
+            env: { PATH: process.env.PATH },
+            cwd: request.cwd,
+            prompt: request.prompt,
+          }),
+        });
+      let cell = await openCell();
       let sessionId: string | undefined;
       try {
         const task = await cell.run(
@@ -317,11 +319,15 @@ for (const kind of ["local", "cloud"] as const) {
           cloud.wrongStopReceipt = true;
           await assert.rejects(cancel(), { code: "stop_unconfirmed" });
           assert.equal((await view())?.policy.capacityDisposition, "recovering");
+          await cell.close();
           cloud.wrongStopReceipt = false;
-          cloud.attempts.get(dispatchId)!.stopped = true;
+          cell = await openCell();
           await cell.awaitRuntimeOutcome(sessionId);
+          assert.equal(cloud.attempts.get(dispatchId)?.stopped, true);
           assert.equal(cloud.cancelKeys.size, 1);
-          t.diagnostic("Cloud partition and mismatched proof each retained capacity and rejected stale writes.");
+          t.diagnostic(
+            "Cloud partition and mismatched proof retained capacity. Restart reconciled the same cancellation key.",
+          );
         } else {
           assert.equal((await cancel()).outcome, "applied");
           await cell.awaitRuntimeOutcome(sessionId);

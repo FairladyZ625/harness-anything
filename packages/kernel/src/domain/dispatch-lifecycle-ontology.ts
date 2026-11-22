@@ -78,6 +78,7 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt:1a0c1f96aeada60fa9bab7ff3c6ce7ea",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt:14cce213856acfa3802e6a745d6e1f56",
       "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#restoreRuntime:d39fbef62f44828009059f3f0ce2fd2c",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#adoptRuntimes.attempts:3acc8e2fd2bd500969e418a061417356",
       "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#cancelRuntime:f5df1a0d1e12f3f5c929f18372136fb9",
       "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishExit:60f86f6f5bf22a6150394316d146f8be",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#groupPhase:171d9f15c52731280169438855ac1d16",

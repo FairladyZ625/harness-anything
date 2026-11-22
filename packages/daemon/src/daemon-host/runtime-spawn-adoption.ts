@@ -124,7 +124,12 @@ export async function adoptRuntimes(
       const existing = pending.get(runtimeSessionId);
       if (existing && existing.result?.outcome !== "failed") {
         // Retry the durable stream when the aggregate no longer observes a live process.
-        if (existing.result?.outcome !== "ready" || initial.attempt.process === "alive") return existing.promise;
+        if (
+          initial.attempt.executionTarget ||
+          existing.result?.outcome !== "ready" ||
+          initial.attempt.process === "alive"
+        )
+          return existing.promise;
         pending.delete(runtimeSessionId);
       }
       let restored = false;
@@ -267,7 +272,6 @@ async function restoreRuntime(
   authorizationBinding?: RuntimeBinding,
 ): Promise<boolean> {
   if (context.closed?.()) return false;
-  if (lifecycle.attempt.executionTarget && context.processes.has(header.runtimeSessionId)) return false;
   if (context.exiting.has(header.runtimeSessionId) || context.ownsModelSlot?.(header.runtimeSessionId)) return false;
   const metadata = adoptableMetadata(header);
   if (!metadata) return false;
@@ -337,7 +341,8 @@ async function restoreRuntime(
     (!fullStream || header.executionTarget?.hostId !== cloudTarget.hostId || header.executionAttempt === undefined)
   )
     throw context.runtimeSpawnError("runtime_recovery_pending", "Cloud sandbox dispatch stream is unavailable.");
-  const runtimeProcess = cloudTarget
+  const stopping = lifecycle.attempt.phase === "settling" && lifecycle.attempt.stopProof !== "proven_stopped";
+  const cloudProcess = cloudTarget
     ? openCloudRuntime({
         rootDir: context.input.rootDir,
         registration: context.input.cloudRuntime,
@@ -348,10 +353,19 @@ async function restoreRuntime(
           runtimeSessionId: header.runtimeSessionId,
           attempt: header.executionAttempt!,
         },
-        stopping: lifecycle.attempt.phase === "settling" && lifecycle.attempt.stopProof !== "proven_stopped",
+        stopping,
         now: context.input.now,
         records: fullStream!.records,
       })
+    : null;
+  const runtimeProcess = cloudProcess
+    ? {
+        ...cloudProcess,
+        release: () => {
+          cloudProcess.release?.();
+          recoveries.get(context)?.delete(header.runtimeSessionId);
+        },
+      }
     : adoptNativeProcess(
         context.input.rootDir,
         stream.header.dispatchId,
@@ -453,6 +467,10 @@ async function restoreRuntime(
       active.cancelOpId = cancel.opId;
     }
     attachAdoptedObservations(context, active);
+    // Reissue a cancellation interrupted by daemon replacement through the same admitted stop;
+    // the sandbox command carries the attempt's original idempotency key.
+    if (stopping || active.cancelRequested)
+      context.input.schedule(() => context.publishExit(active, null), active.binding);
     return false;
   }
   if (observedAttempt.attempt.process === "alive") {
