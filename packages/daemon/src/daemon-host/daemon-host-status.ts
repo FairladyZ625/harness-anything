@@ -2,7 +2,6 @@ import { readDaemonRegistry, unbindDaemonRepo, type InvalidDaemonRegistryRepo } 
 import { daemonBuildStamp } from "./build-identity.ts";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
-import { readNodeAutoClaimDiagnostics, readNodeAutoClaimPolicy } from "./node-auto-claim-config.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { type RepoCell, type RepoCellStatus } from "./repo-cell-types.ts";
@@ -106,10 +105,10 @@ export function buildDaemonSystemStatus(input: {
   readonly cells: ReadonlyMap<string, RepoCell>;
   readonly warming: ReadonlyMap<string, RepoCellStatus>;
   readonly unavailable: ReadonlyMap<string, RepoCellStatus>;
+  readonly nodeAutoClaim: JsonObject;
 }): JsonObject {
   localOnly(input.auth);
   const registry = readDaemonRegistry({ userRoot: input.userRoot }),
-    autoClaim = readNodeAutoClaimPolicy(input.userRoot),
     observedAt = new Date().toISOString(),
     validRows = registry.repos.map((repo) => {
       const status =
@@ -163,12 +162,6 @@ export function buildDaemonSystemStatus(input: {
         : null,
     },
     repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
-    nodeAutoClaim: {
-      enabled: autoClaim.policy.enabled,
-      configuration: autoClaim.diagnostic,
-      maxConcurrent: autoClaim.policy.maxConcurrent,
-      allowedAgentIds: [...autoClaim.policy.allowedAgentIds],
-      recent: readNodeAutoClaimDiagnostics(input.userRoot).slice(-10) as unknown as JsonObject[],
-    },
+    nodeAutoClaim: input.nodeAutoClaim,
   };
 }

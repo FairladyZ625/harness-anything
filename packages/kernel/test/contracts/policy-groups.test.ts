@@ -50,7 +50,8 @@ test("runtime declarations have one Base tier and scope; technical actions creat
   // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
   // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
   // task_a28bf79f248c4e59f2149f22ad: the own-session password change, not socket-owner authority.
-  assert.equal(actionDeclarations.length, 179);
+  // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion.
+  assert.equal(actionDeclarations.length, 180);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-password-change")?.socketOwnerAuthority, false);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");

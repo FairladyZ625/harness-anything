@@ -704,7 +704,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
   // task_a28bf79f248c4e59f2149f22ad: a password change is the signed-in person's own-session action,
   // no longer access-manage.
-  assert.equal(actionDeclarations.length, 179);
+  // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion.
+  assert.equal(actionDeclarations.length, 180);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),

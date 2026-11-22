@@ -6599,16 +6599,16 @@
         "order": 64
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:1df587b6a59edd544970cce9fddbf315",
-        "route": "rbac-bootstrap",
-        "role": "effect",
-        "order": 65
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77",
         "route": "rbac-bootstrap",
         "role": "effect",
         "order": 63
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:2",
+        "route": "rbac-bootstrap",
+        "role": "effect",
+        "order": 65
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:97ac26b82a689aef98ce00ee87bc497b",

@@ -64,6 +64,7 @@ import {
   type NodeAutoDispatchCandidate,
 } from "./node-auto-dispatch.ts";
 import {
+  readNodeAutoClaimDiagnostics,
   readNodeAutoClaimPolicy,
   parseNodeAutoClaimPolicy,
   recordNodeAutoClaimDiagnostic,
@@ -1104,8 +1105,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     localOnly(auth);
     return readHomeOverview({ context: hostContext, auth });
   };
-  const system = (auth: DaemonAuthenticationContext): JsonObject =>
-    buildDaemonSystemStatus({
+  const system = (auth: DaemonAuthenticationContext): JsonObject => {
+    const autoClaim = readNodeAutoClaimPolicy(input.userRoot);
+    return buildDaemonSystemStatus({
       userRoot: input.userRoot,
       auth,
       endpoint: input.endpoint,
@@ -1115,7 +1117,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       cells,
       warming,
       unavailable,
+      nodeAutoClaim: {
+        enabled: autoClaim.policy.enabled,
+        configuration: autoClaim.diagnostic,
+        maxConcurrent: autoClaim.policy.maxConcurrent,
+        allowedAgentIds: [...autoClaim.policy.allowedAgentIds],
+        recent: readNodeAutoClaimDiagnostics(input.userRoot).slice(-10) as unknown as JsonObject[],
+      },
     });
+  };
   const accessAdminRef: { current: AccessAdminService | null } = { current: null };
   const relocationJournal = managedRbacReceiptJournal(input.userRoot);
   const managedRbac =
@@ -1586,19 +1596,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             },
           });
         }
+        if (request.operation === "relocation-export")
+          request = { ...request, accessAdminJournal: relocationJournal.read() };
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",
           binding: localSystemBinding(input.userRoot),
           actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
           evaluatedAtCut: "daemon-rbac:current",
         })
-          .then(() =>
-            managedRbac.run(
-              request.operation === "relocation-export"
-                ? { ...request, accessAdminJournal: relocationJournal.read() }
-                : request,
-            ),
-          )
+          .then(() => managedRbac.run(request))
           .then(identityReadiness.observeConfigured, identityReadiness.observeConfigureFailure);
       })();
     },
