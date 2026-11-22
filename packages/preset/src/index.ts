@@ -56,6 +56,8 @@ export type {
   VerticalScaffoldPlan,
   VerticalScaffoldReport,
 } from "./vertical-scaffold.ts";
+export { createSimulationSandbox, writeScaffoldFiles } from "./vertical-scaffold-io.ts";
+export type { PlannedScaffoldFile, ScaffoldWriteResult } from "./vertical-scaffold-io.ts";
 export { simulateVerticalPackage } from "./vertical-simulate.ts";
 export type {
   SimulateVerticalInput,

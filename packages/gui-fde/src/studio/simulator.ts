@@ -1,11 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  createSimulationSandbox,
   planPresetScaffold,
   scaffoldPresetPackage,
-  scaffoldVerticalPackage,
   simulateVerticalPackage,
+  writeScaffoldFiles,
   type PresetScaffoldPlan,
   type PresetScaffoldReport,
   type ScaffoldPresetInput,
@@ -33,21 +32,23 @@ export interface PersistStudioDraftInput {
 
 /**
  * Run V4's zero-side-effect `simulateVerticalPackage` inside an isolated ephemeral sandbox
- * populated with the compiled draft, returning real schema/bootstrap/agent/gate verdicts.
+ * managed by `@harness-anything/preset`'s canonical scaffold I/O port.
  */
 export async function simulateStudioDraft(input: SimulateStudioDraftInput): Promise<FdeSimulationResult> {
   const compiled = compileStudioDraft(input.draft, input.rootDir);
-  const sandboxRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-fde-sim-"));
-  const sandboxUserRoot = path.join(sandboxRoot, "user-presets");
-  const verticalTarget = path.join(sandboxRoot, compiled.relativeTargetDir);
+  const sandbox = createSimulationSandbox("ha-gui-fde-sim-");
+  const sandboxUserRoot = path.join(sandbox.directory, "user-presets");
+  const verticalTarget = path.join(sandbox.directory, compiled.relativeTargetDir);
   try {
-    for (const file of compiled.files) {
-      const targetPath = path.join(verticalTarget, file.relativePath);
-      mkdirSync(path.dirname(targetPath), { recursive: true });
-      writeFileSync(targetPath, file.body, "utf8");
-    }
+    writeScaffoldFiles({
+      rootDir: sandbox.directory,
+      targetDir: verticalTarget,
+      files: compiled.files,
+      overwrite: true,
+      dryRun: false,
+    });
     const report = await simulateVerticalPackage({
-      rootDir: sandboxRoot,
+      rootDir: sandbox.directory,
       source: compiled.relativeTargetDir,
       locale: input.locale ?? input.draft.locale,
       ...(input.presetId ? { presetId: input.presetId } : {}),
@@ -60,41 +61,32 @@ export async function simulateStudioDraft(input: SimulateStudioDraftInput): Prom
       report: report as unknown as FdeSimulateReportDto,
     };
   } finally {
-    rmSync(sandboxRoot, { recursive: true, force: true });
+    sandbox.close();
   }
 }
 
 /**
- * Persist a drafted vertical package to `verticals/<slug>/` through V4's canonical
- * `scaffoldVerticalPackage`, then apply the visual edits deterministically when not dry-run.
+ * Persist a drafted vertical package to `verticals/<slug>/` through `@harness-anything/preset`'s
+ * bounded `writeScaffoldFiles` port (atomic overwrite guard, containment check, dry-run support).
  */
 export function persistStudioDraft(input: PersistStudioDraftInput): FdePersistResult {
   const compiled = compileStudioDraft(input.draft, input.rootDir);
-  const report = scaffoldVerticalPackage({
+  const targetDir = path.resolve(input.rootDir, compiled.relativeTargetDir);
+  const written = writeScaffoldFiles({
     rootDir: input.rootDir,
-    verticalId: input.draft.verticalId,
-    slug: input.draft.slug,
-    title: input.draft.title,
-    defaultPresetId: input.draft.defaultPresetId,
+    targetDir,
+    files: compiled.files,
     overwrite: input.overwrite === true,
     dryRun: input.dryRun === true,
   });
-  if (input.dryRun !== true) {
-    const targetRoot = path.resolve(input.rootDir, compiled.relativeTargetDir);
-    for (const file of compiled.files) {
-      const targetPath = path.join(targetRoot, file.relativePath);
-      mkdirSync(path.dirname(targetPath), { recursive: true });
-      writeFileSync(targetPath, file.body, "utf8");
-    }
-  }
   return {
     ok: true,
-    mode: report.mode,
-    verticalId: report.verticalId,
-    targetDir: report.targetDir,
-    created: report.created,
-    overwritten: report.overwritten,
-    nextAction: report.nextAction,
+    mode: input.dryRun === true ? "dry-run" : "apply",
+    verticalId: compiled.verticalId,
+    targetDir: compiled.relativeTargetDir,
+    created: written.created,
+    overwritten: written.overwritten,
+    nextAction: `ha vertical simulate ${compiled.relativeTargetDir}`,
   };
 }
 

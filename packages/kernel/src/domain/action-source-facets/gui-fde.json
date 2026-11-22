@@ -1,35 +1,11 @@
 {
   "sources": {
-    "daemon-local-state": [
-      {
-        "candidateId": "action:packages/gui-fde:packages/gui-fde/src/studio/simulator.ts#simulateStudioDraft:94f2c2d5a04e5e34b5237882d0dd73fb",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
-        "order": 13
-      },
-      {
-        "candidateId": "action:packages/gui-fde:packages/gui-fde/src/studio/simulator.ts#simulateStudioDraft:cdcc12804d27de399ec6f7f30c952bf0",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
-        "order": 14
-      }
-    ],
     "package-assets-build": [
       {
         "candidateId": "action:packages/gui-fde:packages/gui-fde/scripts/build.mjs#<module>:9f701f6abeefe5114a9620868d3662cf",
         "route": "npm:gui-fde:build",
         "role": "effect",
         "order": 422
-      }
-    ],
-    "vertical-init": [
-      {
-        "candidateId": "action:packages/gui-fde:packages/gui-fde/src/studio/simulator.ts#persistStudioDraft:cdcc12804d27de399ec6f7f30c952bf0",
-        "route": "vertical-init",
-        "role": "effect",
-        "order": 1
       }
     ]
   }
