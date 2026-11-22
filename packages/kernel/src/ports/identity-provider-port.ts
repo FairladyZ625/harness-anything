@@ -99,6 +99,8 @@ export interface AuthorizationNodeCredentialPort {
     secret: string,
   ) => Promise<void>;
   readonly writeNode: (adminAccessToken: string, node: AuthorizationNode) => Promise<void>;
+  /** Repairs the managed node's default consent scope when an earlier scope promotion was interrupted. */
+  readonly ensureManagedNodeConsentScope?: (adminAccessToken: string, nodeId: string) => Promise<void>;
   readonly rotateNodeCredential: (adminAccessToken: string, node: AuthorizationNode, secret: string) => Promise<void>;
   readonly deleteNode: (adminAccessToken: string, nodeId: string) => Promise<void>;
   readonly revokeNode: (adminAccessToken: string, node: AuthorizationNode) => Promise<void>;

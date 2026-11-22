@@ -21,6 +21,7 @@ import {
   decodeAuthorizationResource,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
+  consumeKnownError,
   registeredArtifactActionPolicyActions,
   encodeAuthorizationResource,
   type AuthorizationResource,
@@ -790,6 +791,16 @@ export class KeycloakPolicyAdapter
     return client && nodeOf(client);
   }
 
+  /** Repairs an interrupted consent promotion, but never grants consent to a paused or tombstone node. */
+  async ensureManagedNodeConsentScope(adminAccessToken: string, nodeId: string): Promise<void> {
+    const client = await this.#nodeClient(adminAccessToken, nodeId);
+    if (!client) return;
+    const node = nodeOf(client);
+    if (!isActiveNode(node)) return;
+    const consentScopeId = await this.#ensureConsentClientScope(adminAccessToken);
+    await this.#syncManagedClientConsentScope(adminAccessToken, client.id, true, consentScopeId);
+  }
+
   /**
    * Creates the node's client in one POST carrying the machine credential and default client scopes
    * the center minted for it, so no post-write read or scope bind can fail after the client exists.
@@ -1128,14 +1139,27 @@ export class KeycloakPolicyAdapter
       // as optional (JpaRealmProvider.addClientScopes); remove the optional mapping first to promote it.
       const optionalScopes = await this.#json<readonly ClientScopeRepresentation[]>(token, optionalPath),
         optionalConsent = optionalScopes.find((scope) => scope.name === consentClientScopeName || scope.id === scopeId);
-      if (optionalConsent && typeof optionalConsent.id === "string" && optionalConsent.id)
+      const optionalConsentId =
+        typeof optionalConsent?.id === "string" && optionalConsent.id ? optionalConsent.id : undefined;
+      if (optionalConsentId)
         await this.#request(
           token,
-          `${optionalPath}/${encodeURIComponent(optionalConsent.id)}`,
+          `${optionalPath}/${encodeURIComponent(optionalConsentId)}`,
           { method: "DELETE" },
           true,
         );
-      await this.#request(token, `${defaultPath}/${encodeURIComponent(scopeId)}`, { method: "PUT" });
+      try {
+        await this.#request(token, `${defaultPath}/${encodeURIComponent(scopeId)}`, { method: "PUT" });
+      } catch (error) {
+        if (optionalConsentId) {
+          try {
+            await this.#request(token, `${optionalPath}/${encodeURIComponent(optionalConsentId)}`, { method: "PUT" });
+          } catch (rollbackError) {
+            consumeKnownError(rollbackError);
+          }
+        }
+        throw error;
+      }
       return;
     }
     const attached = await this.#json<readonly ClientScopeRepresentation[]>(token, defaultPath),

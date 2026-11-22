@@ -3,6 +3,12 @@
   "gateId": "check-fallback-boundaries",
   "baseline": "Existing CH4 fallback exits are ratcheted here. W2 removes the old socket reconnect catch under dec_89D06D7360CBEC09795F7B12EC/CH3.",
   "rationales": {
+    "packages/authorization/src/keycloak/keycloak-policy-adapter.ts#syncManagedClientConsentScope": {
+      "task": "task_7d545b5fe20e6306a86d92456e",
+      "decision": "dec_E610E1D99A39003886D1B5EE7C",
+      "errors": "best-effort optional-consent rollback failure after default-scope bind rejection",
+      "reason": "The rollback is compensating only: if restoring the old optional mapping also fails, consuming that secondary error preserves the original default-bind rejection for the caller. Active-node receipt reconcile repairs consent to default before settling the failed intent; a reconcile repair failure still propagates and leaves the intent unsettled."
+    },
     "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit": {
       "task": "task_0e1d9f41b62c51a1f78809f6d9",
       "decision": "dec_13B7B846B56BFA192533011B91",
@@ -133,6 +139,7 @@
       "packages/application/src/queries/evidence-payload.ts#decodeEvidencePayload",
       "packages/application/src/queries/task-index-query.ts#decodeCursor",
       "packages/application/src/task-lifecycle-service.ts#releaseReservation",
+      "packages/authorization/src/keycloak/keycloak-policy-adapter.ts##syncManagedClientConsentScope",
       "packages/authorization/src/keycloak/managed-rbac-service.ts##restartManaged",
       "packages/cli/src/cli-render.ts#contractMigrationDryRunSummary",
       "packages/cli/src/cli-runtime-batch.ts#runRuntimeBatch",

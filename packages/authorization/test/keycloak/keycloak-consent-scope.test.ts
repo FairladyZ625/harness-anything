@@ -429,6 +429,66 @@ test("F-2: syncLoginClients promotes optional consent to default under Keycloak 
   );
 });
 
+test("F-4: a failed optional-to-default promotion restores the original optional consent binding", async () => {
+  let failDefaultBind = true;
+  const activeDevice = {
+    nodeId: "active-retry",
+    personId: "person-a",
+    systemName: "active-retry",
+    displayName: "Active retry",
+    platform: "darwin",
+    registeredAt: "2026-11-20T00:00:00.000Z",
+    state: "active",
+    revision: 1,
+    revocation: "complete",
+  } as const;
+  const fixture = createKeycloakConsentFixture({
+    scopes: [
+      ...baselineRealmScopes,
+      {
+        id: "scope-existing",
+        name: "consent",
+        protocol: "openid-connect",
+        attributes: { "include.in.token.scope": "true", "display.on.consent.screen": "false" },
+      },
+    ],
+    clients: [
+      {
+        id: "uuid-active-retry",
+        clientId: "harness-node-active-retry",
+        enabled: true,
+        attributes: { harness_person_id: "person-a", harness_device: JSON.stringify(activeDevice) },
+        defaultClientScopes: new Set(["scope-profile", "scope-email"]),
+        optionalClientScopes: new Set(["scope-existing", "scope-offline"]),
+      },
+    ],
+    onRequest: (method, route) => {
+      if (
+        failDefaultBind &&
+        method === "PUT" &&
+        route === "/clients/uuid-active-retry/default-client-scopes/scope-existing"
+      ) {
+        failDefaultBind = false;
+        return new Response(null, { status: 503 });
+      }
+      return undefined;
+    },
+  });
+
+  await assert.rejects(fixture.adapter.syncLoginClients("admin-token"), { code: "keycloak_admin_rejected" });
+  assert.deepEqual(fixture.defaultScopeNames("harness-node-active-retry"), ["email", "profile"]);
+  assert.deepEqual(
+    fixture.optionalScopeNames("harness-node-active-retry"),
+    ["consent", "offline_access"],
+    "the failed promotion must preserve the pre-existing optional consent binding",
+  );
+  assert.equal(
+    fixture.requests.includes("PUT /clients/uuid-active-retry/optional-client-scopes/scope-existing"),
+    true,
+    "the failed default bind must be followed by an optional rollback",
+  );
+});
+
 test("writeNode and deleteNode detach consent scope on disable/tombstone and re-attach when resumed active", async () => {
   const fixture = createKeycloakConsentFixture();
 

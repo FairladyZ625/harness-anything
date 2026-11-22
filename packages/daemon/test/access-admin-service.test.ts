@@ -328,6 +328,56 @@ test("the journal holds receipts only, and a lost receipt is reconciled without 
   );
 });
 
+test("F-4: receipt reconcile repairs an active node consent scope after promotion and rollback both fail", async (t) => {
+  let failedStage: "default" | "rollback" | null = "default";
+  const { admin, keycloak, root, run } = await fixture(t, {
+    wrapFetch: (inner) => async (input, init) => {
+      const route = new URL(String(input)).pathname;
+      if (init?.method === "PUT" && route.includes("/default-client-scopes/") && failedStage === "default") {
+        failedStage = "rollback";
+        return new Response(null, { status: 503 });
+      }
+      if (init?.method === "PUT" && route.includes("/optional-client-scopes/") && failedStage === "rollback") {
+        failedStage = null;
+        return new Response(null, { status: 503 });
+      }
+      return inner(input, init);
+    },
+  });
+  const registered = await run({
+    operation: "node-register",
+    nodeId: "edge-reconcile-consent",
+    personId: "person-admin",
+    credentialFile: `${root}/edge-reconcile-consent.credential`,
+  });
+  assert.equal(registered.ok, true);
+  const client = keycloak.nodeClients.get("harness-node-edge-reconcile-consent")!,
+    consent = [...keycloak.clientScopes.values()].find((scope) => scope.name === "consent")!;
+  client.defaultClientScopes.delete(consent.id);
+  client.optionalClientScopes.add(consent.id);
+
+  const operationId = randomUUID();
+  await assert.rejects(
+    admin.run({
+      operationId,
+      operation: "device-rename",
+      nodeId: "edge-reconcile-consent",
+      displayName: "renamed after recovery",
+      expectedVersion: "1",
+    }),
+    { code: "keycloak_admin_rejected" },
+  );
+  assert.equal(client.defaultClientScopes.has(consent.id), false);
+  assert.equal(client.optionalClientScopes.has(consent.id), false);
+
+  const reconciled = await admin.run({ operation: "receipt-reconcile", operationId });
+  assert.deepEqual([reconciled.ok, reconciled.outcome], [false, "failed"]);
+  assert.equal(client.defaultClientScopes.has(consent.id), true, "reconcile must restore active-node default consent");
+  assert.equal(client.optionalClientScopes.has(consent.id), false);
+  const node = (await run({ operation: "device-list" })).nodes as { revision: number; displayName: string }[];
+  assert.deepEqual([node[0]!.revision, node[0]!.displayName], [1, "edge-reconcile-consent"]);
+});
+
 test("a lost Keycloak response leaves the admin write unsettled and a retry does not repeat it", async (t) => {
   let loseResponse = true;
   const f = await fixture(t, {
