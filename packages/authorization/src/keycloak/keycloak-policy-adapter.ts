@@ -155,6 +155,23 @@ const artifactScopesByFetch = new WeakMap<object, Map<string, readonly string[]>
 const artifactScopeKey = (config: KeycloakPolicyAdapterConfig): string =>
   `${config.url}\0${config.realm}\0${config.resourceServerClientId}`;
 
+class KeycloakConsentScopeRollbackError extends AggregateError {
+  readonly code?: unknown;
+
+  constructor(primaryError: unknown, rollbackError: unknown) {
+    const primaryMessage = primaryError instanceof Error ? primaryError.message : String(primaryError);
+    const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+    super(
+      [primaryError, rollbackError],
+      `${primaryMessage} (optional consent rollback also failed: ${rollbackMessage})`,
+      { cause: primaryError },
+    );
+    if (typeof primaryError === "object" && primaryError !== null && "code" in primaryError) {
+      this.code = (primaryError as { readonly code?: unknown }).code;
+    }
+  }
+}
+
 export class KeycloakPolicyAdapter
   implements
     AuthorizationPolicyAdministrationPort,
@@ -1154,17 +1171,7 @@ export class KeycloakPolicyAdapter
           try {
             await this.#request(token, `${optionalPath}/${encodeURIComponent(optionalConsentId)}`, { method: "PUT" });
           } catch (rollbackError) {
-            const primaryMessage = error instanceof Error ? error.message : String(error);
-            const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
-            const combined = new AggregateError(
-              [error, rollbackError],
-              `${primaryMessage} (optional consent rollback also failed: ${rollbackMessage})`,
-              { cause: error },
-            );
-            if (typeof error === "object" && error !== null && "code" in error) {
-              Object.assign(combined, { code: (error as { code: unknown }).code });
-            }
-            throw combined;
+            throw new KeycloakConsentScopeRollbackError(error, rollbackError);
           }
         }
         throw error;
