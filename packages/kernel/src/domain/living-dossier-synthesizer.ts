@@ -56,7 +56,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 144,
     maxTrackedTasks: 96,
     maxBlockedPinned: 48,
-    maxArchivedTaskIndex: 256,
+    maxArchivedTaskIndex: 512,
     maxOrphanCounters: 160,
     maxDecisions: 144,
     maxEntries: 36,
@@ -68,7 +68,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 96,
     maxTrackedTasks: 64,
     maxBlockedPinned: 32,
-    maxArchivedTaskIndex: 128,
+    maxArchivedTaskIndex: 256,
     maxOrphanCounters: 96,
     maxDecisions: 96,
     maxEntries: 24,
@@ -80,7 +80,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 48,
     maxTrackedTasks: 48,
     maxBlockedPinned: 16,
-    maxArchivedTaskIndex: 32,
+    maxArchivedTaskIndex: 64,
     maxOrphanCounters: 48,
     maxDecisions: 48,
     maxEntries: 16,
@@ -115,21 +115,13 @@ function computeBlockedSummary(state: DossierLedgerState): {
 } {
   const liveBlockedInTasks = activeBlockedTasks(state);
   let archivedWorkBlocked = 0;
-  let unindexedLegacyBlocked = false;
   for (const counter of Object.values(state.workCounters)) {
     archivedWorkBlocked += counter.archivedBlocked;
-    if (
-      counter.countsIncomplete &&
-      counter.archivedBlocked > 0 &&
-      counter.archivedTotal > Object.keys(counter.archivedTaskStates ?? {}).length
-    ) {
-      unindexedLegacyBlocked = true;
-    }
   }
   return {
     liveBlockedInTasks,
     totalBlockedCount: liveBlockedInTasks.length + archivedWorkBlocked,
-    incomplete: Boolean(state.blockedTruncated || unindexedLegacyBlocked),
+    incomplete: Boolean(state.blockedTruncated),
   };
 }
 
@@ -281,7 +273,7 @@ function renderMarkdownAnchorBody(
       const modules = [...new Set(activeDecisions.flatMap((decision) => decision.modules))].slice(0, 12);
       const blockedSummary = computeBlockedSummary(state);
       const lines = [
-        `- Active Decisions: ${activeDecisions.length} · Tracked Works: ${totalWorkCount}${state.workCountersTruncated ? "+ (windowed)" : ""} · Live Blocked Tasks: ${blockedSummary.totalBlockedCount}${blockedSummary.incomplete ? "+ (windowed)" : ""} · Active Relations: ${state.relations.length}`,
+        `- Active Decisions: ${activeDecisions.length} · Tracked Works: ${totalWorkCount}${state.workCountersTruncated ? "+ (windowed)" : ""} · Live Blocked Tasks: ${blockedSummary.totalBlockedCount}${blockedSummary.incomplete ? (blockedSummary.totalBlockedCount > 0 ? "+ (windowed)" : " (windowed)") : ""} · Active Relations: ${state.relations.length}`,
       ];
       if (surfaces.length > 0 || modules.length > 0) {
         lines.push(

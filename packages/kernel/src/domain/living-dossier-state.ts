@@ -5,12 +5,12 @@ import {
   MAX_PINNED_WORKS,
   MAX_TRACKED_TASKS,
   MAX_WORK_COUNTERS,
-  hasUnindexedArchivedTasks,
   pruneByRevision,
   pruneTasks,
   pruneWorkCounters,
   reclaimArchivedChildTask,
   resolveRootWorkId,
+  trimArchivedTaskStates,
   type ArchivedTaskBucket,
   type DossierTaskRecord,
   type DossierWorkCounter,
@@ -310,6 +310,15 @@ export function parseManagedState(previousBody: string | null, synthesizedAt: st
       derivedTaskIds: derivedTaskIdsFromLinks(derivedLinks),
     };
   }
+  const rawCounters =
+    typeof parsed.workCounters === "object" && parsed.workCounters !== null ? parsed.workCounters : {};
+  const hydratedCounters: Record<string, DossierWorkCounter> = {};
+  let legacyBlockedDropped = false;
+  for (const [workId, rawCounter] of Object.entries(rawCounters)) {
+    const normalized = trimArchivedTaskStates(rawCounter, MAX_ARCHIVED_TASK_INDEX);
+    hydratedCounters[workId] = normalized.counter;
+    if (normalized.blockedIndexDropped) legacyBlockedDropped = true;
+  }
   return {
     watermark: parsed.watermark,
     synthesizedAt: typeof parsed.synthesizedAt === "string" ? parsed.synthesizedAt : synthesizedAt,
@@ -329,9 +338,9 @@ export function parseManagedState(previousBody: string | null, synthesizedAt: st
       ? parsed.retiredDecisions.slice(0, MAX_RETIRED_DECISIONS)
       : [],
     tasks: typeof parsed.tasks === "object" && parsed.tasks !== null ? parsed.tasks : {},
-    workCounters: typeof parsed.workCounters === "object" && parsed.workCounters !== null ? parsed.workCounters : {},
+    workCounters: hydratedCounters,
     ...(parsed.workCountersTruncated ? { workCountersTruncated: true } : {}),
-    ...(parsed.blockedTruncated ? { blockedTruncated: true } : {}),
+    ...(parsed.blockedTruncated || legacyBlockedDropped ? { blockedTruncated: true } : {}),
     relations: parsedRelations,
   };
 }
@@ -570,22 +579,16 @@ function applyStructuredUpdate(
           : undefined;
       if (parentTaskId) {
         const rootWorkId = resolveRootWorkId({ taskId, parentTaskId }, tasks, workCounters);
-        if (rootWorkId) {
-          const counter = workCounters[rootWorkId];
-          const isUnreconciledReentry = !existing && !reclaimedWorkId && change.type !== "task_created";
-          if (!counter && !tasks[rootWorkId] && workCountersTruncated) {
-            workCounters[rootWorkId] = {
-              archivedTotal: 0,
-              archivedDone: 0,
-              archivedBlocked: 0,
-              archivedActive: 0,
-              archivedCancelled: 0,
-              latestRevision: change.workspaceRevision,
-              countsIncomplete: true,
-            };
-          } else if (isUnreconciledReentry && counter && hasUnindexedArchivedTasks(counter)) {
-            workCounters[rootWorkId] = { ...counter, countsIncomplete: true };
-          }
+        if (rootWorkId && !workCounters[rootWorkId] && !tasks[rootWorkId] && workCountersTruncated) {
+          workCounters[rootWorkId] = {
+            archivedTotal: 0,
+            archivedDone: 0,
+            archivedBlocked: 0,
+            archivedActive: 0,
+            archivedCancelled: 0,
+            latestRevision: change.workspaceRevision,
+            countsIncomplete: true,
+          };
         }
       }
       const priorCounter = workCounters[taskId];

@@ -751,4 +751,127 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
   validateDossierContent(pulseSlot, wbPulse266, wbRev);
   assert.ok(wbPulse266.includes(`<td class="rev">0/132</td><td class="rev">131</td>`));
   assert.ok(wbPulse266.includes("131 live blockers"));
+
+  // 9. F-DOSSIER-12 paged 64-revision write-boundary regression across BOTH 641 (within 1024 WIP/index cap)
+  // AND 1200 (exceeding MAX_ARCHIVED_TASK_INDEX=1024, triggering index trimming) child tasks unblocking to 0
+  const runPagedBlockThenUnblockAll = (
+    childCount: number,
+  ): { readonly midHtml: string; readonly finalHtml: string } => {
+    let body: string | null = null;
+    let r = 0;
+    const rootId = `work_paged_${childCount}`;
+    const stream = [
+      {
+        eventId: `pg_w_${childCount}_${++r}`,
+        workspaceRevision: r,
+        occurredAt: "2026-11-23T05:00:00.000Z",
+        schema: "task-event/v1",
+        type: "task_created",
+        taskId: rootId,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: { title: `Paged Work ${childCount}`, taskClass: "work", taskStatus: "active", parentTaskId: null },
+        entityRefs: [`task/${rootId}`],
+      },
+    ];
+    for (let i = 1; i <= childCount; i += 1) {
+      const cid = `task_pg_${childCount}_${String(i).padStart(4, "0")}`;
+      stream.push(
+        {
+          eventId: `pg_c_${childCount}_${++r}`,
+          workspaceRevision: r,
+          occurredAt: "2026-11-23T05:00:00.000Z",
+          schema: "task-event/v1",
+          type: "task_created",
+          taskId: cid,
+          actor: { principal: { personId: "person_zeyu" } },
+          payload: { title: `Subtask ${i}`, taskClass: "standard", taskStatus: "active", parentTaskId: rootId },
+          entityRefs: [`task/${cid}`],
+        },
+        {
+          eventId: `pg_b_${childCount}_${++r}`,
+          workspaceRevision: r,
+          occurredAt: "2026-11-23T05:00:00.000Z",
+          schema: "task-event/v1",
+          type: "task_transitioned",
+          taskId: cid,
+          actor: { principal: { personId: "person_zeyu" } },
+          payload: {
+            title: `Subtask ${i}`,
+            taskClass: "standard",
+            taskStatus: "blocked",
+            parentTaskId: rootId,
+            reason: "gate",
+          },
+          entityRefs: [`task/${cid}`],
+        },
+      );
+    }
+    let held = 0;
+    for (let offset = 0; offset < stream.length; offset += 64) {
+      const page = stream.slice(offset, offset + 64);
+      const target = page[page.length - 1]!.workspaceRevision;
+      body = synthesizeDossierDocument({
+        verticalId: "office/collab",
+        slot: pulseSlot,
+        previousBody: body,
+        expectedWatermark: held,
+        targetWatermark: target,
+        changes: page,
+        synthesizedAt: "2026-11-23T05:05:00.000Z",
+        kindMap: pulseCtx.kindMap,
+      });
+      validateDossierContent(pulseSlot, body, target);
+      held = target;
+    }
+    const midHtml = body!;
+
+    const unblockStream = [];
+    for (let i = 1; i <= childCount; i += 1) {
+      const cid = `task_pg_${childCount}_${String(i).padStart(4, "0")}`;
+      unblockStream.push({
+        eventId: `pg_u_${childCount}_${++r}`,
+        workspaceRevision: r,
+        occurredAt: "2026-11-23T05:10:00.000Z",
+        schema: "task-event/v1",
+        type: "task_transitioned",
+        taskId: cid,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: { title: `Subtask ${i}`, taskClass: "standard", taskStatus: "active", parentTaskId: rootId },
+        entityRefs: [`task/${cid}`],
+      });
+    }
+    for (let offset = 0; offset < unblockStream.length; offset += 64) {
+      const page = unblockStream.slice(offset, offset + 64);
+      const target = page[page.length - 1]!.workspaceRevision;
+      body = synthesizeDossierDocument({
+        verticalId: "office/collab",
+        slot: pulseSlot,
+        previousBody: body,
+        expectedWatermark: held,
+        targetWatermark: target,
+        changes: page,
+        synthesizedAt: "2026-11-23T05:15:00.000Z",
+        kindMap: pulseCtx.kindMap,
+      });
+      validateDossierContent(pulseSlot, body, target);
+      held = target;
+    }
+    return { midHtml, finalHtml: body! };
+  };
+
+  // 641 child tasks: exact 641 while blocked -> exact 0 blockers & exact 0/641 after unblocking all
+  const paged641 = runPagedBlockThenUnblockAll(641);
+  assert.match(paged641.midHtml, /<strong>641<\/strong><span>Live Blockers<\/span>/u);
+  assert.ok(paged641.midHtml.includes(`<td class="rev">0/641</td><td class="rev">641</td>`));
+  assert.match(paged641.finalHtml, /<strong>0<\/strong><span>Live Blockers<\/span>/u);
+  assert.ok(paged641.finalHtml.includes(`<td class="rev">0/641</td><td class="rev">0</td>`));
+  assert.ok(paged641.finalHtml.includes("0 live blocked tasks."));
+
+  // 1200 child tasks (exceeds MAX_ARCHIVED_TASK_INDEX=1024): never retains phantom blockers or >1200 total after unblocking all
+  const paged1200 = runPagedBlockThenUnblockAll(1200);
+  assert.match(paged1200.midHtml, /<strong>1151\+<\/strong><span>Live Blockers \(windowed\)<\/span>/u);
+  assert.ok(paged1200.midHtml.includes(`<td class="rev">0/1151 (partial)</td><td class="rev">1151 (partial)</td>`));
+  assert.match(paged1200.finalHtml, /<strong>0<\/strong><span>Live Blockers \(windowed\)<\/span>/u);
+  assert.ok(paged1200.finalHtml.includes("0 live blockers (windowed)"));
+  assert.ok(paged1200.finalHtml.includes(`<td class="rev">0/1151 (partial)</td><td class="rev">0 (partial)</td>`));
 });

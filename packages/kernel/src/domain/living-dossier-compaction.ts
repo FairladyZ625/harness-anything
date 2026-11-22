@@ -3,7 +3,7 @@ import type { TaskClass } from "./task.ts";
 export const MAX_TRACKED_TASKS = 128;
 export const MAX_PINNED_WORKS = 256;
 export const MAX_BLOCKED_PINNED = 64;
-export const MAX_ARCHIVED_TASK_INDEX = 512;
+export const MAX_ARCHIVED_TASK_INDEX = 1024;
 export const MAX_WORK_COUNTERS = 320;
 
 export type ArchivedTaskBucket = "d" | "b" | "c" | "a";
@@ -73,22 +73,57 @@ function bucketForStatus(status: string): ArchivedTaskBucket {
   return status === "done" ? "d" : status === "blocked" ? "b" : status === "cancelled" ? "c" : "a";
 }
 
-function trimArchivedTaskStates(
+export function summarizeArchivedStates(states: Readonly<Record<string, ArchivedTaskBucket>> | undefined): {
+  readonly archivedTotal: number;
+  readonly archivedDone: number;
+  readonly archivedBlocked: number;
+  readonly archivedActive: number;
+  readonly archivedCancelled: number;
+} {
+  let archivedTotal = 0;
+  let archivedDone = 0;
+  let archivedBlocked = 0;
+  let archivedActive = 0;
+  let archivedCancelled = 0;
+  if (states) {
+    for (const bucket of Object.values(states)) {
+      archivedTotal += 1;
+      if (bucket === "d") archivedDone += 1;
+      else if (bucket === "b") archivedBlocked += 1;
+      else if (bucket === "c") archivedCancelled += 1;
+      else archivedActive += 1;
+    }
+  }
+  return { archivedTotal, archivedDone, archivedBlocked, archivedActive, archivedCancelled };
+}
+
+export function trimArchivedTaskStates(
   counter: DossierWorkCounter,
   maxIndex: number,
 ): { readonly counter: DossierWorkCounter; readonly blockedIndexDropped: boolean } {
   const entries = Object.entries(counter.archivedTaskStates ?? {});
-  if (entries.length <= maxIndex) return { counter, blockedIndexDropped: false };
-  const dropped = entries.slice(0, entries.length - maxIndex);
-  const kept = entries.slice(entries.length - maxIndex);
+  const unindexedLegacy = counter.archivedTaskStates === undefined && counter.archivedTotal > 0;
+  if (entries.length <= maxIndex && !unindexedLegacy) {
+    const exact = summarizeArchivedStates(counter.archivedTaskStates);
+    return {
+      counter: { ...counter, ...exact },
+      blockedIndexDropped: false,
+    };
+  }
+  const dropped = entries.length > maxIndex ? entries.slice(0, entries.length - maxIndex) : [];
+  const kept = entries.length > maxIndex ? entries.slice(entries.length - maxIndex) : entries;
+  const keptRecord = kept.length > 0 ? Object.fromEntries(kept) : undefined;
+  const exact = summarizeArchivedStates(keptRecord);
   const { archivedTaskStates: _prev, ...rest } = counter;
   return {
     counter: {
       ...rest,
+      ...exact,
       countsIncomplete: true,
-      ...(kept.length > 0 ? { archivedTaskStates: Object.fromEntries(kept) } : {}),
+      ...(keptRecord ? { archivedTaskStates: keptRecord } : {}),
     },
-    blockedIndexDropped: dropped.some(([, bucket]) => bucket === "b"),
+    blockedIndexDropped:
+      (unindexedLegacy && counter.archivedBlocked > 0) || dropped.some(([, bucket]) => bucket === "b"),
   };
 }
 
@@ -98,39 +133,26 @@ function incrementWorkCounter(
   task: DossierTaskRecord,
   maxArchivedTaskIndex = MAX_ARCHIVED_TASK_INDEX,
 ): boolean {
-  const current = workCounters[workId] ?? {
-    archivedTotal: 0,
-    archivedDone: 0,
-    archivedBlocked: 0,
-    archivedActive: 0,
-    archivedCancelled: 0,
-    latestRevision: 0,
-  };
-  const prevBucket = current.archivedTaskStates?.[task.taskId];
+  const current = workCounters[workId];
   const nextBucket = bucketForStatus(task.status);
-  const { archivedTaskStates: prevStates, ...rest } = current;
+  const orderedEntries = Object.entries(current?.archivedTaskStates ?? {}).filter(([id]) => id !== task.taskId);
+  orderedEntries.push([task.taskId, nextBucket]);
+  const nextStates = Object.fromEntries(orderedEntries);
   const trimmed = trimArchivedTaskStates(
     {
-      ...rest,
-      archivedTotal: Math.max(0, current.archivedTotal - (prevBucket ? 1 : 0)) + 1,
-      archivedDone: Math.max(0, current.archivedDone - (prevBucket === "d" ? 1 : 0)) + (nextBucket === "d" ? 1 : 0),
-      archivedBlocked:
-        Math.max(0, current.archivedBlocked - (prevBucket === "b" ? 1 : 0)) + (nextBucket === "b" ? 1 : 0),
-      archivedCancelled:
-        Math.max(0, current.archivedCancelled - (prevBucket === "c" ? 1 : 0)) + (nextBucket === "c" ? 1 : 0),
-      archivedActive: Math.max(0, current.archivedActive - (prevBucket === "a" ? 1 : 0)) + (nextBucket === "a" ? 1 : 0),
-      latestRevision: Math.max(current.latestRevision, task.workspaceRevision),
-      archivedTaskStates: { ...prevStates, [task.taskId]: nextBucket },
+      archivedTotal: 0,
+      archivedDone: 0,
+      archivedBlocked: 0,
+      archivedActive: 0,
+      archivedCancelled: 0,
+      ...(current ? current : {}),
+      latestRevision: Math.max(current?.latestRevision ?? 0, task.workspaceRevision),
+      archivedTaskStates: nextStates,
     },
     maxArchivedTaskIndex,
   );
   workCounters[workId] = trimmed.counter;
   return trimmed.blockedIndexDropped;
-}
-
-export function hasUnindexedArchivedTasks(counter: DossierWorkCounter): boolean {
-  const indexedCount = Object.keys(counter.archivedTaskStates ?? {}).length;
-  return counter.archivedTotal > indexedCount;
 }
 
 export function reclaimArchivedChildTask(
@@ -142,15 +164,13 @@ export function reclaimArchivedChildTask(
     if (!bucket) continue;
     const nextStates = { ...counter.archivedTaskStates };
     delete nextStates[taskId];
+    const hasRemaining = Object.keys(nextStates).length > 0;
+    const exact = summarizeArchivedStates(hasRemaining ? nextStates : undefined);
     const { archivedTaskStates: _prev, ...rest } = counter;
     workCounters[workId] = {
       ...rest,
-      archivedTotal: Math.max(0, counter.archivedTotal - 1),
-      archivedDone: Math.max(0, counter.archivedDone - (bucket === "d" ? 1 : 0)),
-      archivedBlocked: Math.max(0, counter.archivedBlocked - (bucket === "b" ? 1 : 0)),
-      archivedCancelled: Math.max(0, counter.archivedCancelled - (bucket === "c" ? 1 : 0)),
-      archivedActive: Math.max(0, counter.archivedActive - (bucket === "a" ? 1 : 0)),
-      ...(Object.keys(nextStates).length > 0 ? { archivedTaskStates: nextStates } : {}),
+      ...exact,
+      ...(hasRemaining ? { archivedTaskStates: nextStates } : {}),
     };
     return workId;
   }

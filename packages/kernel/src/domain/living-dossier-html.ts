@@ -187,7 +187,7 @@ function renderTopologyEdgesSvg(
     `<text x="${hubX + 12}" y="${hubY + 26}" font-size="13" class="svg-title">${escapeHtml(clipLabel(verticalId, 20))}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 50}" font-size="15" class="svg-num">r${state.watermark}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 72}" font-size="11" class="svg-mono">rels ${state.relations.length} · ADR ${activeDecisionCount}</text>`,
-    `<text x="${hubX + 12}" y="${hubY + 92}" font-size="11" class="svg-mono">blockers ${blockedCount}${blockedCountIncomplete ? "+ (windowed)" : ""}</text>`,
+    `<text x="${hubX + 12}" y="${hubY + 92}" font-size="11" class="svg-mono">blockers ${blockedCount}${blockedCountIncomplete ? (blockedCount > 0 ? "+ (windowed)" : " (windowed)") : ""}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 112}" font-size="11" class="svg-mono">total ${state.totalChanges} changes</text>`,
     `</svg>`,
   ].join("");
@@ -349,9 +349,9 @@ function renderPulseSvg(
     `<rect x="218" y="34" width="174" height="62" rx="5" class="svg-box-accent"/>`,
     `<text x="232" y="58" font-size="11" class="svg-mono">CURRENT CUT</text>`,
     `<text x="232" y="82" font-size="15" class="svg-num">r${state.watermark}</text>`,
-    `<rect x="24" y="116" width="368" height="66" rx="5" class="${blockedCount > 0 || blockedCountIncomplete ? "svg-box-bad" : "svg-box-done"}"/>`,
+    `<rect x="24" y="116" width="368" height="66" rx="5" class="${blockedCount > 0 ? "svg-box-bad" : "svg-box-done"}"/>`,
     `<text x="38" y="142" font-size="13" class="svg-title">${escapeHtml(clipLabel(verticalId, 24))}</text>`,
-    `<text x="38" y="166" font-size="11" class="svg-mono">delta +${windowChangeCount} · ${totalWorkCount}${state.workCountersTruncated ? "+" : ""} works · ${blockedCount}${blockedCountIncomplete ? "+ live blockers (windowed)" : " live blockers"}</text>`,
+    `<text x="38" y="166" font-size="11" class="svg-mono">delta +${windowChangeCount} · ${totalWorkCount}${state.workCountersTruncated ? "+" : ""} works · ${blockedCount}${blockedCountIncomplete ? (blockedCount > 0 ? "+ live blockers (windowed)" : " live blockers (windowed)") : " live blockers"}</text>`,
     `<text x="424" y="20" font-size="11" class="svg-mono">${workRollups.length > 0 ? (anyPartial || state.workCountersTruncated || workRollups.length < totalWorkCount ? "WORK COMPLETION ROLLUP (WINDOWED)" : "WORK COMPLETION ROLLUP") : "CATEGORY VOLUME"}</text>`,
     bars,
     `</svg>`,
@@ -522,13 +522,13 @@ function renderSectionBody(
   if (anchor === "risk-signals") {
     const blocked = blockedTasks;
     const coverageNote = blockedCountIncomplete
-      ? `<p>Showing ${blocked.length} most recent retained live blocked tasks (${totalBlockedCount}+ live blockers; older blocked tasks compacted to fit 512 KiB dossier budget).</p>`
+      ? `<p>Showing ${blocked.length} most recent retained live blocked tasks (${totalBlockedCount}${totalBlockedCount > 0 ? "+" : ""} live blockers; older blocked tasks compacted to fit 512 KiB dossier budget).</p>`
       : blocked.length < totalBlockedCount
         ? `<p>Showing ${blocked.length} most recent of ${totalBlockedCount} live blocked tasks.</p>`
         : "";
     const blockedHtml =
       blocked.length === 0
-        ? `<p>Watermarked at r${state.watermark}: 0${blockedCountIncomplete ? ` retained live blocked tasks in recent window (${totalBlockedCount}+ total)` : " live blocked tasks"}.</p>`
+        ? `<p>Watermarked at r${state.watermark}: 0${blockedCountIncomplete ? " retained live blocked tasks in recent window (older task states compacted)" : " live blocked tasks"}.</p>`
         : `${coverageNote}<div class="table-wrap"><table><thead><tr><th>Rev</th><th>Task</th><th>Work</th><th>Title</th><th>Block Reason</th></tr></thead><tbody>` +
           blocked
             .map(
@@ -634,7 +634,7 @@ export function renderDossierHtmlDocument(input: {
       `<div class="metric"><strong>r${state.watermark}</strong><span>Source Watermark</span></div>` +
       `<div class="metric"><strong>${state.totalChanges}</strong><span>Tracked Changes (+${windowChangeCount})</span></div>` +
       `<div class="metric"><strong>${activeDecisionCount}</strong><span>Active Decisions</span></div>` +
-      `<div class="metric"><strong>${totalBlockedCount}${blockedCountIncomplete ? "+" : ""}</strong><span>${blockedCountIncomplete ? "Live Blockers (windowed)" : "Live Blockers"}</span></div>` +
+      `<div class="metric"><strong>${totalBlockedCount}${blockedCountIncomplete && totalBlockedCount > 0 ? "+" : ""}</strong><span>${blockedCountIncomplete ? "Live Blockers (windowed)" : "Live Blockers"}</span></div>` +
       `</div>`,
     fallbackDiagram,
     sections,
