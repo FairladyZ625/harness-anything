@@ -182,6 +182,7 @@
   "packages/daemon/test/executor-declaration-candidates.integration.test.ts": 30783,
   "packages/daemon/test/explain-collection-scale.integration.test.mjs": 4212,
   "packages/daemon/test/fact-archive.integration.test.ts": 7842,
+  "packages/daemon/test/fde-vertical-rpc.integration.test.ts": 6500,
   "packages/daemon/test/fleet-authored-write-forward.integration.test.ts": 36338,
   "packages/daemon/test/fleet-backup-cut.integration.test.ts": 35264,
   "packages/daemon/test/fleet-canonical-event-subscription.integration.test.ts": 11439,
