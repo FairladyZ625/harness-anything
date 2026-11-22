@@ -4,7 +4,6 @@ import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/l
 import {
   exportCenterRelocation,
   importCenterRelocation,
-  EdgeReplicaIntegrityError,
   publishPendingSqliteGitOutbox,
   promoteFromEdge,
   retireCenter,
@@ -216,26 +215,19 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
       replica = readReplicaGeneration(replicaRoot);
     if (!replica || replica.metadata.repoId !== repoId)
       throw new Error(`edge replica generation is unavailable for repository ${repoId} and node ${edge.nodeId}`);
-    let result: Awaited<ReturnType<typeof promoteFromEdge>>;
-    try {
-      result = await promoteFromEdge({
-        rootInput,
-        repoId,
-        replicaDatabasePath: replica.ledgerPath,
-        replicaGeneration: replica.metadata.ledgerGeneration,
-        replicaPosition: replica.metadata.position,
-        stateRoot: path.resolve(flagValue(argv, "--state-root")!),
-        ...(flagValue(argv, "--holder-id") ? { holderId: flagValue(argv, "--holder-id") } : {}),
-        forceNewEpoch: true,
-        confirmPossibleTailLoss: true,
-        ...(edge.writerEpoch === undefined ? {} : { observedWriterEpoch: edge.writerEpoch }),
-        rbacBackupStatus: rbacStatus as RbacBackupStatus | undefined,
-      });
-    } catch (error) {
-      if (error instanceof EdgeReplicaIntegrityError)
-        return failureOutcome("fleet-center-promote-from-edge", error.code, error.message);
-      throw error;
-    }
+    const result = await promoteFromEdge({
+      rootInput,
+      repoId,
+      replicaDatabasePath: replica.ledgerPath,
+      replicaGeneration: replica.metadata.ledgerGeneration,
+      replicaPosition: replica.metadata.position,
+      stateRoot: path.resolve(flagValue(argv, "--state-root")!),
+      ...(flagValue(argv, "--holder-id") ? { holderId: flagValue(argv, "--holder-id") } : {}),
+      forceNewEpoch: true,
+      confirmPossibleTailLoss: true,
+      ...(edge.writerEpoch === undefined ? {} : { observedWriterEpoch: edge.writerEpoch }),
+      rbacBackupStatus: rbacStatus as RbacBackupStatus | undefined,
+    });
     return appliedOutcome({
       command: "fleet-center-promote-from-edge",
       outcome: "applied",

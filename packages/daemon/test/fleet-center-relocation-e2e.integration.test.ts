@@ -503,7 +503,6 @@ test(
       runningDaemon.listen(daemonEndpoint);
       await listening;
       const promotionAuditPath = promoteFromEdgeAuditPath(edgeStateRoot, repoId),
-        writerEpochPath = path.join(edgeStateRoot, "writer-epochs", `${repoId}.sqlite`),
         writerEpochBefore = readWriterEpochState(edgeStateRoot, repoId);
       const missingConfirmation = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, ["--force-new-epoch"]);
       assert.equal(missingConfirmation.exitCode, 2);
@@ -572,12 +571,13 @@ test(
           },
         }),
       );
-      const mismatchedPointer = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, [
-        "--force-new-epoch",
-        "--confirm-possible-tail-loss",
-      ]);
-      assert.equal(mismatchedPointer.exitCode, 2);
-      assert.equal(mismatchedPointer.receipt.code, "edge_replica_integrity_failed");
+      await assert.rejects(
+        promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, [
+          "--force-new-epoch",
+          "--confirm-possible-tail-loss",
+        ]),
+        { code: "edge_replica_integrity_failed" },
+      );
       assert.equal(existsSync(promoteFromEdgeAuditPath(edgeStateRoot, repoId)), false);
       const unchangedAfterMismatch = openSqliteEventStore({ rootInput: edge.edgeRoot, repoId, readOnly: true });
       try {
