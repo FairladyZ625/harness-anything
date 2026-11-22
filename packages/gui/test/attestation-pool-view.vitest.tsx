@@ -9,6 +9,7 @@ import { harnessClient } from "../src/renderer/api-client.ts";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import type { AttestationPoolTabId } from "../src/renderer/model/attestation-pool.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
+import type { TaskMutationFeedback } from "../src/renderer/task-actions.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -176,6 +177,7 @@ async function mountPool(
   tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
   decisions: readonly DecisionRow[] = [proposedDecision],
   inboxCount = summary.inboxCount,
+  taskFeedback?: (taskId: string) => TaskMutationFeedback | undefined,
 ): Promise<PoolHarness> {
   const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], completeCalls: [], judged: [] };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -208,10 +210,7 @@ async function mountPool(
               hint: "this cut has no recorded automated fail or pass yet",
             });
           },
-          onCompleteTask: (task) => {
-            harness.completeCalls.push(task.taskId);
-            return Promise.resolve();
-          },
+          taskFeedback,
           onConsentReview: (task, reviewId) => {
             harness.consentCalls.push({ taskId: task.taskId, reviewId });
             return Promise.resolve();
@@ -625,5 +624,33 @@ describe("AttestationPoolView", () => {
     });
     expect(byTestId("attestation-pool-inbox")).toBeTruthy();
     expect(document.querySelector("[data-testid='inbox-column-needs-you']")).toBeTruthy();
+  });
+
+  it("surfaces consent rejection code and diagnostic hint in both lanes and inbox modes", async () => {
+    const rejection: TaskMutationFeedback = {
+      state: "error",
+      kind: "consent",
+      opId: "op-consent-rejected",
+      code: "human_confirmation_required",
+      hint: "Consent requires a personal session and a client granted the consent scope.",
+    };
+    await mountPool("consents", [consentTask], [], 0, (taskId) => (taskId === "task-consent" ? rejection : undefined));
+
+    const laneAlert = byTestId("pool-consent-feedback-task-consent");
+    expect(laneAlert.getAttribute("role")).toBe("alert");
+    expect(laneAlert.textContent).toContain("human_confirmation_required");
+    expect(laneAlert.textContent).toContain("client granted the consent scope");
+
+    const inboxToggle = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("收件箱视图"),
+    );
+    expect(inboxToggle).toBeTruthy();
+    await act(async () => {
+      inboxToggle!.click();
+    });
+    const inboxAlert = byTestId("inbox-item-consent-task-consent-error");
+    expect(inboxAlert.getAttribute("role")).toBe("alert");
+    expect(inboxAlert.textContent).toContain("human_confirmation_required");
+    expect(inboxAlert.textContent).toContain("client granted the consent scope");
   });
 });

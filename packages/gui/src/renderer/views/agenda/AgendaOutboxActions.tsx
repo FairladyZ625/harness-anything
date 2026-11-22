@@ -13,6 +13,7 @@ import { taskCan, type TaskRow } from "../../model/types.ts";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { TextInput } from "../../components/primitives/TextInput.tsx";
+import { AttestFeedbackRow } from "../../components/taskDetail/TaskGateAttestCard.tsx";
 import { t } from "../../i18n/index.tsx";
 
 export function AgendaOutboxActions({
@@ -141,7 +142,10 @@ export function AgendaOutboxActions({
                 testId="agenda-consent"
                 variant="primary"
                 disabled={mutation?.state === "pending"}
-                onClick={() => void actions.consentReview(task, consentReviewId)}
+                onClick={() => {
+                  setFeedback(null);
+                  void actions.consentReview(task, consentReviewId);
+                }}
               >
                 {t("views.agenda.consentCloseout")}
               </Button>
@@ -150,7 +154,10 @@ export function AgendaOutboxActions({
               <Button
                 testId="agenda-complete"
                 disabled={mutation?.state === "pending"}
-                onClick={() => void actions.completeTask(task)}
+                onClick={() => {
+                  setFeedback(null);
+                  void actions.completeTask(task);
+                }}
               >
                 {t("views.agenda.completeTask")}
               </Button>
@@ -227,7 +234,8 @@ export function AgendaOutboxActions({
           {created && <EntityRefLink entityRef={`task/${created}`} onNavigate={onNavigateEntity} />}
         </>
       )}
-      {(feedback || mutation) && (
+      {mutation?.state === "error" && <AttestFeedbackRow feedback={mutation} testId="agenda-mutation-error" />}
+      {(feedback || (mutation && mutation.state !== "error")) && (
         <p role="status" className="break-words ui-meta">
           {feedback ?? mutation?.hint}
         </p>

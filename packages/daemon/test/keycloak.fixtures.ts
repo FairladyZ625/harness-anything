@@ -33,6 +33,13 @@ type FakeUser = {
   credentials?: { type: string; value: string; temporary: boolean }[];
 };
 
+type ClientScope = {
+  id: string;
+  name: string;
+  protocol: string;
+  attributes: Record<string, string>;
+};
+
 type NodeClient = {
   id: string;
   clientId: string;
@@ -41,6 +48,7 @@ type NodeClient = {
   enabled?: boolean;
   serviceAccountsEnabled?: boolean;
   fullScopeAllowed?: boolean;
+  defaultClientScopes: Set<string>;
 };
 
 /**
@@ -69,6 +77,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       { personId: string; nodeId: string; issuer: string; clientId?: string; scope?: string }
     >(),
     nodeClients = new Map<string, NodeClient>(),
+    clientScopes = new Map<string, ClientScope>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
     sentActionEmails: { userId: string; actions: readonly string[] }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
@@ -256,9 +265,34 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       if (method === "PUT") Object.assign(realm, body);
       return method === "GET" ? json({ realm: keycloakRealm, ...realm }) : new Response(null, { status: 204 });
     }
+    if (route === "/client-scopes") {
+      if (method === "GET") return json([...clientScopes.values()]);
+      const name = String(body!.name);
+      if ([...clientScopes.values()].some((scope) => scope.name === name)) return json({}, 409);
+      const scope: ClientScope = {
+        id: id("client-scope"),
+        name,
+        protocol: String(body!.protocol ?? "openid-connect"),
+        attributes: { ...((body!.attributes as Record<string, string> | undefined) ?? {}) },
+      };
+      clientScopes.set(scope.id, scope);
+      return new Response(null, { status: 201, headers: { location: `${keycloakUrl}/client-scopes/${scope.id}` } });
+    }
+    if (/^\/client-scopes\/[^/]+$/u.test(route)) {
+      const scope = clientScopes.get(tail);
+      if (!scope) return json({}, 404);
+      if (method === "PUT") {
+        if (typeof body!.name === "string") scope.name = body!.name;
+        if (typeof body!.protocol === "string") scope.protocol = body!.protocol;
+        if (body!.attributes && typeof body!.attributes === "object")
+          scope.attributes = { ...(body!.attributes as Record<string, string>) };
+        return new Response(null, { status: 204 });
+      }
+      return method === "GET" ? json(scope) : new Response(null, { status: 204 });
+    }
     if (route === "/clients" && method === "POST") {
       const clientId = String(body!.clientId),
-        client = {
+        client: NodeClient = {
           id: id("node-client"),
           enabled: body!.enabled !== false,
           serviceAccountsEnabled: body!.serviceAccountsEnabled === true,
@@ -267,6 +301,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
           attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
           // Keycloak 26 stores the secret a caller supplies with a new client (F-2CBA6A96).
           secret: typeof body!.secret === "string" && body!.secret ? body!.secret : id("node-secret"),
+          defaultClientScopes: new Set<string>(),
         };
       if (nodeClients.has(clientId)) return json({ errorMessage: `Client ${clientId} already exists` }, 409);
       nodeClients.set(clientId, client);
@@ -274,13 +309,24 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     }
     if (route === "/clients") {
       const clientId = url.searchParams.get("clientId") ?? "";
+      if (!url.searchParams.has("clientId")) {
+        return page(
+          [
+            { id: "client-1", clientId: "harness-center" },
+            ...[...nodeClients.values()].map(
+              ({ secret: _secret, defaultClientScopes: _defaultClientScopes, ...client }) => client,
+            ),
+          ],
+          url,
+        );
+      }
       if (!clientId.startsWith("harness-node-") && !clientId.startsWith("harness-execution-"))
         return json([{ id: "client-1", clientId: "harness-center" }]);
       const found = [...nodeClients.values()].filter((client) =>
         url.searchParams.get("search") === "true" ? client.clientId.startsWith(clientId) : client.clientId === clientId,
       );
       return page(
-        found.map(({ secret: _secret, ...client }) => client),
+        found.map(({ secret: _secret, defaultClientScopes: _defaultClientScopes, ...client }) => client),
         url,
       );
     }
@@ -289,6 +335,26 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       return route === clientPath || route.startsWith(`${clientPath}/`);
     });
     if (nodeClient) {
+      const defaultScopesPrefix = `/clients/${nodeClient.id}/default-client-scopes`;
+      if (route === defaultScopesPrefix && method === "GET") {
+        return json(
+          [...nodeClient.defaultClientScopes]
+            .map((scopeId) => clientScopes.get(scopeId))
+            .filter((scope): scope is ClientScope => scope !== undefined),
+        );
+      }
+      if (route.startsWith(`${defaultScopesPrefix}/`)) {
+        const scopeId = decodeURIComponent(route.slice(defaultScopesPrefix.length + 1));
+        if (method === "PUT") {
+          if (!clientScopes.has(scopeId)) return json({}, 404);
+          nodeClient.defaultClientScopes.add(scopeId);
+          return new Response(null, { status: 204 });
+        }
+        if (method === "DELETE") {
+          nodeClient.defaultClientScopes.delete(scopeId);
+          return new Response(null, { status: 204 });
+        }
+      }
       if (route.endsWith("/service-account-user") && method === "GET")
         return json({
           id: `service-account-${nodeClient.clientId}`,
@@ -302,7 +368,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       // Keycloak exposes a confidential client's stored secret for the owning realm administrator.
       if (route.endsWith("/client-secret") && method === "GET")
         return json({ type: "secret", value: nodeClient.secret });
-      if (method === "GET") return json({ ...nodeClient, secret: undefined });
+      if (method === "GET") return json({ ...nodeClient, secret: undefined, defaultClientScopes: undefined });
       // Admin client PUT replaces its secret in the same update as the device metadata.
       if (typeof body!.secret === "string") nodeClient.secret = body!.secret;
       if (typeof body!.enabled === "boolean") nodeClient.enabled = body!.enabled;
@@ -531,6 +597,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     profile,
     realm,
     nodeClients,
+    clientScopes,
     /** Every machine-credential check Keycloak was asked to make, in order. */
     nodeLogins,
     sentActionEmails,
@@ -589,6 +656,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
           enabled: true,
           serviceAccountsEnabled: true,
           fullScopeAllowed: false,
+          defaultClientScopes: new Set<string>(),
         };
       client.attributes = {
         ...client.attributes,

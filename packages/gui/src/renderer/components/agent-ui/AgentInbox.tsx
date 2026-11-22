@@ -27,6 +27,8 @@ export interface InboxItem {
   readonly updatedAt?: string;
   /** 注意力说明(如「等待审批:Bash rm -rf」)。 */
   readonly note?: string;
+  /** 就地错误回执(如 consent/attest 被拒时的错误码与诊断原因),不折叠截断。 */
+  readonly error?: string;
   /** 最近执行步骤(行内展开显示,最新在后)。 */
   readonly recentSteps?: readonly string[];
   /** 行内动作;kind 决定默认文案与档位。 */
@@ -40,6 +42,7 @@ export interface InboxItem {
 export interface InboxItemAction {
   readonly kind: InboxActionKind;
   readonly label?: string;
+  readonly disabled?: boolean;
   readonly onTrigger: (item: InboxItem) => void;
 }
 
@@ -136,6 +139,15 @@ function InboxRow({
           {expanded ? "▾" : "▸"}
         </span>
       </button>
+      {item.error !== undefined && (
+        <p
+          role="alert"
+          data-testid={`${rowTestId}-error`}
+          className="mx-2.5 mb-2 break-words rounded border border-danger/40 px-2 py-1.5 ui-micro text-danger"
+        >
+          {item.error}
+        </p>
+      )}
       {expanded && (
         <div
           id={`${rowTestId}-body`}
@@ -163,6 +175,7 @@ function InboxRow({
                   size="sm"
                   variant={ACTION_META[action.kind].variant}
                   testId={`${rowTestId}-action-${action.kind}`}
+                  disabled={action.disabled}
                   onClick={() => action.onTrigger(item)}
                 >
                   {action.label ?? t(ACTION_META[action.kind].labelKey)}

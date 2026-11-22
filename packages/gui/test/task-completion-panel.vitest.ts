@@ -134,4 +134,77 @@ describe("Task completion panel", () => {
       setActiveLocale("zh-CN");
     }
   });
+
+  it("renders a role=alert diagnostic block when consent or complete is rejected and disables buttons while pending", async () => {
+    installBridge({
+      completionAction: "ha task review-consent task-w3",
+      completionBlocker: { code: "consent_missing", gate: "consent" },
+    });
+    const consentTask = {
+      ...task,
+      ...projectedTaskFields("in_review", { can: ["complete"] }),
+      consentTarget: { reviewId: "review-projected", executionId: "execution-current-cut" },
+    };
+    await mount({
+      task: consentTask,
+      mutationFeedback: {
+        state: "error",
+        kind: "consent",
+        opId: "op-consent-err",
+        code: "human_confirmation_required",
+        hint: "Consent requires a personal session and a client granted the consent scope.",
+      },
+      onConsentReview: () => Promise.resolve(),
+      onComplete: () => Promise.resolve(),
+    });
+    await clickTab("收口");
+    const consentError = byTestId("task-completion-error");
+    expect(consentError.getAttribute("role")).toBe("alert");
+    expect(consentError.textContent).toContain("human_confirmation_required");
+    expect(consentError.textContent).toContain("client granted the consent scope");
+
+    await cleanupMountedDetail();
+    installBridge({
+      completionAction: "ha task complete task-w3",
+      completionBlocker: null,
+    });
+    await mount({
+      task: consentTask,
+      mutationFeedback: {
+        state: "error",
+        kind: "complete",
+        opId: "op-complete-err",
+        code: "consent_missing",
+        hint: "Review consent is required before completing this task.",
+      },
+      onConsentReview: () => Promise.resolve(),
+      onComplete: () => Promise.resolve(),
+    });
+    await clickTab("收口");
+    const completeError = byTestId("task-completion-error");
+    expect(completeError.getAttribute("role")).toBe("alert");
+    expect(completeError.textContent).toContain("consent_missing");
+    expect(completeError.textContent).toContain("Review consent is required");
+
+    await cleanupMountedDetail();
+    installBridge({
+      completionAction: "ha task review-consent task-w3",
+      completionBlocker: { code: "consent_missing", gate: "consent" },
+    });
+    await mount({
+      task: consentTask,
+      mutationFeedback: {
+        state: "pending",
+        kind: "consent",
+        opId: "awaiting-receipt",
+        hint: "正在记录终审批准…",
+      },
+      onConsentReview: () => Promise.resolve(),
+      onComplete: () => Promise.resolve(),
+    });
+    await clickTab("收口");
+    expect((byTestId("task-completion-consent") as HTMLButtonElement).disabled).toBe(true);
+    expect((byTestId("task-completion-complete") as HTMLButtonElement).disabled).toBe(true);
+    expect(document.querySelector('[data-testid="task-completion-error"]')).toBeNull();
+  });
 });

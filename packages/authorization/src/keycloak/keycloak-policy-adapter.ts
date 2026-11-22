@@ -112,6 +112,12 @@ type KeycloakRole = {
   readonly containerId?: string;
 };
 type NamedRepresentation = { readonly id?: unknown; readonly name?: unknown };
+type ClientScopeRepresentation = {
+  readonly id?: unknown;
+  readonly name?: unknown;
+  readonly protocol?: unknown;
+  readonly attributes?: Readonly<Record<string, unknown>>;
+};
 type RoleRepresentation = KeycloakRole & {
   readonly description?: string;
   readonly attributes?: Readonly<Record<string, readonly string[]>>;
@@ -123,6 +129,12 @@ const grantUsersPrefix = "grant-users:",
   personAttribute = "harness_person_id",
   nodeClientPrefix = "harness-node-",
   nodeAccessTokenLifespan = "3600",
+  consentClientScopeName = "consent",
+  consentClientScopeProtocol = "openid-connect",
+  consentClientScopeAttributes = Object.freeze({
+    "include.in.token.scope": "true",
+    "display.on.consent.screen": "false",
+  }),
   customGroupAttribute = "harness_policy_group",
   groupScopesAttribute = "harness_scopes";
 
@@ -336,21 +348,24 @@ export class KeycloakPolicyAdapter
 
   /** Align existing managed login clients as part of the same realm synchronization. */
   async syncLoginClients(adminAccessToken: string): Promise<void> {
+    const consentScopeId = await this.#ensureConsentClientScope(adminAccessToken);
     for (const client of await this.#pages<NodeClient>(adminAccessToken, "/clients", "")) {
       if (client.clientId !== "harness-gui" && !client.clientId.startsWith(nodeClientPrefix)) continue;
       const current = await this.#json<Record<string, unknown>>(adminAccessToken, `/clients/${client.id}`);
       const isNodeClient = client.clientId.startsWith(nodeClientPrefix);
       // Migrate the existing registry at its write boundary; business readers only consume device records.
-      const device = isNodeClient
-        ? (client.attributes?.harness_device ??
-          JSON.stringify({
-            ...newDevice({
-              nodeId: client.clientId.slice(nodeClientPrefix.length),
-              personId: client.attributes![personAttribute]!,
-            }),
-            state: current.enabled === false ? "paused" : "active",
-          }))
+      const deviceRecord = isNodeClient
+        ? client.attributes?.harness_device
+          ? (JSON.parse(client.attributes.harness_device) as KeycloakNode)
+          : {
+              ...newDevice({
+                nodeId: client.clientId.slice(nodeClientPrefix.length),
+                personId: client.attributes![personAttribute]!,
+              }),
+              state: current.enabled === false ? ("paused" as const) : ("active" as const),
+            }
         : undefined;
+      const device = isNodeClient ? (client.attributes?.harness_device ?? JSON.stringify(deviceRecord)) : undefined;
       await this.#request(adminAccessToken, `/clients/${client.id}`, {
         method: "PUT",
         body: JSON.stringify({
@@ -369,6 +384,10 @@ export class KeycloakPolicyAdapter
           protocolMappers: keycloakLoginMappers(this.#config.resourceServerClientId),
         }),
       });
+      const activeClient = isNodeClient
+        ? current.enabled !== false && deviceRecord !== undefined && isActiveNode(deviceRecord)
+        : current.enabled !== false;
+      await this.#syncManagedClientConsentScope(adminAccessToken, client.id, activeClient, consentScopeId);
     }
     await this.#migrateLegacyAccessAdminRole(adminAccessToken);
   }
@@ -776,11 +795,14 @@ export class KeycloakPolicyAdapter
    * it, so no read-back can fail between the client existing and its holder knowing the credential.
    */
   async createNode(adminAccessToken: string, registration: NodeRegistration, secret: string): Promise<void> {
-    const node = newDevice(registration);
-    await this.#request(adminAccessToken, "/clients", {
-      method: "POST",
-      body: JSON.stringify({ ...nodeClientBody(this.#config, node), secret }),
-    });
+    const node = newDevice(registration),
+      response = await this.#request(adminAccessToken, "/clients", {
+        method: "POST",
+        body: JSON.stringify({ ...nodeClientBody(this.#config, node), secret }),
+      }),
+      clientUuid = locationId(response) ?? (await this.#nodeClient(adminAccessToken, node.nodeId))?.id;
+    if (!clientUuid) throw new Error(`Keycloak did not return an id for node ${node.nodeId}.`);
+    await this.#syncManagedClientConsentScope(adminAccessToken, clientUuid, true);
   }
 
   /** The center's serialized device write updates owner and device metadata together. */
@@ -791,6 +813,7 @@ export class KeycloakPolicyAdapter
       method: "PUT",
       body: JSON.stringify(nodeClientBody(this.#config, node)),
     });
+    await this.#syncManagedClientConsentScope(adminAccessToken, current.id, isActiveNode(node));
   }
 
   /** Rotate an existing node secret while preserving its owner and registration metadata. */
@@ -1017,6 +1040,68 @@ export class KeycloakPolicyAdapter
     return denied("keycloak_denied");
   }
 
+  async #ensureConsentClientScope(token: string): Promise<string> {
+    const scopes = await this.#json<readonly ClientScopeRepresentation[]>(token, "/client-scopes"),
+      existing = scopes.find((scope) => scope.name === consentClientScopeName);
+    if (existing && typeof existing.id === "string" && existing.id) {
+      const aligned =
+        existing.protocol === consentClientScopeProtocol &&
+        existing.attributes?.["include.in.token.scope"] === "true" &&
+        existing.attributes?.["display.on.consent.screen"] === "false";
+      if (!aligned)
+        await this.#request(token, `/client-scopes/${encodeURIComponent(existing.id)}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            ...existing,
+            name: consentClientScopeName,
+            protocol: consentClientScopeProtocol,
+            attributes: {
+              ...existing.attributes,
+              ...consentClientScopeAttributes,
+            },
+          }),
+        });
+      return existing.id;
+    }
+    const response = await this.#request(token, "/client-scopes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: consentClientScopeName,
+        protocol: consentClientScopeProtocol,
+        attributes: { ...consentClientScopeAttributes },
+      }),
+    });
+    const fromHeader = locationId(response);
+    if (fromHeader) return fromHeader;
+    const text = await response.text();
+    if (text) {
+      const parsed = JSON.parse(text) as { readonly id?: unknown };
+      if (typeof parsed.id === "string" && parsed.id) return parsed.id;
+    }
+    const refreshed = await this.#json<readonly ClientScopeRepresentation[]>(token, "/client-scopes"),
+      created = refreshed.find((scope) => scope.name === consentClientScopeName);
+    if (typeof created?.id === "string" && created.id) return created.id;
+    throw new Error(`Keycloak did not return an id for client scope ${consentClientScopeName}.`);
+  }
+
+  async #syncManagedClientConsentScope(
+    token: string,
+    clientUuid: string,
+    enabled: boolean,
+    consentScopeId?: string,
+  ): Promise<void> {
+    const basePath = `/clients/${encodeURIComponent(clientUuid)}/default-client-scopes`;
+    if (enabled) {
+      const scopeId = consentScopeId ?? (await this.#ensureConsentClientScope(token));
+      await this.#request(token, `${basePath}/${encodeURIComponent(scopeId)}`, { method: "PUT" });
+      return;
+    }
+    const attached = await this.#json<readonly ClientScopeRepresentation[]>(token, basePath),
+      consent = attached.find((scope) => scope.name === consentClientScopeName);
+    if (consent && typeof consent.id === "string" && consent.id)
+      await this.#request(token, `${basePath}/${encodeURIComponent(consent.id)}`, { method: "DELETE" }, true);
+  }
+
   async #nodeClient(token: string, nodeId: string): Promise<NodeClient | undefined> {
     const clientId = `${nodeClientPrefix}${nodeId}`,
       clients = await this.#json<readonly NodeClient[]>(token, `/clients?clientId=${encodeURIComponent(clientId)}`);
@@ -1181,11 +1266,22 @@ function coveringResources(
     : [encoded];
 }
 
+function isActiveNode(node: KeycloakNode): boolean {
+  return node.state === "active" && node.revocation === "complete";
+}
+
+function locationId(response: Response): string | undefined {
+  const location = response.headers.get("location");
+  if (!location) return undefined;
+  const segment = location.split("/").filter(Boolean).at(-1);
+  return segment ? decodeURIComponent(segment) : undefined;
+}
+
 /** The client representation one node is created or moved with; its secret travels only with creation. */
 function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode): Readonly<Record<string, unknown>> {
   return {
     clientId: `${nodeClientPrefix}${node.nodeId}`,
-    enabled: node.state === "active" && node.revocation === "complete",
+    enabled: isActiveNode(node),
     publicClient: false,
     serviceAccountsEnabled: true,
     fullScopeAllowed: managedClientScopePolicy.defaultValue.fullScopeAllowed,

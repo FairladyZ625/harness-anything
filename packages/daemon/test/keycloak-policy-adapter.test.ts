@@ -237,12 +237,24 @@ test("login-client synchronization upgrades an existing node to a one-hour acces
       },
     };
   let synchronized: Record<string, unknown> | undefined;
+  let createdScope: Record<string, unknown> | undefined;
+  const attachedDefaultScopes: string[] = [];
   const fetchPort: typeof fetch = async (input, init) => {
     const url = new URL(String(input));
+    if (url.pathname.endsWith("/client-scopes") && !init?.method)
+      return Response.json(createdScope ? [{ id: "scope-consent", ...createdScope }] : []);
+    if (url.pathname.endsWith("/client-scopes") && init?.method === "POST") {
+      createdScope = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return new Response(null, { status: 201, headers: { location: `${url.origin}${url.pathname}/scope-consent` } });
+    }
     if (url.pathname.endsWith("/clients") && !init?.method) return Response.json([client]);
     if (url.pathname.endsWith(`/clients/${client.id}`) && !init?.method) return Response.json(client);
     if (url.pathname.endsWith(`/clients/${client.id}`) && init?.method === "PUT") {
       synchronized = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname.endsWith(`/clients/${client.id}/default-client-scopes/scope-consent`) && init?.method === "PUT") {
+      attachedDefaultScopes.push("scope-consent");
       return new Response(null, { status: 204 });
     }
     if (url.pathname.endsWith("/roles/access-admin")) return new Response(null, { status: 404 });
@@ -251,6 +263,8 @@ test("login-client synchronization upgrades an existing node to a one-hour acces
   await new KeycloakPolicyAdapter(config, fetchPort).syncLoginClients("admin-token");
   const attributes = synchronized?.attributes as Record<string, string>;
   assert.equal(attributes["access.token.lifespan"], "3600");
+  assert.equal((createdScope?.attributes as Record<string, string>)?.["include.in.token.scope"], "true");
+  assert.deepEqual(attachedDefaultScopes, ["scope-consent"]);
 });
 
 test("sync re-expands stored grants to the currently declared actions of their group", async () => {

@@ -21,7 +21,7 @@ import { Section } from "../primitives/Section";
 import { Button } from "../primitives/Button.tsx";
 import { AnnotateDiffViewer, type DiffFile } from "../agent-ui/AnnotateDiffViewer.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
-import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
+import { AttestFeedbackRow, TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
 import { ReadError, Timestamp } from "./TaskDetailSections.tsx";
 
 const asideClass =
@@ -187,6 +187,7 @@ export function TaskCloseoutTab({
               task={task}
               diffFiles={diffFiles}
               completionBlocker={completion.data?.completionBlocker ?? null}
+              mutationFeedback={mutationFeedback}
               onComplete={onComplete}
               onConsentReview={onConsentReview}
             />
@@ -255,12 +256,14 @@ function CompletionPanel({
   task,
   completionBlocker,
   diffFiles,
+  mutationFeedback,
   onComplete,
   onConsentReview,
 }: {
   readonly task: TaskRow;
   readonly completionBlocker: TaskCompletionRead["completionBlocker"];
   readonly diffFiles?: readonly DiffFile[];
+  readonly mutationFeedback?: TaskMutationFeedback;
   readonly onComplete?: () => Promise<unknown>;
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
 }) {
@@ -278,6 +281,9 @@ function CompletionPanel({
     return null;
   const consentReviewId = task.consentTarget?.reviewId;
   const complete = taskCan(task, "complete");
+  const completionFeedback =
+    mutationFeedback?.kind === "consent" || mutationFeedback?.kind === "complete" ? mutationFeedback : undefined;
+  const pending = completionFeedback?.state === "pending";
 
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
@@ -298,7 +304,7 @@ function CompletionPanel({
         {stage === "consent" ? (
           <Button
             testId="task-completion-consent"
-            disabled={!onConsentReview || !consentReviewId}
+            disabled={!onConsentReview || !consentReviewId || pending}
             variant="primary"
             onClick={() => consentReviewId && void onConsentReview?.(consentReviewId)}
           >
@@ -307,7 +313,7 @@ function CompletionPanel({
         ) : null}
         <Button
           testId="task-completion-complete"
-          disabled={!complete || !onComplete}
+          disabled={!complete || !onComplete || pending}
           tip={complete ? undefined : t("components.taskCloseout.completionCompleteTip")}
           variant="primary"
           onClick={() => void onComplete?.()}
@@ -315,6 +321,9 @@ function CompletionPanel({
           {t("components.taskCloseout.completionComplete")}
         </Button>
       </div>
+      {completionFeedback?.state === "error" ? (
+        <AttestFeedbackRow feedback={completionFeedback} testId="task-completion-error" />
+      ) : null}
     </section>
   );
 }

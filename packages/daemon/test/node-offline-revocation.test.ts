@@ -4,10 +4,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 
-function fixture(options: { consent?: boolean; reject?: string; missingUser?: boolean; missingNode?: boolean } = {}) {
+function fixture(
+  options: {
+    consent?: boolean;
+    consentDefaultScope?: boolean;
+    reject?: string;
+    missingUser?: boolean;
+    missingNode?: boolean;
+  } = {},
+) {
   const calls: string[] = [],
     updates: Record<string, unknown>[] = [],
     creations: Record<string, unknown>[] = [];
+  let hasConsentDefaultScope = options.consentDefaultScope ?? false;
   const fetchPort: typeof fetch = async (input, init) => {
     const url = new URL(String(input)),
       route = url.pathname.replace("/admin/realms/test", ""),
@@ -55,6 +64,12 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
         { clientId: "harness-node-B" },
         ...(options.consent === false ? [] : [{ clientId: "harness-node-A" }]),
       ]);
+    if (call === "GET /clients/uuid-A/default-client-scopes")
+      return Response.json(hasConsentDefaultScope ? [{ id: "scope-consent", name: "consent" }] : []);
+    if (call === "DELETE /clients/uuid-A/default-client-scopes/scope-consent") {
+      hasConsentDefaultScope = false;
+      return new Response(null, { status: 204 });
+    }
     if (call === "PUT /clients/uuid-A") updates.push(JSON.parse(String(init!.body)));
     if (call === "DELETE /users/user-id/consents/harness-node-A" || call === "PUT /clients/uuid-A")
       return new Response(null, { status: 204 });
@@ -72,18 +87,21 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
 }
 
 test("removal revokes only the registered owner's device consent while retaining a disabled tombstone", async () => {
-  const { adapter, calls, updates } = fixture();
+  const { adapter, calls, updates } = fixture({ consentDefaultScope: true });
   await adapter.deleteNode("admin", "A");
   assert.deepEqual(calls, [
     "GET /clients",
     "GET /clients",
     "PUT /clients/uuid-A",
+    "GET /clients/uuid-A/default-client-scopes",
+    "DELETE /clients/uuid-A/default-client-scopes/scope-consent",
     "GET /clients",
     "GET /users",
     "GET /users/user-id/consents",
     "DELETE /users/user-id/consents/harness-node-A",
     "GET /clients",
     "PUT /clients/uuid-A",
+    "GET /clients/uuid-A/default-client-scopes",
   ]);
   assert.deepEqual(
     updates.map((entry) => [
@@ -104,11 +122,13 @@ test("a device with no offline grant can be removed without inventing a session 
     "GET /clients",
     "GET /clients",
     "PUT /clients/uuid-A",
+    "GET /clients/uuid-A/default-client-scopes",
     "GET /clients",
     "GET /users",
     "GET /users/user-id/consents",
     "GET /clients",
     "PUT /clients/uuid-A",
+    "GET /clients/uuid-A/default-client-scopes",
   ]);
 });
 
@@ -126,10 +146,12 @@ test("a deleted owner has no remaining consent and removal completes its disable
     "GET /clients",
     "GET /clients",
     "PUT /clients/uuid-A",
+    "GET /clients/uuid-A/default-client-scopes",
     "GET /clients",
     "GET /users",
     "GET /clients",
     "PUT /clients/uuid-A",
+    "GET /clients/uuid-A/default-client-scopes",
   ]);
   assert.deepEqual(
     updates.map((entry) => {

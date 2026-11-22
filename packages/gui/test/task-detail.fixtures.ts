@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, vi } from "vitest";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
+import type { TaskMutationFeedback } from "../src/renderer/task-actions.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
@@ -517,6 +518,7 @@ export function setDetailOpenTerminal(handler: ((task: TaskRow) => void) | undef
 export async function mount(
   overrides: {
     readonly task?: TaskRow;
+    readonly mutationFeedback?: TaskMutationFeedback;
     readonly onComplete?: () => Promise<unknown>;
     readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
     readonly work?: { readonly taskId: string; readonly title: string } | null;
@@ -550,6 +552,7 @@ export async function mount(
       onOpenTerminal,
       connectionId: overrides.connectionId,
       initialDocFocus: overrides.initialDocFocus,
+      mutationFeedback: overrides.mutationFeedback,
       onComplete: overrides.onComplete,
       onConsentReview: overrides.onConsentReview,
       work: overrides.work,

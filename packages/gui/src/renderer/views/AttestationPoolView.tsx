@@ -207,19 +207,26 @@ export function AttestationPoolView({
 
     for (const consent of lanes.consents) {
       seenTaskIds.add(consent.taskId);
-      const task = tasks.find((c) => c.taskId === consent.taskId);
+      const task = tasks.find((c) => c.taskId === consent.taskId),
+        feedback = taskFeedback?.(consent.taskId),
+        consentFeedback = feedback?.kind === "consent" ? feedback : undefined;
       items.push({
         id: `consent-${consent.taskId}`,
         title: consent.taskTitle,
         agentName: "consent",
         lane: "needs-you",
         note: t("views.attestationPoolView.consentHint"),
+        error:
+          consentFeedback?.state === "error"
+            ? `${consentFeedback.code ? `${consentFeedback.code} · ` : ""}${consentFeedback.hint}`
+            : undefined,
         actions: [
           ...(onConsentReview && task
             ? [
                 {
                   kind: "approve" as const,
                   label: t("views.attestationPoolView.consentApprove"),
+                  disabled: consentFeedback?.state === "pending",
                   onTrigger: () => {
                     void onConsentReview(task, consent.reviewId);
                   },
@@ -300,7 +307,7 @@ export function AttestationPoolView({
     }
 
     return items;
-  }, [lanes, tasks, onAttest, onConsentReview, onNavigateTask]);
+  }, [lanes, tasks, taskFeedback, onAttest, onConsentReview, onNavigateTask]);
 
   if (inDecisionDomain && focusMode && onJudge) {
     return (
@@ -479,7 +486,7 @@ export function AttestationPoolView({
                           <ConsentLaneRow
                             key={item.taskId}
                             item={item}
-                            pending={consentFeedback?.state === "pending"}
+                            feedback={consentFeedback}
                             onConsentReview={
                               onConsentReview && task ? () => void onConsentReview(task, item.reviewId) : undefined
                             }
@@ -650,21 +657,23 @@ function GateLaneRow({
 /** 同意收口 lane 行:动作直接行内完成,失败就地显示回执。 */
 function ConsentLaneRow({
   item,
-  pending,
+  feedback,
   onConsentReview,
   onNavigateTask,
 }: {
   readonly item: { readonly taskId: string; readonly taskTitle: string };
-  readonly pending: boolean;
+  readonly feedback?: TaskMutationFeedback;
   readonly onConsentReview?: () => void;
   readonly onNavigateTask?: (taskId: string) => void;
 }) {
+  const pending = feedback?.state === "pending";
   return (
     <div data-testid={`pool-consent-card-${item.taskId}`} className="cv-auto-3r">
       <LaneActionRow
         tag={<StatusTag tone="wait" label={t("views.attestationPoolView.tagConsent")} />}
         title={item.taskTitle}
         reason={t("views.attestationPoolView.consentHint")}
+        state={feedback?.state === "error" ? undefined : feedback}
       >
         {onNavigateTask ? (
           <Button variant="ghost" size="sm" onClick={() => onNavigateTask(item.taskId)}>
@@ -682,6 +691,9 @@ function ConsentLaneRow({
           {t("views.attestationPoolView.consentApprove")}
         </Button>
       </LaneActionRow>
+      {feedback?.state === "error" ? (
+        <AttestFeedbackRow feedback={feedback} testId={`pool-consent-feedback-${item.taskId}`} />
+      ) : null}
     </div>
   );
 }
