@@ -780,6 +780,8 @@ ${JSON.stringify(planned.preview, null, 2)}`,
         );
       case "node": {
         const node = await session.adapter.readNode(session.token, expect.nodeId);
+        if (node?.state === "active" && node.revocation === "complete")
+          await session.adapter.ensureManagedNodeConsentScope?.(session.token, expect.nodeId);
         return (
           nodeVersion(node) === expect.version &&
           node?.revocation === "complete" &&
