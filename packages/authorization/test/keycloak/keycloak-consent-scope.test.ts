@@ -489,6 +489,65 @@ test("F-4: a failed optional-to-default promotion restores the original optional
   );
 });
 
+test("F-5: double 503 during optional-to-default promotion and rollback throws an AggregateError preserving both failures and code", async () => {
+  const activeDevice = {
+    nodeId: "active-double-fail",
+    personId: "person-a",
+    systemName: "active-double-fail",
+    displayName: "Active double fail",
+    platform: "darwin",
+    registeredAt: "2026-11-20T00:00:00.000Z",
+    state: "active",
+    revision: 1,
+    revocation: "complete",
+  } as const;
+  const fixture = createKeycloakConsentFixture({
+    scopes: [
+      ...baselineRealmScopes,
+      {
+        id: "scope-existing",
+        name: "consent",
+        protocol: "openid-connect",
+        attributes: { "include.in.token.scope": "true", "display.on.consent.screen": "false" },
+      },
+    ],
+    clients: [
+      {
+        id: "uuid-active-double-fail",
+        clientId: "harness-node-active-double-fail",
+        enabled: true,
+        attributes: { harness_person_id: "person-a", harness_device: JSON.stringify(activeDevice) },
+        defaultClientScopes: new Set(["scope-profile", "scope-email"]),
+        optionalClientScopes: new Set(["scope-existing", "scope-offline"]),
+      },
+    ],
+    onRequest: (method, route) => {
+      if (
+        method === "PUT" &&
+        (route === "/clients/uuid-active-double-fail/default-client-scopes/scope-existing" ||
+          route === "/clients/uuid-active-double-fail/optional-client-scopes/scope-existing")
+      ) {
+        return new Response(null, { status: 503 });
+      }
+      return undefined;
+    },
+  });
+
+  await assert.rejects(fixture.adapter.syncLoginClients("admin-token"), (error: unknown) => {
+    assert.ok(error instanceof AggregateError, "double failure must throw AggregateError");
+    assert.equal((error as AggregateError & { code?: unknown }).code, "keycloak_admin_rejected");
+    assert.equal(error.errors.length, 2);
+    const [primary, rollback] = error.errors as [Error & { code?: unknown }, Error & { code?: unknown }];
+    assert.equal(error.cause, primary);
+    assert.equal(primary.code, "keycloak_admin_rejected");
+    assert.equal(rollback.code, "keycloak_admin_rejected");
+    assert.match(primary.message, /\/default-client-scopes\/scope-existing.*HTTP 503/u);
+    assert.match(rollback.message, /\/optional-client-scopes\/scope-existing.*HTTP 503/u);
+    assert.match(error.message, /optional consent rollback also failed/u);
+    return true;
+  });
+});
+
 test("writeNode and deleteNode detach consent scope on disable/tombstone and re-attach when resumed active", async () => {
   const fixture = createKeycloakConsentFixture();
 

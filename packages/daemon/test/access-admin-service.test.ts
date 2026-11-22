@@ -365,7 +365,16 @@ test("F-4: receipt reconcile repairs an active node consent scope after promotio
       displayName: "renamed after recovery",
       expectedVersion: "1",
     }),
-    { code: "keycloak_admin_rejected" },
+    (error: unknown) => {
+      assert.ok(error instanceof AggregateError, "double 503 must surface AggregateError");
+      assert.equal((error as AggregateError & { code?: unknown }).code, "keycloak_admin_rejected");
+      assert.equal(error.errors.length, 2);
+      const [primary, rollback] = error.errors as [Error & { code?: unknown }, Error & { code?: unknown }];
+      assert.equal(error.cause, primary);
+      assert.match(primary.message, /\/default-client-scopes\/.*HTTP 503/u);
+      assert.match(rollback.message, /\/optional-client-scopes\/.*HTTP 503/u);
+      return true;
+    },
   );
   assert.equal(client.defaultClientScopes.has(consent.id), false);
   assert.equal(client.optionalClientScopes.has(consent.id), false);

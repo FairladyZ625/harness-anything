@@ -21,7 +21,6 @@ import {
   decodeAuthorizationResource,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
-  consumeKnownError,
   registeredArtifactActionPolicyActions,
   encodeAuthorizationResource,
   type AuthorizationResource,
@@ -1155,7 +1154,17 @@ export class KeycloakPolicyAdapter
           try {
             await this.#request(token, `${optionalPath}/${encodeURIComponent(optionalConsentId)}`, { method: "PUT" });
           } catch (rollbackError) {
-            consumeKnownError(rollbackError);
+            const primaryMessage = error instanceof Error ? error.message : String(error);
+            const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+            const combined = new AggregateError(
+              [error, rollbackError],
+              `${primaryMessage} (optional consent rollback also failed: ${rollbackMessage})`,
+              { cause: error },
+            );
+            if (typeof error === "object" && error !== null && "code" in error) {
+              Object.assign(combined, { code: (error as { code: unknown }).code });
+            }
+            throw combined;
           }
         }
         throw error;
