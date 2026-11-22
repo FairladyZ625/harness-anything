@@ -1,0 +1,54 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "preset-deliverable-task",
+    "title": "deliverable-task",
+    "version": "1.0.0",
+    "owner": "preset",
+    "locales": ["zh-CN", "en-US"]
+  },
+  "documents": [
+    {
+      "id": "office/deliverable-brief",
+      "version": "1",
+      "documentKind": "deliverable-brief",
+      "slot": "task.deliverable.brief",
+      "materializeAs": "deliverable-brief.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Deliverable Scope", "## Audience and Format", "## Upstream Baselines", "## Review Checklist"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Deliverable Scope", "## Audience and Format", "## Upstream Baselines", "## Review Checklist"], "bodyPath": "templates/task.deliverable.brief/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Deliverable Scope", "## Audience and Format", "## Upstream Baselines", "## Review Checklist"], "bodyPath": "templates/task.deliverable.brief/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/task-plan-lightweight",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"], "bodyPath": "templates/task.plan.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"], "bodyPath": "templates/task.plan.lightweight/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/closeout-lightweight",
+      "version": "1",
+      "documentKind": "task-closeout",
+      "slot": "task.closeout",
+      "materializeAs": "closeout.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Summary", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/en-US.md" }
+      ]
+    }
+  ]
+}

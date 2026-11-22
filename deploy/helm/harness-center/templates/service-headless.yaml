@@ -1,0 +1,27 @@
+{{- if eq .Values.workloadKind "StatefulSet" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harness-center.headlessServiceName" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+    app.kubernetes.io/component: headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "harness-center.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- if .Values.fleet.enabled }}
+    - name: fleet-tls
+      port: {{ .Values.service.fleetPort }}
+      targetPort: fleet-tls
+      protocol: TCP
+    {{- end }}
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+{{- end }}

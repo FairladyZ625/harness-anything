@@ -3,6 +3,7 @@ import { decisionEventTypes } from "./decision-event-types.ts";
 import type { EntityKind } from "./base-entity.ts";
 import { scheduleEventTypes } from "./schedule.ts";
 import { taskEventTypes as canonicalTaskEventTypes } from "./task-lifecycle-event.ts";
+import { peerRequestEventTypes } from "./peer-collaboration.ts";
 
 export type StateStoreRole = "authority" | "replica" | "projection" | "spool" | "operational";
 export type StateStoreResidency = "canonical" | "runtime-local" | "host-local";
@@ -908,6 +909,15 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     canonical("relation.events", "relation-event/v1", "packages/kernel/src/domain/relation-event.ts", [
       "relation.state",
     ]),
+  ],
+  "peer-request": [
+    canonical(
+      "peer-request.events",
+      "peer-request-event/v1",
+      "packages/kernel/src/domain/peer-collaboration.ts",
+      ["peer-request.state"],
+      peerRequestEventTypes,
+    ),
   ],
   todo: [canonical("todo.entity-events", "entity-event/v1", "packages/kernel/src/domain/entity-event-compile.ts")],
   agent: [

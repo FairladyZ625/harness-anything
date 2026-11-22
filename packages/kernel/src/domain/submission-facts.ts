@@ -1,11 +1,16 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import type { ProductionDeltaV1, SubmissionV1 } from "./execution.ts";
+import { submissionDigest } from "./submission-digest.ts";
 
 export const DELETED_OUTPUT_PREFIX = "Deleted-Production-Paths: ";
 
 /** The one machine-owned delivery-facts region in a PR body. */
 export const SUBMISSION_FACTS_START = "<!-- harness:submission-facts:start -->",
   SUBMISSION_FACTS_END = "<!-- harness:submission-facts:end -->";
+
+/** The one machine-owned delivery-facts region maintained in closeout.md on submit/amend. */
+export const CLOSEOUT_FACTS_START = "<!-- harness:closeout-facts:start -->",
+  CLOSEOUT_FACTS_END = "<!-- harness:closeout-facts:end -->";
 
 export const historicalReadConclusions = Object.freeze([
   {
@@ -219,4 +224,97 @@ export function replaceSubmissionFacts(body: string, block: string): string | nu
   )
     return null;
   return `${body.slice(0, start + SUBMISSION_FACTS_START.length)}\n${block}\n${body.slice(end)}`;
+}
+
+type StandaloneFactsBounds =
+  | { readonly kind: "none" }
+  | { readonly kind: "malformed" }
+  | {
+      readonly kind: "pair";
+      readonly startLineStart: number;
+      readonly startLineEnd: number;
+      readonly endLineStart: number;
+      readonly endLineEnd: number;
+    };
+
+/**
+ * Locate standalone closeout-facts marker lines outside fenced code blocks so prose mentioning
+ * the marker text inline or in examples is never mistaken for the machine-owned block.
+ */
+function standaloneCloseoutFactsBounds(body: string): StandaloneFactsBounds {
+  let offset = 0,
+    fence: { marker: string; length: number } | null = null;
+  const starts: { start: number; end: number }[] = [],
+    ends: { start: number; end: number }[] = [];
+  for (const rawLine of body.split(/(?<=\n)/u)) {
+    const lineStart = offset,
+      lineEnd = offset + rawLine.length,
+      trimmed = rawLine.replace(/\r?\n$/u, "");
+    offset = lineEnd;
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(trimmed);
+    if (fence === null && delimiter) {
+      fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+      continue;
+    }
+    if (fence !== null) {
+      if (
+        delimiter &&
+        delimiter[1]![0] === fence.marker &&
+        delimiter[1]!.length >= fence.length &&
+        !delimiter[2]!.trim()
+      )
+        fence = null;
+      continue;
+    }
+    const candidate = trimmed.trimEnd();
+    if (candidate === CLOSEOUT_FACTS_START) starts.push({ start: lineStart, end: lineEnd });
+    else if (candidate === CLOSEOUT_FACTS_END) ends.push({ start: lineStart, end: lineEnd });
+  }
+  if (starts.length === 0 && ends.length === 0) return { kind: "none" };
+  if (starts.length !== 1 || ends.length !== 1 || starts[0]!.start >= ends[0]!.start) return { kind: "malformed" };
+  return {
+    kind: "pair",
+    startLineStart: starts[0]!.start,
+    startLineEnd: starts[0]!.end,
+    endLineStart: ends[0]!.start,
+    endLineEnd: ends[0]!.end,
+  };
+}
+
+/** Closeout mechanical delivery facts: the shared PR facts block plus the frozen submission digest. */
+export function renderCloseoutSubmissionFacts(
+  submission: SubmissionV1,
+  facts: SubmissionFacts = readSubmissionFacts(submission),
+): string {
+  return [
+    renderSubmissionFacts(submission, facts),
+    `- Submission digest: ${inlineCode(submissionDigest(submission))}`,
+  ].join("\n");
+}
+
+/** Remove the standalone managed closeout-facts block so prose readers observe only authored text. */
+export function stripCloseoutFactsRegion(body: string): string {
+  const bounds = standaloneCloseoutFactsBounds(body);
+  if (bounds.kind !== "pair") return body;
+  const before = body.slice(0, bounds.startLineStart).replace(/(?:[ \t]*\r?\n)+$/u, ""),
+    after = body.slice(bounds.endLineEnd).replace(/^(?:[ \t]*\r?\n)+/u, "");
+  if (!before) return after;
+  if (!after) return `${before}\n`;
+  return `${before}\n\n${after}`;
+}
+
+/** Idempotently insert or refresh the managed delivery-facts region of closeout.md, keeping authored prose intact. */
+export function upsertCloseoutSubmissionFacts(closeout: string, submission: SubmissionV1): string {
+  const bounds = standaloneCloseoutFactsBounds(closeout),
+    block = renderCloseoutSubmissionFacts(submission);
+  if (bounds.kind === "malformed")
+    throw new Error("closeout must contain at most one ordered closeout-facts marker pair");
+  if (bounds.kind === "pair") {
+    const startLine = closeout.slice(bounds.startLineStart, bounds.startLineEnd).replace(/\r?\n$/u, ""),
+      suffix = closeout.slice(bounds.endLineStart);
+    return `${closeout.slice(0, bounds.startLineStart)}${startLine}\n${block}\n${suffix}`;
+  }
+  const trimmed = closeout.replace(/\s+$/u, ""),
+    managed = `${CLOSEOUT_FACTS_START}\n${block}\n${CLOSEOUT_FACTS_END}\n`;
+  return trimmed.length > 0 ? `${trimmed}\n\n${managed}` : managed;
 }

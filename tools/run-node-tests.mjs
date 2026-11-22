@@ -38,6 +38,9 @@ const repoRoot = resolve(import.meta.dirname, "..");
 const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
 const PROCESS_TREE_KILL_GRACE_MS = 1_000;
 const CONCURRENCY_DISABLED = 0;
+const fastContractTestFileWeightsMs = Object.freeze(
+  JSON.parse(readFileSync(new URL("./fast-contract-test-weights.json", import.meta.url), "utf8")),
+);
 // A worker runtime injects its daemon route and execution identity; tests must
 // reach their own fixture daemons as the test actor, not as that worker.
 const WORKER_ENVIRONMENT_VARIABLES = [
@@ -112,10 +115,18 @@ try {
     .map((file) => file.trim())
     .filter(Boolean);
   const beforePartition = selection.files.length;
-  selection.files = partitionTestFiles(selection.files, runnerPartition, sharedFiles);
+  const partitionStrategy =
+    process.env.HARNESS_TEST_PARTITION_TEST_CHILD === "1"
+      ? "ordinal"
+      : (process.env.HARNESS_TEST_PARTITION_STRATEGY ?? "ordinal");
+  selection.files = partitionTestFiles(selection.files, runnerPartition, sharedFiles, {
+    strategy: partitionStrategy,
+    weightOverrides: fastContractTestFileWeightsMs,
+  });
   if (runnerPartition !== undefined)
     console.error(
       `[node-test-partition] ${runnerPartition}: ${selection.files.length}/${beforePartition} files` +
+        `; strategy=${partitionStrategy}` +
         (sharedFiles.length > 0 ? `; shared=${sharedFiles.join(",")}` : ""),
     );
 } catch (error) {

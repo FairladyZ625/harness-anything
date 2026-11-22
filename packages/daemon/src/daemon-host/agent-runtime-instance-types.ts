@@ -1,5 +1,10 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
-import type { SettingsV1, AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import type {
+  SettingsV1,
+  AgentDefinitionSnapshot,
+  RuntimeInstanceAccountCut,
+  RuntimeSubscriptionQuotaV1,
+} from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import {
   type RuntimeIsolationState,
@@ -28,6 +33,10 @@ export interface RuntimeInstanceCommon {
   readonly models: readonly string[];
   /** Account catalog observed in this instance's own environment; absent until probed. */
   readonly availableModels?: readonly string[];
+  /** Latest node-local subscription quota snapshot observed for this instance. */
+  readonly quota?: RuntimeSubscriptionQuotaV1;
+  /** SHA-256 hex fingerprint of the subscription credentials that produced `quota`; stripped from public DTOs. */
+  readonly quotaAccountFingerprint?: string;
   readonly defaultModel: string;
   readonly enabled: boolean;
   readonly tier?: number;
@@ -197,4 +206,5 @@ export interface PreparedRuntimeAuthCommand {
   readonly args: readonly string[];
   readonly env: NodeJS.ProcessEnv;
   readonly cwd: string;
+  readonly accountCut: RuntimeInstanceAccountCut;
 }

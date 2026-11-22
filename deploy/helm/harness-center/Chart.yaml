@@ -1,0 +1,15 @@
+apiVersion: v2
+name: harness-center
+description: Generic Kubernetes deployment chart for Harness Anything Center (external PostgreSQL, external OIDC/Keycloak, Fleet TLS, and Prometheus observability).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/FairladyZ625/harness-anything
+sources:
+  - https://github.com/FairladyZ625/harness-anything
+keywords:
+  - harness-anything
+  - ai-agents
+  - governance
+  - daemon
+  - prometheus

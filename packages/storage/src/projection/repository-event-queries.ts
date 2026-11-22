@@ -160,13 +160,6 @@ const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId", sco
   FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
 };
 const dispatchId = "json_extract(event_json, '$.payload.dispatchId')";
-const RUNTIME_DISPATCH_PAGE_SQL = (byTask: boolean) => `
-  SELECT event_json FROM event_index
-  WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-    AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
-    ${byTask ? "AND json_extract(event_json, '$.payload.taskId') = ?" : ""}
-    AND ${sqliteDispatchPageTimeKey} >= ? AND (${sqliteDispatchPageTimeKey}, ${dispatchId}) > (?, ?)
-  ORDER BY ${sqliteDispatchPageTimeKey}, ${dispatchId} LIMIT ?`;
 const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -174,6 +167,10 @@ const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
   "AND json_extract(event_json, '$.payload.dispatchId') = ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
+const RUNTIME_OUTCOME_BY_DISPATCH_MAX_REVISION_SQL = RUNTIME_OUTCOME_BY_DISPATCH_SQL.replace(
+  "ORDER BY workspace_revision DESC LIMIT 1",
+  "AND workspace_revision <= ? ORDER BY workspace_revision DESC LIMIT 1",
+);
 const RUNTIME_SESSION_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
   "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -185,14 +182,69 @@ const RUNTIME_SESSION_EVENTS_SQL = [
 // not receive the session's other events only to discard them in JavaScript. event_index_runtime_session
 // bounds the scan to that session and revision order; it deliberately carries no type column, because
 // a session+type index would also be chosen for the dispatch lookup and replace its one-row seek.
-const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = [
+const RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
   "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
   `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
-  "ORDER BY workspace_revision",
 ].join(" ");
+const RUNTIME_SESSION_EVENTS_BY_TYPE_SQL = `${RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL} ORDER BY workspace_revision`;
+const RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL = (order: "ASC" | "DESC", maxRevision: boolean) =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    ...(maxRevision ? ["AND workspace_revision <= ?"] : []),
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND json_extract(event_json, '$.type') IN (SELECT value FROM json_each(?))",
+    `AND json_extract(event_json, '$.type') NOT IN (${privateRuntimeEventTypes.map((type) => `'${type}'`).join(", ")})`,
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
+const RUNTIME_SESSION_CONTROL_REQUESTS_SQL = (order: "ASC" | "DESC", maxRevision: boolean) =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    ...(maxRevision ? ["AND workspace_revision <= ?"] : []),
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND (json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested')",
+    "OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'",
+    "AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL))",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
+const RUNTIME_SESSION_CANCEL_CONTROL_REQUESTS_SQL = (order: "ASC" | "DESC", maxRevision: boolean) =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    ...(maxRevision ? ["AND workspace_revision <= ?"] : []),
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    "AND (json_extract(event_json, '$.type') = 'runtime_cancel_requested'",
+    "OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'",
+    "AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel'))",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
+const RUNTIME_SESSION_CONTROL_RECEIPTS_SQL = (
+  order: "ASC" | "DESC",
+  appliedSteerOnly: boolean,
+  byRequestOpId: boolean,
+  maxRevision: boolean,
+) =>
+  [
+    "SELECT event_json FROM event_index",
+    "WHERE workspace_revision > ?",
+    ...(maxRevision ? ["AND workspace_revision <= ?"] : []),
+    "AND json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+    "AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed')",
+    "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
+    byRequestOpId
+      ? "AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') IS NOT NULL AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') = ?"
+      : appliedSteerOnly
+        ? "AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL"
+        : "AND json_extract(event_json, '$.payload.controlReceipt') IS NOT NULL",
+    `ORDER BY workspace_revision ${order} LIMIT ?`,
+  ].join(" ");
 const SCHEDULE_EVENTS_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
@@ -259,15 +311,25 @@ export function repositoryEventQueries(
           ? (JSON.parse(String(row.witness_json)) as ReturnType<TaskProjectionQueries["readEventWitness"]>)
           : null;
       }),
-    readEventSummaries: (afterRevision, limit, fields) =>
+    readEventSummaries: (afterRevision, limit, fields, beforeRevision, order) =>
       withRead((db, cut) => {
-        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
+        if (
+          !validateStorageReadWindow(
+            limit,
+            storageReadPolicy.defaultValue.pageSizes.summaries,
+            afterRevision,
+            beforeRevision,
+          )
+        )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        const scanOrder = order ?? (beforeRevision === undefined ? "asc" : "desc");
+        if (scanOrder !== "asc" && scanOrder !== "desc")
+          throw new Error("event summary page order must be asc or desc");
         if (fields === "fleet" || (typeof fields === "object" && "fleetNodeIds" in fields)) {
           assertEventSummaryReadIndexReady(db);
           return {
             ...cut,
-            events: readFleetEventHeaders(db, afterRevision, limit),
+            events: readFleetEventHeaders(db, afterRevision, limit, beforeRevision, scanOrder),
             ...(typeof fields === "object" ? { fleetActivity: readFleetNodeActivity(db, fields.fleetNodeIds) } : {}),
           };
         }
@@ -298,14 +360,25 @@ export function repositoryEventQueries(
           selected.sort((left, right) => right.workspaceRevision - left.workspaceRevision);
           return { ...cut, events: selected.slice(0, limit).reverse(), hasMore: selected.length > limit };
         }
+        const rawRows =
+            beforeRevision === undefined
+              ? queryRows(
+                  db,
+                  `SELECT summary_json FROM event_summary WHERE workspace_revision > ? ORDER BY workspace_revision ${scanOrder === "asc" ? "ASC" : "DESC"} LIMIT ?`,
+                  afterRevision,
+                  limit,
+                )
+              : queryRows(
+                  db,
+                  `SELECT summary_json FROM event_summary WHERE workspace_revision > ? AND workspace_revision < ? ORDER BY workspace_revision ${scanOrder === "asc" ? "ASC" : "DESC"} LIMIT ?`,
+                  afterRevision,
+                  beforeRevision,
+                  limit,
+                ),
+          rows = scanOrder === "desc" ? rawRows.toReversed() : rawRows;
         return {
           ...cut,
-          events: queryRows(
-            db,
-            "SELECT summary_json FROM event_summary WHERE workspace_revision > ? ORDER BY workspace_revision LIMIT ?",
-            afterRevision,
-            limit,
-          ).map(
+          events: rows.map(
             (row) =>
               JSON.parse(
                 String(row.summary_json),
@@ -463,29 +536,110 @@ export function repositoryEventQueries(
                 : [];
             }),
           ),
-    readRuntimeDispatchPage: ({ taskIds, startedAtGte, cursor, limit: pageLimit }) =>
+    readRuntimeDispatchPage: ({
+      taskIds,
+      agentId,
+      squadId,
+      personId,
+      startedAtGte,
+      startedAtLte,
+      order = "asc",
+      maxRevision,
+      cursor,
+      limit: pageLimit,
+    }) =>
       withRead((db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
-        const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
-          page = [
-            Math.max(runtimeDispatchPageTimeKey(startedAtGte), after),
-            after,
-            cursor?.dispatchId ?? "",
-            pageLimit + 1,
-          ] as const,
+        if (order !== "asc" && order !== "desc") throw new Error("runtime dispatch page order must be asc or desc");
+        if (agentId !== undefined && squadId !== undefined)
+          throw new Error("runtime dispatch page cannot filter by both agentId and squadId");
+        if (agentId !== undefined && agentId.length === 0)
+          throw new Error("runtime dispatch page agentId must be non-empty");
+        if (squadId !== undefined && squadId.length === 0)
+          throw new Error("runtime dispatch page squadId must be non-empty");
+        if (personId !== undefined && personId.length === 0)
+          throw new Error("runtime dispatch page personId must be non-empty");
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime dispatch page maxRevision must be a non-negative safe integer");
+        const minMs = runtimeDispatchPageTimeKey(startedAtGte);
+        if (startedAtLte !== undefined && startedAtLte === "") throw new Error("Invalid dispatch page timestamp");
+        const maxMs = startedAtLte === undefined ? null : runtimeDispatchPageTimeKey(startedAtLte);
+        const clauses: string[] = [
+            "json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+            "json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+          ],
+          baseArgs: (string | number)[] = [];
+        if (agentId !== undefined) {
+          clauses.push("json_extract(event_json, '$.payload.agentId') = ?");
+          baseArgs.push(agentId);
+        }
+        if (squadId !== undefined) {
+          clauses.push("json_extract(event_json, '$.payload.squadId') = ?");
+          baseArgs.push(squadId);
+        }
+        if (personId !== undefined) {
+          clauses.push("json_extract(event_json, '$.actor.principal.personId') = ?");
+          baseArgs.push(personId);
+        }
+        if (maxRevision !== undefined) {
+          clauses.push("workspace_revision <= ?");
+          baseArgs.push(maxRevision);
+        }
+        let orderBy: string;
+        if (order === "asc") {
+          const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? "");
+          clauses.push(`${sqliteDispatchPageTimeKey} >= ?`);
+          baseArgs.push(Math.max(minMs, after));
+          if (maxMs !== null) {
+            clauses.push(`${sqliteDispatchPageTimeKey} <= ?`);
+            baseArgs.push(maxMs);
+          }
+          clauses.push(`(${sqliteDispatchPageTimeKey}, ${dispatchId}) > (?, ?)`);
+          baseArgs.push(after, cursor?.dispatchId ?? "");
+          orderBy = `${sqliteDispatchPageTimeKey} ASC, ${dispatchId} ASC`;
+        } else {
+          clauses.push(`${sqliteDispatchPageTimeKey} >= ?`);
+          baseArgs.push(minMs);
+          if (cursor !== undefined) {
+            if (cursor.startedAt === "") throw new Error("Invalid dispatch page timestamp");
+            const cursorMs = runtimeDispatchPageTimeKey(cursor.startedAt),
+              effectiveMax = maxMs === null ? cursorMs : Math.min(maxMs, cursorMs);
+            clauses.push(`${sqliteDispatchPageTimeKey} <= ?`);
+            baseArgs.push(effectiveMax);
+            clauses.push(
+              `(${sqliteDispatchPageTimeKey} < ? OR (${sqliteDispatchPageTimeKey} = ? AND ${dispatchId} > ?))`,
+            );
+            baseArgs.push(cursorMs, cursorMs, cursor.dispatchId);
+          } else if (maxMs !== null) {
+            clauses.push(`${sqliteDispatchPageTimeKey} <= ?`);
+            baseArgs.push(maxMs);
+          }
+          orderBy = `${sqliteDispatchPageTimeKey} DESC, ${dispatchId} ASC`;
+        }
+        const buildSql = (byTask: boolean) =>
+            `SELECT event_json FROM event_index WHERE ${[
+              ...clauses,
+              ...(byTask ? ["json_extract(event_json, '$.payload.taskId') = ?"] : []),
+            ].join(" AND ")} ORDER BY ${orderBy} LIMIT ?`,
+          compareKeys =
+            order === "asc"
+              ? compareRuntimeDispatchPageKeys
+              : (left: ReturnType<typeof runtimeDispatchPageKey>, right: ReturnType<typeof runtimeDispatchPageKey>) =>
+                  runtimeDispatchPageTimeKey(right.startedAt) - runtimeDispatchPageTimeKey(left.startedAt) ||
+                  Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId)),
           raw =
             taskIds === undefined
-              ? queryRows(db, RUNTIME_DISPATCH_PAGE_SQL(false), ...page)
+              ? queryRows(db, buildSql(false), ...baseArgs, pageLimit + 1)
               : taskIds
-                  .flatMap((taskId) => queryRows(db, RUNTIME_DISPATCH_PAGE_SQL(true), taskId, ...page))
+                  .flatMap((taskId) => queryRows(db, buildSql(true), ...baseArgs, taskId, pageLimit + 1))
                   .map((row) => ({ row, key: runtimeDispatchPageKey(JSON.parse(String(row.event_json))) }))
-                  .sort((left, right) => compareRuntimeDispatchPageKeys(left.key, right.key))
+                  .sort((left, right) => compareKeys(left.key, right.key))
                   .slice(0, pageLimit + 1)
                   .map(({ row }) => row),
           done = raw.length <= pageLimit,
           rows = raw.slice(0, pageLimit).flatMap((row) => {
-            const projected = projectedDispatch(db, row);
+            const projected = projectedDispatch(db, row, maxRevision);
             return projected ? [projected] : [];
           }),
           last = rows.at(-1)?.event;
@@ -542,10 +696,89 @@ export function repositoryEventQueries(
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       }),
-    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types) =>
+    readRuntimeSessionEventsByType: (runtimeSessionIdValue, types, options) =>
       withRead((db) => {
-        const requested = assertRuntimeEventTypes(types);
-        return queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested))
+        const requested = assertRuntimeEventTypes(types),
+          afterRevision = options?.afterRevision,
+          maxRevision = options?.maxRevision,
+          filter = options?.filter,
+          order = options?.order === "desc" ? "DESC" : "ASC",
+          windowed =
+            afterRevision !== undefined ||
+            options?.limit !== undefined ||
+            options?.order !== undefined ||
+            filter !== undefined;
+        if (afterRevision !== undefined && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
+          throw new Error("runtime session event read afterRevision must be a non-negative safe integer");
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
+        if (maxRevision !== undefined && afterRevision !== undefined && maxRevision < afterRevision)
+          throw new Error("runtime session event read maxRevision must not precede afterRevision");
+        if (
+          options?.limit !== undefined &&
+          !validateStorageReadWindow(options.limit, storageReadPolicy.defaultValue.pageSizes.standard)
+        )
+          throw new Error("runtime session event read limit must be between 1 and 500");
+        const boundedAfterRevision = afterRevision ?? 0,
+          limit = options?.limit ?? 500,
+          requestOpId =
+            filter === "control_receipt" && typeof options?.requestOpId === "string" && options.requestOpId.length > 0
+              ? options.requestOpId
+              : null,
+          revisionValues = [boundedAfterRevision, ...(maxRevision === undefined ? [] : [maxRevision])];
+        const rows = windowed
+          ? (() => {
+              if (!validateStorageReadWindow(limit, undefined, boundedAfterRevision))
+                throw new Error("runtime session event page requires a non-negative revision and a positive limit");
+              if (filter === "control_request")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CONTROL_REQUESTS_SQL(order, maxRevision !== undefined),
+                  ...revisionValues,
+                  runtimeSessionIdValue,
+                  limit,
+                );
+              if (filter === "cancel_control_request")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CANCEL_CONTROL_REQUESTS_SQL(order, maxRevision !== undefined),
+                  ...revisionValues,
+                  runtimeSessionIdValue,
+                  limit,
+                );
+              if (filter === "control_receipt" || filter === "applied_steer_receipt")
+                return queryRows(
+                  db,
+                  RUNTIME_SESSION_CONTROL_RECEIPTS_SQL(
+                    order,
+                    filter === "applied_steer_receipt",
+                    requestOpId !== null,
+                    maxRevision !== undefined,
+                  ),
+                  ...revisionValues,
+                  runtimeSessionIdValue,
+                  ...(requestOpId === null ? [] : [requestOpId]),
+                  limit,
+                );
+              return queryRows(
+                db,
+                RUNTIME_SESSION_EVENTS_BY_TYPE_WINDOW_SQL(order, maxRevision !== undefined),
+                ...revisionValues,
+                runtimeSessionIdValue,
+                JSON.stringify(requested),
+                limit,
+              );
+            })()
+          : maxRevision === undefined
+            ? queryRows(db, RUNTIME_SESSION_EVENTS_BY_TYPE_SQL, runtimeSessionIdValue, JSON.stringify(requested))
+            : queryRows(
+                db,
+                `${RUNTIME_SESSION_EVENTS_BY_TYPE_BASE_SQL} AND workspace_revision <= ? ORDER BY workspace_revision ${order}`,
+                runtimeSessionIdValue,
+                JSON.stringify(requested),
+                maxRevision,
+              );
+        return rows
           .map((row) => JSON.parse(String(row.event_json)))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
@@ -595,17 +828,24 @@ export function repositoryEventQueries(
 function projectedDispatch(
   db: DatabaseSync,
   row: Readonly<Record<string, unknown>> | undefined,
+  maxRevision?: number,
 ): RuntimeDispatchProjectionRow | null {
   if (!row) return null;
   const event = JSON.parse(String(row.event_json)) as { readonly schema: string };
   if (!isAgentRuntimeEvent(event) || event.type !== "runtime_dispatch_requested") return null;
-  const outcomeRow = queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_SQL, event.payload.dispatchId),
+  const outcomeRow =
+      maxRevision === undefined
+        ? queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_SQL, event.payload.dispatchId)
+        : queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_MAX_REVISION_SQL, event.payload.dispatchId, maxRevision),
     outcome = outcomeRow ? (JSON.parse(String(outcomeRow.event_json)) as { readonly schema: string }) : null;
   if (!outcome || !isAgentRuntimeEvent(outcome) || outcome.type !== "runtime_session_outcome_observed")
     return { event: publicRuntimeDispatch(event), metrics: null, endedAt: null, outcome: null };
+  const rawMetrics = outcome.payload.runtimeMetrics ?? null,
+    cacheWriteTokens = outcome.payload.cacheWriteTokens ?? rawMetrics?.cacheWriteTokens,
+    metrics = rawMetrics === null || cacheWriteTokens === undefined ? rawMetrics : { ...rawMetrics, cacheWriteTokens };
   return {
     event: publicRuntimeDispatch(event),
-    metrics: outcome.payload.runtimeMetrics ?? null,
+    metrics,
     endedAt: outcome.payload.endedAt ?? null,
     outcome: outcome.payload.outcome,
   };
@@ -680,14 +920,33 @@ const fleetHeader = `json_object(
    'statement',json_extract(summary_json,'$.payload.statement'),'text',json_extract(summary_json,'$.payload.text'))
 )`;
 
-function readFleetEventHeaders(db: DatabaseSync, after: number, limit: number): CanonicalEventSummary[] {
-  return queryRows<{ header: string }>(
-    db,
-    `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>?
-     ORDER BY workspace_revision LIMIT ?`,
-    after,
-    limit,
-  ).map(({ header }) => JSON.parse(header) as CanonicalEventSummary);
+function readFleetEventHeaders(
+  db: DatabaseSync,
+  after: number,
+  limit: number,
+  before?: number,
+  order: "asc" | "desc" = before === undefined ? "asc" : "desc",
+): CanonicalEventSummary[] {
+  const dir = order === "asc" ? "ASC" : "DESC",
+    rawRows =
+      before === undefined
+        ? queryRows<{ header: string }>(
+            db,
+            `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>?
+             ORDER BY workspace_revision ${dir} LIMIT ?`,
+            after,
+            limit,
+          )
+        : queryRows<{ header: string }>(
+            db,
+            `SELECT ${fleetHeader} AS header FROM event_summary WHERE workspace_revision>? AND workspace_revision<?
+             ORDER BY workspace_revision ${dir} LIMIT ?`,
+            after,
+            before,
+            limit,
+          ),
+    rows = order === "desc" ? rawRows.toReversed() : rawRows;
+  return rows.map(({ header }) => JSON.parse(header) as CanonicalEventSummary);
 }
 
 /** One batched read, with a top-N index probe per node and point joins after each limit. */

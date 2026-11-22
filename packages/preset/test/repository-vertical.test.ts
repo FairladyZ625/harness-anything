@@ -232,6 +232,91 @@ test("repository acceptance rejects unknown IDs, unknown sources, duplicate IDs 
   }
 });
 
+test("upgrade compatibility: pre-existing local office/collab vertical shadows builtin without blocking software/coding or other verticals", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-upgrade-office-compat-"));
+  try {
+    const localOffice = path.join(rootDir, "verticals", "legacy-office");
+    cpSync(new URL("../assets/software-coding/", import.meta.url), localOffice, { recursive: true });
+    const vertical = JSON.parse(readFileSync(path.join(localOffice, "vertical.json"), "utf8"));
+    vertical.id = "office/collab";
+    vertical.title = "Legacy Local Office";
+    vertical.completion = {
+      sources: {},
+      gates: {},
+      closeoutDefaults: { review: false, consent: false, factDisposition: false },
+    };
+    write(path.join(localOffice, "vertical.json"), JSON.stringify(vertical));
+    writePackage(path.join(localOffice, "presets"), "legacy-memo", {
+      vertical: "office/collab",
+      outputShape: "artifact-only",
+      profiles: [{ id: "baseline", title: "Baseline", completionGates: [], templateSelections: [] }],
+    });
+
+    const codingSettings = { ...INITIAL_SETTINGS_V1 };
+    const officeSettings = {
+      ...INITIAL_SETTINGS_V1,
+      defaultVertical: "office/collab",
+      defaultPreset: "legacy-memo",
+    };
+
+    // 1. Built-in software/coding continues to resolve cleanly (never blocked by duplicate_vertical)
+    const codingPresets = (await runPresetAction({
+      rootDir,
+      settings: codingSettings,
+      action: { kind: "preset-list", verticalId: "software/coding" },
+    })) as Array<{ id: string; validity: string }>;
+    assert.ok(codingPresets.some((entry) => entry.id === "standard-task" && entry.validity === "valid"));
+
+    // 2. Pre-existing local office/collab data path continues to resolve cleanly
+    const localPresets = (await runPresetAction({
+      rootDir,
+      settings: officeSettings,
+      action: { kind: "preset-list", verticalId: "office/collab" },
+    })) as Array<{ id: string; validity: string }>;
+    assert.ok(localPresets.some((entry) => entry.id === "legacy-memo" && entry.validity === "valid"));
+    const localValidated = (await runPresetAction({
+      rootDir,
+      settings: officeSettings,
+      action: { kind: "vertical-validate", verticalSource: "office/collab" },
+    })) as { valid: boolean; source: string; vertical?: { title: string } };
+    assert.equal(localValidated.valid, true);
+    assert.equal(localValidated.source, localOffice);
+    assert.equal(localValidated.vertical?.title, "Legacy Local Office");
+
+    // 3. Explicit builtin:office/collab still validates the bundled vertical
+    const builtinValidated = (await runPresetAction({
+      rootDir,
+      settings: codingSettings,
+      action: { kind: "vertical-validate", verticalSource: "builtin:office/collab" },
+    })) as { valid: boolean; source: string; vertical?: { title: string } };
+    assert.equal(builtinValidated.valid, true);
+    assert.equal(builtinValidated.source, "builtin:office/collab");
+    assert.equal(builtinValidated.vertical?.title, "Office Collaboration");
+
+    // 4. vertical-list reports both verticals and marks the local shadow clearly
+    const listed = (await runPresetAction({
+      rootDir,
+      settings: codingSettings,
+      action: { kind: "vertical-list" },
+    })) as Array<{ id: string; layer: string; shadows?: string; valid: boolean }>;
+    assert.deepEqual(
+      listed.map(({ id, layer, shadows, valid }) => ({ id, layer, shadows, valid })),
+      [
+        { id: "office/collab", layer: "repository", shadows: "builtin", valid: true },
+        { id: "software/coding", layer: "builtin", shadows: undefined, valid: true },
+      ],
+    );
+
+    // 5. Two local directories claiming office/collab still fail closed with duplicate_vertical
+    write(path.join(rootDir, "verticals/second-office/vertical.json"), JSON.stringify(vertical));
+    await assert.rejects(runPresetAction({ rootDir, settings: codingSettings, action: { kind: "preset-list" } }), {
+      code: "duplicate_vertical",
+    });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Python entrypoints report unsupported interpreter before spawning for frozen and live runs", async () => {
   const f = fixture(),
     service = createPresetProcessService({ rootDir: f.rootDir, userRoot: f.userRoot, readSettings: () => f.settings });

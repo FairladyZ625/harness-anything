@@ -280,14 +280,27 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
       let cursor: string | null = null,
         done = false,
         count = 0;
+      const replayed: (typeof stream.events)[number][] = [];
       for (let pages = 0; pages < stream.revision + 1 && !done; pages++) {
         const page = store!.readBatch(cursor, 2);
+        assert.equal(page.sourceRevision, stream.revision);
+        assert.ok(page.events.length > 0 && page.events.length <= 2);
+        assert.equal(page.cursor, String(page.events.at(-1)?.workspaceRevision));
+        replayed.push(...page.events);
         count += page.events.length;
         cursor = page.cursor;
         done = page.done;
       }
       assert.equal(done, true);
       assert.equal(count, stream.revision);
+      assert.deepEqual(replayed, stream.events);
+      assert.deepEqual(store!.readBatch(cursor, 2), {
+        accessedItems: 0,
+        cursor,
+        done: true,
+        events: [],
+        sourceRevision: stream.revision,
+      });
       assert.notEqual(cursor, null, "a nonempty tail cursor still terminates on done");
       console.log("PG_TWO_NODE_COMPETITION accepted=1 rejected=1 code=revision_conflict");
     });

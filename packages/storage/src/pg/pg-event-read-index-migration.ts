@@ -11,7 +11,11 @@ import {
 } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
-import { POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS } from "../postgres/event-ledger-schema.ts";
+import {
+  PG_OCCURRED_AT_MS_INVALID_SENTINEL,
+  POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
+  POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
+} from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 
 const eventReadFields = {
@@ -59,6 +63,20 @@ const eventReadFields = {
   dispatch_started_at: "v#>>'{payload,startedAt}'",
   dispatch_activity_at: "COALESCE(v#>>'{payload,startedAt}',v->>'occurredAt')",
   registers_domain_type: "v#>>'{payload,registersDomainType}'",
+  runtime_control_kind: `CASE WHEN NEW.event_type='runtime_cancel_requested'
+    OR (NEW.event_type='runtime_session_liveness_changed' AND v#>>'{payload,controlRequest,action}'='cancel')
+    THEN 'cancel'
+    WHEN NEW.event_type='runtime_steer_requested'
+    OR (NEW.event_type='runtime_session_liveness_changed' AND v#>>'{payload,controlRequest,action}'='steer')
+    THEN 'steer' END`,
+  runtime_control_receipt_status: `CASE WHEN NEW.event_type IN ('runtime_session_provider_bound','runtime_session_liveness_changed')
+    AND v#>>'{payload,controlReceipt,status}' IN ('applied','rejected')
+    THEN CASE WHEN v#>>'{payload,controlReceipt,status}'='applied' AND v#>'{payload,controlReceipt,steerVersion}' IS NOT NULL
+      THEN 'applied_versioned'
+      ELSE v#>>'{payload,controlReceipt,status}' END END`,
+  runtime_control_receipt_req_op_id: `CASE WHEN NEW.event_type IN ('runtime_session_provider_bound','runtime_session_liveness_changed')
+    AND v#>>'{payload,controlReceipt,requestOpId}' IS NOT NULL
+    THEN v#>>'{payload,controlReceipt,requestOpId}' END`,
   task_index_id: `CASE v->>'schema'
     WHEN 'task-progress-event/v1' THEN v#>>'{payload,taskId}'
     WHEN 'agent-runtime-event/v1' THEN CASE NEW.event_type
@@ -94,6 +112,8 @@ const dispatchIndexes = [
   ["page", "dispatch_started_at,dispatch_id"],
   ["epoch_ms", `${pgDispatchPageTimeKey},dispatch_id`],
   ["task_epoch_ms", `payload_task_id,${pgDispatchPageTimeKey},dispatch_id`],
+  ["agent_epoch_ms", `agent_id,${pgDispatchPageTimeKey} DESC,dispatch_id ASC`],
+  ["squad_epoch_ms", `squad_id,${pgDispatchPageTimeKey} DESC,dispatch_id ASC`],
   // "Newest dispatch for this task" without walking every dispatch the task ever had:
   // fleet overview reads one current dispatch per lease row. Effective time is
   // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.
@@ -107,6 +127,7 @@ const dispatchIndexes = [
 export function eventReadIndexDdl(): readonly string[] {
   return [
     ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
+    ...POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
     ...postgresScopeRlsStatements("ha_event_entity_refs", { ifNotExists: true }),
     /* @gate-identity state-store/task.projection.ha_fleet_node_tasks */ `CREATE TABLE IF NOT EXISTS ha_fleet_node_tasks (
       tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL, repo_id text NOT NULL,
@@ -292,6 +313,10 @@ export function eventReadIndexDdl(): readonly string[] {
       ON ha_events (${eventScope},revision) WHERE read_index_version<7`,
     `CREATE INDEX IF NOT EXISTS ha_events_fleet_node
       ON ha_events (${eventScope},fleet_node_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_fleet_actor_person
+      ON ha_events (${eventScope},actor_person_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_visible_summary_revision
+      ON ha_events (${eventScope},revision DESC) WHERE event_type<>'ci_run_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_fleet_dispatch
       ON ha_events (${eventScope},fleet_node_id,dispatch_activity_at DESC,revision DESC)
       WHERE event_type='runtime_dispatch_requested'`,
@@ -315,6 +340,21 @@ export function eventReadIndexDdl(): readonly string[] {
       (tenant_id,project_id,policy_epoch,repo_id,executor_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_session_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,runtime_session_id,revision)`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_control ON ha_events
+      (${eventScope},runtime_session_id,revision)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_kind IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_cancel_control ON ha_events
+      (${eventScope},runtime_session_id,revision)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_kind='cancel'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_control_receipt ON ha_events
+      (${eventScope},runtime_session_id,revision DESC)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_receipt_status IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_applied_steer_receipt ON ha_events
+      (${eventScope},runtime_session_id,revision DESC)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_receipt_status='applied_versioned'`,
+    `CREATE INDEX IF NOT EXISTS ha_events_runtime_control_receipt_req ON ha_events
+      (${eventScope},runtime_session_id,runtime_control_receipt_req_op_id)
+      WHERE event_schema='agent-runtime-event/v1' AND runtime_control_receipt_req_op_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_fact_anchor_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,fact_anchor_id,revision) WHERE fact_anchor_id IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_type_time_revision ON ha_events
@@ -400,6 +440,20 @@ export function eventReadIndexDdl(): readonly string[] {
           ) SELECT count(*)::integer INTO processed FROM filled;
         END IF;
         IF processed = 0 THEN
+          WITH batch AS (
+            SELECT revision FROM ha_events
+            WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
+              AND occurred_at_ms IS NULL
+            ORDER BY revision LIMIT 64 FOR UPDATE
+          ), filled AS (
+            UPDATE ha_events e
+            SET occurred_at_ms=COALESCE(ha_occurred_at_epoch_ms(e.occurred_at), ${PG_OCCURRED_AT_MS_INVALID_SENTINEL}::bigint)
+            FROM batch b
+            WHERE e.tenant_id=tenant AND e.project_id=project AND e.policy_epoch=epoch AND e.repo_id=repo
+              AND e.revision=b.revision RETURNING 1
+          ) SELECT count(*)::integer INTO processed FROM filled;
+        END IF;
+        IF processed = 0 THEN
           INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
           VALUES (tenant,project,epoch,repo,true)
           ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true;
@@ -429,7 +483,7 @@ export async function pgDispatchPageTimeGate(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND ${dispatchPagePending} LIMIT 1`,
+      AND ${dispatchPagePending} ORDER BY revision LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length) {

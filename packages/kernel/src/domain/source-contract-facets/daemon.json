@@ -243,7 +243,7 @@
         "explain": "Host filesystem bundled-agent protection guard refusing retire or delete operations against shipped built-in agent declarations.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:d6d577b0fc5f23b372343eb76000bff7",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:733abf76c32271c2d646a0970b8b116e",
             "route": "packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen"
           }
         ],
@@ -891,7 +891,7 @@
         "explain": "Closed parameter validation for named RPC actions, including separate runtime-cancel reason and ruling inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:f3156c2ff1113e313d5583e5f34df3e1",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload:5a40bf0f2d25213550ed08398824ed78",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateNamedActionPayload"
           }
         ],
@@ -963,7 +963,7 @@
         "explain": "Wire-response validator for `command-receipt/v2` GUI mutation receipts across entity commands, checking cut fidelity and optional boolean steerSupported only on runtime-spawn, and delegating committed acceptance intervals to kernel `validateReceiptAcceptance`.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:f15d42df92b75769b38573f40f063042",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt:7ff0f66fb63e11db8230d00f54a676d9",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonGuiCommandReceipt"
           }
         ],
@@ -1242,7 +1242,7 @@
         "explain": "Review dispatch routing adapter verifying target Agent existence, active status, and non-squad reviewer target kind.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/review-dispatch-admission.ts#assertReviewerTarget:5312efcd7192a933cf27c553f28e5a53",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/review-dispatch-admission.ts#assertReviewerTarget:e0fd58bf4faefde149ae7b02d66be63d",
             "route": "packages/daemon/src/daemon-host/review-dispatch-admission.ts#assertReviewerTarget"
           }
         ],
@@ -1307,7 +1307,7 @@
         "explain": "Daemon read-DTO structural validator for `agent-runtime.session/v1` payloads and attempt chains.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-contract.ts#validateAgentRuntimeSession:e32763effd183f11cbc8d9524a5cdc8b",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-contract.ts#validateAgentRuntimeSession:ada43f8634245f333cca46c0070910f1",
             "route": "packages/daemon/src/daemon-host/agent-runtime-contract.ts#validateAgentRuntimeSession"
           }
         ],
@@ -1391,7 +1391,7 @@
         "explain": "Telemetry DTO validator for `agent-runtime.token-usage-detail/v1` per-session token breakdown payloads.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail:9933e72a970d84fc4bb883873470203c",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail:cc8bf26f089940d28de00e76ce56b857",
             "route": "packages/daemon/src/daemon-host/agent-runtime-token-usage.ts#validateAgentRuntimeTokenUsageDetail"
           }
         ],
@@ -1415,7 +1415,7 @@
         "explain": "Filesystem path-safety guard verifying `dispatch_<24-hex>` format before resolving local dispatch stream JSONL files.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream.ts#assertDispatchId:9855fe8aa7aa037b8f9f311e87587d75",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/dispatch-stream.ts#assertDispatchId:0a22ac69687e47a1f7e5854058402164",
             "route": "packages/daemon/src/daemon-host/dispatch-stream.ts#assertDispatchId"
           }
         ],
@@ -1499,7 +1499,7 @@
         "explain": "Closed JSON-RPC request parameter validator for `repo.runtime.steer` session target and operator message fields; steer admissibility stays in kernel dispatch lifecycle policy.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload:cdf089eeacfe0abc4c5d1a6e9598e6ac",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload:500334d6c729f58258536628f75e6e14",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.ts#validateRuntimeSteerPayload"
           }
         ],

@@ -20,6 +20,7 @@ import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-comma
 import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "./cli-task-artifact-run.ts";
 import { doctorInvocation, renderDoctorReport, runDoctor, runDoctorStorage } from "./cli/thin-command-doctor.ts";
 import { parseAgentRollbackCommand, runAgentRollback } from "./cli-agent-rollback.ts";
+import { runLedgerAuditExport, runLedgerAuditVerify, runTaskDeliveryCertificate } from "./cli-audit-commands.ts";
 import { parseBackupRetentionInvocation, runBackupRetention } from "./cli/thin-command-backup-retention.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
@@ -127,6 +128,9 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     }
     return runBackupRetention(invocation);
   }
+  if (command === "ledger" && argv[firstCliCommandIndex(argv) + 1] === "audit-verify") {
+    return runLedgerAuditVerify(argv, emit);
+  }
   if (
     command === "daemon" ||
     command === "gui" ||
@@ -171,14 +175,32 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
               (requested) => runCommandThroughDaemon(requested, (phase) => emit(phase, typedCommand.json)),
               { rootDir: typedCommand.rootDir, ...(typedCommand.repoId ? { repoId: typedCommand.repoId } : {}) },
             )
-          : isRuntimeFacadeCommand(typedCommand)
-            ? await runRuntimeFacadeCommand(typedCommand)
-            : await runCommandThroughDaemon(
-                typedCommand,
-                (phase) => emit(phase, typedCommand.json),
-                undefined,
-                daemonRequestTimer,
-              ),
+          : typedCommand.action.kind === "ledger-audit-export"
+            ? await runLedgerAuditExport(typedCommand, (requested) =>
+                runCommandThroughDaemon(
+                  requested,
+                  (phase) => emit(phase, typedCommand.json),
+                  undefined,
+                  daemonRequestTimer,
+                ),
+              )
+            : typedCommand.action.kind === "task-delivery-certificate"
+              ? await runTaskDeliveryCertificate(typedCommand, (requested) =>
+                  runCommandThroughDaemon(
+                    requested,
+                    (phase) => emit(phase, typedCommand.json),
+                    undefined,
+                    daemonRequestTimer,
+                  ),
+                )
+              : isRuntimeFacadeCommand(typedCommand)
+                ? await runRuntimeFacadeCommand(typedCommand)
+                : await runCommandThroughDaemon(
+                    typedCommand,
+                    (phase) => emit(phase, typedCommand.json),
+                    undefined,
+                    daemonRequestTimer,
+                  ),
         typedCommand.action,
       ),
       typedCommand.action,

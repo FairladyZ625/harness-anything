@@ -569,7 +569,10 @@ test("entity update and archive preserve the entity revision fence", () => {
     });
 });
 
-test("vertical exposes validate and the kind authoring commands while retired entity-kind aliases stay absent", () => {
+test("vertical exposes list, validate and the kind authoring commands while retired entity-kind aliases stay absent", () => {
+  const listed = parseThinCommand(["vertical", "list"]);
+  assert.equal(listed.ok, true);
+  if (listed.ok) assert.deepEqual(listed.command.action, { kind: "vertical-list" });
   const validate = parseThinCommand(["vertical", "validate", "--source", "software/coding"]);
   assert.equal(validate.ok, true);
   if (validate.ok)
@@ -1649,6 +1652,7 @@ const reviewedExecutorSurface = Object.freeze([
   "repo.preset.audit",
   "repo.preset.uninstall",
   "repo.preset.upgrade",
+  "repo.vertical.list",
   "repo.vertical.validate",
   "repo.template.list",
   "repo.template.render",

@@ -45,6 +45,8 @@ export const agentRuntimeEventTypes = [
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
   "runtime_handoff_revoked",
+  "runtime_cancel_requested",
+  "runtime_steer_requested",
 ] as const;
 
 export function runtimeTaskExecutionRelation(runtimeSessionId: string, taskId: string): EntityRelationRecord {
@@ -186,6 +188,51 @@ export interface RuntimeProviderUnreachable {
   /** When the provider reported the most recent failed connection attempt. */
   readonly lastErrorAt: string;
   readonly lastError: string;
+}
+
+export interface RuntimeSteerRequestedExpected {
+  readonly repoId?: string;
+  readonly taskless?: true;
+  readonly taskId?: string;
+  readonly executionId?: string;
+  readonly dispatchId?: string;
+  readonly version?: number;
+}
+
+/**
+ * Expand-contract Step-1 (dec_659E15CF, expiry 2027-02-06): carried on `runtime_session_liveness_changed`
+ * during the N/N-1 compatibility window so previous-version Edge nodes can hydrate PG seeds and replay WAL.
+ */
+export type RuntimeControlRequest =
+  | {
+      readonly action: "cancel";
+      readonly controlRequestId: string;
+      readonly targetNodeId: string;
+      readonly reason?: string;
+    }
+  | {
+      readonly action: "steer";
+      readonly controlRequestId: string;
+      readonly targetNodeId: string;
+      readonly dispatchId: string;
+      readonly prompt: string;
+      readonly expected?: RuntimeSteerRequestedExpected;
+    };
+
+/** Registered status vocabulary for correlated Edge->Center remote runtime control receipts. */
+export const runtimeControlReceiptStatuses = ["applied", "rejected"] as const;
+export type RuntimeControlReceiptStatus = (typeof runtimeControlReceiptStatuses)[number];
+
+/** Correlated Edge->Center execution/rejection receipt for a remote runtime steer request. */
+export interface RuntimeControlReceipt {
+  readonly action: "steer";
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly status: RuntimeControlReceiptStatus;
+  readonly dispatchId?: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
 }
 
 export interface RuntimeSession {
@@ -436,6 +483,7 @@ interface RuntimePayloads {
     readonly runtimeSessionId: string;
     readonly providerSessionId: string;
     readonly transcriptRef: string;
+    readonly controlReceipt?: RuntimeControlReceipt;
   };
   readonly runtime_session_task_bound: {
     readonly runtimeSessionId: string;
@@ -450,6 +498,8 @@ interface RuntimePayloads {
     readonly processGroupPid?: number;
     /** `null` clears a previously reported connection fault once real progress resumes. */
     readonly providerUnreachable?: RuntimeProviderUnreachable | null;
+    readonly controlRequest?: RuntimeControlRequest;
+    readonly controlReceipt?: RuntimeControlReceipt;
   };
   readonly runtime_session_cancelled: { readonly runtimeSessionId: string };
   readonly runtime_session_exited: { readonly runtimeSessionId: string };
@@ -464,6 +514,7 @@ interface RuntimePayloads {
     readonly dispatchId?: string;
     readonly endedAt?: string;
     readonly runtimeMetrics?: RuntimeDispatchMetrics;
+    readonly cacheWriteTokens?: number;
     readonly attempt?: {
       readonly classification:
         | "provider_fault"
@@ -496,10 +547,25 @@ interface RuntimePayloads {
   };
   readonly runtime_handoff_revoked: { readonly dispatchId: string; readonly runtimeSessionId: string };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
+  readonly runtime_cancel_requested: {
+    readonly runtimeSessionId: string;
+    readonly controlRequestId: string;
+    readonly targetNodeId: string;
+    readonly reason?: string;
+  };
+  readonly runtime_steer_requested: {
+    readonly runtimeSessionId: string;
+    readonly dispatchId: string;
+    readonly controlRequestId: string;
+    readonly targetNodeId: string;
+    readonly prompt: string;
+    readonly expected?: RuntimeSteerRequestedExpected;
+  };
 }
 export interface RuntimeDispatchMetrics {
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
+  readonly cacheWriteTokens?: number;
   readonly outputTokens: number;
   readonly totalTokens: number;
   readonly toolCallCount: number;
@@ -558,6 +624,8 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
   runtime_handoff_exported: ["dispatchId", "runtimeSessionId", "taskId", "executionId", "commit", "sha256"],
   runtime_handoff_revoked: ["dispatchId", "runtimeSessionId"],
   runtime_dispatch_outcome_unknown: ["dispatchId", "runtimeSessionId"],
+  runtime_cancel_requested: ["runtimeSessionId", "controlRequestId", "targetNodeId"],
+  runtime_steer_requested: ["runtimeSessionId", "dispatchId", "controlRequestId", "targetNodeId", "prompt"],
 };
 export function validateAgentRuntimePayload(type: AgentRuntimeEventType, value: unknown): readonly string[] {
   return validateAgentRuntimePayloadFields(type, value, false);
@@ -601,37 +669,43 @@ function validateAgentRuntimePayloadFields(
     : payloadFields[type];
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt", "orphanRecovery"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "cacheWriteTokens", "attempt", "orphanRecovery"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
-        : type === "runtime_session_liveness_changed"
-          ? ["processGroupPid", "providerUnreachable"]
-          : type === "runtime_dispatch_requested"
-            ? [
-                "startedAt",
-                "resumedFromDispatchId",
-                "handoffEnabled",
-                "handoffCheckpointId",
-                "acceptedCommit",
-                "resumeProviderSessionId",
-                "taskId",
-                "executionId",
-                "attemptGroupId",
-                "attemptIndex",
-                "agentId",
-                "agentName",
-                "agentDeclarationDigest",
-                "skillSnapshotDigest",
-                "squadId",
-                "squadRun",
-                "cwd",
-                "role",
-                "launchedPermissionMode",
-                "requestedPermissionMode",
-                "permissionModeSource",
-                "reviewTarget",
-              ]
-            : [];
+        : type === "runtime_session_provider_bound"
+          ? ["controlReceipt"]
+          : type === "runtime_session_liveness_changed"
+            ? ["processGroupPid", "providerUnreachable", "controlRequest", "controlReceipt"]
+            : type === "runtime_cancel_requested"
+              ? ["reason"]
+              : type === "runtime_steer_requested"
+                ? ["expected"]
+                : type === "runtime_dispatch_requested"
+                  ? [
+                      "startedAt",
+                      "resumedFromDispatchId",
+                      "handoffEnabled",
+                      "handoffCheckpointId",
+                      "acceptedCommit",
+                      "resumeProviderSessionId",
+                      "taskId",
+                      "executionId",
+                      "attemptGroupId",
+                      "attemptIndex",
+                      "agentId",
+                      "agentName",
+                      "agentDeclarationDigest",
+                      "skillSnapshotDigest",
+                      "squadId",
+                      "squadRun",
+                      "cwd",
+                      "role",
+                      "launchedPermissionMode",
+                      "requestedPermissionMode",
+                      "permissionModeSource",
+                      "reviewTarget",
+                    ]
+                  : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, requiredFields) ||
@@ -644,6 +718,14 @@ function validateAgentRuntimePayloadFields(
     (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
   )
     return ["runtime handoff audit binding is invalid"];
+  if (type === "runtime_cancel_requested" && value.reason !== undefined && !isNonEmptyString(value.reason))
+    return ["runtime cancel request reason is invalid"];
+  if (
+    type === "runtime_steer_requested" &&
+    (!isNonEmptyString(value.prompt) ||
+      (value.expected !== undefined && !validRuntimeSteerRequestedExpected(value.expected, allowUnknownFields)))
+  )
+    return ["runtime steer request payload is invalid"];
   const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
@@ -727,6 +809,24 @@ function validateAgentRuntimePayloadFields(
   )
     return ["runtime provider connectivity evidence is invalid"];
   if (
+    type === "runtime_session_liveness_changed" &&
+    value.controlRequest !== undefined &&
+    value.controlReceipt !== undefined
+  )
+    return ["runtime control metadata is invalid"];
+  if (
+    type === "runtime_session_liveness_changed" &&
+    value.controlRequest !== undefined &&
+    !validRuntimeControlRequest(value.controlRequest, allowUnknownFields)
+  )
+    return ["runtime control request payload is invalid"];
+  if (
+    (type === "runtime_session_liveness_changed" || type === "runtime_session_provider_bound") &&
+    value.controlReceipt !== undefined &&
+    !validRuntimeControlReceipt(value.controlReceipt, allowUnknownFields)
+  )
+    return ["runtime control receipt payload is invalid"];
+  if (
     type === "runtime_session_outcome_observed" &&
     (!["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) ||
       (value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0)) ||
@@ -768,6 +868,12 @@ function validateAgentRuntimePayloadFields(
             value.attempt.fallbackState !== null &&
             value.attempt.fallbackState !== "scheduled" &&
             value.attempt.fallbackState !== "exhausted"))))
+  )
+    return ["runtime dispatch settlement metadata is invalid"];
+  if (
+    type === "runtime_session_outcome_observed" &&
+    value.cacheWriteTokens !== undefined &&
+    (!Number.isSafeInteger(value.cacheWriteTokens) || Number(value.cacheWriteTokens) < 0)
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];
@@ -821,10 +927,24 @@ function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProvid
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(runtimeEventValidationInput(value), true);
 }
+// Two-step expand-and-contract (dec_659E15CF): persisted readers accept optional non-negative
+// integer cacheWriteTokens now, while current writers emit only the 6-key baseline shape until
+// after the N-1 window (shrink/write-enable window: 2026-12-21).
 function runtimeEventValidationInput(value: unknown): unknown {
-  return isRecord(value) && writeSourceRuntimeSessionId(value.source) !== null
-    ? { ...value, source: "remote_direct" }
-    : value;
+  if (!isRecord(value)) return value;
+  const sourceNormalized =
+      writeSourceRuntimeSessionId(value.source) !== null ? { ...value, source: "remote_direct" } : value,
+    payload = isRecord(sourceNormalized.payload) ? sourceNormalized.payload : null,
+    metrics = payload && isRecord(payload.runtimeMetrics) ? payload.runtimeMetrics : null;
+  if (
+    metrics === null ||
+    !Object.hasOwn(metrics, "cacheWriteTokens") ||
+    !Number.isSafeInteger(metrics.cacheWriteTokens) ||
+    Number(metrics.cacheWriteTokens) < 0
+  )
+    return sourceNormalized;
+  const { cacheWriteTokens: _cacheWriteTokens, ...baselineMetrics } = metrics;
+  return { ...sourceNormalized, payload: { ...payload, runtimeMetrics: baselineMetrics } };
 }
 export function validateCurrentAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(value, false);
@@ -960,6 +1080,8 @@ export function reduceRuntimeSession(
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||
     event.type === "runtime_handoff_revoked" ||
+    event.type === "runtime_cancel_requested" ||
+    event.type === "runtime_steer_requested" ||
     event.type === "runtime_installation_observed"
   )
     return current;
@@ -982,6 +1104,8 @@ export function reduceRuntimeSession(
         throw new RuntimeSessionFieldConflictError(`runtime session ${sessionId} provider binding changed`);
       return current;
     }
+    if (event.payload.controlReceipt !== undefined)
+      throw new Error(`runtime session ${sessionId} has no provider binding for control receipt`);
     return {
       ...current,
       providerSessionId: event.payload.providerSessionId,
@@ -1035,7 +1159,8 @@ export function reduceRuntimeSession(
     };
   }
   if (event.type === "runtime_session_liveness_changed") {
-    if (current.liveness === "exited") throw new Error(`runtime session ${sessionId} already exited`);
+    if (!runtimeSessionAcceptsLivenessEvent(current)) throw new Error(`runtime session ${sessionId} already exited`);
+    if (isRuntimeControlCarrierEvent(event)) return current;
     return {
       ...current,
       liveness: event.payload.liveness,
@@ -1089,6 +1214,28 @@ export function reduceRuntimeSession(
   }
   return current;
 }
+/** Canonical domain judgment: whether a RuntimeSession can still accept a `runtime_session_liveness_changed` event (F11 / N-1 reducer invariant). */
+export function runtimeSessionAcceptsLivenessEvent(session: Pick<RuntimeSession, "liveness">): boolean {
+  return session.liveness !== "exited";
+}
+
+/** Canonical carrier liveness for additive remote control events: preserves non-exited liveness without emitting `"exited"`. */
+export function runtimeSessionCarrierLiveness(
+  session: Pick<RuntimeSession, "liveness">,
+): Exclude<RuntimeLiveness, "exited"> {
+  return runtimeSessionAcceptsLivenessEvent(session)
+    ? (session.liveness as Exclude<RuntimeLiveness, "exited">)
+    : "unknown";
+}
+
+/** Canonical domain judgment: whether an event is a remote control request/receipt carrier that must not forge process liveness or lastObservedAt (F18). */
+export function isRuntimeControlCarrierEvent(event: AgentRuntimeEventV1): boolean {
+  if (event.type === "runtime_session_liveness_changed")
+    return event.payload.controlRequest !== undefined || event.payload.controlReceipt !== undefined;
+  if (event.type === "runtime_session_provider_bound") return event.payload.controlReceipt !== undefined;
+  return false;
+}
+
 export function markRuntimeSessionUnknown(session: RuntimeSession): RuntimeSession {
   return session.liveness === "exited" || (session.liveness === "unknown" && !session.attachable)
     ? session
@@ -1218,6 +1365,65 @@ export function resolveScheduledPermissionMode(input: {
 }
 export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
   return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
+}
+function validRuntimeControlRequest(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!isRecord(value)) return false;
+  if (value.action === "cancel") {
+    const required = ["action", "controlRequestId", "targetNodeId"],
+      allowed = [...required, "reason"];
+    if (!hasRequiredFields(value, required)) return false;
+    if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
+    return (
+      isNonEmptyString(value.controlRequestId) &&
+      isNonEmptyString(value.targetNodeId) &&
+      (value.reason === undefined || isNonEmptyString(value.reason))
+    );
+  }
+  if (value.action === "steer") {
+    const required = ["action", "controlRequestId", "targetNodeId", "dispatchId", "prompt"],
+      allowed = [...required, "expected"];
+    if (!hasRequiredFields(value, required)) return false;
+    if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
+    return (
+      isNonEmptyString(value.controlRequestId) &&
+      isNonEmptyString(value.targetNodeId) &&
+      isNonEmptyString(value.dispatchId) &&
+      isNonEmptyString(value.prompt) &&
+      (value.expected === undefined || validRuntimeSteerRequestedExpected(value.expected, allowUnknownFields))
+    );
+  }
+  return false;
+}
+function validRuntimeControlReceipt(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!isRecord(value)) return false;
+  const required = ["action", "controlRequestId", "requestOpId", "status"],
+    allowed = [...required, "dispatchId", "steerVersion", "reasonCode", "message"];
+  if (!hasRequiredFields(value, required)) return false;
+  if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
+  return (
+    value.action === "steer" &&
+    isNonEmptyString(value.controlRequestId) &&
+    isNonEmptyString(value.requestOpId) &&
+    (value.status === "applied" || value.status === "rejected") &&
+    (value.dispatchId === undefined || isNonEmptyString(value.dispatchId)) &&
+    (value.steerVersion === undefined ||
+      (Number.isSafeInteger(value.steerVersion) && Number(value.steerVersion) >= 0)) &&
+    (value.reasonCode === undefined || isNonEmptyString(value.reasonCode)) &&
+    (value.message === undefined || isNonEmptyString(value.message))
+  );
+}
+function validRuntimeSteerRequestedExpected(value: unknown, allowUnknownFields: boolean): boolean {
+  if (!isRecord(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0) return false;
+  const allowed = ["repoId", "taskless", "taskId", "executionId", "dispatchId", "version"];
+  if (!allowUnknownFields && keys.some((key) => !allowed.includes(key))) return false;
+  for (const field of ["repoId", "taskId", "executionId", "dispatchId"] as const)
+    if (value[field] !== undefined && !isNonEmptyString(value[field])) return false;
+  if (value.taskless !== undefined && value.taskless !== true) return false;
+  if (value.taskless === true && (value.taskId !== undefined || value.executionId !== undefined)) return false;
+  if (value.version !== undefined && (!Number.isSafeInteger(value.version) || Number(value.version) < 0)) return false;
+  return true;
 }
 function validRef(value: unknown): boolean {
   return typeof value === "string" && /^(?:artifact|file|provider):[^\r\n]{1,512}$/u.test(value);

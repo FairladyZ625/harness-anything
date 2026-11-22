@@ -15,6 +15,7 @@ test("resolved node-pty ships prebuilds for the CI install platforms", () => {
   const packageRoot = path.dirname(createRequire(import.meta.url).resolve("node-pty/package.json"));
   const requiredPrebuilds: ReadonlyArray<readonly [platform: string, nativeModule: string]> = [
     ["linux-x64", "pty.node"],
+    ["linux-arm64", "pty.node"],
     ["win32-x64", "conpty.node"],
   ];
   for (const [platform, nativeModule] of requiredPrebuilds) {

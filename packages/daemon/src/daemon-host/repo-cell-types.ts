@@ -119,6 +119,8 @@ import type {
   listEvents as listEventsImpl,
   showEvent as showEventImpl,
 } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
+import type { readAuditExportPage as readAuditExportPageImpl } from "@harness-anything/application/internal/queries/ledger-audit-export.ts";
+import type { readTaskDeliveryCertificate as readTaskDeliveryCertificateImpl } from "@harness-anything/application/internal/queries/task-delivery-certificate.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type {
   EntityActionCatalogRuntimes,
@@ -161,6 +163,8 @@ export interface RepoCellAutoClaimAssignment {
 
 export interface RepoCellBinding {
   readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
+  /** Center-local proof that a remote control request originated from the authorized Center control path. */
+  readonly trustedRemoteControl?: true;
   /** Git candidate names observed before entering the local document write turn. */
   readonly observedDocGitPaths?: readonly string[] | null;
   /** Worker-local session lifetime; stripped at every transport/persistence boundary. */
@@ -168,6 +172,8 @@ export interface RepoCellBinding {
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
   readonly sourceNodeId?: string;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
+  /** Center-created proof that a machine token was bound to this node and owner for replica reads. */
+  readonly fleetReplicaPrincipal?: { readonly nodeId: string; readonly personId: string; readonly expiresAt: number };
   /** Resolve a declared Artifact kind name to its stable `entity-kind/KND-…` identity at this turn. */
   readonly artifactKindResolver?: (kind: string) => string | null;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
@@ -477,6 +483,10 @@ export interface RepoCell {
   readonly attach: AgentRuntimeStreamHub["attach"];
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
+  /** Pure in-memory published status snapshot for observability scrapes; never performs synchronous disk I/O. */
+  readonly publishedStatus?: () => RepoCellStatus;
+  /** Refreshes and publishes live replica-only status on edge replication/health transitions (never on scrape). */
+  readonly refreshReplicaStatus?: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
   readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
@@ -593,6 +603,8 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly listRelations: Bound<typeof listRelationsImpl>;
   readonly listEvents: Bound<typeof listEventsImpl>;
   readonly showEvent: Bound<typeof showEventImpl>;
+  readonly auditExportPage: Bound<typeof readAuditExportPageImpl>;
+  readonly taskDeliveryCertificate: Bound<typeof readTaskDeliveryCertificateImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly graphView: Bound<typeof graphViewImpl>;
@@ -680,6 +692,7 @@ export interface RepoCellApiContext {
   readonly input: {
     readonly repoId: string;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
+    readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
     readonly prepareDaemonGitEnvironment?: (
@@ -760,6 +773,7 @@ export interface RepoCellOpenInput {
   readonly authoredBranch?: string;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
   readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
@@ -793,6 +807,8 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
+  /** Opt-in O(1) metrics status sink, wired only when Prometheus metrics collection is enabled. */
+  readonly onMetricsStatus?: (status: RepoCellStatus) => void;
   readonly onQueueDepthChange?: (queueDepth: number) => void;
   readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   readonly now?: () => string;

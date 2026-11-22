@@ -59,11 +59,15 @@ function reserveFleetTransfer(
   sessionId: string,
   repoId: string,
   bytes: number,
+  chargeBulkTransfer = true,
 ) {
   const scope = { nodeId, repoId, sessionId };
   try {
     return (
-      options.commandResourceBudget?.reserve(scope, { memoryBytes: bytes, bulkTransfers: 1 }) ?? {
+      options.commandResourceBudget?.reserve(
+        scope,
+        chargeBulkTransfer ? { memoryBytes: bytes, bulkTransfers: 1 } : { memoryBytes: bytes },
+      ) ?? {
         release: () => undefined,
       }
     );
@@ -75,6 +79,40 @@ function reserveFleetTransfer(
       true,
     );
   }
+}
+
+/** Tracks requests until delivery completes or fails, including streamed replies. */
+export function withFleetRequestMetrics(
+  options: Pick<FleetCenterOptions, "onRequestStarted" | "onRequestSettled">,
+  handle: Parameters<typeof serve>[2],
+): Parameters<typeof serve>[2] {
+  if (!options.onRequestStarted && !options.onRequestSettled) return handle;
+  return (...args) => {
+    let settled = false;
+    const settleRequest = (): void => {
+      if (settled) return;
+      settled = true;
+      options.onRequestSettled?.();
+    };
+    options.onRequestStarted?.();
+    return handle(...args).then(
+      (delivery) => ({
+        ...delivery,
+        onComplete: () => {
+          settleRequest();
+          delivery.onComplete?.();
+        },
+        onFailure: (error: unknown) => {
+          settleRequest();
+          delivery.onFailure?.(error);
+        },
+      }),
+      (error: unknown) => {
+        settleRequest();
+        throw error;
+      },
+    );
+  };
 }
 
 export async function serve(
@@ -211,7 +249,14 @@ export async function serve(
             : "transport",
         (repoId, bytes) => {
           if (!nodeId) throw new FleetFault("authentication_required", "Authenticate before sending a Fleet transfer.");
-          return reserveFleetTransfer(options, nodeId, window.holderId, repoId, bytes);
+          return reserveFleetTransfer(
+            options,
+            nodeId,
+            window.holderId,
+            repoId,
+            bytes,
+            delivery?.bulkTransferReserved !== true,
+          );
         },
       )) {
         const line = `${JSON.stringify(encoded)}\n`,

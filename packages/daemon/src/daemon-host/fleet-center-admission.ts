@@ -16,7 +16,7 @@ import type { WriterEpochLease } from "@harness-anything/storage";
 import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
-import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
+import { parseFleetCenterExternalUrl, resolveFleetCursorSecret } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 import { readFleetCenterGitMetadata } from "./fleet-edge-git-preflight.ts";
@@ -47,7 +47,10 @@ export interface FleetCenterAdmissionRequest {
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
   readonly onNodeDisconnected?: FleetCenterOptions["onNodeDisconnected"];
   readonly recordTraffic?: FleetCenterOptions["recordTraffic"];
+  readonly onRequestStarted?: FleetCenterOptions["onRequestStarted"];
+  readonly onRequestSettled?: FleetCenterOptions["onRequestSettled"];
   readonly authenticateExecutionPrincipal?: FleetCenterOptions["authenticateExecutionPrincipal"];
+  readonly cursorSecret?: FleetCenterOptions["cursorSecret"];
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
@@ -110,6 +113,8 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     bind,
     ...(externalUrl ? [new URL(externalUrl).hostname.replace(/^\[|\]$/gu, "")] : []),
   ]);
+  const stateRoot = request.stateRoot ?? path.join(input.userRoot, "fleet"),
+    cursorSecret = input.cursorSecret ?? resolveFleetCursorSecret(stateRoot);
   return {
     host: input.host,
     storage: input.storage,
@@ -120,13 +125,16 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
       ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
       : {}),
     ...(input.recordTraffic ? { recordTraffic: input.recordTraffic } : {}),
-    stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
+    ...(input.onRequestStarted ? { onRequestStarted: input.onRequestStarted } : {}),
+    ...(input.onRequestSettled ? { onRequestSettled: input.onRequestSettled } : {}),
+    stateRoot,
     centerRepoId: request.repoId,
     relocationRoot: input.userRoot,
     writerEpochStateRoot: path.join(input.userRoot, "fleet"),
     ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
     key,
     cert,
+    cursorSecret,
     hostname: request.bind,
     port: request.port,
     replicaDiskQuotaBytes: request.quotaBytes,

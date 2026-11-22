@@ -1,0 +1,22 @@
+{{- if .Values.fleet.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harness-center.fleetServiceName" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+    app.kubernetes.io/component: fleet
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "harness-center.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: fleet-tls
+      port: {{ .Values.service.fleetPort }}
+      targetPort: fleet-tls
+      protocol: TCP
+{{- end }}

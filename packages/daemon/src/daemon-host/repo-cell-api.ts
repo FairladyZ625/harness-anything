@@ -1,3 +1,5 @@
+import { readCanonicalEventPage } from "@harness-anything/application/queries";
+import { canonicalEventReadRequest } from "@harness-anything/kernel";
 import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import { requireTaskPackageMaterialization, settleAuthoredMaterialization } from "./repo-cell-materialization.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
@@ -288,6 +290,8 @@ export function createRepoCellApi(
       }
     | undefined;
   const readHandlers = {
+    "repo.events.read": (payload: Readonly<Record<string, unknown>>) =>
+      readCanonicalEventPage(context.store, context.input.repoId, canonicalEventReadRequest(payload)),
     "repo.reckoning.signals.read": (payload: Readonly<Record<string, unknown>>) => ({
       ok: true as const,
       ...readReckoningSignals(
@@ -478,7 +482,7 @@ export function createRepoCellApi(
         context.requiredCellText(payload.taskId, "taskId"),
         context.rootDir,
         binding?.actor,
-      ),
+      ).completion,
     "repo.tasks.runtimeContext.read": (payload) =>
       readTaskRuntimeContext(
         context.rootDir,

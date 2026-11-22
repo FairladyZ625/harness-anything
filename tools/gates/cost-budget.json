@@ -1075,6 +1075,11 @@
             "cli-event-show"
           ]
         },
+        "command:event-subscribe": {
+          "measurements": [
+            "canonical-event-page"
+          ]
+        },
         "command:explain": {
           "measurements": [
             "explain-actions"
@@ -1093,6 +1098,13 @@
         "command:graph": {
           "measurements": [
             "cli-graph"
+          ]
+        },
+        "command:ledger-audit-export": {
+          "measurements": [
+            "cli-ledger-audit-export",
+            "ledger-audit-export-date",
+            "ledger-audit-export-date-multipage"
           ]
         },
         "command:ledger-reconcile": {
@@ -1176,6 +1188,11 @@
             "cli-squad-status"
           ]
         },
+        "command:task-delivery-certificate": {
+          "measurements": [
+            "cli-task-delivery-certificate"
+          ]
+        },
         "command:task-dispatches": {
           "measurements": [
             "task-dispatches",
@@ -1226,6 +1243,11 @@
         "command:vertical-kind-show": {
           "measurements": [
             "cli-vertical-kind-show"
+          ]
+        },
+        "command:vertical-list": {
+          "measurements": [
+            "cli-vertical-list"
           ]
         },
         "command:work-list": {
@@ -1353,6 +1375,11 @@
         "method:repo.entity.rows.read": {
           "measurements": [
             "repo.entity.rows.read"
+          ]
+        },
+        "method:repo.events.read": {
+          "measurements": [
+            "canonical-event-page"
           ]
         },
         "method:repo.fleet.overview.read": {
@@ -1485,6 +1512,11 @@
         "method:repo.vertical.declaration.read": {
           "measurements": [
             "repo.vertical.declaration.read"
+          ]
+        },
+        "method:repo.vertical.list": {
+          "measurements": [
+            "repo.vertical.list"
           ]
         },
         "method:repo.work.topology.read": {

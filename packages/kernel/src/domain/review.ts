@@ -434,6 +434,21 @@ export function hasApprovedReviewForExecution(
   return !currentReviews.some((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId));
 }
 
+/** True when a cut already has an effective review verdict (approved or undisposed changes_requested); dismissed reviews do not satisfy the review gate. */
+export function hasEffectiveReviewForExecution(
+  reviews: readonly ReviewV1[],
+  execution: ProjectedExecution,
+  dispositions: readonly ReviewDispositionV1[] = [],
+): boolean {
+  if (execution.schema !== "execution/v1" || !execution.submission) return false;
+  const currentReviews = reviewsForExecution(reviews, execution),
+    disposed = disposedReviewIdsForSubmission(dispositions, submissionDigest(execution.submission));
+  return currentReviews.some(
+    (review) =>
+      review.verdict === "approved" || (review.verdict === "changes_requested" && !disposed.has(review.reviewId)),
+  );
+}
+
 export function reviewsForExecution(reviews: readonly ReviewV1[], execution: ExecutionV1): readonly ReviewV1[] {
   if (!execution.submission || !execution.submittedAt) return [];
   const pinned = submissionDigest(execution.submission),

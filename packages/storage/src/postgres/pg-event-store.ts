@@ -45,6 +45,7 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 
 import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
+import { readPgEventWindow, type PgReadEventWindowPayload } from "./pg-event-window.ts";
 export type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 export interface PostgresAppendHooks {
   readonly onSyncRepInterrupted?: (notice: {
@@ -79,7 +80,8 @@ export type PostgresReadOperation =
   | "content-blob-range"
   | "content-blob-size"
   | "stream"
-  | "batch";
+  | "batch"
+  | "window";
 
 export async function executePostgresRead(
   pool: Pool,
@@ -120,6 +122,14 @@ export async function executePostgresRead(
           return readConfirmedHead(client, scope, repoId!, cut);
         case "events":
           return readEvents(client, scope, payload as ReadEventsPayload, cut?.confirmedRevision ?? 0);
+        case "window":
+          return readPgEventWindow(
+            client,
+            scope,
+            payload as PgReadEventWindowPayload,
+            cut?.confirmedRevision ?? 0,
+            cut?.history,
+          );
         case "event":
           return readEvent(client, scope, payload as ReadEventPayload, cut?.confirmedRevision ?? 0);
         case "document-retirement-revision": {

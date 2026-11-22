@@ -2,6 +2,7 @@ import { runtimeKindIds } from "./agent-runtime.ts";
 import type { EntityActionContract, EntityKindContract, EntitySdkExposure } from "./entity-kind-registry.ts";
 import { stateStoresForKind } from "./entity-state-stores.ts";
 import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
+import { runtimeSubscriptionQuotaSchema } from "./runtime-subscription-quota.ts";
 
 interface RuntimeOperatorSubscriptionInstance {
   readonly instanceId: string;
@@ -116,6 +117,21 @@ export const runtimeInstanceAccountJudgments = [
     consumers: ["packages/daemon/src/daemon-host/agent-runtime-instance-store.ts"],
     sources: [],
   },
+  {
+    id: "runtime-subscription-quota-exhausted",
+    symbol: "packages/kernel/src/domain/runtime-subscription-quota.ts#findExhaustedSubscriptionQuotaWindow",
+    inputs: ["RuntimeSubscriptionQuotaV1", "optional current ISO timestamp", "optional instance models"],
+    output: "{ window: RuntimeQuotaWindowV1; resetAt: string } | null",
+    failureCodes: ["quota_exhausted"],
+    explain:
+      "dec_DA1602487428A58E8B446ECE38/CH1: selects the effective future reset timestamp when applicable subscription quota windows are exhausted without blocking healthy accounts, inapplicable buckets, or mixed-model instances with remaining capacity.",
+    consumers: [
+      "packages/daemon/src/daemon-host/agent-runtime-instance-store.ts",
+      "packages/daemon/src/daemon-host/runtime-spawn-mission.ts",
+      "packages/gui/src/renderer/components/runtime/RuntimeQuotaPanel.tsx",
+    ],
+    sources: [],
+  },
 ] as const satisfies readonly OntologyJudgmentDeclaration[];
 
 /** dec_DA1602487428A58E8B446ECE38/CH3: orthogonal priority and same-tier scheduling. */
@@ -158,6 +174,41 @@ const runtimeInstanceSchedulingPolicy = {
   ].map((candidateId) => ({ candidateId, route: "runtime-instance scheduling" })),
 } as const satisfies OntologyPolicyDeclaration;
 
+/** dec_DA1602487428A58E8B446ECE38/CH1: read-only subscription quota probe budgets. */
+export const runtimeSubscriptionQuotaPolicy = {
+  id: "runtime-subscription-quota-probe",
+  ownerRef: "runtime-instance",
+  unit: "milliseconds / attempts",
+  bounds:
+    "Read-only subscription quota HTTP probes enforce redirect:error and cap requests at 15000ms. Non-interactive macOS Keychain fallback lookups cap at 2000ms. Read-only CLI credential file reads retry at most twice (3 total attempts) separated by 50ms without mutating CLI credential files.",
+  defaultValue: {
+    httpTimeoutMs: 15_000,
+    keychainReadTimeoutMs: 2_000,
+    credentialReadAttempts: 3,
+    credentialReadRetryDelayMs: 50,
+  },
+  version: 1,
+  scope: "RuntimeInstance read-only subscription quota probing and schema",
+  reason:
+    "Declare the read-only quota HTTP timeout and partial-write credential retry budgets once on the runtime-instance entity contract.",
+  fixtures: [
+    "packages/kernel/test/runtime-subscription-quota.test.ts",
+    "packages/daemon/test/runtime-subscription-quota-probe.integration.test.ts",
+  ],
+  sources: [
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-subscription-quota.ts#runtimeSubscriptionQuotaSchema.properties.credits.properties.limit:561ca50d45e063b5f94e0d46b951b60a",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-subscription-quota.ts#runtimeSubscriptionQuotaSchema.properties.credits.properties.unlimited:aeb38062c6f16df69f2e77383fadf06a",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-subscription-quota.ts#validRuntimeSubscriptionQuota:799b1e77909a78c9ab437654331a87c5",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.httpTimeoutMs:1cdff304a559d7ba9f814b5ee3483b44",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.keychainReadTimeoutMs:b1bfba8c9c523b10bbb9185fdfd9345e",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.credentialReadAttempts:81246ed60d1cf8f23b1ebeb4a9c73963",
+    "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-contract.ts#runtimeSubscriptionQuotaPolicy.defaultValue.credentialReadRetryDelayMs:cf49d065af3e487c044efb7455becd55",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-subscription-quota-probe.ts#readClaudeMacOsKeychainCredentials.lookup.userInteractionAllowed:d4f92b820b86ad1e748567f64c0a7f3c",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-subscription-quota-probe.ts#readJsonFileReadOnly:c22f3094b5d2319b7f1265c430e53f65",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-instance-store.ts#openRuntimeInstanceStore.authStatus.result:8ed210046ca5bd996ec03ac4ba76f907",
+  ].map((candidateId) => ({ candidateId, route: "runtime-instance subscription quota" })),
+} as const satisfies OntologyPolicyDeclaration;
+
 export const runtimeInstanceSchema = Object.freeze({
   $schema: "https://json-schema.org/draft/2020-12/schema" as const,
   $id: "runtime-instance/v1",
@@ -184,6 +235,7 @@ export const runtimeInstanceSchema = Object.freeze({
       items: { type: "string" as const },
       description: "Models observed in this runtime instance's own credential environment.",
     },
+    quota: runtimeSubscriptionQuotaSchema,
   },
   required: ["instanceId", "name", "kindId", "enabled", "credentialSource"],
   additionalProperties: true,
@@ -241,7 +293,7 @@ export function createRuntimeInstanceKindContract(input: {
     kind: "runtime-instance",
     ...input.typeFields,
     judgments: runtimeInstanceAccountJudgments,
-    policies: [runtimeInstanceSchedulingPolicy],
+    policies: [runtimeInstanceSchedulingPolicy, runtimeSubscriptionQuotaPolicy],
     schema: runtimeInstanceSchema,
     relations: { directions: [], edges: [] },
     canonicalProjection: null,

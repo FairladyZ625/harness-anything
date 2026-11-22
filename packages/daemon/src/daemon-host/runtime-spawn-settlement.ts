@@ -40,7 +40,7 @@ import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
-import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { disposeActiveRuntimeObservations, flushPendingSteerReceipts } from "./runtime-spawn-active.ts";
 import { captureDispatchForensics } from "./runtime-dispatch-evidence.ts";
 import { dispatchForensicsRequired, writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
@@ -286,24 +286,26 @@ export async function publishExit(
         active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
       );
     active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
+    // Keep runtimeMetrics on the 6-key baseline shape while carrying optional cacheWriteTokens at
+    // the top level of runtime_session_outcome_observed.payload (accepted by N-1 allowUnknownFields).
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
-      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,
       usageUnavailable: !active.usageReported,
     };
+    const outcomeCacheWriteTokens =
+      cacheWriteTokensOfUsage(active.rawUsage) === null ? undefined : active.cacheWriteTokens;
+    const streamRuntimeMetrics = {
+      ...runtimeMetrics,
+      ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
+    };
     active.stream.appendRuntimeMetrics?.(
-      { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
+      { ...streamRuntimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       endedAt,
     );
-    // The kernel event's runtimeMetrics copy stays the three-count shape its domain
-    // whitelist pins (validRuntimeDispatchMetrics): kernel consumers do not price, so the
-    // separate cache-write counter travels only in the stream records, where the token
-    // usage read side picks it up.
-    const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
     if (submittedStall)
       body +=
@@ -687,7 +689,13 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
-    const { budgetRefusal, ...fallbackDisposition } = fallback ?? { fallbackState: null };
+    const {
+      budgetRefusal,
+      exhaustedReason: _exhaustedReason,
+      ...fallbackDisposition
+    } = fallback ?? {
+      fallbackState: null,
+    };
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -698,7 +706,8 @@ export async function publishExit(
         ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : reasonCode ? { reasonCode } : {}),
         dispatchId: active.dispatchId,
         endedAt,
-        runtimeMetrics: kernelMetrics,
+        runtimeMetrics,
+        ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
@@ -786,6 +795,16 @@ async function publishTerminalOutcome(
     cancelled = active
       ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
       : payload.outcome === "cancelled";
+  // F13 & F5: Never block exited/cancelled/outcome publication on steer receipt uplink RPCs.
+  // Pending receipts stay durable in pending-steer-receipts.json and drain via the dedicated
+  // background receipt pump (persisted on runtime_session_provider_bound even after exit).
+  if (context.triggerSteerReceiptFlush) {
+    context.triggerSteerReceiptFlush();
+  } else if (!context.closed?.()) {
+    void flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding).catch((error: unknown) =>
+      console.error(`[runtime-steer-receipts] background flush deferred for ${dispatchId}:`, error),
+    );
+  }
   const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
   if (!stopAlreadyProven)
     await context.publishRuntimeEvent(
@@ -839,7 +858,7 @@ async function publishTerminalOutcome(
       reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
     });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-    if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
+    await releaseFallbackResources(context, lifecycle, active.role, active.cwd, archiveAllowed);
     const onExitCommand = active.onExitCommand;
     if (typeof onExitCommand === "string")
       setImmediate(() =>

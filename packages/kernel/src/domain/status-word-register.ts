@@ -12,6 +12,22 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...consumerStatusWordRegister,
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
+  ...(
+    [
+      ["OPEN", "A peer request is awaiting its first claim."],
+      ["CLAIMED", "A peer request is held by one claimant until its lease expires."],
+      ["ANSWERED", "A peer request received its structured answer."],
+      ["DONE", "A peer request was marked complete by its claimant."],
+      ["REJECTED", "A peer request was explicitly rejected."],
+      ["PROMOTED", "A peer request was promoted to its bound task."],
+    ] as const
+  ).map(([word, meaning]) => ({
+    word,
+    entity: "PeerRequest" as const,
+    field: "state",
+    meaning,
+    divergence: "entity-scoped" as const,
+  })),
   {
     word: "scheduled",
     entity: "RuntimeSession",
@@ -622,6 +638,20 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     entity: "RuntimeSession",
     field: "liveness",
     meaning: "Session process ended; terminal.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "applied",
+    entity: "RuntimeSession",
+    field: "controlReceipt.status",
+    meaning: "Edge runtime applied the correlated remote control request.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "rejected",
+    entity: "RuntimeSession",
+    field: "controlReceipt.status",
+    meaning: "Edge runtime rejected or dropped the correlated remote control request.",
     divergence: "entity-scoped",
   },
   {

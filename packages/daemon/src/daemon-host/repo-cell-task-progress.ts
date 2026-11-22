@@ -31,6 +31,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { liveUpstreamFreshnessBlocker } from "./repo-cell-command-witness.ts";
 
 export function appendProgress(
   cell: RepoCellOperationalContext,
@@ -334,6 +335,9 @@ export async function completeTask(
     );
     const blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
+      const upstreamBlocker = liveUpstreamFreshnessBlocker(cell, current.snapshot, executionId);
+      if (upstreamBlocker)
+        return cell.completionStopped(facadeOpId, current.snapshot, executionId, upstreamBlocker, steps);
       const retirement = requireFactRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
       if (completion.closeoutGates?.factDisposition && !retirement.ready)
         return cell.completionStopped(

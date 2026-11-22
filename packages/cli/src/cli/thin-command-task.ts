@@ -73,6 +73,7 @@ export function parseTask(
     id === "task-release" ||
     id === "task-reopen" ||
     id === "task-read-set" ||
+    id === "task-delivery-certificate" ||
     id === "task-review"
   ) {
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {

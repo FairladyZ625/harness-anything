@@ -1,0 +1,236 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "office-collab-core",
+    "title": "Office Collaboration Core Templates",
+    "version": "1.0.0",
+    "owner": "harness-anything",
+    "locales": ["zh-CN", "en-US"]
+  },
+  "documents": [
+    {
+      "id": "office/context-index",
+      "version": "1",
+      "documentKind": "repository-context-index",
+      "slot": "repository.context.index",
+      "materializeAs": "{{paths.contextRoot}}/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Overview", "## Operating Norms", "## Reference Material"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Overview", "## Operating Norms", "## Reference Material"], "bodyPath": "templates/repository.context.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Overview", "## Operating Norms", "## Reference Material"], "bodyPath": "templates/repository.context.index/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/standards-index",
+      "version": "1",
+      "documentKind": "repository-standards-index",
+      "slot": "repository.standard.index",
+      "materializeAs": "{{paths.standardsRoot}}/README.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Purpose", "## Active Rules"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Purpose", "## Active Rules"], "bodyPath": "templates/repository.standard.index/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Purpose", "## Active Rules"], "bodyPath": "templates/repository.standard.index/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/repository-governance",
+      "version": "1",
+      "documentKind": "repository-standard",
+      "slot": "repository.standard.governance",
+      "materializeAs": "{{paths.standardsRoot}}/repository-governance.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Collaboration Flow", "## Review and Handoff"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Collaboration Flow", "## Review and Handoff"], "bodyPath": "templates/repository.standard.governance/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Collaboration Flow", "## Review and Handoff"], "bodyPath": "templates/repository.standard.governance/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/decision-writing",
+      "version": "1",
+      "documentKind": "repository-standard",
+      "slot": "repository.standard.decision-writing",
+      "materializeAs": "{{paths.standardsRoot}}/decision-writing.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Decision Boundary", "## Evidence"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Decision Boundary", "## Evidence"], "bodyPath": "templates/repository.standard.decision-writing/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Decision Boundary", "## Evidence"], "bodyPath": "templates/repository.standard.decision-writing/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/gitattributes",
+      "version": "1",
+      "documentKind": "repository-machine-file",
+      "slot": "repository.gitattributes",
+      "materializeAs": "{{paths.authoredRoot}}/.gitattributes",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["* -text"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["* -text"], "bodyPath": "templates/repository.gitattributes/zh-CN.txt" },
+        { "locale": "en-US", "anchors": ["* -text"], "bodyPath": "templates/repository.gitattributes/en-US.txt" }
+      ]
+    },
+    {
+      "id": "office/agent-base",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.base",
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Context Loading", "## Ownership Discipline", "## Ledger Workflow", "## Relation Rules", "## Write Coordination"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Context Loading", "## Ownership Discipline", "## Ledger Workflow", "## Relation Rules", "## Write Coordination"], "bodyPath": "templates/repository.agent.base/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Context Loading", "## Ownership Discipline", "## Ledger Workflow", "## Relation Rules", "## Write Coordination"], "bodyPath": "templates/repository.agent.base/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/agent-overlay",
+      "version": "1",
+      "documentKind": "repository-seeded-doc",
+      "slot": "repository.agent.overlay",
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["## Office Collaboration (office/collab)", "## Deliverables and Freshness", "## Handoff Discipline", "## Meeting Minutes"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Office Collaboration (office/collab)", "## Deliverables and Freshness", "## Handoff Discipline", "## Meeting Minutes"], "bodyPath": "templates/repository.agent.overlay/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Office Collaboration (office/collab)", "## Deliverables and Freshness", "## Handoff Discipline", "## Meeting Minutes"], "bodyPath": "templates/repository.agent.overlay/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/claude-entry",
+      "version": "1",
+      "documentKind": "repository-agent-entry",
+      "slot": "repository.claude.entry",
+      "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
+      "frontmatterSchema": "none",
+      "requiredAnchors": ["@AGENTS.md"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["@AGENTS.md"], "bodyPath": "templates/repository.claude.entry/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["@AGENTS.md"], "bodyPath": "templates/repository.claude.entry/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/task-plan",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Objective", "## Stakeholders", "## Upstream Inputs", "## Deliverable Contract", "## Constraints", "## Acceptance Criteria"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Objective", "## Stakeholders", "## Upstream Inputs", "## Deliverable Contract", "## Constraints", "## Acceptance Criteria"], "bodyPath": "templates/task.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Objective", "## Stakeholders", "## Upstream Inputs", "## Deliverable Contract", "## Constraints", "## Acceptance Criteria"], "bodyPath": "templates/task.plan/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/task-plan-lightweight",
+      "version": "1",
+      "documentKind": "task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"], "bodyPath": "templates/task.plan.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Brief", "## Upstream Inputs", "## Acceptance Criteria"], "bodyPath": "templates/task.plan.lightweight/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/closeout",
+      "version": "1",
+      "documentKind": "task-closeout",
+      "slot": "task.closeout",
+      "materializeAs": "closeout.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Summary", "## Delivered Outputs", "## Verification", "## Open Follow-ups", "## Risks and Caveats"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Summary", "## Delivered Outputs", "## Verification", "## Open Follow-ups", "## Risks and Caveats"], "bodyPath": "templates/task.closeout/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## Delivered Outputs", "## Verification", "## Open Follow-ups", "## Risks and Caveats"], "bodyPath": "templates/task.closeout/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/closeout-lightweight",
+      "version": "1",
+      "documentKind": "task-closeout",
+      "slot": "task.closeout",
+      "materializeAs": "closeout.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Summary", "## Verification"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## Verification"], "bodyPath": "templates/task.closeout.lightweight/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/keep-file",
+      "version": "1",
+      "documentKind": "keep-file",
+      "slot": "task.artifacts.keep",
+      "materializeAs": "artifacts/.gitkeep",
+      "frontmatterSchema": "none",
+      "requiredAnchors": [],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": [], "bodyPath": "templates/task.keep/zh-CN.md" },
+        { "locale": "en-US", "anchors": [], "bodyPath": "templates/task.keep/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/deliverable-brief",
+      "version": "1",
+      "documentKind": "deliverable-brief",
+      "slot": "task.deliverable.brief",
+      "materializeAs": "deliverable-brief.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Deliverable Scope", "## Audience and Format", "## Upstream Baselines", "## Review Checklist"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Deliverable Scope", "## Audience and Format", "## Upstream Baselines", "## Review Checklist"], "bodyPath": "templates/task.deliverable.brief/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Deliverable Scope", "## Audience and Format", "## Upstream Baselines", "## Review Checklist"], "bodyPath": "templates/task.deliverable.brief/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/handoff-package",
+      "version": "1",
+      "documentKind": "handoff-package",
+      "slot": "task.handoff.package",
+      "materializeAs": "handoff.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Owner Transfer", "## Deliverables", "## Open Items", "## Acceptance Criteria"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Owner Transfer", "## Deliverables", "## Open Items", "## Acceptance Criteria"], "bodyPath": "templates/task.handoff.package/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Owner Transfer", "## Deliverables", "## Open Items", "## Acceptance Criteria"], "bodyPath": "templates/task.handoff.package/en-US.md" }
+      ]
+    },
+    {
+      "id": "office/meeting-minutes",
+      "version": "1",
+      "documentKind": "meeting-minutes",
+      "slot": "task.meeting.minutes",
+      "materializeAs": "minutes.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": ["## Meeting Metadata", "## Key Decisions", "## Action Items", "## Open Questions"],
+      "fallbackLocale": "en-US",
+      "locales": [
+        { "locale": "zh-CN", "anchors": ["## Meeting Metadata", "## Key Decisions", "## Action Items", "## Open Questions"], "bodyPath": "templates/task.meeting.minutes/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Meeting Metadata", "## Key Decisions", "## Action Items", "## Open Questions"], "bodyPath": "templates/task.meeting.minutes/en-US.md" }
+      ]
+    }
+  ]
+}

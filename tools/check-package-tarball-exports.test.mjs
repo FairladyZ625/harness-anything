@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { verifyTarballEntries } from "./check-package-tarball-exports.mjs";
 
 const scriptPath = path.resolve(import.meta.dirname, "check-package-tarball-exports.mjs");
 
@@ -106,6 +107,39 @@ test("checks every kernel facet JSON file inside the tarball", async () => {
     const green = runCheck(root);
     assert.equal(green.status, 0, green.stderr);
   });
+});
+
+test("rejects packed manifests that drop declared bin mappings or aliases", () => {
+  const sourceManifest = {
+    name: "@harness-anything/cli",
+    exports: { ".": "./dist/cli/src/index.js" },
+    publishConfig: { exports: { ".": "./dist/cli/src/index.js" } },
+    bin: {
+      "harness-anything": "dist/cli/src/index.js",
+      ha: "dist/cli/src/index.js",
+    },
+  };
+  const baseEntries = (packedManifest) =>
+    new Map([
+      ["package.json", Buffer.from(JSON.stringify(packedManifest))],
+      ["dist/cli/src/index.js", Buffer.from("#!/usr/bin/env node\n")],
+    ]);
+
+  assert.deepEqual(verifyTarballEntries(baseEntries(sourceManifest), sourceManifest, "packages/cli"), []);
+
+  const missingAllBins = { ...sourceManifest };
+  delete missingAllBins.bin;
+  const droppedAll = verifyTarballEntries(baseEntries(missingAllBins), sourceManifest, "packages/cli");
+  assert.ok(droppedAll.some((entry) => entry.includes('missing declared bin "ha"')));
+  assert.ok(droppedAll.some((entry) => entry.includes('missing declared bin "harness-anything"')));
+
+  const missingHaAlias = {
+    ...sourceManifest,
+    bin: { "harness-anything": "dist/cli/src/index.js" },
+  };
+  const droppedAlias = verifyTarballEntries(baseEntries(missingHaAlias), sourceManifest, "packages/cli");
+  assert.equal(droppedAlias.length, 1);
+  assert.match(droppedAlias[0], /missing declared bin "ha"/u);
 });
 
 function runCheck(root) {

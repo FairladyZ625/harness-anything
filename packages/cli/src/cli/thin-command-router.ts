@@ -214,6 +214,8 @@ export function parseRouted(
   const entityPin = parseEntityPinRouted(route, args, rootDir, repoId, json);
   if (entityPin) return entityPin;
   if (route.id === "ledger-reconcile") return parseLedgerReconcileRouted(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "ledger-audit-export")
+    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
@@ -238,7 +240,8 @@ export function parseRouted(
       route.id === "node-unregister" ? { operation: "node-unregister" } : {},
       route.method,
     );
-  if (rootCommand === "event") return parseEventRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "event")
+    return parseEventRouted(route, args, rootDir, repoId, json || route.id === "event-subscribe", inputs);
   if (rootCommand === "repo") return parseRepoLifecycle(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2])) {

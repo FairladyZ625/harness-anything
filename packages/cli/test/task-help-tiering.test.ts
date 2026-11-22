@@ -17,7 +17,8 @@ const defaultHelp = () => renderThinHelp([], "task");
 const allHelp = () => renderThinHelp([], "task", undefined, [], true);
 
 test("every visible task command carries exactly one help tier", () => {
-  assert.equal(taskRows.length, 37);
+  // dec_DBEC28020550D3F11A21C15FB4/CH2: adds task-delivery-certificate in the advanced tier.
+  assert.equal(taskRows.length, 38);
   assert.deepEqual(
     taskRows.map(({ id }) => id).sort(),
     [...common, ...advanced, ...maintenance].map(({ id }) => id).sort(),
@@ -28,7 +29,7 @@ test("every visible task command carries exactly one help tier", () => {
       `${row.id}: helpTier ${String(row.helpTier)} is not a declared tier`,
     );
   }
-  assert.deepEqual([common.length, advanced.length, maintenance.length], [11, 18, 8]);
+  assert.deepEqual([common.length, advanced.length, maintenance.length], [11, 19, 8]);
 });
 
 test("tiers pin to the frequency-driven layer sets", () => {
@@ -63,7 +64,7 @@ test("default help lists the common layer in full and only names the rest", () =
     assert.ok(!help.includes(row.usage), `${row.id}: default help must not inline a non-common usage`);
     assert.ok(help.includes(`  ha ${row.path.join(" ")}`), `${row.id}: default help must still name the command`);
   }
-  assert.match(help, /Advanced \(18\) — ha task --help --all lists their options:/u);
+  assert.match(help, /Advanced \(19\) — ha task --help --all lists their options:/u);
   assert.match(help, /Maintenance \(8\) — ha task --help --all lists their options:/u);
   assert.match(help, /Each command answers ha <command> --help with its full option reference\./u);
   // Negative control for the tier filter: the advanced transition reference must be absent here.

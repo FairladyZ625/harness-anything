@@ -21,6 +21,11 @@ import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
 import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.assertions.ts";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
+import { buildHistoricalTimestampFixtures, HISTORICAL_TIMESTAMP_CASES } from "../canonical-factory.assertions.ts";
+import { explainNodes, pgTableRowsVisited, tracedPgReads } from "./pg-explain.fixture.ts";
+import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
+import { POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS } from "../../src/postgres/event-ledger-schema.ts";
+import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
 
 const scope: PostgresEventStoreScope = {
   tenantId: "tenant-a",
@@ -272,6 +277,409 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
         "PG_EVENT_LEDGER_RLS non-owner runtime; tenant/project/epoch isolation; claims clear after rollback\n",
       );
     });
+    await t.test(
+      "DM-01 & DM-03: real PG readEventWindow sub-ms truncation, ±23:59 offsets, equal endpoints, and O(page) sparse index scan under RLS",
+      async () => {
+        const tsRepo = "dm01-dm03-ts";
+        const tsStore = make(tsRepo, scope);
+        const baseEvents = Array.from({ length: HISTORICAL_TIMESTAMP_CASES.length }, (_, idx) => {
+          const ev = eventAt(idx + 1);
+          return { ...ev, eventId: `hist-ts-event-${idx + 1}`, opId: `hist-ts-op-${idx + 1}` };
+        });
+        for (let idx = 0; idx < baseEvents.length; idx += 1) {
+          await tsStore.append(bundle(baseEvents[idx]!), idx, fence(tsRepo));
+        }
+        await withPostgresTransaction(
+          admin!,
+          async (client) => {
+            for (const row of buildHistoricalTimestampFixtures(baseEvents)) {
+              await client.query(
+                "UPDATE ha_events SET occurred_at=$1, event_json=$2, event_digest=$3 WHERE tenant_id=$4 AND project_id=$5 AND repo_id=$6 AND revision=$7",
+                [row.occurredAt, row.eventJson, row.digest, scope.tenantId, scope.projectId, tsRepo, row.revision],
+              );
+            }
+          },
+          scope,
+        );
+        const expectedNov5 = HISTORICAL_TIMESTAMP_CASES.filter((c) => c.expectedInNov5).map((c) => [
+          c.revision,
+          c.occurredAt,
+        ]);
+        const nov5 = (await tsStore.execute({
+          operation: "window",
+          query: {
+            afterRevision: 0,
+            after: "2026-11-05T00:00:00.000Z",
+            before: "2026-11-05T23:59:59.999Z",
+            limit: 20,
+          },
+        })) as {
+          readonly events: readonly { readonly workspaceRevision: number; readonly occurredAt: string }[];
+          readonly done: boolean;
+        };
+        assert.equal(nov5.done, true);
+        assert.deepEqual(
+          nov5.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+          expectedNov5,
+        );
+        const eqEnd = (await tsStore.execute({
+          operation: "window",
+          query: {
+            afterRevision: 0,
+            after: "2026-11-05T23:59:59.999Z",
+            before: "2026-11-05T23:59:59.999Z",
+            limit: 10,
+          },
+        })) as { readonly events: readonly { readonly workspaceRevision: number; readonly occurredAt: string }[] };
+        assert.deepEqual(
+          eqEnd.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+          [
+            [7, "2026-11-05T23:59:59.999999Z"],
+            [8, "2026-11-06T23:58:59.999999+23:59"],
+            [9, "2026-11-06T07:59:59.999+08:00"],
+          ],
+        );
+
+        const sparseScenarios = [
+          {
+            name: "full-day",
+            after: "2026-11-05T00:00:00.000Z",
+            before: "2026-11-05T23:59:59.999Z",
+            matchAt: () => "2026-11-05T12:00:00.000Z",
+            gapAt: () => "2026-11-06T12:00:00.000Z",
+          },
+          {
+            name: "narrow-intraday",
+            after: "2026-11-05T10:00:00.000Z",
+            before: "2026-11-05T10:59:59.999Z",
+            matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:00:00.000Z") + idx * 1_000).toISOString(),
+            gapAt: () => "2026-11-05T18:00:00.000Z",
+          },
+          {
+            name: "wide-40-days",
+            after: "2026-09-01T00:00:00.000Z",
+            before: "2026-10-10T23:59:59.999Z",
+            matchAt: (idx: number) =>
+              new Date(
+                Date.parse("2026-09-01T06:00:00.000Z") + Math.floor(idx / 2) * 86_400_000 + (idx % 2) * 1_000,
+              ).toISOString(),
+            gapAt: () => "2026-11-15T12:00:00.000Z",
+          },
+        ] as const;
+
+        const descendingScenario = {
+          name: "descending",
+          after: "2026-11-05T10:00:00.000Z",
+          before: "2026-11-05T10:59:59.999Z",
+          matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:40:00.000Z") - idx * 1_000).toISOString(),
+          gapAt: () => "2026-11-05T18:00:00.000Z",
+        };
+        const measuredDescending: number[] = [];
+        for (const { scenario, matchingPerSide, gapSize } of [
+          ...sparseScenarios.map((scenario) => ({ scenario, matchingPerSide: 40, gapSize: 1_500 })),
+          ...[40, 160].map((matchingPerSide) => ({ scenario: descendingScenario, matchingPerSide, gapSize: 17 })),
+        ]) {
+          const sparseRepo = `dm03-sparse-pg-${scenario.name}-${matchingPerSide}`;
+          const sparseStore = make(sparseRepo, scope);
+          const matchingBefore = matchingPerSide;
+          const matchingAfter = matchingPerSide;
+          const total = matchingBefore + gapSize + matchingAfter;
+          let matchIdx = 0;
+          for (let offset = 0; offset < total; offset += 100) {
+            const end = Math.min(total, offset + 100);
+            const batch = [];
+            for (let rev = offset + 1; rev <= end; rev += 1) {
+              const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
+              batch.push(
+                bundle({
+                  ...eventAt(rev),
+                  occurredAt: inWindow ? scenario.matchAt(matchIdx++) : scenario.gapAt(),
+                }),
+              );
+            }
+            const terminal = batch.pop()!;
+            await sparseStore.append({ ...terminal, preceding: batch }, offset, fence(sparseRepo));
+          }
+          await admin!.query("ANALYZE ha_events");
+          const plans: unknown[] = [];
+          const tracedRuntime = tracedPgReads(runtime!, plans, (sql) => /FROM ha_events/u.test(sql));
+          const collected: number[] = [];
+          let afterRevision = 0;
+          let maxRevision: number | undefined;
+          let continuation: string | undefined;
+          let pages = 0;
+          for (;;) {
+            const page = await withPostgresTransaction(
+              tracedRuntime,
+              (client) =>
+                readPgEventWindow(
+                  client,
+                  scope,
+                  {
+                    repoId: sparseRepo,
+                    query: {
+                      afterRevision,
+                      ...(maxRevision === undefined ? {} : { maxRevision }),
+                      ...(continuation === undefined ? {} : { continuation }),
+                      after: scenario.after,
+                      before: scenario.before,
+                      limit: 20,
+                    },
+                  },
+                  total,
+                ),
+              scope,
+            );
+            pages += 1;
+            for (const ev of page.events) collected.push(ev.workspaceRevision);
+            maxRevision = page.windowMaxRevision;
+            continuation = page.continuation;
+            if (page.done) break;
+            afterRevision = page.lastScannedRevision;
+          }
+          assert.equal(pages, (matchingBefore + matchingAfter) / 20, scenario.name);
+          assert.deepEqual(
+            collected,
+            Array.from(
+              { length: matchingBefore + matchingAfter },
+              (_, idx) => idx + 1 + (idx >= matchingBefore ? gapSize : 0),
+            ),
+          );
+          if (scenario === descendingScenario) {
+            measuredDescending.push(pgTableRowsVisited(plans, "ha_events"));
+            continue;
+          }
+          const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
+          const occurredScans = scans.filter(
+            (node) => String(node["Index Name"] ?? "") === "ha_events_occurred_ms_revision",
+          );
+          assert.ok(
+            occurredScans.length === 1,
+            `${scenario.name}: expected occurred_ms index scans, got ${JSON.stringify(scans)}`,
+          );
+          let totalRowsVisited = 0;
+          for (const scan of scans) {
+            const indexName = String(scan["Index Name"] ?? "");
+            assert.ok(
+              indexName === "ha_events_occurred_ms_revision" ||
+                indexName === "ha_events_occurred_ms_pending" ||
+                indexName === "ha_events_pkey",
+              `${scenario.name}: unexpected scan plan ${JSON.stringify(scan)}`,
+            );
+            totalRowsVisited +=
+              (Number(scan["Actual Rows"] ?? 0) + Number(scan["Rows Removed by Filter"] ?? 0)) *
+              Number(scan["Actual Loops"] ?? 1);
+          }
+          assert.ok(
+            totalRowsVisited <= 320,
+            `${scenario.name}: expected <=320 total rows visited across 1,500-row gap, got ${totalRowsVisited}`,
+          );
+        }
+        process.stdout.write(
+          `DM03_PG_DESCENDING ${JSON.stringify({ counts: [80, 320], reads: measuredDescending })}\n`,
+        );
+        assert.ok(measuredDescending[1]! <= measuredDescending[0]! * 5, JSON.stringify(measuredDescending));
+      },
+    );
+    await t.test(
+      "DM-09: pre-G4 external PG database upgrades via ensurePgProjectionSchema with zero table rewrite, backfills in 64-row batches, and serves RLS-restricted reader",
+      async () => {
+        const upgradeDb = `ha_dm09_${randomUUID().replaceAll("-", "")}`;
+        await fixture.adminPool.query(`CREATE DATABASE "${upgradeDb}"`);
+        const upgradeAdmin = new Pool({
+          connectionString: `postgres://postgres@127.0.0.1:${fixture.port}/${upgradeDb}`,
+          max: 1,
+        });
+        const { schemaOwner, runtime: runtimeRole, migration: migrationRole } = POSTGRES_SCOPE_SCHEMA_CONTRACT.roles;
+        let upgradeRuntime: Pool | undefined;
+        try {
+          await upgradeAdmin.query(
+            `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='${migrationRole}') THEN ` +
+              `CREATE ROLE "${migrationRole}" ${POSTGRES_SCOPE_SCHEMA_CONTRACT.roleAttributes.migration}; END IF; END $$`,
+          );
+          await upgradeAdmin.query(`GRANT USAGE, CREATE ON SCHEMA public TO "${schemaOwner}"`);
+          await upgradeAdmin.query(`SET ROLE "${schemaOwner}"`);
+          const g4Set = new Set<string>(POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS);
+          for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) {
+            if (!g4Set.has(statement)) await upgradeAdmin.query(statement);
+          }
+          await upgradeAdmin.query("RESET ROLE");
+          const colBefore = await upgradeAdmin.query(
+            "SELECT 1 FROM information_schema.columns WHERE table_name='ha_events' AND column_name='occurred_at_ms'",
+          );
+          assert.equal(colBefore.rows.length, 0, "pre-G4 schema must not contain occurred_at_ms");
+          await upgradeAdmin.query(`GRANT USAGE ON SCHEMA public TO "${runtimeRole}", "${migrationRole}"`);
+          for (const table of POSTGRES_EVENT_LEDGER_TABLES) {
+            await upgradeAdmin.query(
+              `GRANT SELECT, INSERT, UPDATE, DELETE ON "${table}" TO "${runtimeRole}", "${migrationRole}"`,
+            );
+          }
+          upgradeRuntime = new Pool({
+            connectionString: `postgres://${runtimeRole}@127.0.0.1:${fixture.port}/${upgradeDb}`,
+            max: 2,
+          });
+          const upRepo = "dm09-legacy-repo";
+          const upStore = makePostgresTaskEventStore({ pool: upgradeRuntime, repoId: upRepo, scope });
+          const baseEvents = Array.from({ length: HISTORICAL_TIMESTAMP_CASES.length }, (_, idx) => {
+            const ev = eventAt(idx + 1);
+            return { ...ev, eventId: `dm09-ev-${idx + 1}`, opId: `dm09-op-${idx + 1}` };
+          });
+          for (let idx = 0; idx < baseEvents.length; idx += 1) {
+            await upStore.append(bundle(baseEvents[idx]!), idx, fence(upRepo));
+          }
+          await withPostgresTransaction(
+            upgradeAdmin,
+            async (client) => {
+              for (const row of buildHistoricalTimestampFixtures(baseEvents)) {
+                await client.query(
+                  "UPDATE ha_events SET occurred_at=$1, event_json=$2, event_digest=$3 WHERE tenant_id=$4 AND project_id=$5 AND repo_id=$6 AND revision=$7",
+                  [row.occurredAt, row.eventJson, row.digest, scope.tenantId, scope.projectId, upRepo, row.revision],
+                );
+              }
+            },
+            scope,
+          );
+          const beforeBytes = (
+            await upgradeAdmin.query<{
+              readonly revision: string;
+              readonly occurred_at: string;
+              readonly event_json: string;
+              readonly event_digest: string;
+            }>(
+              "SELECT revision, occurred_at, event_json, event_digest FROM ha_events WHERE repo_id=$1 ORDER BY revision ASC",
+              [upRepo],
+            )
+          ).rows;
+
+          // Upgrade via the published schema-owner entrypoint (CONCURRENTLY outside any transaction) + idempotent retry.
+          const ownerClient = await upgradeAdmin.connect();
+          try {
+            await ownerClient.query(`SET ROLE "${schemaOwner}"`);
+            await ensurePgProjectionSchema(ownerClient);
+            await grantPgProjectionRuntimeAccess(ownerClient);
+            await ensurePgProjectionSchema(ownerClient);
+            await ownerClient.query("RESET ROLE");
+          } finally {
+            ownerClient.release();
+          }
+
+          // Pre-existing rows remain NULL until bounded backfill (proving zero table rewrite), and bytes stay identical.
+          const pendingBefore = await upgradeAdmin.query<{ readonly n: string }>(
+            "SELECT count(*) AS n FROM ha_events WHERE repo_id=$1 AND occurred_at_ms IS NULL",
+            [upRepo],
+          );
+          assert.equal(Number(pendingBefore.rows[0]!.n), HISTORICAL_TIMESTAMP_CASES.length);
+          await assert.rejects(
+            upStore.execute({
+              operation: "window",
+              query: {
+                afterRevision: 0,
+                after: "2026-11-05T00:00:00.000Z",
+                before: "2026-11-05T23:59:59.999Z",
+                limit: 20,
+              },
+            }),
+            { code: "projection_pending" },
+          );
+          // Pure revision window remains available even before occurred_at_ms backfill finishes.
+          const revOnly = (await upStore.execute({
+            operation: "window",
+            query: { afterRevision: 0, maxRevision: 3, limit: 10 },
+          })) as { readonly events: readonly { readonly workspaceRevision: number }[]; readonly done: boolean };
+          assert.equal(revOnly.done, true);
+          assert.deepEqual(
+            revOnly.events.map((e) => e.workspaceRevision),
+            [1, 2, 3],
+          );
+
+          // Previous-version writer INSERT (omitting occurred_at_ms) during upgrade window is stamped by trigger.
+          const prevWriterRev = HISTORICAL_TIMESTAMP_CASES.length + 1;
+          const prevWriterEv = {
+            ...eventAt(prevWriterRev),
+            eventId: "dm09-prev-writer",
+            opId: "dm09-prev-writer",
+            occurredAt: "2026-11-05T15:30:00.123999Z",
+          };
+          await upStore.append(bundle(prevWriterEv), prevWriterRev - 1, fence(upRepo));
+          const stamped = await upgradeAdmin.query<{ readonly occurred_at_ms: string | null }>(
+            "SELECT occurred_at_ms FROM ha_events WHERE repo_id=$1 AND revision=$2",
+            [upRepo, prevWriterRev],
+          );
+          assert.equal(Number(stamped.rows[0]!.occurred_at_ms), Date.parse("2026-11-05T15:30:00.123Z"));
+
+          // Phase 4 bounded backfill via existing ha_backfill_event_read_indexes until processed=0.
+          let processed = 0;
+          do {
+            processed = await withPostgresTransaction(
+              upgradeAdmin,
+              async (client) => {
+                await client.query(`SET LOCAL ROLE "${schemaOwner}"`);
+                return (
+                  await client.query<{ readonly processed: number }>(
+                    "SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed",
+                    [scope.tenantId, scope.projectId, scope.policyEpoch, upRepo],
+                  )
+                ).rows[0]!.processed;
+              },
+              scope,
+            );
+          } while (processed > 0);
+
+          const pendingAfter = await upgradeAdmin.query<{ readonly n: string }>(
+            "SELECT count(*) AS n FROM ha_events WHERE repo_id=$1 AND occurred_at_ms IS NULL",
+            [upRepo],
+          );
+          assert.equal(Number(pendingAfter.rows[0]!.n), 0);
+          const afterBytes = (
+            await upgradeAdmin.query<{
+              readonly revision: string;
+              readonly occurred_at: string;
+              readonly event_json: string;
+              readonly event_digest: string;
+            }>(
+              "SELECT revision, occurred_at, event_json, event_digest FROM ha_events WHERE repo_id=$1 AND revision<=$2 ORDER BY revision ASC",
+              [upRepo, HISTORICAL_TIMESTAMP_CASES.length],
+            )
+          ).rows;
+          assert.deepEqual(afterBytes, beforeBytes);
+
+          // RLS-restricted ha_runtime reader reads all pre-existing + previous-writer rows accurately.
+          await upgradeAdmin.query("ANALYZE ha_events");
+          const plans: unknown[] = [];
+          const tracedUpgradeRuntime = tracedPgReads(upgradeRuntime, plans, (sql) => /FROM ha_events/u.test(sql));
+          const nov5After = await withPostgresTransaction(
+            tracedUpgradeRuntime,
+            (client) =>
+              readPgEventWindow(
+                client,
+                scope,
+                {
+                  repoId: upRepo,
+                  query: {
+                    afterRevision: 0,
+                    after: "2026-11-05T00:00:00.000Z",
+                    before: "2026-11-05T23:59:59.999Z",
+                    limit: 20,
+                  },
+                },
+                prevWriterRev,
+              ),
+            scope,
+          );
+          assert.equal(nov5After.done, true);
+          assert.deepEqual(
+            nov5After.events.map((e) => [e.workspaceRevision, e.occurredAt]),
+            [
+              ...HISTORICAL_TIMESTAMP_CASES.filter((c) => c.expectedInNov5).map((c) => [c.revision, c.occurredAt]),
+              [prevWriterRev, "2026-11-05T15:30:00.123999Z"],
+            ],
+          );
+        } finally {
+          await upgradeRuntime?.end();
+          await upgradeAdmin.end();
+        }
+      },
+    );
     await runtime.end();
     runtime = undefined;
     assert.ok(poolErrors.length <= 1, "only the deliberately terminated backend may emit one pool error");

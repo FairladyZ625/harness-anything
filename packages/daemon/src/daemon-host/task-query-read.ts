@@ -7,7 +7,7 @@ import {
   readAttestationPool,
   type CollaboratorTaskScope,
 } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
-import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
+import { cutReviewTargetKey, readCutReviewDispatchStates } from "@harness-anything/application/queries";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -15,6 +15,7 @@ import {
   blockingOf,
   todoIsOpen,
   closeoutReadiness,
+  currentSubmittedExecutions,
   deriveRelationId,
   freshnessReasonOf,
   isTerminalDecisionState,
@@ -34,7 +35,8 @@ import {
   taskVisibility,
   workspaceTaskStatus,
   resolveHarnessLayout,
-  reviewsForExecution,
+  reviewDispatchCommand,
+  hasEffectiveReviewForExecution,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -918,33 +920,58 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
       // The durable cut is the blocker: a missing/failed dispatch needs no separate mutable flag.
-      // Reuse dispatch admission's definition of an active review so recovery removes this attention row.
+      // Reuse the application batch read so active detection and failure selection share one lifecycle lookup.
       undispatchedReviews = attentionOnly
         ? []
-        : underReview.flatMap((row) => {
-            const snapshot = projection.read(row.taskId).snapshot,
-              execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
-            if (
-              !execution?.submission ||
-              reviewsForExecution(snapshot.reviews, execution).length > 0 ||
-              activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
-            )
-              return [];
-            const failure =
-              snapshot.task?.reviewDispatchFailure?.executionId === row.executionId
-                ? snapshot.task.reviewDispatchFailure
-                : undefined;
-            return [
-              {
-                taskId: row.taskId,
-                since: row.submittedAt,
-                title:
-                  `${row.title} — CEO: required review has no active dispatch` +
-                  (failure ? `; ${reviewDispatchFailureWarning(failure)}` : "") +
-                  `; run ha task dispatch-review ${row.taskId}.`,
-              },
-            ];
-          }),
+        : (() => {
+            const targets = new Map(
+                (inReview?.rows ?? []).flatMap(({ taskId, snapshot }) => {
+                  const cuts = currentSubmittedExecutions(snapshot);
+                  return cuts
+                    .filter(
+                      (execution) =>
+                        !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
+                    )
+                    .map((execution) => {
+                      const recordedFailure = snapshot.task?.reviewDispatchFailure;
+                      return [
+                        cutReviewTargetKey(taskId, execution.executionId),
+                        {
+                          taskId,
+                          execution,
+                          ...(recordedFailure ? { recordedFailure } : {}),
+                          command: reviewDispatchCommand(taskId, cuts.length > 1 ? execution.executionId : undefined),
+                        },
+                      ] as const;
+                    });
+                }),
+              ),
+              unreviewedCandidates = underReview.flatMap((row) => {
+                const target = targets.get(cutReviewTargetKey(row.taskId, row.executionId));
+                return target ? [{ row, target }] : [];
+              }),
+              cutStates = readCutReviewDispatchStates(
+                projection,
+                unreviewedCandidates.map(({ target }) => target),
+              );
+            return unreviewedCandidates.flatMap(({ row, target }) => {
+              const state = cutStates.get(cutReviewTargetKey(row.taskId, row.executionId));
+              if (state && state.activeDispatches.length > 0) return [];
+              const failure = state?.latestFailure ?? null;
+              return [
+                {
+                  taskId: row.taskId,
+                  since: row.submittedAt,
+                  title:
+                    `${row.title} — CEO: required review has no active dispatch` +
+                    (failure
+                      ? `; ${reviewDispatchFailureWarning({ code: failure.code ?? "review_dispatch_failed", message: failure.reason })}`
+                      : "") +
+                    `; run ${target.command}.`,
+                },
+              ];
+            });
+          })(),
       // 形状信号:同一任务第二次 escalation 起,默认视为同一族问题(实测问句文本相似度分不出族:
       // task_9e275cf8 八次同族两两 0.02–0.20,别的任务不同族可达 0.42),由 CEO 的前提复核判定;
       // 晚于最近一次 escalation 的 continue/narrow 复核使其出列。

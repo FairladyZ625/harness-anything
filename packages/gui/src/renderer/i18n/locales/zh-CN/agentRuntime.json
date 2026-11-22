@@ -844,5 +844,11 @@
   "agentRuntime.sessionsNodeFilter": "按节点筛选会话",
   "agentRuntime.sessionsAllMembers": "全部成员",
   "agentRuntime.sessionsAllNodes": "全部节点",
-  "agentRuntime.sessionsMeOption": "我 ({name})"
+  "agentRuntime.sessionsMeOption": "我 ({name})",
+  "agentRuntime.quotaTitle": "订阅额度",
+  "agentRuntime.quotaExhausted": "已耗尽",
+  "agentRuntime.quotaResetsAt": "重置 {time}",
+  "agentRuntime.quotaCredits": "额外额度",
+  "agentRuntime.quotaUnlimited": "无上限",
+  "agentRuntime.quotaWindowAria": "{label} 剩余 {percent}%"
 }

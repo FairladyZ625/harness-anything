@@ -1,4 +1,5 @@
 import type { FleetNodeActivity } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import path from "node:path";
 import type { DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
@@ -131,17 +132,23 @@ function buildObserveEventTail(
 function readEventTail(projection: TaskProjection, payload: EventTailPayload): EventTailPage {
   if (payload.scopePersonId !== undefined || payload.filterNodeId !== undefined)
     return readScopedEventTail(projection, payload);
-  const requested = payload.cursor?.revision;
+  const requested = payload.cursor?.revision,
+    maxRevisionSpan = storageReadPolicy.defaultValue.pageSizes.standard;
   if (payload.direction === "follow") {
     const after = requested!,
-      page = projection.readEventSummaries(after, pageSize + 1, payload.fields);
+      scanBefore = after + maxRevisionSpan + 1,
+      page = projection.readEventSummaries(after, pageSize + 1, payload.fields, scanBefore, "asc");
     if (after > page.sourceRevision)
       throw observeError(
         "invalid_cursor",
         `Canonical event cursor ${after} is ahead of source revision ${page.sourceRevision}.`,
       );
     const selected = page.events.slice(0, pageSize),
-      revision = selected.at(-1)?.workspaceRevision ?? after,
+      exhaustedWindow = page.events.length <= pageSize,
+      coveredUpper = Math.min(page.watermark, scanBefore - 1),
+      // Storage proved no more visible rows exist in (after, coveredUpper], so advance the
+      // cursor across bounded filtered intervals without scanning unbounded tail history in one call.
+      revision = exhaustedWindow ? Math.max(after, coveredUpper) : selected.at(-1)!.workspaceRevision,
       liveCursor = { kind: "events" as const, revision },
       sourceCursor = { kind: "events" as const, revision: page.sourceRevision };
     return {
@@ -150,7 +157,7 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
       historyCursor: null,
       liveCursor,
       sourceCursor,
-      done: page.status === "ready" && page.events.length <= pageSize && sameCursor(liveCursor, sourceCursor),
+      done: page.status === "ready" && exhaustedWindow && sameCursor(liveCursor, sourceCursor),
     };
   }
 
@@ -161,16 +168,25 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
       "invalid_cursor",
       `Canonical event cursor ${before} is ahead of source revision ${probe.sourceRevision}.`,
     );
-  const after = Math.max(0, before - pageSize - 1),
+  const effectiveUpper = Math.min(probe.watermark + 1, Math.max(0, before)),
+    scanAfter = Math.max(0, effectiveUpper - 1 - maxRevisionSpan),
     page = projection.readEventSummaries(
-      after,
+      scanAfter,
       pageSize + 1,
       payload.fleetNodeIds === undefined ? payload.fields : { fleetNodeIds: payload.fleetNodeIds },
+      effectiveUpper,
+      "desc",
     ),
-    eligible = page.events.filter((event) => event.workspaceRevision < before),
-    selected = eligible.slice(-pageSize),
-    firstRevision = selected.at(0)?.workspaceRevision ?? Math.max(0, before - 1),
-    lastRevision = selected.at(-1)?.workspaceRevision ?? Math.min(probe.watermark, Math.max(0, before - 1));
+    hasMoreInWindow = page.events.length > pageSize,
+    hasEarlierRevisions = scanAfter > 0,
+    hasMore = hasMoreInWindow || hasEarlierRevisions,
+    selected = hasMoreInWindow ? page.events.slice(-pageSize) : page.events,
+    coveredUpper = Math.min(page.watermark, Math.max(0, effectiveUpper - 1)),
+    firstRevision = hasMoreInWindow ? selected[0]!.workspaceRevision : hasEarlierRevisions ? scanAfter + 1 : 0,
+    lastRevision =
+      requested === undefined
+        ? Math.max(selected.at(-1)?.workspaceRevision ?? 0, coveredUpper)
+        : (selected.at(-1)?.workspaceRevision ?? coveredUpper);
   return {
     status: page.status,
     items: selected,
@@ -178,38 +194,86 @@ function readEventTail(projection: TaskProjection, payload: EventTailPayload): E
     historyCursor: { kind: "events", revision: firstRevision },
     liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: page.sourceRevision },
-    done: page.status === "ready" && (selected.length === 0 || firstRevision <= 1),
+    done: page.status === "ready" && !hasMore,
   };
 }
 
 function readScopedEventTail(projection: TaskProjection, payload: EventTailPayload): EventTailPage {
-  const cut = projection.readCut();
-  const following = payload.direction === "follow";
-  const after = following ? payload.cursor!.revision : 0;
-  const before = following
-    ? Math.min(after + pageSize, cut.watermark) + 1
-    : (payload.cursor?.revision ?? cut.watermark + 1);
-  if (after > cut.sourceRevision || before > cut.sourceRevision + 1)
-    throw observeError("invalid_cursor", "Canonical event cursor is ahead of the source revision.");
-  const page = readCollaboratorCadence(projection, {
-    scopePersonId: payload.scopePersonId,
-    filterNodeId: payload.filterNodeId,
-    revisionBound: before,
-    limit: pageSize,
-  });
-  const selected = page.rows.toReversed().flatMap(({ revision }) => {
-    if (revision <= after) return [];
-    const summary = projection.readEventSummaries(revision - 1, 1).events[0];
-    return summary?.workspaceRevision === revision ? [summary] : [];
-  });
-  const liveRevision = Math.max(after, before - 1);
+  const cut = projection.readCut(),
+    maxRevisionSpan = storageReadPolicy.defaultValue.pageSizes.standard,
+    requested = payload.cursor?.revision;
+  if (payload.direction === "follow") {
+    const after = requested!;
+    if (after > cut.sourceRevision)
+      throw observeError(
+        "invalid_cursor",
+        `Canonical event cursor ${after} is ahead of source revision ${cut.sourceRevision}.`,
+      );
+    const scanBefore = after + maxRevisionSpan + 1,
+      page = readCollaboratorCadence(projection, {
+        scopePersonId: payload.scopePersonId,
+        filterNodeId: payload.filterNodeId,
+        afterRevision: after,
+        revisionBound: scanBefore,
+        order: "asc",
+        limit: pageSize,
+      }),
+      selected = page.rows.flatMap(({ revision }) => {
+        const summary = projection.readEventSummaries(revision - 1, 1).events[0];
+        return summary?.workspaceRevision === revision ? [summary] : [];
+      }),
+      exhaustedWindow = !page.hasMore,
+      coveredUpper = Math.min(cut.watermark, scanBefore - 1),
+      liveRevision = exhaustedWindow
+        ? Math.max(after, coveredUpper)
+        : (selected.at(-1)?.workspaceRevision ?? page.rows.at(-1)!.revision),
+      liveCursor = { kind: "events" as const, revision: liveRevision },
+      sourceCursor = { kind: "events" as const, revision: cut.sourceRevision };
+    return {
+      status: cut.status,
+      items: selected,
+      historyCursor: null,
+      liveCursor,
+      sourceCursor,
+      done: cut.status === "ready" && exhaustedWindow && sameCursor(liveCursor, sourceCursor),
+    };
+  }
+  const before = requested ?? cut.watermark + 1;
+  if (before > cut.sourceRevision + 1)
+    throw observeError(
+      "invalid_cursor",
+      `Canonical event cursor ${before} is ahead of source revision ${cut.sourceRevision}.`,
+    );
+  const effectiveUpper = Math.min(cut.watermark + 1, Math.max(0, before)),
+    scanAfter = Math.max(0, effectiveUpper - 1 - maxRevisionSpan),
+    page = readCollaboratorCadence(projection, {
+      scopePersonId: payload.scopePersonId,
+      filterNodeId: payload.filterNodeId,
+      afterRevision: scanAfter,
+      revisionBound: effectiveUpper,
+      order: "desc",
+      limit: pageSize,
+    }),
+    selected = page.rows.toReversed().flatMap(({ revision }) => {
+      const summary = projection.readEventSummaries(revision - 1, 1).events[0];
+      return summary?.workspaceRevision === revision ? [summary] : [];
+    }),
+    hasMoreInWindow = page.hasMore,
+    hasEarlierRevisions = scanAfter > 0,
+    hasMore = hasMoreInWindow || hasEarlierRevisions,
+    coveredUpper = Math.min(cut.watermark, Math.max(0, effectiveUpper - 1)),
+    firstRevision = hasMoreInWindow ? page.rows.at(-1)!.revision : hasEarlierRevisions ? scanAfter + 1 : 0,
+    lastRevision =
+      requested === undefined
+        ? Math.max(selected.at(-1)?.workspaceRevision ?? 0, coveredUpper)
+        : (selected.at(-1)?.workspaceRevision ?? coveredUpper);
   return {
     status: cut.status,
     items: selected,
-    historyCursor: following ? null : { kind: "events", revision: page.rows.at(-1)?.revision ?? 0 },
-    liveCursor: { kind: "events", revision: liveRevision },
+    historyCursor: { kind: "events", revision: firstRevision },
+    liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: cut.sourceRevision },
-    done: cut.status === "ready" && (following ? liveRevision === cut.sourceRevision : !page.hasMore),
+    done: cut.status === "ready" && !hasMore,
   };
 }
 

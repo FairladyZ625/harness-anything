@@ -1,0 +1,45 @@
+{{- include "harness-center.validateValues" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+data:
+  HARNESS_DAEMON_ID: {{ .Values.daemon.id | quote }}
+  HARNESS_DAEMON_USER_ROOT: {{ .Values.daemon.userRoot | quote }}
+  HARNESS_DAEMON_ENTRY: {{ .Values.daemon.entrypoint | quote }}
+  HARNESS_CLI_ENTRY: {{ .Values.daemon.cliEntrypoint | quote }}
+  HARNESS_STORAGE_BACKEND: {{ .Values.storage.backend | quote }}
+  HARNESS_FLEET_ENABLED: {{ .Values.fleet.enabled | quote }}
+  {{- if .Values.fleet.enabled }}
+  HARNESS_FLEET_PORT: {{ .Values.fleet.port | quote }}
+  {{- end }}
+  HARNESS_DAEMON_METRICS_BIND: {{ .Values.metrics.bind | quote }}
+  HARNESS_DAEMON_METRICS_PORT: {{ .Values.metrics.port | quote }}
+  {{- if .Values.metrics.enabled }}
+  HARNESS_DAEMON_METRICS_PATH: {{ .Values.metrics.path | quote }}
+  {{- if .Values.metrics.bearerTokenExistingSecret }}
+  HARNESS_DAEMON_METRICS_REQUIRE_AUTH: "1"
+  {{- end }}
+  {{- else }}
+  HARNESS_DAEMON_METRICS_EXPOSED: "0"
+  {{- end }}
+  {{- if and (eq .Values.identity.mode "external") .Values.identity.issuerUrl .Values.identity.existingClientSecret }}
+  HARNESS_DAEMON_REQUIRE_IDENTITY: "1"
+  HARNESS_OIDC_ISSUER_URL: {{ .Values.identity.issuerUrl | quote }}
+  HARNESS_OIDC_REALM: {{ .Values.identity.realm | quote }}
+  HARNESS_OIDC_CLIENT_ID: {{ .Values.identity.clientId | quote }}
+  HARNESS_OIDC_CLIENT_SECRET_FILE: "/etc/harness/oidc/{{ .Values.identity.clientSecretKey }}"
+  {{- end }}
+  {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret .Values.fleet.authorityRepoId }}
+  HARNESS_FLEET_BIND: {{ .Values.fleet.bind | quote }}
+  HARNESS_FLEET_AUTHORITY_REPO_ID: {{ .Values.fleet.authorityRepoId | quote }}
+  HARNESS_FLEET_AUTHORITY_REPO_ROOT: {{ .Values.fleet.authorityRepoRoot | quote }}
+  HARNESS_FLEET_QUOTA_BYTES: {{ .Values.fleet.quotaBytes | quote }}
+  HARNESS_FLEET_TLS_CERT_FILE: "/etc/harness/fleet-tls/{{ .Values.fleet.tlsCertKey }}"
+  HARNESS_FLEET_TLS_KEY_FILE: "/etc/harness/fleet-tls/{{ .Values.fleet.tlsKeyKey }}"
+  {{- if .Values.fleet.externalUrl }}
+  HARNESS_FLEET_EXTERNAL_URL: {{ .Values.fleet.externalUrl | quote }}
+  {{- end }}
+  {{- end }}

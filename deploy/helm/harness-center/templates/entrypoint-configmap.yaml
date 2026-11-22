@@ -1,0 +1,615 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harness-center.entrypointConfigMapName" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+data:
+  start-center.sh: |
+    #!/bin/sh
+    set -eu
+
+    DAEMON_ENTRY="${HARNESS_DAEMON_ENTRY:-/opt/ha/current/packages/daemon/dist/index.js}"
+    CLI_ENTRY="${HARNESS_CLI_ENTRY:-/opt/ha/current/packages/cli/dist/cli/src/index.js}"
+    USER_ROOT="${HARNESS_DAEMON_USER_ROOT:-/var/lib/ha/user}"
+    DAEMON_ID="${HARNESS_DAEMON_ID:-center}"
+    STORAGE_BACKEND="${HARNESS_STORAGE_BACKEND:-postgres}"
+    FLEET_ENABLED="${HARNESS_FLEET_ENABLED:-true}"
+
+    # 0. Fail closed if metrics authentication is configured but the mounted bearer token is empty or whitespace.
+    if [ "${HARNESS_DAEMON_METRICS_REQUIRE_AUTH:-}" = "1" ] || [ "${HARNESS_DAEMON_METRICS_REQUIRE_AUTH:-}" = "true" ]; then
+      if [ -z "$(printf '%s' "${HARNESS_DAEMON_METRICS_BEARER_TOKEN:-}" | tr -d '[:space:]')" ]; then
+        echo "harness-center: metrics bearer authentication is enabled but HARNESS_DAEMON_METRICS_BEARER_TOKEN is empty or whitespace." >&2
+        exit 1
+      fi
+    fi
+
+    # 0b. Fail closed if Fleet and metrics listeners are assigned the same container TCP port.
+    if [ "$FLEET_ENABLED" != "false" ] && [ -n "${HARNESS_DAEMON_METRICS_PORT:-}" ] && [ -n "${HARNESS_FLEET_PORT:-}" ]; then
+      if [ "${HARNESS_FLEET_PORT}" = "${HARNESS_DAEMON_METRICS_PORT}" ]; then
+        echo "harness-center: HARNESS_FLEET_PORT (${HARNESS_FLEET_PORT}) and HARNESS_DAEMON_METRICS_PORT (${HARNESS_DAEMON_METRICS_PORT}) must be distinct." >&2
+        exit 1
+      fi
+    fi
+
+    # 0c. Fail closed on normalized mount-path collisions or half-configured Fleet / external OIDC env pairs.
+    node -e '
+      const path = require("node:path");
+      const fleetEnabled = (process.env.HARNESS_FLEET_ENABLED || "true").trim() !== "false";
+      const userRoot = path.posix.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
+      const rawRepoRoot = (process.env.HARNESS_FLEET_AUTHORITY_REPO_ROOT || "").trim();
+      if (fleetEnabled && rawRepoRoot) {
+        const repoRoot = path.posix.resolve(rawRepoRoot);
+        if (
+          userRoot === repoRoot ||
+          repoRoot.startsWith(userRoot + "/") ||
+          userRoot.startsWith(repoRoot + "/")
+        ) {
+          console.error(
+            "harness-center: HARNESS_FLEET_AUTHORITY_REPO_ROOT (" +
+              repoRoot +
+              ") and HARNESS_DAEMON_USER_ROOT (" +
+              userRoot +
+              ") must be disjoint normalized absolute paths.",
+          );
+          process.exit(1);
+        }
+      }
+      const fleetRepoId = (process.env.HARNESS_FLEET_AUTHORITY_REPO_ID || "").trim();
+      const fleetCert = (process.env.HARNESS_FLEET_TLS_CERT_FILE || "").trim();
+      const fleetKey = (process.env.HARNESS_FLEET_TLS_KEY_FILE || "").trim();
+      if (fleetEnabled && !fleetRepoId && (fleetCert || fleetKey)) {
+        console.error(
+          "harness-center: HARNESS_FLEET_TLS_CERT_FILE/KEY_FILE is set without HARNESS_FLEET_AUTHORITY_REPO_ID.",
+        );
+        process.exit(1);
+      }
+      const oidcIssuer = (process.env.HARNESS_OIDC_ISSUER_URL || "").trim();
+      const oidcSecretFile = (process.env.HARNESS_OIDC_CLIENT_SECRET_FILE || "").trim();
+      if (!oidcIssuer && oidcSecretFile) {
+        console.error(
+          "harness-center: HARNESS_OIDC_CLIENT_SECRET_FILE is set without HARNESS_OIDC_ISSUER_URL.",
+        );
+        process.exit(1);
+      }
+    '
+
+    # 1. Verify declared storage backend wiring across ALL enabled registered repositories (plus target Fleet authority)
+    #    so postgres deployments never silently fall back to local SQLite for any repo, and never leak Secret contents on parse errors.
+    node -e '
+      const { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require("node:fs");
+      const path = require("node:path");
+
+      const userRoot = path.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
+      const backend = (process.env.HARNESS_STORAGE_BACKEND || "postgres").trim();
+      const fleetEnabled = (process.env.HARNESS_FLEET_ENABLED || "true").trim() !== "false";
+      const authorityRepoId = fleetEnabled ? (process.env.HARNESS_FLEET_AUTHORITY_REPO_ID || "").trim() : "";
+      const storageFile = path.join(userRoot, "daemon-storage.json");
+      const registryFile = path.join(userRoot, "registry.json");
+
+      const isValidPostgresConfig = (cfg) =>
+        Boolean(
+          cfg &&
+            typeof cfg === "object" &&
+            !Array.isArray(cfg) &&
+            cfg.backend === "postgres" &&
+            typeof cfg.connectionString === "string" &&
+            cfg.connectionString.trim().length > 0 &&
+            typeof cfg.authorityConnectionString === "string" &&
+            cfg.authorityConnectionString.trim().length > 0,
+        );
+
+      const parseStorageFile = () => {
+        try {
+          return JSON.parse(readFileSync(storageFile, "utf8"));
+        } catch {
+          console.error("harness-center: daemon-storage.json is not valid JSON (parse details redacted).");
+          process.exit(1);
+        }
+      };
+
+      let registry = null;
+      const requiredRepoIds = new Set();
+      if (existsSync(registryFile)) {
+        try {
+          registry = JSON.parse(readFileSync(registryFile, "utf8"));
+        } catch {
+          console.error("harness-center: registry.json is not valid JSON (parse details redacted).");
+          process.exit(1);
+        }
+        if (registry && typeof registry === "object" && Array.isArray(registry.repos)) {
+          for (const repo of registry.repos) {
+            if (
+              repo &&
+              typeof repo === "object" &&
+              repo.state === "enabled" &&
+              repo.mode !== "remote-proxy" &&
+              repo.canonicalRoot !== null &&
+              typeof repo.repoId === "string" &&
+              repo.repoId.trim().length > 0
+            ) {
+              requiredRepoIds.add(repo.repoId.trim());
+            }
+          }
+        }
+      }
+      if (authorityRepoId) requiredRepoIds.add(authorityRepoId);
+
+      if (backend === "postgres") {
+        if (!existsSync(storageFile)) {
+          console.error("harness-center: storage.backend=postgres requires mounted daemon-storage.json at " + storageFile);
+          process.exit(1);
+        }
+        const parsed = parseStorageFile();
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          console.error("harness-center: daemon-storage.json must be a JSON object keyed by repository ID.");
+          process.exit(1);
+        }
+        const pgEntries = Object.entries(parsed).filter(([, cfg]) => isValidPostgresConfig(cfg));
+        if (pgEntries.length === 0) {
+          console.error(
+            "harness-center: daemon-storage.json must declare at least one postgres repository with connectionString and authorityConnectionString.",
+          );
+          process.exit(1);
+        }
+        const missingRepoIds = [...requiredRepoIds].filter((id) => !isValidPostgresConfig(parsed[id]));
+        if (missingRepoIds.length > 0) {
+          console.error(
+            "harness-center: storage.backend=postgres requires valid postgres configuration in daemon-storage.json for every enabled registered repository; missing or invalid entries for: " +
+              missingRepoIds.sort().join(", "),
+          );
+          process.exit(1);
+        }
+        // Reconcile declared PostgreSQL repositories from daemon-storage.json into registry.json so
+        // stateless Deployment replacements (emptyDir userRoot) re-attach all declared repositories
+        // before /readyz can report Ready, while preserving any existing registered/disabled rows.
+        const nextRegistry =
+          registry && typeof registry === "object" && !Array.isArray(registry)
+            ? registry
+            : {
+                schema: "harness-daemon-registry/v2",
+                connections: [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }],
+                repos: [],
+              };
+        if (!Array.isArray(nextRegistry.connections)) {
+          nextRegistry.connections = [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }];
+        }
+        if (!Array.isArray(nextRegistry.repos)) nextRegistry.repos = [];
+        const existingRepoIds = new Set(
+          nextRegistry.repos
+            .filter((entry) => entry && typeof entry === "object" && typeof entry.repoId === "string")
+            .map((entry) => entry.repoId),
+        );
+        let registryDirty = false;
+        const defaultReposBase = path.join(userRoot, "repos");
+        for (const [rawRepoId, cfg] of pgEntries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+          const repoId = rawRepoId.trim();
+          if (!repoId || repoId === authorityRepoId || existingRepoIds.has(repoId)) continue;
+          if (/[/\\]|\.\./u.test(repoId)) {
+            console.error(
+              "harness-center: refusing unsafe repository ID in daemon-storage.json for declarative registration: " +
+                repoId,
+            );
+            process.exit(1);
+          }
+          const repoRoot = path.join(defaultReposBase, repoId);
+          mkdirSync(repoRoot, { recursive: true });
+          const authoredBranch =
+            cfg.gitFollower && typeof cfg.gitFollower.branch === "string" && cfg.gitFollower.branch.trim()
+              ? cfg.gitFollower.branch.trim()
+              : null;
+          nextRegistry.repos.push({
+            repoId,
+            canonicalRoot: repoRoot,
+            displayName: repoId,
+            authoredBranch,
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: new Date().toISOString(),
+          });
+          existingRepoIds.add(repoId);
+          registryDirty = true;
+        }
+        if (registryDirty) {
+          mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+          const tmpRegistry = registryFile + ".tmp";
+          writeFileSync(tmpRegistry, JSON.stringify(nextRegistry, null, 2) + "\n", { mode: 0o600 });
+          chmodSync(tmpRegistry, 0o600);
+          renameSync(tmpRegistry, registryFile);
+        }
+      } else if (backend === "sqlite" && existsSync(storageFile)) {
+        const parsed = parseStorageFile();
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const checkIds = requiredRepoIds.size > 0 ? [...requiredRepoIds] : Object.keys(parsed);
+          const conflicting = checkIds.filter((id) => {
+            const target = parsed[id];
+            return target && typeof target === "object" && target.backend === "postgres";
+          });
+          if (conflicting.length > 0) {
+            console.error(
+              "harness-center: storage.backend=sqlite conflicts with postgres entries in daemon-storage.json for: " +
+                conflicting.sort().join(", "),
+            );
+            process.exit(1);
+          }
+        }
+      }
+    '
+
+    # 2. Reconcile Fleet center configuration idempotently across restarts and Helm upgrades.
+    if [ "$FLEET_ENABLED" = "false" ]; then
+      node -e '
+        const { createHash } = require("node:crypto");
+        const { existsSync, rmSync } = require("node:fs");
+        const path = require("node:path");
+
+        const userRoot = path.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
+        const daemonId = process.env.HARNESS_DAEMON_ID || "center";
+        const targetKey = "u-" + createHash("sha256").update(userRoot + "\0" + daemonId).digest("hex").slice(0, 16);
+        const configPath = path.join(userRoot, "fleet", targetKey, "center.json");
+        if (existsSync(configPath)) {
+          rmSync(configPath, { force: true });
+        }
+      '
+    elif [ -n "${HARNESS_FLEET_AUTHORITY_REPO_ID:-}" ]; then
+      if [ -z "${HARNESS_FLEET_TLS_CERT_FILE:-}" ] || [ ! -r "${HARNESS_FLEET_TLS_CERT_FILE}" ]; then
+        echo "harness-center: missing readable Fleet TLS certificate at ${HARNESS_FLEET_TLS_CERT_FILE:-<unset>}" >&2
+        exit 1
+      fi
+      if [ -z "${HARNESS_FLEET_TLS_KEY_FILE:-}" ] || [ ! -r "${HARNESS_FLEET_TLS_KEY_FILE}" ]; then
+        echo "harness-center: missing readable Fleet TLS private key at ${HARNESS_FLEET_TLS_KEY_FILE:-<unset>}" >&2
+        exit 1
+      fi
+      node -e '
+        const { createHash } = require("node:crypto");
+        const { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } = require("node:fs");
+        const path = require("node:path");
+
+        const userRoot = path.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
+        const daemonId = process.env.HARNESS_DAEMON_ID || "center";
+        const repoId = process.env.HARNESS_FLEET_AUTHORITY_REPO_ID;
+        const repoRoot = path.resolve(process.env.HARNESS_FLEET_AUTHORITY_REPO_ROOT || "/var/lib/ha/repos/center");
+        const bind = process.env.HARNESS_FLEET_BIND || "0.0.0.0";
+        const port = Number(process.env.HARNESS_FLEET_PORT || "7545");
+        const quotaBytes = Number(process.env.HARNESS_FLEET_QUOTA_BYTES || "1073741824");
+        const certPath = path.resolve(process.env.HARNESS_FLEET_TLS_CERT_FILE);
+        const keyPath = path.resolve(process.env.HARNESS_FLEET_TLS_KEY_FILE);
+        const externalUrl = (process.env.HARNESS_FLEET_EXTERNAL_URL || "").trim();
+
+        mkdirSync(userRoot, { recursive: true, mode: 0o700 });
+        mkdirSync(repoRoot, { recursive: true });
+
+        const registryPath = path.join(userRoot, "registry.json");
+        let registry = {
+          schema: "harness-daemon-registry/v2",
+          connections: [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }],
+          repos: [],
+        };
+        if (existsSync(registryPath)) {
+          registry = JSON.parse(readFileSync(registryPath, "utf8"));
+          if (!Array.isArray(registry.connections)) {
+            registry.connections = [{ id: "local", kind: "local", displayName: "Local daemon", state: "enabled" }];
+          }
+          if (!Array.isArray(registry.repos)) registry.repos = [];
+        }
+        const existingIndex = registry.repos.findIndex((entry) => entry && entry.repoId === repoId);
+        let registryDirty = false;
+        if (existingIndex < 0) {
+          registry.repos.push({
+            repoId,
+            canonicalRoot: repoRoot,
+            displayName: repoId,
+            authoredBranch: null,
+            mode: "local",
+            connectionId: "local",
+            state: "enabled",
+            registeredAt: new Date().toISOString(),
+          });
+          registryDirty = true;
+        } else {
+          const current = registry.repos[existingIndex];
+          if (current.canonicalRoot !== repoRoot || current.state !== "enabled" || current.mode !== "local") {
+            registry.repos[existingIndex] = {
+              ...current,
+              canonicalRoot: repoRoot,
+              mode: "local",
+              state: "enabled",
+            };
+            registryDirty = true;
+          }
+        }
+        if (registryDirty) {
+          const tmpRegistry = registryPath + ".tmp";
+          writeFileSync(tmpRegistry, JSON.stringify(registry, null, 2) + "\n", { mode: 0o600 });
+          chmodSync(tmpRegistry, 0o600);
+          renameSync(tmpRegistry, registryPath);
+        }
+
+        const targetKey = "u-" + createHash("sha256").update(userRoot + "\0" + daemonId).digest("hex").slice(0, 16);
+        const stateRoot = path.join(userRoot, "fleet");
+        const configDir = path.join(stateRoot, targetKey);
+        const configPath = path.join(configDir, "center.json");
+        const desired = {
+          schema: "fleet-center-config/v1",
+          port,
+          bind,
+          repoId,
+          keyPath,
+          certPath,
+          stateRoot,
+          quotaBytes,
+          ...(externalUrl ? { externalUrl } : {}),
+        };
+        const desiredJson = JSON.stringify(desired) + "\n";
+        const currentJson = existsSync(configPath) ? readFileSync(configPath, "utf8") : null;
+        if (currentJson !== desiredJson) {
+          mkdirSync(configDir, { recursive: true, mode: 0o700 });
+          const tmpConfig = configPath + ".tmp";
+          writeFileSync(tmpConfig, desiredJson, { mode: 0o600 });
+          chmodSync(tmpConfig, 0o600);
+          renameSync(tmpConfig, configPath);
+        }
+      '
+    fi
+
+    # 3. Verify external OIDC state: first boot runs bootstrap, upgrades fail closed on unauthorized drift.
+    NEED_OIDC_BOOTSTRAP=0
+    if [ -n "${HARNESS_OIDC_ISSUER_URL:-}" ]; then
+      if [ -z "${HARNESS_OIDC_CLIENT_SECRET_FILE:-}" ] || [ ! -r "${HARNESS_OIDC_CLIENT_SECRET_FILE}" ]; then
+        echo "harness-center: missing readable OIDC client secret at ${HARNESS_OIDC_CLIENT_SECRET_FILE:-<unset>}" >&2
+        exit 1
+      fi
+      set +e
+      node -e '
+        const { existsSync, readFileSync, rmSync } = require("node:fs");
+        const path = require("node:path");
+
+        const userRoot = path.resolve(process.env.HARNESS_DAEMON_USER_ROOT || "/var/lib/ha/user");
+        const rbacDir = path.join(userRoot, "rbac");
+        const configPath = path.join(rbacDir, "config.json");
+        const secretPath = path.join(rbacDir, "center-client-secret");
+        const pendingMarkerPath = path.join(rbacDir, ".oidc-bootstrap-pending");
+        if (existsSync(pendingMarkerPath)) {
+          // Prior first-time bootstrap exited before authoritative verification succeeded;
+          // discard unverified persisted files and re-run first-time bootstrap cleanly.
+          rmSync(configPath, { force: true });
+          rmSync(secretPath, { force: true });
+          process.exit(10);
+        }
+        if (!existsSync(configPath)) process.exit(10);
+
+        const desiredUrl = new URL(process.env.HARNESS_OIDC_ISSUER_URL).toString().replace(/\/$/u, "");
+        const desiredRealm = process.env.HARNESS_OIDC_REALM || "fleet";
+        const desiredClientId = process.env.HARNESS_OIDC_CLIENT_ID || "harness-center";
+        const desiredSecret = readFileSync(process.env.HARNESS_OIDC_CLIENT_SECRET_FILE, "utf8").trim();
+
+        let current;
+        try {
+          current = JSON.parse(readFileSync(configPath, "utf8"));
+        } catch {
+          console.error("harness-center: persisted rbac/config.json is not valid JSON (parse details redacted).");
+          process.exit(2);
+        }
+        const drifted = [];
+        if (current.mode !== "external") drifted.push("mode");
+        const currentUrl = typeof current.url === "string" ? current.url.replace(/\/$/u, "") : "";
+        if (currentUrl !== desiredUrl) drifted.push("issuerUrl");
+        if (current.realm !== desiredRealm) drifted.push("realm");
+        if (current.clientId !== desiredClientId) drifted.push("clientId");
+
+        if (!existsSync(secretPath)) {
+          drifted.push("clientSecret");
+        } else {
+          const currentSecret = readFileSync(secretPath, "utf8").trim();
+          if (currentSecret !== desiredSecret) drifted.push("clientSecret");
+        }
+
+        if (drifted.length > 0) {
+          console.error(
+            "harness-center: persisted OIDC configuration in " +
+              configPath +
+              " drifted from Helm values (" +
+              drifted.join(", ") +
+              "). This pod will exit before starting the daemon. To rotate external OIDC safely: " +
+              "(1) roll back Helm values/Secret so the pod starts with its persisted OIDC config, " +
+              "(2) exec into that running pod and run `ha bootstrap --operation login` followed by " +
+              "`ha bootstrap --mode external --url <new-issuer> --realm <new-realm> --client-id <new-id> --client-secret-stdin`, " +
+              "(3) update the Kubernetes Secret and run `helm upgrade` with matching identity.* values.",
+          );
+          process.exit(2);
+        }
+      '
+      OIDC_STATUS=$?
+      set -e
+      if [ "$OIDC_STATUS" -eq 10 ]; then
+        NEED_OIDC_BOOTSTRAP=1
+      elif [ "$OIDC_STATUS" -ne 0 ]; then
+        exit 1
+      fi
+    fi
+
+    if [ "$NEED_OIDC_BOOTSTRAP" -eq 0 ]; then
+      exec node "$DAEMON_ENTRY" serve
+    fi
+
+    # 4. First-time external OIDC bootstrap with interruptible async CLI execution and signal-safe drain waiting,
+    #    then exec node as PID 1.
+    SHUTDOWN_REQUESTED=0
+    DAEMON_PID=""
+    CHILD_PID=""
+    WAIT_RC=0
+
+    wait_for_pid() {
+      target_pid="$1"
+      WAIT_RC=0
+      if [ -z "$target_pid" ]; then
+        return 0
+      fi
+      while :; do
+        WAIT_RC=0
+        wait "$target_pid" || WAIT_RC=$?
+        if ! kill -0 "$target_pid" 2>/dev/null; then
+          break
+        fi
+      done
+      return 0
+    }
+
+    wait_for_daemon() {
+      wait_for_pid "$DAEMON_PID"
+    }
+
+    forward_signal() {
+      SHUTDOWN_REQUESTED=1
+      if [ -n "$CHILD_PID" ]; then
+        kill -TERM "$CHILD_PID" 2>/dev/null || true
+      fi
+      if [ -n "$DAEMON_PID" ]; then
+        kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      fi
+    }
+    trap forward_signal TERM INT
+
+    node "$DAEMON_ENTRY" serve &
+    DAEMON_PID=$!
+
+    ATTEMPTS="${HARNESS_BOOTSTRAP_WAIT_ATTEMPTS:-60}"
+    INTERVAL="${HARNESS_BOOTSTRAP_WAIT_INTERVAL_SECONDS:-1}"
+    READY=0
+    COUNT=0
+    while [ "$COUNT" -lt "$ATTEMPTS" ]; do
+      if [ "$SHUTDOWN_REQUESTED" -ne 0 ]; then
+        wait_for_daemon
+        exit 143
+      fi
+      if ! kill -0 "$DAEMON_PID" 2>/dev/null; then
+        wait_for_daemon
+        if [ "$WAIT_RC" -ne 0 ]; then
+          exit "$WAIT_RC"
+        fi
+        exit 1
+      fi
+      node "$CLI_ENTRY" daemon status --json >/dev/null 2>&1 &
+      CHILD_PID=$!
+      wait_for_pid "$CHILD_PID"
+      STATUS_RC="$WAIT_RC"
+      CHILD_PID=""
+      if [ "$SHUTDOWN_REQUESTED" -ne 0 ]; then
+        wait_for_daemon
+        exit 143
+      fi
+      if [ "$STATUS_RC" -eq 0 ]; then
+        READY=1
+        break
+      fi
+      COUNT=$((COUNT + 1))
+      sleep "$INTERVAL" &
+      CHILD_PID=$!
+      wait_for_pid "$CHILD_PID"
+      CHILD_PID=""
+    done
+
+    if [ "$SHUTDOWN_REQUESTED" -ne 0 ]; then
+      wait_for_daemon
+      exit 143
+    fi
+
+    if [ "$READY" -ne 1 ]; then
+      echo "harness-center: daemon did not become ready for external OIDC bootstrap" >&2
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      wait_for_daemon
+      exit 1
+    fi
+
+    BOOTSTRAP_PENDING_MARKER="${USER_ROOT}/rbac/.oidc-bootstrap-pending"
+    node -e '
+      const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
+      const path = require("node:path");
+      const marker = process.argv[1];
+      mkdirSync(path.dirname(marker), { recursive: true, mode: 0o700 });
+      writeFileSync(marker, process.cwd() + "\n", { mode: 0o600 });
+      chmodSync(marker, 0o600);
+    ' "$BOOTSTRAP_PENDING_MARKER"
+
+    BOOTSTRAP_OUT="${USER_ROOT}/.oidc-bootstrap-out.$$"
+    rm -f "$BOOTSTRAP_OUT"
+    node "$CLI_ENTRY" bootstrap --json \
+      --mode external \
+      --url "${HARNESS_OIDC_ISSUER_URL}" \
+      --realm "${HARNESS_OIDC_REALM:-fleet}" \
+      --client-id "${HARNESS_OIDC_CLIENT_ID:-harness-center}" \
+      --client-secret-stdin < "${HARNESS_OIDC_CLIENT_SECRET_FILE}" > "$BOOTSTRAP_OUT" &
+    CHILD_PID=$!
+    wait_for_pid "$CHILD_PID"
+    BOOTSTRAP_RC="$WAIT_RC"
+    CHILD_PID=""
+
+    if [ "$SHUTDOWN_REQUESTED" -ne 0 ]; then
+      rm -f "$BOOTSTRAP_OUT"
+      wait_for_daemon
+      exit 143
+    fi
+
+    if [ "$BOOTSTRAP_RC" -ne 0 ]; then
+      rm -f "$BOOTSTRAP_OUT"
+      echo "harness-center: external OIDC/Keycloak bootstrap failed (exit ${BOOTSTRAP_RC})" >&2
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      wait_for_daemon
+      exit "$BOOTSTRAP_RC"
+    fi
+
+    set +e
+    node -e '
+      const { existsSync, readFileSync } = require("node:fs");
+      const outFile = process.argv[1];
+      if (!existsSync(outFile)) {
+        console.error("harness-center: external OIDC/Keycloak bootstrap produced no receipt file; failing closed.");
+        process.exit(11);
+      }
+      const raw = readFileSync(outFile, "utf8").trim();
+      if (!raw) {
+        console.error("harness-center: external OIDC/Keycloak bootstrap produced an empty receipt; failing closed.");
+        process.exit(11);
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        console.error("harness-center: external OIDC/Keycloak bootstrap receipt is not valid JSON (parse details redacted); failing closed.");
+        process.exit(11);
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || parsed.ok !== true) {
+        console.error("harness-center: external OIDC/Keycloak bootstrap receipt did not report ok=true; failing closed.");
+        process.exit(11);
+      }
+      if (parsed.authoritySync && parsed.authoritySync.pending === true) {
+        console.error(
+          "harness-center: external OIDC/Keycloak bootstrap left authoritySync.pending=true; failing closed until discovery succeeds.",
+        );
+        process.exit(12);
+      }
+    ' "$BOOTSTRAP_OUT"
+    BOOTSTRAP_SYNC_RC=$?
+    set -e
+    rm -f "$BOOTSTRAP_OUT"
+
+    if [ "$BOOTSTRAP_SYNC_RC" -ne 0 ]; then
+      kill -TERM "$DAEMON_PID" 2>/dev/null || true
+      wait_for_daemon
+      exit 1
+    fi
+
+    rm -f "$BOOTSTRAP_PENDING_MARKER"
+
+    # Gracefully drain the temporary bootstrap daemon, then hand off directly to `exec node` as PID 1
+    # so steady-state runtime loads the persisted external identity mode and receives signals directly.
+    kill -TERM "$DAEMON_PID" 2>/dev/null || true
+    wait_for_daemon
+
+    if [ "$SHUTDOWN_REQUESTED" -ne 0 ]; then
+      exit 143
+    fi
+
+    trap - TERM INT
+    exec node "$DAEMON_ENTRY" serve

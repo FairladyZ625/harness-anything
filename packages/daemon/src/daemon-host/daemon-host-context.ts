@@ -94,6 +94,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly runtimePorts: DaemonRuntimePorts;
   readonly decisionPointExecutorFor: (repoId: string, rootDir: string) => ReturnType<typeof openDecisionPointExecutor>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-types.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
@@ -118,6 +119,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
     readonly canonicalRoot: string;
     readonly mode: DaemonRepoMode;
   }) => RepoCellStatus;
+  readonly publishRepoStatus?: (repoId: string, status: RepoCellStatus) => void;
   readonly openRegistered: (repo: RegisteredRepoInput, progress?: AttachProgress) => Promise<void>;
   readonly unavailableStatus: (repoId: string, rootDir: string, mode: DaemonRepoMode, error: unknown) => RepoCellStatus;
   readonly waitForWarming: (repoId: string) => Promise<void>;
@@ -206,6 +208,16 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly settleControl: (pending: DaemonControlReceipt, ok: boolean, error?: unknown) => void;
   readonly buildObserver: DaemonBuildObserver;
   readonly startInitialAttachments: () => Promise<void>;
+  readonly initialAttachmentsSettled?: () => boolean;
+  readonly fleetCenterRestoreFailed?: () => boolean;
+  readonly sortedRepoIds?: () => readonly string[];
+  readonly publishRepoStatus?: (repoId: string, status: RepoCellStatus) => void;
+  readonly identityReadiness?: () =>
+    | "ready"
+    | "identity_not_configured"
+    | "identity_verifying"
+    | "identity_authority_sync_pending"
+    | "identity_unavailable";
   readonly waitForWarming: (repoId: string) => Promise<void>;
   closing: boolean;
   initialAttachments: Promise<void> | null;

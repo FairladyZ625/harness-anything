@@ -1,0 +1,28 @@
+{{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "harness-center.fullname" . }}
+  labels:
+    {{- include "harness-center.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "harness-center.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics
+      path: {{ .Values.metrics.path }}
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+      {{- if .Values.metrics.bearerTokenExistingSecret }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ .Values.metrics.bearerTokenExistingSecret }}
+          key: {{ .Values.metrics.bearerTokenSecretKey }}
+      {{- end }}
+{{- end }}

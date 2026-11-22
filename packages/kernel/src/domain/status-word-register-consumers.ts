@@ -70,6 +70,8 @@ const catalogs: readonly Catalog[] = [
         runtimeAuthStateWords:
           "Runtime instance authentication is configured, verified authenticated, unauthenticated, or unobserved.",
         runtimeAuthReadinessStatusWords: "Runtime instance authentication probe is ready to launch or not ready.",
+        runtimeProviderHealthStatusWords:
+          "Runtime provider health is frozen, temporarily blocked by transport cooldown or subscription quota exhaustion, or ready for dispatch.",
         runtimeEndpointAvailabilities:
           "A runtime provider allows no custom endpoint, an optional endpoint, or requires one.",
         runtimeRecoveryOutcomeWords:

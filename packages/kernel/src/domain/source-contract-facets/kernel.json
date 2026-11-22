@@ -976,7 +976,7 @@
         "explain": "EntityDocumentJsonSchema: Generic JSON-schema interpreter, including recursive value/shape validation.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue:5f5a50b73654ca4281482310e2758531",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue:2708d02cd37a6ec07c9acd83a560413d",
             "route": "packages/kernel/src/domain/entity-json-schema.ts#validateNodeValue"
           }
         ],
@@ -1915,6 +1915,30 @@
         "order": 2
       },
       {
+        "id": "hasEffectiveReviewForExecution",
+        "symbol": "packages/kernel/src/domain/review.ts#hasEffectiveReviewForExecution",
+        "declaration": "function",
+        "inputs": [
+          "reviews: readonly ReviewV1[]",
+          "execution: ProjectedExecution",
+          "dispositions?: readonly ReviewDispositionV1[]"
+        ],
+        "output": "boolean",
+        "failureCodes": [],
+        "explain": "Judge whether a submitted Execution already has an effective Review verdict (approved or undisposed changes_requested), ignoring dismissed reviews.",
+        "consumers": [
+          "packages/daemon/src/daemon-host/task-completion-read.ts",
+          "packages/daemon/src/daemon-host/task-query-read.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/review.ts#hasEffectiveReviewForExecution:7253bdd05ad4963da04c4750cd7ec430",
+            "route": "domain"
+          }
+        ],
+        "order": 3
+      },
+      {
         "id": "ownerVerifiableFindingCategories",
         "symbol": "packages/kernel/src/domain/review-reverify.ts#ownerVerifiableFindingCategories",
         "declaration": "const",
@@ -1945,6 +1969,18 @@
   "runtime-session": {
     "contracts": [
       {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.isRuntimeControlCarrierEvent",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent",
+        "explain": "RuntimeSessionEntityV1: Structural carrier discriminator identifying additive controlRequest/controlReceipt events that must not mutate liveness.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent:17f9bf99c201ff2f85dce28e08ce2626",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent"
+          }
+        ],
+        "order": 4
+      },
+      {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimeEventFields",
         "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields",
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
@@ -1962,7 +1998,7 @@
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields, including orphan-recovery audit shape.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:3cd87a106d436d4034920c0e0e201e19",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:16f63161c483052f14a0fda5b156c843",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ],

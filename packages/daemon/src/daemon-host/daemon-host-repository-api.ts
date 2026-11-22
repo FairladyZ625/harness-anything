@@ -19,7 +19,13 @@ import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { centerMovedError, readCenterMigrating, registerDaemonRepo } from "@harness-anything/storage";
+import {
+  centerMovedError,
+  enforceRepoStorageBackend,
+  readCenterMigrating,
+  registerDaemonRepo,
+  resolveRequiredStorageBackend,
+} from "@harness-anything/storage";
 import { extractCenterMoved } from "./daemon-host-errors.ts";
 import {
   readDaemonRegistry,
@@ -121,6 +127,8 @@ async function bindPersonalRead(
     if (
       binding.executionPrincipal !== undefined ||
       operator.executionPrincipal !== undefined ||
+      binding.fleetReplicaPrincipal !== undefined ||
+      operator.fleetReplicaPrincipal !== undefined ||
       operator.actor.principal.personId !== binding.actor.principal.personId
     )
       throw hostCodedError(
@@ -315,6 +323,14 @@ export function createDaemonHostRepositoryApi(
           "repository_already_registered",
           `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
         );
+      const bootstrapStorage = context.input.storage?.[bootstrap.repoId];
+      enforceRepoStorageBackend({
+        requiredBackend: resolveRequiredStorageBackend(context.input.requiredStorageBackend),
+        repoId: bootstrap.repoId,
+        mode: "local",
+        storage: bootstrapStorage,
+        hostCodedError: context.hostCodedError,
+      });
       if (!request.configureOnly) {
         if (context.oidc.centerConfigured()) {
           const center = await context.keycloakCenter();
@@ -347,6 +363,7 @@ export function createDaemonHostRepositoryApi(
             rootDir: bootstrap.rootDir,
             mode: "local",
             ownerId: context.input.daemonId,
+            storage: bootstrapStorage,
             defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
@@ -354,6 +371,18 @@ export function createDaemonHostRepositoryApi(
             bootstrap,
             onBootstrap: (receipt) => {
               published = receipt;
+            },
+            ...(context.publishRepoStatus
+              ? {
+                  onMetricsStatus: (status) => {
+                    context.publishRepoStatus!(prepared.repoId, status);
+                  },
+                }
+              : {}),
+            onStatus: (status) => {
+              if (context.warming.has(prepared.repoId)) context.warming.set(prepared.repoId, status);
+              else context.publishRepoStatus?.(prepared.repoId, status);
+              context.input.onRepoStatusChange?.();
             },
             ...context.runtimePorts,
             ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
@@ -620,6 +649,17 @@ export function createDaemonHostRepositoryApi(
           requestedRoot !== oldRoot
         )
           await context.migrateEdgeWorkspace(request.repoId, oldRoot, requestedRoot);
+        const effectiveMode = request.mode ?? existing?.mode ?? "local",
+          effectiveState = request.state ?? existing?.state ?? "enabled";
+        if (effectiveState === "enabled" && effectiveMode !== "remote-proxy") {
+          enforceRepoStorageBackend({
+            requiredBackend: resolveRequiredStorageBackend(context.input.requiredStorageBackend),
+            repoId: request.repoId,
+            mode: effectiveMode,
+            storage: context.input.storage?.[request.repoId],
+            hostCodedError: context.hostCodedError,
+          });
+        }
         const result = updateDaemonRepo({
           ...request,
           ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),
@@ -1118,8 +1158,9 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
       if (edge && edge.canonicalRoot) {
-        // Advisory annotations live only at the center. GUI and CLI share this read route.
+        // These reads need the center's live state. GUI and CLI share the transport route.
         if (
+          method === "repo.events.read" ||
           method === "repo.task.dispatches" ||
           method === "repo.fleet.overview.read" ||
           method === "repo.policy.metadata.read"

@@ -93,7 +93,11 @@ export function makeAgentRuntimeReadModel(input: {
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
-    detail: { readonly attemptChain?: boolean; readonly context?: boolean },
+    detail: {
+      readonly attemptChain?: boolean;
+      readonly context?: boolean;
+      readonly controlReceipts?: readonly import("./agent-runtime-contract.ts").AgentRuntimeControlReceiptDto[];
+    },
     dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
     const observedSession = publicRuntimeSession(session),
@@ -122,6 +126,7 @@ export function makeAgentRuntimeReadModel(input: {
         (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
           event.type === "runtime_session_outcome_observed",
       ),
+      controlReceipts = detail.controlReceipts ?? [],
       metrics = outcome?.payload.runtimeMetrics,
       occupancy =
         detail.context === true && input.rootDir !== undefined
@@ -144,7 +149,19 @@ export function makeAgentRuntimeReadModel(input: {
         ? runtimeKindForInstallation(installation).kindId
         : historicalRuntimeKindId(session, definition.snapshot),
       ...(installationError ? { installationState: "missing" as const, installationError } : {}),
-      ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
+      ...(metrics
+        ? {
+            metrics: {
+              inputTokens: metrics.inputTokens,
+              cacheReadTokens: metrics.cacheReadTokens,
+              outputTokens: metrics.outputTokens,
+              totalTokens: metrics.totalTokens,
+              toolCallCount: metrics.toolCallCount,
+              usageUnavailable: metrics.usageUnavailable,
+              compacted: null,
+            },
+          }
+        : {}),
       ...(occupancy ? { context: occupancy } : {}),
       definitionSnapshotRef: session.definitionSnapshotRef,
       definitionSnapshot: definition.snapshot,
@@ -172,6 +189,7 @@ export function makeAgentRuntimeReadModel(input: {
         };
       }),
       ...(attemptChain ? { attemptChain } : {}),
+      ...(controlReceipts.length > 0 ? { controlReceipts } : {}),
       activity: {
         lastObservedAt: observedSession.lastObservedAt,
         outcome: observedSession.outcome,
@@ -364,11 +382,16 @@ export function makeAgentRuntimeReadModel(input: {
             : `Runtime session ${runtimeSessionIdValue} was not found.`,
         );
       const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef),
+        receiptsRead = readSessionControlReceipts(input.projection, session.runtimeSessionId, target),
         dto = sessionDto(
           session,
           input.projection.readRuntimeInstallation(session.installationId),
           definitionFor(dispatch),
-          { attemptChain: true, context: true },
+          {
+            attemptChain: true,
+            context: true,
+            ...(receiptsRead ? { controlReceipts: receiptsRead.receipts } : {}),
+          },
           dispatch,
         ),
         result = resultFor(session);
@@ -382,6 +405,7 @@ export function makeAgentRuntimeReadModel(input: {
           dto,
           result?.text ?? null,
         ),
+        ...(receiptsRead ? { controlReceiptsPage: receiptsRead.page } : {}),
         watermark: cut.watermark,
         sourceRevision: cut.sourceRevision,
       };
@@ -663,23 +687,147 @@ function requiredRuntimeReadField(payload: Readonly<Record<string, unknown>>, fi
   if (typeof value !== "string" || !value) throw coded("invalid_request", `Agent runtime ${field} is required.`);
   return value;
 }
+const CONTROL_RECEIPTS_DEFAULT_LIMIT = 500;
+const CONTROL_RECEIPTS_MAX_LIMIT = 500;
+
+function readSessionControlReceipts(
+  projection: TaskProjection,
+  runtimeSessionId: string,
+  target: ReturnType<typeof runtimeSessionTarget>,
+): {
+  readonly receipts: readonly import("./agent-runtime-contract.ts").AgentRuntimeControlReceiptDto[];
+  readonly page: import("./agent-runtime-contract.ts").AgentRuntimeControlReceiptsPageDto;
+} | null {
+  const requested =
+    target.includeControlReceipts ||
+    target.controlReceiptRequestOpId !== null ||
+    target.controlReceiptsCursor !== null ||
+    target.controlReceiptsLimit !== null;
+  if (!requested) return null;
+  const types = ["runtime_session_provider_bound", "runtime_session_liveness_changed"] as const;
+  if (target.controlReceiptRequestOpId !== null) {
+    const events = projection.readRuntimeSessionEventsByType(runtimeSessionId, types, {
+      filter: "control_receipt",
+      requestOpId: target.controlReceiptRequestOpId,
+      limit: 1,
+    });
+    return {
+      receipts: mapControlReceiptEvents(events),
+      page: { cursor: null, nextCursor: null, hasMore: false },
+    };
+  }
+  const limit = target.controlReceiptsLimit ?? CONTROL_RECEIPTS_DEFAULT_LIMIT,
+    maxRevision = projection.readCut().watermark,
+    query = {
+      filter: "control_receipt",
+      ...(target.controlReceiptsAfterRevision === null ? {} : { afterRevision: target.controlReceiptsAfterRevision }),
+      maxRevision,
+      limit,
+    } as const,
+    pageEvents = projection.readRuntimeSessionEventsByType(runtimeSessionId, types, query),
+    last = pageEvents.at(-1),
+    hasMore =
+      last !== undefined &&
+      projection.readRuntimeSessionEventsByType(runtimeSessionId, types, {
+        filter: "control_receipt",
+        afterRevision: last.workspaceRevision,
+        maxRevision,
+        limit: 1,
+      }).length > 0;
+  return {
+    receipts: mapControlReceiptEvents(pageEvents),
+    page: {
+      cursor: target.controlReceiptsCursor,
+      nextCursor: hasMore && last !== undefined ? `receipt:${last.workspaceRevision}` : null,
+      hasMore,
+    },
+  };
+}
+
+function mapControlReceiptEvents(
+  events: readonly AgentRuntimeEventV1[],
+): readonly import("./agent-runtime-contract.ts").AgentRuntimeControlReceiptDto[] {
+  return events.flatMap((event) =>
+    (event.type === "runtime_session_liveness_changed" || event.type === "runtime_session_provider_bound") &&
+    event.payload.controlReceipt
+      ? [{ ...event.payload.controlReceipt, occurredAt: event.occurredAt }]
+      : [],
+  );
+}
+
+function receiptCursor(value: string): number {
+  const match = /^receipt:(\d+)$/u.exec(value),
+    revision = match ? Number(match[1]) : Number.NaN;
+  if (!Number.isSafeInteger(revision)) throw coded("invalid_cursor", `Invalid control receipt cursor: ${value}.`);
+  return revision;
+}
+
 function runtimeSessionTarget(payload: Readonly<Record<string, unknown>>): {
   readonly runtimeSessionId: string | null;
   readonly taskId: string | null;
   readonly dispatchId: string | null;
+  readonly includeControlReceipts: boolean;
+  readonly controlReceiptRequestOpId: string | null;
+  readonly controlReceiptsCursor: string | null;
+  readonly controlReceiptsAfterRevision: number | null;
+  readonly controlReceiptsLimit: number | null;
 } {
   const keys = Object.keys(payload);
-  if (keys.some((key) => !["runtimeSessionId", "taskId", "dispatchId"].includes(key)))
+  if (
+    keys.some(
+      (key) =>
+        ![
+          "runtimeSessionId",
+          "taskId",
+          "dispatchId",
+          "includeControlReceipts",
+          "controlReceiptRequestOpId",
+          "controlReceiptsCursor",
+          "controlReceiptsLimit",
+        ].includes(key),
+    )
+  )
     throw coded("invalid_request", "Agent runtime session reads accept runtimeSessionId or taskId plus dispatchId.");
   const runtimeSessionId = payload.runtimeSessionId,
     taskId = payload.taskId,
-    dispatchId = payload.dispatchId;
+    dispatchId = payload.dispatchId,
+    includeControlReceipts = payload.includeControlReceipts,
+    controlReceiptRequestOpId = payload.controlReceiptRequestOpId,
+    controlReceiptsCursor = payload.controlReceiptsCursor,
+    controlReceiptsLimit = payload.controlReceiptsLimit;
   if (runtimeSessionId !== undefined && (typeof runtimeSessionId !== "string" || !runtimeSessionId))
     throw coded("invalid_request", "Agent runtime runtimeSessionId must be non-empty when supplied.");
   if (taskId !== undefined && (typeof taskId !== "string" || !taskId))
     throw coded("invalid_request", "Agent runtime taskId must be non-empty when supplied.");
   if (dispatchId !== undefined && (typeof dispatchId !== "string" || !dispatchId))
     throw coded("invalid_request", "Agent runtime dispatchId must be non-empty when supplied.");
+  if (includeControlReceipts !== undefined && typeof includeControlReceipts !== "boolean")
+    throw coded("invalid_request", "Agent runtime includeControlReceipts must be a boolean when supplied.");
+  if (
+    controlReceiptRequestOpId !== undefined &&
+    (typeof controlReceiptRequestOpId !== "string" || !controlReceiptRequestOpId.trim())
+  )
+    throw coded("invalid_request", "Agent runtime controlReceiptRequestOpId must be non-empty when supplied.");
+  if (controlReceiptsCursor !== undefined && (typeof controlReceiptsCursor !== "string" || !controlReceiptsCursor))
+    throw coded("invalid_request", "Agent runtime controlReceiptsCursor must be a non-empty string when supplied.");
+  if (
+    controlReceiptsLimit !== undefined &&
+    (!Number.isSafeInteger(controlReceiptsLimit) ||
+      Number(controlReceiptsLimit) < 1 ||
+      Number(controlReceiptsLimit) > CONTROL_RECEIPTS_MAX_LIMIT)
+  )
+    throw coded(
+      "invalid_request",
+      `Agent runtime controlReceiptsLimit must be an integer between 1 and ${CONTROL_RECEIPTS_MAX_LIMIT}.`,
+    );
+  if (
+    controlReceiptRequestOpId !== undefined &&
+    (controlReceiptsCursor !== undefined || controlReceiptsLimit !== undefined)
+  )
+    throw coded(
+      "invalid_request",
+      "Agent runtime controlReceiptRequestOpId cannot be combined with controlReceiptsCursor or controlReceiptsLimit.",
+    );
   if (runtimeSessionId === undefined && (taskId === undefined || dispatchId === undefined))
     throw coded("invalid_request", "Agent runtime session reads require runtimeSessionId or taskId plus dispatchId.");
   if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
@@ -687,10 +835,16 @@ function runtimeSessionTarget(payload: Readonly<Record<string, unknown>>): {
       "invalid_request",
       "Agent runtime session reads cannot mix runtimeSessionId with taskId or dispatchId.",
     );
+  const cursor = typeof controlReceiptsCursor === "string" ? controlReceiptsCursor : null;
   return {
     runtimeSessionId: typeof runtimeSessionId === "string" ? runtimeSessionId : null,
     taskId: typeof taskId === "string" ? taskId : null,
     dispatchId: typeof dispatchId === "string" ? dispatchId : null,
+    includeControlReceipts: includeControlReceipts === true,
+    controlReceiptRequestOpId: typeof controlReceiptRequestOpId === "string" ? controlReceiptRequestOpId.trim() : null,
+    controlReceiptsCursor: cursor,
+    controlReceiptsAfterRevision: cursor === null ? null : receiptCursor(cursor),
+    controlReceiptsLimit: typeof controlReceiptsLimit === "number" ? controlReceiptsLimit : null,
   };
 }
 function lifecycleCursor(value: string): number {

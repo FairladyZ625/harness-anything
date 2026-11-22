@@ -170,11 +170,12 @@ export function composeAgentsSelection(
     body =
       `${base.body.trimEnd()}\n\n${overlay.body.trimEnd()}\n\n${anchor}\n\n` +
       "Repository-specific rules may be added here after explicit diagnosis; " +
-      "the deterministic base and vertical overlay above remain unchanged.\n";
+      "the deterministic base and vertical overlay above remain unchanged.\n",
+    agentsEntryRef = `builtin://${assets.compiledVertical.definition.id}/agents-entry@1`;
   return {
     selection: {
       slot: "repository.agent.entry",
-      templateRef: "builtin://software/coding/agents-entry@1",
+      templateRef: agentsEntryRef,
       materializeAs: entry.materializeAs,
       localePolicy: entry.localePolicy,
     },
@@ -183,7 +184,7 @@ export function composeAgentsSelection(
     project: {
       body,
       mediaType: "text/markdown",
-      ref: "builtin://software/coding/agents-entry@1",
+      ref: agentsEntryRef,
     },
   };
 }

@@ -250,12 +250,18 @@ export function createCenterNodePrincipals(input: {
           humanAccessToken: node.accessToken,
         });
       } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "daemon_error")
+        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
+          if (error.code === "daemon_error")
+            throw new FleetFault(
+              "keycloak_unavailable",
+              "The identity authority could not verify the replica credential.",
+              true,
+            );
           throw new FleetFault(
-            "keycloak_unavailable",
-            "The identity authority could not verify the replica credential.",
-            true,
+            error.code,
+            error instanceof Error ? error.message : "The Fleet replica credential was rejected.",
           );
+        }
         throw error;
       }
       if (!machine) return repoAdmission(node);

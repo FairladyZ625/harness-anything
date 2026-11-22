@@ -21,6 +21,9 @@ export type { CenterMovedDetails, CenterRelocatedTombstoneV1 };
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
   readonly recordTraffic?: (entry: import("../conn-log.ts").DaemonTrafficLogEntry) => void;
+  /** Called when a Fleet center RPC starts/settles so daemon rpc_inflight reflects Fleet traffic. */
+  readonly onRequestStarted?: () => void;
+  readonly onRequestSettled?: () => void;
   readonly commandResourceBudget?: ResourceBudget;
   readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
   readonly host: Pick<
@@ -38,7 +41,7 @@ export interface FleetCenterOptions {
     | "readNodeAutoClaimCandidates"
     | "readNodeAutoDispatchCandidates"
   > &
-    Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode">>;
+    Partial<Pick<DaemonHost, "readRepositoryMembers" | "unregisterFleetNode" | "cancelRuntime" | "steerRuntime">>;
   readonly stateRoot: string;
   readonly centerRepoId?: string;
   readonly relocationRoot?: string;
@@ -47,6 +50,8 @@ export interface FleetCenterOptions {
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
+  /** Server-held cluster HMAC secret for stateless Fleet read cursors independent of TLS key rotation. */
+  readonly cursorSecret?: string | Buffer | Uint8Array;
   readonly replicaDiskQuotaBytes?: number;
   /** Maximum simultaneous base-backup archive builds across every repository in this center. */
   readonly replicationBaseBackupConcurrency?: number;
@@ -98,7 +103,7 @@ export interface FleetCenterOptions {
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
-  /** Authenticates a registered node service account for the replication admission path only. */
+  /** Authenticates a registered node service account for replication and repository-read admission. */
   readonly verifyReplica?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext | null>;
   readonly buildDraining?: () => boolean;
   readonly onDeliverySettled?: () => void;
@@ -140,11 +145,20 @@ export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly activity: import("./replica-status.ts").ReplicaSyncActivity | null;
 }
 
+export interface FleetConnectionMetrics {
+  readonly activeConnections: number;
+  readonly authenticatedNodes: number;
+  readonly replicationStreams: number;
+  readonly pendingDeliveries: number;
+}
+
 export interface FleetTlsCenter {
   readonly port: number;
   readonly close: () => Promise<void>;
   /** Cuts every session the node holds, including a handshake still awaiting its verdict. */
   readonly pendingDeliveries: () => number;
+  /** O(1) in-memory connection and delivery counters for Prometheus scrapes (zero disk/DB reads). */
+  readonly connectionMetrics: () => FleetConnectionMetrics;
   readonly disconnectNode: (nodeId: string) => void;
   readonly inspectNode: (nodeId: string) => {
     readonly online: boolean;
@@ -201,6 +215,7 @@ export type SessionWindow = {
 export type Delivery = {
   readonly signal?: AbortSignal;
   readonly key: string | null;
+  readonly bulkTransferReserved?: boolean;
   readonly frames: AsyncIterable<FleetFrameV1>;
   readonly beforeSend?: () => void;
   readonly onSent?: (bytes: number) => void;

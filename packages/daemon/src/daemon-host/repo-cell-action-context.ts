@@ -90,6 +90,8 @@ import {
   listEvents as listEventsImpl,
   showEvent as showEventImpl,
 } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
+import { readAuditExportPage as readAuditExportPageImpl } from "@harness-anything/application/internal/queries/ledger-audit-export.ts";
+import { readTaskDeliveryCertificate as readTaskDeliveryCertificateImpl } from "@harness-anything/application/internal/queries/task-delivery-certificate.ts";
 import { type PublicPublication, type RepoTaskAction } from "./repo-cell-types.ts";
 import type { TaskQueryReadModel } from "./task-query-read.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
@@ -296,6 +298,8 @@ export function createRepoCellActionContext(bindings: {
     listRelations: bind(listRelationsImpl),
     listEvents: bind(listEventsImpl),
     showEvent: bind(showEventImpl),
+    auditExportPage: bind(readAuditExportPageImpl),
+    taskDeliveryCertificate: bind(readTaskDeliveryCertificateImpl),
     reviewTask: bind(reviewTaskImpl),
     taskReadSet: bind(taskReadSetImpl),
     graphView: bind(graphViewImpl),

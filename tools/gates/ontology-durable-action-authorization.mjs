@@ -886,11 +886,26 @@ const DEFAULT_SHARD_COUNT = 4;
 export function shardWorkerCount(
   parallelism = availableParallelism(),
   memoryBytes = Math.min(totalmem(), process.constrainedMemory() || Infinity),
+  concurrencyCap = authorizationAuditConcurrencyLimit(),
 ) {
   return Math.max(
     1,
-    Math.min(DEFAULT_SHARD_COUNT, parallelism, Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES)),
+    Math.min(
+      DEFAULT_SHARD_COUNT,
+      parallelism,
+      Math.floor(memoryBytes / SHARD_WORKER_MEMORY_BUDGET_BYTES),
+      concurrencyCap ?? Infinity,
+    ),
   );
+}
+
+export function authorizationAuditConcurrencyLimit(env = process.env) {
+  const raw = env.HARNESS_AUTH_AUDIT_CONCURRENCY;
+  if (raw === undefined) return null;
+  if (!/^[1-9]\d*$/u.test(raw)) {
+    throw new Error("HARNESS_AUTH_AUDIT_CONCURRENCY must be a positive integer");
+  }
+  return Number(raw);
 }
 
 /** Each worker traces its partition, then exits to free its graph and heap. */
@@ -903,7 +918,8 @@ export async function shardedAudit(rootDir, changedFiles, options = {}) {
 export async function auditAuthorizationPart(rootDir, inputs, changedFiles, options = {}) {
   if (productionFilesInScope(changedFiles)?.length === 0) return { rows: [], sourceProofs: [] };
   const { sourceRoot, only, partition, shardCount, concurrency: requestedConcurrency } = options,
-    slots = Math.max(1, requestedConcurrency ?? shardWorkerCount()),
+    workerBudget = shardWorkerCount(),
+    slots = Math.max(1, Math.min(workerBudget, requestedConcurrency ?? workerBudget)),
     count = shardCount ?? slots,
     concurrency = Math.max(1, Math.min(count, slots)),
     shards = new Array(count),

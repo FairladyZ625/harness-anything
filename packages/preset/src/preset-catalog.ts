@@ -1,7 +1,7 @@
 import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
 import { decodePackage } from "./preset-package.ts";
 import { parsePresetJson } from "./preset-json.ts";
-import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
+import { asFailure, builtinBundledRootSet, key, presetFailure } from "./preset-resolver-common.ts";
 import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -13,7 +13,7 @@ const bundledCache = new Map<string, readonly Candidate[]>();
 
 function cachedBundled(bundledRoot: string): readonly Candidate[] {
   const resolved = path.resolve(bundledRoot);
-  if (resolved !== path.resolve(defaultBundled)) return enumerateBundled(resolved);
+  if (!builtinBundledRootSet.has(resolved)) return enumerateBundled(resolved);
   let cached = bundledCache.get(resolved);
   if (cached === undefined) {
     cached = enumerateBundled(resolved);

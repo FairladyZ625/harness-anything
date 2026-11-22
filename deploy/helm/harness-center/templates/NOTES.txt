@@ -1,0 +1,47 @@
+Harness Anything Center ({{ include "harness-center.fullname" . }}) deployed in {{ .Values.workloadKind }} mode (single authority writer, replicaCount=1).
+
+1. Storage backend ({{ .Values.storage.backend }}):
+   {{- if eq .Values.storage.backend "postgres" }}
+   Mounts Secret {{ .Values.storage.existingSecret }} (key {{ .Values.storage.secretKey }}) at {{ .Values.daemon.userRoot }}/daemon-storage.json.
+   start-center.sh verifies valid PostgreSQL connection strings before launch so the daemon never silently falls back to SQLite.
+   {{- else }}
+   Uses local SQLite storage with persistent daemon-state PVC covering both {{ .Values.daemon.userRoot }} (PVC root) and {{ .Values.fleet.authorityRepoRoot }} (subPath: authority-repo).
+   {{- end }}
+
+2. External OIDC / Keycloak identity:
+   {{- if and (eq .Values.identity.mode "external") .Values.identity.issuerUrl .Values.identity.existingClientSecret }}
+   The pod entrypoint (/etc/harness/entrypoint/start-center.sh) automatically invokes
+   `ha bootstrap --mode external --url {{ .Values.identity.issuerUrl }} --realm {{ .Values.identity.realm }} --client-id {{ .Values.identity.clientId }} --client-secret-stdin`
+   on first boot while `/readyz` returns 503 until live external identity verification succeeds, then hands off via `exec` to the daemon as PID 1.
+   On subsequent restarts, persisted OIDC drift fails closed before daemon start; roll back Helm values/Secret so the pod starts with its persisted config, rotate via `ha bootstrap --operation login` + `ha bootstrap --mode external` in the running pod, then apply the upgraded Secret and values.
+   {{- else }}
+   To wire external OIDC/Keycloak automatically at pod start, set identity.mode=external,
+   identity.issuerUrl, and identity.existingClientSecret, or exec into the pod and run
+   `ha bootstrap --mode external --url <https-url> --realm <realm> --client-id harness-center --client-secret-stdin`
+   against the pod's local daemon socket.
+   {{- end }}
+
+3. Fleet TLS Center listener:
+   {{- if and .Values.fleet.enabled .Values.fleet.tlsExistingSecret .Values.fleet.authorityRepoId }}
+   Reconciles daemon-registry/v2 and fleet-center-config/v1 using the mounted TLS keypair
+   (/etc/harness/fleet-tls/{{ .Values.fleet.tlsCertKey }} & /etc/harness/fleet-tls/{{ .Values.fleet.tlsKeyKey }})
+   for repository {{ .Values.fleet.authorityRepoId }} on Service {{ include "harness-center.fleetServiceName" . }}:{{ .Values.service.fleetPort }}.
+   {{- else if .Values.fleet.enabled }}
+   To start the Fleet TLS listener automatically on boot, set fleet.authorityRepoId and
+   fleet.tlsExistingSecret (plus fleet.externalUrl for edge reachability). Alternatively, exec into
+   the pod, sign in (`ha bootstrap --operation login`), and run `ha daemon fleet center start`
+   over the local daemon socket.
+   {{- else }}
+   Fleet TLS service is disabled (fleet.enabled=false) and any stale persisted center.json is cleaned up on boot.
+   {{- end }}
+
+4. Observability & health probes:
+   {{- if .Values.metrics.enabled }}
+   Dedicated ClusterIP Service {{ include "harness-center.metricsServiceName" . }}:
+   - Metrics:   http://{{ include "harness-center.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}{{ .Values.metrics.path }}
+   - Liveness:  http://{{ include "harness-center.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/healthz
+   - Readiness: http://{{ include "harness-center.metricsServiceName" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.metricsPort }}/readyz
+   {{- else }}
+   Prometheus /metrics scraping and the metrics Service are disabled (metrics.enabled=false, HARNESS_DAEMON_METRICS_EXPOSED=0).
+   Kubernetes startup/liveness (/healthz) and readiness (/readyz) probes remain active on container port {{ .Values.metrics.port }}.
+   {{- end }}

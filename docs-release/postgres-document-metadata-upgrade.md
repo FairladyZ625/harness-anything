@@ -94,9 +94,13 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    still have a NULL header, so a completed-v5 database needs no separate command. Version 5 derives
    `dispatch_key` from either payload spelling (`dispatchKey`, or the pre-rename
    `idempotencyKey`); reviewer dispatches stay out of that scalar column because the
-   projection's normalized `runtime-dispatch-key` rows carry their qualified keys. Resume by
-   repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
-   merge scopes.
+   projection's normalized `runtime-dispatch-key` rows carry their qualified keys. The same bounded
+   64-row loop also drains `occurred_at_ms` for audit date-window reads (added as a nullable scalar
+   column with zero table rewrite and maintained for both previous and current writers by
+   `ha_event_occurred_at_ms_sync`; time-window audit reads return `projection_pending` via
+   `ha_events_occurred_ms_pending` until drained, while pure revision windows remain available).
+   Resume by repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do
+   not merge scopes.
 
    The same release also stores the default/workspace event summary in
    `default_summary_json`. The PGlite opening path drains this column before it returns a serving
@@ -139,6 +143,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    SELECT 1 FROM ha_events
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
      AND default_summary_json IS NULL LIMIT 1;
+   SELECT 1 FROM ha_events
+   WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
+     AND occurred_at_ms IS NULL LIMIT 1;
    ```
 
    Document metadata must also be complete as in phase 2. Finish the current declaration

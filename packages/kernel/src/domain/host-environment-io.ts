@@ -13,6 +13,7 @@ export const hostScratchPrefixes = Object.freeze({
   completionWitness: "ha-witness-code-",
   migrationOracle: "ha-migration-oracle-",
   migrationPlanning: "harness-migration-stage-",
+  providerProbeHome: "ha-probe-home-",
 });
 
 export const hostEnvironmentIoModule = "packages/daemon/src/daemon-host/host-environment-io.ts";
@@ -30,6 +31,16 @@ export const hostEnvironmentIoPorts: readonly HostEnvironmentIoPort[] = Object.f
     module: hostEnvironmentIoModule,
     scope: "writeHostEnvironmentFile",
     effects: ["open", "writeFile", "rename", "rm"],
+  },
+  {
+    module: hostEnvironmentIoModule,
+    scope: "openCallerOutputLineWriter",
+    effects: ["mkdir", "open", "rename", "rm"],
+  },
+  {
+    module: hostEnvironmentIoModule,
+    scope: "writeCallerOutputFile",
+    effects: ["mkdir", "open", "writeFile", "rename", "rm"],
   },
   { module: hostEnvironmentIoModule, scope: "createHostScratchDirectory", effects: ["rmSync"] },
   {

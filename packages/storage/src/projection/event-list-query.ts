@@ -13,8 +13,17 @@ import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 /** Shared center/replica list query; only descriptor rows cross this read boundary. */
 export function readEventList(db: DatabaseSync, query: EventListQuery): EventListPage {
-  if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.standard))
-    throw new Error("event list limit must be between 1 and 500");
+  if (
+    !validateStorageReadWindow(
+      query.limit,
+      storageReadPolicy.defaultValue.pageSizes.standard,
+      query.afterRevision,
+      query.revisionBound,
+    )
+  )
+    throw new Error("event list limit must be between 1 and 500 with valid revision bounds");
+  const order = query.order ?? "desc";
+  if (order !== "asc" && order !== "desc") throw new Error("event list order must be asc or desc");
   // A read-only connection may share a cache that a writer is still expanding; an incomplete
   // index must fail closed instead of returning a page that silently omits unfilled rows.
   assertEventSummaryReadIndexReady(db);
@@ -24,6 +33,7 @@ export function readEventList(db: DatabaseSync, query: EventListQuery): EventLis
     where.push(sql);
     values.push(...args);
   };
+  if (query.afterRevision !== undefined) add("event.workspace_revision > ?", query.afterRevision);
   if (query.revisionBound !== undefined) add("event.workspace_revision < ?", query.revisionBound);
   if (query.type !== undefined) add("event.event_type = ?", query.type);
   if (query.after !== undefined) add("event.occurred_at >= ?", query.after);
@@ -41,7 +51,7 @@ export function readEventList(db: DatabaseSync, query: EventListQuery): EventLis
       : "event_summary_entity_ref AS ref JOIN event_summary AS event ON event.workspace_revision = ref.workspace_revision";
   const selected = queryRows(
     db,
-    `SELECT event.row_json FROM ${from} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY event.workspace_revision DESC LIMIT ?`,
+    `SELECT event.row_json FROM ${from} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY event.workspace_revision ${order === "asc" ? "ASC" : "DESC"} LIMIT ?`,
     ...values,
     query.limit + 1,
   ).map((row) => JSON.parse(String(row.row_json)) as EventListRow);

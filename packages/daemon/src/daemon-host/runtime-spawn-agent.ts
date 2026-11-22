@@ -13,10 +13,11 @@ export function resolveDispatchAgent(
   agentId: string | undefined,
   squadId: string | undefined,
   targetAgentId: string | undefined,
+  verticalId?: string,
 ) {
   const squad =
       squadId || targetAgentId
-        ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId, binding) ??
+        ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId, binding, verticalId) ??
           (() => {
             if (squadId) throw runtimeSpawnError("squad_not_found", `Squad ${squadId} is unavailable.`);
             throw runtimeSpawnError(
@@ -30,7 +31,7 @@ export function resolveDispatchAgent(
       squad?.worker ??
       squad?.leader ??
       (agentId
-        ? (input.resolveAgent?.(agentId) ??
+        ? (input.resolveAgent?.(agentId, verticalId) ??
           (() => {
             throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
           })())
@@ -49,7 +50,7 @@ export function resolveDispatchAgent(
           return presetDocumentBody({
             repoRoot: input.rootDir,
             userRoot: presetUserRoot(input.rootDir),
-            verticalId: defaults.verticalId,
+            verticalId: verticalId ?? defaults.verticalId,
             presetId: agent.preset!,
           });
         })()

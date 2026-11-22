@@ -423,6 +423,8 @@ export const daemonTokenUsageDetailPayloadShape = shape({
   range: optionalEnum(agentRuntimeTokenUsageRangeWords),
   agentId: "string?",
   squadId: "string?",
+  limit: "number?",
+  cursor: "string?",
 });
 
 export const daemonRelationQueryPayloadShape = shape({

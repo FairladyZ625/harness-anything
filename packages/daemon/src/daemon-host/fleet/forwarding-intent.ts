@@ -90,7 +90,9 @@ export function forwardingIntentIssue(value: unknown): string | null {
       descriptor.admission["remote-edge"] === "direct" &&
       getExecutableEntityAction(intent.commandId)?.target.kind === "schedule"
     ) &&
-    !(intent.commandId === "doc-show" && intent.method === "repo.task.read")
+    !(intent.commandId === "doc-show" && intent.method === "repo.task.read") &&
+    !(intent.commandId === "runtime-cancel" && intent.method === "repo.agentRuntime.cancel") &&
+    !(intent.commandId === "runtime-steer" && intent.method === "repo.agentRuntime.steer")
   )
     return `forwarding intent command ${intent.commandId} is not center-forwardable`;
   if (

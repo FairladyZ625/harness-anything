@@ -7,6 +7,7 @@ import { readTaskDocumentOwner } from "./task-document-owner-query.ts";
 import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { isMigrationImportEvent } from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
 import { repositoryEventQueries, readDocumentRows } from "./repository-event-queries.ts";
 import { readArtifactTimelineRows } from "./artifact-timeline-projection.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
@@ -71,6 +72,13 @@ const TASK_COMPLETION_SQL = [
   "AND json_extract(event_json, '$.payload.execution.executionId') IS ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
+const TASK_IMPORTED_EVENT_SQL = [
+  "SELECT event_json FROM event_index WHERE task_id = ?",
+  "AND json_extract(event_json, '$.schema') = 'migration-import-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'entity_migrated'",
+  "AND json_extract(event_json, '$.payload.entity.kind') = 'task'",
+  "ORDER BY workspace_revision DESC LIMIT 1",
+].join(" ");
 const CANONICAL_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
   "ORDER BY workspace_revision LIMIT ?",
@@ -112,6 +120,7 @@ export function taskQueryApi(
   | "readTaskOperation"
   | "readTaskSubmissionOperation"
   | "readTaskCompletion"
+  | "readTaskImportedEvent"
   | "readRuntimeDispatch"
   | "readRuntimeDispatchById"
   | "readRuntimeDispatchByDispatchKey"
@@ -339,6 +348,13 @@ export function taskQueryApi(
         return isTaskEvent(event) ? event : null;
       });
     },
+    readTaskImportedEvent: (taskId) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const row = queryRows(db, TASK_IMPORTED_EVENT_SQL, taskId)[0];
+        if (!row) return null;
+        const event = JSON.parse(String(row.event_json));
+        return isMigrationImportEvent(event) && event.payload.entity.kind === "task" ? event : null;
+      }),
     readCanonicalEvents: (afterRevision, pageLimit) =>
       withDatabase(projectionPath, readHead, (db) => {
         if (!validateStorageReadWindow(pageLimit, storageReadPolicy.defaultValue.pageSizes.standard, afterRevision))

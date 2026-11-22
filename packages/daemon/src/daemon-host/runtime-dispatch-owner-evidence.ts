@@ -3,25 +3,17 @@ import type { RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import { readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { observeRecordedProcessGroup } from "./runtime/process-group-reconciler.ts";
 
-export function readRuntimeDispatchOwnerEvidence(
-  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch" | "readRuntimeSessionEventsByType">,
+export type RuntimeDispatchOwner = Omit<RuntimeDispatchOwnerEvidence, "processGroupPid">;
+
+/** Point-lookup of the canonical dispatch owner without scanning session liveness history. */
+export function readRuntimeDispatchOwner(
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch">,
   runtimeSessionId: string,
-): RuntimeDispatchOwnerEvidence | null {
+): RuntimeDispatchOwner | null {
   const session = projection.readRuntimeSession(runtimeSessionId);
   if (!session) return null;
   const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
   if (!dispatch) return null;
-  const livenessEvent = projection
-    .readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_liveness_changed"])
-    .findLast(
-      (event) =>
-        event.type === "runtime_session_liveness_changed" &&
-        sameWriteSource(event.source, dispatch.source) &&
-        Number.isSafeInteger(event.payload.processGroupPid) &&
-        Number(event.payload.processGroupPid) > 1,
-    );
-  const processGroupPid =
-    livenessEvent?.type === "runtime_session_liveness_changed" ? (livenessEvent.payload.processGroupPid ?? null) : null;
   return {
     actor: dispatch.actor,
     source: dispatch.source,
@@ -37,6 +29,28 @@ export function readRuntimeDispatchOwnerEvidence(
         : {}),
     },
     instanceId: dispatch.payload.instanceId,
+  };
+}
+
+export function readRuntimeDispatchOwnerEvidence(
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch" | "readRuntimeSessionEventsByType">,
+  runtimeSessionId: string,
+): RuntimeDispatchOwnerEvidence | null {
+  const owner = readRuntimeDispatchOwner(projection, runtimeSessionId);
+  if (!owner) return null;
+  const livenessEvent = projection
+    .readRuntimeSessionEventsByType(runtimeSessionId, ["runtime_session_liveness_changed"])
+    .findLast(
+      (event) =>
+        event.type === "runtime_session_liveness_changed" &&
+        sameWriteSource(event.source, owner.source) &&
+        Number.isSafeInteger(event.payload.processGroupPid) &&
+        Number(event.payload.processGroupPid) > 1,
+    );
+  const processGroupPid =
+    livenessEvent?.type === "runtime_session_liveness_changed" ? (livenessEvent.payload.processGroupPid ?? null) : null;
+  return {
+    ...owner,
     processGroupPid,
   };
 }

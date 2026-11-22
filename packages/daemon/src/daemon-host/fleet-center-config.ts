@@ -1,8 +1,33 @@
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { localDaemonTargetKey } from "./client/local-daemon-target.ts";
 import { writeFileDurably } from "../../../storage/src/durable-file.ts";
 import type { FleetCenterAdmissionRequest } from "./fleet-center-admission.ts";
+
+export const FLEET_CURSOR_SECRET_ENV = "HARNESS_FLEET_CURSOR_SECRET";
+export const FLEET_CURSOR_SECRET_FILENAME = "cursor-secret.key";
+const FLEET_CURSOR_SECRET_BYTES = 32;
+
+/** Resolve server-side HMAC key for Fleet/daemon token-usage detail cursors from
+ * `HARNESS_FLEET_CURSOR_SECRET` or a mode-0600 persisted 32-byte key in `stateRoot/cursor-secret.key` (F20). */
+export function resolveFleetCursorSecret(stateRoot: string): Buffer {
+  const envSecret = process.env[FLEET_CURSOR_SECRET_ENV];
+  if (typeof envSecret === "string" && envSecret.trim().length > 0) return Buffer.from(envSecret, "utf8");
+  const keyFile = path.join(stateRoot, FLEET_CURSOR_SECRET_FILENAME);
+  if (existsSync(keyFile)) {
+    if (!statSync(keyFile).isFile()) throw new Error(`Fleet cursor secret at ${keyFile} must be a regular file.`);
+    const raw = readFileSync(keyFile, "utf8").trim();
+    if (/^[0-9a-f]{64}$/iu.test(raw)) return Buffer.from(raw, "hex");
+    if (Buffer.byteLength(raw, "utf8") >= FLEET_CURSOR_SECRET_BYTES) return Buffer.from(raw, "utf8");
+    throw new Error(
+      `Fleet cursor secret at ${keyFile} is invalid; expected at least ${FLEET_CURSOR_SECRET_BYTES} bytes.`,
+    );
+  }
+  const generated = randomBytes(FLEET_CURSOR_SECRET_BYTES);
+  writeFileDurably(keyFile, `${generated.toString("hex")}\n`, 0o600);
+  return generated;
+}
 
 export function parseFleetCenterExternalUrl(value: string): string {
   let url: URL;

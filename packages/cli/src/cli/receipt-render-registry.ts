@@ -1,4 +1,9 @@
 import { consumeKnownError } from "../daemon/client.ts";
+import {
+  renderLedgerAuditExportReceipt,
+  renderLedgerAuditVerifyReceipt,
+  renderTaskDeliveryCertificateReceipt,
+} from "./receipt-render-audit.ts";
 import { renderTaskShow } from "./receipt-render-task-show.ts";
 import { isRecord, nonEmptyText } from "./receipt-render-values.ts";
 import { contractMigrationDryRunSummary, renderDispatchRow, renderRuntimeBatchRow } from "../cli-render.ts";
@@ -40,6 +45,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-show", (receipt) => renderTaskShow(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt)],
   ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
+  ["vertical-list", renderVerticalListReceipt],
   ["migrate-import", renderSuccessfulReceipt],
   ["task-contract-migrate", renderSuccessfulReceipt],
   ["doc-show", (receipt) => String(receipt.evidence)],
@@ -62,6 +68,12 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["vertical-kind-publish-schema", renderVerticalKindMutation],
   ["vertical-kind-retire", renderVerticalKindMutation],
   ["event-show", renderEventShowReceipt],
+  ["ledger-audit-export", (r) => renderLedgerAuditExportReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r)],
+  ["ledger-audit-verify", renderLedgerAuditVerifyReceipt],
+  [
+    "task-delivery-certificate",
+    (r) => renderTaskDeliveryCertificateReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r),
+  ],
   ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
   ["trace", (receipt) => renderTraceReceipt(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
@@ -149,6 +161,8 @@ function renderCliReceiptBase(
 ): RenderedCliReceipt {
   if (receipt.schema === "squad-control-result/v1")
     return { stream: receipt.ok === true ? "stdout" : "stderr", text: String(receipt.summary) };
+  if (receipt.schema === "audit-verify-receipt/v1")
+    return { stream: receipt.ok === true ? "stdout" : "stderr", text: renderLedgerAuditVerifyReceipt(receipt) };
   const schemaRenderer = typeof receipt.schema === "string" ? schemaRenderers.get(receipt.schema) : undefined;
   if (schemaRenderer) return { stream: "stdout", text: schemaRenderer(receipt, explainRequestRefs) };
   if (receipt.command === "edge-join" && Array.isArray(receipt.repositories))
@@ -303,6 +317,30 @@ function renderDecisionPropose(receipt: Record<string, unknown>): string {
     `next: ha relation relate --source-ref decision/${payload.decisionId}/<claim-id> --target-ref fact/<fact-id> --type evidenced-by --rationale <why> --expected-version 0` +
       " (accept requires an evidenced claim, or --judgment-only)",
   ].join("\n");
+}
+
+function renderVerticalListReceipt(receipt: Record<string, unknown>): string {
+  const rows = JSON.parse(String(receipt.evidence)) as Array<Record<string, unknown>>;
+  if (rows.length === 0) return "No verticals available.";
+  return rows
+    .map((row) => {
+      const id = String(row.id),
+        title = String(row.title ?? id),
+        layer = String(row.layer ?? "builtin"),
+        badges = [
+          layer,
+          ...(row.default === true ? ["default"] : []),
+          ...(row.shadows ? [`shadows ${String(row.shadows)}`] : []),
+        ].join(", "),
+        valid = row.valid === true ? "valid" : "invalid";
+      return [
+        `${id} — ${title} (${badges})`,
+        `  valid: ${valid}`,
+        `  source: ${String(row.source ?? "unavailable")}`,
+        `  next: ha preset list --vertical ${id}`,
+      ].join("\n");
+    })
+    .join("\n");
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {

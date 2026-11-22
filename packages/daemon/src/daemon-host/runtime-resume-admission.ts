@@ -9,12 +9,20 @@ import { daemonMethodPayloadFields } from "./protocol/daemon-protocol-commands.t
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { verifiedHandoffVersions } from "./runtime-handoff-native.ts";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SettingsV1, TaskProjection, TaskWorktreeBindingV1 } from "@harness-anything/kernel";
-import { readDispatchStream, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { resolveContainedPath } from "./contained-path.ts";
+import {
+  readDispatchStream,
+  readDispatchStreamHeaders,
+  readDispatchStreamSummary,
+  type TrustedManagedCwdKind,
+} from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
-import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
+import { resolveRuntimeCwd, resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
@@ -141,12 +149,11 @@ export function runtimeResumeAdmission(input: {
 export function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
   const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
   if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
-  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
-    ?.status;
-  if (status !== "submitted" && status !== "in_review") return false;
+  const task = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task;
+  if (task?.status !== "submitted" && task?.status !== "in_review") return false;
   const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
   return agentId !== undefined && input.resolveAgent !== undefined
-    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
+    ? input.resolveAgent(agentId, task.metadata?.verticalId)?.permissionMode === "read-only"
     : false;
 }
 
@@ -178,6 +185,48 @@ export function assertResumeAgent(
  * A start may record "no workspace on this node" without blocking its own lifecycle write; that answer does not
  * authorize a provider launch (issue #4431).
  */
+export async function preflightRuntimeSelection(input: RuntimeSpawnerInput, payload: JsonObject): Promise<void> {
+  // A resumed dispatch carries its own model and instance in the recorded stream header; do not
+  // re-resolve it from the current declaration before the resume admission reads that header.
+  if (typeof payload.dispatchId === "string" || typeof payload.providerSessionId === "string") return;
+  const runtimeInstanceId =
+      typeof payload.runtimeInstanceId === "string"
+        ? requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId")
+        : undefined,
+    agentId =
+      typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
+        ? payload.agentId
+        : undefined,
+    taskId = typeof payload.taskId === "string" ? payload.taskId : null,
+    verticalId =
+      agentId !== undefined && input.resolveAgent !== undefined && taskId !== null && !input.remote && input.projection
+        ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task?.metadata
+            ?.verticalId
+        : undefined,
+    agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
+    requested = runtimeInstanceId ?? agent?.instance;
+  if (requested === undefined) return;
+  const projection = input.remote ? null : requiredRuntimeProjection(input),
+    [sessions, instances, allowedInstanceIds, health] = await resolveRuntimeDispatchResources(
+      input,
+      input.remote,
+      projection,
+    );
+  resolveRuntimeInstanceCandidates({
+    ...(requested === undefined ? {} : { requested }),
+    ...(runtimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
+    ...(typeof payload.providerSessionId === "string" ? { providerSessionId: payload.providerSessionId } : {}),
+    agent,
+    ...(typeof payload.model === "string" ? { model: payload.model } : {}),
+    ...(typeof payload.runtimeKind === "string" ? { runtimeKind: payload.runtimeKind } : {}),
+    instances,
+    allowedInstanceIds,
+    sessions,
+    health,
+    now: input.now(),
+  });
+}
+
 export async function prepareDispatchWorktree(
   input: {
     readonly rootDir: string;
@@ -273,6 +322,57 @@ export function dispatchTaskPackageRoot(
   return workspace?.kind === "task-package" ? path.resolve(input.rootDir, workspace.path) : null;
 }
 
+/** Managed decision review package root when the dispatch targets that decision's own directory. */
+export function dispatchDecisionPackageRoot(
+  rootDir: string,
+  payload: JsonObject,
+  decisionReviewTarget: { readonly decisionId: string } | null,
+): string | null {
+  if (decisionReviewTarget === null) return null;
+  const packageRoot = path.join(
+    resolveHarnessLayout(rootDir).decisionsRoot,
+    `decision-${decisionReviewTarget.decisionId}`,
+  );
+  if (!existsSync(packageRoot)) return null;
+  if (payload.cwd === undefined) return packageRoot;
+  if (
+    typeof payload.cwd === "object" &&
+    payload.cwd !== null &&
+    !Array.isArray(payload.cwd) &&
+    (payload.cwd as Record<string, unknown>).scope === "repo-relative" &&
+    typeof (payload.cwd as Record<string, unknown>).path === "string" &&
+    path.resolve(rootDir, (payload.cwd as Record<string, unknown>).path as string) === packageRoot
+  )
+    return packageRoot;
+  return null;
+}
+
+/** Managed containment roots authorized strictly by trusted system-materialized cwd provenance. */
+export function managedRootsForTrustedCwd(
+  rootDir: string,
+  trustedManagedCwd?: TrustedManagedCwdKind,
+): readonly string[] {
+  if (trustedManagedCwd === "worktree") return [path.join(rootDir, ".worktrees")];
+  if (trustedManagedCwd === "task-package" || trustedManagedCwd === "decision-package")
+    return [resolveHarnessLayout(rootDir).authoredRoot];
+  return [];
+}
+
+/** Validate a system-materialized directory against the repository root or its declared managed roots. */
+function resolveManagedDispatchCwd(rootDir: string, target: string, managedRoots: readonly string[]): string {
+  if (!existsSync(target)) throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd directory does not exist.");
+  const directRelative = path.relative(rootDir, target);
+  const direct = resolveContainedPath(rootDir, directRelative === "" ? "." : directRelative);
+  if (direct !== null) return direct;
+  for (const managedRoot of managedRoots) {
+    if (!existsSync(managedRoot)) continue;
+    const managedRelative = path.relative(managedRoot, target);
+    const contained = resolveContainedPath(managedRoot, managedRelative === "" ? "." : managedRelative);
+    if (contained !== null) return contained;
+  }
+  throw runtimeSpawnError("invalid_runtime_cwd", "Runtime cwd must stay inside the repository.");
+}
+
 /** A package boundary takes precedence over both caller overrides and inherited cwd. */
 export function resolveDispatchCwd(
   rootDir: string,
@@ -280,25 +380,24 @@ export function resolveDispatchCwd(
   inherited: string | undefined,
   worktree: TaskWorktreeCheckout | null,
   taskPackageRoot?: string | null,
+  inheritedManagedRoots: readonly string[] = [],
 ): { readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null } {
   if (taskPackageRoot) {
-    const relativePackageRoot = path.relative(rootDir, taskPackageRoot);
     return {
-      cwd: resolveRuntimeCwd(
-        rootDir,
-        relativePackageRoot === "" ? { scope: "repo-root" } : { scope: "repo-relative", path: relativePackageRoot },
-      ),
+      cwd: resolveManagedDispatchCwd(rootDir, taskPackageRoot, [resolveHarnessLayout(rootDir).authoredRoot]),
       worktree: null,
     };
   }
-  if (payload.cwd === undefined && inherited) return { cwd: inherited, worktree: null };
+  if (payload.cwd === undefined && inherited) {
+    return {
+      cwd: resolveManagedDispatchCwd(rootDir, inherited, inheritedManagedRoots),
+      worktree: null,
+    };
+  }
   return {
-    cwd: resolveRuntimeCwd(
-      rootDir,
-      worktree
-        ? { scope: "repo-relative", path: path.relative(rootDir, worktree.cwd) }
-        : (payload.cwd ?? { scope: "repo-root" }),
-    ),
+    cwd: worktree
+      ? resolveManagedDispatchCwd(rootDir, worktree.cwd, [path.join(rootDir, ".worktrees")])
+      : resolveRuntimeCwd(rootDir, payload.cwd ?? { scope: "repo-root" }),
     worktree,
   };
 }

@@ -968,6 +968,76 @@
         "order": 79
       },
       {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#localDaemonSocketEndpoint.hash:5d0336bcd10abf44eca03ff6f3bac2e4",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/crypto.d.ts#crypto.Hash.update",
+        "order": 430
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#removeDirectorySafely:3dbef057bf60e434ec4ed1f7ff722422",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 426
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#requestOwnedDaemonCooperativeStop.sendRpc:296d49d59513dbcaa7b63a29c6bea9f1",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/net.d.ts#net.Socket.write",
+        "order": 431
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#runBoundedCommandAsync.child:24d31ff23434f29d9ba20653414d112e",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
+        "order": 427
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke-process.mjs#spawnOwnedDaemon.child:87e1f1887afe0ccd60c7e02927edb091",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
+        "order": 429
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#buildWorkspacePackage:a7bd49f3352fbc05b92180fdbad63507",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 428
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#packAndInstallArm64Packages:8ec7ff51fdb6cc1cb028b5bd54ed26a4",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 423
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#runPackagedDaemonAndEdgeSmoke:b7333ff7f6305b6dbb503ce3c1f56bfb",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 424
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#verifyNodePty.child:0ad2bc9ab81156900dfaf720ada90305",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/node-pty/typings/node-pty.d.ts#node-pty.spawn",
+        "order": 421
+      },
+      {
+        "candidateId": "action:tools:tools/gates/linux-arm64-smoke.mjs#verifyNodeSqlite:c457ff497d6aaad85c6476fb52d24117",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run",
+        "order": 422
+      },
+      {
         "candidateId": "action:tools:tools/gates/ontology-closure-scan.mjs#scanOntologyText.visit.hash:d86e15eaca87ccdbb5b93ac03de17408",
         "route": "package-assets-build",
         "role": "support",
@@ -1804,6 +1874,13 @@
         "order": 200
       },
       {
+        "candidateId": "action:tools:tools/refresh-ontology-facets.mjs#writeOntologyFacetShards:c87cd8cc54085ddf6849874c08cdcd96",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 999
+      },
+      {
         "candidateId": "action:tools:tools/release-installation.mjs#atomicJson:efc8e67d9150479d7e33871709c6da17",
         "route": "package-assets-build",
         "role": "technical-port",
@@ -1925,6 +2002,90 @@
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
         "order": 217
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:19dba6257dbac3fc4faefd97cc25a18e",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 424
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:1b49366a4c35091ea7711969d604e120",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 423
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:41dcdcaf348b2780128c463d4a1227e6",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 425
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:6cfdbbd525df5cbf635295d6e1d7f316",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 426
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildReproducibleBundle:6ea1111b68724581416ded9d8fe47091",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 425
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#buildWorkspacesInOrder:567fb20de4fe8ea9a869c4fe94711bd9",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync",
+        "order": 422
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#rebindWorkspaceLinks:2602aaec206a89b38caaa7692e65a402",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 427
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#removeBuildInfoFiles.walk:36d0f2489771e2b9972a444f938fe578",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.unlinkSync",
+        "order": 421
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory.cleanup:2d68919f2f3b1d82ec143ee33fecc7de",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 430
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory.finalize:de93fe914ac1e238b533382f37fe1534",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 431
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory:2d68919f2f3b1d82ec143ee33fecc7de",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 428
+      },
+      {
+        "candidateId": "action:tools:tools/reproducible-build.mjs#stageDeliverableDirectory:e3d58e78a0a59eae348c29f6087aef1c",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 429
       },
       {
         "candidateId": "action:tools:tools/run-gui-tests.mjs#main.child:91619e5f97a431a86859a5bdf3329925",

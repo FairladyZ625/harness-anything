@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { projectRuntimeProviderHealth } from "@harness-anything/kernel";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 
 export type RuntimeProviderHealth = {
@@ -11,7 +12,26 @@ export type RuntimeProviderHealth = {
   readonly reason: string | null;
   readonly lastFailureAt: string | null;
   readonly lastResetAt: string | null;
+  /** Independent subscription quota exhaustion cooldown, orthogonal to transport/auth health. */
+  readonly quotaExhaustedUntil?: string | null;
+  readonly quotaObservedAt?: string | null;
+  /** Exhaustion scope recorded alongside quotaExhaustedUntil so recordSuccess only clears matching scope. */
+  readonly quotaExhaustedScope?: "account" | "model" | null;
+  readonly quotaExhaustedModels?: readonly string[] | null;
 };
+
+export function effectiveProviderBlockedUntil(
+  health: Pick<RuntimeProviderHealth, "cooldownUntil" | "frozenUntil" | "quotaExhaustedUntil"> | undefined,
+  now?: string,
+): string | null {
+  if (!health) return null;
+  if (now !== undefined) return projectRuntimeProviderHealth(health, now).recoverAt;
+  const candidates = [health.frozenUntil, health.cooldownUntil, health.quotaExhaustedUntil ?? null].filter(
+    (value): value is string => value !== null && Number.isFinite(Date.parse(value)),
+  );
+  if (candidates.length === 0) return health.frozenUntil ?? health.cooldownUntil ?? health.quotaExhaustedUntil ?? null;
+  return candidates.sort((left, right) => Date.parse(right) - Date.parse(left))[0]!;
+}
 
 const empty = (instanceId: string): RuntimeProviderHealth => ({
   instanceId,
@@ -22,6 +42,10 @@ const empty = (instanceId: string): RuntimeProviderHealth => ({
   reason: null,
   lastFailureAt: null,
   lastResetAt: null,
+  quotaExhaustedUntil: null,
+  quotaObservedAt: null,
+  quotaExhaustedScope: null,
+  quotaExhaustedModels: null,
 });
 
 export function openRuntimeProviderHealthStore(userRoot: string) {
@@ -105,15 +129,113 @@ export function openRuntimeProviderHealthStore(userRoot: string) {
     persist(next);
     return next[input.instanceId]!;
   };
-  const recordSuccess = (instanceId: string, attemptStartedAt: string): RuntimeProviderHealth => {
+  const recordQuotaExhausted = (input: {
+    readonly instanceId: string;
+    readonly occurredAt: string;
+    readonly resetAt: string;
+    readonly scope?: "account" | "model";
+    readonly models?: readonly string[];
+  }): RuntimeProviderHealth => {
+    const previous = get(input.instanceId),
+      occurredMs = Date.parse(input.occurredAt),
+      previousObservedMs =
+        previous.quotaObservedAt == null ? Number.NEGATIVE_INFINITY : Date.parse(previous.quotaObservedAt);
+    if (Number.isFinite(occurredMs) && Number.isFinite(previousObservedMs) && occurredMs < previousObservedMs) {
+      return previous;
+    }
+    const previousQuotaUntil = previous.quotaExhaustedUntil ?? null,
+      quotaExhaustedUntil = input.resetAt,
+      quotaExhaustedScope = input.scope ?? null,
+      quotaExhaustedModels =
+        input.scope === "account" ? null : input.models && input.models.length > 0 ? [...input.models] : null;
+    if (
+      quotaExhaustedUntil === previousQuotaUntil &&
+      previous.quotaObservedAt === input.occurredAt &&
+      (previous.quotaExhaustedScope ?? null) === quotaExhaustedScope &&
+      JSON.stringify(previous.quotaExhaustedModels ?? null) === JSON.stringify(quotaExhaustedModels)
+    )
+      return previous;
+    const next = {
+      ...read(),
+      [input.instanceId]: {
+        ...previous,
+        quotaExhaustedUntil,
+        quotaObservedAt: input.occurredAt,
+        quotaExhaustedScope,
+        quotaExhaustedModels,
+      },
+    };
+    persist(next);
+    return next[input.instanceId]!;
+  };
+  const clearQuotaExhausted = (instanceId: string, at: string): RuntimeProviderHealth => {
+    const previous = get(instanceId);
+    if ((previous.quotaExhaustedUntil ?? null) === null) return previous;
+    const next = {
+      ...read(),
+      [instanceId]: {
+        ...previous,
+        quotaExhaustedUntil: null,
+        quotaObservedAt: at,
+        quotaExhaustedScope: null,
+        quotaExhaustedModels: null,
+      },
+    };
+    persist(next);
+    return next[instanceId]!;
+  };
+  const recordSuccess = (
+    instanceId: string,
+    attemptStartedAt: string,
+    options?: { readonly model?: string },
+  ): RuntimeProviderHealth => {
     const previous = get(instanceId),
       started = Date.parse(attemptStartedAt),
       failure = previous.lastFailureAt === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.lastFailureAt),
-      resetAt = previous.lastResetAt === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.lastResetAt);
-    if (started <= Math.max(failure, resetAt)) return previous;
-    return reset(instanceId, attemptStartedAt);
+      resetAt = previous.lastResetAt === null ? Number.NEGATIVE_INFINITY : Date.parse(previous.lastResetAt),
+      quotaObserved =
+        previous.quotaObservedAt == null ? Number.NEGATIVE_INFINITY : Date.parse(previous.quotaObservedAt),
+      quotaUntilMs = previous.quotaExhaustedUntil == null ? Number.NaN : Date.parse(previous.quotaExhaustedUntil),
+      quotaResetElapsed = Number.isFinite(quotaUntilMs) && started >= quotaUntilMs,
+      succeededModel =
+        typeof options?.model === "string" && options.model.trim().length > 0
+          ? options.model.trim().toLowerCase()
+          : null,
+      scopeMatches =
+        succeededModel !== null &&
+        (previous.quotaExhaustedScope === "account" ||
+          (previous.quotaExhaustedScope === "model" &&
+            Array.isArray(previous.quotaExhaustedModels) &&
+            previous.quotaExhaustedModels.some((entry) => entry.trim().toLowerCase() === succeededModel))),
+      clearTransport = started > Math.max(failure, resetAt),
+      clearQuota =
+        (previous.quotaExhaustedUntil ?? null) !== null &&
+        (quotaResetElapsed || (started > quotaObserved && scopeMatches));
+    if (!clearTransport && !clearQuota) return previous;
+    const next = {
+      ...read(),
+      [instanceId]: {
+        ...(clearTransport ? empty(instanceId) : previous),
+        lastResetAt: clearTransport ? attemptStartedAt : previous.lastResetAt,
+        quotaExhaustedUntil: clearQuota ? null : (previous.quotaExhaustedUntil ?? null),
+        quotaObservedAt: clearQuota ? attemptStartedAt : (previous.quotaObservedAt ?? null),
+        quotaExhaustedScope: clearQuota ? null : (previous.quotaExhaustedScope ?? null),
+        quotaExhaustedModels: clearQuota ? null : (previous.quotaExhaustedModels ?? null),
+      },
+    };
+    persist(next);
+    return next[instanceId]!;
   };
-  return Object.freeze({ get, list, reset, clear, recordFailure, recordSuccess });
+  return Object.freeze({
+    get,
+    list,
+    reset,
+    clear,
+    recordFailure,
+    recordQuotaExhausted,
+    clearQuotaExhausted,
+    recordSuccess,
+  });
 }
 
 export type RuntimeProviderHealthStore = ReturnType<typeof openRuntimeProviderHealthStore>;

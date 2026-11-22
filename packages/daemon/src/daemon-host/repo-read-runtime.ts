@@ -3,8 +3,13 @@ import { publicPublication } from "./repo-cell-receipts.ts";
 import { attachWriteReceiptAcceptance } from "@harness-anything/application/commands";
 import { nodeMaterializationStorage } from "./node-materialization-settings.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
-import { taskListQueryFromPayload } from "@harness-anything/application/queries";
-import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
+import { readCanonicalEventPage, taskListQueryFromPayload } from "@harness-anything/application/queries";
+import {
+  type CanonicalEventReadRequest,
+  type TaskProjection,
+  type TaskProjectionQueries,
+  type WriteReceiptDraft,
+} from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -51,7 +56,7 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 export function makeRepoReadRuntime(
   input: Pick<
     RepoCellOpenInput,
-    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances"
+    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances" | "fleetCursorSecret"
   > & { readonly edgeConfig?: () => FleetEdgeConfig | null },
 ) {
   input = { ...input, storage: nodeMaterializationStorage(input) };
@@ -206,6 +211,12 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
+        activeRuntimeSessionIds: () => [],
+        activeRuntimeCount: () => 0,
+        isRuntimeActive: () => false,
+        activeDispatchId: () => null,
+        activeRuntimeForSelector: () => null,
+        flushPendingSteerReceipts: unsupportedWrite,
         isIdle: unsupportedWrite,
         close: unsupportedWrite,
       },
@@ -279,6 +290,7 @@ export function makeRepoReadRuntime(
         input: {
           repoId: input.repoId,
           edgeConfig,
+          ...(input.fleetCursorSecret ? { fleetCursorSecret: input.fleetCursorSecret } : {}),
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
         },
         state: "attached",
@@ -376,6 +388,12 @@ export function makeRepoReadRuntime(
       binding?: RepoCellBinding,
       revision?: number,
     ): Awaited<ReturnType<RepoCell["read"]>> => {
+      if (method === "repo.events.read")
+        return readCanonicalEventPage(
+          ledgerReadStore(),
+          input.repoId,
+          payload as unknown as CanonicalEventReadRequest,
+        ) as never;
       if (method === "repo.entity.locator.read")
         return readEntityLocator({
           rootDir: input.rootDir,

@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { isTaskEvent } from "@harness-anything/kernel";
+import { isTaskEvent, upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
@@ -659,11 +659,6 @@ test(
     );
     assert.equal(prExists, false, "the node still needs to create its hosted PR before review");
     assert.equal(readFileSync(path.join(f.repo, "harness", planPath), "utf8"), planV2);
-    assert.equal(
-      readFileSync(path.join(f.repo, "harness", packagePath, "closeout.md"), "utf8"),
-      readFileSync(path.join(workerRoot, "harness", packagePath, "closeout.md"), "utf8"),
-      "one submit accepts the worktree closeout",
-    );
     assert.deepEqual(readFileSync(path.join(f.repo, "harness", artifactPath)), artifactBytes);
     const eventReader = makeTaskEventReader({ repoId, rootDir: f.repo });
     const frozenEvent = eventReader
@@ -671,6 +666,19 @@ test(
       .events.find((e) => isTaskEvent(e) && e.type === "execution_submitted" && e.taskId === taskId);
     assert.ok(frozenEvent && isTaskEvent(frozenEvent) && frozenEvent.type === "execution_submitted");
     assert.ok(frozenEvent.payload.execution.submission?.artifacts?.some((a) => a.path === artifactPath));
+    assert.equal(
+      readFileSync(path.join(f.repo, "harness", packagePath, "closeout.md"), "utf8"),
+      readFileSync(path.join(workerRoot, "harness", packagePath, "closeout.md"), "utf8"),
+      "one submit accepts the worktree closeout and keeps center and edge worktree byte-identical",
+    );
+    assert.equal(
+      readFileSync(path.join(f.repo, "harness", packagePath, "closeout.md"), "utf8"),
+      upsertCloseoutSubmissionFacts(
+        "## Summary\nHosted edge delivery.\n## Verification\nFrozen head verified.\n## 摘要\n边缘交付。\n## 验证\n冻结head。\n",
+        frozenEvent.payload.execution.submission!,
+      ),
+      "one submit accepts the worktree closeout and appends managed submission facts",
+    );
     await eventReader.drain();
     assert.equal(
       readFileSync(taskWorktreeDocumentBase(workerRoot, `${packagePath}/closeout.md`), "utf8"),
