@@ -1154,8 +1154,9 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
       if (edge && edge.canonicalRoot) {
-        // Advisory annotations live only at the center. GUI and CLI share this read route.
+        // These reads need the center's live state. GUI and CLI share the transport route.
         if (
+          method === "repo.events.read" ||
           method === "repo.task.dispatches" ||
           method === "repo.fleet.overview.read" ||
           method === "repo.policy.metadata.read"

@@ -254,14 +254,18 @@ test("AGY login, catalog and quota probes, and launch use the same bound install
       executions.map(({ installationId, args }) => [installationId, args]),
       [
         [second.installationId, ["models"]],
+        [second.installationId, ["-p", "/usage", "--output-format", "json"]],
         [second.installationId, ["-p", "/quota", "--output-format", "json"]],
         [second.installationId, ["models"]],
       ],
     );
+    const boundHome = path.join(userRoot, "runtime-instances", "agy-bound-installation", "home");
+    assert.ok(executions.filter(({ args }) => args[0] === "models").every(({ home }) => home === boundHome));
+    // QUOTA-16: /usage and /quota run in an ephemeral staged HOME rather than the real instance HOME.
     assert.ok(
-      executions.every(
-        ({ home }) => home === path.join(userRoot, "runtime-instances", "agy-bound-installation", "home"),
-      ),
+      executions
+        .filter(({ args }) => args[0] === "-p")
+        .every(({ home }) => home !== boundHome && existsSync(home) === false),
     );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
@@ -517,7 +521,7 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
   writeFileSync(trace, "");
   writeProviderExecutable(
     path.join(bin, "agy"),
-    `const fs = require("node:fs"); ${agyArgumentBoundary} const home = process.env.HOME ?? ""; const ultra = home.includes("agy-ultra"); const geminiDir = args[args.indexOf("--gemini-dir") + 1]; const appDataDir = args[args.indexOf("--app-data-dir") + 1]; if (args[0] === "acp" && (geminiDir !== home + "/.gemini" || appDataDir !== geminiDir + "/antigravity-cli")) process.exit(31); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args, sshConnection: process.env.SSH_CONNECTION ?? null }) + "\\n"); if (args[0] === "models") { const prefix = ultra ? "carbon" : "hydrogen"; const count = ultra ? 22 : 18; console.log(Array.from({ length: count }, (_, i) => (i === 0 ? "gemini-4-" + prefix + "-low" : "gemini-4-" + prefix + "-fixture-" + i) + "\\tmodel").join("\\n")); } else if (args[0] === "-p" && args[1] === "/quota") { console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: ultra ? 0 : 0.35, reset_time: ${JSON.stringify(resetAt)} }] }] } } })); } else if (args[0] !== "acp") process.exit(32);\n`,
+    `const fs = require("node:fs"), path = require("node:path"); ${agyArgumentBoundary} const home = process.env.HOME ?? ""; const tokenFile = path.join(home, ".gemini", "antigravity-oauth-token"); const token = fs.existsSync(tokenFile) ? fs.readFileSync(tokenFile, "utf8").trim() : ""; const ultra = token === "ultra" || home.includes("agy-ultra"); const geminiDir = args[args.indexOf("--gemini-dir") + 1]; const appDataDir = args[args.indexOf("--app-data-dir") + 1]; if (args[0] === "acp" && (geminiDir !== home + "/.gemini" || appDataDir !== geminiDir + "/antigravity-cli")) process.exit(31); fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, token, args, sshConnection: process.env.SSH_CONNECTION ?? null }) + "\\n"); if (args[0] === "models") { const prefix = ultra ? "carbon" : "hydrogen"; const count = ultra ? 22 : 18; console.log(Array.from({ length: count }, (_, i) => (i === 0 ? "gemini-4-" + prefix + "-low" : "gemini-4-" + prefix + "-fixture-" + i) + "\\tmodel").join("\\n")); } else if (args[0] === "-p" && args[1] === "/quota") { console.log(JSON.stringify({ command: { data: { groups: [{ buckets: [{ remaining_fraction: ultra ? 0 : 0.35, reset_time: ${JSON.stringify(resetAt)} }] }] } } })); } else if (args[0] !== "acp") process.exit(32);\n`,
   );
   try {
     const store = openRuntimeInstanceStore({
@@ -528,10 +532,10 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
         now: () => "2026-11-14T00:00:00.000Z",
       }),
       ports = openDaemonRuntimePorts({ instances: store });
-    for (const [instanceId, model] of [
-      ["agy-ultra", "gemini-4-carbon-low"],
-      ["agy-pro", "gemini-4-hydrogen-low"],
-    ] as const)
+    for (const [instanceId, model, tokenValue] of [
+      ["agy-ultra", "gemini-4-carbon-low", "ultra"],
+      ["agy-pro", "gemini-4-hydrogen-low", "pro"],
+    ] as const) {
       store.command({
         kind: "runtime-instance-create",
         instanceId,
@@ -543,6 +547,12 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
         authMode: "subscription",
         credentialSource: "instance",
       });
+      writeFileSync(
+        path.join(userRoot, "runtime-instances", instanceId, "home", ".gemini", "antigravity-oauth-token"),
+        tokenValue,
+        { mode: 0o600 },
+      );
+    }
 
     const [ultraStatus, proStatus] = await Promise.all([store.authStatus("agy-ultra"), store.authStatus("agy-pro")]);
     assert.equal(ultraStatus.status, "ready");
@@ -557,9 +567,9 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
     assert.ok(ultra.availableModels?.every((model) => model.includes("carbon")));
     assert.ok(pro.availableModels?.every((model) => model.includes("hydrogen")));
     assert.equal(store.runtimeProviderHealth, ports.runtimeProviderHealth);
-    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").cooldownUntil, resetAt);
-    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").reason, "quota_exhausted");
-    assert.equal(ports.runtimeProviderHealth.get("agy-pro").cooldownUntil, null);
+    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").quotaExhaustedUntil, resetAt);
+    assert.equal(ports.runtimeProviderHealth.get("agy-ultra").cooldownUntil, null);
+    assert.equal(ports.runtimeProviderHealth.get("agy-pro").quotaExhaustedUntil, null);
 
     store.command({
       kind: "runtime-instance-create",
@@ -610,19 +620,38 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
         (line) =>
           JSON.parse(line) as {
             readonly home: string;
+            readonly token: string;
             readonly args: readonly string[];
             readonly sshConnection: string | null;
           },
       );
-    assert.equal(traceRows.length, 5);
-    assert.deepEqual(
-      traceRows.map(({ home }) => home).sort(),
-      ["agy-ultra", "agy-ultra", "agy-pro", "agy-pro", "agy-pro"]
-        .map((instanceId) => path.join(userRoot, "runtime-instances", instanceId, "home"))
-        .sort(),
+    assert.equal(traceRows.length, 7);
+    assert.deepEqual(traceRows.map(({ token }) => token).sort(), [
+      "pro",
+      "pro",
+      "pro",
+      "pro",
+      "ultra",
+      "ultra",
+      "ultra",
+    ]);
+    const instanceHomes = new Set(
+      ["agy-ultra", "agy-pro"].map((instanceId) => path.join(userRoot, "runtime-instances", instanceId, "home")),
     );
+    for (const { home, args } of traceRows) {
+      if (args[0] === "models") assert.ok(instanceHomes.has(home), home);
+      else {
+        assert.equal(instanceHomes.has(home), false, `quota probe must run in ephemeral staged home, got ${home}`);
+        assert.equal(existsSync(home), false, `ephemeral staged home must be cleaned up: ${home}`);
+      }
+    }
     for (const { args, sshConnection } of traceRows) {
-      assert.deepEqual(args, args[0] === "models" ? ["models"] : ["-p", "/quota", "--output-format", "json"]);
+      assert.ok(
+        JSON.stringify(args) === JSON.stringify(["models"]) ||
+          JSON.stringify(args) === JSON.stringify(["-p", "/usage", "--output-format", "json"]) ||
+          JSON.stringify(args) === JSON.stringify(["-p", "/quota", "--output-format", "json"]),
+        JSON.stringify(args),
+      );
       assert.equal(sshConnection, "127.0.0.1 0 127.0.0.1 22");
     }
   } finally {

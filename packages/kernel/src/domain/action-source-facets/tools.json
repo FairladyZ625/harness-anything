@@ -1874,6 +1874,13 @@
         "order": 200
       },
       {
+        "candidateId": "action:tools:tools/refresh-ontology-facets.mjs#writeOntologyFacetShards:c87cd8cc54085ddf6849874c08cdcd96",
+        "route": "package-assets-build",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 999
+      },
+      {
         "candidateId": "action:tools:tools/release-installation.mjs#atomicJson:efc8e67d9150479d7e33871709c6da17",
         "route": "package-assets-build",
         "role": "technical-port",

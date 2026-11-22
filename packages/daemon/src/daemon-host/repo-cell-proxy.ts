@@ -1,4 +1,9 @@
-import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
+import {
+  canonicalEventReadRequest,
+  consumeKnownError,
+  type CanonicalEventPage,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   acquireRepoStorageLock,
@@ -8,6 +13,7 @@ import {
   fleetBackupRequiresWriter,
 } from "@harness-anything/storage";
 import path from "node:path";
+import { makeCanonicalEventWait } from "./canonical-event-wait.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
@@ -47,6 +53,7 @@ export async function openRepoCellProxy(
   } = {},
 ): Promise<RepoCell> {
   const lock = await acquireRepoStorageLock(input.storage, () => acquireWorkspaceLock(input.rootDir), input.repoId);
+  const eventWait = makeCanonicalEventWait();
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
   // Orchestration waiters (runtime batch, agent create, sessions.await) park on these sets; an exit
   // signal or outcome notification re-checks the domain settle predicate. Activity and heartbeat
@@ -94,6 +101,7 @@ export async function openRepoCellProxy(
         createWorker: options.createWriterWorker,
         onAttachStatus: input.onStatus,
         onPublishedStatus: (status) => {
+          eventWait.observeCommit(status.ledgerRevision);
           input.onStatus?.(status);
         },
         ...(input.onMetricsStatus ? { onMetricsStatus: input.onMetricsStatus } : {}),
@@ -371,6 +379,14 @@ export async function openRepoCellProxy(
     },
     terminal,
     read: async (method, payload = {}, binding, signal) => {
+      if (method === "repo.events.read") {
+        const request = canonicalEventReadRequest(payload);
+        return (await eventWait.read(
+          request,
+          (readSignal) => query<CanonicalEventPage>("read", [method, request], binding, readSignal),
+          signal,
+        )) as never;
+      }
       if (method === "repo.entity.actions.explain") {
         const at = await query<{ revision: number; binding: RepoCellBinding }>(
           "explainBasis",
@@ -496,6 +512,7 @@ export async function openRepoCellProxy(
     close: async () => {
       if (closed) return;
       closed = true;
+      eventWait.close();
       unsubscribeReplicaHealth?.();
       unsubscribeReplicaHealth = undefined;
       const closedStatus = {

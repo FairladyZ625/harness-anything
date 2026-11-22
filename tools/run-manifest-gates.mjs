@@ -557,8 +557,9 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
 /**
  * Run a workflow job's gates with a bounded worker pool, then report every failure.
  *
- * The first submitted gate starts immediately; a worker takes the next gate when its current one
- * finishes. Results stay in plan order so a caller's failure list is stable across concurrency.
+ * The authorization proof starts after the pool drains so its own workers get the runner's CPU
+ * budget even when an incremental request falls back to full scope. Results stay in plan order
+ * so a caller's failure list is stable across concurrency.
  * Independent gates only: callers keep gates that write the same tree (typecheck) out of the pool.
  *
  * @param {any[]} plan
@@ -566,15 +567,20 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
  */
 export async function runManifestGatePlanParallel(plan, { execute, concurrency = 1, githubGroups = false } = {}) {
   const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
+  const ordinaryIndices = [];
+  const authorizationIndices = [];
+  for (const [index, entry] of plan.entries()) {
+    const indices = entry.id === "ontology-durable-action-authorization" ? authorizationIndices : ordinaryIndices;
+    indices.push(index);
+  }
+  const order = [...ordinaryIndices, ...authorizationIndices];
+  const workerCount = Math.min(Math.max(1, concurrency), ordinaryIndices.length);
   const results = new Array(plan.length);
   let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), plan.length);
 
-  async function worker() {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= plan.length) return;
+  async function worker(endIndex) {
+    while (nextIndex < endIndex) {
+      const index = order[nextIndex++];
       const entry = plan[index];
       try {
         results[index] = { id: entry.id, ...(await run(entry)) };
@@ -585,7 +591,8 @@ export async function runManifestGatePlanParallel(plan, { execute, concurrency =
     }
   }
 
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(Array.from({ length: workerCount }, () => worker(ordinaryIndices.length)));
+  await worker(order.length);
   const completed = results.filter(Boolean);
   return {
     results: completed,

@@ -24,8 +24,14 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
   readonly confirmTimeoutMs?: number;
 }
 type Waiter = { readonly sequence: number; readonly resolve: () => void; readonly reject: (error: unknown) => void };
+type RevisionWaiter = {
+  readonly revision: number;
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+};
 type ReadyWaiter = { readonly resolve: (ready: boolean) => void; readonly reject: (error: unknown) => void };
 const waiters = new Map<string, Set<Waiter>>();
+const revisionWaiters = new Map<string, Set<RevisionWaiter>>();
 const readyWaiters = new Map<string, Set<ReadyWaiter>>();
 /** Running streams by key; `down` holds the last failure until the next connection attempt. */
 const streams = new Map<string, { down: unknown; connection: AbortController }>();
@@ -41,7 +47,7 @@ export function failFleetReplicaSync(
     stream = streams.get(key);
   if (!stream) return;
   stream.down = error;
-  settle(key, null, streamDown(error));
+  settle(key, null, null, streamDown(error));
   stream.connection.abort(error);
 }
 export class FleetReplicaStreamDownError extends Error {
@@ -61,18 +67,31 @@ const streamDown = (cause: unknown): FleetReplicaStreamDownError =>
     `replica stream is down: ${cause instanceof Error ? cause.message : String(cause)}`,
     cause,
   );
-const settle = (key: string, sequence: number | null, failure?: unknown): void => {
+const settle = (key: string, sequence: number | null, revision: number | null, failure?: unknown): void => {
   const pending = waiters.get(key);
-  if (!pending) return;
-  for (const waiter of [...pending])
-    if (failure !== undefined) {
-      pending.delete(waiter);
-      waiter.reject(failure);
-    } else if (sequence !== null && sequence >= waiter.sequence) {
-      pending.delete(waiter);
-      waiter.resolve();
-    }
-  if (pending.size === 0) waiters.delete(key);
+  if (pending) {
+    for (const waiter of [...pending])
+      if (failure !== undefined) {
+        pending.delete(waiter);
+        waiter.reject(failure);
+      } else if (sequence !== null && sequence >= waiter.sequence) {
+        pending.delete(waiter);
+        waiter.resolve();
+      }
+    if (pending.size === 0) waiters.delete(key);
+  }
+  const pendingRevisions = revisionWaiters.get(key);
+  if (pendingRevisions) {
+    for (const waiter of [...pendingRevisions])
+      if (failure !== undefined) {
+        pendingRevisions.delete(waiter);
+        waiter.reject(failure);
+      } else if (revision !== null && revision >= waiter.revision) {
+        pendingRevisions.delete(waiter);
+        waiter.resolve();
+      }
+    if (pendingRevisions.size === 0) revisionWaiters.delete(key);
+  }
 };
 const settleReady = (key: string, ready: boolean): void => {
   const pending = readyWaiters.get(key);
@@ -115,6 +134,44 @@ export function waitForFleetReplicaSequence(
     signal?.addEventListener("abort", onAbort, { once: true });
     pending.add(waiter);
     waiters.set(key, pending);
+  });
+}
+/**
+ * Write-then-read for idempotent `no_changes` replays (dec_66CE6F92/CH1): the wire frame keeps
+ * `replicationSequence: null`, yet the local replica may still lag behind the originally persisted
+ * workspace revision. Resolves once the resident stream has applied at least `revision`.
+ */
+export function waitForFleetReplicaRevision(
+  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">,
+  revision: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const current = readReplicaGeneration(`${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`);
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  const key = syncKey(options),
+    stream = streams.get(key);
+  if (!stream) return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
+  if (current && current.metadata.position.revision >= revision) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const pending = revisionWaiters.get(key) ?? new Set<RevisionWaiter>();
+    const waiter: RevisionWaiter = {
+      revision,
+      resolve: () => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      },
+      reject: (error) => {
+        signal?.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    };
+    const onAbort = () => {
+      pending.delete(waiter);
+      reject(signal!.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pending.add(waiter);
+    revisionWaiters.set(key, pending);
   });
 }
 /**
@@ -336,7 +393,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
           else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
           observe(null);
           options.onReplicaHealthChange?.();
-          settle(key, position.sequence);
+          settle(key, position.sequence, position.revision);
           settleReady(key, true);
           confirm();
         },
@@ -379,7 +436,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     // A restarted stream for the same view already owns the key and its waiters.
     if (streams.get(key) === stream) {
       streams.delete(key);
-      settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
+      settle(key, null, null, new FleetReplicaStreamDownError("replica stream stopped"));
       settleReady(key, false);
     }
     // Confirmations may themselves await a later replicated sequence. Withdraw those waiters

@@ -760,12 +760,18 @@ test("the shared provider stub fixture forwards probe argv on every platform", a
       status: "ready",
       code: null,
       hint: null,
-      basis: "provider",
+      basis: "metadata",
     });
     const calls = JSON.parse(readFileSync(witness, "utf8")) as string[][];
     assert.deepEqual(calls[2], ["login", "status"]);
-    assert.equal(calls[3]?.[0], "exec");
-    assert.ok(calls[3]?.includes("argv-model"));
+    assert.deepEqual(calls[3], ["app-server"]);
+    assert.equal(calls.length, 4, "read-only Codex probe must not invoke codex exec");
+    const prepared = await store.prepareLaunch("codex-stub-argv", {
+      cwd: root,
+      prompt: "verify launch argv",
+    });
+    assert.equal(prepared.args[0], "exec");
+    assert.ok(prepared.args.includes("argv-model"));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

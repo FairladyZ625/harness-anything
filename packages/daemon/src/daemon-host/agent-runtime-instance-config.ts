@@ -1,3 +1,4 @@
+import { validRuntimeSubscriptionQuota } from "@harness-anything/kernel/internal/domain/runtime-subscription-quota.ts";
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
 import {
@@ -5,6 +6,7 @@ import {
   isRuntimeInstanceRecord,
   requiredRuntimeInstanceText,
   runtimeInstanceError,
+  validAccountFingerprint,
 } from "./agent-runtime-instance-values.ts";
 import type {
   AgyRuntimeInstanceConfig,
@@ -95,6 +97,8 @@ export function runtimeInstanceConfig(
           "providerId",
           "models",
           "availableModels",
+          "quota",
+          "quotaAccountFingerprint",
           "defaultModel",
           "enabled",
           "tier",
@@ -186,7 +190,14 @@ export function runtimeInstanceConfig(
       "invalid_runtime_model",
       "Only disabled independent subscription accounts may have no selected models.",
     );
-  const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels),
+  const availableModels = value.availableModels === undefined ? undefined : normalizeModels(value.availableModels);
+  if (value.quota !== undefined && !validRuntimeSubscriptionQuota(value.quota))
+    throw runtimeInstanceError("invalid_runtime_quota", "Runtime instance quota snapshot is invalid.");
+  const accountFingerprint = value.quotaAccountFingerprint;
+  if (accountFingerprint !== undefined && !validAccountFingerprint(accountFingerprint))
+    throw runtimeInstanceError("invalid_runtime_quota", "Runtime instance quota account fingerprint is invalid.");
+  const quota = value.quota,
+    quotaAccountFingerprint = value.quota === undefined ? undefined : accountFingerprint,
     instanceIsolation = credentialSource === "instance" ? "enforced" : value.isolationState,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
     mcpPolicy = runtimeMcpPolicy(value.mcpPolicy, kindId),
@@ -219,6 +230,8 @@ export function runtimeInstanceConfig(
     providerId: identifier(value.providerId, "providerId"),
     models,
     ...(availableModels === undefined ? {} : { availableModels }),
+    ...(quota === undefined ? {} : { quota }),
+    ...(quotaAccountFingerprint === undefined ? {} : { quotaAccountFingerprint }),
     defaultModel,
     enabled,
     tier: value.tier ?? 1,

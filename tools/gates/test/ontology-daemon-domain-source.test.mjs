@@ -9,7 +9,6 @@ import {
   baselineAuthorizationInputs,
 } from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
-import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../.."),
   inputs = await baselineAuthorizationInputs(),
@@ -19,11 +18,6 @@ const repoRoot = path.resolve(import.meta.dirname, "../../.."),
       .find((action) => action.kind === kind)
       .ontology.sources.find((source) => source.role === "effect" && source.route === kind),
   );
-
-let testOrdinal = 0;
-function partitionedTest(name, fn) {
-  if (testOrdinalInPartition(testOrdinal++, process.env.HARNESS_TEST_PARTITION)) test(name, fn);
-}
 
 function audit(sourceRoot = repoRoot, only = owners) {
   return auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot, only });
@@ -65,7 +59,7 @@ test("domain-service proofs retain both canonical effect owners", () => {
 });
 
 for (const kind of owners)
-  partitionedTest(`${kind} reaches its canonical business source`, () => {
+  test(`${kind} reaches its canonical business source`, () => {
     const result = audit(repoRoot, [kind]),
       source = effects.find((entry) => entry.route === kind),
       row = result.sourceRows.find((entry) => entry.id === source.candidateId),
@@ -89,7 +83,7 @@ for (const [kind, file, from, to] of [
     'task: async () => { throw new Error("detached task catalog runtime"); }, detachedTask: async (contract, catalogAction, catalogBinding) => {',
   ],
 ])
-  partitionedTest(`detaching ${kind} keeps owner authority but rejects its unreachable source`, (t) => {
+  test(`detaching ${kind} keeps owner authority but rejects its unreachable source`, (t) => {
     const result = audit(detachedSource(t, file, from, to), [kind]),
       source = effects.find((entry) => entry.route === kind),
       row = result.sourceRows.find((entry) => entry.id === source.candidateId);
@@ -144,7 +138,7 @@ for (const [label, file, from, to] of [
     ": await cell.service.execute(command, {});",
   ],
 ])
-  partitionedTest(`canonical task-transition rejects ${label}`, (t) => {
+  test(`canonical task-transition rejects ${label}`, (t) => {
     const result = audit(detachedSource(t, file, from, to), ["task-transition"]),
       row = result.sourceRows.find((entry) => entry.id === effects[1].candidateId);
     assert.equal(row?.ok, false, JSON.stringify(row));

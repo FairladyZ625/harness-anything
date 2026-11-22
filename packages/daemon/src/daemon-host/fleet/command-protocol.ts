@@ -82,6 +82,7 @@ export const fleetBusinessOperationalReadMethods = [
   "repo.task.show",
   "repo.task.read",
   "observe.tail",
+  "repo.events.read",
   "repo.agentRuntime.events.read",
   "repo.agentRuntime.tokenUsage",
   "repo.agentRuntime.tokenUsageDetail",
@@ -505,9 +506,27 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         ("actionKind" in command ? command.actionKind : command.id) === kind &&
         ((command.admission["remote-edge"] === "via-center-forward" && command.path[0] !== "schedule") ||
           // Execution-bound doc-show resolves frozen submission blobs at the center.
-          command.id === "doc-show"),
+          command.id === "doc-show" ||
+          // Cross-machine BFF/CLI remote runtime control executes through center single-write queue.
+          command.id === "runtime-cancel" ||
+          command.id === "runtime-steer"),
     ),
   declaredActionFields = (kind: string): readonly EntityActionInputField[] | null => {
+    if (kind === "runtime-cancel")
+      return [
+        { field: "runtimeSessionId", type: "string", required: true },
+        { field: "ruling", type: "string", required: false },
+        { field: "reason", type: "string", required: false },
+        { field: "idempotencyKey", type: "string", required: false },
+      ];
+    if (kind === "runtime-steer")
+      return [
+        { field: "runtimeSessionId", type: "string", required: false },
+        { field: "dispatchId", type: "string", required: false },
+        { field: "prompt", type: "string", required: true },
+        { field: "expected", type: "json-object", required: false },
+        { field: "idempotencyKey", type: "string", required: false },
+      ];
     const command = fleetCommand(kind);
     if (!command) return null;
     const fields = new Map<string, EntityActionInputField>(),

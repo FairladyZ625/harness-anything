@@ -28,6 +28,7 @@ function runnerFixture(linked = true) {
     "tool-command-contract.mjs",
     "integration-test-shards.mjs",
     "integration-test-weights.json",
+    "fast-contract-test-weights.json",
     "test-quarantine.mjs",
     "test-quarantine.json",
     "node-test-file-activity-reporter.mjs",

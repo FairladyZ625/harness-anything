@@ -844,5 +844,11 @@
   "agentRuntime.sessionsNodeFilter": "Filter sessions by node",
   "agentRuntime.sessionsAllMembers": "All members",
   "agentRuntime.sessionsAllNodes": "All nodes",
-  "agentRuntime.sessionsMeOption": "Me ({name})"
+  "agentRuntime.sessionsMeOption": "Me ({name})",
+  "agentRuntime.quotaTitle": "Subscription quota",
+  "agentRuntime.quotaExhausted": "Exhausted",
+  "agentRuntime.quotaResetsAt": "resets {time}",
+  "agentRuntime.quotaCredits": "Credits",
+  "agentRuntime.quotaUnlimited": "Unlimited",
+  "agentRuntime.quotaWindowAria": "{label} remaining {percent}%"
 }

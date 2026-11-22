@@ -1,3 +1,4 @@
+import { CANONICAL_EVENT_WAIT_MAX_MS } from "@harness-anything/kernel/internal/ports/canonical-event-page.ts";
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { uploadFleetChange } from "./upload-client.ts";
@@ -653,8 +654,13 @@ export async function readFleetOperationalClient(
   signal?.addEventListener("abort", close, { once: true });
   try {
     signal?.throwIfAborted();
-    // Only the parked await has no response deadline. Authentication and ordinary reads
-    // keep their existing bounds; disconnecting its caller closes the peer.
+    // The idle subscription budget is separate from the time allowed for I/O.
+    const waitMs = options.method === "repo.events.read" ? options.payload.waitMs : undefined;
+    const responseTimeoutMs =
+      (options.timeoutMs ?? 5_000) +
+      (typeof waitMs === "number" && Number.isSafeInteger(waitMs)
+        ? Math.max(0, Math.min(waitMs, CANONICAL_EVENT_WAIT_MAX_MS))
+        : 0);
     const response = await session.request(
       {
         schema: "fleet.operational.read/v1",
@@ -663,7 +669,7 @@ export async function readFleetOperationalClient(
         method: options.method,
         payload: options.payload,
       },
-      options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
+      options.method === "repo.agentRuntime.sessions.await" ? null : responseTimeoutMs,
     );
     if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
     // The previous edge's closed dispatch decoder cannot accept nested extensions. Fleet keeps

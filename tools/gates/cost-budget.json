@@ -1075,6 +1075,11 @@
             "cli-event-show"
           ]
         },
+        "command:event-subscribe": {
+          "measurements": [
+            "canonical-event-page"
+          ]
+        },
         "command:explain": {
           "measurements": [
             "explain-actions"
@@ -1365,6 +1370,11 @@
         "method:repo.entity.rows.read": {
           "measurements": [
             "repo.entity.rows.read"
+          ]
+        },
+        "method:repo.events.read": {
+          "measurements": [
+            "canonical-event-page"
           ]
         },
         "method:repo.fleet.overview.read": {

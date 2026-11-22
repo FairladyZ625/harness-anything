@@ -22,7 +22,19 @@ import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
-import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { countActiveDispatchStreams } from "./dispatch-stream.ts";
+import {
+  advanceDispatchControlCursor,
+  hasPendingSteerReceipts,
+  PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+  pendingSteerReceiptCount,
+  readDispatchControlCursor,
+  readSettledControlOpIdsAboveCursor,
+  recordPendingSteerReceipt,
+  recordSettledControlAboveCursor,
+} from "./dispatch-steer-state.ts";
+import type { RuntimeSteerSelector } from "./runtime-steer-target.ts";
+import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { readFallbackExhaustion } from "./runtime-spawn-fallback.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
@@ -70,6 +82,11 @@ import { transitionDocumentReadinessContract } from "./transition-document-acces
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
 import { applyLocalAgentBinding } from "./runtime-spawn-agent.ts";
+import { createFleetEdgeRuntimeControlConsumer, type RemoteRuntimeControlEvent } from "./fleet-edge-runtime-control.ts";
+import {
+  createFleetEdgeSteerReceiptPump,
+  forwardFleetEdgeRemoteRuntimeControl,
+} from "./fleet-edge-runtime-control-bridge.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -81,7 +98,7 @@ import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runt
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-dispatch-owner-evidence.ts";
 import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
-import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";
+import { currentForwardedRuntimeAuth, runtimeForwardingContext } from "./fleet/forwarding-port.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
@@ -325,6 +342,7 @@ export function openFleetEdgeRuntime(input: {
   const workQueue = createFleetEdgeRuntimeWorkQueue((error) => {
     console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
     ready = null;
+    adoptedOnce = false;
   });
   const schedule = workQueue.schedule;
   const runScheduleCommand: typeof runFleetScheduleCommandClient = async (options) => {
@@ -1148,8 +1166,17 @@ export function openFleetEdgeRuntime(input: {
         );
     },
     ...(input.launch ? { launch: input.launch } : {}),
+    onPendingSteerReceipt: () => triggerReceiptFlush(),
     schedule,
   });
+  const receiptPump = createFleetEdgeSteerReceiptPump({
+    hasPending: () => hasPendingSteerReceipts(context().request.workspaceRoot),
+    flushPending: async () => {
+      const { request } = context();
+      await spawner.flushPendingSteerReceipts(await controlBinding(request));
+    },
+  });
+  const triggerReceiptFlush = receiptPump.trigger;
   const squad = makeFleetSquadCoordinator({
     readDispatchLifecycle,
     get request() {
@@ -1171,12 +1198,110 @@ export function openFleetEdgeRuntime(input: {
       return readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref);
     },
   });
+  const remoteControl = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => input.resolveLocation().nodeId,
+    activeRuntimeSessionIds: () => spawner.activeRuntimeSessionIds(),
+    isRuntimeActive: (runtimeSessionId) => spawner.isRuntimeActive(runtimeSessionId),
+    readDurableCursor: (runtimeSessionId) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      return dispatchId ? readDispatchControlCursor(input.resolveLocation().workspaceRoot, dispatchId) : 0;
+    },
+    advanceDurableCursor: (runtimeSessionId, revision) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      if (dispatchId) advanceDispatchControlCursor(input.resolveLocation().workspaceRoot, dispatchId, revision);
+    },
+    readSettledAboveCursor: (runtimeSessionId) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      return dispatchId ? readSettledControlOpIdsAboveCursor(input.resolveLocation().workspaceRoot, dispatchId) : [];
+    },
+    recordSettledAboveCursor: (runtimeSessionId, opId, revision) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      if (dispatchId)
+        recordSettledControlAboveCursor(input.resolveLocation().workspaceRoot, dispatchId, opId, revision);
+    },
+    isSteerBackpressured: () =>
+      pendingSteerReceiptCount(input.resolveLocation().workspaceRoot) >= PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+    readControlEventsPage: async (runtimeSessionId, afterRevision, limit) => {
+      const request = input.resolveLocation();
+      return readRuntimeProjection(request, (projection) => {
+        const cut = projection.readCut(),
+          events = projection.readRuntimeSessionEventsByType(
+            runtimeSessionId,
+            ["runtime_session_liveness_changed", "runtime_cancel_requested", "runtime_steer_requested"],
+            { afterRevision, limit, filter: "control_request" },
+          ) as readonly RemoteRuntimeControlEvent[];
+        const maxRev = events.reduce((highest, event) => Math.max(highest, event.workspaceRevision), afterRevision);
+        return {
+          events,
+          scannedToRevision: events.length < limit ? Math.max(maxRev, cut.watermark) : maxRev,
+        };
+      });
+    },
+    readCancelControlEvent: async (runtimeSessionId, afterRevision, limit) => {
+      const request = input.resolveLocation();
+      return readRuntimeProjection(request, (projection) => {
+        const cut = projection.readCut(),
+          events = projection.readRuntimeSessionEventsByType(
+            runtimeSessionId,
+            ["runtime_session_liveness_changed", "runtime_cancel_requested"],
+            { afterRevision, limit, filter: "cancel_control_request" },
+          ) as readonly RemoteRuntimeControlEvent[],
+          event = events[0] ?? null;
+        return {
+          event,
+          scannedToRevision: event ? event.workspaceRevision : cut.watermark,
+        };
+      });
+    },
+    executeCancel: async (controlRequest) => {
+      const { request } = context();
+      await spawner.cancel({ runtimeSessionId: controlRequest.runtimeSessionId }, await controlBinding(request));
+    },
+    executeSteer: async (controlRequest) => {
+      const { request } = context();
+      await spawner.steer(
+        {
+          runtimeSessionId: controlRequest.runtimeSessionId,
+          prompt: controlRequest.prompt,
+          ...(controlRequest.expected ? { expected: controlRequest.expected as unknown as JsonObject } : {}),
+        },
+        await controlBinding(request),
+        {
+          remoteControlRequestId: controlRequest.controlRequestId,
+          remoteControlOpId: controlRequest.opId,
+        },
+      );
+    },
+    reportSteerRejection: (controlRequest, rejection) => {
+      const { request } = context();
+      recordPendingSteerReceipt(
+        request.workspaceRoot,
+        controlRequest.dispatchId,
+        request.repoId,
+        controlRequest.runtimeSessionId,
+        {
+          status: "rejected",
+          controlRequestId: controlRequest.controlRequestId,
+          requestOpId: controlRequest.opId,
+          reasonCode: rejection.code,
+          message: rejection.message,
+        },
+      );
+      // F13: Wake the detached background receipt pump without awaiting any network RPC inside drain().
+      triggerReceiptFlush();
+    },
+    schedule,
+  });
   let ready: Promise<void> | null = null;
+  let adoptedOnce = false;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
         void spawner.adopt().then(
-          () => {
+          (recovered) => {
+            if (!runtimeRecoveryError(recovered)) adoptedOnce = true;
+            void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
+            if (hasPendingSteerReceipts(input.resolveLocation().workspaceRoot)) triggerReceiptFlush();
             schedule(() => squad.reconcile());
           },
           (error: unknown) => console.error("[runtime-recovery]", error),
@@ -1184,26 +1309,62 @@ export function openFleetEdgeRuntime(input: {
       });
       ready = attempt.catch((error: unknown) => {
         ready = null;
+        adoptedOnce = false;
         throw error;
       });
     }
     return ready;
+  };
+  const forwardRemoteRuntimeControl = (
+    kind: "runtime-cancel" | "runtime-steer",
+    action: JsonObject,
+    requestAuth?: DaemonAuthenticationContext,
+  ): Promise<JsonObject> => {
+    const { request, centerWriteWaitMs, writePeer } = context();
+    return forwardFleetEdgeRemoteRuntimeControl({
+      kind,
+      action,
+      ...(requestAuth ? { requestAuth } : {}),
+      centerWriteWaitMs,
+      request,
+      writePeer,
+    });
   };
   return {
     reconcile: async (signal?: AbortSignal) =>
       withExecutionSignal(signal, (connectionSignal) =>
         executionSignalContext.run(connectionSignal, async () => {
           const { request } = context();
-
-          if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+          const hasPendingReceipts = hasPendingSteerReceipts(request.workspaceRoot);
+          const hasActiveHandles = spawner.activeRuntimeCount() > 0;
+          if (!adoptedOnce) {
+            const hasDiskStreams = hasActiveHandles || countActiveDispatchStreams(request.workspaceRoot) > 0;
+            if (!hasDiskStreams && !hasPendingReceipts) {
+              adoptedOnce = true;
+              return;
+            }
+            await ensureReady();
+            const recovered = hasDiskStreams ? await spawner.adopt() : [];
+            const failed = runtimeRecoveryError(recovered);
+            if (!failed) adoptedOnce = true;
+            await remoteControl.drain();
+            if (hasPendingSteerReceipts(request.workspaceRoot)) triggerReceiptFlush();
+            await schedule(async () => {
+              await squad.flushPublications();
+              await pullRuntimeReplica();
+            });
+            if (failed) throw failed;
+            return;
+          }
+          // Steady-state ACK path (F4 & F13): zero readdirSync and zero spawner.adopt();
+          // pending receipt uplinks run asynchronously off the control drain.
+          if (hasPendingReceipts) triggerReceiptFlush();
+          if (!hasActiveHandles) return;
           await ensureReady();
-          const recovered = await spawner.adopt();
+          await remoteControl.drain();
           await schedule(async () => {
             await squad.flushPublications();
-            await pullRuntimeReplica();
           });
-          const failed = runtimeRecoveryError(recovered);
-          if (failed) throw failed;
         }),
       ),
     run: async (
@@ -1211,6 +1372,7 @@ export function openFleetEdgeRuntime(input: {
       action: JsonObject,
       connectionSignal?: AbortSignal,
     ): Promise<JsonObject> => {
+      const requestAuth = currentForwardedRuntimeAuth();
       const { runtimeReadPeer, centerWriteWaitMs, request, writePeer } = context();
 
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
@@ -1254,8 +1416,56 @@ export function openFleetEdgeRuntime(input: {
             }) as unknown as JsonObject,
         );
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
-      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await controlBinding(request));
-      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await controlBinding(request));
+      if (method === "repo.agentRuntime.cancel") {
+        const runtimeSessionId = typeof action.runtimeSessionId === "string" ? action.runtimeSessionId : null;
+        let localTarget =
+          action.escalation === true || (runtimeSessionId !== null && spawner.isRuntimeActive(runtimeSessionId));
+        if (
+          !localTarget &&
+          runtimeSessionId !== null &&
+          readReplicaGeneration(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId)) !== null
+        ) {
+          const dispatch = await readRuntimeProjection(request, (projection) =>
+            projection.readRuntimeDispatch(runtimeSessionId),
+          );
+          localTarget =
+            typeof dispatch?.source === "object" &&
+            dispatch.source !== null &&
+            dispatch.source.kind === "node" &&
+            dispatch.source.nodeId === request.nodeId;
+        }
+        if (localTarget) return spawner.cancel(action, await controlBinding(request));
+        return forwardRemoteRuntimeControl("runtime-cancel", action, requestAuth);
+      }
+      if (method === "repo.agentRuntime.steer") {
+        const selector: RuntimeSteerSelector | null =
+          typeof action.dispatchId === "string"
+            ? { dispatchId: action.dispatchId }
+            : typeof action.runtimeSessionId === "string"
+              ? { runtimeSessionId: action.runtimeSessionId }
+              : null;
+        let localTarget = selector !== null && spawner.activeRuntimeForSelector(selector) !== null;
+        if (
+          !localTarget &&
+          selector !== null &&
+          readReplicaGeneration(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId)) !== null
+        ) {
+          const dispatch = await readRuntimeProjection(request, (projection) =>
+            "dispatchId" in selector
+              ? (projection.readRuntimeDispatchById(selector.dispatchId)?.event ?? null)
+              : (projection.readRuntimeDispatch(selector.runtimeSessionId) ??
+                projection.readLatestRuntimeDispatchBySession?.(selector.runtimeSessionId) ??
+                null),
+          );
+          localTarget =
+            typeof dispatch?.source === "object" &&
+            dispatch.source !== null &&
+            dispatch.source.kind === "node" &&
+            dispatch.source.nodeId === request.nodeId;
+        }
+        if (localTarget) return spawner.steer(action, await controlBinding(request));
+        return forwardRemoteRuntimeControl("runtime-steer", action, requestAuth);
+      }
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
         await prepareRuntimeWorkspace(action.taskId);
@@ -1337,6 +1547,7 @@ export function openFleetEdgeRuntime(input: {
       })) as JsonObject;
     },
     close: () => {
+      receiptPump.close();
       workQueue.close();
       spawner.close();
     },

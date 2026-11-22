@@ -401,6 +401,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
           description: "Required for repository admin recovery when the original owner is absent from RBAC.",
         },
       ),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", description: "Caller key for idempotent remote cancellation." },
+      ),
     ],
   }),
   defineRuntimeLocalWriteCommand({
@@ -480,6 +487,13 @@ export const runtimeFleetProtocolCommands = Object.freeze([
           description: "refuse unless the leaf still carries this many steer requests",
           format: "<integer>",
         },
+      ),
+      cliInput(
+        "--idempotency-key",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", description: "Caller key for idempotent remote steering." },
       ),
     ],
   }),

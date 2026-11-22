@@ -143,6 +143,7 @@ export const dispatchLifecyclePolicies = [
     sources: [
       "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:9306d05d3442a560bd8e326ed3ad21c8",
       "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:d414e72c89c251c45f5e4fba8c81516a",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:dd2ef093bbcda3d6ec5575a89f38b657",
       "policy:packages/kernel:packages/kernel/src/handoff-packet.ts#failureList:36c6074f0b2268c178b00030c123d468",
     ].map((candidateId) => ({ candidateId, route: "runtime attempt record" })),
   },
@@ -238,6 +239,36 @@ export const daemonRuntimeSessionPolicySources = [
     "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#overviewQuery.limit:5b9089c35509a9df61ead8005a774475",
     "packages/daemon/src/daemon-host/agent-runtime-read.ts#overviewQuery.limit",
     'limit: typeof payload.limit === "number" ? payload.limit : null,',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_DEFAULT_LIMIT:09578efe5364ecdfaeebbb37a219f021",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_DEFAULT_LIMIT",
+    "const CONTROL_RECEIPTS_DEFAULT_LIMIT = 500;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_MAX_LIMIT:4ff8b8e114c2f48d0dce350e4911c49b",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_MAX_LIMIT",
+    "const CONTROL_RECEIPTS_MAX_LIMIT = 500;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.events.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.events.limit",
+    "limit: 1,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.hasMore.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.hasMore.limit",
+    "limit: 1,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget:8421dc0737d3a7b15f44d51f0a83d4e8",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget.controlReceiptsLimit:6bb93896e32ae507c9b44d3773c1ed8b",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget.controlReceiptsLimit",
+    'controlReceiptsLimit: typeof controlReceiptsLimit === "number" ? controlReceiptsLimit : null,',
   ],
   [
     "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-stream.ts#BUFFER_LIMIT:a18e2d7cd087689da1cdcf957be93f10",

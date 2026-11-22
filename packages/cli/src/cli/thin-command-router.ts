@@ -240,7 +240,8 @@ export function parseRouted(
       route.id === "node-unregister" ? { operation: "node-unregister" } : {},
       route.method,
     );
-  if (rootCommand === "event") return parseEventRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "event")
+    return parseEventRouted(route, args, rootDir, repoId, json || route.id === "event-subscribe", inputs);
   if (rootCommand === "repo") return parseRepoLifecycle(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2])) {

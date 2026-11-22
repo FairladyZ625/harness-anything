@@ -203,6 +203,138 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
   }
 });
 
+test("real CLI runtime instance list/show/--probe displays subscription quota windows and reset timestamps end-to-end", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-instance-quota-cli-")),
+    userRoot = path.join(root, "user"),
+    binRoot = path.join(root, "bin"),
+    resetAt = "2026-11-28T00:00:00.000Z";
+  mkdirSync(binRoot, { recursive: true });
+  writeProviderExecutable(
+    path.join(binRoot, "agy"),
+    `
+      const args = process.argv.slice(2);
+      if (args[0] === "--version") { console.log("agy 1.2.2"); process.exit(0); }
+      if (args[0] === "models") { console.log("gemini-4-hydrogen-low\\tmodel"); process.exit(0); }
+      if (args[0] === "-p" && args[1] === "/quota") {
+        console.log(JSON.stringify({
+          data: {
+            plan: "Ultra",
+            groups: [
+              {
+                group_id: "gemini",
+                display_name: "Gemini",
+                buckets: [{ bucket_id: "gemini-5h", display_name: "5h", remaining_fraction: 0.72, reset_time: ${JSON.stringify(resetAt)} }]
+              }
+            ]
+          }
+        }));
+        process.exit(0);
+      }
+      process.exit(0);
+    `,
+  );
+  const env = {
+    ...process.env,
+    HOME: path.join(root, "home"),
+    PATH: [
+      binRoot,
+      ...(process.env.PATH ?? "")
+        .split(path.delimiter)
+        .filter((entry) => ["agy", "agy.cmd", "agy.exe"].every((name) => !existsSync(path.join(entry, name)))),
+    ].join(path.delimiter),
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+    HARNESS_DAEMON_ID: "runtime-instance-quota-test",
+  };
+  try {
+    assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+    run(root, env, [
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "cli-agy-quota",
+      "--name",
+      "CLI AGY Quota",
+      "--kind",
+      "agy",
+      "--provider",
+      "google",
+      "--model",
+      "gemini-4-hydrogen-low",
+      "--auth",
+      "subscription",
+    ]);
+    const probed = run(root, env, ["runtime", "instance", "show", "cli-agy-quota", "--probe"]);
+    assert.match(
+      renderCliReceipt(probed).text,
+      /quota: \[Ultra\] Gemini · 5h 72% \(resets 2026-11-28T00:00:00\.000Z\)/u,
+    );
+
+    // Cached non-probe list and show render the persisted quota column and reset window.
+    const listed = run(root, env, ["runtime", "instance", "list"]);
+    const renderedList = renderCliReceipt(listed).text;
+    assert.match(renderedList, /\tQUOTA\n/u);
+    assert.match(renderedList, /\[Ultra\] Gemini · 5h 72% \(resets 2026-11-28T00:00:00\.000Z\)/u);
+
+    const shown = run(root, env, ["runtime", "instance", "show", "cli-agy-quota"]);
+    assert.match(
+      renderCliReceipt(shown).text,
+      /quota: \[Ultra\] Gemini · 5h 72% \(resets 2026-11-28T00:00:00\.000Z\)/u,
+    );
+
+    // QUOTA-20: CLI health table projects still-future clocks (max of cooldownUntil & quotaExhaustedUntil)
+    // and treats expired quotaExhaustedUntil as ready (never cooldown / quota_exhausted).
+    const healthFile = path.join(userRoot, "runtime-provider-health.json");
+    writeFileSync(
+      healthFile,
+      JSON.stringify({
+        "cli-agy-quota": {
+          instanceId: "cli-agy-quota",
+          failureStreak: 0,
+          cooldownUntil: null,
+          frozen: false,
+          frozenUntil: null,
+          reason: null,
+          lastFailureAt: null,
+          lastResetAt: null,
+          quotaExhaustedUntil: "2020-01-01T00:00:00.000Z",
+          quotaObservedAt: "2020-01-01T00:00:00.000Z",
+        },
+      }),
+      { mode: 0o600 },
+    );
+    const expiredList = renderCliReceipt(run(root, env, ["runtime", "instance", "list"])).text;
+    assert.match(expiredList, /cli-agy-quota\tCLI AGY Quota\tagy\tgemini-4-hydrogen-low\tenabled\tready\t-\t-/u);
+
+    writeFileSync(
+      healthFile,
+      JSON.stringify({
+        "cli-agy-quota": {
+          instanceId: "cli-agy-quota",
+          failureStreak: 1,
+          cooldownUntil: "2099-01-01T01:00:00.000Z",
+          frozen: false,
+          frozenUntil: null,
+          reason: "HTTP 503",
+          lastFailureAt: "2026-11-21T10:00:00.000Z",
+          lastResetAt: null,
+          quotaExhaustedUntil: "2099-01-01T05:00:00.000Z",
+          quotaObservedAt: "2026-11-21T10:00:00.000Z",
+        },
+      }),
+      { mode: 0o600 },
+    );
+    const activeBothList = renderCliReceipt(run(root, env, ["runtime", "instance", "list"])).text;
+    assert.match(
+      activeBothList,
+      /cli-agy-quota\tCLI AGY Quota\tagy\tgemini-4-hydrogen-low\tenabled\tcooldown\tHTTP 503\t2099-01-01T05:00:00\.000Z/u,
+    );
+  } finally {
+    runMaybe(root, env, ["daemon", "stop"]);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
   const result = runMaybe(root, env, args);
   assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);

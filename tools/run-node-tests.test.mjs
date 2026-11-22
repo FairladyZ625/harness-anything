@@ -15,6 +15,7 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { parse } from "yaml";
 
 // A bounded wait whose timer never keeps the test process alive on its own.
 function boundedWait(ms) {
@@ -157,6 +158,83 @@ test("partitionTestFiles covers a tier exactly and repeats only declared shared 
   assert.deepEqual(second, ["b.test.mjs", "shared.test.mjs", "c.test.mjs"]);
   assert.deepEqual([...new Set([...first, ...second])].sort(), files.sort());
   assert.throws(() => partitionTestFiles(files, "0/2"), /index from 1 to count/u);
+});
+
+test("measured file partitions balance durations and preserve the exact discovered set", () => {
+  const files = [
+    "heavy-a.test.mjs",
+    "heavy-b.test.mjs",
+    "heavy-c.test.mjs",
+    "light-a.test.mjs",
+    "light-b.test.mjs",
+    "light-c.test.mjs",
+  ];
+  const weights = {
+    "heavy-a.test.mjs": 100_000,
+    "heavy-b.test.mjs": 90_000,
+    "heavy-c.test.mjs": 80_000,
+    "light-a.test.mjs": 1_000,
+    "light-b.test.mjs": 1_000,
+    "light-c.test.mjs": 1_000,
+  };
+  const measured = Array.from({ length: 2 }, (_, index) =>
+    partitionTestFiles(files, `${index + 1}/2`, [], { strategy: "measured", weightOverrides: weights }),
+  );
+  const ordinal = Array.from({ length: 2 }, (_, index) => partitionTestFiles(files, `${index + 1}/2`));
+  const load = (partition) => partition.reduce((sum, file) => sum + (weights[file] ?? 0), 0);
+  assert.ok(Math.max(...measured.map(load)) < Math.max(...ordinal.map(load)));
+  assert.deepEqual(measured.flat().sort(), files.sort());
+  assert.deepEqual(
+    measured[0].filter((file) => measured[1].includes(file)),
+    [],
+  );
+});
+
+test("CI file partitions cover every fast and contract file and only share the durable mutation suite", () => {
+  const workflow = parse(readFileSync(path.join(repoRoot, ".github/workflows/rewrite-ci.yml"), "utf8"));
+  const job = workflow.jobs["fast-contract"];
+  assert.equal(job.env.HARNESS_TEST_PARTITION_STRATEGY, "measured");
+  assert.equal(job.env.HARNESS_TEST_CONCURRENCY, 4);
+  const shared = job.env.HARNESS_TEST_PARTITION_SHARED_FILES.split(",");
+  assert.deepEqual(shared, ["tools/gates/test/ontology-durable-action-authorization.test.mjs"]);
+  const tiers = discoverTestTierManifest(repoRoot);
+  assert.deepEqual(Object.values(tiers).flat().sort(), discoverTestFiles(repoRoot).sort());
+  const weights = JSON.parse(readFileSync(path.join(repoRoot, "tools/fast-contract-test-weights.json"), "utf8"));
+  const indices = job.strategy.matrix.partition;
+  assert.deepEqual(indices, [1, 2, 3, 4]);
+  for (const tier of ["fast", "contract"]) {
+    const files = tiers[tier];
+    const sharedInTier = shared.filter((file) => files.includes(file));
+    const partitions = indices.map((index) =>
+      partitionTestFiles(files, `${index}/${indices.length}`, shared, {
+        strategy: "measured",
+        weightOverrides: weights,
+      }),
+    );
+    for (const partition of partitions) {
+      assert.deepEqual(
+        partition.filter((file) => shared.includes(file)),
+        sharedInTier,
+      );
+      assert.deepEqual(partition.slice(0, sharedInTier.length), sharedInTier);
+    }
+    assert.deepEqual([...new Set(partitions.flat())].sort(), [...files].sort());
+    assert.deepEqual(
+      partitions
+        .flat()
+        .filter((file) => !shared.includes(file))
+        .sort(),
+      files.filter((file) => !shared.includes(file)).sort(),
+      `${tier} non-shared files must each run on exactly one partition`,
+    );
+    for (const file of files.filter((file) => !shared.includes(file) && file !== "tools/run-node-tests.test.mjs")) {
+      assert.doesNotMatch(
+        readFileSync(path.join(repoRoot, file), "utf8"),
+        /process\.env\.HARNESS_TEST_PARTITION\b/u,
+        file,
+      );
+    }
+  }
 });
 
 test("testOrdinalInPartition splits the slow shared suite exactly by registration order", () => {

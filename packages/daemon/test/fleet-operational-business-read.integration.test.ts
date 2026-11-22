@@ -34,6 +34,7 @@ const ALL_BUSINESS_READS = [
   { method: "repo.task.show", payload: { taskId: "task-fleet" } },
   { method: "repo.task.read", payload: { action: { kind: "task-show", taskId: "task-fleet" } } },
   { method: "observe.tail", payload: { kind: "events", direction: "history" } },
+  { method: "repo.events.read", payload: { afterRevision: 0, limit: 1 } },
   {
     method: "repo.agentRuntime.events.read",
     payload: { runtimeSessionId: "runtime-missing", afterCursor: "lifecycle:0" },
@@ -499,7 +500,7 @@ test(
 
     const eventsBefore = fixture.eventCount();
 
-    // 1. User with no grant on fleet-repo is 100% denied across all 9 new methods.
+    // 1. User with no grant on fleet-repo is 100% denied across all declared business read methods.
     for (const entry of ALL_BUSINESS_READS) {
       await expectFleetError(
         { repoId, method: entry.method, payload: entry.payload, accessToken: "denied-token" },
@@ -507,7 +508,7 @@ test(
       );
     }
 
-    // 2. Cross-repository read: user granted only on fleet-repo is 100% denied on other-repo across all 9 methods.
+    // 2. Cross-repository read: user granted only on fleet-repo is 100% denied on other-repo across all 10 methods.
     for (const entry of ALL_BUSINESS_READS) {
       const payload = entry.method === "repo.task.show" ? { taskId: "task-other" } : entry.payload;
       await expectFleetError(
@@ -908,7 +909,7 @@ test(
     const ownerNodeToken = await mintNodeToken(nodeId);
     const limitedNodeToken = await mintNodeToken("node-limited");
 
-    // F1 positive: registered node service-account token succeeds across ALL 9 business read methods on authorized repo.
+    // F1 positive: registered node service-account token succeeds across all declared business read methods on authorized repo.
     const limitedPeerOptions = {
       port: center.port,
       ca: fixture.cert,

@@ -21,15 +21,17 @@ import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { randomUUID } from "node:crypto";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { tmpdir } from "node:os";
+import { writeFileDurably } from "@harness-anything/storage";
 import {
   consumeKnownError,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
   resolveHarnessLayout,
+  sha256Bytes,
 } from "@harness-anything/kernel";
 import {
   FleetRemoteError,
@@ -59,6 +61,7 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
+import { worktreeAuthoredRelative } from "./worktree-setup.ts";
 import { runFleetEdgeTaskCommand, runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
@@ -639,6 +642,37 @@ export async function runFleetEdgeTask(
         : null;
     let mirror: Record<string, unknown> | null = null;
     const staged: FleetStagedConflict[] = [];
+    let acceptedWorktreeChanges = bundle?.acceptedWorktreeChanges ?? null;
+    if (applied && action.kind === "task-submit" && workspaceRoot !== null && taskId !== null && bundle !== null) {
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
+          entriesPrefix: `tasks/${taskId}`,
+        }),
+        packagePath = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId);
+      if (view !== null && packagePath !== null) {
+        const closeoutPath = `${packagePath}/closeout.md`,
+          carriedCloseout = bundle.docChanges.find((change) => change.path === closeoutPath),
+          acceptedBytes = carriedCloseout === undefined ? null : fleetMirrorCutFile(view, closeoutPath);
+        if (carriedCloseout !== undefined && acceptedBytes !== null) {
+          const layout = resolveHarnessLayout(workspaceRoot),
+            syncMatchingCopy = (root: string, expectedSha256: string): boolean => {
+              const target = path.join(root, ...closeoutPath.split("/")),
+                stat = lstatSync(target, { throwIfNoEntry: false });
+              if (!stat?.isFile() || stat.isSymbolicLink()) return false;
+              if (sha256Bytes(readAuthoredDocumentBytes(root, closeoutPath)) !== expectedSha256) return false;
+              writeFileDurably(target, acceptedBytes);
+              return true;
+            };
+          syncMatchingCopy(layout.authoredRoot, carriedCloseout.candidate.sha256);
+          acceptedWorktreeChanges = bundle.acceptedWorktreeChanges.map((change) => {
+            if (change.path !== closeoutPath || change.worktreeRoot === undefined) return change;
+            const worktreeAuthoredRoot = path.join(change.worktreeRoot, worktreeAuthoredRelative(layout));
+            return syncMatchingCopy(worktreeAuthoredRoot, sha256Bytes(change.bytes))
+              ? { ...change, bytes: acceptedBytes }
+              : change;
+          });
+        }
+      }
+    }
     // Any center effect (applied) and any content conflict both end in a pull:
     // applied commands must land in the mirror, and a rejected bundle needs the
     // center bytes staged beside the local ones for the explicit exits.
@@ -681,8 +715,8 @@ export async function runFleetEdgeTask(
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
     if (applied) {
-      if (workspaceRoot !== null && bundle !== null)
-        acceptEdgeWorktreeScanBases(bundle.acceptedWorktreeChanges, workspaceRoot);
+      if (workspaceRoot !== null && acceptedWorktreeChanges !== null)
+        acceptEdgeWorktreeScanBases(acceptedWorktreeChanges, workspaceRoot);
       rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
     }
     if (receiptFormat === "domain")

@@ -442,6 +442,7 @@ type DaemonGuiReadDataMap = {
   readonly "daemon.gui.home.read": DaemonHomeOverviewResult;
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
+  readonly "repo.events.read": import("@harness-anything/kernel").CanonicalEventPage;
   readonly "repo.tasks.assignmentDirectory": TaskAssignmentDirectory;
   readonly "repo.tasks.claimable": TaskClaimableResult;
   readonly "repo.tasks.list": DaemonTaskSnapshotListResult;
@@ -578,6 +579,7 @@ export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.home.read": Readonly<Record<string, never>>;
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
+  readonly "repo.events.read": import("@harness-anything/kernel").CanonicalEventReadRequest;
   readonly "repo.tasks.assignmentDirectory": { readonly taskId: string };
   readonly "repo.tasks.claimable": Readonly<Record<string, never>>;
   readonly "repo.tasks.list": DaemonTaskQueryPayload;
@@ -643,6 +645,10 @@ export type DaemonGuiReadPayloadMap = {
   };
   readonly "repo.agentRuntime.sessions.read": {
     readonly runtimeSessionId: string;
+    readonly includeControlReceipts?: boolean;
+    readonly controlReceiptRequestOpId?: string;
+    readonly controlReceiptsCursor?: string;
+    readonly controlReceiptsLimit?: number;
   };
   readonly "repo.agentRuntime.events.read": {
     readonly runtimeSessionId: string;

@@ -8,6 +8,8 @@ export {
   runtimeArchiveText,
   runtimeDefinitionSnapshotArtifact,
   runtimeEventContentClaims,
+  runtimeSessionAcceptsLivenessEvent,
+  runtimeSessionCarrierLiveness,
   runtimeSessionInActivityWindow,
   runtimeSessionMissingOutcomeEvidence,
   sessionProvenance,
@@ -19,6 +21,8 @@ export type {
   AgentRuntimeEventV1,
   EffectiveRuntimePermissionMode,
   EffectiveRuntimePermissionModeSource,
+  RuntimeControlReceiptStatus,
+  RuntimeControlRequest,
   RuntimeInstallation,
   RuntimeInstallationState,
   RuntimeKind,
@@ -333,6 +337,23 @@ export {
   runtimeInstanceAccountCutMatches,
   type RuntimeInstanceAccountCut,
 } from "./domain/runtime-instance-contract.ts";
+
+export {
+  findExhaustedSubscriptionQuotaWindow,
+  formatSubscriptionQuotaSummary,
+  hasRecoveredSubscriptionQuota,
+  mergeSubscriptionQuotaObservation,
+  projectRuntimeProviderHealth,
+  subscriptionQuotaExhaustionScope,
+  validRuntimeSubscriptionQuota,
+  type RuntimeProviderHealthBlockInput,
+  type RuntimeProviderHealthProjection,
+  type RuntimeQuotaCreditsV1,
+  type RuntimeQuotaWindowKind,
+  type RuntimeQuotaWindowScope,
+  type RuntimeQuotaWindowV1,
+  type RuntimeSubscriptionQuotaV1,
+} from "./domain/runtime-subscription-quota.ts";
 
 export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts";
 

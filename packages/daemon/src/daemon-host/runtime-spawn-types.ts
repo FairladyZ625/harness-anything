@@ -13,6 +13,7 @@ import type {
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
+  RuntimeControlReceiptStatus,
   RuntimeProviderUnreachable,
   RuntimeSession,
   RuntimeSessionReadQuery,
@@ -46,6 +47,15 @@ import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts"
 import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
+export interface RuntimeSteerOutcome {
+  readonly status: RuntimeControlReceiptStatus;
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
+}
+
 export interface RuntimeProcess {
   readonly pid: number;
   readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
@@ -54,6 +64,8 @@ export interface RuntimeProcess {
   readonly onExit: (
     listener: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => void,
   ) => void;
+  /** Fires when the worker host appends a correlated remote steer outcome (`steer_resumed` / `steer_dropped`). */
+  readonly onSteerOutcome?: (listener: (outcome: RuntimeSteerOutcome) => void) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
   /** Live descendants of this runtime's root process, excluding the root itself. The probe
@@ -95,6 +107,8 @@ export interface RuntimeCallbackRelay {
 export type RuntimeBinding = {
   /** Center-local proof from the current writer turn. Never carried by dispatch or RPC. */
   readonly orphanRecovery?: { readonly dispatchId: string; readonly audit: OrphanRuntimeRecoveryAudit };
+  /** Center-local proof that a remote control request originated from the authorized Center control path. */
+  readonly trustedRemoteControl?: true;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;
@@ -241,6 +255,8 @@ export type ActiveRuntime = {
   stalledAt: string | null;
   recordProviderProgress: (() => void) | null;
   recordWorkspaceProgress: ((observedAtMs?: number) => void | Promise<void>) | null;
+  /** Whether the underlying worker host emits correlated remote steer outcome records (F17). */
+  readonly steerReceiptCapable?: boolean;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;
@@ -572,5 +588,7 @@ export interface RuntimeSpawnerInput {
    * settlement. The callback owns authorization and the single-writer queue; settlement only
    * supplies bytes read from the dispatch's worktree and rechecks the resulting projection. */
   readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
+  /** Notifies an external non-blocking receipt pump when a durable pending steer receipt is recorded (F13). */
+  readonly onPendingSteerReceipt?: () => void;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

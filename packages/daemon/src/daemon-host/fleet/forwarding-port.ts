@@ -7,6 +7,7 @@ import { assertFleetEdgeRepositoryGit } from "../fleet-edge-git-preflight.ts";
 import { parseNodeAutoDispatchSnapshot } from "../node-auto-dispatch.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../../runtime-engine/runtime-spawn-errors.ts";
 import { getExecutableEntityAction, readDaemonRegistry, type IdentitySessionPort } from "@harness-anything/kernel";
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import type { FleetPeerOptions } from "./peer.ts";
@@ -23,6 +24,13 @@ import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
 import { readFleetOperationalClient, readFleetRepositoryMetadataClient, raceLifetime } from "../fleet-edge-write.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
+
+const forwardedRuntimeAuthContext = new AsyncLocalStorage<DaemonAuthenticationContext>();
+
+/** Returns the caller authentication context active for the current forwarded runtime call. */
+export function currentForwardedRuntimeAuth(): DaemonAuthenticationContext | undefined {
+  return forwardedRuntimeAuthContext.getStore();
+}
 
 export type RuntimeForwardingRequest = {
   readonly repoId: string;
@@ -105,8 +113,11 @@ export async function forward(input: {
   }
   if (input.intent.kind === "runtime") {
     const payload = { ...config, method: input.intent.method, action: input.intent.inputs.action },
+      operation = input.intent.inputs.operation,
       receipt = (await raceLifetime(
-        input.runRuntime(payload as unknown as JsonObject, runtimeAuth, input.intent.inputs.operation),
+        forwardedRuntimeAuthContext.run(runtimeAuth, () =>
+          input.runRuntime(payload as unknown as JsonObject, runtimeAuth, operation),
+        ),
         signal,
       )) as JsonObject;
     return receipt;

@@ -628,11 +628,6 @@ export const daemonRuntimeInstancePolicySources = [
     "timeoutMs: 5_000,",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-launch-config.ts#providerSubscriptionReadiness.result.timeoutMs:56d92d560ecf5a3d099f43ff3d944a05",
-    "packages/daemon/src/daemon-host/agent-runtime-launch-config.ts#providerSubscriptionReadiness.result.timeoutMs",
-    "timeoutMs: 30_000,",
-  ],
-  [
     "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-launch-config.ts#secureRuntimeBaseUrl:147f04ebad7283553bd2171f476cd0d3",
     "packages/daemon/src/daemon-host/agent-runtime-launch-config.ts#secureRuntimeBaseUrl",
     "if (",

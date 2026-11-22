@@ -1,4 +1,5 @@
-// harness-test-tier: fast
+// harness-test-tier: contract
+// Run the whole-repo closure proof alongside the other measured contract files.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
