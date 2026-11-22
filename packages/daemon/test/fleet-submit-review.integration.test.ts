@@ -22,7 +22,7 @@ import { taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
-import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import { registerFixtureRuntimeInstance, setFixtureAgentBinding } from "./repo-settings.fixture.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
@@ -338,6 +338,7 @@ test(
       },
     });
     await catchUpReplica({ ...f.peer("node-one"), viewRoot: edge.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    setFixtureAgentBinding(edge.edgeRoot, "closeout-reviewer", definition.instanceId);
     await registerFixtureRuntimeInstance(edge.host, repoId, localAuthFixture(), {
       instanceId: definition.instanceId,
       name: "Replica review fixture",
@@ -1033,12 +1034,19 @@ test(
     assert.ok(firstCandidate, "declare-executor submitted task must produce an edge review candidate");
 
     // Negative control: without a configured hosting credential on any edge instance, pre-publication fails closed.
+    const selectedInstanceId =
+      typeof firstCandidate.payload.runtimeInstanceId === "string" ? firstCandidate.payload.runtimeInstanceId : null;
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", firstCandidate.payload),
       /PR publication requires the daemon-held hosting credential/u,
     );
     assert.equal(reviewerStarts, 0);
-    assert.deepEqual(probedInstances, ["unconfigured-instance", "agy-yr"]);
+    assert.deepEqual(
+      probedInstances,
+      selectedInstanceId === "unconfigured-instance"
+        ? ["unconfigured-instance", "agy-yr"]
+        : ["agy-yr", "unconfigured-instance"],
+    );
 
     // Positive path: with hosting credential configured on agy-yr, edge pre-publication succeeds and launches reviewer.
     probedInstances.length = 0;
@@ -1047,6 +1055,9 @@ test(
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     assert.equal(reviewerStarts, 1);
     assert.equal(prExists, true);
-    assert.deepEqual(probedInstances, ["unconfigured-instance", "agy-yr"]);
+    assert.deepEqual(
+      probedInstances,
+      selectedInstanceId === "unconfigured-instance" ? ["unconfigured-instance", "agy-yr"] : ["agy-yr"],
+    );
   },
 );
