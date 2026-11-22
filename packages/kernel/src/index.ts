@@ -1,3 +1,4 @@
+export type { RuntimeExecutionTarget } from "./domain/runtime-execution-target.ts";
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {

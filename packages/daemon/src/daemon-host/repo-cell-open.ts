@@ -448,6 +448,7 @@ export async function openRepoWriterCell(
     runtimeInstanceCapacities: input.runtimeInstanceCapacities,
     runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,
+    cloudRuntime: input.cloudRuntime,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareCloudRelay ? { prepareCloudRelay: input.prepareCloudRelay } : {}),
     ...(input.reclaimRuntimeTempDirectory ? { reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory } : {}),

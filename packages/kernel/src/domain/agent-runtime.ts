@@ -1,3 +1,4 @@
+import { isCloudRuntimeExecutionTarget, type CloudRuntimeExecutionTarget } from "./runtime-execution-target.ts";
 import { isOrphanRuntimeRecoveryAudit, type OrphanRuntimeRecoveryAudit } from "./orphan-runtime-recovery.ts";
 import { writeSourceRuntimeSessionId } from "./write-source.ts";
 import {
@@ -450,6 +451,7 @@ interface RuntimePayloads {
     readonly executionId?: string;
     readonly attemptGroupId?: string;
     readonly attemptIndex?: number;
+    readonly executionTarget?: CloudRuntimeExecutionTarget;
     readonly agentId?: string;
     readonly agentName?: string;
     readonly agentDeclarationDigest?: string;
@@ -496,6 +498,8 @@ interface RuntimePayloads {
     readonly runtimeSessionId: string;
     readonly liveness: Exclude<RuntimeLiveness, "exited">;
     readonly processGroupPid?: number;
+    /** The owner requested termination but the sandbox has not acknowledged the stop. */
+    readonly stopUnconfirmed?: true;
     /** `null` clears a previously reported connection fault once real progress resumes. */
     readonly providerUnreachable?: RuntimeProviderUnreachable | null;
     readonly controlRequest?: RuntimeControlRequest;
@@ -675,7 +679,7 @@ function validateAgentRuntimePayloadFields(
         : type === "runtime_session_provider_bound"
           ? ["controlReceipt"]
           : type === "runtime_session_liveness_changed"
-            ? ["processGroupPid", "providerUnreachable", "controlRequest", "controlReceipt"]
+            ? ["processGroupPid", "providerUnreachable", "controlRequest", "controlReceipt", "stopUnconfirmed"]
             : type === "runtime_cancel_requested"
               ? ["reason"]
               : type === "runtime_steer_requested"
@@ -692,6 +696,7 @@ function validateAgentRuntimePayloadFields(
                       "executionId",
                       "attemptGroupId",
                       "attemptIndex",
+                      "executionTarget",
                       "agentId",
                       "agentName",
                       "agentDeclarationDigest",
@@ -750,7 +755,8 @@ function validateAgentRuntimePayloadFields(
     return ["runtime definition snapshot is invalid"];
   if (
     type === "runtime_dispatch_requested" &&
-    ((value.startedAt !== undefined && !timestamp(String(value.startedAt))) ||
+    ((value.executionTarget !== undefined && !isCloudRuntimeExecutionTarget(value.executionTarget)) ||
+      (value.startedAt !== undefined && !timestamp(String(value.startedAt))) ||
       (value.attemptIndex !== undefined && (!Number.isInteger(value.attemptIndex) || Number(value.attemptIndex) < 0)))
   )
     return ["runtime dispatch query metadata is invalid"];
@@ -775,6 +781,16 @@ function validateAgentRuntimePayloadFields(
       (value.permissionModeSource !== undefined && !validRuntimePermissionModeSource(value.permissionModeSource)))
   )
     return ["runtime dispatch permission metadata is invalid"];
+  if (
+    type === "runtime_session_liveness_changed" &&
+    value.stopUnconfirmed !== undefined &&
+    (value.stopUnconfirmed !== true ||
+      value.liveness !== "unknown" ||
+      value.processGroupPid !== undefined ||
+      value.controlRequest !== undefined ||
+      value.controlReceipt !== undefined)
+  )
+    return ["runtime stop observation is invalid"];
   if (
     type === "runtime_session_started" &&
     (!validRef(value.definitionSnapshotRef) ||

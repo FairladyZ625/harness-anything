@@ -336,6 +336,7 @@ export interface DaemonHostOpenInput {
   readonly endpoint?: string;
   readonly startedAt?: string;
   readonly now?: () => string;
+  readonly cloudRuntime?: import("@harness-anything/application/internal/commands/runtime-execution-target.ts").CloudRuntimeRegistration;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   readonly runtimeDiscover?: () =>

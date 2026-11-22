@@ -36,6 +36,7 @@ export interface RepoWriterBootstrapV1 {
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
     readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+    readonly cloudRuntimeTargets?: NonNullable<RepoWriterInputPorts["cloudRuntime"]>["instanceTargets"];
     readonly bootstrap?: Omit<RepoBootstrapInput, "keycloakAuthorization"> & {
       readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
     };
@@ -207,6 +208,7 @@ export type RepoWriterCapabilityName =
   | "retainCurrentAccessToken"
   | "releaseCurrentAccessToken"
   | "prepareRuntimeLaunch"
+  | "cloudRuntimeRequest"
   | "reclaimRuntimeTempDirectory"
   | "listRuntimeTempSessionIds"
   | "reclaimSettledRuntimeTempDirectories"
@@ -280,6 +282,7 @@ export type RepoWriterPrepareLaunchPayload = {
   readonly request: Parameters<NonNullable<RepoWriterInputPorts["prepareRuntimeLaunch"]>>[1];
 };
 export interface RepoWriterInputPorts {
+  readonly cloudRuntime?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["cloudRuntime"];
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch?: (
     instanceId: string,

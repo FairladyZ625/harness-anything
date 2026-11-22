@@ -1995,10 +1995,10 @@
       {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimePayloadFields",
         "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields",
-        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields, including orphan-recovery audit shape.",
+        "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields, including orphan-recovery and cloud stop evidence shape.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:16f63161c483052f14a0fda5b156c843",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:5e62896f7d86081d2a0caeb84c12cb29",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ],

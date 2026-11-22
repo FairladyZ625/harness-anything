@@ -1,3 +1,4 @@
+import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { collectRuntimeWorkspaceProgress, type RuntimeWorkspaceProgress } from "./runtime-continuation-context.ts";
 import {
   currentExecutionArrangement,
@@ -17,7 +18,7 @@ import { readDispatchLifecycle, readyDispatchLifecycle } from "./runtime-dispatc
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
+import type { CanonicalEventStore } from "@harness-anything/kernel";
 import {
   clampPermissionMode,
   resolveScheduledPermissionMode,
@@ -33,11 +34,7 @@ import {
   agentRuntimeModelSpelling,
   agentRuntimeTargetForKind,
 } from "./agent-runtime-contract.ts";
-import {
-  agentRuntimeAmbiguityWarning,
-  selectedRuntimeInstance,
-  createRuntimeInstanceDispatchState,
-} from "./runtime-instance-selection.ts";
+import { selectedRuntimeInstance, createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
 import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
@@ -114,7 +111,7 @@ import type {
   ResumeProcessObservation,
   RuntimeBinding,
   RuntimeSpawnerInput,
-  RuntimeProcess,
+  RuntimeExecutionHandle,
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
@@ -978,7 +975,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               const budgetMicros = selectedModel ? relayBudgetMicrosOf(selectedModel, dispatchUsageLimit) : null;
               try {
                 cloudRelay =
-                  input.prepareCloudRelay && budgetMicros !== null && selectedModel
+                  input.prepareCloudRelay &&
+                  !Object.hasOwn(input.cloudRuntime?.instanceTargets ?? {}, runtimeInstanceId) &&
+                  budgetMicros !== null &&
+                  selectedModel
                     ? await input.prepareCloudRelay({
                         instanceId: runtimeInstanceId,
                         attemptId: runtimeSessionId,
@@ -1081,6 +1081,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       launchedMcpPolicy = runtimeSupportsMcpPolicy(declaredKindId)
         ? (effectiveMcpPolicy ?? definition.mcpPolicy ?? "disabled")
         : undefined;
+    const executionTarget = runtimeSpawnerDelegates.runtimeExecutionTarget(input.cloudRuntime, definition.instanceId);
+    const cloudTarget = executionTarget.kind === "cloud" ? executionTarget : undefined;
+    const executionAttempt = fallbackAttempt?.attemptIndex ?? 0;
     const tasklessExecutionRole =
         !taskId && !trustedSchedule && !reviewerBinding && !decisionReviewTarget
           ? runtimeExecutionRoleForLaunch({
@@ -1168,7 +1171,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw error;
     }
     const streamStartedAt = input.now();
-    let process: RuntimeProcess | undefined;
+    let process: RuntimeExecutionHandle | undefined;
     let launchMayBeRunning = false;
     let active: ActiveRuntime | undefined = undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
@@ -1190,6 +1193,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
+        ...(cloudTarget ? { executionTarget: cloudTarget, executionAttempt } : {}),
         taskId: taskBinding?.taskId ?? null,
         executionId: taskBinding?.executionId ?? null,
         ...(decisionReviewTarget
@@ -1265,6 +1269,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             installationId: definition.installationId,
             kindId: installation.kindId,
             dispatchKey,
+            ...(cloudTarget ? { executionTarget: cloudTarget } : {}),
             definitionSnapshotRef,
             definitionSnapshot: definition,
             startedAt: streamStartedAt,
@@ -1310,7 +1315,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     };
     const cleanupFailedLaunch = async (error: unknown): Promise<{ readonly fallbackPending: boolean }> => {
       active?.releaseAuthorization?.();
-      process?.terminate();
+      if (!process?.cloud) process?.terminate();
+      if (process?.cloud && active) activeRuntimeHandles.delete(runtimeSessionId);
+      const cloudStopped = await process?.cloud?.stop();
       process?.release?.();
       releaseModelSlot();
       await cloudRelay?.close();
@@ -1333,7 +1340,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       };
-      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process)))
+      if (
+        cloudStopped === false ||
+        (process && !process.cloud && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process)))
+      )
         return { fallbackPending: false };
       if (!process && launchMayBeRunning) return { fallbackPending: false };
       dispatchState.deactivate(runtimeSessionId);
@@ -1436,7 +1446,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           installationId: installation.installationId,
           kindId: installation.kindId,
           protocolFamily,
-          hostRef: "host:local",
+          hostRef: cloudTarget ? `host:cloud:${cloudTarget.hostId}` : "host:local",
           version: installation.version,
           discoverySource: "wrapper",
           capabilities: runtimeKind.declaredCapabilities,
@@ -1450,6 +1460,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw error;
     }
     try {
+      if (cloudTarget && handoff)
+        throw runtimeSpawnError(
+          "runtime_handoff_target_unsupported",
+          "Cloud sandbox targets cannot import native handoff rollouts.",
+        );
       assertRuntimeHandoffLaunch(
         handoffEnabled,
         handoff,
@@ -1479,7 +1494,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     }
-    const launchPreparedProcess = async () => {
+    const launchPreparedProcess = async (): Promise<{
+      process: RuntimeExecutionHandle;
+      resumeObservation?: ResumeProcessObservation;
+    }> => {
       const boundLaunch = await prepareBoundRuntimeLaunch({
         input,
         prepared,
@@ -1529,6 +1547,32 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           HARNESS_WORKER_PERMISSION_MODE: input.readSettings?.().workerPermissions?.mode ?? "full",
         },
       };
+      if (cloudTarget) {
+        dispatchState.activate(runtimeSessionId, definition.instanceId);
+        launchMayBeRunning = true;
+        const executionCredential = boundLaunch.env.HARNESS_EXECUTION_CREDENTIAL;
+        return {
+          process: (process = openCloudRuntime({
+            rootDir: input.rootDir,
+            registration: input.cloudRuntime,
+            target: cloudTarget,
+            attempt: { repoId: input.repoId, dispatchId: newDispatchId, runtimeSessionId, attempt: executionAttempt },
+            now: input.now,
+            launch: {
+              instanceId: definition.instanceId,
+              kindId: declaredKindId,
+              model: definition.model,
+              prompt,
+              ...(providerSessionId ? { providerSessionId } : {}),
+              ...(launchedPermissionMode ? { permissionMode: launchedPermissionMode } : {}),
+              ...(launchedMcpPolicy ? { mcpPolicy: launchedMcpPolicy } : {}),
+              taskId: taskBinding?.taskId ?? null,
+              executionId: taskBinding?.executionId ?? null,
+              ...(executionCredential ? { executionCredential } : {}),
+            },
+          })),
+        };
+      }
       return launchRuntimeProcess(
         (...args) => {
           // Reserve before crossing the launcher port: another repository may dispatch while
@@ -1551,7 +1595,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         providerSessionId,
       );
     };
-    if (providerSessionId && !input.remote && !handoff) {
+    if (providerSessionId && !cloudTarget && !input.remote && !handoff) {
       if (!requestedDispatchId) assertNativeResumeNotExported(input.rootDir, providerSessionId, projection!);
       try {
         openStream();
@@ -1588,60 +1632,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const buildSpawnReceipt = (): JsonObject => {
       if (!requested?.event || (!requested.receipt && !requested.publication))
         throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
-      // operator sees only an id and has to infer why a same-kind sibling was skipped.
-      const selectionFields = {
-          runtimeSelection: {
-            instanceId: runtimeSelection.instanceId,
-            tier: runtimeSelection.tier,
-            selectionStrategy: runtimeSelection.selectionStrategy,
-            basis: runtimeSelection.basis,
-            reason: runtimeSelection.reason,
-            model: definition.model,
-          },
-        },
-        // `ha agent validate` / `ha agent install` warn before dispatch; the dispatch that actually
-        // had to pick is the last moment the author can still be told the choice was unstated, so the
-        // same warning rides this receipt and names the instance it took.
-        ambiguity =
-          agent === null
-            ? null
-            : agentRuntimeAmbiguityWarning({
-                agent,
-                runtimeInstances,
-                selected: runtimeSelection.instanceId,
-                selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
-              }),
-        // A launch without the operator's GitHub login still runs; this is the one place the operator
-        // learns the worker cannot publish before the credential error would arrive at `ha task push`.
-        notices = [ambiguity?.message, prepared.githubCredentialNotice].filter(
-          (notice): notice is string => typeof notice === "string",
-        ),
-        // Merge, never replace: the receipt may already carry operator notices (for example the
-        // hosting-credential warning) that this dispatch must not drop.
-        existingWarnings = Array.isArray(requested.receipt?.warnings)
-          ? (requested.receipt.warnings as readonly unknown[]).filter(
-              (entry): entry is string => typeof entry === "string",
-            )
-          : [],
-        warningFields: { warnings?: readonly string[] } =
-          notices.length === 0 ? {} : { warnings: [...existingWarnings, ...notices] };
-      return requested.receipt
-        ? {
-            ...requested.receipt,
-            runtimeSessionId,
-            dispatchId: newDispatchId,
-            ...selectionFields,
-            ...warningFields,
-            ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-          }
-        : {
-            ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
-            ...selectionFields,
-            ...warningFields,
-            ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-            authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-          };
+      return runtimeSpawnerDelegates.decorateSpawnReceipt({
+        receipt:
+          requested.receipt ??
+          runtimeSpawnReceipt(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        runtimeSelection,
+        model: definition.model,
+        agent,
+        runtimeInstances,
+        selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
+        githubCredentialNotice: prepared.githubCredentialNotice,
+        readOnlyDispatch,
+        authorizationDecision,
+      });
     };
     if (!process)
       try {
@@ -1656,7 +1661,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     const runtimeProcess = process!;
-    const releasedRuntimeProcess: RuntimeProcess = {
+    const releasedRuntimeProcess: RuntimeExecutionHandle = {
       ...runtimeProcess,
       release: () => {
         runtimeProcess.release?.();
@@ -1710,24 +1715,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       event: "runtime_spawn",
       runtimeSessionId,
       dispatchId: newDispatchId,
-      pid: runtimeProcess.pid,
+      ...(runtimeProcess.pid === undefined ? {} : { pid: runtimeProcess.pid }),
     });
-    input.schedule(async () => {
-      await publishRuntimeEvent(
-        "runtime_session_liveness_changed",
-        {
-          runtimeSessionId,
-          liveness: "live",
-          ...(runtimeProcess.pid !== globalThis.process.pid &&
-          Number.isSafeInteger(runtimeProcess.pid) &&
-          runtimeProcess.pid > 1
-            ? { processGroupPid: runtimeProcess.pid }
-            : {}),
-        },
-        randomUUID(),
-        binding,
-      );
-    }, activeBinding);
+    if (!runtimeProcess.cloud)
+      input.schedule(async () => {
+        await publishRuntimeEvent(
+          "runtime_session_liveness_changed",
+          {
+            runtimeSessionId,
+            liveness: "live",
+            ...(runtimeProcess.pid !== globalThis.process.pid &&
+            Number.isSafeInteger(runtimeProcess.pid) &&
+            runtimeProcess.pid > 1
+              ? { processGroupPid: runtimeProcess.pid }
+              : {}),
+          },
+          randomUUID(),
+          binding,
+        );
+      }, activeBinding);
     // Attachment can refuse: a present workspace the liveness watcher cannot open is a real fault, not a
     // reason to run unwatched. The process is already launched, so the failed-launch path retires
     // it — terminate, release, and drop the stream — instead of leaving a live worker owned by a
@@ -1986,10 +1992,4 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   }> {
     return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody, dispatchContext);
   }
-  const applied = (
-    event: AgentRuntimeEventV1,
-    publication: ReturnType<CanonicalEventStore["publication"]>,
-    runtimeSessionId: string,
-    dispatchId: string,
-  ) => runtimeSpawnerDelegates.applied(extracted, event, publication, runtimeSessionId, dispatchId);
 }
