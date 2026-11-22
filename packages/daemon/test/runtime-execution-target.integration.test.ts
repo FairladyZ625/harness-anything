@@ -18,10 +18,10 @@ import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   runtimeExecutionActor,
-  type RuntimeExecutionPrincipal,
+  readRuntimeExecutionPrincipal,
 } from "../src/daemon-host/runtime-execution-credential.ts";
 import { createObservableCodexProviderScript, git, readProviderTrace } from "./fleet-remote-runtime-control.fixture.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 const instanceId = "portable-provider";
@@ -283,26 +283,19 @@ for (const kind of ["local", "cloud"] as const) {
         }
         t.diagnostic(`${kind} provider applied the steer`);
         const cancel = () => cell.cancelRuntime({ runtimeSessionId: sessionId! }, binding);
-        const stale: RuntimeExecutionPrincipal = {
-          personId: binding.actor.principal.personId,
-          repoId,
-          dispatchId,
-          runtimeSessionId: sessionId,
-          taskId,
-          executionId,
-          role: "implementation",
-          source: "local",
-          expiresAt: new Date(Date.now() + 60000).toISOString(),
-        };
+        const stale = await readRuntimeExecutionPrincipal(await policyTestCenter(), dispatchId);
+        assert.equal(stale.executionId, executionId);
+        assert.equal(stale.runtimeSessionId, sessionId);
         const lateSubmit = () =>
-          cell.run(
-            { kind: "task-submit", taskId, executionId },
-            {
-              ...binding,
-              actor: runtimeExecutionActor(stale),
-              executionPrincipal: stale,
-            },
-          );
+          cell
+            .run(
+              { kind: "task-submit", taskId, executionId },
+              { ...binding, actor: runtimeExecutionActor(stale), executionPrincipal: stale },
+            )
+            .then(
+              (receipt) => receipt.code,
+              (error: unknown) => (error instanceof Error && "code" in error ? error.code : undefined),
+            );
         if (kind === "cloud") {
           cloud.partitioned = true;
           await assert.rejects(cancel(), { code: "stop_unconfirmed" });
@@ -312,8 +305,7 @@ for (const kind of ["local", "cloud"] as const) {
           assert.equal(held?.policy.canWrite, false);
           assert.equal(held?.attempt.task?.leaseReleased, false);
           await assert.rejects(spawn("target-partitioned"), { code: "runtime_task_writer_conflict" });
-          const during = await lateSubmit();
-          assert.equal(during.code, "execution_credential_rejected", JSON.stringify(during));
+          assert.equal(await lateSubmit(), "execution_credential_rejected");
           assert.equal(cloud.attempts.get(dispatchId)?.stopped, false);
           cloud.partitioned = false;
           cloud.wrongStopReceipt = true;
@@ -346,8 +338,7 @@ for (const kind of ["local", "cloud"] as const) {
         assert.notEqual(restarted.executionId, executionId);
         const second = await spawn("target-second");
         assert.notEqual(second.runtimeSessionId, sessionId);
-        const late = await lateSubmit();
-        assert.equal(late.code, "execution_credential_rejected", JSON.stringify(late));
+        assert.equal(await lateSubmit(), "execution_credential_rejected");
         sessionId = String(second.runtimeSessionId);
         assert.equal((await cancel()).outcome, "applied");
         sessionId = undefined;
