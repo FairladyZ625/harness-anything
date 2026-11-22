@@ -32,6 +32,7 @@ export type {
   TaskProjectionFactoryOptions,
   TaskProjectionReaderFactoryOptions,
 } from "./projection/rebuildable-task-projection-factory.ts";
+export { withProjectionSqlHeartbeat } from "./projection/rebuildable-task-projection-sql.ts";
 export { readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
 export {
   legacyRelationManualReason,
