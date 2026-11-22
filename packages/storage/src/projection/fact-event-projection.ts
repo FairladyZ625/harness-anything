@@ -28,7 +28,21 @@ import { ftsQuery } from "./fts-query.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { prepareQuery, queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-sql.ts";
 
-export function createFactProjectionTables(db: DatabaseSync): void {
+/** Reverse trace readers repeat this expression verbatim so SQLite matches its index; json_valid
+ * keeps undecodable row_json fixtures from failing index maintenance or scans. */
+export const factObservedCommitSql = (column = "row_json"): string =>
+  `(CASE WHEN json_valid(${column}) THEN json_extract(${column}, '$.observedCommit') END)`;
+
+export const FACT_DEFERRED_INDEXES: readonly string[] = [
+  "CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC)",
+  "CREATE INDEX IF NOT EXISTS fact_observed_id_page ON fact(observed_at DESC, fact_id ASC)",
+  "CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC)",
+  "CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC)",
+  `CREATE INDEX IF NOT EXISTS fact_observed_commit ON fact(${factObservedCommitSql()})`,
+  "CREATE INDEX IF NOT EXISTS fact_evidence_source ON fact(evidence_source)",
+];
+
+export function createFactProjectionTables(db: DatabaseSync, options?: { readonly deferIndexes?: boolean }): void {
   /* @gate-identity state-store/task.source.storage.src.projection.fact-event-projection.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.fact */ CREATE TABLE IF NOT EXISTS fact (
       task_id TEXT, fact_id TEXT NOT NULL, ref TEXT NOT NULL UNIQUE,
@@ -43,19 +57,9 @@ export function createFactProjectionTables(db: DatabaseSync): void {
     /* @gate-identity state-store/task.projection.fact_reclassification */ CREATE TABLE IF NOT EXISTS fact_reclassification (
       op_id TEXT PRIMARY KEY, fact_id TEXT NOT NULL, domain_types_json TEXT NOT NULL,
       rationale TEXT NOT NULL, workspace_revision INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS fact_task_page ON fact(task_id, observed_at DESC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_observed_id_page ON fact(observed_at DESC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_confidence_page ON fact(confidence, observed_at DESC, task_id ASC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_memory_class_page ON fact(memory_class, observed_at DESC, task_id ASC, fact_id ASC);
-    CREATE INDEX IF NOT EXISTS fact_observed_commit ON fact(${factObservedCommitSql()});
-    CREATE INDEX IF NOT EXISTS fact_evidence_source ON fact(evidence_source);
+    ${options?.deferIndexes ? "" : `${FACT_DEFERRED_INDEXES.join(";\n    ")};`}
   `);
 }
-
-/** Reverse trace readers repeat this expression verbatim so SQLite matches its index; json_valid
- * keeps undecodable row_json fixtures from failing index maintenance or scans. */
-export const factObservedCommitSql = (column = "row_json"): string =>
-  `(CASE WHEN json_valid(${column}) THEN json_extract(${column}, '$.observedCommit') END)`;
 
 /** `<path>`, `<path>:<line…>` and `<path>#<anchor>` evidence sources as index-backed equality and ranges. */
 function evidenceSourcePathClause(paths: readonly string[], values: string[]): string {

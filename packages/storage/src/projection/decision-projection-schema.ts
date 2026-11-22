@@ -23,8 +23,7 @@ const DECISION_APPLIES_MODULE_TABLE_SQL = `
       module_prefix TEXT NOT NULL,
       decision_id TEXT NOT NULL,
       PRIMARY KEY(module_prefix, decision_id)
-    ) WITHOUT ROWID;
-    CREATE INDEX IF NOT EXISTS decision_applies_module_owner ON decision_applies_module(decision_id);`;
+    ) WITHOUT ROWID;`;
 const DECISION_APPLIES_MODULE_TRIGGER_SQL = `
     CREATE TRIGGER IF NOT EXISTS decision_applies_module_insert AFTER INSERT ON decision
     BEGIN${refillAppliesModules}
@@ -36,8 +35,16 @@ const DECISION_APPLIES_MODULE_TRIGGER_SQL = `
     BEGIN
       DELETE FROM decision_applies_module WHERE decision_id = OLD.decision_id;
     END;`;
+export const DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL = `
+    INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
+      ${appliesModuleRows(
+        "decision.decision_id",
+        `decision, json_each(${appliesModulesJson("decision.applies_json")}, '$.modules') AS module`,
+      )} AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert');
+    CREATE INDEX IF NOT EXISTS decision_applies_module_owner ON decision_applies_module(decision_id);
+    ${DECISION_APPLIES_MODULE_TRIGGER_SQL}`;
 
-export function createDecisionProjectionTables(db: DatabaseSync): void {
+export function createDecisionProjectionTables(db: DatabaseSync, options?: { readonly deferIndexes?: boolean }): void {
   /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-schema.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.decision */ CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
@@ -133,11 +140,6 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS decision_review_event_owner
       ON decision_review_event(decision_id, workspace_revision);
     ${DECISION_APPLIES_MODULE_TABLE_SQL}
-    INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
-      ${appliesModuleRows(
-        "decision.decision_id",
-        `decision, json_each(${appliesModulesJson("decision.applies_json")}, '$.modules') AS module`,
-      )} AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert');
-    ${DECISION_APPLIES_MODULE_TRIGGER_SQL}
+    ${options?.deferIndexes ? "" : DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL}
   `);
 }

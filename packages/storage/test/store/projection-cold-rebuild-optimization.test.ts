@@ -217,6 +217,7 @@ test("optimized cold rebuild is byte-identical to incremental apply across state
         ...rawProposal,
         payload: {
           ...rawProposal.payload,
+          appliesTo: { modules: ["packages/storage/", ".\\tools\\gates"], productLines: [] },
           provenance: [
             {
               runtime: "codex",
@@ -356,7 +357,8 @@ test("optimized cold rebuild is byte-identical to incremental apply across state
         occurredAt: at(factRecRev),
         payload: {
           statement: "Cold rebuild equivalence fact.",
-          evidenceSource: "equivalence fixture",
+          evidenceSource: "packages/storage/src/projection/projection-tables.ts:42",
+          observedCommit: "a".repeat(40),
           observedAt: at(factRecRev),
           confidence: "high",
           memoryClass: "semantic",
@@ -531,13 +533,27 @@ test("optimized cold rebuild is byte-identical to incremental apply across state
         "SELECT status, count FROM workspace_task_census ORDER BY status",
         "SELECT path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes FROM artifact_document ORDER BY path",
         "SELECT kind, total FROM artifact_count ORDER BY kind",
+        "SELECT module_prefix, decision_id FROM decision_applies_module ORDER BY module_prefix, decision_id",
       ]) {
         assert.deepEqual(readTableSnapshot(rebuiltPath, query), readTableSnapshot(incrementalPath, query), query);
       }
 
-      // Verify query API parity across all major read surfaces
+      // Verify query API parity across all major read surfaces (including PR #4754 reverse-trace reads)
       assert.deepEqual(rebuilt.readWorkspaceSummary(), incremental.readWorkspaceSummary());
       assert.deepEqual(rebuilt.listPinnedEntities("person-rebuild"), incremental.listPinnedEntities("person-rebuild"));
+      assert.deepEqual(
+        rebuilt.listDecisions({ modulePrefixes: ["packages/storage", "tools/gates"] }),
+        incremental.listDecisions({ modulePrefixes: ["packages/storage", "tools/gates"] }),
+      );
+      assert.equal(rebuilt.listDecisions({ modulePrefixes: ["packages/storage"] }).decisions.length, 1);
+      assert.deepEqual(
+        rebuilt.searchFacts({ observedCommits: ["a".repeat(40)] }),
+        incremental.searchFacts({ observedCommits: ["a".repeat(40)] }),
+      );
+      assert.deepEqual(
+        rebuilt.searchFacts({ evidenceSourcePaths: ["packages/storage/src/projection/projection-tables.ts"] }),
+        incremental.searchFacts({ evidenceSourcePaths: ["packages/storage/src/projection/projection-tables.ts"] }),
+      );
       assert.deepEqual(
         rebuilt.readArtifactTimelinePage({ kind: "html", limit: 10 }),
         incremental.readArtifactTimelinePage({ kind: "html", limit: 10 }),

@@ -8,7 +8,10 @@ import {
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { beginBulkRebuild, endBulkRebuild, flushBulkRebuildDerivedTables } from "./bulk-rebuild-state.ts";
-import { createDecisionProjectionTables } from "./decision-event-projection.ts";
+import {
+  createDecisionProjectionTables,
+  DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL,
+} from "./decision-event-projection.ts";
 import { refreshDecisionListReview } from "./decision-projection-reducer.ts";
 import {
   backfillEventSummaryReadIndex,
@@ -21,7 +24,7 @@ import {
   ARTIFACT_TIMELINE_TABLES_SQL,
   ensureArtifactTimelineBackfill,
 } from "./artifact-timeline-projection.ts";
-import { createFactProjectionTables } from "./fact-event-projection.ts";
+import { createFactProjectionTables, FACT_DEFERRED_INDEXES } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import {
   createRelationFreshnessMaintenance,
@@ -693,8 +696,8 @@ function createRebuildBaseTables(db: DatabaseSync): void {
   backfillRuntimeSessionBindings(db);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);
-  createFactProjectionTables(db);
-  createDecisionProjectionTables(db);
+  createFactProjectionTables(db, { deferIndexes: true });
+  createDecisionProjectionTables(db, { deferIndexes: true });
   ensureRelationFreshnessColumns(db);
   transaction(db, () => initializeTerminalMaterialization(db));
 }
@@ -710,8 +713,9 @@ function finalizeRebuildDatabase(
     ...CORE_DEFERRED_INDEXES,
     ...TASK_INDEX_DEFERRED_INDEXES,
     ...REPOSITORY_READ_DEFERRED_INDEXES,
+    ...FACT_DEFERRED_INDEXES,
   ];
-  const totalSteps = deferredIndexes.length + 5;
+  const totalSteps = deferredIndexes.length + 6;
   let completedSteps = 0;
   const reportStep = () => {
     completedSteps += 1;
@@ -727,6 +731,9 @@ function finalizeRebuildDatabase(
   ensureArtifactTimelineBackfill(db);
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
   db.exec(ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL);
+  reportStep();
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL);
   reportStep();
   for (const statement of deferredIndexes) {
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
