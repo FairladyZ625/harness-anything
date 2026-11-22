@@ -76,7 +76,7 @@ export async function assertDossierRepoCell(root: string, storage: StorageBacken
     assert.equal(initial.slots.length, 2);
     assert.equal(initial.slots[0]?.lastSynthesizedWatermark, 0);
     assert.deepEqual(initial.slots[0]?.dueTriggers, [{ kind: "event-watermark", minimumDelta: 1 }]);
-    const page = await cell.read("repo.dossier.context", { slotId }, binding);
+    const page = await cell.read("repo.dossier.context.read", { slotId }, binding);
     assert.equal(page.expectedWatermark, 0);
     assert.equal(page.nextWatermark, initial.currentWatermark);
     assert.equal(page.done, true);

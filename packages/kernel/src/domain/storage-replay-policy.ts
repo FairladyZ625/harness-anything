@@ -336,7 +336,7 @@ export const dossierSynthesisPolicy = {
   ],
   sources: [
     "policy:packages/daemon:packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim:6a5ae52649e37c97d33d052242234a4a",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#dossierSynthesizeRoute.claimFence:2b39eedf9916382139b7ccdbdb8f3a10",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#dossierSynthesizeRoute.claimFence:2b39eedf9916382139b7ccdbdb8f3a10",
     "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent:9af422b391be32a92c53613592dc8a3e",
     "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent:99aea578fb99b2cdf487f19774cf56e0",
   ].map((candidateId) => ({ candidateId, route: "living dossier synthesis fence" })),

@@ -282,7 +282,7 @@ const resultValidators = {
   "repo.entity.content.read": validateEntityContentRead,
   "repo.dossier.status": (value) => validateDossierRead(value, "dossier-status/v1", "slots"),
   "repo.dossier.read": (value) => validateDossierRead(value, "dossier-content/v1", "body"),
-  "repo.dossier.context": (value) => validateDossierRead(value, "dossier-context/v1", "nextWatermark"),
+  "repo.dossier.context.read": (value) => validateDossierRead(value, "dossier-context/v1", "nextWatermark"),
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.reckoning.signals.read": validateReckoningRead,
   "repo.policy.metadata.read": validatePolicyMetadataRead,

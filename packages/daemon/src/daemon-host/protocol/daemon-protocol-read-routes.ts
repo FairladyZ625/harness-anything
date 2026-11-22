@@ -14,28 +14,7 @@ import {
   daemonUseCaseProjectionPayloadShape,
 } from "./daemon-protocol-schema-ids.ts";
 
-const dossierQueries = [
-  { id: "dossier.status", method: "repo.dossier.status", payload: shape({}) },
-  { id: "dossier.read", method: "repo.dossier.read", payload: shape({ slotId: "string" }) },
-  {
-    id: "dossier.context",
-    method: "repo.dossier.context",
-    payload: shape({ slotId: "string", maxWatermark: "number?" }),
-  },
-] as const;
-
-const dossierReadRoutes = dossierQueries.map(({ id, method, payload }) => ({
-  id,
-  method,
-  phase: "LivingDossier",
-  repositoryRead: true as const,
-  requiresRepo: true as const,
-  params: shape({ repo: shape({ repoId: "string" }), payload: { ...payload, optional: id === "dossier.status" } }),
-  commandClass: "repo-read" as const,
-}));
-
 export const daemonReadRoutes = Object.freeze([
-  ...dossierReadRoutes,
   {
     id: "tasks.claimable",
     phase: "W2-GUI",

@@ -432,7 +432,7 @@ export const actionDeclarations = Object.freeze([
   declare("doc-materialize", "repo-write", hostResidency, { catalogId: "task/materialize" }),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
-  canonical("dossier-synthesize", null, "repo-write", "canonical-acceptance", "maintainer"),
+  canonical("dossier-synthesize", "document/synthesize-dossier", "repo-write", "canonical-acceptance", "maintainer"),
   // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind
   // projects its own <kind>/<action> declaration into the runtime registry
   // (artifact-action-declarations.ts) under dec_2446BC2F8C68630F71AE3E3BD7/CH4.
