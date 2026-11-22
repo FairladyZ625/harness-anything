@@ -163,6 +163,7 @@ for (const kind of ["local", "cloud"] as const) {
           repoId,
           rootDir,
           ownerId: "runtime-target",
+          keycloakSession: async () => binding.keycloakAuthorization.session,
           runtimeDaemonRoute: {
             userRoot: rootDir,
             daemonId: "runtime-target",
