@@ -483,6 +483,7 @@ export async function runFleetEdgeTask(
           kind: "task-docs",
           taskId,
           executionId: null,
+          changedPaths: changes.map((change) => change.path),
         });
         if (materialized.outcome === "pull_blocked")
           throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
@@ -692,6 +693,7 @@ export async function runFleetEdgeTask(
                   taskId,
                   executionId: typeof result.receipt?.executionId === "string" ? result.receipt.executionId : null,
                   kind: "task-docs",
+                  changedPaths: bundle === null ? [] : bundle.docChanges.map((change) => change.path),
                   ...(conflictCode !== null ? { code: conflictCode } : {}),
                 },
               );
