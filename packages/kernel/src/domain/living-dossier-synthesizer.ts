@@ -1,6 +1,8 @@
 import type { DossierSlot } from "./living-dossier.ts";
 import { renderDossierHtmlDocument } from "./living-dossier-html.ts";
 
+export const DOSSIER_PAGE_SIZE = 64;
+
 const STATE_COMMENT_PREFIX = "<!-- dossier-state:v1 ";
 const STATE_COMMENT_SUFFIX = " -->";
 const MAX_STORED_ENTRIES = 48;

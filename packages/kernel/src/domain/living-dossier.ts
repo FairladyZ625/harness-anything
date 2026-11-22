@@ -1,7 +1,8 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { DOSSIER_PAGE_SIZE } from "./living-dossier-synthesizer.ts";
 
 export const DOSSIER_DIRECTORY = "dossiers/";
-export const DOSSIER_PAGE_SIZE = 64;
+export { DOSSIER_PAGE_SIZE };
 export const DOSSIER_DOCUMENT_OWNER = "living-dossier/v1";
 export const DOSSIER_VERTICAL_ID_PATTERN = /^[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)*$/u;
 export const DOSSIER_SLOT_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u;
