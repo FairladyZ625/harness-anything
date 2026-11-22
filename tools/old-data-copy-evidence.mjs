@@ -43,6 +43,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const HARNESS_COPY_DIRS = ["wal", "generated", "presets"];
 const HARNESS_COPY_FILES = ["settings.local.json"];
 const MIN_ATTACH_TIMEOUT_MS = 1000;
+const DEFAULT_TIMEOUT_MS = 4 * 60 * 60 * 1000;
+const MAX_TIMEOUT_MS = 12 * 60 * 60 * 1000;
+const STALE_TEMP_AGE_MS = 24 * 60 * 60 * 1000;
 const TERMINAL_ATTACH_EVENTS = new Set([
   "repo_attach_completed",
   "repo_attach_failed",
@@ -64,9 +67,12 @@ export function parseArgs(argv) {
     reuseWorkspace: option("--reuse-workspace"),
     coldAttach: argv.includes("--cold-attach"),
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
+    timeoutMs: Number(option("--timeout-ms") ?? DEFAULT_TIMEOUT_MS),
   };
   if (!Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < MIN_ATTACH_TIMEOUT_MS)
     throw new Error("--attach-timeout-ms must be an integer >= 1000");
+  if (!Number.isInteger(args.timeoutMs) || args.timeoutMs < MIN_ATTACH_TIMEOUT_MS || args.timeoutMs > MAX_TIMEOUT_MS)
+    throw new Error(`--timeout-ms must be an integer between ${MIN_ATTACH_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}`);
   return args;
 }
 
@@ -1191,6 +1197,7 @@ function cliSync(buildRoot, args, env, workspaceRoot, identity) {
     ...invocation.options,
     encoding: "utf8",
     windowsHide: true,
+    timeout: 5_000,
   });
   return interpretCli(result);
 }
@@ -1470,22 +1477,40 @@ function isInsideDir(parentDir, targetPath) {
 
 function boundedRm(target) {
   const resolved = path.resolve(target);
-  if (!isInsideDir(tmpdir(), resolved)) throw new Error(`refusing to remove outside tmpdir: ${resolved}`);
   rmSync(resolved, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
 }
 
 async function cleanupTempRoot(target) {
   const resolved = path.resolve(target);
-  if (!isInsideDir(tmpdir(), resolved)) throw new Error(`refusing to remove outside tmpdir: ${resolved}`);
+  if (!isInsideDir(tmpdir(), resolved) || !path.basename(resolved).startsWith("ha-oldcopy-"))
+    throw new Error(`refusing to remove outside an owned ha-oldcopy temp root: ${resolved}`);
   const code =
-    "require('node:fs').rmSync(process.argv[1], { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });";
+    "require('node:fs').rmSync(process.argv[1], { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });";
   await withProgressHeartbeat("temp-cleanup", () => runText(process.execPath, ["-e", code, resolved]));
+}
+
+/** Remove only expired ha-oldcopy roots created by this version. A live owner pid always wins
+ *  over age. Legacy directories without an embedded owner pid are left for inspection. */
+export function cleanupStaleTempRoots({ now = Date.now(), tempDir = tmpdir(), maxAgeMs = STALE_TEMP_AGE_MS } = {}) {
+  const removed = [];
+  for (const entry of readdirSync(tempDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith("ha-oldcopy-")) continue;
+    const target = path.resolve(tempDir, entry.name);
+    if (dirnameCrossPlatform(target) !== path.resolve(tempDir)) continue;
+    const ownerPid = Number(/^ha-oldcopy-(\d+)-/u.exec(entry.name)?.[1]);
+    if (!Number.isInteger(ownerPid) || ownerPid <= 0) continue;
+    if (now - statSync(target).birthtimeMs < maxAgeMs || processAlive(ownerPid)) continue;
+    boundedRm(target);
+    removed.push(target);
+  }
+  return removed;
 }
 
 export async function main(argv, session = {}) {
   const args = parseArgs(argv);
   const sourceRoot = resolveSourceRoot(args.source);
-  const label = `ha-oldcopy-${randomBytes(4).toString("hex")}`;
+  const staleTempRoots = cleanupStaleTempRoots();
+  const label = `ha-oldcopy-${process.pid}-${randomBytes(4).toString("hex")}`;
   const tempRoot = mkdtempSync(path.join(tmpdir(), `${label}-`));
   const daemonId = `oldcopy-${randomBytes(4).toString("hex")}`;
   const userRoot = path.join(tempRoot, "user-root");
@@ -1510,8 +1535,14 @@ export async function main(argv, session = {}) {
   const env = forensicEnv(process.env);
   session.tempRoot = tempRoot;
   session.keep = args.keep;
+  session.timeoutMs = args.timeoutMs;
+  session.startedAt = Date.now();
+  session.staleTempRoots = staleTempRoots;
   session.env = env;
   session.daemonHandle = null;
+  const timeout = session.abort
+    ? setTimeout(() => session.abort("SIGTERM", `timed out after ${args.timeoutMs}ms`), args.timeoutMs)
+    : null;
   // Any error between start and the in-flow stop must not leak a detached daemon holding a
   // socket inside the temp root we are about to delete.
   const stopDaemonBestEffort = async () => {
@@ -1798,7 +1829,12 @@ export async function main(argv, session = {}) {
     receipt.failures.push({ phase: "orchestrator", message: String(error instanceof Error ? error.message : error) });
   } finally {
     await stopDaemonBestEffort();
-    receipt.cleanup = { kept: args.keep, tempRoot, daemonStopped: daemonStopReceipt?.ok === true };
+    receipt.cleanup = {
+      kept: args.keep,
+      tempRoot,
+      daemonStopped: daemonStopReceipt?.ok === true,
+      staleOrphansRemoved: staleTempRoots.length,
+    };
   }
   // Raw evidence files move to --out before the temp root goes away; the receipt itself is
   // printed last so even a cleanup failure is part of it.
@@ -1822,6 +1858,7 @@ export async function main(argv, session = {}) {
   const receiptText = JSON.stringify(receipt, null, 2);
   console.log(receiptText);
   if (args.out) writeFileSync(path.join(args.out, "old-data-copy-evidence-receipt.json"), `${receiptText}\n`, "utf8");
+  if (timeout) clearTimeout(timeout);
   return receipt.ok ? 0 : 1;
 }
 
@@ -1830,10 +1867,10 @@ export async function main(argv, session = {}) {
  *  the temp root), stop the isolated daemon, delete the temporary build archive and
  *  temp root, exit non-zero without printing a receipt. A signal before the temp root exists
  *  finds the session empty and just exits. */
-function installInterruptHandlers(session) {
+export function installInterruptHandlers(session) {
   let interrupted = false;
-  const handler = (signal) => {
-    const exitCode = signal === "SIGINT" ? 130 : 143;
+  const handler = (signal, reason = null) => {
+    const exitCode = reason ? 124 : signal === "SIGINT" ? 130 : 143;
     if (interrupted) process.exit(exitCode);
     interrupted = true;
     for (const child of liveChildren) killChildTree(child);
@@ -1862,9 +1899,10 @@ function installInterruptHandlers(session) {
         notes.push(`temp root removal failed: ${String(error instanceof Error ? error.message : error)}`);
       }
     }
-    console.error(`interrupted by ${signal}: ${notes.join("; ")}`);
+    console.error(`${reason ?? `interrupted by ${signal}`}: ${notes.join("; ")}`);
     process.exit(exitCode);
   };
+  session.abort = handler;
   process.on("SIGINT", handler);
   process.on("SIGTERM", handler);
 }
@@ -1875,5 +1913,6 @@ function installInterruptHandlers(session) {
 if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) {
   const session = {};
   installInterruptHandlers(session);
-  process.exitCode = await main(process.argv.slice(2), session);
+  const result = await main(process.argv.slice(2), session);
+  process.exitCode = result;
 }
