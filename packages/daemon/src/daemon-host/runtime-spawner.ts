@@ -38,7 +38,7 @@ import {
   selectedRuntimeInstance,
   createRuntimeInstanceDispatchState,
 } from "./runtime-instance-selection.ts";
-import { applyLocalAgentBinding, resolveDispatchAgent } from "./runtime-spawn-agent.ts";
+import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
