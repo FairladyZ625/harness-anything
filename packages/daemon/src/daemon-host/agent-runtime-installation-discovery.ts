@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { accessSync, constants, realpathSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { cmdShellInvocation } from "@harness-anything/storage";
+import { cmdShellInvocation } from "@harness-anything/storage/cmd-command-line";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult, type ProcessInput } from "./process-port.ts";
 import {

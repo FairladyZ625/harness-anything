@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cmdShellInvocation, escapeCmdArgument } from "../../src/store/cmd-command-line.ts";
+import { cmdShellInvocation, escapeCmdArgument } from "@harness-anything/storage/cmd-command-line";
 
 // Vectors below are hand-derived from the audited Rust std implementation
 // (library/std/src/sys/args/windows.rs, the CVE-2024-24576 fix): a quoted argument carries

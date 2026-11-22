@@ -1,5 +1,5 @@
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { cmdShellInvocation } from "@harness-anything/storage";
+import { cmdShellInvocation } from "@harness-anything/storage/cmd-command-line";
 import { runProcessText } from "../runtime-engine/process-text.ts";
 import { statSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
