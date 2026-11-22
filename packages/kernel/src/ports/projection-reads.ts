@@ -100,6 +100,8 @@ export interface TaskIndexProjectionRow extends Partial<TaskActivityAttribution>
   readonly taskClass: import("../domain/task.ts").TaskV2["taskClass"];
   readonly packageDisposition: import("../domain/task.ts").TaskPackageDisposition;
   readonly packagePath: string | null;
+  /** Present only when the read filtered by `submissionCommitShas`: the indexed SHAs this row carries. */
+  readonly submissionCommitShas?: readonly string[];
   readonly updatedAt: string;
 }
 export interface TaskIndexProjectionRead {

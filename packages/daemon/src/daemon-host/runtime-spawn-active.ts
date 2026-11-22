@@ -190,7 +190,7 @@ export async function isRuntimeProcessProvenStopped(
   pid = active.process.pid,
 ): Promise<ProviderGroupSweepVerdict> {
   if (attempt.stopProof === "proven_stopped") return "proven_stopped";
-  if (pid <= 1) return "unknown_unreachable";
+  if (pid === undefined || pid <= 1) return "unknown_unreachable";
   return sweepUntilProvenStopped({ pid, dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId } });
 }
 
@@ -208,6 +208,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   const liveProcessPids = newlyStalled ? await liveDescendantPids(active) : null;
   active.lossReason = `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`;
   if (newlyStalled) active.stream.appendStalled?.(stalledAt, stallEvidence(active, stalledAt, liveProcessPids));
+  if (active.process.cloud) return context.publishExit(active, null);
   await context.publishRuntimeEvent(
     "runtime_session_cancelled",
     { runtimeSessionId: active.runtimeSessionId },
@@ -215,7 +216,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
     active.binding,
   );
   if (active.process.terminateTree) await active.process.terminateTree();
-  else active.process.terminate();
+  else if (!active.process.cloud) active.process.terminate();
   await consumeDurableOutput(context, active);
   await context.publishExit(active, null);
 }
@@ -341,7 +342,7 @@ function retireObservationFault(
   void Promise.resolve()
     .then(async () => {
       if (active.process.terminateTree) await active.process.terminateTree();
-      else active.process.terminate();
+      else if (!active.process.cloud) active.process.terminate();
       context.input.schedule(async () => {
         if (active.exitSettlement || context.exiting.has(active.runtimeSessionId)) return;
         appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
@@ -369,7 +370,7 @@ export function attachActiveRuntime(
     handlers = {
       output: (chunk: string, persisted = false) => {
         if (!active.exitSettlement && !context.closed?.())
-          context.input.schedule(async () => {
+          return context.input.schedule(async () => {
             if (!active.exitSettlement && !context.closed?.()) {
               active.stdoutObserved ||= chunk.length > 0;
               await context.consumeChunk(active, chunk, false, persisted);
@@ -380,7 +381,7 @@ export function attachActiveRuntime(
       },
       error: (chunk: string) => {
         if (!active.exitSettlement && !context.closed?.()) {
-          context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
+          return context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
         }
       },
       exit: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => {
@@ -442,6 +443,17 @@ export function attachActiveRuntime(
     disposeActiveRuntimeObservations(active);
     throw error;
   }
+  active.process.cloud?.onLiveness((live) =>
+    context.input.schedule(async () => {
+      if (active.exitSettlement || context.closed?.()) return;
+      await context.publishRuntimeEvent(
+        "runtime_session_liveness_changed",
+        { runtimeSessionId, liveness: live ? "live" : "unknown" },
+        `runtime-observation-${active.dispatchId}-${randomUUID()}`,
+        active.binding,
+      );
+    }, active.binding),
+  );
   if (resumeObservation) resumeObservation.activate(handlers);
   else {
     active.process.onOutput(handlers.output);

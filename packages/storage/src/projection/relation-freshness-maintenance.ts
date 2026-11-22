@@ -29,17 +29,48 @@ const endpointTriggers = [
   },
 ] as const;
 
-export function createRelationFreshnessMaintenance(db: DatabaseSync): void {
+/** Prepare columns and dirty-tracking table without installing triggers (used by bulk rebuilds). */
+export function ensureRelationFreshnessColumns(db: DatabaseSync): void {
   const columns = new Set(
     queryRows<{ readonly name: string }>(db, "PRAGMA table_info(relation_edge)").map(({ name }) => name),
   );
   if (!columns.has("freshness")) runSql(db, "ALTER TABLE relation_edge ADD COLUMN freshness TEXT");
   if (!columns.has("current_target_version")) runSql(db, "ALTER TABLE relation_edge ADD COLUMN current_target_version");
-  runSql(db, "CREATE INDEX IF NOT EXISTS relation_edge_freshness_page ON relation_edge(freshness, relation_id)");
   runSql(
     db,
     "/* @gate-identity state-store/task.projection.relation_freshness_dirty */ CREATE TABLE IF NOT EXISTS relation_freshness_dirty (ref TEXT PRIMARY KEY)",
   );
+}
+
+/** Recompute every relation's stored freshness once at the end of a trigger-free bulk rebuild. */
+export function recomputeAllRelationFreshness(
+  db: DatabaseSync,
+  onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
+): void {
+  const total = Number(
+    queryRows<{ readonly count: number }>(db, "SELECT COUNT(*) AS count FROM relation_edge")[0]?.count ?? 0,
+  );
+  if (total === 0) return;
+  let cursor = "",
+    applied = 0;
+  for (;;) {
+    const rows = queryRows<RelationFreshnessInput>(
+      db,
+      `SELECT ${relationInputColumns} FROM relation_edge WHERE relation_id > ? ORDER BY relation_id LIMIT ?`,
+      cursor,
+      settleBatchSize,
+    );
+    if (rows.length === 0) return;
+    transaction(db, () => storeRelationFreshness(db, rows));
+    applied += rows.length;
+    cursor = rows.at(-1)!.relation_id;
+    onProgress?.({ applied, total });
+  }
+}
+
+export function createRelationFreshnessMaintenance(db: DatabaseSync): void {
+  ensureRelationFreshnessColumns(db);
+  runSql(db, "CREATE INDEX IF NOT EXISTS relation_edge_freshness_page ON relation_edge(freshness, relation_id)");
   for (const { table, ref, columns: watched } of endpointTriggers) {
     const newRef = ref.replaceAll("{row}", "NEW"),
       oldRef = ref.replaceAll("{row}", "OLD"),

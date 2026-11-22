@@ -254,6 +254,12 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           values.push(query.taskIds);
           where.push(`task_id = ANY($${values.length}::text[])`);
         }
+        if (query.submissionCommitShas !== undefined) {
+          values.push(query.submissionCommitShas);
+          where.push(
+            `(submission_commit_sha = ANY($${values.length}::text[]) OR external_commit_sha = ANY($${values.length}::text[]))`,
+          );
+        }
         if (query.changedAfterRevision !== undefined) {
           values.push(query.changedAfterRevision);
           where.push(`workspace_revision > $${values.length}`);

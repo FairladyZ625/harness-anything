@@ -114,6 +114,7 @@ import type {
   TaskQueryCell,
 } from "./repo-cell-task-query.ts";
 import type { graphView as graphViewImpl } from "@harness-anything/application/internal/queries/repo-cell-graph-view.ts";
+import type { traceView as traceViewImpl } from "./repo-cell-trace-view.ts";
 import type {
   listEvents as listEventsImpl,
   showEvent as showEventImpl,
@@ -607,6 +608,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly graphView: Bound<typeof graphViewImpl>;
+  readonly traceView: Bound<typeof traceViewImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly entityActionRuntimes: EntityActionCatalogRuntimes;
@@ -769,6 +771,7 @@ export interface RepoCellOpenInput {
   readonly writerGeneration?: number;
   readonly mode?: DaemonRepoMode;
   readonly authoredBranch?: string;
+  readonly cloudRuntime?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["cloudRuntime"];
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;

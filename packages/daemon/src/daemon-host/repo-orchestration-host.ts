@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { Worker } from "node:worker_threads";
 import { canonicalCommitClient } from "./canonical-commit-client.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { fleetBaseBackupTrace, withStorageWriteRequest } from "@harness-anything/storage";
+import { fleetBaseBackupTrace, withProjectionSqlHeartbeat, withStorageWriteRequest } from "@harness-anything/storage";
 import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import { withRepoCellWriteSlot } from "./repo-cell.ts";
@@ -274,6 +274,19 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
                   })),
               }
             : {}),
+          ...(config.cloudRuntimeTargets
+            ? {
+                cloudRuntime: {
+                  instanceTargets: config.cloudRuntimeTargets,
+                  request: (hostId, method, params) =>
+                    asyncCapability("cloudRuntimeRequest", [hostId, method, params]) as Promise<
+                      import("@harness-anything/application/internal/commands/runtime-execution-target.ts").CloudSandboxResponse<
+                        typeof method
+                      >
+                    >,
+                },
+              }
+            : {}),
           ...(bootstrap.capabilities.prepareRuntimeLaunch
             ? {
                 prepareRuntimeLaunch: (instanceId, request) =>
@@ -346,8 +359,8 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           recordLifecycle: (record) => notify("lifecycle", record),
         };
       if (config.defaultWriterEpochFence) configureWriterEpochStorage(config.defaultWriterEpochFence, config.storage);
-      cell = await withRepoCellWriteSlot(runWriteTurn, () =>
-        openRepoWriterCell(input, { close: async () => undefined } as never),
+      cell = await withProjectionSqlHeartbeat(bootstrap.readyWatchdogState, () =>
+        withRepoCellWriteSlot(runWriteTurn, () => openRepoWriterCell(input, { close: async () => undefined } as never)),
       );
       const readyStatus = cell.status();
       postStatus({

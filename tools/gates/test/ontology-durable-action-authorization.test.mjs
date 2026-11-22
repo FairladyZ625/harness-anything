@@ -32,15 +32,22 @@ const inputs = await baselineAuthorizationInputs();
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
-// These mutation cases use independent worktrees, so four workers share the file but never a case.
-// The assignment balances measured case durations from runs 44891743885, 44925574438, and 44940024765.
-const authorizationTestPartitionAssignments = [
-  2, 1, 2, 4, 4, 1, 4, 4, 1, 2, 4, 2, 2, 1, 4, 1, 4, 1, 3, 3, 3, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 3, 2, 1, 2, 1, 4, 2,
-  4, 3, 3, 3, 2, 3, 3, 2,
-];
+// Four partitions are still used by CRLF and isolated tests. The six-partition assignment
+// balances the 47 measured mutation cases from GitHub Actions run 44962932008.
+const assignmentsByCount = {
+  4: [
+    2, 1, 2, 4, 4, 1, 4, 4, 1, 2, 4, 2, 2, 1, 4, 1, 4, 1, 3, 3, 3, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 3, 2, 1, 2, 1, 4, 2,
+    4, 3, 3, 3, 2, 3, 3, 2,
+  ],
+  6: [
+    4, 3, 5, 6, 3, 5, 2, 1, 3, 2, 3, 4, 1, 1, 2, 4, 5, 6, 4, 3, 5, 5, 6, 4, 4, 4, 5, 5, 4, 4, 4, 6, 4, 1, 4, 1, 2, 3, 3,
+    1, 5, 6, 4, 6, 4, 2, 5,
+  ],
+};
+const partitionAssignments = assignmentsByCount[partitionValue?.split("/")[1]];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
-  if (!testOrdinalInPartition(ordinal, partitionValue, authorizationTestPartitionAssignments)) return;
+  if (!testOrdinalInPartition(ordinal, partitionValue, partitionAssignments)) return;
   test(name, testFn);
 }
 
@@ -1391,8 +1398,11 @@ partitionedTest("authorization rejects a foreign route in a package action shard
   });
 });
 
-assert.equal(
-  partitionTestOrdinal,
-  authorizationTestPartitionAssignments.length,
-  "every durable case has a CI partition",
-);
+for (const [count, assignments] of Object.entries(assignmentsByCount)) {
+  assert.equal(partitionTestOrdinal, assignments.length, `every durable case has one of ${count} CI partitions`);
+  assert.deepEqual(
+    [...new Set(assignments)].sort((left, right) => left - right),
+    Array.from({ length: Number(count) }, (_, index) => index + 1),
+    "each CI partition runs durable cases",
+  );
+}

@@ -1,8 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import test from "node:test";
-import type { Worker } from "node:worker_threads";
+import { Worker } from "node:worker_threads";
 import type { RepoCellOpenInput } from "../src/daemon-host/repo-cell-types.ts";
 import type { RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
 import { beginDaemonOperation, withDaemonObservation } from "../src/daemon-host/daemon-operation.ts";
@@ -11,7 +11,11 @@ import {
   type RepoWriterControlV1,
   type RepoWriterStatusV1,
 } from "../src/daemon-host/repo-writer-protocol.ts";
-import { openWriterSupervisor, WRITER_READY_WATCHDOG_MS } from "../src/daemon-host/writer-supervisor.ts";
+import {
+  openWriterSupervisor,
+  WRITER_READY_WATCHDOG_MS,
+  WRITER_READY_WATCHDOG_MS_ENV,
+} from "../src/daemon-host/writer-supervisor.ts";
 
 const supervisorInput = {
   repoId: "writer-liveness",
@@ -73,6 +77,68 @@ test("a writer with no messages is terminated after the ready watchdog of inacti
   await rejected;
   assert.equal(writer.terminateCalls, 1);
 });
+
+for (const blocked of [false, true]) {
+  test(
+    `ready watchdog ${blocked ? "terminates a blocked Worker" : "accepts a synchronously progressing Worker"}`,
+    { timeout: 10_000 },
+    async (context) => {
+      const watchdogMs = 150,
+        previousEnv = process.env[WRITER_READY_WATCHDOG_MS_ENV],
+        sqlModule = new URL("../../storage/src/projection/rebuildable-task-projection-sql.ts", import.meta.url).href,
+        source = `
+        import { DatabaseSync } from "node:sqlite";
+        import { parentPort, workerData } from "node:worker_threads";
+        import { prepareQuery, withProjectionSqlHeartbeat } from ${JSON.stringify(sqlModule)};
+        const db = new DatabaseSync(":memory:");
+        const wait = new Int32Array(new SharedArrayBuffer(4));
+        parentPort.on("message", (message) => {
+          if (message.schema === "harness-repo-writer-control/v1") {
+            parentPort.postMessage({ schema: "harness-repo-writer-receipt/v1",
+              protocolVersion: workerData.ready.protocolVersion, requestId: message.requestId, outcome: "ok" });
+            return;
+          }
+          withProjectionSqlHeartbeat(message.sharedState, () => {
+            const started = performance.now();
+            do {
+              prepareQuery(db, "SELECT 1").get();
+              Atomics.wait(wait, 0, 0, workerData.blocked ? Infinity : 5);
+            } while (performance.now() - started <= 3 * workerData.watchdogMs);
+            parentPort.postMessage(workerData.ready);
+          });
+        });
+        parentPort.postMessage("listening");
+      `,
+        candidate = new Worker(new URL(`data:text/javascript,${encodeURIComponent(source)}`), {
+          workerData: { blocked, watchdogMs, ready: writerStatus("ready", attachedStatus()) },
+        }),
+        exited = once(candidate, "exit");
+      context.after(async () => {
+        await candidate.terminate();
+        if (previousEnv === undefined) delete process.env[WRITER_READY_WATCHDOG_MS_ENV];
+        else process.env[WRITER_READY_WATCHDOG_MS_ENV] = previousEnv;
+      });
+      void exited.catch(() => undefined);
+      assert.deepEqual(await once(candidate, "message"), ["listening"]);
+      process.env[WRITER_READY_WATCHDOG_MS_ENV] = String(watchdogMs);
+      const opening = openWriterSupervisor(supervisorInput, {
+        connectHost: () => undefined,
+        createWorker: (_url, options) => {
+          candidate.postMessage({ sharedState: options.workerData.readyWatchdogState });
+          return candidate;
+        },
+      });
+      if (blocked) {
+        await assert.rejects(opening, /did not publish ready after 150ms without progress/u);
+        assert.deepEqual(await exited, [1]);
+      } else {
+        const supervisor = await opening;
+        assert.equal(supervisor.status().state, "attached");
+        await supervisor.close();
+      }
+    },
+  );
+}
 
 test("an attach status heartbeat keeps a slow projection open alive beyond the ready watchdog", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });

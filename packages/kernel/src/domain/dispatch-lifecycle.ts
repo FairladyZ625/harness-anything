@@ -1,3 +1,4 @@
+import type { CloudRuntimeExecutionTarget } from "./runtime-execution-target.ts";
 /**
  * Dispatch lifecycle aggregate (dec_AEB05951C69E47FCE53E53C341 CH1/CH2, design F1).
  *
@@ -127,6 +128,7 @@ export interface DispatchLifecycleAttempt {
   readonly runtimeSessionId: string;
   readonly instanceId: string;
   readonly kindId: string;
+  readonly executionTarget?: CloudRuntimeExecutionTarget;
   readonly fence: DispatchOwnerFence;
   readonly reservation: DispatchCapacityReservation;
   readonly task: DispatchAttemptTask | null;
@@ -435,6 +437,7 @@ function admit(
       runtimeSessionId: payload.runtimeSessionId,
       instanceId: payload.instanceId,
       kindId: payload.kindId,
+      ...(payload.executionTarget ? { executionTarget: payload.executionTarget } : {}),
       fence: { owner: owner.owner, verified: owner.verified, token: revision, epoch: null },
       reservation: {
         reservationId: `${payload.instanceId}/${payload.dispatchId}`,
@@ -621,6 +624,9 @@ function advanceAttempt(
     case "runtime_session_liveness_changed":
       if (attempt.process === "exited") return attempt;
       if (event.payload.controlRequest !== undefined || event.payload.controlReceipt !== undefined) return attempt;
+      if (event.payload.stopUnconfirmed)
+        return attempt.executionTarget ? { ...attempt, phase: "settling", process: "unknown" } : null;
+      if (attempt.executionTarget && attempt.phase === "settling") return attempt;
       return { ...attempt, process: event.payload.liveness === "live" ? "alive" : "unknown" };
     case "runtime_session_cancelled":
       // A cancel request does not prove the provider stopped; the slot stays held.
@@ -628,6 +634,7 @@ function advanceAttempt(
     case "runtime_session_exited":
       return { ...attempt, phase: "settling", process: "exited", stopProof: "proven_stopped" };
     case "runtime_session_outcome_observed":
+      if (attempt.executionTarget && attempt.stopProof !== "proven_stopped") return null;
       // An explicit abandonment closes the reservation without inventing a physical stop.
       return {
         ...attempt,
@@ -933,7 +940,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 9;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 10;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 

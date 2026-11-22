@@ -4,6 +4,7 @@ import {
 } from "@harness-anything/application/internal/queries/task-escalation-context.ts";
 import { resolveHarnessLayout, type TaskProjection } from "@harness-anything/kernel";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
+import { makeWorkspaceGitHistoryPort } from "./repo-cell-trace-view.ts";
 import { openTaskWorktreeBinding, presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import { latestRuntimeContinuationSeed } from "./runtime-continuation-context.ts";
 import { assignmentFromRelations } from "./entity-assignment-runtime.ts";
@@ -32,7 +33,11 @@ export function readTaskRuntimeContext(
     schema: "task-runtime-context-read/v3" as const,
     ok: true as const,
     taskId,
-    causalContext: assembleTaskCausalContext({ projection: projection, taskId }),
+    causalContext: assembleTaskCausalContext({
+      projection,
+      taskId,
+      gitHistory: makeWorkspaceGitHistoryPort(rootDir, true),
+    }),
     riskTier: task?.metadata?.riskTier ?? null,
     riskTierFlowVersion: task?.metadata?.riskTierFlowVersion ?? null,
     profileId: task?.metadata?.profileId ?? null,

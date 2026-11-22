@@ -127,6 +127,8 @@ export interface DecisionListFilters {
   readonly legacyRange?: { readonly start: number; readonly end: number };
   readonly state?: DecisionState;
   readonly module?: string;
+  /** Any-of match on normalized `appliesTo.modules` entries (no trailing slash); index-backed. */
+  readonly modulePrefixes?: readonly string[];
   readonly productLine?: string;
   readonly limit?: number;
   readonly cursor?: string;

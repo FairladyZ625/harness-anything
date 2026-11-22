@@ -358,6 +358,12 @@ export function listDecisionRowsPage(
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.modules') WHERE value=?)");
     values.push(filters.module);
   }
+  if (filters.modulePrefixes !== undefined) {
+    where.push(
+      "decision_id IN (SELECT decision_id FROM decision_applies_module WHERE module_prefix IN (SELECT value FROM json_each(?)))",
+    );
+    values.push(JSON.stringify(filters.modulePrefixes));
+  }
   if (filters.productLine) {
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);

@@ -1,3 +1,4 @@
+import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
@@ -123,7 +124,12 @@ export async function adoptRuntimes(
       const existing = pending.get(runtimeSessionId);
       if (existing && existing.result?.outcome !== "failed") {
         // Retry the durable stream when the aggregate no longer observes a live process.
-        if (existing.result?.outcome !== "ready" || initial.attempt.process === "alive") return existing.promise;
+        if (
+          initial.attempt.executionTarget ||
+          existing.result?.outcome !== "ready" ||
+          initial.attempt.process === "alive"
+        )
+          return existing.promise;
         pending.delete(runtimeSessionId);
       }
       let restored = false;
@@ -307,7 +313,7 @@ async function restoreRuntime(
         ...(processPid > 1 ? { processGroupPid: processPid } : {}),
       },
     } as const;
-  if (lifecycle.attempt.process !== "exited")
+  if (!lifecycle.attempt.executionTarget && lifecycle.attempt.process !== "exited")
     await context.publishRuntimeEvent(
       livenessEvent.type,
       livenessEvent.payload,
@@ -329,12 +335,43 @@ async function restoreRuntime(
       { forceTailScan: true },
     );
   }
-  const runtimeProcess = adoptNativeProcess(
-    context.input.rootDir,
-    stream.header.dispatchId,
-    processPid,
-    durableOutputRecordCount(fullStream?.records ?? []),
-  );
+  const cloudTarget = lifecycle.attempt.executionTarget;
+  if (
+    cloudTarget &&
+    (!fullStream || header.executionTarget?.hostId !== cloudTarget.hostId || header.executionAttempt === undefined)
+  )
+    throw context.runtimeSpawnError("runtime_recovery_pending", "Cloud sandbox dispatch stream is unavailable.");
+  const stopping = lifecycle.attempt.phase === "settling" && lifecycle.attempt.stopProof !== "proven_stopped";
+  const cloudProcess = cloudTarget
+    ? openCloudRuntime({
+        rootDir: context.input.rootDir,
+        registration: context.input.cloudRuntime,
+        target: cloudTarget,
+        attempt: {
+          repoId: context.input.repoId,
+          dispatchId: header.dispatchId,
+          runtimeSessionId: header.runtimeSessionId,
+          attempt: header.executionAttempt!,
+        },
+        stopping,
+        now: context.input.now,
+        records: fullStream!.records,
+      })
+    : null;
+  const runtimeProcess = cloudProcess
+    ? {
+        ...cloudProcess,
+        release: () => {
+          cloudProcess.release?.();
+          recoveries.get(context)?.delete(header.runtimeSessionId);
+        },
+      }
+    : adoptNativeProcess(
+        context.input.rootDir,
+        stream.header.dispatchId,
+        processPid,
+        durableOutputRecordCount(fullStream?.records ?? []),
+      );
   if (!fullStream) runtimeProcess.release?.();
   const active = createActiveRuntime({
     process: runtimeProcess,
@@ -423,6 +460,19 @@ async function restoreRuntime(
     return true;
   }
   context.processes.set(active.runtimeSessionId, active);
+  if (runtimeProcess.cloud) {
+    const cancel = fullStream?.records.findLast((record) => record.kind === "sandbox_cancel_requested");
+    if (typeof cancel?.opId === "string") {
+      active.cancelRequested = true;
+      active.cancelOpId = cancel.opId;
+    }
+    attachAdoptedObservations(context, active);
+    // Reissue a cancellation interrupted by daemon replacement through the same admitted stop;
+    // the sandbox command carries the attempt's original idempotency key.
+    if (stopping || active.cancelRequested)
+      context.input.schedule(() => context.publishExit(active, null), active.binding);
+    return false;
+  }
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
     else if (fullStream) attachAdoptedObservations(context, active);
@@ -469,7 +519,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
       reason: `runtime observations could not be attached: ${error instanceof Error ? error.message : String(error)}`,
     });
     context.processes.delete(active.runtimeSessionId);
-    active.process.terminate();
+    if (!active.process.cloud) active.process.terminate();
     active.process.release?.();
     active.releaseAuthorization?.();
     throw error;

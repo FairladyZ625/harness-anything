@@ -247,6 +247,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     discover = () => discoveredInstallations,
     vault = input.runtimeCredentialPort ?? credentialPort(),
     instanceStore = openRuntimeInstanceStore({
+      cloudRuntimeTargets: input.cloudRuntime?.instanceTargets,
       userRoot: input.userRoot,
       discover,
       refreshDiscovery,
@@ -261,7 +262,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       isCredentialInUse: (reference) =>
         instanceStore.list().some((config) => runtimeInstanceUsesCredential(config, reference)),
     }),
-    runtimePorts = openDaemonRuntimePorts({ instances }),
+    runtimePorts = { ...openDaemonRuntimePorts({ instances }), cloudRuntime: input.cloudRuntime },
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),

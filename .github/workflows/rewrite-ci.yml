@@ -88,8 +88,8 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - 'tsconfig*.json'
-      # Package policy is workspace-manifest scoped. Daemon readers share source directories,
-      # so this detector conservatively covers daemon production/read-probe source and storage.
+      # Package policy is workspace-manifest scoped. The Node 26 storage lanes share a trigger
+      # covering their backend dependencies, test probes and CI entrypoints.
       - uses: dorny/paths-filter@v4
         id: policy
         with:
@@ -102,8 +102,23 @@ jobs:
               - 'packages/**/package.json'
             costBudgetReads:
               - 'packages/storage/**'
-              - 'packages/daemon/src/**'
-              - 'packages/daemon/test/fixtures/g38-read-*.mjs'
+              - 'packages/daemon/**'
+              - 'packages/kernel/**'
+              - 'packages/application/**'
+              - 'packages/preset/**'
+              - 'packages/authorization/**'
+              - 'packages/cli/src/cli-agent-rollback.ts'
+              - 'packages/cli/test/fixtures/g38-read-rollback.mjs'
+              - 'tools/gates/cost-budget*'
+              - 'tools/gate-manifest.json'
+              - 'tools/run-manifest-gates.mjs'
+              - 'tools/run-node-tests.mjs'
+              - 'tools/node-test-runner-lib.mjs'
+              - 'tools/test-tier-manifest.mjs'
+              - '.github/workflows/rewrite-ci.yml'
+              - 'package*.json'
+              - 'packages/**/package.json'
+              - 'tsconfig*.json'
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -198,7 +213,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -266,9 +281,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2, 3, 4]
+        partition: [1, 2, 3, 4, 5, 6]
     env:
-      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
+      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/6
       HARNESS_TEST_PARTITION_STRATEGY: measured
       HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
       HARNESS_TEST_CONCURRENCY: 4
@@ -397,7 +412,7 @@ jobs:
   # Install separately because native dependencies in the shared artifact target Node 24.
   pglite-node26:
     needs: install
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push') && needs.install.outputs.code != 'false'
+    if: always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || github.event_name == 'push' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -674,7 +689,7 @@ jobs:
   # The same G38 entrypoint splits backend/collection setup and rejoins the complete matrix.
   cost-budget-reads:
     needs: install
-    if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule')
+    if: always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule')
     name: cost-budget-reads (pglite, set ${{ matrix.set }})
     runs-on: ubuntu-latest
     strategy:
@@ -748,31 +763,49 @@ jobs:
     needs: [install, cost-budget-reads, cost-budget-reads-sqlite]
     if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule')
     runs-on: ubuntu-latest
+    env:
+      G38_SKIP_READS: ${{ github.event_name == 'pull_request' && needs.install.result == 'success' && needs.install.outputs.costBudgetReads == 'false' }}
     steps:
+      - name: Check the G38 read jobs
+        uses: actions/github-script@v7
+        env:
+          PGLITE_RESULT: ${{ needs.cost-budget-reads.result }}
+          SQLITE_RESULT: ${{ needs.cost-budget-reads-sqlite.result }}
+        with:
+          script: |
+            const { G38_SKIP_READS, PGLITE_RESULT, SQLITE_RESULT } = process.env;
+            if (G38_SKIP_READS === "true") {
+              core.notice("G38 read-cost skipped because no changed path affects the Node 26 storage lanes.");
+            } else if (PGLITE_RESULT !== "success" || SQLITE_RESULT !== "success") {
+              core.setFailed(`G38 read jobs must pass (PGlite: ${PGLITE_RESULT}, SQLite: ${SQLITE_RESULT})`);
+            }
       - uses: actions/checkout@v4
+        if: env.G38_SKIP_READS != 'true'
       - uses: actions/setup-node@v4
+        if: env.G38_SKIP_READS != 'true'
         with:
           node-version: 24
           cache: npm
       - uses: ./.github/actions/electron-runtime-cache
-        if: github.event_name == 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name == 'schedule'
       - uses: actions/download-artifact@v4
-        if: github.event_name != 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name != 'schedule'
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
       - run: npm ci
-        if: github.event_name == 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name == 'schedule'
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
-        if: github.event_name != 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name != 'schedule'
       - uses: actions/download-artifact@v4
+        if: env.G38_SKIP_READS != 'true'
         with:
           pattern: g38-read-*
           merge-multiple: true
           path: ${{ runner.temp }}/g38
       - name: Require the selected G38 read matrix
+        if: env.G38_SKIP_READS != 'true'
         env:
           G38_PHASE: read-summary
           G38_RESULTS: ${{ runner.temp }}/g38
-          G38_REQUIRED_BACKENDS: ${{ github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads == 'false' && 'pglite' || 'pglite,sqlite' }}
         run: node tools/gates/cost-budget.mjs
