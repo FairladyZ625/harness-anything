@@ -2,7 +2,6 @@ import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { startFdeStudioServer, type FdeStudioServer } from "../server/fde-server.ts";
-import { consumeKnownError } from "../studio/error-consumption.ts";
 
 let activeServer: FdeStudioServer | null = null;
 
@@ -46,19 +45,17 @@ async function createWorkbenchWindow(): Promise<void> {
   await notifyLaunchReadiness({ ok: true, mode: headless ? "headless" : "window", pid: process.pid });
 }
 
-void app.whenReady().then(async () => {
-  try {
-    await createWorkbenchWindow();
-  } catch (error) {
-    consumeKnownError(error);
+void app
+  .whenReady()
+  .then(() => createWorkbenchWindow())
+  .catch(async (error) => {
     await notifyLaunchReadiness({
       ok: false,
       reason: "fde_launch_failed",
       detail: error instanceof Error ? error.message : String(error),
     });
     app.quit();
-  }
-});
+  });
 
 app.on("window-all-closed", () => {
   void activeServer?.close().finally(() => app.quit());

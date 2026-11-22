@@ -10,7 +10,6 @@ import { guiStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log
 import { startDetachedProcess } from "@harness-anything/daemon/internal/process-port";
 import { cliErrorMessage } from "../cli-error.ts";
 import { cliFailure } from "../cli-meta.ts";
-import { consumeKnownError } from "../daemon/client.ts";
 
 // dec_42EB7B8F636C12381A447E52A3/CH2: CLI resolves @harness-anything/gui-fde dynamically at runtime
 // so packages/cli retains zero static dependency edge on packages/gui-fde.
@@ -144,7 +143,6 @@ export async function runFdeLaunch(
       reject,
     });
   } catch (error) {
-    consumeKnownError(error);
     reject("fde_launch_failed", `GUI-FDE could not start. Cause: ${cliErrorMessage(error)}`);
     return 1;
   }
@@ -202,15 +200,20 @@ function parseFdeLaunch(
   return { ok: true, rootDir: path.resolve(root ?? process.cwd()), browser, ...(port !== undefined ? { port } : {}) };
 }
 
-function resolveFdePackageRoot(): string | undefined {
+function tryResolvePackageJson(
+  packageName: string,
+): { readonly ok: true; readonly manifest: string } | { readonly ok: false } {
   try {
-    const packageName = ["@harness-anything", "gui-fde", "package.json"].join("/");
-    const manifest = createRequire(import.meta.url).resolve(packageName);
-    return path.dirname(manifest);
-  } catch (error) {
-    consumeKnownError(error);
-    return undefined;
+    return { ok: true, manifest: createRequire(import.meta.url).resolve(packageName) };
+  } catch {
+    return { ok: false };
   }
+}
+
+function resolveFdePackageRoot(): string | undefined {
+  const packageName = ["@harness-anything", "gui-fde", "package.json"].join("/");
+  const resolved = tryResolvePackageJson(packageName);
+  return resolved.ok ? path.dirname(resolved.manifest) : undefined;
 }
 
 async function startFdeBrowserServer(options: {
@@ -249,8 +252,7 @@ function resolveFdeElectronRuntime(fdePackageRoot: string): FdeElectronRuntime {
     electronRoot = path.dirname(
       createRequire(path.join(fdePackageRoot, "package.json")).resolve("electron/package.json"),
     );
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     return {
       remedy:
         "The Electron runtime package is not installed beside @harness-anything/gui-fde. Run `npm install`, then retry `ha fde`.",
@@ -264,8 +266,7 @@ function resolveFdeElectronRuntime(fdePackageRoot: string): FdeElectronRuntime {
     const candidate = path.resolve(electronRoot, "dist", relativeBinary);
     accessSync(candidate, constants.F_OK | constants.X_OK);
     return { binary: candidate, installScript, remedy };
-  } catch (error) {
-    consumeKnownError(error);
+  } catch {
     return { installScript, remedy };
   }
 }
@@ -297,7 +298,7 @@ async function launchDesktopFde(context: {
       context.fdePackageRoot,
       false,
     );
-    child.on?.("error", consumeKnownError);
+    child.on?.("error", () => undefined);
     if (child.pid === undefined) {
       return context.reject("fde_launch_failed", `Electron at ${context.electronRuntime.binary} could not be started.`);
     }
@@ -337,6 +338,18 @@ interface ReadinessChannel {
   close(): void;
 }
 
+function parseReadinessPayload(
+  line: string,
+): { readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false } {
+  try {
+    const parsed = JSON.parse(line) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false };
+    return { ok: true, value: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false };
+  }
+}
+
 async function startReadinessChannel(): Promise<ReadinessChannel> {
   const token = randomBytes(16).toString("hex");
   let resolveSignal: ((signal: FdeLaunchReadinessSignal) => void) | null = null;
@@ -351,26 +364,26 @@ async function startReadinessChannel(): Promise<ReadinessChannel> {
       buffer += chunk;
       const newline = buffer.indexOf("\n");
       if (newline === -1) return;
-      try {
-        const parsed = JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>;
-        if (parsed.token !== token || typeof parsed.ok !== "boolean") {
-          socket.destroy();
-          return;
-        }
-        socket.end("ack\n");
-        if (!settled) {
-          settled = true;
-          resolveSignal?.({
-            ok: parsed.ok,
-            ...(typeof parsed.mode === "string" ? { mode: parsed.mode } : {}),
-            ...(typeof parsed.pid === "number" ? { pid: parsed.pid } : {}),
-            ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
-            ...(typeof parsed.detail === "string" ? { detail: parsed.detail } : {}),
-          });
-        }
-      } catch (error) {
-        consumeKnownError(error);
+      const decoded = parseReadinessPayload(buffer.slice(0, newline));
+      if (!decoded.ok) {
         socket.destroy();
+        return;
+      }
+      const parsed = decoded.value;
+      if (parsed.token !== token || typeof parsed.ok !== "boolean") {
+        socket.destroy();
+        return;
+      }
+      socket.end("ack\n");
+      if (!settled) {
+        settled = true;
+        resolveSignal?.({
+          ok: parsed.ok,
+          ...(typeof parsed.mode === "string" ? { mode: parsed.mode } : {}),
+          ...(typeof parsed.pid === "number" ? { pid: parsed.pid } : {}),
+          ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
+          ...(typeof parsed.detail === "string" ? { detail: parsed.detail } : {}),
+        });
       }
     });
   });

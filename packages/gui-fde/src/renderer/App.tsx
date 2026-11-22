@@ -11,7 +11,6 @@ import {
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import { createDefaultFdeDraft, type FdeDomainDraft, type FdeLocale } from "../studio/domain-draft.ts";
-import { consumeKnownError } from "../studio/error-consumption.ts";
 import type { FdeCompiledPackage, FdePersistResult, FdeSimulateReportDto } from "../studio/studio-api.ts";
 import { fdeApi } from "./api.ts";
 import { AgentsSection } from "./sections/AgentsSection.tsx";
@@ -46,30 +45,33 @@ export function App() {
   const [persistResult, setPersistResult] = useState<FdePersistResult | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const runCompile = useCallback(async (targetDraft: FdeDomainDraft) => {
-    try {
-      const next = await fdeApi.compile(targetDraft);
-      setCompiled(next);
-      setErrorMessage(null);
-    } catch (error) {
-      consumeKnownError(error);
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    }
+  const runCompile = useCallback((targetDraft: FdeDomainDraft) => {
+    return fdeApi
+      .compile(targetDraft)
+      .then((next) => {
+        setCompiled(next);
+        setErrorMessage(null);
+      })
+      .catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      });
   }, []);
 
-  const runSimulate = useCallback(async (targetDraft: FdeDomainDraft, locale: FdeLocale) => {
+  const runSimulate = useCallback((targetDraft: FdeDomainDraft, locale: FdeLocale) => {
     setSimulating(true);
-    try {
-      const result = await fdeApi.simulate(targetDraft, locale);
-      setCompiled(result.compiled);
-      setReport(result.report);
-      setErrorMessage(null);
-    } catch (error) {
-      consumeKnownError(error);
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSimulating(false);
-    }
+    return fdeApi
+      .simulate(targetDraft, locale)
+      .then((result) => {
+        setCompiled(result.compiled);
+        setReport(result.report);
+        setErrorMessage(null);
+      })
+      .catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setSimulating(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -91,18 +93,20 @@ export function App() {
     return () => clearTimeout(timer);
   }, [draft, runCompile]);
 
-  const handlePersist = async () => {
+  const handlePersist = () => {
     setPersisting(true);
-    try {
-      const receipt = await fdeApi.persist(draft, overwrite);
-      setPersistResult(receipt);
-      setErrorMessage(null);
-    } catch (error) {
-      consumeKnownError(error);
-      setErrorMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setPersisting(false);
-    }
+    void fdeApi
+      .persist(draft, overwrite)
+      .then((receipt) => {
+        setPersistResult(receipt);
+        setErrorMessage(null);
+      })
+      .catch((error) => {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setPersisting(false);
+      });
   };
 
   const sectionIcon = (id: BuilderSection) => {

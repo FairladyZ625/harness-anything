@@ -6,7 +6,6 @@ import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/cli
 import type { ScaffoldPresetInput, SimulationSamplePair } from "@harness-anything/preset";
 import { compileStudioDraft } from "../studio/compiler.ts";
 import { createDefaultFdeDraft, type FdeDomainDraft, type FdeLocale } from "../studio/domain-draft.ts";
-import { consumeKnownError } from "../studio/error-consumption.ts";
 import {
   applyPresetScaffold,
   persistStudioDraft,
@@ -133,6 +132,85 @@ async function handleHttpRequest(
   createReadStream(resolved).pipe(response);
 }
 
+async function dispatchApiRequest(
+  request: IncomingMessage,
+  pathname: string,
+  context: {
+    readonly rootDir: string;
+    readonly queryDaemonVerticals: NonNullable<StartFdeStudioServerOptions["queryDaemonVerticals"]>;
+  },
+): Promise<{ readonly status: number; readonly payload?: unknown }> {
+  try {
+    if (pathname === "/api/bootstrap" && request.method === "GET") {
+      const daemonState = await context.queryDaemonVerticals(context.rootDir);
+      const payload: FdeBootstrapPayload = {
+        rootDir: context.rootDir,
+        draft: createDefaultFdeDraft(),
+        daemonConnected: daemonState.connected,
+        installedVerticals: daemonState.verticals,
+      };
+      return { status: 200, payload };
+    }
+    if (request.method !== "POST") return { status: 405 };
+    const body = await readJsonBody(request);
+    if (pathname === "/api/compile") {
+      const draft = body.draft as FdeDomainDraft;
+      return { status: 200, payload: compileStudioDraft(draft, context.rootDir) };
+    }
+    if (pathname === "/api/simulate") {
+      const draft = body.draft as FdeDomainDraft;
+      const result = await simulateStudioDraft({
+        draft,
+        rootDir: context.rootDir,
+        ...(typeof body.locale === "string" ? { locale: body.locale as FdeLocale } : {}),
+        ...(typeof body.presetId === "string" ? { presetId: body.presetId } : {}),
+        ...(typeof body.profileId === "string" ? { profileId: body.profileId } : {}),
+        ...(body.sampleOverrides && typeof body.sampleOverrides === "object"
+          ? { sampleOverrides: body.sampleOverrides as Readonly<Record<string, SimulationSamplePair>> }
+          : {}),
+      });
+      return { status: 200, payload: result };
+    }
+    if (pathname === "/api/persist") {
+      const draft = body.draft as FdeDomainDraft;
+      const result = persistStudioDraft({
+        draft,
+        rootDir: context.rootDir,
+        overwrite: body.overwrite === true,
+        dryRun: body.dryRun === true,
+      });
+      return { status: 200, payload: result };
+    }
+    if (pathname === "/api/preset/scaffold") {
+      const presetInput: ScaffoldPresetInput = {
+        rootDir: context.rootDir,
+        presetId: String(body.presetId ?? ""),
+        verticalId: String(body.verticalId ?? ""),
+        ...(typeof body.title === "string" ? { title: body.title } : {}),
+        overwrite: body.overwrite === true,
+        dryRun: body.dryRun === true,
+      };
+      const result = body.previewOnly === true ? previewPresetScaffold(presetInput) : applyPresetScaffold(presetInput);
+      return { status: 200, payload: result };
+    }
+    return { status: 404 };
+  } catch (error) {
+    return {
+      status: 400,
+      payload: {
+        ok: false,
+        error: {
+          code:
+            typeof (error as { readonly code?: unknown })?.code === "string"
+              ? String((error as { readonly code: string }).code)
+              : "fde_studio_error",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      },
+    };
+  }
+}
+
 async function handleApiRequest(
   request: IncomingMessage,
   response: ServerResponse,
@@ -148,74 +226,9 @@ async function handleApiRequest(
   if (request.headers.origin !== undefined && request.headers.origin !== `http://${expectedHost}`) {
     return sendStatus(response, 403);
   }
-  try {
-    if (pathname === "/api/bootstrap" && request.method === "GET") {
-      const daemonState = await context.queryDaemonVerticals(context.rootDir);
-      const payload: FdeBootstrapPayload = {
-        rootDir: context.rootDir,
-        draft: createDefaultFdeDraft(),
-        daemonConnected: daemonState.connected,
-        installedVerticals: daemonState.verticals,
-      };
-      return sendJson(response, 200, payload);
-    }
-    if (request.method !== "POST") return sendStatus(response, 405);
-    const body = await readJsonBody(request);
-    if (pathname === "/api/compile") {
-      const draft = body.draft as FdeDomainDraft;
-      return sendJson(response, 200, compileStudioDraft(draft, context.rootDir));
-    }
-    if (pathname === "/api/simulate") {
-      const draft = body.draft as FdeDomainDraft;
-      const result = await simulateStudioDraft({
-        draft,
-        rootDir: context.rootDir,
-        ...(typeof body.locale === "string" ? { locale: body.locale as FdeLocale } : {}),
-        ...(typeof body.presetId === "string" ? { presetId: body.presetId } : {}),
-        ...(typeof body.profileId === "string" ? { profileId: body.profileId } : {}),
-        ...(body.sampleOverrides && typeof body.sampleOverrides === "object"
-          ? { sampleOverrides: body.sampleOverrides as Readonly<Record<string, SimulationSamplePair>> }
-          : {}),
-      });
-      return sendJson(response, 200, result);
-    }
-    if (pathname === "/api/persist") {
-      const draft = body.draft as FdeDomainDraft;
-      const result = persistStudioDraft({
-        draft,
-        rootDir: context.rootDir,
-        overwrite: body.overwrite === true,
-        dryRun: body.dryRun === true,
-      });
-      return sendJson(response, 200, result);
-    }
-    if (pathname === "/api/preset/scaffold") {
-      const presetInput: ScaffoldPresetInput = {
-        rootDir: context.rootDir,
-        presetId: String(body.presetId ?? ""),
-        verticalId: String(body.verticalId ?? ""),
-        ...(typeof body.title === "string" ? { title: body.title } : {}),
-        overwrite: body.overwrite === true,
-        dryRun: body.dryRun === true,
-      };
-      const result = body.previewOnly === true ? previewPresetScaffold(presetInput) : applyPresetScaffold(presetInput);
-      return sendJson(response, 200, result);
-    }
-    return sendStatus(response, 404);
-  } catch (error) {
-    consumeKnownError(error);
-    sendJson(response, 400, {
-      ok: false,
-      error: {
-        code:
-          typeof (error as { readonly code?: unknown })?.code === "string"
-            ? String((error as { readonly code: string }).code)
-            : "fde_studio_error",
-        message: error instanceof Error ? error.message : String(error),
-      },
-    });
-    return;
-  }
+  const result = await dispatchApiRequest(request, pathname, context);
+  if (result.payload === undefined) return sendStatus(response, result.status);
+  return sendJson(response, result.status, result.payload);
 }
 
 function bearerTokenMatches(header: string | undefined, expectedToken: string): boolean {
@@ -223,6 +236,20 @@ function bearerTokenMatches(header: string | undefined, expectedToken: string): 
   const actual = Buffer.from(header.slice(7));
   const expected = Buffer.from(expectedToken);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function parseJsonObject(
+  raw: string,
+): { readonly ok: true; readonly value: Record<string, unknown> } | { readonly ok: false; readonly error: unknown } {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: new Error("Request payload must be a JSON object.") };
+    }
+    return { ok: true, value: parsed as Record<string, unknown> };
+  } catch (error) {
+    return { ok: false, error };
+  }
 }
 
 function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -239,17 +266,12 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
       chunks.push(chunk);
     });
     request.on("end", () => {
-      try {
-        const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
-        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-          reject(new Error("Request payload must be a JSON object."));
-          return;
-        }
-        resolve(parsed as Record<string, unknown>);
-      } catch (error) {
-        consumeKnownError(error);
-        reject(error);
+      const parsed = parseJsonObject(Buffer.concat(chunks).toString("utf8"));
+      if (!parsed.ok) {
+        reject(parsed.error);
+        return;
       }
+      resolve(parsed.value);
     });
     request.on("error", reject);
   });
