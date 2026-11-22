@@ -6,7 +6,13 @@ import { HOST_READ_PROBES } from "./g38-read-host-probes.mjs";
 import { METHOD_READ_PROBES, PROJECTION_READ_PROBES } from "./g38-read-method-probes.mjs";
 import { COMMAND_READ_PROBES, ACTION_METHOD_READ_PROBES } from "./g38-read-command-probes.mjs";
 import { openReadBackend } from "./g38-read-backend.mjs";
-import { READ_SESSION_ID, READ_ACTIVE_SESSION_ID, READ_TASK_ID, HISTORY_OUTPUT_TASK_ID } from "./g38-read-ledger.mjs";
+import {
+  READ_SESSION_ID,
+  READ_ACTIVE_SESSION_ID,
+  READ_TASK_ID,
+  HISTORY_OUTPUT_TASK_ID,
+  READ_DOSSIER_SLOT,
+} from "./g38-read-ledger.mjs";
 import { prepareLegacyAudit, runLegacyAudit } from "./g38-read-legacy.mjs";
 
 const now = () => "2026-11-05T00:00:00Z";
@@ -96,6 +102,34 @@ export const READ_PROBES = Object.freeze({
     size: (result) => {
       assert.equal(result.events[0]?.workspaceRevision, 1);
       return result.events.length;
+    },
+  },
+  "dossier-status": {
+    reads: ["command:dossier-status", "method:repo.dossier.status"],
+    dimensions: ["task-history"],
+    run: ({ runtime }) => runtime.read("repo.dossier.status", {}),
+    size: (value) => {
+      assert.equal(value.slots[0]?.stalenessDelta, 4);
+      return value.slots.length;
+    },
+  },
+  "dossier-content": {
+    reads: ["method:repo.dossier.read"],
+    dimensions: ["task-history"],
+    run: ({ runtime }) => runtime.read("repo.dossier.read", { slotId: READ_DOSSIER_SLOT.id }),
+    size: (value) => {
+      assert.match(value.body, /A bounded accepted project narrative\./u);
+      return 1;
+    },
+  },
+  "dossier-context": {
+    reads: ["command:dossier-context", "method:repo.dossier.context.read"],
+    dimensions: ["task-history"],
+    run: ({ runtime }) => runtime.read("repo.dossier.context.read", { slotId: READ_DOSSIER_SLOT.id }),
+    size: (value) => {
+      assert.equal(value.done, true);
+      assert.equal(value.nextWatermark - value.expectedWatermark, 4);
+      return 1;
     },
   },
   "runtime-events": {

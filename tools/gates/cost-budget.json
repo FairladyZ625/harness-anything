@@ -1055,6 +1055,16 @@
             "cli-doc-sync-dry-run"
           ]
         },
+        "command:dossier-context": {
+          "measurements": [
+            "dossier-context"
+          ]
+        },
+        "command:dossier-status": {
+          "measurements": [
+            "dossier-status"
+          ]
+        },
         "command:doctor-health": {
           "measurements": [
             "cli-doctor-health"
@@ -1355,6 +1365,21 @@
         "method:repo.doc.show": {
           "measurements": [
             "repo.doc.show"
+          ]
+        },
+        "method:repo.dossier.context.read": {
+          "measurements": [
+            "dossier-context"
+          ]
+        },
+        "method:repo.dossier.read": {
+          "measurements": [
+            "dossier-content"
+          ]
+        },
+        "method:repo.dossier.status": {
+          "measurements": [
+            "dossier-status"
           ]
         },
         "method:repo.entity.actions.explain": {
