@@ -47,6 +47,7 @@ const legacyStateDigestTables = [
   ["dispatch_lifecycle_group", "attempt_group_id"],
   ["dispatch_lifecycle_attempt", "runtime_session_id"],
   ["dispatch_lifecycle_task_lease", "task_id"],
+  ["inbox_item", "inbox_id, item_id"],
 ] as const;
 
 const chunkBytes = 1024 * 1024;
@@ -92,55 +93,58 @@ test("SQLite state digest preserves legacy bytes with one ordered cursor per doc
       escaped = 'quotes" slash/ nul\0 newline\n snow 雪',
       large = JSON.stringify({ body: `${"x".repeat(chunkBytes - 10)}😀${escaped}${"y".repeat(chunkBytes)}` }),
       small = JSON.stringify({ body: escaped });
-    assert.equal(Buffer.byteLength(large.slice(0, large.indexOf("😀"))), chunkBytes - 1);
-    assert.equal(initialized.watermark, 0);
-    for (const table of ["document", "document_history"]) {
-      const insert = db.prepare(`INSERT INTO ${table}(path, workspace_revision, value_json) VALUES (?, ?, ?)`);
-      insert.run("tasks/z-small.md", 3, small);
-      insert.run("tasks/a-large.md", 4, large);
-    }
-    const prepared = context.mock.method(db, "prepare");
-    const actual = readStateDigest(db, 0);
-    const documentQueries = prepared.mock.calls
-      .map(({ arguments: [sql] }) => sql)
-      .filter((sql) => /\bFROM document(?:_history)?\b/iu.test(sql));
-    prepared.mock.restore();
-    assert.equal(documentQueries.length, 2, documentQueries.join("\n"));
-    assert.match(documentQueries[0]!, /FROM document ORDER BY path$/u);
-    assert.match(documentQueries[1]!, /FROM document_history ORDER BY path$/u);
-    assert.ok(documentQueries.every((sql) => !/\bsubstr\s*\(/iu.test(sql)));
-    assert.notEqual(actual, null);
-    let legacy = sha256Text("task-projection-state/v1");
-    for (const [table, order] of legacyStateDigestTables) {
-      legacy = sha256Text(`${legacy}\n${table}`);
-      if (table === "document" || table === "document_history") {
-        const rows = db
-          .prepare(
-            `SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM ${table} ORDER BY path`,
-          )
-          .all() as { path: string; workspace_revision: number; value_json_bytes: number }[];
-        const chunks = db.prepare(
-          `SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM ${table} WHERE path = ?`,
-        );
-        for (const row of rows) {
-          function* readLegacyChunks(): Iterable<Uint8Array> {
-            for (let offset = 0; offset < row.value_json_bytes; offset += chunkBytes)
-              yield (chunks.get(offset + 1, chunkBytes, row.path) as { chunk: Uint8Array }).chunk;
-          }
-          legacy = hashCanonicalJsonTextFieldChunks(
-            legacy,
-            { path: row.path, workspace_revision: row.workspace_revision, value_json: "" },
-            "value_json",
-            readLegacyChunks(),
-          );
-        }
-      } else {
-        for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).iterate())
-          legacy = sha256Text(`${legacy}\n${canonicalJson(row)}`);
+    try {
+      assert.equal(Buffer.byteLength(large.slice(0, large.indexOf("😀"))), chunkBytes - 1);
+      assert.equal(initialized.watermark, 0);
+      for (const table of ["document", "document_history"]) {
+        const insert = db.prepare(`INSERT INTO ${table}(path, workspace_revision, value_json) VALUES (?, ?, ?)`);
+        insert.run("tasks/z-small.md", 3, small);
+        insert.run("tasks/a-large.md", 4, large);
       }
+      const prepared = context.mock.method(db, "prepare");
+      const actual = readStateDigest(db, 0);
+      const documentQueries = prepared.mock.calls
+        .map(({ arguments: [sql] }) => sql)
+        .filter((sql) => /\bFROM document(?:_history)?\b/iu.test(sql));
+      prepared.mock.restore();
+      assert.equal(documentQueries.length, 2, documentQueries.join("\n"));
+      assert.match(documentQueries[0]!, /FROM document ORDER BY path$/u);
+      assert.match(documentQueries[1]!, /FROM document_history ORDER BY path$/u);
+      assert.ok(documentQueries.every((sql) => !/\bsubstr\s*\(/iu.test(sql)));
+      assert.notEqual(actual, null);
+      let legacy = sha256Text("task-projection-state/v1");
+      for (const [table, order] of legacyStateDigestTables) {
+        legacy = sha256Text(`${legacy}\n${table}`);
+        if (table === "document" || table === "document_history") {
+          const rows = db
+            .prepare(
+              `SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM ${table} ORDER BY path`,
+            )
+            .all() as { path: string; workspace_revision: number; value_json_bytes: number }[];
+          const chunks = db.prepare(
+            `SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM ${table} WHERE path = ?`,
+          );
+          for (const row of rows) {
+            function* readLegacyChunks(): Iterable<Uint8Array> {
+              for (let offset = 0; offset < row.value_json_bytes; offset += chunkBytes)
+                yield (chunks.get(offset + 1, chunkBytes, row.path) as { chunk: Uint8Array }).chunk;
+            }
+            legacy = hashCanonicalJsonTextFieldChunks(
+              legacy,
+              { path: row.path, workspace_revision: row.workspace_revision, value_json: "" },
+              "value_json",
+              readLegacyChunks(),
+            );
+          }
+        } else {
+          for (const row of db.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).iterate())
+            legacy = sha256Text(`${legacy}\n${canonicalJson(row)}`);
+        }
+      }
+      assert.equal(actual, `sha256:${legacy}`);
+    } finally {
+      db.close();
+      projection.close();
     }
-    assert.equal(actual, `sha256:${legacy}`);
-    db.close();
-    projection.close();
   });
 });

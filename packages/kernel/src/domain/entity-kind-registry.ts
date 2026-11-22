@@ -27,6 +27,7 @@ import {
   dispatchLifecyclePolicies,
   dispatchLifecycleJudgment,
 } from "./dispatch-lifecycle-ontology.ts";
+import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import {
@@ -1569,8 +1570,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       },
     ],
     actionCatalog: runtimeSessionCatalog,
-    policies: [...dispatchLifecyclePolicies, daemonRuntimeSessionPolicy],
-    judgments: [dispatchLifecycleJudgment],
+    policies: [...dispatchLifecyclePolicies, daemonRuntimeSessionPolicy, ...inboxPolicies],
+    judgments: [dispatchLifecycleJudgment, ...inboxJudgments],
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
