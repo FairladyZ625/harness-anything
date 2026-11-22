@@ -1124,6 +1124,8 @@ export const agentProtocolCommands = Object.freeze([
             "stop",
             "backup",
             "restore",
+            "relocation-export",
+            "relocation-import",
             "upgrade",
             "bootstrap-status",
             "bootstrap-admin",

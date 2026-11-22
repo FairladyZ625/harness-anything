@@ -1,3 +1,5 @@
+export const IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA = "managed-rbac-access-admin-journal/v1";
+
 export interface AccessAdminRequest {
   readonly operation?: string;
   readonly repoId?: string;
@@ -54,6 +56,8 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly loginRealm?: string;
   readonly loginClientId?: string;
   readonly backupDir?: string;
+  /** Access-admin receipt lines carried inside the identity relocation bundle. */
+  readonly accessAdminJournal?: readonly string[];
   readonly redirectUri?: string;
   readonly code?: string;
   readonly state?: string;

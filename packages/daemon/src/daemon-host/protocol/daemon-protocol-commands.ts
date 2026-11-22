@@ -568,6 +568,8 @@ export const daemonProtocolMethods = Object.freeze([
         "stop",
         "backup",
         "restore",
+        "relocation-export",
+        "relocation-import",
         "upgrade",
         "login-begin",
         "login-complete",
@@ -799,6 +801,13 @@ export const daemonProtocolMethods = Object.freeze([
 export { interactiveRpcMethods, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
 
 export const fleetProtocolMethods = Object.freeze([
+  {
+    id: "daemon.fleet.center.promote-from-edge",
+    phase: "Fleet-Wiring",
+    method: "daemon.fleet.center.promote-from-edge",
+    requiresRepo: false,
+    params: shape({ payload: shape({ repoId: "string" }) }),
+  },
   {
     id: "daemon.fleet.center.start",
     phase: "Fleet-Wiring",

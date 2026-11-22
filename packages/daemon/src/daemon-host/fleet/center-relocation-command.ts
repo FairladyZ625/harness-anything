@@ -5,6 +5,7 @@ import {
   exportCenterRelocation,
   importCenterRelocation,
   publishPendingSqliteGitOutbox,
+  promoteFromEdge,
   retireCenter,
   stageCenterRelocation,
   writeFileDurably,
@@ -12,9 +13,17 @@ import {
   type ImportCenterRelocationRbacContext,
 } from "@harness-anything/storage";
 import { daemonIdFromEnv, localUserDaemonEndpoint } from "../client/local-daemon-target.ts";
+import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { requestDaemonJsonRpcAt } from "../client/local-json-rpc-client.ts";
-import { daemonSocketProbe } from "../daemon-singleton.ts";
+import { acquireDaemonSingleton, daemonSocketProbe } from "../daemon-singleton.ts";
+import { localSystemBinding } from "../daemon-host-binding.ts";
+import { requireAuthorizedHostAction } from "../host-action-authorization.ts";
+import {
+  rbacBackupStatuses,
+  type RbacBackupStatus,
+} from "@harness-anything/kernel/internal/domain/status-vocabulary.ts";
 import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "../fleet-center-config.ts";
+import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
 
 export interface FleetCenterRelocationOutcome {
   readonly receipt: Record<string, unknown>;
@@ -142,11 +151,98 @@ export async function relocateFleetCenter(
   if (operation === "export") return await exportBundle(argv, defaultUserRoot, hooks);
   if (operation === "import") return await importBundle(argv, defaultUserRoot, hooks);
   if (operation === "retire") return retireOldCenter(argv, defaultUserRoot);
+  if (operation === "promote-from-edge") return await promoteEdge(argv, defaultUserRoot);
   return failureOutcome(
     "fleet-center",
     "unsupported_command",
     "Use ha fleet center export|import|retire with the operation flags.",
   );
+}
+
+async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Promise<FleetCenterRelocationOutcome> {
+  // Check confirmations before resolving paths or opening storage. Missing either flag is a
+  // zero-side-effect refusal, which keeps accidental shell retries harmless.
+  if (!argv.includes("--force-new-epoch") || !argv.includes("--confirm-possible-tail-loss"))
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "missing_confirmation",
+      "Break-glass promotion requires both --force-new-epoch and --confirm-possible-tail-loss.",
+    );
+  const missing = missingFlags(argv, ["--root", "--repo", "--state-root"]);
+  if (missing.length > 0)
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "missing_field",
+      `Add ${missing.join(" ")} to promote the edge replica.`,
+    );
+  const userRoot = path.resolve(flagValue(argv, "--user-root") ?? defaultUserRoot),
+    daemonId = flagValue(argv, "--daemon-id") ?? daemonIdFromEnv();
+  const rbacStatus = flagValue(argv, "--rbac-backup-status");
+  if (rbacStatus !== undefined && !(rbacBackupStatuses as readonly string[]).includes(rbacStatus))
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "invalid_field",
+      "--rbac-backup-status must be verified, unavailable, or unknown.",
+    );
+  const rootInput = path.resolve(flagValue(argv, "--root")!),
+    repoId = flagValue(argv, "--repo")!,
+    edge = readFleetEdgeConfig(rootInput);
+  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)) throw new Error("--repo must be a valid repository id");
+  if (!edge || edge.repoId !== repoId)
+    throw new Error("--root must contain a fleet-edge.json for the requested repository");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(edge.nodeId))
+    throw new Error("fleet-edge.json nodeId is invalid for a replica view path");
+  const ownership = await requireAuthorizedHostAction({
+    kind: "daemon-fleet-center-promote-from-edge",
+    binding: localSystemBinding(rootInput),
+    actionId: `center-promote-from-edge:${repoId}`,
+    evaluatedAtCut: "host-local:current",
+    repoId,
+  });
+  const singleton = await acquireDaemonSingleton({
+    userRoot,
+    daemonId,
+    endpoint: localUserDaemonEndpoint(userRoot, daemonId),
+  });
+  if (singleton.claim === "incumbent")
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "edge_daemon_running",
+      "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
+    );
+  try {
+    const replicaRoot = path.resolve(rootInput, edge.viewRoot, "repos", repoId, "views", edge.nodeId),
+      replica = readReplicaGeneration(replicaRoot);
+    if (!replica || replica.metadata.repoId !== repoId)
+      throw new Error(`edge replica generation is unavailable for repository ${repoId} and node ${edge.nodeId}`);
+    const result = await promoteFromEdge({
+      rootInput,
+      repoId,
+      replicaDatabasePath: replica.ledgerPath,
+      replicaGeneration: replica.metadata.ledgerGeneration,
+      replicaPosition: replica.metadata.position,
+      stateRoot: path.resolve(flagValue(argv, "--state-root")!),
+      ...(flagValue(argv, "--holder-id") ? { holderId: flagValue(argv, "--holder-id") } : {}),
+      forceNewEpoch: true,
+      confirmPossibleTailLoss: true,
+      ...(edge.writerEpoch === undefined ? {} : { observedWriterEpoch: edge.writerEpoch }),
+      rbacBackupStatus: rbacStatus as RbacBackupStatus | undefined,
+    });
+    return appliedOutcome({
+      command: "fleet-center-promote-from-edge",
+      outcome: "applied",
+      event: "center_emergency_promoted",
+      ...result,
+      authorizationDecision: ownership,
+      summary: `fleet-center-promote-from-edge: promoted ${result.repoId} at epoch ${String(result.newEpoch)}`,
+      nextAction:
+        result.rbacBackupStatus === "verified"
+          ? "Start the new center and repoint edges explicitly."
+          : "Verify or restore the RBAC backup before admitting edge writes, then repoint edges explicitly.",
+    });
+  } finally {
+    singleton.release();
+  }
 }
 
 async function exportBundle(
@@ -170,7 +266,8 @@ async function exportBundle(
     userRoot = path.resolve(flagValue(argv, "--user-root") ?? defaultUserRoot),
     stateRoot = path.resolve(flagValue(argv, "--state-root") ?? path.join(userRoot, "fleet")),
     daemonId = flagValue(argv, "--daemon-id") ?? daemonIdFromEnv(),
-    slots = flagValue(argv, "--slots"),
+    slots = flagValue(argv, "--slots");
+  const exportRbacBundle = hooks?.exportRbacBundle ?? (await defaultRbacExportHook(userRoot, daemonId)),
     // Phase 1 (outside CENTER_MIGRATING write freeze): pre-stage blobs and working tree.
     stage = stageCenterRelocation({ rootInput: resolvedRoot, bundleDir: resolvedBundle }),
     exported = await exportCenterRelocation({
@@ -182,7 +279,7 @@ async function exportBundle(
       stateRoot,
       stage,
       ...(slots ? { replicationSlotsPath: path.resolve(slots) } : {}),
-      ...(hooks?.exportRbacBundle ? { exportRbacBundle: hooks.exportRbacBundle } : {}),
+      ...(exportRbacBundle ? { exportRbacBundle } : {}),
       freezeAndDrain: async () => {
         if (hooks?.freezeAndDrain) {
           await hooks.freezeAndDrain({ repoId, rootDir: resolvedRoot, userRoot, daemonId });
@@ -253,6 +350,7 @@ async function importBundle(
     stateRoot = path.resolve(flagValue(argv, "--state-root") ?? path.join(userRoot, "fleet")),
     slots = flagValue(argv, "--slots"),
     expectedRepoId = flagValue(argv, "--repo"),
+    importRbacBundle = hooks?.importRbacBundle ?? defaultRbacImportHook(userRoot, daemonId, loginUrl),
     imported = await importCenterRelocation({
       bundleDir: path.resolve(bundle),
       destinationRoot: path.resolve(destination),
@@ -261,7 +359,7 @@ async function importBundle(
       ...(expectedRepoId ? { expectedRepoId } : {}),
       ...(expectedFinalRevision !== undefined && expectedFinalRevision !== null ? { expectedFinalRevision } : {}),
       ...(expectedTipHash ? { expectedTipHash } : {}),
-      ...(hooks?.importRbacBundle ? { importRbacBundle: hooks.importRbacBundle } : {}),
+      importRbacBundle,
     }),
     routing = rebindCenterRelocationRouting({
       userRoot,
@@ -328,6 +426,67 @@ function retireOldCenter(argv: readonly string[], defaultUserRoot: string): Flee
       `Old-center writes are fenced. Run ha edge repoint --external-url ${tombstone.newExternalUrl} ` +
       `--login-url ${tombstone.newLoginUrl} --epoch ${String(tombstone.newEpoch)}.`,
   });
+}
+
+async function defaultRbacExportHook(
+  userRoot: string,
+  daemonId: string,
+): Promise<FleetCenterRelocationHooks["exportRbacBundle"] | undefined> {
+  const { readProviderMode } = await import("../authorization-provider.ts"),
+    mode = readProviderMode(userRoot);
+  if (mode === "builtin" || mode === "external") return undefined;
+  return async ({ payloadRbacDir }) => {
+    await runManagedRbacRelocationOperation(userRoot, daemonId, {
+      operation: "relocation-export",
+      backupDir: payloadRbacDir,
+    });
+  };
+}
+
+function defaultRbacImportHook(
+  userRoot: string,
+  daemonId: string,
+  loginUrl: string | undefined,
+): NonNullable<FleetCenterRelocationHooks["importRbacBundle"]> {
+  return async ({ payloadRbacDir, manifest }) => {
+    if (!manifest.files.some(({ path: file }) => file === "rbac/manifest.json")) return;
+    if (!loginUrl) throw new Error("Relocation import requires --login-url when the bundle contains managed RBAC.");
+    const { readProviderMode } = await import("../authorization-provider.ts"),
+      mode = readProviderMode(userRoot);
+    if (mode === "builtin")
+      throw new Error("Configure the target managed RBAC service before importing this relocation bundle.");
+    if (mode === "external")
+      throw new Error("Managed RBAC relocation cannot import into an external identity provider.");
+    await runManagedRbacRelocationOperation(userRoot, daemonId, {
+      operation: "relocation-import",
+      backupDir: payloadRbacDir,
+      loginUrl,
+    });
+  };
+}
+
+async function runManagedRbacRelocationOperation(
+  userRoot: string,
+  daemonId: string,
+  payload:
+    | { readonly operation: "relocation-export"; readonly backupDir: string }
+    | {
+        readonly operation: "relocation-import";
+        readonly backupDir: string;
+        readonly loginUrl: string;
+      },
+): Promise<void> {
+  const result = await requestDaemonJsonRpcAt(
+    localUserDaemonEndpoint(userRoot, daemonId),
+    "daemon.rbac.manage",
+    payload,
+    5_000,
+    600_000,
+  );
+  if (result.ok !== true)
+    throw new Error(
+      `Managed RBAC ${payload.operation} failed: ${String(result.message ?? result.code ?? "unknown failure")}`,
+    );
 }
 
 function flagValue(argv: readonly string[], flag: string): string | undefined {

@@ -11,6 +11,7 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak"
 import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/authorization-keycloak/managed-rbac-relocation";
 
 async function freeLoopbackPort(): Promise<number> {
   const server = createServer();
@@ -131,7 +132,10 @@ test(
       bundleDir = path.join(root, "relocation-bundle"),
       user = { id: "person-relocation", username: "relocation-human", password: "Relocation-test-password-2026" },
       node = { id: "edge-relocation", credential: "Relocation-edge-credential-2026" },
-      journal = { entries: [{ nodeId: node.id, admission: "accepted" }] };
+      journal = {
+        schema: MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
+        entries: [JSON.stringify({ nodeId: node.id, admission: "accepted" })],
+      };
     mkdirSync(sourceRoot, { recursive: true });
     mkdirSync(targetRoot, { recursive: true });
     await managedRoot(sourceRoot);
@@ -217,7 +221,11 @@ test(
     assert.equal(sourceDecision.outcome, "allowed");
     assert.equal(await sourcePolicy.authenticateNode(node.id, node.credential), true);
 
-    await source.exportRelocationBundle({ bundleDir, edgeJoinJournal: journal });
+    await source.run({
+      operation: "relocation-export",
+      backupDir: bundleDir,
+      accessAdminJournal: journal.entries,
+    });
     const realmBytes = readFileSync(path.join(bundleDir, "realm.json")),
       targetSecretBeforeImport = readFileSync(path.join(targetRoot, "rbac", "center-client-secret"), "utf8"),
       targetConfigBeforeImport = readFileSync(path.join(targetRoot, "rbac", "config.json"), "utf8"),
@@ -249,8 +257,9 @@ test(
 
     writeFileSync(path.join(bundleDir, "realm.json"), Buffer.concat([realmBytes, Buffer.from("\n")]));
     await assert.rejects(
-      target.importRelocationBundle({
-        bundleDir,
+      target.run({
+        operation: "relocation-import",
+        backupDir: bundleDir,
         loginUrl: `https://relocated.example.test:${loginPort}`,
         listenAddress: "127.0.0.1",
         certificateFile,
@@ -267,8 +276,9 @@ test(
     assert.equal((await centerAccessToken(targetUrl, targetSecretBeforeImport.trim())).length > 0, true);
     writeFileSync(path.join(bundleDir, "realm.json"), realmBytes);
 
-    const imported = await target.importRelocationBundle({
-      bundleDir,
+    const imported = await target.run({
+      operation: "relocation-import",
+      backupDir: bundleDir,
       loginUrl: `https://relocated.example.test:${loginPort}`,
       listenAddress: "127.0.0.1",
       certificateFile,

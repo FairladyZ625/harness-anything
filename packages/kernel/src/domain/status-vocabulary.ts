@@ -106,8 +106,20 @@ import {
 
 export { statusWordRegister } from "./status-word-register.ts";
 
+export const rbacBackupStatuses = ["verified", "unavailable", "unknown"] as const;
+export type RbacBackupStatus = (typeof rbacBackupStatuses)[number];
+
 export const statusVocabularies: readonly StatusVocabulary[] = [
   ...consumerStatusVocabularies,
+  {
+    id: "migration.rbac-backup-status",
+    entity: "Migration",
+    field: "RBAC backup status",
+    module: "packages/kernel/src/domain/status-vocabulary.ts",
+    anchor: "rbacBackupStatuses",
+    words: rbacBackupStatuses,
+    note: "Operator evidence about whether the separate RBAC backup is available before emergency promotion.",
+  },
   {
     id: "gate-run.state",
     entity: "GateRun",

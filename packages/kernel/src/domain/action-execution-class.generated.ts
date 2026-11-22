@@ -18,6 +18,7 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["daemon-connection-remove", "admin"],
     ["daemon-connection-update", "admin"],
     ["daemon-control-request", "admin"],
+    ["daemon-fleet-center-promote-from-edge", "admin"],
     ["daemon-fleet-center-start", "admin"],
     ["daemon-fleet-edge-sync", "admin"],
     ["daemon-local-state", "admin"],

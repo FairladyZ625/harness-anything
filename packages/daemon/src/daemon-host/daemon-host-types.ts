@@ -277,6 +277,10 @@ export interface DaemonHost {
     auth: DaemonAuthenticationContext,
   ) => Promise<Record<string, unknown>>;
   readonly fleet: {
+    readonly promoteCenterFromEdge: (
+      payload: JsonObject,
+      auth: DaemonAuthenticationContext,
+    ) => Promise<Record<string, unknown>>;
     readonly startCenter: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
     readonly readCenterExternalAddress: (auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
     readonly readCenterState: (auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;

@@ -58,6 +58,28 @@ test("ha fleet center export, retire, and import route through daemon control, v
     oldUserRoot = path.join(root, "old-user"),
     newUserRoot = path.join(root, "new-user");
   try {
+    const unconfirmedPromotion = await captureCli([
+      "daemon",
+      "fleet",
+      "center",
+      "promote-from-edge",
+      "--force-new-epoch",
+      "--json",
+    ]);
+    assert.equal(unconfirmedPromotion.exitCode, 2);
+    assert.equal(JSON.parse(unconfirmedPromotion.stdout[0]!).code, "missing_confirmation");
+
+    const missingEpochConfirmation = await captureCli([
+      "daemon",
+      "fleet",
+      "center",
+      "promote-from-edge",
+      "--confirm-possible-tail-loss",
+      "--json",
+    ]);
+    assert.equal(missingEpochConfirmation.exitCode, 2);
+    assert.equal(JSON.parse(missingEpochConfirmation.stdout[0]!).code, "missing_confirmation");
+
     await createGitSourceRepo(source, "reloc-cli");
     const missing = await captureCli(["fleet", "center", "export", "--json"]);
     assert.equal(missing.exitCode, 2);

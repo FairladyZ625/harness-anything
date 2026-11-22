@@ -575,6 +575,7 @@ export const daemonOntologyPolicies = [
       "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-singleton.ts#acquireDaemonSingleton.claim:5a56d33779a6786b6d9ebbf529ca1d8a:3",
       "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-singleton.ts#acquireDaemonSingleton.claim:8e514fb2d6e666fa4029a79f35a89817",
       "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-singleton.ts#readHolderPid.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/fleet/center-relocation-command.ts#promoteEdge:e7d07f13fd01976a0fb71d23da167035",
     ].map((candidateId) => ({ candidateId, route: "daemon-singleton-contract" })),
   },
   {

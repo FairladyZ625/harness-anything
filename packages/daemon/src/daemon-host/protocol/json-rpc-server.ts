@@ -596,6 +596,7 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (
       method === "daemon.fleet.center.start" ||
+      method === "daemon.fleet.center.promote-from-edge" ||
       method === "daemon.fleet.center.read" ||
       method === "daemon.fleet.center.external-address.read" ||
       method === "daemon.fleet.center.external-address.set" ||
@@ -605,13 +606,15 @@ export function createJsonRpcProtocolServer(options: {
         const result =
           method === "daemon.fleet.center.start"
             ? await options.host.fleet.startCenter(params.payload, options.authContext)
-            : method === "daemon.fleet.center.read"
-              ? await options.host.fleet.readCenterState(options.authContext)
-              : method === "daemon.fleet.center.external-address.read"
-                ? await options.host.fleet.readCenterExternalAddress(options.authContext)
-                : method === "daemon.fleet.center.external-address.set"
-                  ? await options.host.fleet.setCenterExternalAddress(params.payload, options.authContext)
-                  : await options.host.fleet.edgeSync(params.payload, options.authContext);
+            : method === "daemon.fleet.center.promote-from-edge"
+              ? await options.host.fleet.promoteCenterFromEdge(params.payload, options.authContext)
+              : method === "daemon.fleet.center.read"
+                ? await options.host.fleet.readCenterState(options.authContext)
+                : method === "daemon.fleet.center.external-address.read"
+                  ? await options.host.fleet.readCenterExternalAddress(options.authContext)
+                  : method === "daemon.fleet.center.external-address.set"
+                    ? await options.host.fleet.setCenterExternalAddress(params.payload, options.authContext)
+                    : await options.host.fleet.edgeSync(params.payload, options.authContext);
         return reply(method, result);
       } catch (error) {
         return reply(method, protocolFailure(method, error));

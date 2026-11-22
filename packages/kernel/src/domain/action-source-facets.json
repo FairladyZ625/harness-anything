@@ -1714,6 +1714,16 @@
     "owner": "rbac",
     "sources": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:1df587b6a59edd544970cce9fddbf315",
+        "route": "rbac-bootstrap",
+        "role": "effect"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#restoreManagedRbacAccessJournal:3294b79036b561cc2ba016b32ac182d9",
+        "route": "rbac-bootstrap",
+        "role": "effect"
+      },
+      {
         "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:d85bbd853f42837c3c69bd7e37b4e096",
         "route": "edge-join",
         "role": "support"
@@ -15271,6 +15281,39 @@
       "artifactOwnership": {
         "owner": "canonical",
         "refTemplate": "center-repo-cell"
+      }
+    }
+  },
+  "daemon-fleet-center-promote-from-edge": {
+    "owner": "daemon",
+    "sources": [
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/center-relocation.ts#promoteFromEdge:1ab06882c3dd9be7079bc1495ce96a49",
+        "route": "daemon-fleet-center-promote-from-edge",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      }
+    ],
+    "execution": {
+      "ingress": "daemon-fleet-center-promote-from-edge",
+      "read": false
+    },
+    "concurrency": {
+      "expectedVersion": {
+        "authority": "not-applicable"
+      },
+      "leasePolicy": {
+        "authority": "daemon-host"
+      },
+      "occurrenceClaim": {
+        "authority": "not-applicable"
+      },
+      "idempotency": {
+        "authority": "caller-owned"
+      },
+      "artifactOwnership": {
+        "owner": "host-local",
+        "refTemplate": "daemon-host"
       }
     }
   },

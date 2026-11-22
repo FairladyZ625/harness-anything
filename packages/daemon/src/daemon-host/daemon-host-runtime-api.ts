@@ -605,6 +605,23 @@ export function createDaemonHostRuntimeApi(
           centerStarting = false;
         }
       },
+      promoteCenterFromEdge: async (payload, auth) => {
+        context.localOnly(auth);
+        const repoId = context.requiredText(payload.repoId, "repoId"),
+          repo = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
+          binding = await context.binding(repo.status().rootDir, auth);
+        await requireAuthorizedHostAction({
+          kind: "daemon-fleet-center-promote-from-edge",
+          binding,
+          actionId: `center-promote-from-edge:${repoId}`,
+          evaluatedAtCut: "host-local:current",
+          repoId,
+        });
+        throw context.hostCodedError(
+          "edge_daemon_running",
+          "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
+        );
+      },
       edgeSync: async (payload, auth) => {
         const request = payload as unknown as FleetEdgeSyncRequest["payload"] & { readonly repoint?: unknown },
           repoint = request.repoint === true,

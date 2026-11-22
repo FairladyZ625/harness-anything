@@ -13,9 +13,12 @@ import {
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "@harness-anything/kernel";
+import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 import { requestedListener } from "./managed-rbac-listener-certificate.ts";
 
 export type ManagedRbacSupportedPlatform = "darwin-arm64" | "darwin-x64" | "linux-x64" | "win32-arm64" | "win32-x64";
+
+export const MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA = IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA;
 
 export interface ManagedRbacConfig {
   readonly schema: "harness-managed-rbac/v1";

@@ -100,6 +100,8 @@ import {
 } from "./daemon-host-registry.ts";
 import { createDaemonHostRepositoryApi } from "./daemon-host-repository-api.ts";
 import { createDaemonHostRuntimeApi } from "./daemon-host-runtime-api.ts";
+import { managedRbacReceiptJournal } from "./access-admin-state.ts";
+import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 import {
   invalidRegistryStatus,
   invalidRegistrySystemRow,
@@ -154,6 +156,20 @@ import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
+
+function restoreManagedRbacAccessJournal(value: unknown, journal: ReturnType<typeof managedRbacReceiptJournal>): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
+  const record = value as Record<string, unknown>;
+  if (record.schema !== IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA) return;
+  if (!Array.isArray(record.entries) || record.entries.some((entry) => typeof entry !== "string"))
+    throw hostCodedError("rbac_relocation_bundle_invalid", "The access-admin relocation journal is invalid.");
+  const existing = new Set(journal.read());
+  for (const entry of record.entries as string[]) {
+    if (existing.has(entry)) continue;
+    journal.append(entry);
+    existing.add(entry);
+  }
+}
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
   input = { ...input, storage: input.storage ?? readDaemonStorageConfig(input.userRoot) };
@@ -986,10 +1002,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     };
   };
   const accessAdminRef: { current: AccessAdminService | null } = { current: null };
+  const relocationJournal = managedRbacReceiptJournal(input.userRoot);
   const managedRbac =
     input.managedRbac ??
     createIdentityManagement(input.userRoot, {
       protectedListenerPaths: () => readFleetCenterCertificatePaths(input.userRoot),
+      restoreAccessAdminJournal: (value) => restoreManagedRbacAccessJournal(value, relocationJournal),
       ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     });
   const hostContext: DaemonHostApiContext = {
@@ -1433,7 +1451,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           binding: localSystemBinding(input.userRoot),
           actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
           evaluatedAtCut: "daemon-rbac:current",
-        }).then(() => managedRbac.run(request));
+        }).then(() =>
+          managedRbac.run(
+            request.operation === "relocation-export"
+              ? { ...request, accessAdminJournal: relocationJournal.read() }
+              : request,
+          ),
+        );
       })();
     },
     close: async () => {

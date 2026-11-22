@@ -505,6 +505,19 @@ function openSqliteEventStoreInternal(
     databasePath,
     sqliteVersion,
     replicationPosition: () => readReplicationPosition(query),
+    rotateReplicationHistory: (history?: string) =>
+      transaction(() => {
+        const nextHistory = history ?? String(query("SELECT lower(hex(randomblob(16))) AS history")[0]!.history);
+        if (!/^[0-9a-f]{32}$/u.test(nextHistory))
+          throw new TaskEventStoreError("invalid_write_plan", "replication history must be a 128-bit hexadecimal id");
+        const revision = readRevision(db);
+        query("UPDATE replication_state SET history=?,sequence=0 WHERE singleton=1", [nextHistory]);
+        query("DELETE FROM replication_log");
+        query("INSERT INTO replication_log(sequence,revision,outcome_op_id,writer_json) VALUES(0,?,NULL,NULL)", [
+          revision,
+        ]);
+        return readReplicationPosition(query);
+      }),
     pruneReplicationLog: (throughSequence) => {
       query(
         "DELETE FROM replication_log WHERE sequence<? AND sequence<(SELECT sequence FROM replication_state WHERE singleton=1)",

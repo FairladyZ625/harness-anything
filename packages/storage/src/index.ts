@@ -113,6 +113,8 @@ export {
   retireCenter,
   stageCenterRelocation,
   verifyRelocationBundle,
+  promoteFromEdge,
+  promoteFromEdgeAuditPath,
   CenterMigratingError,
   CenterMovedError,
   centerMigratingPath,
@@ -147,6 +149,8 @@ export type {
   RelocationBundleFileV1,
   RelocationBundleManifestV1,
   StageCenterRelocationInput,
+  PromoteFromEdgeInput,
+  PromoteFromEdgeResult,
 } from "./center-relocation.ts";
 
 export { openReplicaProjection } from "./replica-projection.ts";
