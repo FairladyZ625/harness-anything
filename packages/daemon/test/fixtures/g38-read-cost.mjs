@@ -90,6 +90,14 @@ export const READ_PROBES = Object.freeze({
     run: ({ runtime }) => runtime.read("repo.agentRuntime.sessions.read", { runtimeSessionId: READ_SESSION_ID }),
     size: (value) => Number(value.session !== null),
   },
+  "canonical-event-page": {
+    reads: ["command:event-subscribe", "method:repo.events.read"],
+    run: ({ runtime }) => runtime.read("repo.events.read", { afterRevision: 0, limit: 1 }),
+    size: (result) => {
+      assert.equal(result.events[0]?.workspaceRevision, 1);
+      return result.events.length;
+    },
+  },
   "runtime-events": {
     reads: ["method:repo.agentRuntime.events.read"],
     run: ({ runtime }) =>

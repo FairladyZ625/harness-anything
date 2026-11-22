@@ -9,14 +9,18 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
+  dispatchStreamPath,
+  parseRecord,
   readDispatchStream,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
   readDispatchStreamHeaders,
+  readRuntimeWorkerChunk,
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
 import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
+import { reconcileDispatchSteerStateFromStream } from "./dispatch-steer-state.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { listLocalSkillSnapshotSessionIds, reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
 import { createActiveRuntime, attachActiveRuntime, isRuntimeProcessProvenStopped } from "./runtime-spawn-active.ts";
@@ -311,6 +315,20 @@ async function restoreRuntime(
       binding,
     );
   if (context.closed?.()) return false;
+  // F12 & F17: Reconcile (or hydrate from a legacy stream) per-dispatch steer state once on
+  // adoption when the stream is within the read ceiling (`fullStream !== null`), so a crash
+  // between stream append and sidecar write never re-delivers a steer and oversized truncated
+  // streams (>200 MiB) are never scanned end-to-end.
+  if (fullStream !== null) {
+    reconcileDispatchSteerStateFromStream(
+      context.input.rootDir,
+      stream.header.dispatchId,
+      dispatchStreamPath(context.input.rootDir, stream.header.dispatchId),
+      readRuntimeWorkerChunk,
+      parseRecord,
+      { forceTailScan: true },
+    );
+  }
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,
     stream.header.dispatchId,
@@ -372,6 +390,7 @@ async function restoreRuntime(
     providerUnreachable: session?.providerUnreachable ?? null,
     workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
     stalledAt: streamSummary?.stalledAt ?? null,
+    steerReceiptCapable: stream.header.steerReceiptProtocolVersion === 1,
     startedAt: stream.header.startedAt,
     stream: reopenDispatchStream(context.input.rootDir, stream.header),
     fallbackAttempt: stream.header.fallbackAttempt ?? null,

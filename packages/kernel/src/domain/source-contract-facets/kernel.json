@@ -1969,6 +1969,18 @@
   "runtime-session": {
     "contracts": [
       {
+        "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.isRuntimeControlCarrierEvent",
+        "symbol": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent",
+        "explain": "RuntimeSessionEntityV1: Structural carrier discriminator identifying additive controlRequest/controlReceipt events that must not mutate liveness.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent:17f9bf99c201ff2f85dce28e08ce2626",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#isRuntimeControlCarrierEvent"
+          }
+        ],
+        "order": 4
+      },
+      {
         "id": "kernel/src/domain/agent-runtime.ts#RuntimeSessionEntityV1.validateAgentRuntimeEventFields",
         "symbol": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimeEventFields",
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields.",
@@ -1986,7 +1998,7 @@
         "explain": "RuntimeSessionEntityV1: Accepted session/event identity and provenance fields, including orphan-recovery audit shape.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:c1463fbd110bdd5da6c6aa9ae3c5b679",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:16f63161c483052f14a0fda5b156c843",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ],

@@ -2,7 +2,11 @@ import { Toggle } from "../primitives/Toggle.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { useEffect, useState } from "react";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import { runtimeKindForId, agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
+import {
+  runtimeKindForId,
+  agentRuntimeKindMatches,
+  projectRuntimeProviderHealth,
+} from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
 import {
@@ -32,6 +36,7 @@ import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeAccessFields } from "./RuntimeAccessFields.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
+import { RuntimeQuotaCard } from "./RuntimeQuotaPanel.tsx";
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 
 type Props = {
@@ -57,6 +62,7 @@ type Props = {
     readonly frozen: boolean;
     readonly frozenUntil: string | null;
     readonly reason: string | null;
+    readonly quotaExhaustedUntil?: string | null;
   };
   readonly onClearFreeze?: () => void;
   readonly projectOrder?: number;
@@ -66,6 +72,8 @@ type Props = {
   readonly onSelfTest: (model: string) => Promise<string | null>;
   /** 更新/auth/self-test 等动作的失败原因:在卡首就地显示(标准 §2.5 表单)。 */
   readonly actionError?: string | null;
+  /** Optional clock override for deterministic tests. */
+  readonly now?: string;
 };
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
 // section because agy has no API mode; claude shows the single-instance API override;
@@ -94,6 +102,7 @@ export function RuntimeCard({
   onDelete,
   onSelfTest,
   actionError = null,
+  now,
 }: Props) {
   const [confirm, setConfirm] = useState(false),
     [editing, setEditing] = useState(false),
@@ -215,42 +224,56 @@ export function RuntimeCard({
         </CardBody>
       </Card>
 
-      {providerHealth && (
-        <Card testId="runtime-card-health">
-          <CardHead>
-            <CardTitle>{t("agentRuntime.providerHealthTitle", { node: providerHealth.nodeId })}</CardTitle>
-            <StatusTag
-              tone={providerHealth.frozen ? "bad" : providerHealth.cooldownUntil ? "wait" : "neutral"}
-              label={t(
-                providerHealth.frozen
-                  ? "agentRuntime.providerHealthFrozen"
-                  : providerHealth.cooldownUntil
-                    ? "agentRuntime.providerHealthCooldown"
-                    : "agentRuntime.providerHealthReady",
-              )}
-            />
-          </CardHead>
-          <CardBody>
-            <FieldGrid>
-              <Field label={t("agentRuntime.providerFailureStreak")} value={String(providerHealth.failureStreak)} />
-              <Field label={t("agentRuntime.providerFailureReason")} value={providerHealth.reason ?? "-"} />
-              <Field
-                label={t("agentRuntime.providerRecoverAt")}
-                value={
-                  formatTime(providerHealth.frozenUntil ?? providerHealth.cooldownUntil ?? "", {
-                    style: "date-time-seconds",
-                  }) ?? "-"
-                }
-              />
-            </FieldGrid>
-            {providerHealth.frozen && onClearFreeze ? (
-              <Button size="sm" disabled={busy} onClick={onClearFreeze}>
-                {t("agentRuntime.clearProviderFreeze")}
-              </Button>
-            ) : null}
-          </CardBody>
-        </Card>
-      )}
+      {instance.quota && <RuntimeQuotaCard quota={instance.quota} models={instance.models} now={now} />}
+
+      {providerHealth &&
+        (() => {
+          const projectedHealth = projectRuntimeProviderHealth(providerHealth, now ?? new Date().toISOString());
+          return (
+            <Card testId="runtime-card-health">
+              <CardHead>
+                <CardTitle>{t("agentRuntime.providerHealthTitle", { node: providerHealth.nodeId })}</CardTitle>
+                <StatusTag
+                  tone={
+                    projectedHealth.status === "frozen"
+                      ? "bad"
+                      : projectedHealth.status === "cooldown"
+                        ? "wait"
+                        : "neutral"
+                  }
+                  label={t(
+                    projectedHealth.status === "frozen"
+                      ? "agentRuntime.providerHealthFrozen"
+                      : projectedHealth.status === "cooldown"
+                        ? "agentRuntime.providerHealthCooldown"
+                        : "agentRuntime.providerHealthReady",
+                  )}
+                />
+              </CardHead>
+              <CardBody>
+                <FieldGrid>
+                  <Field label={t("agentRuntime.providerFailureStreak")} value={String(providerHealth.failureStreak)} />
+                  <Field label={t("agentRuntime.providerFailureReason")} value={projectedHealth.reason ?? "-"} />
+                  <Field
+                    label={t("agentRuntime.providerRecoverAt")}
+                    value={
+                      projectedHealth.recoverAt
+                        ? (formatTime(projectedHealth.recoverAt, {
+                            style: "date-time-seconds",
+                          }) ?? projectedHealth.recoverAt)
+                        : "-"
+                    }
+                  />
+                </FieldGrid>
+                {providerHealth.frozen && onClearFreeze ? (
+                  <Button size="sm" disabled={busy} onClick={onClearFreeze}>
+                    {t("agentRuntime.clearProviderFreeze")}
+                  </Button>
+                ) : null}
+              </CardBody>
+            </Card>
+          );
+        })()}
 
       <Card testId="runtime-card-auth">
         <CardHead>

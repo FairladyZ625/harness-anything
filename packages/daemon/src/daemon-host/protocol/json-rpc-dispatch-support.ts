@@ -176,7 +176,7 @@ const methodsServedWhileDraining: ReadonlySet<DaemonRpcMethod> = new Set(["daemo
 // idempotent read — so neither the build-drain gate nor the shutdown drain window waits on them.
 // Stream calls are the same safety class but answer immediately and pump events in the background,
 // so only the await family parks a reply.
-const daemonParkedWaitMethods: ReadonlySet<string> = new Set(["repo.agentRuntime.sessions.await"]);
+const daemonParkedWaitMethods: ReadonlySet<string> = new Set(["repo.agentRuntime.sessions.await", "repo.events.read"]);
 export const isDaemonParkedWaitMethod = (method: string): boolean => daemonParkedWaitMethods.has(method);
 // `stopping` is the runtime's own shutdown flag, handed in by the composition that owns the drain;
 // the daemon has no second opinion about whether it is stopping.
@@ -218,6 +218,7 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
       "effectivePermissionMode",
       "requestedPermissionMode",
       "permissionModeSource",
+      "controlReceipts",
     ]),
     sessionRead = method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read";
   const project = (value: unknown): unknown => {
@@ -226,6 +227,8 @@ export function previousDispatchLifecycleReadResult<T>(method: string, result: T
     return Object.fromEntries(
       Object.entries(value)
         .filter(([key]) => {
+          if (key === "controlReceiptsPage")
+            return method !== "repo.agentRuntime.sessions.read" || !("session" in value);
           if (key === "nodeId") return !sessionRead || !("runtimeSessionId" in value);
           return !hiddenKeys.has(key) || !("dispatchId" in value || "runtimeSessionId" in value);
         })

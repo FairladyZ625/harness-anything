@@ -42,6 +42,7 @@ export const storageReadPolicy = {
   reason: "Keep one definition of the existing read window and I/O budgets across storage implementations.",
   fixtures: ["packages/kernel/test/contracts/storage-read-policy.test.ts"],
   sources: [
+    "policy:packages/kernel:packages/kernel/src/ports/canonical-event-page.ts#canonicalEventReadRequest:44eb4a7107cf9942638ce61f0bf73c99",
     "policy:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#storageReadPolicy.defaultValue.deadlines:9cc282e7e1557b13746f94046f6d8471",
     "policy:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#storageReadPolicy.defaultValue.backoff:363471a61222366e81d60c1609b28ffc",
     "policy:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#canTruncateRelationNeighborhood:71e7fc70dba7394fc8c33ece3b96825c",

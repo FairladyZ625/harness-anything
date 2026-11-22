@@ -108,7 +108,14 @@ for (const scenario of cases) {
       reply(
         "error" in scenario
           ? { error: { code: -32001, message: "fixture update rejected" } }
-          : { result: { ok: true, instance: { instanceId: "test", enabled: false }, deletedInstanceId: "test" } },
+          : {
+              result: {
+                ok: true,
+                instances: [{ instanceId: "test", enabled: false }],
+                instance: { instanceId: "test", enabled: false },
+                deletedInstanceId: "test",
+              },
+            },
       );
     }
     const receipt = (await pending) as { ok: boolean; error?: { code: string; hint: string } };
@@ -218,4 +225,64 @@ test("guiRequestTimeouts: valid JSON that is not a local settings document fails
   t.after(() => rmSync(root, { recursive: true, force: true }));
   assert.throws(() => guiRequestTimeouts(root), /settings\.local\.json/u);
   assert.throws(() => guiRequestTimeouts(root), new RegExp(file.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+});
+
+test("runtime bridge rejects malformed quota without echoing untrusted secret strings into GUI hints", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-quota-scrub-")),
+    daemonId = "gui-quota-scrub",
+    socketPath = localUserDaemonEndpoint(parent, daemonId),
+    previous = { root: process.env.HARNESS_DAEMON_USER_ROOT, id: process.env.HARNESS_DAEMON_ID },
+    syntheticSecret = "sk-ant-oat01-must-not-echo-in-gui-hint-999";
+  const server = net.createServer((socket) => {
+    const lines = createInterface({ input: socket });
+    lines.on("line", (line) => {
+      const request = JSON.parse(line) as { id: number; method: string };
+      if (request.method === "protocol.hello") {
+        socket.write(
+          `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", "daemon.runtimeInstance.show"] } })}\n`,
+        );
+      } else {
+        socket.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            result: {
+              schema: "command-receipt/v2",
+              ok: true,
+              instance: {
+                instanceId: "claude-main",
+                quota: {
+                  schemaVersion: 1,
+                  plan: `Bearer ${syntheticSecret}`,
+                  [syntheticSecret]: "bad",
+                  windows: "invalid",
+                },
+              },
+            },
+          })}\n`,
+        );
+      }
+    });
+  });
+  t.after(async () => {
+    await new Promise<void>((done) => server.close(() => done()));
+    if (previous.root === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
+    if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
+    else process.env.HARNESS_DAEMON_ID = previous.id;
+    rmSync(parent, { recursive: true, force: true });
+  });
+  mkdirSync(path.dirname(socketPath), { recursive: true });
+  await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+  process.env.HARNESS_DAEMON_USER_ROOT = parent;
+  process.env.HARNESS_DAEMON_ID = daemonId;
+  const receipt = (await createLocalGuiServiceBridge().invoke(
+    "daemon.runtimeInstance.show",
+    scopedRpcParams("daemon.runtimeInstance.show", { instanceId: "claude-main" }),
+  )) as { readonly ok: boolean; readonly error?: { readonly code: string; readonly hint: string } };
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "gui_result_contract_mismatch");
+  assert.match(receipt.error?.hint ?? "", /instance\.quota/u);
+  assert.match(receipt.error?.hint ?? "", /actual='object'/u);
+  assert.doesNotMatch(JSON.stringify(receipt), new RegExp(syntheticSecret, "u"));
 });

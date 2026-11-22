@@ -33,7 +33,7 @@ interface Scenario {
   close(): Promise<void>;
 }
 
-test("Codex probe distinguishes a 401 invalid_api_key from a locally present login", async (context) => {
+test("Codex authStatus stays read-only on custom gateway 401 without issuing active inference", async (context) => {
   const scenario = await makeScenario({
     status: 401,
     body: {
@@ -48,29 +48,25 @@ test("Codex probe distinguishes a 401 invalid_api_key from a locally present log
     const dispatch = await runProviderCall(scenario),
       readiness = await scenario.store.authStatus("codex-probe");
     context.diagnostic(
-      `fake provider returned HTTP 401 invalid_api_key (Incorrect API key provided: [FAKE_TOKEN]); ` +
-        `probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
+      `fake provider returned HTTP 401 invalid_api_key; probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
     );
     assert.equal(dispatch.exitCode, 1);
-    assert.equal(readiness.code, "runtime_authentication_failed");
+    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "metadata" });
     assert.doesNotMatch(readiness.hint ?? "", /agt_code_fake_probe_token/u);
     assert.equal(
       (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
-      "unauthenticated",
+      "authenticated",
     );
     assert.deepEqual(
       scenario.requests.map(({ method, url }) => [method, url]),
-      [
-        ["POST", "/v1/responses"],
-        ["POST", "/v1/responses"],
-      ],
+      [["POST", "/v1/responses"]],
     );
   } finally {
     await scenario.close();
   }
 });
 
-test("Codex probe distinguishes exhausted quota from login metadata", async (context) => {
+test("Codex authStatus never overwrites ready status with runtime_quota_unavailable on 429", async (context) => {
   const scenario = await makeScenario({
     status: 429,
     body: {
@@ -85,29 +81,24 @@ test("Codex probe distinguishes exhausted quota from login metadata", async (con
     const dispatch = await runProviderCall(scenario),
       readiness = await scenario.store.authStatus("codex-probe");
     context.diagnostic(
-      `fake provider returned HTTP 429 insufficient_quota; ` +
-        `probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
+      `fake provider returned HTTP 429 insufficient_quota; probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
     );
     assert.equal(dispatch.exitCode, 1);
-    assert.equal(readiness.code, "runtime_quota_unavailable");
-    assert.match(readiness.hint ?? "", /quota/u);
+    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "metadata" });
     assert.equal(
       (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
       "authenticated",
     );
     assert.deepEqual(
       scenario.requests.map(({ method, url }) => [method, url]),
-      [
-        ["POST", "/v1/responses"],
-        ["POST", "/v1/responses"],
-      ],
+      [["POST", "/v1/responses"]],
     );
   } finally {
     await scenario.close();
   }
 });
 
-test("Codex probe distinguishes an invalid refresh token", async (context) => {
+test("Codex authStatus stays read-only on locally present refresh token without active exec", async (context) => {
   const scenario = await makeScenario(
     { status: 200, body: { id: "response-fake", status: "completed" } },
     "fake-invalid-refresh",
@@ -116,15 +107,13 @@ test("Codex probe distinguishes an invalid refresh token", async (context) => {
     const dispatch = await runProviderCall(scenario),
       readiness = await scenario.store.authStatus("codex-probe");
     context.diagnostic(
-      `fake Codex emitted turn.failed code=invalid_refresh_token; ` +
-        `probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
+      `fake Codex dispatch emitted turn.failed code=invalid_refresh_token; probe=${readiness.status}/${readiness.code ?? "null"}; dispatchExit=${dispatch.exitCode}`,
     );
     assert.equal(dispatch.exitCode, 1);
-    assert.equal(readiness.code, "runtime_refresh_token_invalid");
-    assert.match(readiness.hint ?? "", /runtime instance login/u);
+    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "metadata" });
     assert.equal(
       (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
-      "unauthenticated",
+      "authenticated",
     );
     assert.equal(scenario.requests.length, 0);
   } finally {
@@ -132,23 +121,20 @@ test("Codex probe distinguishes an invalid refresh token", async (context) => {
   }
 });
 
-test("Codex probe stays ready after a successful provider response", async () => {
+test("Codex probe stays ready after a successful provider dispatch without extra inference calls", async () => {
   const scenario = await makeScenario({ status: 200, body: { id: "response-fake", status: "completed" } });
   try {
     const dispatch = await runProviderCall(scenario),
       readiness = await scenario.store.authStatus("codex-probe");
     assert.equal(dispatch.exitCode, 0);
-    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "provider" });
+    assert.deepEqual(readiness, { status: "ready", code: null, hint: null, basis: "metadata" });
     assert.equal(
       (await scenario.store.command({ kind: "runtime-instance-show", instanceId: "codex-probe" })).instance?.authState,
       "authenticated",
     );
     assert.deepEqual(
       scenario.requests.map(({ method, url }) => [method, url]),
-      [
-        ["POST", "/v1/responses"],
-        ["POST", "/v1/responses"],
-      ],
+      [["POST", "/v1/responses"]],
     );
     assert.ok(scenario.requests.every(({ authorization }) => authorization === `Bearer ${fakeToken}`));
   } finally {

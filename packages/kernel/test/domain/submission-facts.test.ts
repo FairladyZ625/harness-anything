@@ -3,12 +3,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { SubmissionV1 } from "../../src/domain/execution.ts";
 import {
+  CLOSEOUT_FACTS_END,
+  CLOSEOUT_FACTS_START,
   SUBMISSION_FACTS_END,
   SUBMISSION_FACTS_START,
   readSubmissionFacts,
+  renderCloseoutSubmissionFacts,
   renderSubmissionFacts,
   replaceSubmissionFacts,
+  stripCloseoutFactsRegion,
+  upsertCloseoutSubmissionFacts,
 } from "../../src/domain/submission-facts.ts";
+import { submissionDigest } from "../../src/domain/submission-digest.ts";
+import { renderTaskPrBody } from "../../src/domain/task-pr-body.ts";
+import {
+  missingChineseCloseoutSections,
+  submissionFromCloseout,
+} from "../../src/domain/transition-document-readiness.ts";
 
 const base = {
   completionClaim: "Delivered the change.",
@@ -141,5 +152,124 @@ test("the facts replacement keeps authored prose and replaces only the marker re
   assert.equal(
     replaceSubmissionFacts(`${SUBMISSION_FACTS_START}${SUBMISSION_FACTS_START}${SUBMISSION_FACTS_END}`, "x"),
     null,
+  );
+});
+
+test("closeout submission facts upsert is idempotent, replaces stale cuts, and preserves authored prose and inline mentions", () => {
+  const cutA: SubmissionV1 = {
+      ...base,
+      commitSha: "a".repeat(40),
+      changedFiles: ["packages/kernel/new.ts"],
+      productionDelta: {
+        baseSha: "1".repeat(40),
+        added: 5,
+        deleted: 2,
+        changed: [],
+        unclassified: [],
+      },
+    },
+    cutB: SubmissionV1 = {
+      ...base,
+      commitSha: "b".repeat(40),
+      changedFiles: ["packages/kernel/new.ts", "packages/kernel/updated.ts"],
+      productionDelta: {
+        baseSha: "2".repeat(40),
+        added: 12,
+        deleted: 3,
+        changed: [],
+        unclassified: [],
+      },
+    },
+    authored = [
+      "# Closeout",
+      "",
+      "## Summary",
+      "",
+      `Refreshes \`${CLOSEOUT_FACTS_START}\` / \`${CLOSEOUT_FACTS_END}\` automatically.`,
+      "",
+      "```markdown",
+      CLOSEOUT_FACTS_START,
+      "example block inside fence stays untouched",
+      CLOSEOUT_FACTS_END,
+      "```",
+      "",
+      "## Verification",
+      "",
+      "- Targeted tests passed.",
+      "",
+      "## Residual Risk",
+      "",
+      "- None.",
+      "",
+      "## 摘要",
+      "",
+      "自动维护交付事实段。",
+      "",
+      "## 验证",
+      "",
+      "- 定向测试通过。",
+      "",
+    ].join("\n");
+
+  const withA = upsertCloseoutSubmissionFacts(authored, cutA);
+  assert.equal(upsertCloseoutSubmissionFacts(withA, cutA), withA, "repeat upsert is byte-identical");
+  assert.ok(withA.includes(renderCloseoutSubmissionFacts(cutA)));
+  assert.ok(withA.includes(`Submission digest: \`${submissionDigest(cutA)}\``));
+  assert.ok(withA.includes("example block inside fence stays untouched"));
+  assert.equal(stripCloseoutFactsRegion(withA), authored);
+
+  const withB = upsertCloseoutSubmissionFacts(withA, cutB);
+  assert.ok(withB.includes(`Delivery commit: \`${"b".repeat(40)}\``));
+  assert.ok(withB.includes(`Merge base: \`${"2".repeat(40)}\``));
+  assert.ok(withB.includes("Production delta: +12/-3 (net +9)."));
+  assert.ok(withB.includes(`Submission digest: \`${submissionDigest(cutB)}\``));
+  assert.ok(!withB.includes("a".repeat(40)), "stale commit SHA is replaced");
+  assert.equal(stripCloseoutFactsRegion(withB), authored, "authored prose remains byte-identical after refresh");
+
+  // Prose readers and PR body rendering stay invariant whether or not the managed block is present.
+  const cutMeta = {
+    commitSha: cutB.commitSha,
+    deliverables: cutB.deliverables,
+    outputs: cutB.outputs,
+    completionContract: cutB.completionContract,
+  };
+  assert.deepEqual(submissionFromCloseout(withB, cutMeta), submissionFromCloseout(authored, cutMeta));
+  assert.deepEqual(missingChineseCloseoutSections(withB), []);
+  const template = [
+    "## Summary",
+    "",
+    "## What Changed",
+    "",
+    SUBMISSION_FACTS_START,
+    SUBMISSION_FACTS_END,
+    "",
+    "## Verification",
+    "",
+    "## Residual Risk",
+    "",
+  ].join("\n");
+  assert.equal(
+    renderTaskPrBody({
+      taskId: "task_0123456789abcdef0123456789",
+      submission: cutB,
+      profileId: "baseline",
+      decisionAuthority: null,
+      template,
+      closeout: withB,
+    }),
+    renderTaskPrBody({
+      taskId: "task_0123456789abcdef0123456789",
+      submission: cutB,
+      profileId: "baseline",
+      decisionAuthority: null,
+      template,
+      closeout: authored,
+    }),
+  );
+
+  // Malformed standalone markers fail closed.
+  assert.throws(
+    () => upsertCloseoutSubmissionFacts(`${authored}\n${CLOSEOUT_FACTS_START}\n`, cutA),
+    /at most one ordered closeout-facts marker pair/u,
   );
 });

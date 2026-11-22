@@ -69,6 +69,16 @@ export function selectLocalGateChecks(manifest, options = {}) {
   const prJobs = new Set(manifest.surfaces?.rewriteCi?.pullRequestGateJobs ?? []);
   const gates = Array.isArray(manifest.gates) ? manifest.gates : [];
   const changedPaths = options.changedPaths ?? null;
+  const hasAuthorizationGate = gates.some((gate) => gate.id === "ontology-durable-action-authorization");
+  const authorizationChangedPaths =
+    !hasAuthorizationGate || options.fullAuth === true
+      ? null
+      : Array.isArray(changedPaths)
+        ? changedPaths
+        : resolveAuthorizationChangedPaths({
+            repoRoot: options.repoRoot ?? repoRoot,
+            baseRef: options.authorizationBaseRef ?? "origin/main",
+          });
   const selected = [];
 
   for (const gate of gates) {
@@ -82,11 +92,11 @@ export function selectLocalGateChecks(manifest, options = {}) {
       // authorization gate over stdin, without placing path data in the shell command.
       command:
         gate.command +
-        (gate.id === "ontology-durable-action-authorization" && Array.isArray(changedPaths)
+        (gate.id === "ontology-durable-action-authorization" && Array.isArray(authorizationChangedPaths)
           ? " --changed-files-stdin"
           : ""),
-      ...(gate.id === "ontology-durable-action-authorization" && Array.isArray(changedPaths)
-        ? { input: JSON.stringify(changedPaths) }
+      ...(gate.id === "ontology-durable-action-authorization" && Array.isArray(authorizationChangedPaths)
+        ? { input: JSON.stringify(authorizationChangedPaths) }
         : {}),
       workflowJobs: gate.executionSurfaces?.rewriteCi?.pullRequestJobs ?? [],
     });
@@ -140,32 +150,52 @@ function printPlan(plan, changed) {
  * Read the working-tree diff against `base` plus untracked files, the same shape
  * run-local-check uses: committed, staged, unstaged and new files all count.
  */
+function gitPathOutput(cwd, args) {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
+  return result.status === 0 ? result.stdout : null;
+}
+
+function pathsFromGitOutput(output) {
+  return output.split("\0").filter(Boolean);
+}
+
+/** Return null when the comparison cannot be proven, which makes the auth gate run full. */
+export function resolveAuthorizationChangedPaths({ repoRoot: root = repoRoot, baseRef = "origin/main" } = {}) {
+  const mergeBase = gitPathOutput(root, ["merge-base", baseRef, "HEAD"])?.trim();
+  if (!mergeBase) return null;
+
+  const outputs = [
+    gitPathOutput(root, ["diff", "--no-renames", "--name-only", "-z", `${mergeBase}...HEAD`, "--"]),
+    gitPathOutput(root, ["diff", "--no-renames", "--name-only", "-z", "--cached", "--"]),
+    gitPathOutput(root, ["diff", "--no-renames", "--name-only", "-z", "--"]),
+    gitPathOutput(root, ["ls-files", "--others", "--exclude-standard", "-z"]),
+  ];
+  if (outputs.some((output) => output === null)) return null;
+  return [...new Set(outputs.flatMap(pathsFromGitOutput))].sort();
+}
+
 function localChangedPaths(base) {
-  const result = spawnSync("git", ["diff", "--name-only", "-z", base, "--"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 50 * 1024 * 1024,
-  });
-  if (result.status !== 0) {
-    throw new Error(`git diff against ${base} failed: ${(result.stderr || result.stdout).trim()}`);
+  const committed = gitPathOutput(repoRoot, ["diff", "--no-renames", "--name-only", "-z", base, "--"]);
+  const staged = gitPathOutput(repoRoot, ["diff", "--no-renames", "--name-only", "-z", "--cached", "--"]);
+  const unstaged = gitPathOutput(repoRoot, ["diff", "--no-renames", "--name-only", "-z", "--"]);
+  const untracked = gitPathOutput(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]);
+  const outputs = [committed, staged, unstaged, untracked];
+  if (outputs.some((output) => output === null)) {
+    throw new Error(`cannot read changed paths against ${base}; check git and the comparison ref`);
   }
-  const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    maxBuffer: 50 * 1024 * 1024,
-  });
-  if (untracked.status !== 0) {
-    throw new Error(`git ls-files failed: ${(untracked.stderr || untracked.stdout).trim()}`);
-  }
-  return [...new Set(`${result.stdout}${untracked.stdout}`.split("\0").filter(Boolean))].sort();
+  return [...new Set(outputs.flatMap(pathsFromGitOutput))].sort();
 }
 
 function parseArgs(args) {
-  const options = { list: false, changed: null };
+  const options = { list: false, changed: null, fullAuth: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--list") {
       options.list = true;
+      continue;
+    }
+    if (arg === "--full-auth") {
+      options.fullAuth = true;
       continue;
     }
     if (arg === "--changed") {
@@ -187,9 +217,15 @@ function main(argv) {
   const options = parseArgs(argv);
   const manifest = readJson(manifestPath);
   const changedPaths = options.changed === null ? null : localChangedPaths(options.changed);
-  const plan = selectLocalGateChecks(manifest, { changedPaths });
+  const plan = selectLocalGateChecks(manifest, { changedPaths, fullAuth: options.fullAuth });
   if (changedPaths !== null) {
     console.log(`Changed path selection (${options.changed}): ${changedPaths.length} path(s).`);
+  }
+  const authorizationEntry = plan.find((entry) => entry.id === "ontology-durable-action-authorization");
+  if (authorizationEntry) {
+    console.log(
+      `Authorization proof scope: ${authorizationEntry.input === undefined ? "full proof" : `${JSON.parse(authorizationEntry.input).length} changed path(s)`}.`,
+    );
   }
   printPlan(plan, options.changed);
 

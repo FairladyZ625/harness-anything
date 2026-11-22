@@ -162,7 +162,11 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       dispatch !== null && dispatch.taskId !== null && dispatch.squadId === undefined && dispatch.role !== "read-only";
   // The control channel is the dispatch stream, not this process's stdin: the daemon that
   // steers may be a successor that adopted the host after a restart and has no pipe to it.
-  const control = { handler: null as ((prompt: string) => void) | null },
+  const control = {
+      handler: null as
+        | ((prompt: string, meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta) => void)
+        | null,
+    },
     // The host writes provider frames before any daemon reads them, so it is the only writer that
     // can stamp a reconnect with the provider-progress clock at creation time. The stamp is stable
     // across a failure run: only a non-reconnect frame advances it.
@@ -175,13 +179,22 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       occurredAt: new Date().toISOString(),
       ...value,
     });
-  const steerTail = tailRuntimeSteerCommands(stream, (prompt) => {
-    if (control.handler) control.handler(prompt);
+  const steerMetaFields = (meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta) =>
+    meta
+      ? {
+          ...(meta.controlRequestId ? { controlRequestId: meta.controlRequestId } : {}),
+          ...(meta.requestOpId ? { requestOpId: meta.requestOpId } : {}),
+          ...(meta.version !== undefined ? { version: meta.version } : {}),
+        }
+      : {};
+  const steerTail = tailRuntimeSteerCommands(stream, (prompt, meta) => {
+    if (control.handler) control.handler(prompt, meta);
     else
       append({
         kind: "steer_dropped",
         reason: "the provider session is not established yet",
         prompt,
+        ...steerMetaFields(meta),
       });
   });
   const relay = manifest.callbackRelay
@@ -199,6 +212,8 @@ export async function runRuntimeWorkerHost(): Promise<void> {
   let child: ReturnType<typeof spawn> | undefined,
     providerSessionId = manifest.providerSessionId ?? null,
     queuedPrompt: string | null = null,
+    queuedSteerMeta: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta | undefined,
+    pendingSteer: { readonly meta?: import("./runtime-worker-control.ts").RuntimeSteerCommandMeta } | null = null,
     interruptTimer: NodeJS.Timeout | undefined;
   const activeTools = new Set<string>();
   // Continuations already granted to this dispatch: the bound is the dispatch's, not a process's.
@@ -211,7 +226,22 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     commandWorkObserved = false;
   process.once("SIGTERM", () => {
     terminationRequested = true;
+    if (pendingSteer?.meta?.controlRequestId)
+      append({
+        kind: "steer_dropped",
+        reason: "runtime was terminated before provider accepted steer",
+        ...steerMetaFields(pendingSteer.meta),
+      });
+    pendingSteer = null;
+    if (queuedPrompt !== null && queuedSteerMeta?.controlRequestId)
+      append({
+        kind: "steer_dropped",
+        reason: "runtime was terminated before applying steer",
+        prompt: queuedPrompt,
+        ...steerMetaFields(queuedSteerMeta),
+      });
     queuedPrompt = null;
+    queuedSteerMeta = undefined;
     clearTimeout(interruptTimer);
     if (!settled) child?.kill("SIGTERM");
   });
@@ -243,12 +273,24 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         child.kill("SIGINT");
       }
     };
-    control.handler = (nextPrompt) => {
+    control.handler = (nextPrompt, meta) => {
       if (!declaration?.steer) {
-        append({ kind: "steer_dropped", reason: `${manifest.kindId ?? "this runtime"} declares no steer strategy` });
+        append({
+          kind: "steer_dropped",
+          reason: `${manifest.kindId ?? "this runtime"} declares no steer strategy`,
+          ...steerMetaFields(meta),
+        });
         return;
       }
+      if (queuedPrompt !== null && queuedSteerMeta?.controlRequestId)
+        append({
+          kind: "steer_dropped",
+          reason: "superseded by a newer steer request before resume",
+          prompt: queuedPrompt,
+          ...steerMetaFields(queuedSteerMeta),
+        });
       queuedPrompt = nextPrompt;
+      queuedSteerMeta = meta;
       if (activeTools.size === 0) interrupt();
       else if (!interruptTimer)
         interruptTimer = setTimeout(() => {
@@ -303,6 +345,29 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         // One refusal per attempt: the three arms share the same argv, so a second attempt at the
         // resume shape would only repeat the same failure.
         continuationRefused = false;
+      const ioError: { spawn: Error | null; stdin: Error | null } = { spawn: null, stdin: null };
+      const settlePendingSteerApplied = (): void => {
+        if (pendingSteer === null) return;
+        const meta = pendingSteer.meta;
+        pendingSteer = null;
+        append({
+          kind: "steer_resumed",
+          providerSessionId,
+          occurredAt: new Date().toISOString(),
+          ...steerMetaFields(meta),
+        });
+      };
+      const settlePendingSteerRejected = (reason: string): void => {
+        if (pendingSteer === null) return;
+        const meta = pendingSteer.meta;
+        pendingSteer = null;
+        append({
+          kind: "steer_dropped",
+          reason,
+          occurredAt: new Date().toISOString(),
+          ...steerMetaFields(meta),
+        });
+      };
       const consumeOutput = (chunk: string, flush = false): void => {
         outputBuffer += chunk;
         const lines = outputBuffer.split(/\r?\n/u);
@@ -313,6 +378,14 @@ export async function runRuntimeWorkerHost(): Promise<void> {
           const parsed = appendProviderLine(append, line, manifest.kindId, providerProgress),
             state = parsed ? providerSteerState(parsed, manifest.kindId) : {};
           if (state.sessionId) providerSessionId = state.sessionId;
+          if (!acp && pendingSteer !== null && parsed) {
+            const steerDisposition = nativeSteerTurnAcceptance(parsed, manifest.kindId);
+            if (steerDisposition === "rejected") {
+              settlePendingSteerRejected(nativeSteerErrorMessage(parsed) || "provider rejected steered turn");
+            } else if (steerDisposition === "accepted" && !ioError.spawn && !ioError.stdin) {
+              settlePendingSteerApplied();
+            }
+          }
           if (state.toolStart) activeTools.add(state.toolStart);
           if (state.toolEnd === "") activeTools.clear();
           else if (state.toolEnd) activeTools.delete(state.toolEnd);
@@ -347,12 +420,30 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         append({ kind: "process_exit", exitCode, signal });
       };
       child.once("error", (error) => {
+        ioError.spawn = error;
+        settlePendingSteerRejected(`provider spawn failed: ${error.message}`);
         append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
       });
-      if (!acp) child.stdin!.end(prompt);
+      if (!acp) {
+        child.stdin!.on("error", (error) => {
+          ioError.stdin = error;
+          settlePendingSteerRejected(`provider stdin failed: ${error.message}`);
+        });
+        child.stdin!.end(prompt);
+      }
       const [exitCode, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) =>
         child!.once("close", (code: number | null, closeSignal: NodeJS.Signals | null) => resolve([code, closeSignal])),
       );
+      if (!acp) consumeOutput("", true);
+      if (!acp && pendingSteer !== null) {
+        if (!ioError.spawn && !ioError.stdin && exitCode === 0 && signal === null) settlePendingSteerApplied();
+        else
+          settlePendingSteerRejected(
+            ioError.spawn?.message ??
+              ioError.stdin?.message ??
+              `provider rejected steered resume (exit ${String(exitCode)}, signal ${String(signal)})`,
+          );
+      }
       // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
       await acp?.done;
       const steer = declaration?.steer;
@@ -363,18 +454,41 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         providerSessionId
       ) {
         const resumed = continuationArgs(append, steer.resumeArgs, baseArgs, providerSessionId);
-        if (resumed === null) continuationRefused = true;
-        else {
+        if (resumed === null) {
+          if (queuedSteerMeta?.controlRequestId)
+            append({
+              kind: "steer_dropped",
+              reason: "failed to construct provider resume arguments",
+              prompt: queuedPrompt,
+              ...steerMetaFields(queuedSteerMeta),
+            });
+          queuedPrompt = null;
+          queuedSteerMeta = undefined;
+          continuationRefused = true;
+        } else {
           clearTimeout(interruptTimer);
           interruptTimer = undefined;
           args = [...resumed];
           prompt = queuedPrompt;
+          pendingSteer = { ...(queuedSteerMeta ? { meta: queuedSteerMeta } : {}) };
           queuedPrompt = null;
+          queuedSteerMeta = undefined;
           activeTools.clear();
           interrupted = false;
-          append({ kind: "steer_resumed", providerSessionId, occurredAt: new Date().toISOString() });
           continue;
         }
+      }
+      if (queuedPrompt !== null && !terminationRequested) {
+        append({
+          kind: "steer_dropped",
+          reason: providerSessionId
+            ? "runtime could not apply steer after provider exit"
+            : "the provider session is not established yet",
+          prompt: queuedPrompt,
+          ...steerMetaFields(queuedSteerMeta),
+        });
+        queuedPrompt = null;
+        queuedSteerMeta = undefined;
       }
       if (
         !terminationRequested &&
@@ -479,6 +593,75 @@ function codexErrorItemMessage(value: Record<string, unknown>): string {
   return value.type === "item.completed" && item?.type === "error" && typeof item.message === "string" && item.message
     ? item.message
     : "";
+}
+
+/** Error message carried by a native provider failure frame (`turn.failed`, `error`, or error item). */
+function nativeSteerErrorMessage(value: Record<string, unknown>): string {
+  const codexItem = codexErrorItemMessage(value);
+  if (codexItem) return codexItem;
+  if (typeof value.message === "string" && value.message.trim()) return value.message;
+  const err = value.error as Record<string, unknown> | string | undefined;
+  if (typeof err === "string" && err.trim()) return err;
+  if (err && typeof err === "object" && typeof err.message === "string" && err.message.trim()) return err.message;
+  return "";
+}
+
+/**
+ * Classifies whether a native interrupt-resume provider frame proves that the steered turn was
+ * accepted, rejected, or is still only initializing (F5). Startup frames like Codex `thread.started`
+ * or Claude `system`/`init` NEVER count as turn acceptance because the provider can still fail with
+ * `turn.failed` or a non-zero exit immediately afterward.
+ */
+function nativeSteerTurnAcceptance(
+  value: Record<string, unknown>,
+  kindId?: string,
+): "accepted" | "rejected" | "pending" {
+  if (providerReconnectFromFrame(kindId ?? "", value) !== null) return "pending";
+  const type = typeof value.type === "string" ? value.type : "";
+  if (type === "error" || type === "turn.failed" || value.is_error === true) return "rejected";
+  if (kindId === "codex") {
+    const item = value.item as Record<string, unknown> | undefined;
+    if (type === "item.completed" && item?.type === "error") {
+      return codexCompactionWarning.test(codexErrorItemMessage(value)) ? "pending" : "rejected";
+    }
+    if (
+      type === "turn.started" ||
+      type === "item.started" ||
+      type === "item.updated" ||
+      type === "item.completed" ||
+      type === "turn.completed"
+    )
+      return "accepted";
+    return "pending";
+  }
+  if (kindId === "claude") {
+    if (type === "system") return "pending";
+    if (type === "result") {
+      if (typeof value.subtype === "string" && value.subtype.startsWith("error")) return "rejected";
+      return "accepted";
+    }
+    if (
+      type === "assistant" ||
+      type === "content_block_start" ||
+      type === "content_block_delta" ||
+      type === "message_start"
+    )
+      return "accepted";
+    return "pending";
+  }
+  if (type === "thread.started" || type === "system" || type === "session.started" || type === "init") return "pending";
+  if (
+    type === "turn.started" ||
+    type === "turn.completed" ||
+    type === "item.started" ||
+    type === "item.updated" ||
+    type === "item.completed" ||
+    type === "assistant" ||
+    type === "result" ||
+    type === "message"
+  )
+    return "accepted";
+  return "pending";
 }
 
 /** The assistant text of a Codex `item.completed` agent message, or "" for every other frame. */

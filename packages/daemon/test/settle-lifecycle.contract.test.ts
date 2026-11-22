@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
 import { makeTaskEventReader, resolveLedgerGitLayout, ledgerGitPath } from "@harness-anything/storage";
 
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -679,12 +680,29 @@ for (const explicit of [false, true])
       assert.match(submission.completionClaim, /job=41/u);
       const accepted = reader
         .read()
-        .events.filter((event) => event.schema === "doc-event/v1")
+        .events.filter(
+          (event) =>
+            event.schema === "doc-event/v1" && event.payload.changes.some((change) => change.path === reportPath),
+        )
         .at(-1);
       assert.ok(accepted && accepted.schema === "doc-event/v1");
       const reportClaim = accepted.payload.changes.find((change) => change.path === reportPath);
       assert.ok(reportClaim?.candidate);
       assert.equal(new TextDecoder().decode(reader.readContentBlob(reportClaim.candidate.sha256)!), correctedReport);
+      const closeoutFactsEvent = reader
+        .read()
+        .events.filter(
+          (event) =>
+            event.schema === "doc-event/v1" && event.payload.changes.some((change) => change.path === closeoutPath),
+        )
+        .at(-1);
+      assert.ok(closeoutFactsEvent && closeoutFactsEvent.schema === "doc-event/v1");
+      const closeoutClaim = closeoutFactsEvent.payload.changes.find((change) => change.path === closeoutPath);
+      assert.ok(closeoutClaim?.candidate);
+      assert.equal(
+        new TextDecoder().decode(reader.readContentBlob(closeoutClaim.candidate.sha256)!),
+        upsertCloseoutSubmissionFacts(correctedCloseout, submission),
+      );
       assert.equal(submission.commitSha, null);
       assert.equal(submission.artifacts?.length, 2, "Summary prose never narrows the accepted delivery cut");
       const anchor = submission.artifacts!.find((anchor) => anchor.path === reportPath)!,
@@ -729,7 +747,7 @@ for (const explicit of [false, true])
       );
       assert.deepEqual(
         execFileSync("git", ["-C", ledger.rootDir, "show", `HEAD:${ledgerGitPath(ledger, closeoutPath)}`]),
-        Buffer.from(correctedCloseout),
+        Buffer.from(upsertCloseoutSubmissionFacts(correctedCloseout, submission)),
       );
       console.log(
         JSON.stringify({

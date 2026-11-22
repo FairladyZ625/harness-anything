@@ -322,6 +322,18 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
 /** Socket reads share the host's repository-read admission without declaring GUI routes. */
 export const daemonRepositoryReadMethods = Object.freeze([
   {
+    id: "events.read",
+    phase: "Ledger-Read",
+    method: "repo.events.read",
+    requiresRepo: true,
+    repositoryRead: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ afterRevision: "number", limit: "number", waitMs: "number?" }),
+    }),
+  },
+  {
     id: "tasks.runtimeContext.read",
     phase: "W3",
     method: "repo.tasks.runtimeContext.read",

@@ -4,30 +4,18 @@ export const integrationShardCount = 10;
 // The median cost of an integration file added between 2026-10-25 and 2026-11-08 was 8.7s; the
 // previous 1s default let 354 unweighted files pile into shards that looked light.
 export const defaultIntegrationTestWeightMs = 10_000;
-// Budgets are in the weights' unit: one file's serial duration on a GitHub ubuntu runner, which
-// runs three files at a time on four cores. Run 42562323998 measured 4,091s of test step across
-// the 14-shard matrix for 11,988s of declared weight, an effective factor of 2.93 (the previous
-// comment used 2.6). dec_127E3F9C47D2842DA7AB86E0F4/CH2 moves the PR matrix to 10 shards with a
-// 9-minute job target: 1,250,000ms / 2.93 is about 7.1 minutes of test step, leaving room for the
-// ~40s install/extract steps. The budget stays a ceiling per shard, not a per-shard allowance.
-// task_1520e155e64d4d5261d87ab16b tightens the observed PR target to 8 minutes: the eleven
-// successful runs after #4481/#4483 measured 6.7-8.4 minutes per shard although every weight sum
-// was ~1.20M ms, so the same budget needs the heavy-first hand-over below to stay inside 8 minutes.
+// The timing snapshot combines the three-worker runs 44925574438 and 44940024765.
+// The 420s test-step cap leaves 60s for checkout, artifact restore, and reporting.
 export const integrationShardBudgetMs = 1_250_000;
-// A file runs its tests serially, so one file is a floor on its shard's wall. Files above this
-// either split or name their reason in entries.overBudgetFiles of
-// tools/gate-allowlists/check-integration-test-shards.json.
-export const integrationFileBudgetMs = 180_000;
+export const integrationShardWallBudgetMs = 420_000;
+// Keep the relocation test whole so it uses a single managed RBAC fixture.
+export const integrationFileBudgetMs = 210_000;
 // The runner fails a file whose measured duration exceeds this multiple of its declared weight
 // plus the slack: the declaration is what the shard budget sums, so it has to stay honest. The
 // slack absorbs the runner noise measured over four runs of main (p99 of max/median 1.57).
 export const integrationWeightOverrunFactor = 2;
 export const integrationWeightOverrunSlackMs = 60_000;
-// node --test runs three files at a time on the four-core GitHub runner (its default concurrency is
-// cores - 1), so a shard's wall is the finish time of the latest of three file lanes, not its weight
-// sum. The runner starts files in the order this module returns; the 2026-11-09/10 PR runs showed
-// 6.7-8.4 minute shards whose weight sums were all ~1.20M ms because the alphabetical return order
-// let a heavy file start late. Keep the estimated spread across shards inside this window.
+// Match HARNESS_TEST_CONCURRENCY in rewrite-ci.yml.
 export const integrationShardLaneCount = 3;
 export const integrationShardWallSpreadBudgetMs = 30_000;
 
@@ -104,6 +92,7 @@ export function validateIntegrationTestShards(
   {
     overBudgetFiles = [],
     shardBudgetMs = integrationShardBudgetMs,
+    wallBudgetMs = integrationShardWallBudgetMs,
     wallSpreadBudgetMs = integrationShardWallSpreadBudgetMs,
   } = {},
 ) {
@@ -123,9 +112,10 @@ export function validateIntegrationTestShards(
   if (shards.some((shard) => shard.files.length === 0)) errors.push("derived integration shard is empty");
   const summaries = integrationShardSummaries(manifestFiles, weightOverrides);
   for (const summary of summaries) {
-    if (summary.estimatedMs > shardBudgetMs)
+    const shardBudgetRatio = Math.max(summary.estimatedMs / shardBudgetMs, summary.estimatedWallMs / wallBudgetMs);
+    if (shardBudgetRatio > 1)
       errors.push(
-        `integration shard ${summary.id} is over budget: ${summary.estimatedMs}ms of declared file weight > ${shardBudgetMs}ms; make the slowest files cheaper or add a shard (integrationShardCount, workflow matrix and required contexts)`,
+        `integration shard ${summary.id} is over budget: ${summary.estimatedMs}ms of declared file weight (limit ${shardBudgetMs}ms); estimated wall ${summary.estimatedWallMs}ms (limit ${wallBudgetMs}ms); make its slowest files cheaper or add a shard`,
       );
   }
   const estimatedWalls = summaries.map((summary) => summary.estimatedWallMs);

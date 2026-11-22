@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, realpathSync, symlinkSync } from "node:fs";
 import path from "node:path";
-import nodeTest from "node:test";
+import test from "node:test";
 import ts from "typescript";
 import { bindArguments, buildFlowGraph, makeEvaluator } from "../authorization-flow-graph.mjs";
 import {
@@ -23,16 +23,6 @@ import {
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo, replaceSourceOnce } from "./helpers.mjs";
 import { baselineAuthorizationInputs, baselineFlowGraph, mutatedFlowGraph } from "./authorization-baseline.mjs";
-import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
-
-// Reuse the runner's bounded partitioning: whole-file server execution exceeded its heap.
-const partitionValue = process.env.HARNESS_TEST_PARTITION;
-let testOrdinal = 0;
-function partitionedTest(name, testFn) {
-  if (!testOrdinalInPartition(testOrdinal++, partitionValue)) return;
-  nodeTest(name, testFn);
-}
-const test = partitionedTest;
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const file = "packages/demo/scripts/copy-assets.mjs";

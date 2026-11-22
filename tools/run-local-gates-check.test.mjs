@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync } from "node:fs";
+import { cpSync, readFileSync, renameSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { commitAll, makeRepo, writeRepoFile } from "./gates/test/helpers.mjs";
+import { commitAll, makeRepo, runGit, writeRepoFile } from "./gates/test/helpers.mjs";
 import { selectLocalGateChecks, staticGateExclusion } from "./run-local-gates-check.mjs";
 
 const PR_JOBS = new Set(["boundaries", "package-policy", "supply-chain"]);
+const FULL_MANIFEST = JSON.parse(readFileSync(new URL("./gate-manifest.json", import.meta.url), "utf8"));
 
 test("static gate selection keeps deterministic PR-visible checkers and reports why others are left to CI", () => {
   const plan = selectLocalGateChecks(makeManifest());
@@ -236,7 +237,108 @@ test("changed static plans pass the exact path set only to the durable authoriza
   assert.equal(entry.command, `${gate.command} --changed-files-stdin`);
   assert.deepEqual(JSON.parse(entry.input), changedPaths);
   assert.equal(plan.find((entry) => entry.id === manifest.gates[1].id).command, manifest.gates[1].command);
-  assert.equal(selectLocalGateChecks(manifest).find((entry) => entry.id === gate.id).command, gate.command);
+  assert.equal(
+    selectLocalGateChecks(manifest, { fullAuth: true }).find((entry) => entry.id === gate.id).command,
+    gate.command,
+  );
+});
+
+// dec_88CAA23DE4907261D7ECB107ED/CH1 adds check-ontology-facets to the whole static set.
+test("whole static selection keeps all 52 gates and forwards the merge-base plus worktree paths only to auth", () => {
+  const { rootDir, base } = makeRepo({
+    "tracked.ts": "export const original = true;\n",
+    "delete-me.ts": "export const remove = true;\n",
+    "rename-from.ts": "export const rename = true;\n",
+  });
+  runGit(rootDir, ["update-ref", "refs/remotes/origin/main", base]);
+
+  writeRepoFile(rootDir, "committed.ts", "export const committed = true;\n");
+  unlinkSync(path.join(rootDir, "delete-me.ts"));
+  renameSync(path.join(rootDir, "rename-from.ts"), path.join(rootDir, "rename-to.ts"));
+  commitAll(rootDir);
+
+  writeRepoFile(rootDir, "staged.ts", "export const staged = true;\n");
+  runGit(rootDir, ["add", "staged.ts"]);
+  writeRepoFile(rootDir, "tracked.ts", "export const unstaged = true;\n");
+  writeRepoFile(rootDir, "untracked.ts", "export const untracked = true;\n");
+
+  const plan = selectLocalGateChecks(FULL_MANIFEST, { changedPaths: null, repoRoot: rootDir });
+  const authorization = plan.find((entry) => entry.id === "ontology-durable-action-authorization");
+  const expectedPaths = [
+    "committed.ts",
+    "delete-me.ts",
+    "rename-from.ts",
+    "rename-to.ts",
+    "staged.ts",
+    "tracked.ts",
+    "untracked.ts",
+  ];
+
+  assert.equal(plan.length, 52);
+  const manifestCommand = FULL_MANIFEST.gates.find((gate) => gate.id === authorization.id).command;
+  assert.equal(authorization.command, `${manifestCommand} --changed-files-stdin`);
+  assert.deepEqual(JSON.parse(authorization.input), expectedPaths);
+  assert.equal(
+    plan.some((entry) => entry.id !== authorization.id && entry.input !== undefined),
+    false,
+  );
+  assert.ok(
+    plan
+      .filter((entry) => entry.id !== authorization.id)
+      .every((entry) => !entry.command.includes("--changed-files-stdin")),
+  );
+});
+
+test("whole static selection falls back to full auth when the base is missing or explicitly requested", () => {
+  const { rootDir, base } = makeRepo({ "leaf.ts": "export const leaf = true;\n" });
+  writeRepoFile(rootDir, "changed.ts", "export const changed = true;\n");
+  commitAll(rootDir);
+  const authorizationCommand = FULL_MANIFEST.gates.find(
+    (gate) => gate.id === "ontology-durable-action-authorization",
+  ).command;
+
+  const missingBase = selectLocalGateChecks(FULL_MANIFEST, { changedPaths: null, repoRoot: rootDir });
+  assert.equal(missingBase.length, 52);
+  assert.equal(
+    missingBase.find((entry) => entry.id === "ontology-durable-action-authorization").command,
+    authorizationCommand,
+  );
+
+  runGit(rootDir, ["update-ref", "refs/remotes/origin/main", base]);
+  runGit(rootDir, ["tag", "explicit-base", base]);
+  const explicitBase = selectLocalGateChecks(FULL_MANIFEST, {
+    changedPaths: null,
+    repoRoot: rootDir,
+    authorizationBaseRef: "explicit-base",
+  });
+  assert.deepEqual(
+    JSON.parse(explicitBase.find((entry) => entry.id === "ontology-durable-action-authorization").input),
+    ["changed.ts"],
+  );
+
+  const fullAuth = selectLocalGateChecks(FULL_MANIFEST, { changedPaths: null, repoRoot: rootDir, fullAuth: true });
+  assert.equal(fullAuth.length, 52);
+  assert.equal(
+    fullAuth.find((entry) => entry.id === "ontology-durable-action-authorization").command,
+    authorizationCommand,
+  );
+
+  writeRepoFile(rootDir, "tools/gate-manifest.json", JSON.stringify(FULL_MANIFEST));
+  for (const file of ["run-local-gates-check.mjs", "run-manifest-gates.mjs", "test-quarantine.mjs"])
+    cpSync(path.join(import.meta.dirname, file), path.join(rootDir, "tools", file));
+  const listed = spawnSync(process.execPath, ["tools/run-local-gates-check.mjs", "--list", "--full-auth"], {
+    cwd: rootDir,
+    encoding: "utf8",
+  });
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.match(listed.stdout, /whole static set\): 52 gate\(s\)/u);
+  assert.match(listed.stdout, /Authorization proof scope: full proof/u);
+  assert.ok(
+    !listed.stdout
+      .split("\n")
+      .find((line) => line.includes("ontology-durable-action-authorization"))
+      ?.includes("--changed-files-stdin"),
+  );
 });
 
 test("changed static CLI sends a large exact scope through the shared process launcher", () => {

@@ -57,6 +57,11 @@ test("real host RPC runs only the declared gate, rejects forged results and unau
       "admin",
     );
   let crashOnSubmit = false;
+  const taskEvents = () =>
+    makeTaskEventReader({ repoId, rootDir: root })
+      .read()
+      .events.filter(isTaskEvent)
+      .filter((event) => event.taskId === taskId);
   initRepo(root);
   git(root, "branch", "-M", "main");
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\nsource/\nuser/\n");
@@ -97,7 +102,11 @@ test("real host RPC runs only the declared gate, rejects forged results and unau
     rootDir: canonicalRoot(root),
     ownerId: "witness-rpc-seed",
     killpoint: (point) => {
-      if (crashOnSubmit && point === "after_store_commit") {
+      if (
+        crashOnSubmit &&
+        point === "after_store_commit" &&
+        taskEvents().some((event) => event.type === "execution_submitted")
+      ) {
         crashOnSubmit = false;
         throw new Error("Fixture response loss after submitted cut, before source invocation");
       }

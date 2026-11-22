@@ -34,7 +34,9 @@ import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   consumeKnownError,
+  findExhaustedSubscriptionQuotaWindow,
   isExhaustedDispatchTerminal,
+  projectRuntimeProviderHealth,
   scheduledFallbackNotBefore,
   sha256Text,
   type AgentRuntimeEventV1,
@@ -156,10 +158,12 @@ export function initialFallbackAttempt(
       instances,
       allowedInstanceIds,
       sessions,
-      // Health is a selection-time signal, never chain membership: a candidate cooling when the
-      // dispatch starts must stay in the chain so settle can wait for its recovery. The anchor
-      // above still uses health, because the first attempt has to launch now.
+      // Health and subscription quota exhaustion are selection-time signals, never chain
+      // membership: a candidate cooling or quota-exhausted when the dispatch starts must stay
+      // in the chain so settle can pick it if it recovers during attempt 0 or wait for its
+      // recovery. The anchor above still uses health and quota, because attempt 0 launches now.
       health: undefined,
+      chainMembershipOnly: true,
       now,
     }).filter((instanceId) => instanceId !== resumedInstanceId),
     configuredInstances = allowedInstanceIds?.filter((instanceId) => derivedInstances.includes(instanceId)),
@@ -230,15 +234,82 @@ export function continuationMission(
   ].join("\n");
 }
 
+interface CandidateAvailability {
+  readonly frozen: boolean;
+  readonly recoverAt: string | null;
+  readonly recoverMs: number;
+  readonly reason: string | null;
+}
+
+function candidateAvailability(
+  candidate: RuntimeFallbackAttempt["candidates"][number],
+  health: RuntimeSpawnerInput["runtimeProviderHealth"],
+  instances: readonly RuntimeInstanceSummary[] | undefined,
+  nowIso: string,
+  observedAt: number,
+): CandidateAvailability {
+  const row = health?.get(candidate.instance),
+    projected = projectRuntimeProviderHealth(row, nowIso);
+  if (projected.status === "frozen") {
+    return {
+      frozen: true,
+      recoverAt: null,
+      recoverMs: Number.POSITIVE_INFINITY,
+      reason: projected.reason ?? "frozen",
+    };
+  }
+  const instanceRow = instances?.find((item) => item.instanceId === candidate.instance),
+    effectiveModel = candidate.model || instanceRow?.defaultModel,
+    modelQuota =
+      instanceRow?.quota && effectiveModel
+        ? findExhaustedSubscriptionQuotaWindow(instanceRow.quota, nowIso, { models: [effectiveModel] })
+        : null,
+    healthUntil = projected.recoverAt,
+    healthMs = healthUntil ? Date.parse(healthUntil) : Number.NaN,
+    quotaUntil = modelQuota?.resetAt ?? null,
+    quotaMs = quotaUntil ? Date.parse(quotaUntil) : Number.NaN,
+    activeHealthMs = Number.isFinite(healthMs) && healthMs > observedAt ? healthMs : Number.NaN,
+    activeQuotaMs = Number.isFinite(quotaMs) && quotaMs > observedAt ? quotaMs : Number.NaN;
+  let recoverAt: string | null = null;
+  let recoverMs = Number.NaN;
+  if (Number.isFinite(activeHealthMs) && Number.isFinite(activeQuotaMs)) {
+    if (activeQuotaMs > activeHealthMs) {
+      recoverAt = quotaUntil;
+      recoverMs = activeQuotaMs;
+    } else {
+      recoverAt = healthUntil;
+      recoverMs = activeHealthMs;
+    }
+  } else if (Number.isFinite(activeHealthMs)) {
+    recoverAt = healthUntil;
+    recoverMs = activeHealthMs;
+  } else if (Number.isFinite(activeQuotaMs)) {
+    recoverAt = quotaUntil;
+    recoverMs = activeQuotaMs;
+  }
+  const reason =
+    projected.transportBlocked && projected.reason
+      ? projected.reason
+      : modelQuota
+        ? `quota_exhausted:${modelQuota.window.id}`
+        : projected.usageExhausted
+          ? "quota_exhausted"
+          : (projected.reason ?? null);
+  return { frozen: false, recoverAt, recoverMs, reason };
+}
+
 function fallbackAvailabilitySummary(
   candidates: readonly RuntimeFallbackAttempt["candidates"][number][],
   health: RuntimeSpawnerInput["runtimeProviderHealth"],
+  instances: readonly RuntimeInstanceSummary[] | undefined,
+  nowIso: string,
+  observedAt: number,
 ): string {
   return candidates
     .map((candidate) => {
-      const row = health?.get(candidate.instance),
-        recovery = row?.frozen ? "manual解冻" : (row?.frozenUntil ?? row?.cooldownUntil ?? "unknown");
-      return `${candidate.instance}: ${row?.reason ?? "provider unavailable"}; recover at ${recovery}`;
+      const status = candidateAvailability(candidate, health, instances, nowIso, observedAt),
+        recovery = status.frozen ? "manual解冻" : (status.recoverAt ?? "unknown");
+      return `${candidate.instance}: ${status.reason ?? "provider unavailable"}; recover at ${recovery}`;
     })
     .join("; ");
 }
@@ -250,24 +321,25 @@ interface NextFallbackCandidate {
 }
 
 /**
- * Select the next fallback candidate using health as a filter, not as chain membership.
- * Permanently frozen rows are skipped; the first usable row in chain order wins. When every
- * remaining row is cooling, the soonest recovery is selected so settle can wait for it.
+ * Select the next fallback candidate using current health and live per-model quota as a
+ * selection-time filter, not as chain membership. Permanently frozen rows are skipped; the
+ * first usable row in chain order wins. When every remaining row is cooling or quota-exhausted,
+ * the soonest recovery is selected so settle can wait for it.
  */
 function nextFallbackCandidate(
   candidates: RuntimeFallbackAttempt["candidates"],
   fromIndex: number,
   health: RuntimeSpawnerInput["runtimeProviderHealth"],
+  instances: readonly RuntimeInstanceSummary[] | undefined,
+  nowIso: string,
   observedAt: number,
 ): NextFallbackCandidate | null {
   let cooling: NextFallbackCandidate | null = null;
   for (let index = fromIndex; index < candidates.length; index += 1) {
-    const row = health?.get(candidates[index]!.instance);
-    if (row?.frozen) continue;
-    const blockedUntil = row?.frozenUntil ?? row?.cooldownUntil,
-      blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN;
-    if (!Number.isFinite(blockedMs) || blockedMs <= observedAt) return { index, recoverAt: null };
-    if (cooling === null || blockedMs < cooling.recoverAt!) cooling = { index, recoverAt: blockedMs };
+    const status = candidateAvailability(candidates[index]!, health, instances, nowIso, observedAt);
+    if (status.frozen) continue;
+    if (!Number.isFinite(status.recoverMs) || status.recoverMs <= observedAt) return { index, recoverAt: null };
+    if (cooling === null || status.recoverMs < cooling.recoverAt!) cooling = { index, recoverAt: status.recoverMs };
   }
   return cooling;
 }
@@ -359,7 +431,9 @@ export async function settleFallbackAttempt(
   if (delivered || !isProviderFailureClassification(outcome.classification) || !fallback) {
     if (isProviderFailureClassification(outcome.classification) && !delivered) recordProviderFailure();
     else if (active.providerOutcome === "succeeded" || delivered)
-      input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
+      input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt, {
+        model: outcome.provider.model,
+      });
     await input.onAttemptTerminal?.(terminal);
     return;
   }
@@ -450,7 +524,9 @@ export async function settleFallbackAttempt(
     );
   }
   recordProviderFailure();
-  const nextCandidateIndex = currentCandidateIndex + 1,
+  const nowIso = input.now(),
+    liveInstances = input.runtimeInstances?.(),
+    nextCandidateIndex = currentCandidateIndex + 1,
     retryRound = fallback.retryRound ?? 0,
     maxRetries = Math.max(
       0,
@@ -459,27 +535,31 @@ export async function settleFallbackAttempt(
     selection =
       nextCandidateIndex >= fallback.candidates.length
         ? null
-        : nextFallbackCandidate(fallback.candidates, nextCandidateIndex, input.runtimeProviderHealth, observedAt),
+        : nextFallbackCandidate(
+            fallback.candidates,
+            nextCandidateIndex,
+            input.runtimeProviderHealth,
+            liveInstances,
+            nowIso,
+            observedAt,
+          ),
     // No usable candidate in this pass. The exhausted branch either waits out a retry round
     // (including candidates that recover later) or settles permanently unavailable.
-    exhausted = selection === null;
-  const recoverAt = exhausted
-    ? fallback.candidates.reduce<number | null>((earliest, candidate) => {
-        const health = input.runtimeProviderHealth?.get(candidate.instance);
-        if (health?.frozen) return earliest;
-        const blockedUntil = health?.frozenUntil ?? health?.cooldownUntil,
-          blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN,
-          usableAt = Number.isFinite(blockedMs) ? Math.max(observedAt, blockedMs) : observedAt;
-        return earliest === null ? usableAt : Math.min(earliest, usableAt);
-      }, null)
-    : selection!.recoverAt;
-  const roundCeiling = singlePass ? retryRound : maxRetries;
-  if (exhausted && (retryRound >= roundCeiling || recoverAt === null))
+    exhausted = selection === null,
+    retrySelection = exhausted
+      ? nextFallbackCandidate(fallback.candidates, 0, input.runtimeProviderHealth, liveInstances, nowIso, observedAt)
+      : null,
+    recoverAt = exhausted
+      ? retrySelection === null
+        ? null
+        : (retrySelection.recoverAt ?? observedAt)
+      : selection!.recoverAt;
+  if (exhausted && (singlePass || retryRound >= maxRetries || recoverAt === null))
     return exhaustedTerminal(
       `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s) and ${String(retryRound)} retry round(s): ${outcome.reason}. ` +
-        `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`,
+        `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth, liveInstances, nowIso, observedAt)}`,
     );
-  const next = fallback.candidates[exhausted ? 0 : selection!.index]!,
+  const next = fallback.candidates[exhausted ? retrySelection!.index : selection!.index]!,
     roundBaseMs = Math.max(
       0,
       Number(
@@ -510,7 +590,7 @@ export async function settleFallbackAttempt(
   if (waitStartedAt !== null && observedAt - waitStartedAt + Math.max(0, notBeforeMs - observedAt) > maxWaitMs)
     return exhaustedTerminal(
       `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
-        `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`,
+        `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth, liveInstances, nowIso, observedAt)}`,
     );
   return scheduledTerminal(
     {
@@ -694,14 +774,14 @@ export async function scheduleFallbackContinuation(args: {
           sameSessionProviderSessionId = sameSessionResume ? scheduledFallback.providerSessionId! : undefined,
           nextAttemptIndex = fallback.attemptIndex + 1,
           currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
-          naturalNextIndex = currentCandidateIndex + 1,
-          exhaustedPass = !sameSessionResume && naturalNextIndex >= fallback.candidates.length,
           nextCandidateIndex = sameSessionResume
             ? currentCandidateIndex
             : fallback.candidates.findIndex(
                 (candidate) =>
                   candidate.instance === plan.nextProvider.instance && candidate.model === plan.nextProvider.model,
               ),
+          // Settlement only wraps when no usable candidate follows the current one.
+          exhaustedPass = !sameSessionResume && nextCandidateIndex <= currentCandidateIndex,
           next = sameSessionResume
             ? (fallback.candidates[currentCandidateIndex] ?? plan.nextProvider)
             : fallback.candidates[nextCandidateIndex];

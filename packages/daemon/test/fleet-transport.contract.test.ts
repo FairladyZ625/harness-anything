@@ -474,6 +474,7 @@ test("fleet operational read admits dispatches, node auto-dispatch and auto-clai
     ["repo.task.show", { taskId: "task-one" }],
     ["repo.task.read", { action: { kind: "task-show", taskId: "task-one" } }],
     ["observe.tail", { kind: "events", direction: "history" }],
+    ["repo.events.read", { afterRevision: 0, limit: 2, waitMs: 25_000 }],
     ["repo.agentRuntime.events.read", { runtimeSessionId: "runtime-one", afterCursor: "lifecycle:0" }],
     ["repo.agentRuntime.tokenUsage", { range: "7d" }],
     ["repo.agentRuntime.tokenUsageDetail", { range: "7d", agentId: "agent-one" }],

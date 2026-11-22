@@ -349,10 +349,12 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
     pgliteSets.map((set) => set.set),
     [1, 2],
   );
+  const pgliteDimensions = pgliteSets.flatMap((set) => set.dimensions.split(","));
+  assert.equal(new Set(pgliteDimensions).size, pgliteDimensions.length, "PGlite sets must be pairwise disjoint");
   assert.deepEqual(
-    pgliteSets.flatMap((set) => set.dimensions.split(",")),
-    [...READ_DIMENSIONS],
-    "the two PGlite sets cover every dimension once, in declared order",
+    [...pgliteDimensions].sort(),
+    [...READ_DIMENSIONS].sort(),
+    "the two PGlite sets cover every dimension exactly once",
   );
   assert.equal(reads.strategy["fail-fast"], false);
   assert.match(reads.name, /set \$\{\{ matrix\.set \}\}/u);

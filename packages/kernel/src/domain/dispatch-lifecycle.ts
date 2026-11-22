@@ -620,6 +620,7 @@ function advanceAttempt(
       };
     case "runtime_session_liveness_changed":
       if (attempt.process === "exited") return attempt;
+      if (event.payload.controlRequest !== undefined || event.payload.controlReceipt !== undefined) return attempt;
       return { ...attempt, process: event.payload.liveness === "live" ? "alive" : "unknown" };
     case "runtime_session_cancelled":
       // A cancel request does not prove the provider stopped; the slot stays held.
