@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import {
+  extractReferencedCodePaths,
   GIT_COLLISION_FORMAT,
   GIT_HISTORY_FORMAT,
   MAX_TRACED_FILES,
@@ -16,6 +17,7 @@ import type {
   QueryBinding,
   WorkQueryCell,
 } from "@harness-anything/application/internal/queries/query-ports.ts";
+import { withLocalWorktreeCollisions } from "./dispatch-causal-context.ts";
 import { runGitHistoryLog } from "./process-port.ts";
 
 /** A valid repository whose HEAD has no commit yet has, truthfully, no history for any path. */
@@ -151,5 +153,25 @@ export function traceView(cell: WorkQueryCell, action: QueryAction, binding: Que
     result.projectionCut.sourceRevision,
     null,
     result.projectionCut,
+  );
+}
+
+/** Edge-local dirty-worktree collision scan layered onto center-built causal context before execution launch. */
+export function enrichCausalContextWithLocalWorktrees(
+  causalContext: string | null,
+  input: {
+    readonly workspaceRoot: string;
+    readonly plan: string;
+    readonly taskId: string;
+    readonly skip: boolean;
+  },
+): string | null {
+  if (input.skip) return causalContext;
+  return withLocalWorktreeCollisions(
+    causalContext,
+    makeWorkspaceGitHistoryPort(input.workspaceRoot).readDirtyWorktreeCollisions!({
+      paths: extractReferencedCodePaths(input.plan),
+      excludeTaskId: input.taskId,
+    }),
   );
 }

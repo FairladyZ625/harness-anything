@@ -97,10 +97,7 @@ export const COMMAND_READ_PROBES = Object.fromEntries(
     .map((command) => [
       `cli-${command.id}`,
       {
-        reads: [
-          `command:${command.id}`,
-          ...(command.method === "repo.trace.read" ? [`method:${command.method}`] : []),
-        ],
+        reads: [`command:${command.id}`, ...(command.method === "repo.trace.read" ? [`method:${command.method}`] : [])],
         run: (fixture) =>
           fixture.runtime.run(
             {
