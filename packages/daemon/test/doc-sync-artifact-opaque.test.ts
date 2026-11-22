@@ -21,6 +21,7 @@ import { preflightConvertedGenerationActivation } from "../../storage/test/store
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { truncateSync } from "node:fs";
 import { readSubmissionArtifact } from "@harness-anything/application/commands";
@@ -162,7 +163,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -226,7 +227,7 @@ test("artifact add still rejects escapes, symlinked path segments, and undecodab
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -306,7 +307,7 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -351,7 +352,7 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
     assert.equal(readFileSync(path.join(rootDir, "harness", manifest), "utf8"), manifestBody);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -412,7 +413,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
   assert.equal(store.followerStatus().git.status, "pending");
   assert.equal(historic.accepted, true, JSON.stringify(historic));
   if (!historic.accepted) {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
     return;
   }
   store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
@@ -464,7 +465,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
   } finally {
     await cell.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -510,7 +511,7 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -550,7 +551,7 @@ test("a task plan section reorder submits as authored prose with no region-polic
     assert.equal(rows(clean.evidence)[0]?.state, "clean");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -627,7 +628,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -855,7 +856,7 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -920,7 +921,7 @@ test("two executions producing the same raw report basename keep both artifacts 
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -954,7 +955,7 @@ test("a raw publication that fails leaves no accepted artifact and no raw claim 
     assert.deepEqual(reader.readHead(), before, "a refused publication must not advance the accepted cut");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
   const confinementRoot = mkdtempSync(path.join(tmpdir(), "ha-artifact-raw-confine-"));
   initRawBytesRepo(confinementRoot);
@@ -1030,7 +1031,7 @@ test("doc status offers a new small JSON task artifact to doc sync like any text
     assert.deepEqual([rows.rows[0]?.state, rows.rows[0]?.reason], ["eligible", null], JSON.stringify(rows));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1077,7 +1078,7 @@ test("doc status uses the configured authored root and quotes artifact source pa
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1117,7 +1118,7 @@ test("oversized textual task artifacts sync through the blob content contract", 
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1169,7 +1170,7 @@ test("doc sync directly submits raw task artifacts when the authored root is its
     assert.deepEqual(gitBytes(ledgerRoot, logical), bytes, "the nested ledger Git cut holds the same bytes");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
