@@ -67,7 +67,6 @@ import { resolveSquadDispatch } from "./agent-entities.ts";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { mergeRepositoryLocalSettings, readLocalState } from "./repo-cell-settings-state.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
-import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetEdgeRuntimeArchiveClient,
