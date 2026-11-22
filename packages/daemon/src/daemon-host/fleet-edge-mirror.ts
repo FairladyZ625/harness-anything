@@ -523,17 +523,31 @@ export function materializeFleetMirrorView(
     preview: request?.preview,
     selectedPaths: request?.preview ? undefined : request?.paths,
     changedPaths: changed,
-    requirePreviousPaths: (previous) => {
-      requireTaskMaterializationMetadata(projection, previous);
+    requirePreviousPaths: (previous, previousEntries) => {
+      const prunedCandidates = previous.filter((logical) => !entries.has(logical));
+      if (prunedCandidates.length > 0) requireTaskMaterializationMetadata(projection, prunedCandidates);
       if (preserveExistingOnly) {
         const held = new Set(previous);
         for (const logical of entries.keys()) if (!held.has(logical)) entries.delete(logical);
       }
-      // A lifecycle/relationship change affects the entire hot Task package, including unchanged
-      // context files. Ordinary documents keep the transport's incremental path selection.
-      if (changed)
-        for (const logical of [...entries.keys(), ...previous])
-          if (logical.startsWith("tasks/task_")) changed.push(logical);
+      // Capture canonical additions, content updates, and lifecycle/policy revocations between
+      // `entries` and `previousEntries` in O(delta) without scanning unchanged files on disk.
+      if (changed) {
+        const seen = new Set(changed);
+        for (const [logical, blob] of entries)
+          if (
+            (!Object.hasOwn(previousEntries, logical) || previousEntries[logical] !== blob.sha256) &&
+            !seen.has(logical)
+          ) {
+            seen.add(logical);
+            changed.push(logical);
+          }
+        for (const logical of previous)
+          if (!entries.has(logical) && !seen.has(logical)) {
+            seen.add(logical);
+            changed.push(logical);
+          }
+      }
     },
     readContent: (logical) => {
       const file = objectPath(generation, entries.get(logical)!.sha256);
