@@ -130,6 +130,7 @@ test("CI rejects missing, duplicated, incomplete and incompatible authorization 
     scope: "fixture-scope",
     count: AUTHORIZATION_CI_SHARD_COUNT,
   };
+  assert.equal(stamp.count, 2);
   const row = { id: "client-entry", kind: "task-start", route: "task.start" };
   const inventory = { routes: [[7, "task.start"]], sources: [[0, row.id, row.kind, row.route]] };
   const run = { dir, stamp };
@@ -145,10 +146,16 @@ test("CI rejects missing, duplicated, incomplete and incompatible authorization 
     rmSync(path.join(dir, `authorization-shard-${index}.json`));
     writePart(index, proof, inputs);
   };
-  for (let index = 1; index < stamp.count; index++) writePart(index, empty);
-  assert.throws(() => readAuthorizationShards(run, inventory), /every shard exactly once/u);
   writePart(0, result);
+  assert.throws(
+    () => readAuthorizationShards(run, inventory),
+    /expected authorization-shard-0\.json, authorization-shard-1\.json; found authorization-shard-0\.json/u,
+  );
+  writePart(1, empty);
   assert.deepEqual(readAuthorizationShards(run, inventory), result);
+  writePart(2, empty);
+  assert.throws(() => readAuthorizationShards(run, inventory), /every shard exactly once/u);
+  rmSync(path.join(dir, "authorization-shard-2.json"));
   replace(1, result);
   assert.throws(() => readAuthorizationShards(run, inventory), /coverage differs for routes/u);
   replace(1, empty, { ...stamp, revision: "stale-revision" });
@@ -424,7 +431,7 @@ test("CI shards preserve the serial verdict when a multiplexed GUI client is mut
   const parallel = async () => {
     const proofs = mkdtempSync(path.join(tmpdir(), "authorization-shards-"));
     t.after(() => rmSync(proofs, { recursive: true, force: true }));
-    const stamp = { today, count: 2 };
+    const stamp = { today, count: AUTHORIZATION_CI_SHARD_COUNT };
     const rowsPerPartition = [];
     for (let index = 0; index < stamp.count; index++) {
       const partition = { index, count: stamp.count };
