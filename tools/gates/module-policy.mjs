@@ -16,6 +16,8 @@ export const BUDGETED_MODULES = Object.freeze([
   "preset",
   "cli",
   "gui",
+  // dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde is a governed production workspace module.
+  "gui-fde",
   "daemon",
   "storage",
   "fleet",
