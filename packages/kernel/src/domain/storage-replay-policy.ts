@@ -216,7 +216,7 @@ export const documentClaimPolicy = {
   ownerRef: "document",
   unit: "document policy identifier",
   bounds:
-    "Every canonical document claim carries path, sha256, size, mediaType and one declared policyId; whole-file entity documents use typed-entity/v1, prose bodies markdown-body-replaceable/v1, opaque text opaque-textual-whole-file/v1 (CR preserved), raw artifacts raw-artifact-bytes/v1, owned content entity-content/v1 and settings facets settings-facet/v1. Legacy agent documents keep typed-agent-entity/v1 for replay only.",
+    "Every canonical document claim carries path, sha256, size, mediaType and one declared policyId; whole-file entity documents use typed-entity/v1, prose bodies markdown-body-replaceable/v1, opaque text opaque-textual-whole-file/v1 (CR preserved), raw artifacts raw-artifact-bytes/v1, owned content entity-content/v1 and settings facets settings-facet/v1, and project dossier slots living-dossier/v1. Legacy agent documents keep typed-agent-entity/v1 for replay only.",
   defaultValue: {
     entity: "typed-entity/v1",
     markdown: "markdown-body-replaceable/v1",
@@ -224,6 +224,7 @@ export const documentClaimPolicy = {
     rawArtifact: "raw-artifact-bytes/v1",
     ownedContent: "entity-content/v1",
     settingsFacet: "settings-facet/v1",
+    dossier: "living-dossier/v1",
     legacyAgent: "typed-agent-entity/v1",
   },
   version: 1,
@@ -317,4 +318,27 @@ export const verticalDecodeDetailPolicy = {
     "policy:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#VERTICAL_DECODE_ISSUE_LIMIT:930d8dc0c8338ad222f1973651fd02d4",
     "policy:packages/kernel:packages/kernel/src/schemas/vertical-definition.ts#VERTICAL_DECODE_MESSAGE_LIMIT:6109a19a69952390acd17cb932015d53",
   ].map((candidateId) => ({ candidateId, route: "verticalDecodeDetail" })),
+} as const satisfies OntologyPolicyDeclaration;
+
+export const dossierSynthesisPolicy = {
+  id: "living-dossier-synthesis",
+  ownerRef: "document",
+  unit: "canonical source revision / Schedule occurrence",
+  bounds:
+    "Each publication advances one slot within a bounded revision page and the observed source cut. Scheduled runtimes must own the active occurrence claim. The dossier owns its document and cursor paths.",
+  defaultValue: { writer: "canonical-repository-writer", scheduled: "active-occurrence-claim" },
+  version: 1,
+  scope: "Markdown and HTML living dossier publications",
+  reason: "A former occurrence or stale producer cannot overwrite a newer dossier synthesis.",
+  fixtures: [
+    "packages/daemon/test/pglite-repo-cell.integration.test.ts",
+    "packages/daemon/test/living-dossier-cost.test.mjs",
+  ],
+  sources: [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim:6a5ae52649e37c97d33d052242234a4a",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#dossierSynthesizeRoute.claimFence:2b39eedf9916382139b7ccdbdb8f3a10",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:22b9c22a41880415864574a8cce45de5",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:2ff89fbe31cc575e8b5c327852f0f6b2",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:d78394ff063590c638fe7fbf7d222639",
+  ].map((candidateId) => ({ candidateId, route: "living dossier synthesis fence" })),
 } as const satisfies OntologyPolicyDeclaration;

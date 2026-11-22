@@ -285,3 +285,40 @@ function artifact(overrides: Record<string, unknown> = {}): Record<string, unkno
     ...overrides,
   };
 }
+
+test("living dossier compiles both slot kinds and rejects conflicting or undeclared bindings", () => {
+  const markdown = {
+    id: "context",
+    path: "CONTEXT.md",
+    kind: "markdown",
+    title: "Context",
+    summary: "Project context.",
+    entityKinds: ["task"],
+    requiredAnchors: ["context"],
+    watermarkMetadata: "required",
+    triggers: [{ kind: "periodic", everyMs: 60_000 }],
+  };
+  const html = {
+    ...markdown,
+    id: "atlas",
+    path: "atlas.html",
+    kind: "html",
+    triggers: [{ kind: "event-watermark", minimumDelta: 3 }],
+  };
+  const declaration = (slots: readonly object[]) => ({
+    ...baseVertical,
+    livingDossier: { slots },
+  });
+  assert.deepEqual(
+    compileVerticalContract(decodeVerticalDefinition(declaration([markdown, html]))).definition.livingDossier?.slots,
+    [markdown, html],
+  );
+  const compile = (slots: readonly object[]) => compileVerticalContract(decodeVerticalDefinition(declaration(slots)));
+  assert.throws(() => compile([markdown, { ...markdown, id: "other", path: "context.md" }]), /repeats an id or path/u);
+  assert.throws(() => compile([{ ...markdown, entityKinds: ["unregistered"] }]), /undeclared entity kind/u);
+  assert.throws(() => compile([{ ...html, path: "../atlas.html" }]), /stay inside/u);
+  assert.throws(
+    () => compile([{ ...html, triggers: [{ kind: "event-watermark", minimumDelta: 0 }] }]),
+    /minimumDelta/u,
+  );
+});

@@ -511,6 +511,35 @@
     "doc-submit": {
       "owner": "document"
     },
+    "dossier-synthesize": {
+      "owner": "document",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "dossier-slot-watermark",
+          "input": "expectedWatermark",
+          "required": true
+        },
+        "leasePolicy": {
+          "authority": "canonical-repository-writer"
+        },
+        "occurrenceClaim": {
+          "authority": "schedule-occurrence-claim",
+          "required": "scheduled-runtime",
+          "input": "claimFence"
+        },
+        "idempotency": {
+          "authority": "canonical-command-operation-id"
+        },
+        "artifactOwnership": {
+          "owner": "dossier-slot",
+          "refTemplate": "dossiers/{verticalId}/{slotId}"
+        }
+      },
+      "execution": {
+        "ingress": "dossier-synthesize",
+        "read": false
+      }
+    },
     "entity-archive": {
       "owner": "entity"
     },

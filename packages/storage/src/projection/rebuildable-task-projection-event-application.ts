@@ -41,6 +41,7 @@ import {
   type DocumentState,
 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import { isDossierSynthesisEvent } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import { isEntityDocumentEvent } from "@harness-anything/kernel/internal/domain/entity-document-event.ts";
 import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { isLedgerLayoutMigrationEvent } from "@harness-anything/kernel/internal/domain/ledger-layout-migration-event.ts";
@@ -247,7 +248,7 @@ function applyEventProjection(
     );
     return;
   }
-  if (isEntityDocumentEvent(event)) {
+  if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) {
     projectEntityDocumentRematerialization(db, event, eventJson, readBlob);
     return;
   }

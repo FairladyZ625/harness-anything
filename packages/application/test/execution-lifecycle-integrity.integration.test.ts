@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   submissionDigest,
 } from "@harness-anything/kernel";
 import { openSqliteEventStore } from "@harness-anything/storage";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { makeTaskEventStore, makeTaskProjection } from "../../storage/test/store/task-lifecycle-runtime.ts";
 import { commitSha, lifecycleHarness, owner, reviewer } from "./task-lifecycle-test-harness.ts";
 
@@ -424,13 +425,12 @@ test("changes_requested records Review, return edge, Execution closure, and Task
 
 test("lease CAS permits only the current holder and version to renew and release", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-lease-"));
-  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     git(rootDir, "init", "--quiet");
     git(rootDir, "config", "user.name", "Lease Test");
     git(rootDir, "config", "user.email", "lease-test@example.invalid");
     git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
-    projection = makeTaskProjection({
+    const projection = makeTaskProjection({
       rootDir,
       eventStore: makeTaskEventStore({ repoId: "test-repo", rootDir }),
       now: () => "2026-08-11T00:30:00.000Z",
@@ -462,8 +462,7 @@ test("lease CAS permits only the current holder and version to renew and release
     assert.equal(projection.releaseLease(renewed).phase, "released");
     assert.equal(projection.currentLease("task-1")?.phase, "released");
   } finally {
-    projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -243,12 +243,24 @@
         "order": 3
       },
       {
+        "id": "kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields",
+        "symbol": "packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields",
+        "explain": "Check the canonical cursor state and its authored document claims before append and replay.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:ecba8332546ff7aa71f9a972a82cdcac",
+            "route": "packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields"
+          }
+        ],
+        "order": 11
+      },
+      {
         "id": "kernel/src/domain/entity-document-event.ts#entity-document-event.assertEntityDocumentEventWritePlan",
         "symbol": "packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan",
         "explain": "entity-document-event: Versioned entity-document-event.ts input envelope and declared publication contract.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan:086bfb4377e494bb90b79c1e32e24bc5",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan:9708c9f9a2dba340b94844ae1b23e39e",
             "route": "packages/kernel/src/domain/entity-document-event.ts#assertEntityDocumentEventWritePlan"
           }
         ],
@@ -1264,7 +1276,7 @@
         "explain": "validateCanonicalEventInputs: Canonical event document limits, bundle and content input boundary.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertBundle:9d19500aad63029fecb374ecd42d6a15",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/ports/canonical-event-validation.ts#assertBundle:35c7701b54df88c7378c986a4449d94c",
             "route": "packages/kernel/src/ports/canonical-event-validation.ts#assertBundle"
           }
         ],
@@ -2952,6 +2964,18 @@
   },
   "vertical-declaration": {
     "contracts": [
+      {
+        "id": "kernel/src/domain/living-dossier.ts#validateDossierSlots",
+        "symbol": "packages/kernel/src/domain/living-dossier.ts#validateDossierSlots",
+        "explain": "Compile unique portable dossier paths, anchors and entity bindings.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/living-dossier.ts#validateDossierSlots:d21abd8dd207d6ece5952c874e609899",
+            "route": "packages/kernel/src/domain/living-dossier.ts#validateDossierSlots"
+          }
+        ],
+        "order": 10
+      },
       {
         "id": "kernel/src/domain/vertical-contract.ts#CompiledVerticalContract.assertUniqueValues",
         "symbol": "packages/kernel/src/domain/vertical-contract.ts#assertUniqueValues",

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import {
   type TaskEventV1,
 } from "@harness-anything/kernel";
 import { openSqliteEventStore, activateEmptyCanonicalGeneration } from "@harness-anything/storage";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import {
   makeTaskEventStore,
   makeTaskProjection,
@@ -161,12 +162,11 @@ test("completion blocker matrix returns one canonical next for every substantive
 
 test("transition service freezes targets and makes create/start idempotent by opId payload", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-service-"));
-  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
     let eventReads = 0;
-    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({
       eventStore: {
         ...eventStore,
@@ -232,18 +232,16 @@ test("transition service freezes targets and makes create/start idempotent by op
     assert.deepEqual([started.snapshot.lease?.phase, started.snapshot.executions[0]?.state], ["held", "active"]);
     assert.equal(JSON.stringify(eventStore.read().events).includes("credential"), false);
   } finally {
-    projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(rootDir);
   }
 });
 
 test("transition service publishes aggregate-authored task status idempotently", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-status-service-"));
-  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = command(
       rootDir,
@@ -287,14 +285,12 @@ test("transition service publishes aggregate-authored task status idempotently",
     assert.deepEqual(retried, unblocked);
     assert.equal(eventStore.read().events.filter((event) => event.schema === "task-event/v1").length, 3);
   } finally {
-    projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(rootDir);
   }
 });
 
 test("transition republishes a historical task without its retired longRunning metadata", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-retired-metadata-"));
-  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const historical = oldTaskEvent(1),
@@ -327,7 +323,7 @@ test("transition republishes a historical task without its retired longRunning m
     } as unknown as typeof historical;
     seedAcceptedEvents(rootDir, "legacy-task", [legacy]);
     const eventStore = makeTaskEventStore({ repoId: "legacy-task", rootDir });
-    projection = makeTaskProjection({ rootDir, eventStore });
+    const projection = makeTaskProjection({ rootDir, eventStore });
     projection.rebuild();
     const service = makeTaskLifecycleService({ eventStore, projection });
     const block = command(
@@ -355,8 +351,7 @@ test("transition republishes a historical task without its retired longRunning m
     assert.ok(contract);
     assert.equal(Object.hasOwn(JSON.parse(contract.body).metadata, "longRunning"), false);
   } finally {
-    projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -555,11 +550,10 @@ test("terminal lifecycle states clear a prior task pin", async () => {
 
 test("second distinct task create uses aggregate revision zero in a non-empty workspace", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-two-tasks-"));
-  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const service = makeTaskLifecycleService({ eventStore, projection });
     const create = (taskId: string, title: string, revision: number) =>
       command(
@@ -592,8 +586,7 @@ test("second distinct task create uses aggregate revision zero in a non-empty wo
       service.execute(create("task-2", "Duplicate task", 3), { taskIdUnique: true, actorBinding: actor }),
     );
   } finally {
-    projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -726,7 +719,7 @@ test("10,000 old events do not block a new write", async (context) => {
       `independent-write-ratio=paired-whole-history-over-bounded samples=${ratios.length} p50=${ratio.toFixed(3)}x min=${orderedRatios[0]!.toFixed(3)}x max=${orderedRatios.at(-1)!.toFixed(3)}x`,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(parent);
   }
 });
 
@@ -985,18 +978,17 @@ test("SQLite/response killpoints reconstruct the exact applied receipt by opId w
       await eventStore.drain();
     } finally {
       projection?.close();
-      rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(rootDir);
     }
   }
 });
 
 test("lease broker capacity ceiling rejects concurrent exhaustion and release restores availability", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-capacity-"));
-  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     initRepo(rootDir);
     const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
+    const projection = makeTaskProjection({ rootDir, eventStore, now: () => "2026-08-11T00:30:00.000Z" });
     const lease = (id: string) => ({
       schema: "lease/v1" as const,
       taskId: `task-${id}`,
@@ -1018,8 +1010,7 @@ test("lease broker capacity ceiling rejects concurrent exhaustion and release re
     projection.releaseLease(projection.currentLease("task-cap-0")!);
     assert.equal(projection.reserveLease(lease("recovered"), "2026-08-11T00:00:00.000Z").taskId, "task-recovered");
   } finally {
-    projection?.close();
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(rootDir);
   }
 });
 
