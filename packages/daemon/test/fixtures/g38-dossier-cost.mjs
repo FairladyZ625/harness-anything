@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { rawSqliteStatementMethods } from "./g1-cost-probe.mjs";
 
 // Measure the real indexed window and synthesis compiler with the prior cut already accepted.
 // Fixture setup is outside the measurement, and no sorted/filtering JS copy of history exists.
@@ -94,7 +95,8 @@ export async function measureDossierHistory(rootDir, size) {
             head,
             (sql, values) => {
               counts.indexReads++;
-              const plan = db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...values);
+              // The G38 observer explains measured SQL itself. Keep this diagnostic out of that wrapper.
+              const plan = rawSqliteStatementMethods.all.call(db.prepare(`EXPLAIN QUERY PLAN ${sql}`), ...values);
               assert.match(String(plan[0]?.detail), /SEARCH event USING INTEGER PRIMARY KEY/u);
               const rows = db.prepare(sql).all(...values);
               counts.rowsDecoded += rows.length;

@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { measureDossierHistory } from "./fixtures/g38-dossier-cost.mjs";
+import { installSqliteWorkProbe, sqliteWorkProbeUnavailableReason } from "./fixtures/g38-sqlite-work.mjs";
 
 test("an indexed fixed dossier delta never reads the preceding source history", async () => {
+  if (sqliteWorkProbeUnavailableReason() === null) installSqliteWorkProbe();
   const root = fileURLToPath(new URL("../../../", import.meta.url));
   const small = await measureDossierHistory(root, 100);
   const large = await measureDossierHistory(root, 30_000);
