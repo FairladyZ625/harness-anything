@@ -891,7 +891,17 @@ function AppShell() {
                   onFocusGraph={focusEntityInGraph}
                 />
               ) : view === "dossier" ? (
-                <LivingDossierView repoId={projectId} />
+                <LivingDossierView
+                  repoId={projectId}
+                  works={projectTasks
+                    .filter((task) => isWorkContainer(task))
+                    .map((work) => ({
+                      workId: work.taskId,
+                      title: work.title,
+                      status: work.canonicalStatus ?? work.coordinationStatus,
+                    }))}
+                  onOpenWork={openWork}
+                />
               ) : view === "work" ? (
                 <WorkView
                   tasks={tasks}

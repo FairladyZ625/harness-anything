@@ -518,8 +518,9 @@ test("office/collab end-to-end lifecycle: init --vertical -> work create -> task
     };
     assert.equal(verticalDoc.definition.id, "office/collab");
 
-    // Bundled agent enumeration and reading stay scoped to office/collab
+    // Bundled agent enumeration and reading stay scoped to office/collab (dec_4276A0CEACD4D402F122295925/CH1 adds chronicler)
     assert.deepEqual(listBundledAgentDeclarationIds("office/collab", rootDir), [
+      "chronicler",
       "closeout-reviewer",
       "contributor",
       "coordinator",

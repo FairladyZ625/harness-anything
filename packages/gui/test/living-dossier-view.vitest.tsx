@@ -10,7 +10,8 @@ import {
   type DossierContextRead,
   type DossierStatusRead,
 } from "../src/api/renderer-dto.ts";
-import { LivingDossierView } from "../src/renderer/views/LivingDossierView.tsx";
+import { LivingDossierView, type LivingDossierViewProps } from "../src/renderer/views/LivingDossierView.tsx";
+import { harnessClient } from "../src/renderer/api-client.ts";
 import { dossierClient, refreshDossierSlot } from "../src/renderer/dossier-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
@@ -75,14 +76,16 @@ afterEach(async () => {
 
 notifyManager.setScheduler(queueMicrotask);
 
-function mountView() {
+function mountView(props: Partial<LivingDossierViewProps> = {}) {
   const host = document.createElement("div");
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   document.body.append(host);
   const root = createRoot(host);
   mounted.push({ root, client });
   act(() => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(LivingDossierView, { repoId: "repo-1" })));
+    root.render(
+      createElement(QueryClientProvider, { client }, createElement(LivingDossierView, { repoId: "repo-1", ...props })),
+    );
   });
   return { host, client };
 }
@@ -445,6 +448,113 @@ describe("LivingDossierView", () => {
     expect(synthSpy).toHaveBeenCalledTimes(2);
     expect(synthSpy.mock.calls.map((call) => call[1].slotId)).toEqual(["project-atlas", "context"]);
     expect(document.querySelector("[data-testid='dossier-feedback']")?.textContent).toContain("2");
+  });
+
+  it("opens a Work Explainer via the shared WorkExplainerDocument reader and triggers callbacks (F-DOSSIER-04)", async () => {
+    vi.spyOn(dossierClient, "status").mockResolvedValue({
+      schema: "dossier-status/v1",
+      verticalId: "software/coding",
+      currentWatermark: 24,
+      slots: [
+        {
+          ...atlasSlot,
+          lastSynthesizedWatermark: 24,
+          synthesizedAt: "2026-11-23T01:00:00.000Z",
+          stalenessDelta: 0,
+          dueTriggers: [],
+        },
+      ],
+    });
+    vi.spyOn(dossierClient, "read").mockResolvedValue({
+      schema: "dossier-content/v1",
+      slot: atlasSlot,
+      state: {
+        verticalId: "software/coding",
+        slotId: "project-atlas",
+        lastSynthesizedWatermark: 24,
+        synthesizedAt: "2026-11-23T01:00:00.000Z",
+        path: atlasSlot.documentPath,
+      },
+      mediaType: "text/html",
+      body: sampleHtml,
+    });
+    const listDocsSpy = vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue({
+      ok: true,
+      status: "ready",
+      taskId: "work_alpha",
+      watermark: 24,
+      sourceRevision: 24,
+      documents: [
+        {
+          path: "artifacts/explainer.html",
+          blobSha256: "sha256:explainer",
+          size: 128,
+          mediaType: "text/html",
+          uncommitted: false,
+        },
+      ],
+    });
+    const getDocSpy = vi.spyOn(harnessClient, "getTaskDocument").mockResolvedValue({
+      ok: true,
+      status: "ready",
+      taskId: "work_alpha",
+      path: "artifacts/explainer.html",
+      repositoryPath: "harness/tasks/work_alpha-alpha-platform/artifacts/explainer.html",
+      canonicalVersion: { workspaceRevision: 24, blobSha256: "sha256:explainer", size: 128 },
+      watermark: 24,
+      sourceRevision: 24,
+      source: "canonical",
+      syncState: "synced",
+      uncommitted: false,
+      contentKind: "text",
+      mediaType: "text/html",
+      body: "<!doctype html><html><body><h1>Alpha Work Explainer</h1><p>Derived progress page.</p></body></html>",
+      worktreeBody: null,
+    });
+    const onOpenWorkExplainer = vi.fn();
+    const onOpenWork = vi.fn();
+
+    const { client } = mountView({
+      works: [{ workId: "work_alpha", title: "Alpha Platform Work", status: "active" }],
+      onOpenWorkExplainer,
+      onOpenWork,
+    });
+    await settle(client);
+
+    expect(document.querySelector("[data-testid='dossier-work-explainers']")).not.toBeNull();
+    await act(async () => {
+      document
+        .querySelector("[data-testid='dossier-work-explainer-work_alpha'] button")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle(client);
+
+    expect(onOpenWorkExplainer).toHaveBeenCalledWith("work_alpha", "artifacts/explainer.html");
+    expect(listDocsSpy).toHaveBeenCalledWith({ repoId: "repo-1", taskId: "work_alpha" });
+    expect(getDocSpy).toHaveBeenCalledWith({
+      repoId: "repo-1",
+      taskId: "work_alpha",
+      path: "artifacts/explainer.html",
+    });
+    expect(document.querySelector("[data-testid='work-explainer-document']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dossier-work-explainer-title']")?.textContent).toBe(
+      "Alpha Platform Work",
+    );
+
+    await act(async () => {
+      document
+        .querySelector("[data-testid='dossier-open-work-workspace']")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onOpenWork).toHaveBeenCalledWith("work_alpha");
+
+    await act(async () => {
+      document
+        .querySelector("[data-testid='dossier-back-from-work-explainer']")!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle(client);
+    expect(document.querySelector("[data-testid='dossier-html-frame']")).not.toBeNull();
   });
 });
 

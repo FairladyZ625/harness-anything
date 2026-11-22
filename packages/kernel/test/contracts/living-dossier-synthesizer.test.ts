@@ -322,7 +322,13 @@ test("F-DOSSIER-04: retains early active decisions across >50 events, removes su
       workspaceRevision: 12,
       taskId: "work_alpha",
       actor: { principal: { personId: "person_zeyu" } },
-      payload: { title: "Alpha Platform Work", taskClass: "work", taskStatus: "active", parentTaskId: null },
+      payload: {
+        title: "Alpha Platform Work",
+        taskClass: "work",
+        taskStatus: "active",
+        parentTaskId: null,
+        packagePath: "tasks/work_alpha-alpha-platform",
+      },
       entityRefs: ["task/work_alpha"],
     },
     {
@@ -452,8 +458,8 @@ test("F-DOSSIER-04: retains early active decisions across >50 events, removes su
     pulseBlocked.includes("Waiting for upstream schema freeze"),
     "live blocked task must appear in risk-signals",
   );
-  assert.ok(pulseBlocked.includes("tasks/work_alpha/artifacts/explainer.html"));
-  assert.ok(pulseBlocked.includes("tasks/work_beta/artifacts/explainer.html"));
+  assert.ok(pulseBlocked.includes("tasks/work_alpha-alpha-platform/artifacts/explainer.html"));
+  assert.ok(pulseBlocked.includes("task/work_beta · artifacts/explainer.html"));
   assert.ok(pulseBlocked.includes("task/task_a1"), "derived task must appear in decision trail");
 
   // Window 2: dec_temp superseded, >50 facts push recent entries past 48, task_a2 still blocked here
@@ -542,8 +548,8 @@ test("F-DOSSIER-04: retains early active decisions across >50 events, removes su
   });
   const deliveryArc = workMd.split("<!-- dossier-anchor: delivery-arc -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
   const workLog = workMd.split("<!-- dossier-anchor: work-log -->")[1] ?? "";
-  assert.ok(deliveryArc.includes("tasks/work_alpha/artifacts/explainer.html"));
-  assert.ok(deliveryArc.includes("tasks/work_beta/artifacts/explainer.html"));
+  assert.ok(deliveryArc.includes("tasks/work_alpha-alpha-platform/artifacts/explainer.html"));
+  assert.ok(deliveryArc.includes("task/work_beta · artifacts/explainer.html"));
   assert.ok(deliveryArc.includes("1/2"));
   assert.ok(workLog.includes("task_completed"));
   assert.notEqual(deliveryArc.trim(), workLog.trim());
@@ -607,4 +613,381 @@ test("F-DOSSIER-05: strips all external http(s):// URLs across HTML body and emb
     assert.ok(html.includes("example.com/specs/v3?mode=strict"), "readable domain/path clue must be kept");
     assert.ok(html.includes("docs.example.net/adr"), "decision URL path clue must be kept");
   }
+});
+
+test("F-DOSSIER-05: chronicler HTML continuation strips external hrefs, SVG xmlns and prose URLs on both empty and non-empty windows", () => {
+  const chroniclerWithLinks = [
+    "<!doctype html>",
+    '<html lang="zh-CN">',
+    '<head><meta charset="utf-8"><meta name="dossier-watermark" content="10"><title>Curated Atlas</title></head>',
+    "<body><main>",
+    "<!-- Reference https://internal.example.net/diagram-spec -->",
+    '<section id="atlas-topology"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 100" role="img"><rect x="8" y="8" width="120" height="40"/><text x="16" y="32">Curated Graph</text></svg></section>',
+    '<section id="entity-map"><p>Read <a class="cite" href="https://example.com/spec">Spec</a> and note http://example.org/note for details.</p></section>',
+    '<section id="change-ledger"><p>Baseline curated at r10.</p></section>',
+    "</main></body></html>",
+  ].join("\n");
+
+  const emptyOut = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: atlasSlot,
+    previousBody: chroniclerWithLinks,
+    expectedWatermark: 10,
+    targetWatermark: 14,
+    changes: [],
+    synthesizedAt: "2026-11-23T01:00:00.000Z",
+  });
+  assert.doesNotMatch(emptyOut, /https?:\/\//iu, "empty window must scrub all external URLs from chronicler HTML");
+  assert.ok(emptyOut.includes("Spec [ref: example.com/spec]"), "link text and readable citation must be preserved");
+  assert.ok(emptyOut.includes("example.org/note"), "prose URL path clue must be preserved");
+  assert.ok(emptyOut.includes("Curated Graph"), "curated SVG narrative must remain intact");
+
+  const nonEmptyOut = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: atlasSlot,
+    previousBody: chroniclerWithLinks,
+    expectedWatermark: 10,
+    targetWatermark: 18,
+    changes: [
+      {
+        ...page1Changes[0]!,
+        payload: { title: "Follow up on https://example.dev/rfc-99" },
+      },
+    ],
+    synthesizedAt: "2026-11-23T01:10:00.000Z",
+  });
+  assert.doesNotMatch(nonEmptyOut, /https?:\/\//iu, "non-empty window must scrub all external URLs");
+  assert.ok(nonEmptyOut.includes("Spec [ref: example.com/spec]"));
+  assert.ok(nonEmptyOut.includes("example.dev/rfc-99"));
+});
+
+test("F-DOSSIER-06: chronicler HTML appendix stays bounded across 40 non-empty pages and trims within 512 KiB budget", () => {
+  let current = [
+    "<!doctype html>",
+    '<html lang="zh-CN">',
+    '<head><meta charset="utf-8"><meta name="dossier-watermark" content="0"><title>Curated Atlas</title></head>',
+    "<body><main>",
+    '<section id="atlas-topology"><svg viewBox="0 0 320 100" role="img"><rect x="8" y="8" width="120" height="40"/></svg></section>',
+    '<section id="entity-map"><p>Curated chronicler narrative that must survive 40 incremental pages.</p></section>',
+    '<section id="change-ledger"><p>Initial baseline.</p></section>',
+    "</main></body></html>",
+  ].join("\n");
+
+  const maxBytes = 512 * 1024;
+  for (let page = 1; page <= 40; page += 1) {
+    const revBase = (page - 1) * 10;
+    const changes: DossierChangeItem[] = Array.from({ length: 8 }, (_, idx) => ({
+      eventId: `evt_p${page}_${idx}`,
+      schema: "task-event/v1",
+      type: "task_completed",
+      occurredAt: "2026-11-23T02:00:00.000Z",
+      workspaceRevision: revBase + idx + 1,
+      taskId: `task_p${page}_${idx}`,
+      actor: { executor: { id: "worker" } },
+      payload: { title: `Large incremental summary page ${page} item ${idx} ${"x".repeat(140)}` },
+      entityRefs: [`task/task_p${page}_${idx}`],
+    }));
+    current = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: atlasSlot,
+      previousBody: current,
+      expectedWatermark: revBase,
+      targetWatermark: revBase + 10,
+      changes,
+      synthesizedAt: "2026-11-23T02:00:00.000Z",
+    });
+    assert.ok(Buffer.byteLength(current, "utf8") <= maxBytes, `page ${page} must stay <= 512 KiB`);
+  }
+  assert.ok(current.includes("Curated chronicler narrative that must survive 40 incremental pages."));
+  assert.ok(current.includes("page 40 item 7"), "latest incremental row must be kept");
+  assert.ok(!current.includes("page 1 item 0"), "oldest incremental rows must be evicted beyond cap");
+  const tbodyMatch = /<section[^>]*id="dossier-incremental-appendix"[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/iu.exec(current);
+  assert.ok(tbodyMatch, "replaceable appendix container must exist");
+  const rowCount = (tbodyMatch[1]!.match(/<tr\b/giu) ?? []).length;
+  assert.ok(rowCount <= 24, `appendix rows must stay capped at <= 24 (got ${rowCount})`);
+
+  // Near-limit (~510 KiB) valid chronicler HTML: trims appendix rows to fit <= 512 KiB cleanly
+  const fillerParagraph = `<p>${"Curated archival narrative block. ".repeat(15_360)}</p>`;
+  const nearLimitHtml = [
+    "<!doctype html>",
+    '<html lang="zh-CN">',
+    '<head><meta charset="utf-8"><meta name="dossier-watermark" content="10"><title>Large Curated Atlas</title></head>',
+    "<body><main>",
+    '<section id="atlas-topology"><svg viewBox="0 0 320 100" role="img"><rect x="8" y="8" width="120" height="40"/></svg></section>',
+    `<section id="entity-map">${fillerParagraph}</section>`,
+    '<section id="change-ledger"><p>Baseline r10.</p></section>',
+    "</main></body></html>",
+  ].join("\n");
+  const baseSize = Buffer.byteLength(nearLimitHtml, "utf8");
+  assert.ok(baseSize > 500 * 1024 && baseSize < maxBytes, `expected near-limit fixture ~510 KiB, got ${baseSize}`);
+
+  const largeChanges: DossierChangeItem[] = Array.from({ length: 24 }, (_, idx) => ({
+    eventId: `evt_near_${idx}`,
+    schema: "task-event/v1",
+    type: "task_completed",
+    occurredAt: "2026-11-23T02:30:00.000Z",
+    workspaceRevision: 11 + idx,
+    taskId: `task_near_${idx}`,
+    actor: { executor: { id: "worker" } },
+    payload: { title: `Overflowing delta row ${idx} ${"y".repeat(160)}` },
+    entityRefs: [`task/task_near_${idx}`],
+  }));
+  const trimmed = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: atlasSlot,
+    previousBody: nearLimitHtml,
+    expectedWatermark: 10,
+    targetWatermark: 40,
+    changes: largeChanges,
+    synthesizedAt: "2026-11-23T02:30:00.000Z",
+  });
+  assert.ok(Buffer.byteLength(trimmed, "utf8") <= maxBytes, "trimmed near-limit HTML must stay <= 512 KiB");
+  assert.match(trimmed, /<meta name="dossier-watermark" content="40">/u);
+
+  // Base document already exceeding 512 KiB must fail deterministically with recovery hint
+  const oversizedHtml = nearLimitHtml.replace("Baseline r10.", "z".repeat(30_000));
+  assert.throws(
+    () =>
+      synthesizeDossierDocument({
+        verticalId: "software/coding",
+        slot: atlasSlot,
+        previousBody: oversizedHtml,
+        expectedWatermark: 10,
+        targetWatermark: 20,
+        changes: [],
+        synthesizedAt: "2026-11-23T02:35:00.000Z",
+      }),
+    /exceeds 524288 UTF-8 bytes.*chronicler/iu,
+  );
+});
+
+test("F-DOSSIER-04: merges decision proposal->accept, retires/replaces relations, and keeps exact Work totals across >128 child tasks", () => {
+  // 1. decision_proposed (with title/chosen/modules) stays out of Active Decisions until decision_accepted (rationale only)
+  const proposedOnly = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: adrLedgerSlot,
+    previousBody: null,
+    expectedWatermark: 0,
+    targetWatermark: 5,
+    changes: [
+      {
+        eventId: "evt_prop_1",
+        schema: "decision-event/v1",
+        type: "decision_proposed",
+        occurredAt: "2026-11-23T01:00:00.000Z",
+        workspaceRevision: 5,
+        decisionId: "dec_lifecycle_1",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          title: "Adopt split kernel dossier modules",
+          chosen: ["CH1: Keep state, HTML and chronicler merge acyclic"],
+          modules: ["packages/kernel", "packages/gui"],
+        },
+        entityRefs: ["decision/dec_lifecycle_1"],
+      },
+    ],
+    synthesizedAt: "2026-11-23T01:00:00.000Z",
+  });
+  const activeBeforeAccept =
+    proposedOnly.split("<!-- dossier-anchor: active-decisions -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
+  assert.ok(!activeBeforeAccept.includes("dec_lifecycle_1"), "unaccepted proposal must not enter Active Decisions");
+
+  const acceptedMerged = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: adrLedgerSlot,
+    previousBody: proposedOnly,
+    expectedWatermark: 5,
+    targetWatermark: 10,
+    changes: [
+      {
+        eventId: "evt_acc_1",
+        schema: "decision-event/v1",
+        type: "decision_accepted",
+        occurredAt: "2026-11-23T01:05:00.000Z",
+        workspaceRevision: 10,
+        decisionId: "dec_lifecycle_1",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: { reason: "Approved after architecture review" },
+        entityRefs: ["decision/dec_lifecycle_1"],
+      },
+    ],
+    synthesizedAt: "2026-11-23T01:05:00.000Z",
+  });
+  const activeAfterAccept =
+    acceptedMerged.split("<!-- dossier-anchor: active-decisions -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
+  assert.ok(activeAfterAccept.includes("Adopt split kernel dossier modules"));
+  assert.ok(activeAfterAccept.includes("CH1: Keep state, HTML and chronicler merge acyclic"));
+  assert.ok(activeAfterAccept.includes("packages/kernel, packages/gui"));
+  assert.ok(activeAfterAccept.includes("Approved after architecture review"));
+
+  // 2. relation create -> decision_relation_replaced & relation_retired remove stale edges & derived tasks
+  const atlasRel1 = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: atlasSlot,
+    previousBody: null,
+    expectedWatermark: 0,
+    targetWatermark: 20,
+    changes: [
+      {
+        eventId: "evt_d1",
+        schema: "decision-event/v1",
+        type: "decision_accepted",
+        occurredAt: "2026-11-23T01:00:00.000Z",
+        workspaceRevision: 10,
+        decisionId: "dec_rel_1",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: { title: "Enforce clean relation graph" },
+        entityRefs: ["decision/dec_rel_1"],
+      },
+      {
+        eventId: "evt_rel_a",
+        schema: "relation-event/v1",
+        type: "relation_created",
+        occurredAt: "2026-11-23T01:01:00.000Z",
+        workspaceRevision: 12,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          relation: {
+            relationId: "rel_old_0001",
+            source: "decision/dec_rel_1",
+            target: "task/task_old_derived",
+            relationType: "derives",
+            state: "active",
+          },
+        },
+        entityRefs: ["relation/rel_old_0001", "decision/dec_rel_1", "task/task_old_derived"],
+      },
+      {
+        eventId: "evt_rel_b",
+        schema: "relation-event/v1",
+        type: "relation_created",
+        occurredAt: "2026-11-23T01:02:00.000Z",
+        workspaceRevision: 14,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          relation: {
+            relationId: "rel_retire_0002",
+            source: "decision/dec_rel_1",
+            target: "task/task_retired_derived",
+            relationType: "derives",
+            state: "active",
+          },
+        },
+        entityRefs: ["relation/rel_retire_0002", "decision/dec_rel_1", "task/task_retired_derived"],
+      },
+    ],
+    synthesizedAt: "2026-11-23T01:05:00.000Z",
+  });
+  assert.ok(atlasRel1.includes("task/task_old_derived"));
+  assert.ok(atlasRel1.includes("task/task_retired_derived"));
+
+  const atlasRel2 = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: pulseSlot,
+    previousBody: atlasRel1,
+    expectedWatermark: 20,
+    targetWatermark: 30,
+    changes: [
+      {
+        eventId: "evt_rel_replace",
+        schema: "decision-event/v1",
+        type: "decision_relation_replaced",
+        occurredAt: "2026-11-23T01:10:00.000Z",
+        workspaceRevision: 24,
+        decisionId: "dec_rel_1",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          relation: {
+            relationId: "rel_new_0003",
+            previousRelationId: "rel_old_0001",
+            source: "decision/dec_rel_1",
+            target: "task/task_new_derived",
+            relationType: "derives",
+            state: "active",
+          },
+        },
+        entityRefs: ["decision/dec_rel_1", "task/task_new_derived"],
+      },
+      {
+        eventId: "evt_rel_retire",
+        schema: "relation-event/v1",
+        type: "relation_retired",
+        occurredAt: "2026-11-23T01:12:00.000Z",
+        workspaceRevision: 28,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          relation: { relationId: "rel_retire_0002", state: "retired" },
+        },
+        entityRefs: ["relation/rel_retire_0002"],
+      },
+    ],
+    synthesizedAt: "2026-11-23T01:15:00.000Z",
+  });
+  const decTrail = atlasRel2.split('id="decision-trail"')[1]?.split("</section>")[0] ?? "";
+  assert.ok(decTrail.includes("task/task_new_derived"), "replacement derived task must appear");
+  assert.ok(!decTrail.includes("task/task_old_derived"), "replaced derived task must be removed");
+  assert.ok(!decTrail.includes("task/task_retired_derived"), "retired derived task must be removed");
+
+  // 3. Single Work accumulating 135 child tasks across 3 pages (>128 MAX_TRACKED_TASKS cap) retains exact 135/135 rollup
+  let pulseBody: string | null = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: pulseSlot,
+    previousBody: null,
+    expectedWatermark: 0,
+    targetWatermark: 1,
+    changes: [
+      {
+        eventId: "evt_big_work",
+        schema: "task-event/v1",
+        type: "task_created",
+        occurredAt: "2026-11-23T01:00:00.000Z",
+        workspaceRevision: 1,
+        taskId: "work_scale",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          title: "Large Scale Work",
+          taskClass: "work",
+          taskStatus: "active",
+          parentTaskId: null,
+          packagePath: "tasks/work_scale-large-scale",
+        },
+        entityRefs: ["task/work_scale"],
+      },
+    ],
+    synthesizedAt: "2026-11-23T01:00:00.000Z",
+  });
+
+  for (let page = 0; page < 3; page += 1) {
+    const startIdx = page * 45;
+    const pageChanges: DossierChangeItem[] = Array.from({ length: 45 }, (_, offset) => {
+      const idx = startIdx + offset + 1;
+      return {
+        eventId: `evt_scale_child_${idx}`,
+        schema: "task-event/v1",
+        type: "task_completed",
+        occurredAt: "2026-11-23T01:30:00.000Z",
+        workspaceRevision: 1 + idx,
+        taskId: `task_scale_${idx}`,
+        actor: { executor: { id: "worker" } },
+        payload: {
+          title: `Scale child task #${idx}`,
+          taskClass: "standard",
+          taskStatus: "done",
+          parentTaskId: "work_scale",
+        },
+        entityRefs: [`task/task_scale_${idx}`],
+      };
+    });
+    pulseBody = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: pulseSlot,
+      previousBody: pulseBody,
+      expectedWatermark: 1 + startIdx,
+      targetWatermark: 1 + startIdx + 45,
+      changes: pageChanges,
+      synthesizedAt: "2026-11-23T01:30:00.000Z",
+    });
+  }
+  assert.ok(pulseBody.includes("135/135"), "Work rollup across 3 pages of 135 child tasks must report exact 135/135");
+  assert.ok(pulseBody.includes("tasks/work_scale-large-scale/artifacts/explainer.html"));
 });

@@ -1,12 +1,13 @@
 import type { DossierSlot } from "./living-dossier.ts";
-import type {
-  DossierDecisionRecord,
-  DossierLedgerEntry,
-  DossierLedgerState,
-  DossierRelationEdge,
-  DossierTaskRecord,
-  DossierWorkRollup,
-} from "./living-dossier-synthesizer.ts";
+import {
+  sanitizeExternalUrlText,
+  type DossierDecisionRecord,
+  type DossierLedgerEntry,
+  type DossierLedgerState,
+  type DossierRelationEdge,
+  type DossierTaskRecord,
+  type DossierWorkRollup,
+} from "./living-dossier-state.ts";
 
 const ANCHOR_LABELS: Readonly<Record<string, string>> = {
   "atlas-topology": "架构拓扑与实体关系",
@@ -50,15 +51,6 @@ const CSS = [
   ".bar-track{fill:var(--border)}.bar-fill{fill:var(--accent)}.bar-done{fill:var(--done)}.bar-wait{fill:var(--wait)}.bar-bad{fill:var(--bad)}",
   "@media(max-width:760px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}body{padding:14px 12px 36px}}",
 ].join("");
-
-/** Fixed-point removal of http(s):// schemes so offline HTML stays 100% free of external URLs while keeping domain/path clues readable. */
-export function sanitizeExternalUrlText(value: string): string {
-  let current = value;
-  while (/https?:(?:\/\/|\\\/\\\/)/iu.test(current)) {
-    current = current.replace(/https?:(?:\/\/|\\\/\\\/)/giu, "");
-  }
-  return current;
-}
 
 export function escapeHtml(value: string): string {
   return sanitizeExternalUrlText(value)
@@ -379,7 +371,12 @@ function renderDecisionTable(decisions: readonly DossierDecisionRecord[], emptyS
   if (decisions.length === 0) return `<p>${escapeHtml(emptySummary)}</p>`;
   const rows = decisions
     .map((dec) => {
-      const detail = dec.reason && dec.reason !== dec.title ? `${dec.title} — ${dec.reason}` : dec.title;
+      const detailParts = [
+        dec.title,
+        ...(dec.chosen && dec.chosen.length > 0 ? [`chosen: ${dec.chosen.join("; ")}`] : []),
+        ...(dec.reason && dec.reason !== dec.title ? [dec.reason] : []),
+      ];
+      const detail = detailParts.join(" — ");
       const scope = dec.modules.join(", ") || "—";
       const derived = dec.derivedTaskIds.map((id) => `task/${id}`).join(", ") || "—";
       return (

@@ -168,8 +168,14 @@ function extractRelationMeta(
 
 function decisionActionFor(type: string): string | undefined {
   switch (type) {
+    case "decision_proposed":
+      return "proposed";
     case "decision_accepted":
       return "accepted";
+    case "decision_rejected":
+      return "rejected";
+    case "decision_deferred":
+      return "deferred";
     case "decision_amended":
       return "amended";
     case "decision_superseded":
@@ -178,6 +184,8 @@ function decisionActionFor(type: string): string | undefined {
       return "retired";
     case "decision_repinned":
       return "repinned";
+    case "decision_relation_retired":
+      return "relation_retired";
     case "decision_relation_replaced":
       return "relation_replaced";
     case "decision_related":
@@ -185,6 +193,47 @@ function decisionActionFor(type: string): string | undefined {
     default:
       return undefined;
   }
+}
+
+function extractTaskPackagePath(
+  taskId: string | undefined,
+  metadata: Readonly<Record<string, unknown>> | undefined,
+  rawPayload: Readonly<Record<string, unknown>>,
+): string | undefined {
+  const docEntries = Array.isArray(rawPayload.documentClaims) ? rawPayload.documentClaims : [];
+  for (const entry of docEntries) {
+    const docPath = clippedString(recordOf(entry)?.path);
+    if (docPath && docPath.startsWith("tasks/")) {
+      const segments = docPath.split("/");
+      if (segments.length >= 2 && segments[1]!.length > 0) return `${segments[0]}/${segments[1]}`;
+    }
+  }
+  const slug = clippedString(metadata?.slug);
+  if (taskId && slug) return `tasks/${taskId}-${slug}`;
+  return undefined;
+}
+
+function extractDecisionChosen(
+  rawPayload: Readonly<Record<string, unknown>>,
+  nextSnapshot: Readonly<Record<string, unknown>> | undefined,
+): readonly string[] | undefined {
+  const rawChosen = Array.isArray(nextSnapshot?.chosen)
+    ? nextSnapshot.chosen
+    : Array.isArray(rawPayload.chosen)
+      ? rawPayload.chosen
+      : undefined;
+  if (!rawChosen) return undefined;
+  const items = rawChosen
+    .map((entry) => {
+      const record = recordOf(entry);
+      const id = clippedString(record?.id);
+      const text = clippedString(record?.text);
+      if (!text) return undefined;
+      return id ? `${id}: ${text}` : text;
+    })
+    .filter((entry): entry is string => entry !== undefined)
+    .slice(0, MAX_DOSSIER_TAGS);
+  return items.length > 0 ? items : undefined;
 }
 
 function dossierChange(
@@ -197,6 +246,7 @@ function dossierChange(
   const rawPayload = recordOf(envelope.payload) ?? {};
   let refs = canonicalEventEntityRefs(event);
   const extraPayload: Record<string, unknown> = {};
+  let retireEventSlotMatch = false;
 
   if (event.schema === "task-event/v1") {
     if (
@@ -209,18 +259,21 @@ function dossierChange(
     const task = recordOf(rawPayload.task);
     const metadata = recordOf(task?.metadata);
     const mutation = recordOf(rawPayload.mutation);
+    const resolvedTaskId = clippedString(task?.taskId) ?? clippedString(envelope.taskId);
     const taskTitle = clippedString(task?.title);
     const taskClass = clippedString(task?.taskClass);
     const taskStatus =
       clippedString(task?.status) ??
       (event.type === "task_completed" ? "done" : event.type === "task_superseded" ? "cancelled" : undefined);
     const parentTaskId = metadata?.parentTaskId === null ? null : clippedString(metadata?.parentTaskId);
+    const packagePath = extractTaskPackagePath(resolvedTaskId, metadata, rawPayload);
     const surfaces = clippedStringList(metadata?.surfaces);
     const reason = clippedString(mutation?.reason);
     if (taskTitle) extraPayload.title = taskTitle;
     if (taskClass) extraPayload.taskClass = taskClass;
     if (taskStatus) extraPayload.taskStatus = taskStatus;
     if (parentTaskId !== undefined) extraPayload.parentTaskId = parentTaskId;
+    if (packagePath) extraPayload.packagePath = packagePath;
     if (surfaces) extraPayload.surfaces = surfaces;
     if (reason) extraPayload.reason = reason;
   } else if (event.schema === "decision-event/v1") {
@@ -230,11 +283,16 @@ function dossierChange(
     const nextSnapshot = recordOf(rawPayload.next);
     const appliesTo = recordOf(nextSnapshot?.appliesTo ?? rawPayload.appliesTo);
     const modules = clippedStringList(appliesTo?.modules);
+    const chosen = extractDecisionChosen(rawPayload, nextSnapshot);
     const title = clippedString(rawPayload.title) ?? clippedString(nextSnapshot?.title);
     const reason =
       clippedString(rawPayload.rationale) ??
       clippedString(rawPayload.reason) ??
       clippedString(rawPayload.migrationEvidence);
+    const retiredRelationId =
+      event.type === "decision_relation_retired" || event.type === "decision_relation_replaced"
+        ? clippedString(rawPayload.relationId)
+        : undefined;
     const relation = extractRelationMeta(
       recordOf(event.type === "decision_relation_replaced" ? rawPayload.replacement : rawPayload.relation),
       kindMap,
@@ -244,9 +302,20 @@ function dossierChange(
     if (title) extraPayload.title = title;
     if (reason) extraPayload.reason = reason;
     if (modules) extraPayload.modules = modules;
+    if (chosen) extraPayload.chosen = chosen;
     if (relation) {
-      extraPayload.relation = relation;
+      extraPayload.relation = {
+        ...relation,
+        ...(retiredRelationId ? { previousRelationId: retiredRelationId } : {}),
+      };
       refs = [...new Set([...refs, relation.source, relation.target])];
+    } else if (retiredRelationId) {
+      extraPayload.relation = {
+        relationId: retiredRelationId,
+        state: "retired",
+        ...(reason ? { rationale: reason } : {}),
+      };
+      retireEventSlotMatch = slotKinds.length > 0;
     }
   } else if (event.schema === "relation-event/v1") {
     const relationRecord = recordOf(rawPayload.relation);
@@ -257,8 +326,13 @@ function dossierChange(
         : []),
     ];
     const relation = extractRelationMeta(relationRecord, kindMap, event.relationId);
+    const previousRelationId =
+      event.type === "relation_replaced" ? clippedString(rawPayload.previousRelationId) : undefined;
     if (relation) {
-      extraPayload.relation = relation;
+      extraPayload.relation = {
+        ...relation,
+        ...(previousRelationId ? { previousRelationId } : {}),
+      };
       if (relation.rationale) extraPayload.reason = relation.rationale;
     } else if (event.type === "relation_retired") {
       extraPayload.relation = {
@@ -266,6 +340,8 @@ function dossierChange(
         state: "retired",
         ...(clippedString(rawPayload.reason) ? { rationale: clippedString(rawPayload.reason) } : {}),
       };
+      // relation_retired only carries relationId without source/target kinds; admit it for entity-scoped slots so tracked edges retire cleanly.
+      retireEventSlotMatch = slotKinds.length > 0;
     }
   } else if (event.schema === "entity-event/v1") {
     const rawEntityKind = clippedString(rawPayload.entityKind);
@@ -296,7 +372,7 @@ function dossierChange(
 
   const slotKindSet = new Set(slotKinds);
   const matchedKinds = new Set<string>();
-  let matchesSlot = kinds.size === 0;
+  let matchesSlot = kinds.size === 0 || retireEventSlotMatch;
   for (const ref of refs) {
     const rawKind = rawRefKind(ref);
     if (kinds.has(rawKind)) {

@@ -235,7 +235,9 @@ test("dec_42EB7B8F636C12381A447E52A3/CH1: local vertical agents resolve directly
       }),
       null,
     );
+    // dec_4276A0CEACD4D402F122295925/CH1 adds bundled chronicler for living dossiers
     assert.deepEqual(listBundledAgentDeclarationIds("office/collab", rootDir), [
+      "chronicler",
       "closeout-reviewer",
       "contributor",
       "coordinator",
@@ -370,7 +372,9 @@ test("dec_42EB7B8F636C12381A447E52A3/CH1: local vertical agents resolve directly
     assert.ok(pureOfficeReviewer);
     assert.equal(pureOfficeReviewer.layer, "bundled");
     assert.match(pureOfficeReviewer.declaration.instructions, /deliverable or handoff package/u);
+    // dec_4276A0CEACD4D402F122295925/CH1 adds bundled chronicler for living dossiers
     assert.deepEqual(listBundledAgentDeclarationIds("office/collab", pureBuiltinRoot), [
+      "chronicler",
       "closeout-reviewer",
       "contributor",
       "coordinator",

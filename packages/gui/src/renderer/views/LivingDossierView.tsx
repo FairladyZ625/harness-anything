@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowsClockwise, Sparkle } from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsClockwise, ArrowSquareOut, Sparkle } from "@phosphor-icons/react";
 import type { DossierStatusRead } from "../../api/renderer-dto.ts";
 import { DocReader } from "../components/DocReader.tsx";
 import { Button } from "../components/primitives/Button.tsx";
@@ -14,9 +14,24 @@ import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.t
 import { dossierClient, dossierQueryKeys, refreshDossierSlot } from "../dossier-client.ts";
 import { t } from "../i18n/index.tsx";
 import { formatListTime, formatTime } from "../model/time.ts";
+import { TASK_EXPLAINER_DOC } from "../task-data.ts";
+import { WorkExplainerDocument } from "./workspace/WorkExplainer.tsx";
 
 type SlotKindFilter = "all" | "html" | "markdown";
 type DossierStatusSlot = DossierStatusRead["slots"][number];
+
+export interface DossierWorkSummary {
+  readonly workId: string;
+  readonly title: string;
+  readonly status?: string;
+}
+
+export interface LivingDossierViewProps {
+  readonly repoId: string;
+  readonly works?: readonly DossierWorkSummary[];
+  readonly onOpenWork?: (workId: string) => void;
+  readonly onOpenWorkExplainer?: (workId: string, docPath: string) => void;
+}
 
 interface FeedbackBanner {
   readonly tone: "bad" | "wait" | "neutral";
@@ -44,10 +59,11 @@ function triggerBadgeText(slot: DossierStatusSlot): string | null {
     .join(" · ");
 }
 
-export function LivingDossierView({ repoId }: { readonly repoId: string }) {
+export function LivingDossierView({ repoId, works = [], onOpenWork, onOpenWorkExplainer }: LivingDossierViewProps) {
   const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<SlotKindFilter>("all");
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [activeWorkExplainerId, setActiveWorkExplainerId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<FeedbackBanner | null>(null);
 
   const statusQuery = useQuery({
@@ -213,6 +229,18 @@ export function LivingDossierView({ repoId }: { readonly repoId: string }) {
   }, [batchRefreshMutation, busyMode, staleSlots, statusQuery.data]);
 
   const currentWatermark = statusQuery.data?.currentWatermark ?? 0;
+  const activeWorkEntry = useMemo(
+    () => (activeWorkExplainerId ? (works.find((work) => work.workId === activeWorkExplainerId) ?? null) : null),
+    [activeWorkExplainerId, works],
+  );
+
+  const handleOpenWorkExplainer = useCallback(
+    (workId: string) => {
+      setActiveWorkExplainerId(workId);
+      onOpenWorkExplainer?.(workId, TASK_EXPLAINER_DOC);
+    },
+    [onOpenWorkExplainer],
+  );
 
   return (
     <section data-testid="living-dossier-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -267,7 +295,10 @@ export function LivingDossierView({ repoId }: { readonly repoId: string }) {
           {feedback.text}
         </Notice>
       )}
-      <CatalogSplit detailOpen={selectedSlotId !== null} className="overflow-hidden border-t border-border">
+      <CatalogSplit
+        detailOpen={selectedSlotId !== null || activeWorkExplainerId !== null}
+        className="overflow-hidden border-t border-border"
+      >
         <aside data-testid="dossier-slot-list" className={catalogRailClass}>
           <div className="border-b border-border px-3 py-2" data-testid="dossier-filters">
             <FilterChips
@@ -294,8 +325,11 @@ export function LivingDossierView({ repoId }: { readonly repoId: string }) {
                     <li key={slot.id} data-testid={`dossier-slot-row-${slot.id}`}>
                       <DenseRow
                         relaxed
-                        selected={activeSlot?.id === slot.id}
-                        onClick={() => setSelectedSlotId(slot.id)}
+                        selected={activeWorkExplainerId === null && activeSlot?.id === slot.id}
+                        onClick={() => {
+                          setActiveWorkExplainerId(null);
+                          setSelectedSlotId(slot.id);
+                        }}
                         tag={
                           <StatusTag
                             tone={slot.kind === "html" ? "active" : "neutral"}
@@ -317,10 +351,86 @@ export function LivingDossierView({ repoId }: { readonly repoId: string }) {
                 })}
               </ul>
             )}
+            {works.length > 0 && (
+              <div data-testid="dossier-work-explainers" className="border-t border-border">
+                <div className="flex items-center justify-between px-3 py-1.5 font-mono ui-micro text-text-faint">
+                  <span>{t("dossier.workExplainers.heading")}</span>
+                  <span>{works.length}</span>
+                </div>
+                <ul className="flex flex-col">
+                  {works.map((work) => (
+                    <li key={work.workId} data-testid={`dossier-work-explainer-${work.workId}`}>
+                      <DenseRow
+                        selected={activeWorkExplainerId === work.workId}
+                        onClick={() => handleOpenWorkExplainer(work.workId)}
+                        tag={<StatusTag tone="active" mono label="WORK" />}
+                        title={work.title}
+                        reason={
+                          <span className="font-mono ui-micro text-text-muted">
+                            {work.workId} · {TASK_EXPLAINER_DOC}
+                          </span>
+                        }
+                        time={
+                          work.status ? (
+                            <StatusTag
+                              tone={work.status === "done" ? "done" : work.status === "blocked" ? "bad" : "neutral"}
+                              mono
+                              label={work.status}
+                            />
+                          ) : undefined
+                        }
+                      />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </aside>
         <div data-testid="dossier-reader-pane" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-bg">
-          {activeSlot === null ? (
+          {activeWorkExplainerId !== null ? (
+            <>
+              <header
+                data-testid="dossier-work-explainer-toolbar"
+                className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface px-4 py-2"
+              >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  testId="dossier-back-from-work-explainer"
+                  onClick={() => setActiveWorkExplainerId(null)}
+                >
+                  <ArrowLeft className="size-3.5" />
+                  {t("dossier.workExplainers.backToDossier")}
+                </Button>
+                <div className="min-w-0 flex-1">
+                  <h2 className="truncate text-base font-semibold text-text" data-testid="dossier-work-explainer-title">
+                    {activeWorkEntry?.title ?? activeWorkExplainerId}
+                  </h2>
+                  <p className="font-mono ui-micro text-text-faint">
+                    {activeWorkExplainerId} · {TASK_EXPLAINER_DOC}
+                  </p>
+                </div>
+                {onOpenWork && (
+                  <Button
+                    variant="plain"
+                    size="sm"
+                    testId="dossier-open-work-workspace"
+                    onClick={() => onOpenWork(activeWorkExplainerId)}
+                  >
+                    <ArrowSquareOut className="size-3.5" />
+                    {t("dossier.workExplainers.openWork")}
+                  </Button>
+                )}
+              </header>
+              <div
+                data-testid="dossier-work-explainer-body"
+                className="flex min-h-0 flex-1 flex-col overflow-hidden p-3"
+              >
+                <WorkExplainerDocument repoId={repoId} taskId={activeWorkExplainerId} />
+              </div>
+            </>
+          ) : activeSlot === null ? (
             <Empty>{t("dossier.emptySlots")}</Empty>
           ) : (
             <DossierSlotPane

@@ -244,10 +244,26 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     } as unknown as CanonicalEventV1,
     {
       schema: "decision-event/v1",
+      type: "decision_proposed",
+      eventId: "evt_real_dec_prop_1",
+      opId: "op_real_dec_prop_1",
+      workspaceRevision: 5,
+      occurredAt: "2026-11-22T08:35:00.000Z",
+      decisionId: "dec_office_001",
+      actor,
+      source: "local",
+      payload: {
+        title: "Freeze Q4 Launch Deliverables",
+        appliesTo: { modules: ["office/launch", "office/legal"], productLines: [] },
+        chosen: [{ id: "CH1", text: "Require legal signoff before customer brief release" }],
+      },
+    } as unknown as CanonicalEventV1,
+    {
+      schema: "decision-event/v1",
       type: "decision_accepted",
       eventId: "evt_real_dec_1",
       opId: "op_real_dec_1",
-      workspaceRevision: 5,
+      workspaceRevision: 6,
       occurredAt: "2026-11-22T08:40:00.000Z",
       decisionId: "dec_office_001",
       actor,
@@ -259,7 +275,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
       type: "task_created",
       eventId: "evt_real_work_1",
       opId: "op_real_work_1",
-      workspaceRevision: 6,
+      workspaceRevision: 7,
       occurredAt: "2026-11-22T08:50:00.000Z",
       taskId: "work_q4_launch",
       actor,
@@ -270,7 +286,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
           title: "Q4 Launch Program",
           taskClass: "work",
           status: "active",
-          metadata: { parentTaskId: null, surfaces: ["office/launch"] },
+          metadata: { parentTaskId: null, slug: "q4-launch-program", surfaces: ["office/launch"] },
         },
       },
     } as unknown as CanonicalEventV1,
@@ -279,7 +295,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
       type: "task_transitioned",
       eventId: "evt_real_task_block",
       opId: "op_real_task_block",
-      workspaceRevision: 7,
+      workspaceRevision: 8,
       occurredAt: "2026-11-22T09:00:00.000Z",
       taskId: "task_legal_review",
       actor,
@@ -300,7 +316,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
       type: "relation_created",
       eventId: "evt_real_rel",
       opId: "op_real_rel",
-      workspaceRevision: 8,
+      workspaceRevision: 9,
       occurredAt: "2026-11-22T09:10:00.000Z",
       relationId: "rel_0123456789abcdef",
       actor,
@@ -323,7 +339,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
 
   const reader = {
     store: {
-      readHead: () => ({ revision: 8, opId: "op_real_rel" }),
+      readHead: () => ({ revision: 9, opId: "op_real_rel" }),
       readEvent: (opId: string) => events.find((e) => e.opId === opId) ?? null,
       readEventAtRevision: (rev: number) => events.find((e) => e.workspaceRevision === rev) ?? null,
       readEventWindow: (query: {
@@ -337,10 +353,10 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
             (query.maxRevision === undefined || e.workspaceRevision <= query.maxRevision),
         );
         return {
-          sourceRevision: 8,
+          sourceRevision: 9,
           events: filtered.slice(0, query.limit),
-          lastScannedRevision: 8,
-          windowMaxRevision: 8,
+          lastScannedRevision: 9,
+          windowMaxRevision: 9,
           done: true,
         };
       },
@@ -366,12 +382,14 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     synthesizedAt: "2026-11-22T09:30:00.000Z",
     kindMap: briefCtx.kindMap,
   });
-  validateDossierContent(briefSlot, briefBody, 8);
+  validateDossierContent(briefSlot, briefBody, 9);
   const charterSec = briefBody.split("<!-- dossier-anchor: charter -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
   const scopeSec = briefBody.split("<!-- dossier-anchor: aligned-scope -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
   assert.ok(charterSec.includes("Q4 Launch Operating Charter"), "charter must include project-brief entity");
   assert.ok(!charterSec.includes("dec_office_001"), "charter must not mix decision rows");
   assert.ok(scopeSec.includes("dec_office_001"), "aligned-scope must include accepted decision");
+  assert.ok(scopeSec.includes("Freeze Q4 Launch Deliverables"), "accepted decision must inherit proposal title");
+  assert.ok(scopeSec.includes("CH1: Require legal signoff"), "accepted decision must inherit proposal chosen text");
 
   // 2. DELIVERABLE_REGISTER.md: deliverable-index gets deliverable ONLY (never decision!)
   const delivSlot = slots.get("deliverable-register")!;
@@ -386,7 +404,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     synthesizedAt: "2026-11-22T09:30:00.000Z",
     kindMap: delivCtx.kindMap,
   });
-  validateDossierContent(delivSlot, delivBody, 8);
+  validateDossierContent(delivSlot, delivBody, 9);
   const delivIdx =
     delivBody.split("<!-- dossier-anchor: deliverable-index -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
   assert.ok(delivIdx.includes("Executive Launch Readiness Deck"));
@@ -411,7 +429,7 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     synthesizedAt: "2026-11-22T09:30:00.000Z",
     kindMap: handoffCtx.kindMap,
   });
-  validateDossierContent(handoffSlot, handoffBody, 8);
+  validateDossierContent(handoffSlot, handoffBody, 9);
   const transfersSec =
     handoffBody.split("<!-- dossier-anchor: ownership-transfers -->")[1]?.split("<!-- dossier-anchor:")[0] ?? "";
   const memorySec =
@@ -434,14 +452,14 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     synthesizedAt: "2026-11-22T09:30:00.000Z",
     kindMap: atlasCtx.kindMap,
   });
-  validateDossierContent(atlasSlot, atlasBody, 8);
+  validateDossierContent(atlasSlot, atlasBody, 9);
   assert.doesNotMatch(atlasBody, /https?:\/\//iu, "office/collab Atlas must strip locator URLs");
   assert.ok(atlasBody.includes("<code>project-brief</code><strong>1</strong>"));
   assert.ok(atlasBody.includes("<code>deliverable</code><strong>1</strong>"));
   assert.ok(atlasBody.includes("<code>handoff</code><strong>1</strong>"));
   assert.ok(atlasBody.includes("<code>memory-item</code><strong>1</strong>"));
 
-  // 5. office/collab project-pulse.html: Work rollup + explainer path + live blocked task + active decision
+  // 5. office/collab project-pulse.html: Work rollup + real slugged explainer path + live blocked task + active decision
   const pulseSlot = slots.get("project-pulse")!;
   const pulseCtx = readDossierContext(reader, "office/collab", pulseSlot, undefined, compiled.definition.entityKinds);
   const pulseBody = synthesizeDossierDocument({
@@ -454,14 +472,68 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     synthesizedAt: "2026-11-22T09:30:00.000Z",
     kindMap: pulseCtx.kindMap,
   });
-  validateDossierContent(pulseSlot, pulseBody, 8);
+  validateDossierContent(pulseSlot, pulseBody, 9);
   assert.doesNotMatch(pulseBody, /https?:\/\//iu);
-  assert.ok(pulseBody.includes("tasks/work_q4_launch/artifacts/explainer.html"));
+  assert.ok(pulseBody.includes("tasks/work_q4_launch-q4-launch-program/artifacts/explainer.html"));
   assert.ok(pulseBody.includes("Awaiting external counsel comment"));
-  assert.ok(pulseBody.includes("dec_office_001"));
+  assert.ok(pulseBody.includes("Freeze Q4 Launch Deliverables"));
+  assert.ok(pulseBody.includes("office/launch, office/legal"));
   assert.ok(pulseBody.includes("task/task_legal_review"));
 
-  // 6. F-DOSSIER-02 write-boundary verification: chronicler-authored MD & HTML stay valid & intact across empty & non-empty windows
+  // 5b. F-DOSSIER-04b: canonical relation_retired (only relationId, no source/target) passes readDossierContext and removes stale edge & derived task
+  const retireEvent: CanonicalEventV1 = {
+    schema: "relation-event/v1",
+    type: "relation_retired",
+    eventId: "evt_real_rel_retire",
+    opId: "op_real_rel_retire",
+    workspaceRevision: 10,
+    occurredAt: "2026-11-22T09:45:00.000Z",
+    relationId: "rel_0123456789abcdef",
+    actor,
+    source: "local",
+    payload: { reason: "Legal review moved to another charter" },
+  } as unknown as CanonicalEventV1;
+  const retireReader = {
+    store: {
+      readHead: () => ({ revision: 10, opId: "op_real_rel_retire" }),
+      readEvent: (opId: string) => (opId === "op_real_rel_retire" ? retireEvent : null),
+      readEventAtRevision: (rev: number) => (rev === 10 ? retireEvent : null),
+      readEventWindow: () => ({
+        sourceRevision: 10,
+        events: [retireEvent],
+        lastScannedRevision: 10,
+        windowMaxRevision: 10,
+        done: true,
+      }),
+    },
+    projection: {
+      readDocumentMetadata: () => ({ status: "ready" as const, document: null }),
+      readDocument: () => ({ status: "ready" as const, document: null }),
+    },
+  };
+  const pulseRetireCtx = readDossierContext(
+    retireReader,
+    "office/collab",
+    pulseSlot,
+    undefined,
+    compiled.definition.entityKinds,
+  );
+  assert.equal(pulseRetireCtx.changes.length, 1, "relation_retired must not be dropped by entity-scoped slot");
+  const pulseAfterRetire = synthesizeDossierDocument({
+    verticalId: "office/collab",
+    slot: pulseSlot,
+    previousBody: pulseBody,
+    expectedWatermark: 9,
+    targetWatermark: 10,
+    changes: pulseRetireCtx.changes,
+    synthesizedAt: "2026-11-22T09:50:00.000Z",
+    kindMap: pulseRetireCtx.kindMap,
+  });
+  validateDossierContent(pulseSlot, pulseAfterRetire, 10);
+  const pulseDecTrail = pulseAfterRetire.split('id="decision-trail"')[1]?.split("</section>")[0] ?? "";
+  assert.ok(!pulseDecTrail.includes("task/task_legal_review"), "retired relation must clear Derived Tasks");
+
+  // 6. F-DOSSIER-02/05/06 write-boundary verification: chronicler HTML with external <a href> and prose URL passes validateDossierContent with zero http(s)://
   const curatedMd = [
     "<!-- dossier-watermark: 4 -->",
     "# Project Brief",
@@ -480,31 +552,48 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
     slot: briefSlot,
     previousBody: curatedMd,
     expectedWatermark: 4,
-    targetWatermark: 8,
+    targetWatermark: 9,
     changes: [],
     synthesizedAt: "2026-11-22T10:00:00.000Z",
   });
-  validateDossierContent(briefSlot, advancedMdEmpty, 8);
+  validateDossierContent(briefSlot, advancedMdEmpty, 9);
   assert.ok(advancedMdEmpty.includes("Executive initiative charter curated by the chronicler agent."));
 
-  const curatedHtml = [
+  const curatedHtmlWithLinks = [
     "<!doctype html>",
     '<html lang="zh-CN"><head><meta charset="utf-8"><meta name="dossier-watermark" content="4"><title>Atlas</title></head>',
     '<body><main><section id="atlas-topology"><svg viewBox="0 0 320 100" role="img"><rect x="8" y="8" width="120" height="40"/></svg></section>',
-    '<section id="entity-map"><p>Curated office entity overview.</p></section>',
+    '<section id="entity-map"><p>Curated office entity overview with <a href="https://example.com/spec">Spec</a> and http://example.org/note.</p></section>',
     '<section id="change-ledger"><p>Curated baseline at r4.</p></section></main></body></html>',
   ].join("\n");
+  // Valid chronicler HTML is accepted at V2 write boundary before continuation
+  validateDossierContent(atlasSlot, curatedHtmlWithLinks, 4);
+
+  const advancedHtmlEmpty = synthesizeDossierDocument({
+    verticalId: "office/collab",
+    slot: atlasSlot,
+    previousBody: curatedHtmlWithLinks,
+    expectedWatermark: 4,
+    targetWatermark: 6,
+    changes: [],
+    synthesizedAt: "2026-11-22T09:55:00.000Z",
+    kindMap: atlasCtx.kindMap,
+  });
+  validateDossierContent(atlasSlot, advancedHtmlEmpty, 6);
+  assert.doesNotMatch(advancedHtmlEmpty, /https?:\/\//iu);
+  assert.ok(advancedHtmlEmpty.includes("Spec [ref: example.com/spec]"));
+
   const advancedHtmlNonEmpty = synthesizeDossierDocument({
     verticalId: "office/collab",
     slot: atlasSlot,
-    previousBody: curatedHtml,
+    previousBody: curatedHtmlWithLinks,
     expectedWatermark: 4,
-    targetWatermark: 8,
+    targetWatermark: 9,
     changes: atlasCtx.changes,
     synthesizedAt: "2026-11-22T10:00:00.000Z",
     kindMap: atlasCtx.kindMap,
   });
-  validateDossierContent(atlasSlot, advancedHtmlNonEmpty, 8);
-  assert.ok(advancedHtmlNonEmpty.includes("Curated office entity overview."));
+  validateDossierContent(atlasSlot, advancedHtmlNonEmpty, 9);
+  assert.ok(advancedHtmlNonEmpty.includes("Curated office entity overview"));
   assert.doesNotMatch(advancedHtmlNonEmpty, /https?:\/\//iu);
 });
