@@ -570,7 +570,6 @@ const CORE_DEFERRED_INDEXES: readonly string[] = [
 
 function coreTablesSql(deferred: boolean): string {
   return `
-  db.exec(`
     /* @gate-identity state-store/task.projection.archived_entity */ CREATE TABLE IF NOT EXISTS archived_entity (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
