@@ -4,6 +4,12 @@ import {
   renderLedgerAuditVerifyReceipt,
   renderTaskDeliveryCertificateReceipt,
 } from "./receipt-render-audit.ts";
+import {
+  renderPresetAuditReceipt,
+  renderPresetListReceipt,
+  renderScaffoldReceipt,
+  renderVerticalSimulateReceipt,
+} from "./receipt-render-preset.ts";
 import { renderTaskShow } from "./receipt-render-task-show.ts";
 import { isRecord, nonEmptyText } from "./receipt-render-values.ts";
 import { contractMigrationDryRunSummary, renderDispatchRow, renderRuntimeBatchRow } from "../cli-render.ts";
@@ -45,7 +51,23 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-show", (receipt) => renderTaskShow(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt)],
   ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
+  [
+    "preset-audit",
+    (receipt) => renderPresetAuditReceipt(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt),
+  ],
+  [
+    "preset-init",
+    (receipt) => renderScaffoldReceipt(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt),
+  ],
   ["vertical-list", renderVerticalListReceipt],
+  [
+    "vertical-init",
+    (receipt) => renderScaffoldReceipt(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt),
+  ],
+  [
+    "vertical-simulate",
+    (receipt) => renderVerticalSimulateReceipt(receipt, parseEvidence(receipt)) ?? renderSuccessfulReceipt(receipt),
+  ],
   ["migrate-import", renderSuccessfulReceipt],
   ["task-contract-migrate", renderSuccessfulReceipt],
   ["doc-show", (receipt) => String(receipt.evidence)],
@@ -322,22 +344,6 @@ function renderVerticalListReceipt(receipt: Record<string, unknown>): string {
         `  valid: ${valid}`,
         `  source: ${String(row.source ?? "unavailable")}`,
         `  next: ha preset list --vertical ${id}`,
-      ].join("\n");
-    })
-    .join("\n");
-}
-
-function renderPresetListReceipt(receipt: Record<string, unknown>): string {
-  const rows = JSON.parse(String(receipt.evidence)) as Array<Record<string, unknown>>;
-  return rows
-    .map((row) => {
-      const gates = Array.isArray(row.completionGates) ? JSON.stringify(row.completionGates) : "unavailable";
-      return [
-        `${String(row.id)} — ${String(row.title)} — ${String(row.description)}`,
-        `  validity: ${String(row.validity)}`,
-        `  defaultProfile: ${String(row.defaultProfile ?? "unavailable")}`,
-        `  outputShape: ${String(row.outputShape ?? "unavailable")}`,
-        `  completionGates: ${gates}`,
       ].join("\n");
     })
     .join("\n");

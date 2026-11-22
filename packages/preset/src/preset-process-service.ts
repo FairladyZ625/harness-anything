@@ -26,8 +26,7 @@ import {
   type PresetRunReceiptV1,
 } from "./preset.contract.ts";
 import { createRuntime, decodePresetPackageV3, type InternalPresetResolution } from "./preset-resolver.ts";
-import { assertSupportedScriptInterpreter } from "./preset-resolver-common.ts";
-import { presetRuntimeDefaults } from "./preset-system.ts";
+import { assertSupportedScriptInterpreter, presetRuntimeDefaults } from "./preset-resolver-common.ts";
 
 export interface PresetRunStartInput {
   readonly presetId: string;

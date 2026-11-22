@@ -30,8 +30,18 @@ import {
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
 import { listVerticalCatalog, resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { enumerateUser } from "./preset-catalog.ts";
+import { catalogRecovery } from "./preset-discovery.ts";
 import { resolveDefaultPresetSelection, resolveWorkPresetId } from "./preset-runtime.ts";
-import { asFailure } from "./preset-resolver-common.ts";
+import {
+  asFailure,
+  presetFailure,
+  presetRuntimeDefaults,
+  type PresetRuntimeDefaults,
+} from "./preset-resolver-common.ts";
+export { presetRuntimeDefaults } from "./preset-resolver-common.ts";
+import { scaffoldPresetPackage, scaffoldVerticalPackage } from "./vertical-scaffold.ts";
+import { simulateVerticalPackage } from "./vertical-simulate.ts";
 
 type TaskWorkKind = NonNullable<Parameters<typeof compileTaskPackage>[0]["workKind"]>;
 type PriorityTier = NonNullable<Parameters<typeof compileTaskPackage>[0]["riskTier"]>;
@@ -39,14 +49,7 @@ const taskWorkKinds = taskCreateEnum("workKind") as readonly TaskWorkKind[],
   priorityTiers = taskCreateEnum("riskTier") as readonly PriorityTier[];
 
 type Action = Readonly<Record<string, unknown>> & { readonly kind: string };
-interface Defaults {
-  readonly verticalId: string;
-  readonly presetId: string;
-  readonly profileId?: string;
-  readonly locale: string;
-  readonly taskOverlay: string;
-  readonly repositoryOverlay: string;
-}
+type Defaults = PresetRuntimeDefaults;
 export async function runPresetAction(input: {
   readonly rootDir: string;
   readonly action: Action;
@@ -65,6 +68,39 @@ export async function runPresetAction(input: {
       rootDir: input.rootDir,
       presetId: optionalActionText(action.presetId),
       userRoot: presetUserRoot(input.rootDir),
+    });
+  if (action.kind === "vertical-init")
+    return scaffoldVerticalPackage({
+      rootDir: input.rootDir,
+      verticalId: required(action.verticalId, "verticalId"),
+      title: optionalActionText(action.title),
+      slug: optionalActionText(action.slug),
+      defaultPresetId: optionalActionText(action.defaultPresetId),
+      overwrite: action.force === true || action.overwrite === true,
+      dryRun,
+    });
+  if (action.kind === "vertical-simulate")
+    return simulateVerticalPackage({
+      rootDir: input.rootDir,
+      source: optionalActionText(action.verticalSource) ?? requiredSettings(input.settings).defaultVertical,
+      presetId: optionalActionText(action.presetId),
+      profileId: optionalActionText(action.profileId),
+      locale: optionalActionText(action.locale) ?? input.settings?.locale,
+      userRoot: presetUserRoot(input.rootDir),
+    });
+  if (action.kind === "preset-init")
+    return scaffoldPresetPackage({
+      rootDir: input.rootDir,
+      presetId: required(action.presetId, "presetId"),
+      verticalId: optionalActionText(action.verticalId) ?? requiredSettings(input.settings).defaultVertical,
+      title: optionalActionText(action.title),
+      presetKind:
+        action.presetKind === "process-action" || action.presetKind === "template-content"
+          ? action.presetKind
+          : undefined,
+      outputShape: optionalActionText(action.outputShape),
+      overwrite: action.force === true || action.overwrite === true,
+      dryRun,
     });
   if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind))
     return runVerticalDiscoveryAction(
@@ -96,17 +132,41 @@ export async function runPresetAction(input: {
   if (action.kind === "preset-list")
     return resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId });
   if (action.kind === "preset-audit") {
-    const entries = await resolver.list({ verticalId: optionalActionText(action.verticalId) ?? defaults.verticalId }),
+    const verticalId = optionalActionText(action.verticalId) ?? defaults.verticalId,
+      entries = await resolver.list({ verticalId }),
+      listedIds = new Set(entries.map((entry) => entry.id)),
+      orphanedPointers = enumerateUser(presetUserRoot(input.rootDir)).filter(
+        (candidate) => !candidate.decoded && candidate.verticalId === "*" && !listedIds.has(candidate.id),
+      ),
       count = (validity: string) => entries.filter((entry) => entry.validity === validity).length;
     return {
       schema: "preset-audit-report/v1",
-      total: entries.length,
+      total: entries.length + orphanedPointers.length,
       valid: count("valid"),
       unavailable: count("unavailable"),
-      blocked: count("blocked"),
-      issues: entries.flatMap((entry) =>
-        entry.issues.map((issue) => ({ presetId: entry.id, source: entry.source, ...issue })),
-      ),
+      blocked: count("blocked") + orphanedPointers.length,
+      issues: [
+        ...entries.flatMap((entry) =>
+          entry.issues.map((issue) => ({
+            presetId: entry.id,
+            layer: entry.layer,
+            source: entry.source,
+            ...issue,
+            ...(entry.nextAction ? { remediation: entry.nextAction } : {}),
+          })),
+        ),
+        ...orphanedPointers.map((candidate) => {
+          const failure = candidate.error ?? presetFailure("invalid_pointer", "Active preset pointer is invalid.");
+          return {
+            presetId: candidate.id,
+            layer: candidate.layer,
+            source: candidate.source,
+            code: failure.code,
+            message: failure.message,
+            remediation: catalogRecovery(candidate, failure).nextAction,
+          };
+        }),
+      ],
     };
   }
   if (action.kind !== "preset-inspect" && action.kind !== "preset-check")
@@ -260,16 +320,6 @@ export function compileRepoRepositoryScaffold(rootDir: string, settings: Setting
 }
 export function presetUserRoot(rootDir: string): string {
   return path.join(resolveHarnessLayout(rootDir).localRoot, "presets");
-}
-export function presetRuntimeDefaults(settings: SettingsV1): Defaults {
-  return {
-    verticalId: settings.defaultVertical,
-    presetId: settings.defaultPreset,
-    profileId: settings.defaultProfile,
-    locale: settings.locale,
-    taskOverlay: settings.scaffolds.task,
-    repositoryOverlay: settings.scaffolds.repository,
-  };
 }
 function presetResolverOptions(rootDir: string, defaults: Defaults) {
   const layout = resolveHarnessLayout(rootDir),

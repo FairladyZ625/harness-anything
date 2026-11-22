@@ -17,7 +17,8 @@ export const hostScratchPrefixes = Object.freeze({
 });
 
 export const hostEnvironmentIoModule = "packages/daemon/src/daemon-host/host-environment-io.ts";
-const workspaceLockModule = "packages/daemon/src/daemon-host/repo-cell-lock.ts";
+const workspaceLockModule = "packages/daemon/src/daemon-host/repo-cell-lock.ts",
+  verticalScaffoldIoModule = "packages/preset/src/vertical-scaffold-io.ts";
 
 interface HostEnvironmentIoPort {
   readonly module: string;
@@ -60,5 +61,15 @@ export const hostEnvironmentIoPorts: readonly HostEnvironmentIoPort[] = Object.f
     scope: "releaseWriterLockFile",
     effects: ["closeSync", "rmSync"],
     stateStore: "execution.workspace-writer-lock",
+  },
+  {
+    module: verticalScaffoldIoModule,
+    scope: "writeScaffoldFiles",
+    effects: ["mkdirSync", "writeFileSync"],
+  },
+  {
+    module: verticalScaffoldIoModule,
+    scope: "createSimulationSandbox",
+    effects: ["rmSync"],
   },
 ]);

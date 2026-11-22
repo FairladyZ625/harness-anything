@@ -975,6 +975,7 @@ test("implementers read the preset catalog and their own documents without gaini
     ["repo.preset.list", { verticalId: "software/coding" }],
     ["repo.preset.inspect", { presetId: "standard-task", verticalId: "software/coding" }],
     ["repo.vertical.validate", { verticalSource: "verticals/ai4s" }],
+    ["repo.vertical.simulate", { verticalSource: "verticals/ai4s" }],
     ["repo.preset.check", { presetId: "standard-task" }],
     ["repo.preset.audit", {}],
     ["repo.template.list", {}],
@@ -1171,9 +1172,13 @@ test("execution credentials keep validator sources inside the dispatched reposit
       },
       localBinding = { actor: { principal: { personId: "person-worker" } }, source: "local" as const },
       validate = async (binding: object, verticalSource: string) =>
-        executeRepoAction(cell, { kind: "vertical-validate", verticalSource } as never, binding as never);
-    for (const outside of ["../neighbor/vertical.json", "/etc/vertical.json"])
+        executeRepoAction(cell, { kind: "vertical-validate", verticalSource } as never, binding as never),
+      simulate = async (binding: object, verticalSource: string) =>
+        executeRepoAction(cell, { kind: "vertical-simulate", verticalSource } as never, binding as never);
+    for (const outside of ["../neighbor/vertical.json", "/etc/vertical.json"]) {
       await assert.rejects(validate(principalBinding, outside), { code: "execution_credential_rejected" });
+      await assert.rejects(simulate(principalBinding, outside), { code: "execution_credential_rejected" });
+    }
     // The same source stays reachable for the repository's own local principals.
     const receipt = (await validate(localBinding, "/etc/vertical.json")) as { readonly outcome: string };
     assert.equal(receipt.outcome, "applied");

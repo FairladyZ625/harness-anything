@@ -21,6 +21,13 @@
         "role": "technical-port",
         "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
         "order": 10
+      },
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/vertical-scaffold-io.ts#createSimulationSandbox.close:73928a4a1ca47a7e4d7a178459b23b56",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 12
       }
     ],
     "package-assets-build": [
@@ -265,6 +272,14 @@
         "route": "script-run",
         "role": "script",
         "order": 7
+      }
+    ],
+    "vertical-init": [
+      {
+        "candidateId": "action:packages/preset:packages/preset/src/vertical-scaffold-io.ts#writeScaffoldFiles:b8210b51b6ea49e153d54a38f2d8fe54",
+        "route": "vertical-init",
+        "role": "effect",
+        "order": 0
       }
     ]
   }
