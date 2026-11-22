@@ -106,6 +106,5 @@ export {
   buildFdeGateResultSchema,
   buildFdeLivingDossier,
   compileFdeStudioDraft,
-  validateFdeLivingDossier,
 } from "./fde-studio-compiler.ts";
 export type { CompiledFdeStudioPlan, FdeDossierValidation, FdeMaterializedFile } from "./fde-studio-compiler.ts";

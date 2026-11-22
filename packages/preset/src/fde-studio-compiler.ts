@@ -102,7 +102,7 @@ export function buildFdeLivingDossier(draft: FdeDomainDraft): LivingDossier {
   return { slots };
 }
 
-export function validateFdeLivingDossier(draft: FdeDomainDraft, livingDossier: LivingDossier): FdeDossierValidation {
+function dossierSlotStatus(draft: FdeDomainDraft, livingDossier: LivingDossier): FdeDossierValidation {
   if (livingDossier.slots.length === 0) return { ok: true };
   const entityKinds = new Set<string>(["task", "decision", "fact", ...draft.entities.map((entity) => entity.id)]);
   try {
@@ -402,7 +402,7 @@ export function compileFdeStudioDraft(draft: FdeDomainDraft, rootDir: string): C
     defaultPresetId,
   });
   const livingDossier = buildFdeLivingDossier(draft);
-  const dossierValidation = validateFdeLivingDossier(draft, livingDossier);
+  const dossierValidation = dossierSlotStatus(draft, livingDossier);
   const commandGates = resolveCommandGates(draft, plan.defaultPresetId);
   const fileMap = new Map<string, string>(
     plan.files
