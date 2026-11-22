@@ -784,4 +784,96 @@ test("F-DOSSIER-04/05/08 (amend): retains exact 1/1 across 256 & 257 Works, mark
       `code example prose must stay verbatim, got: ${afterHtml}`,
     );
   }
+
+  // Beyond orphan counter cap (1,296 Works): child-first then root-transition across 2 pages both mark 0/1 (partial)
+  let truncatedBody: string | null = null;
+  let truncatedWatermark = 0;
+  const mkBulk = (taskId: string, type: string, payload: Record<string, unknown>): DossierChangeItem => ({
+    eventId: `evt_bulk_${++truncatedWatermark}`,
+    workspaceRevision: truncatedWatermark,
+    occurredAt: at,
+    schema: "task-event/v1",
+    type,
+    taskId,
+    actor: { principal: { personId: "person_probe" } },
+    payload,
+    entityRefs: [`task/${taskId}`],
+  });
+  for (let start = 1; start <= 1296; start += 16) {
+    const prevW = truncatedWatermark;
+    const batch: DossierChangeItem[] = [];
+    for (let n = start; n < start + 16; n += 1) {
+      const id = `task_${n.toString(16).padStart(24, "0")}`;
+      const child = id.replace("task_", "task_a");
+      batch.push(
+        mkBulk(id, "task_created", {
+          title: `Migrate customer reporting pipeline and reconcile monthly delivery milestones for portfolio workstream ${n}`,
+          taskClass: "work",
+          taskStatus: "active",
+          parentTaskId: null,
+          packagePath: `tasks/${id}-migrate-customer-reporting-and-reconcile-delivery-milestones`,
+        }),
+        mkBulk(child, "task_created", {
+          title: "Reconcile monthly delivery milestones",
+          taskClass: "standard",
+          taskStatus: "active",
+          parentTaskId: id,
+        }),
+        mkBulk(child, "task_completed", {
+          title: "Reconcile monthly delivery milestones",
+          taskClass: "standard",
+          taskStatus: "done",
+          parentTaskId: id,
+        }),
+      );
+    }
+    truncatedBody = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: pulseSlot,
+      previousBody: truncatedBody,
+      expectedWatermark: prevW,
+      targetWatermark: truncatedWatermark,
+      changes: batch,
+      synthesizedAt: at,
+    });
+    assert.ok(Buffer.byteLength(truncatedBody, "utf8") <= 524_288, `page ${start} must stay <= 524288 UTF-8 bytes`);
+  }
+  const oldestId = `task_${"1".padStart(24, "0")}`;
+  const newChildId = `task_${"ff00".padStart(24, "0")}`;
+  const prevChildW = truncatedWatermark;
+  truncatedBody = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: pulseSlot,
+    previousBody: truncatedBody,
+    expectedWatermark: prevChildW,
+    targetWatermark: truncatedWatermark + 1,
+    changes: [
+      mkBulk(newChildId, "task_created", {
+        title: "New task",
+        taskClass: "standard",
+        taskStatus: "active",
+        parentTaskId: oldestId,
+      }),
+    ],
+    synthesizedAt: at,
+  });
+  assert.ok(truncatedBody.includes("0/1 (partial)"), "child-first reactivation page must mark 0/1 (partial)");
+  const prevRootW = truncatedWatermark;
+  truncatedBody = synthesizeDossierDocument({
+    verticalId: "software/coding",
+    slot: pulseSlot,
+    previousBody: truncatedBody,
+    expectedWatermark: prevRootW,
+    targetWatermark: truncatedWatermark + 1,
+    changes: [
+      mkBulk(oldestId, "task_transitioned", {
+        title: "Work 1",
+        taskClass: "work",
+        taskStatus: "blocked",
+        parentTaskId: null,
+      }),
+    ],
+    synthesizedAt: at,
+  });
+  assert.ok(truncatedBody.includes("0/1 (partial)"), "subsequent root transition page must retain 0/1 (partial)");
 });

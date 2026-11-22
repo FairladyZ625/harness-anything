@@ -11,7 +11,7 @@ const MAX_RETIRED_DECISIONS = 48;
 const MAX_TRACKED_TASKS = 128;
 const MAX_PINNED_WORKS = 256;
 const MAX_TRACKED_RELATIONS = 64;
-const MAX_WORK_COUNTERS = 1024;
+const MAX_WORK_COUNTERS = 320;
 
 interface DossierRelationPayload {
   readonly relationId?: string;
@@ -131,6 +131,7 @@ export interface DossierWorkCounter {
   readonly latestRevision: number;
   readonly title?: string;
   readonly packagePath?: string;
+  readonly countsIncomplete?: boolean;
 }
 
 export interface DossierWorkRollup {
@@ -561,9 +562,10 @@ function incrementWorkCounter(
 function pruneTasks(
   tasks: Record<string, DossierTaskRecord>,
   workCounters: Record<string, DossierWorkCounter>,
+  maxPinnedWorks = MAX_PINNED_WORKS,
+  maxTrackedTasks = MAX_TRACKED_TASKS,
 ): Record<string, DossierTaskRecord> {
   const all = Object.values(tasks);
-  if (all.length <= MAX_TRACKED_TASKS) return tasks;
   const works = all
     .filter((task) => task.taskClass === "work")
     .sort(
@@ -572,11 +574,13 @@ function pruneTasks(
           Math.max(left.workspaceRevision, workCounters[left.taskId]?.latestRevision ?? 0) ||
         left.taskId.localeCompare(right.taskId),
     );
-  const keptWorks = works.slice(0, MAX_PINNED_WORKS);
-  const evictedWorks = works.slice(MAX_PINNED_WORKS);
+  if (all.length <= maxTrackedTasks && works.length <= maxPinnedWorks) return tasks;
+  const keptWorks = works.slice(0, maxPinnedWorks);
+  const evictedWorks = works.slice(maxPinnedWorks);
   const evictedWorkIds = new Set(evictedWorks.map((task) => task.taskId));
   for (const evictedWork of evictedWorks) {
     const existingCounter = workCounters[evictedWork.taskId];
+    const incomplete = Boolean(evictedWork.countsIncomplete || existingCounter?.countsIncomplete);
     workCounters[evictedWork.taskId] = {
       archivedTotal: existingCounter?.archivedTotal ?? 0,
       archivedDone: existingCounter?.archivedDone ?? 0,
@@ -584,12 +588,8 @@ function pruneTasks(
       archivedActive: existingCounter?.archivedActive ?? 0,
       archivedCancelled: existingCounter?.archivedCancelled ?? 0,
       latestRevision: Math.max(existingCounter?.latestRevision ?? 0, evictedWork.workspaceRevision),
-      title: evictedWork.title,
-      ...(evictedWork.packagePath
-        ? { packagePath: evictedWork.packagePath }
-        : existingCounter?.packagePath
-          ? { packagePath: existingCounter.packagePath }
-          : {}),
+      title: sanitizeSingleLine(evictedWork.title, 72),
+      ...(incomplete ? { countsIncomplete: true } : {}),
     };
   }
   const blockedNonWorks = all.filter((task) => task.taskClass !== "work" && task.status === "blocked");
@@ -602,7 +602,7 @@ function pruneTasks(
       const rightTerminal = right.status === "done" || right.status === "cancelled" ? 1 : 0;
       return leftTerminal - rightTerminal || right.workspaceRevision - left.workspaceRevision;
     });
-  const keepCount = Math.max(0, MAX_TRACKED_TASKS - pinned.length);
+  const keepCount = Math.max(0, maxTrackedTasks - pinned.length);
   const kept = candidates.slice(0, keepCount);
   const evicted = candidates.slice(keepCount);
   for (const task of evicted) {
@@ -612,28 +612,22 @@ function pruneTasks(
   return Object.fromEntries([...pinned, ...kept].map((task) => [task.taskId, task]));
 }
 
-function pruneActiveDecisions(decisions: Record<string, DossierDecisionRecord>): Record<string, DossierDecisionRecord> {
-  const all = Object.values(decisions);
-  if (all.length <= MAX_ACTIVE_DECISIONS) return decisions;
-  const kept = all
-    .sort((left, right) => right.workspaceRevision - left.workspaceRevision)
-    .slice(0, MAX_ACTIVE_DECISIONS);
-  return Object.fromEntries(kept.map((item) => [item.decisionId, item]));
-}
-
-function prunePendingProposals(proposals: Record<string, DossierProposalMeta>): Record<string, DossierProposalMeta> {
-  const all = Object.values(proposals);
-  if (all.length <= MAX_PENDING_PROPOSALS) return proposals;
-  const kept = all
-    .sort((left, right) => right.workspaceRevision - left.workspaceRevision)
-    .slice(0, MAX_PENDING_PROPOSALS);
-  return Object.fromEntries(kept.map((item) => [item.decisionId, item]));
+function pruneByRevision<T extends { readonly workspaceRevision: number }>(
+  map: Record<string, T>,
+  maxItems: number,
+): Record<string, T> {
+  const entries = Object.entries(map);
+  if (entries.length <= maxItems) return map;
+  return Object.fromEntries(
+    entries.sort((left, right) => right[1].workspaceRevision - left[1].workspaceRevision).slice(0, maxItems),
+  );
 }
 
 function pruneWorkCounters(
   counters: Record<string, DossierWorkCounter>,
   prunedTasks: Readonly<Record<string, DossierTaskRecord>>,
   priorTruncated: boolean,
+  maxOrphanCounters = MAX_WORK_COUNTERS,
 ): { readonly counters: Record<string, DossierWorkCounter>; readonly truncated: boolean } {
   const survivingWorkIds = new Set<string>(Object.keys(prunedTasks));
   for (const task of Object.values(prunedTasks)) {
@@ -647,10 +641,11 @@ function pruneWorkCounters(
     else orphanEntries.push(entry);
   }
   orphanEntries.sort((left, right) => right[1].latestRevision - left[1].latestRevision);
-  const dropped = orphanEntries.slice(MAX_WORK_COUNTERS);
-  const truncated = priorTruncated || dropped.some(([, counter]) => counter.archivedTotal > 0);
+  const dropped = orphanEntries.slice(maxOrphanCounters);
+  const truncated =
+    priorTruncated || dropped.some(([, counter]) => counter.archivedTotal > 0 || Boolean(counter.countsIncomplete));
   return {
-    counters: Object.fromEntries([...pinnedEntries, ...orphanEntries.slice(0, MAX_WORK_COUNTERS)]),
+    counters: Object.fromEntries([...pinnedEntries, ...orphanEntries.slice(0, maxOrphanCounters)]),
     truncated,
   };
 }
@@ -687,15 +682,30 @@ function applyStructuredUpdate(
         ? normalizeDerivedLinks(existing, decisionId, relations)
         : normalizeDerivedLinks(proposal, decisionId, relations);
 
+      const buildProposal = (): DossierProposalMeta => ({
+        decisionId,
+        title,
+        chosen: mergedChosen,
+        modules: mergedModules,
+        ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
+        workspaceRevision: change.workspaceRevision,
+      });
+      const buildRecord = (state: DecisionState, effectiveReason?: string): DossierDecisionRecord => ({
+        decisionId,
+        title,
+        state,
+        workspaceRevision: change.workspaceRevision,
+        occurredAt: change.occurredAt,
+        actorLabel: entry.actorLabel,
+        ...(effectiveReason ? { reason: effectiveReason } : {}),
+        ...(mergedChosen.length > 0 ? { chosen: mergedChosen } : {}),
+        modules: mergedModules,
+        ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
+        derivedTaskIds: derivedTaskIdsFromLinks(mergedDerivedLinks),
+      });
+
       if (change.type === "decision_proposed") {
-        pendingProposals[decisionId] = {
-          decisionId,
-          title,
-          chosen: mergedChosen,
-          modules: mergedModules,
-          ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
-          workspaceRevision: change.workspaceRevision,
-        };
+        pendingProposals[decisionId] = buildProposal();
       } else if (change.type === "decision_rejected" || change.type === "decision_deferred") {
         delete pendingProposals[decisionId];
       } else if (change.type === "decision_superseded" || change.type === "decision_retired") {
@@ -704,48 +714,17 @@ function applyStructuredUpdate(
         const retiredState: DecisionState = change.type === "decision_superseded" ? "superseded" : "outcome_retired";
         const idx = retiredDecisions.findIndex((item) => item.decisionId === decisionId);
         if (idx >= 0) retiredDecisions.splice(idx, 1);
-        retiredDecisions.unshift({
-          decisionId,
-          title,
-          state: retiredState,
-          workspaceRevision: change.workspaceRevision,
-          occurredAt: change.occurredAt,
-          actorLabel: entry.actorLabel,
-          ...(reason ? { reason } : {}),
-          ...(mergedChosen.length > 0 ? { chosen: mergedChosen } : {}),
-          modules: mergedModules,
-          ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
-          derivedTaskIds: derivedTaskIdsFromLinks(mergedDerivedLinks),
-        });
+        retiredDecisions.unshift(buildRecord(retiredState, reason));
       } else if (
         change.type === "decision_accepted" ||
         change.type === "decision_amended" ||
         change.type === "decision_repinned"
       ) {
         if (change.type === "decision_amended" && !existing && proposal) {
-          pendingProposals[decisionId] = {
-            decisionId,
-            title,
-            chosen: mergedChosen,
-            modules: mergedModules,
-            ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
-            workspaceRevision: change.workspaceRevision,
-          };
+          pendingProposals[decisionId] = buildProposal();
         } else {
           delete pendingProposals[decisionId];
-          activeDecisions[decisionId] = {
-            decisionId,
-            title,
-            state: "in_effect",
-            workspaceRevision: change.workspaceRevision,
-            occurredAt: change.occurredAt,
-            actorLabel: entry.actorLabel,
-            ...(reason ? { reason } : existing?.reason ? { reason: existing.reason } : {}),
-            ...(mergedChosen.length > 0 ? { chosen: mergedChosen } : {}),
-            modules: mergedModules,
-            ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
-            derivedTaskIds: derivedTaskIdsFromLinks(mergedDerivedLinks),
-          };
+          activeDecisions[decisionId] = buildRecord("in_effect", reason ?? existing?.reason);
         }
       }
     }
@@ -781,16 +760,29 @@ function applyStructuredUpdate(
             ? sanitizeSingleLine(change.payload.reason)
             : existing?.reason
           : undefined;
-      // Re-admitting a previously-evicted non-terminal child task shifts its count back from archived to live.
-      if (!existing && change.type !== "task_created" && parentTaskId) {
+      // Re-admitting a child of an evicted/truncated Work marks its reconstructed counter incomplete;
+      // re-admitting a previously-evicted non-terminal child task shifts its count back from archived to live.
+      if (parentTaskId) {
         const rootWorkId = resolveRootWorkId({ taskId, parentTaskId }, tasks);
-        const counter = rootWorkId ? workCounters[rootWorkId] : undefined;
-        if (rootWorkId && counter && counter.archivedActive > 0) {
-          workCounters[rootWorkId] = {
-            ...counter,
-            archivedTotal: Math.max(0, counter.archivedTotal - 1),
-            archivedActive: Math.max(0, counter.archivedActive - 1),
-          };
+        if (rootWorkId) {
+          const counter = workCounters[rootWorkId];
+          if (!counter && !tasks[rootWorkId] && workCountersTruncated) {
+            workCounters[rootWorkId] = {
+              archivedTotal: 0,
+              archivedDone: 0,
+              archivedBlocked: 0,
+              archivedActive: 0,
+              archivedCancelled: 0,
+              latestRevision: change.workspaceRevision,
+              countsIncomplete: true,
+            };
+          } else if (!existing && change.type !== "task_created" && counter && counter.archivedActive > 0) {
+            workCounters[rootWorkId] = {
+              ...counter,
+              archivedTotal: Math.max(0, counter.archivedTotal - 1),
+              archivedActive: Math.max(0, counter.archivedActive - 1),
+            };
+          }
         }
       }
       const priorCounter = workCounters[taskId];
@@ -803,13 +795,15 @@ function applyStructuredUpdate(
         typeof change.payload.title === "string" && change.payload.title.trim().length > 0
           ? sanitizeSingleLine(change.payload.title)
           : (existing?.title ?? priorCounter?.title ?? entry.summary);
-      const countsIncomplete =
-        existing?.countsIncomplete ??
-        (!existing &&
-          change.type !== "task_created" &&
-          inferredClass === "work" &&
-          !priorCounter &&
-          workCountersTruncated);
+      const countsIncomplete = Boolean(
+        existing?.countsIncomplete ||
+          priorCounter?.countsIncomplete ||
+          (!existing &&
+            change.type !== "task_created" &&
+            inferredClass === "work" &&
+            !priorCounter &&
+            workCountersTruncated),
+      );
       tasks[taskId] = {
         taskId,
         title: resolvedTitle,
@@ -937,22 +931,64 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
     )
     .slice(0, MAX_STORED_ENTRIES);
 
-  const prunedTasks = pruneTasks(tasks, workCounters);
-  const prunedCounters = pruneWorkCounters(workCounters, prunedTasks, Boolean(prior.workCountersTruncated));
+  return compactDossierState(
+    {
+      watermark: input.targetWatermark,
+      synthesizedAt: input.synthesizedAt,
+      totalChanges: prior.totalChanges + incoming.length,
+      categoryCounts,
+      kindCounts,
+      entries: mergedEntries,
+      pendingProposals,
+      activeDecisions,
+      retiredDecisions,
+      tasks,
+      workCounters,
+      ...(prior.workCountersTruncated ? { workCountersTruncated: true } : {}),
+      relations,
+    },
+    {
+      maxPinnedWorks: MAX_PINNED_WORKS,
+      maxTrackedTasks: MAX_TRACKED_TASKS,
+      maxOrphanCounters: MAX_WORK_COUNTERS,
+      maxPendingProposals: MAX_PENDING_PROPOSALS,
+      maxDecisions: MAX_ACTIVE_DECISIONS,
+      maxEntries: MAX_STORED_ENTRIES,
+      maxRelations: MAX_TRACKED_RELATIONS,
+    },
+  );
+}
 
-  return {
-    watermark: input.targetWatermark,
-    synthesizedAt: input.synthesizedAt,
-    totalChanges: prior.totalChanges + incoming.length,
-    categoryCounts,
-    kindCounts,
-    entries: mergedEntries,
-    pendingProposals: prunePendingProposals(pendingProposals),
-    activeDecisions: pruneActiveDecisions(activeDecisions),
-    retiredDecisions: retiredDecisions.slice(0, MAX_RETIRED_DECISIONS),
+export function compactDossierState(
+  state: DossierLedgerState,
+  limits: {
+    readonly maxPinnedWorks: number;
+    readonly maxTrackedTasks: number;
+    readonly maxOrphanCounters: number;
+    readonly maxPendingProposals?: number;
+    readonly maxDecisions: number;
+    readonly maxEntries: number;
+    readonly maxRelations: number;
+  },
+): DossierLedgerState {
+  const mutableTasks: Record<string, DossierTaskRecord> = { ...state.tasks };
+  const mutableCounters: Record<string, DossierWorkCounter> = { ...state.workCounters };
+  const prunedTasks = pruneTasks(mutableTasks, mutableCounters, limits.maxPinnedWorks, limits.maxTrackedTasks);
+  const prunedCounters = pruneWorkCounters(
+    mutableCounters,
+    prunedTasks,
+    Boolean(state.workCountersTruncated),
+    limits.maxOrphanCounters,
+  );
+  const next: DossierLedgerState = {
+    ...state,
+    entries: state.entries.slice(0, limits.maxEntries),
+    pendingProposals: pruneByRevision({ ...state.pendingProposals }, limits.maxPendingProposals ?? limits.maxDecisions),
+    activeDecisions: pruneByRevision({ ...state.activeDecisions }, limits.maxDecisions),
+    retiredDecisions: state.retiredDecisions.slice(0, Math.min(MAX_RETIRED_DECISIONS, limits.maxDecisions)),
     tasks: prunedTasks,
     workCounters: prunedCounters.counters,
-    ...(prunedCounters.truncated ? { workCountersTruncated: true } : {}),
-    relations: relations.slice(0, MAX_TRACKED_RELATIONS),
+    relations: state.relations.slice(0, limits.maxRelations),
   };
+  return prunedCounters.truncated ? { ...next, workCountersTruncated: true } : next;
 }

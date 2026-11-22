@@ -1,6 +1,8 @@
+import { dossierContentMaxBytes } from "./cli-operational-policy.ts";
 import { preserveExternalHtmlBody, preserveExternalMarkdownBody } from "./living-dossier-chronicler-merge.ts";
 import { renderDossierHtmlDocument } from "./living-dossier-html.ts";
 import {
+  compactDossierState,
   emptyState,
   escapeMarkdownCell,
   mergeLedgerState,
@@ -18,13 +20,54 @@ import {
 
 export { type DossierChangeItem, type DossierSynthesisInput };
 
+const utf8Encoder = new TextEncoder();
+
+const BUDGET_COMPACTION_PROFILES = [
+  {
+    maxPinnedWorks: 144,
+    maxTrackedTasks: 96,
+    maxOrphanCounters: 160,
+    maxDecisions: 144,
+    maxEntries: 36,
+    maxRelations: 48,
+    maxVisibleWorks: 128,
+  },
+  {
+    maxPinnedWorks: 96,
+    maxTrackedTasks: 64,
+    maxOrphanCounters: 96,
+    maxDecisions: 96,
+    maxEntries: 24,
+    maxRelations: 32,
+    maxVisibleWorks: 96,
+  },
+  {
+    maxPinnedWorks: 48,
+    maxTrackedTasks: 48,
+    maxOrphanCounters: 48,
+    maxDecisions: 48,
+    maxEntries: 16,
+    maxRelations: 16,
+    maxVisibleWorks: 48,
+  },
+  {
+    maxPinnedWorks: 16,
+    maxTrackedTasks: 16,
+    maxOrphanCounters: 0,
+    maxDecisions: 16,
+    maxEntries: 8,
+    maxRelations: 8,
+    maxVisibleWorks: 16,
+  },
+] as const;
+
 function activeBlockedTasks(state: DossierLedgerState): readonly DossierTaskRecord[] {
   return Object.values(state.tasks)
     .filter((task) => task.status === "blocked")
     .sort((left, right) => right.workspaceRevision - left.workspaceRevision);
 }
 
-function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRollup[] {
+function computeWorkRollups(state: DossierLedgerState, maxVisibleWorks = 256): readonly DossierWorkRollup[] {
   const taskMap = state.tasks;
   const workIds = new Set<string>(Object.keys(state.workCounters));
   for (const task of Object.values(taskMap)) {
@@ -62,7 +105,7 @@ function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRoll
       ...children.map((child) => child.workspaceRevision),
     );
     const packagePath = workRecord?.packagePath ?? counter?.packagePath;
-    const countsIncomplete = Boolean(workRecord?.countsIncomplete);
+    const countsIncomplete = Boolean(workRecord?.countsIncomplete || counter?.countsIncomplete);
     rollups.push({
       workId,
       title: workRecord?.title ?? counter?.title ?? workId,
@@ -86,7 +129,7 @@ function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRoll
 
   return rollups
     .sort((left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId))
-    .slice(0, 256);
+    .slice(0, maxVisibleWorks);
 }
 
 const MARKDOWN_ANCHOR_HEADINGS: Readonly<Record<string, string>> = {
@@ -148,11 +191,16 @@ function renderMarkdownDecisionsTable(decisions: readonly DossierDecisionRecord[
   return lines;
 }
 
-function renderMarkdownAnchorBody(anchor: string, state: DossierLedgerState, targetWatermark: number): string[] {
+function renderMarkdownAnchorBody(
+  anchor: string,
+  state: DossierLedgerState,
+  targetWatermark: number,
+  maxVisibleWorks: number,
+): string[] {
   const activeDecisions = Object.values(state.activeDecisions).sort(
     (left, right) => right.workspaceRevision - left.workspaceRevision,
   );
-  const workRollups = computeWorkRollups(state);
+  const workRollups = computeWorkRollups(state, maxVisibleWorks);
 
   switch (anchor) {
     case "overview": {
@@ -292,7 +340,12 @@ function renderMarkdownAnchorBody(anchor: string, state: DossierLedgerState, tar
   }
 }
 
-function renderMarkdownDocument(input: DossierSynthesisInput, state: DossierLedgerState, stateComment: string): string {
+function renderMarkdownDocument(
+  input: DossierSynthesisInput,
+  state: DossierLedgerState,
+  stateComment: string,
+  maxVisibleWorks: number,
+): string {
   const { verticalId, slot, expectedWatermark, targetWatermark } = input;
   const headingLines = [
     `<!-- dossier-watermark: ${targetWatermark} -->`,
@@ -314,10 +367,31 @@ function renderMarkdownDocument(input: DossierSynthesisInput, state: DossierLedg
   for (const anchor of anchors) {
     const title = MARKDOWN_ANCHOR_HEADINGS[anchor] ?? anchor.replaceAll("-", " ");
     sectionLines.push(`<!-- dossier-anchor: ${anchor} -->`, `## ${title}`, "");
-    sectionLines.push(...renderMarkdownAnchorBody(anchor, state, targetWatermark));
+    sectionLines.push(...renderMarkdownAnchorBody(anchor, state, targetWatermark, maxVisibleWorks));
   }
 
   return [...headingLines, ...sectionLines, stateComment, ""].join("\n");
+}
+
+function renderManagedCandidate(
+  input: DossierSynthesisInput,
+  state: DossierLedgerState,
+  maxVisibleWorks: number,
+): string {
+  const stateComment = serializeStateComment(state, input.slot.kind === "html");
+  if (input.slot.kind === "html") {
+    return renderDossierHtmlDocument({
+      verticalId: input.verticalId,
+      slot: input.slot,
+      state,
+      workRollups: computeWorkRollups(state, maxVisibleWorks),
+      blockedTasks: activeBlockedTasks(state),
+      expectedWatermark: input.expectedWatermark,
+      windowChangeCount: input.changes.length,
+      stateComment,
+    });
+  }
+  return renderMarkdownDocument(input, state, stateComment, maxVisibleWorks);
 }
 
 /**
@@ -335,19 +409,18 @@ export function synthesizeDossierDocument(input: DossierSynthesisInput): string 
   }
 
   const prior = managedPrior ?? emptyState(input.expectedWatermark, input.synthesizedAt);
-  const state = mergeLedgerState(input, prior);
-  const stateComment = serializeStateComment(state, input.slot.kind === "html");
-  if (input.slot.kind === "html") {
-    return renderDossierHtmlDocument({
-      verticalId: input.verticalId,
-      slot: input.slot,
-      state,
-      workRollups: computeWorkRollups(state),
-      blockedTasks: activeBlockedTasks(state),
-      expectedWatermark: input.expectedWatermark,
-      windowChangeCount: input.changes.length,
-      stateComment,
-    });
+  let state = mergeLedgerState(input, prior);
+  let candidate = renderManagedCandidate(input, state, 256);
+  if (utf8Encoder.encode(candidate).byteLength <= dossierContentMaxBytes) {
+    return candidate;
   }
-  return renderMarkdownDocument(input, state, stateComment);
+
+  for (const profile of BUDGET_COMPACTION_PROFILES) {
+    state = compactDossierState(state, profile);
+    candidate = renderManagedCandidate(input, state, profile.maxVisibleWorks);
+    if (utf8Encoder.encode(candidate).byteLength <= dossierContentMaxBytes) {
+      return candidate;
+    }
+  }
+  return candidate;
 }
