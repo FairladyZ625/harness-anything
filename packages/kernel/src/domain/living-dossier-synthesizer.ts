@@ -1,9 +1,12 @@
 import { dossierContentMaxBytes } from "./cli-operational-policy.ts";
-import { preserveExternalHtmlBody, preserveExternalMarkdownBody } from "./living-dossier-chronicler-merge.ts";
-import { renderDossierHtmlDocument } from "./living-dossier-html.ts";
+import {
+  escapeMarkdownCell,
+  preserveExternalHtmlBody,
+  preserveExternalMarkdownBody,
+} from "./living-dossier-chronicler-merge.ts";
+import { renderDossierHtmlDocument, type DossierWorkRollup } from "./living-dossier-html.ts";
 import {
   compactDossierState,
-  escapeMarkdownCell,
   mergeLedgerState,
   parseManagedState,
   resolveRootWorkId,
@@ -14,7 +17,6 @@ import {
   type DossierLedgerState,
   type DossierSynthesisInput,
   type DossierTaskRecord,
-  type DossierWorkRollup,
 } from "./living-dossier-state.ts";
 
 export { type DossierChangeItem, type DossierSynthesisInput };
@@ -54,6 +56,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 144,
     maxTrackedTasks: 96,
     maxBlockedPinned: 48,
+    maxArchivedTaskIndex: 256,
     maxOrphanCounters: 160,
     maxDecisions: 144,
     maxEntries: 36,
@@ -65,6 +68,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 96,
     maxTrackedTasks: 64,
     maxBlockedPinned: 32,
+    maxArchivedTaskIndex: 128,
     maxOrphanCounters: 96,
     maxDecisions: 96,
     maxEntries: 24,
@@ -76,6 +80,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 48,
     maxTrackedTasks: 48,
     maxBlockedPinned: 16,
+    maxArchivedTaskIndex: 32,
     maxOrphanCounters: 48,
     maxDecisions: 48,
     maxEntries: 16,
@@ -87,6 +92,7 @@ const BUDGET_COMPACTION_PROFILES = [
     maxPinnedWorks: 16,
     maxTrackedTasks: 16,
     maxBlockedPinned: 8,
+    maxArchivedTaskIndex: 0,
     maxOrphanCounters: 0,
     maxDecisions: 16,
     maxEntries: 8,
@@ -102,12 +108,40 @@ function activeBlockedTasks(state: DossierLedgerState): readonly DossierTaskReco
     .sort((left, right) => right.workspaceRevision - left.workspaceRevision);
 }
 
-function computeWorkRollups(state: DossierLedgerState, maxVisibleWorks = 256): readonly DossierWorkRollup[] {
+function computeBlockedSummary(state: DossierLedgerState): {
+  readonly liveBlockedInTasks: readonly DossierTaskRecord[];
+  readonly totalBlockedCount: number;
+  readonly incomplete: boolean;
+} {
+  const liveBlockedInTasks = activeBlockedTasks(state);
+  let archivedWorkBlocked = 0;
+  let unindexedLegacyBlocked = false;
+  for (const counter of Object.values(state.workCounters)) {
+    archivedWorkBlocked += counter.archivedBlocked;
+    if (
+      counter.countsIncomplete &&
+      counter.archivedBlocked > 0 &&
+      counter.archivedTotal > Object.keys(counter.archivedTaskStates ?? {}).length
+    ) {
+      unindexedLegacyBlocked = true;
+    }
+  }
+  return {
+    liveBlockedInTasks,
+    totalBlockedCount: liveBlockedInTasks.length + archivedWorkBlocked,
+    incomplete: Boolean(state.blockedTruncated || unindexedLegacyBlocked),
+  };
+}
+
+function computeWorkRollups(
+  state: DossierLedgerState,
+  maxVisibleWorks = 256,
+): { readonly rollups: readonly DossierWorkRollup[]; readonly totalWorkCount: number } {
   const taskMap = state.tasks;
   const workIds = new Set<string>(Object.keys(state.workCounters));
   for (const task of Object.values(taskMap)) {
     if (task.taskClass === "work") workIds.add(task.taskId);
-    const rootId = resolveRootWorkId(task, taskMap);
+    const rootId = resolveRootWorkId(task, taskMap, state.workCounters);
     if (rootId) workIds.add(rootId);
   }
 
@@ -115,7 +149,7 @@ function computeWorkRollups(state: DossierLedgerState, maxVisibleWorks = 256): r
   for (const id of workIds) childrenByWork.set(id, []);
 
   for (const task of Object.values(taskMap)) {
-    const rootId = resolveRootWorkId(task, taskMap);
+    const rootId = resolveRootWorkId(task, taskMap, state.workCounters);
     if (rootId) childrenByWork.get(rootId)?.push(task);
   }
 
@@ -162,9 +196,13 @@ function computeWorkRollups(state: DossierLedgerState, maxVisibleWorks = 256): r
     });
   }
 
-  return rollups
-    .sort((left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId))
-    .slice(0, maxVisibleWorks);
+  const sorted = rollups.sort(
+    (left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId),
+  );
+  return {
+    rollups: sorted.slice(0, maxVisibleWorks),
+    totalWorkCount: sorted.length,
+  };
 }
 
 const MARKDOWN_ANCHOR_HEADINGS: Readonly<Record<string, string>> = {
@@ -235,15 +273,15 @@ function renderMarkdownAnchorBody(
   const activeDecisions = Object.values(state.activeDecisions).sort(
     (left, right) => right.workspaceRevision - left.workspaceRevision,
   );
-  const workRollups = computeWorkRollups(state, maxVisibleWorks);
+  const { rollups: workRollups, totalWorkCount } = computeWorkRollups(state, maxVisibleWorks);
 
   switch (anchor) {
     case "overview": {
       const surfaces = [...new Set(Object.values(state.tasks).flatMap((task) => task.surfaces))].slice(0, 12);
       const modules = [...new Set(activeDecisions.flatMap((decision) => decision.modules))].slice(0, 12);
-      const blocked = activeBlockedTasks(state);
+      const blockedSummary = computeBlockedSummary(state);
       const lines = [
-        `- Active Decisions: ${activeDecisions.length} · Tracked Works: ${workRollups.length} · Live Blocked Tasks: ${blocked.length}${state.blockedTruncated ? "+ (windowed)" : ""} · Active Relations: ${state.relations.length}`,
+        `- Active Decisions: ${activeDecisions.length} · Tracked Works: ${totalWorkCount}${state.workCountersTruncated ? "+ (windowed)" : ""} · Live Blocked Tasks: ${blockedSummary.totalBlockedCount}${blockedSummary.incomplete ? "+ (windowed)" : ""} · Active Relations: ${state.relations.length}`,
       ];
       if (surfaces.length > 0 || modules.length > 0) {
         lines.push(
@@ -287,8 +325,9 @@ function renderMarkdownAnchorBody(
       ];
       for (const work of workRollups) {
         const progressLabel = `${work.doneTasks}/${work.totalTasks}${work.countsIncomplete ? " (partial)" : ""}`;
+        const blockedLabel = `${work.blockedTasks}${work.countsIncomplete ? " (partial)" : ""}`;
         lines.push(
-          `| \`${escapeMarkdownCell(work.workId)}\` | ${escapeMarkdownCell(work.title)} | \`${work.status}\` | ${progressLabel} | ${work.blockedTasks} | \`${escapeMarkdownCell(work.explainerPath)}\` | r${work.latestRevision} |`,
+          `| \`${escapeMarkdownCell(work.workId)}\` | ${escapeMarkdownCell(work.title)} | \`${work.status}\` | ${progressLabel} | ${blockedLabel} | \`${escapeMarkdownCell(work.explainerPath)}\` | r${work.latestRevision} |`,
         );
       }
       lines.push("");
@@ -416,12 +455,17 @@ function renderManagedCandidate(
 ): string {
   const stateComment = serializeStateComment(state, input.slot.kind === "html");
   if (input.slot.kind === "html") {
+    const { rollups, totalWorkCount } = computeWorkRollups(state, maxVisibleWorks);
+    const blockedSummary = computeBlockedSummary(state);
     return renderDossierHtmlDocument({
       verticalId: input.verticalId,
       slot: input.slot,
       state,
-      workRollups: computeWorkRollups(state, maxVisibleWorks),
-      blockedTasks: activeBlockedTasks(state).slice(0, maxVisibleBlocked),
+      workRollups: rollups,
+      totalWorkCount,
+      blockedTasks: blockedSummary.liveBlockedInTasks.slice(0, maxVisibleBlocked),
+      totalBlockedCount: blockedSummary.totalBlockedCount,
+      blockedCountIncomplete: blockedSummary.incomplete,
       expectedWatermark: input.expectedWatermark,
       windowChangeCount: input.changes.length,
       stateComment,

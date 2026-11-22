@@ -6,8 +6,23 @@ import {
   type DossierLedgerState,
   type DossierRelationEdge,
   type DossierTaskRecord,
-  type DossierWorkRollup,
 } from "./living-dossier-state.ts";
+
+export interface DossierWorkRollup {
+  readonly workId: string;
+  readonly title: string;
+  readonly status: string;
+  readonly totalTasks: number;
+  readonly doneTasks: number;
+  readonly blockedTasks: number;
+  readonly activeTasks: number;
+  readonly cancelledTasks: number;
+  readonly explainerPath: string;
+  readonly packagePath?: string;
+  readonly latestRevision: number;
+  readonly recentChildIds: readonly string[];
+  readonly countsIncomplete?: boolean;
+}
 
 const ANCHOR_LABELS: Readonly<Record<string, string>> = {
   "atlas-topology": "架构拓扑与实体关系",
@@ -83,6 +98,7 @@ function renderTopologyEdgesSvg(
   state: DossierLedgerState,
   edges: readonly DossierRelationEdge[],
   blockedCount: number,
+  blockedCountIncomplete: boolean,
 ): string {
   const boundedEdges = edges.slice(0, 8);
   const sources = [...new Set(boundedEdges.map((edge) => edge.source))].slice(0, 6);
@@ -171,7 +187,7 @@ function renderTopologyEdgesSvg(
     `<text x="${hubX + 12}" y="${hubY + 26}" font-size="13" class="svg-title">${escapeHtml(clipLabel(verticalId, 20))}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 50}" font-size="15" class="svg-num">r${state.watermark}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 72}" font-size="11" class="svg-mono">rels ${state.relations.length} · ADR ${activeDecisionCount}</text>`,
-    `<text x="${hubX + 12}" y="${hubY + 92}" font-size="11" class="svg-mono">blockers ${blockedCount}${state.blockedTruncated ? "+" : ""}</text>`,
+    `<text x="${hubX + 12}" y="${hubY + 92}" font-size="11" class="svg-mono">blockers ${blockedCount}${blockedCountIncomplete ? "+ (windowed)" : ""}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 112}" font-size="11" class="svg-mono">total ${state.totalChanges} changes</text>`,
     `</svg>`,
   ].join("");
@@ -182,6 +198,7 @@ function renderAtlasSvg(
   slot: DossierSlot,
   state: DossierLedgerState,
   blockedCount: number,
+  blockedCountIncomplete: boolean,
 ): string {
   const workEdges: DossierRelationEdge[] = Object.values(state.tasks)
     .filter((task) => task.parentTaskId !== null)
@@ -196,7 +213,7 @@ function renderAtlasSvg(
     }));
   const combinedEdges = [...state.relations, ...workEdges];
   if (combinedEdges.length > 0) {
-    return renderTopologyEdgesSvg(verticalId, slot, state, combinedEdges, blockedCount);
+    return renderTopologyEdgesSvg(verticalId, slot, state, combinedEdges, blockedCount, blockedCountIncomplete);
   }
 
   const kinds = slot.entityKinds.length > 0 ? slot.entityKinds.slice(0, 6) : ["task", "decision", "fact"];
@@ -248,7 +265,9 @@ function renderPulseSvg(
   slot: DossierSlot,
   state: DossierLedgerState,
   workRollups: readonly DossierWorkRollup[],
+  totalWorkCount: number,
   blockedCount: number,
+  blockedCountIncomplete: boolean,
   expectedWatermark: number,
   windowChangeCount: number,
 ): string {
@@ -266,7 +285,7 @@ function renderPulseSvg(
                 : work.status === "done"
                   ? 1
                   : 0,
-            valueLabel: `${work.doneTasks}/${work.totalTasks}${partial ? " (partial)" : ""}${work.blockedTasks > 0 ? ` (${work.blockedTasks} blk)` : ""}`,
+            valueLabel: `${work.doneTasks}/${work.totalTasks}${partial ? " (partial)" : ""}${work.blockedTasks > 0 ? ` (${work.blockedTasks}${partial ? "+" : ""} blk)` : ""}`,
             cls:
               work.blockedTasks > 0
                 ? "bar-bad"
@@ -330,10 +349,10 @@ function renderPulseSvg(
     `<rect x="218" y="34" width="174" height="62" rx="5" class="svg-box-accent"/>`,
     `<text x="232" y="58" font-size="11" class="svg-mono">CURRENT CUT</text>`,
     `<text x="232" y="82" font-size="15" class="svg-num">r${state.watermark}</text>`,
-    `<rect x="24" y="116" width="368" height="66" rx="5" class="${blockedCount > 0 ? "svg-box-bad" : "svg-box-done"}"/>`,
+    `<rect x="24" y="116" width="368" height="66" rx="5" class="${blockedCount > 0 || blockedCountIncomplete ? "svg-box-bad" : "svg-box-done"}"/>`,
     `<text x="38" y="142" font-size="13" class="svg-title">${escapeHtml(clipLabel(verticalId, 24))}</text>`,
-    `<text x="38" y="166" font-size="11" class="svg-mono">delta +${windowChangeCount} · ${workRollups.length} works · ${blockedCount}${state.blockedTruncated ? "+" : ""} live blockers</text>`,
-    `<text x="424" y="20" font-size="11" class="svg-mono">${workRollups.length > 0 ? (anyPartial ? "WORK COMPLETION ROLLUP (WINDOWED)" : "WORK COMPLETION ROLLUP") : "CATEGORY VOLUME"}</text>`,
+    `<text x="38" y="166" font-size="11" class="svg-mono">delta +${windowChangeCount} · ${totalWorkCount}${state.workCountersTruncated ? "+" : ""} works · ${blockedCount}${blockedCountIncomplete ? "+ live blockers (windowed)" : " live blockers"}</text>`,
+    `<text x="424" y="20" font-size="11" class="svg-mono">${workRollups.length > 0 ? (anyPartial || state.workCountersTruncated || workRollups.length < totalWorkCount ? "WORK COMPLETION ROLLUP (WINDOWED)" : "WORK COMPLETION ROLLUP") : "CATEGORY VOLUME"}</text>`,
     bars,
     `</svg>`,
   ].join("");
@@ -361,8 +380,17 @@ function renderEntryTable(entries: readonly DossierLedgerEntry[], emptySummary: 
   );
 }
 
-function renderWorkRollupTable(workRollups: readonly DossierWorkRollup[]): string {
+function renderWorkRollupTable(
+  workRollups: readonly DossierWorkRollup[],
+  totalWorkCount: number,
+  workCountersTruncated: boolean,
+): string {
   if (workRollups.length === 0) return "";
+  const coverageNote = workCountersTruncated
+    ? `<p>Showing ${workRollups.length} most recent retained Work streams (${totalWorkCount}+ total).</p>`
+    : workRollups.length < totalWorkCount
+      ? `<p>Showing ${workRollups.length} most recent of ${totalWorkCount} Work streams.</p>`
+      : "";
   const rows = workRollups
     .map(
       (work) =>
@@ -371,14 +399,14 @@ function renderWorkRollupTable(workRollups: readonly DossierWorkRollup[]): strin
         `<td>${escapeHtml(work.title)}</td>` +
         `<td><span class="pill ${work.blockedTasks > 0 ? "pill-bad" : work.status === "done" ? "pill-done" : "pill-accent"}">${escapeHtml(work.status)}</span></td>` +
         `<td class="rev">${work.doneTasks}/${work.totalTasks}${work.countsIncomplete ? " (partial)" : ""}</td>` +
-        `<td class="rev">${work.blockedTasks}</td>` +
+        `<td class="rev">${work.blockedTasks}${work.countsIncomplete ? " (partial)" : ""}</td>` +
         `<td class="refs"><code>${escapeHtml(work.explainerPath)}</code></td>` +
         `<td class="rev">r${work.latestRevision}</td>` +
         `</tr>`,
     )
     .join("");
   return (
-    `<div class="table-wrap"><table><thead><tr>` +
+    `${coverageNote}<div class="table-wrap"><table><thead><tr>` +
     `<th>Work</th><th>Title</th><th>Status</th><th>Done/Total</th><th>Blocked</th><th>Work Explainer</th><th>Latest Rev</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`
   );
@@ -421,7 +449,10 @@ function renderSectionBody(
   slot: DossierSlot,
   state: DossierLedgerState,
   workRollups: readonly DossierWorkRollup[],
+  totalWorkCount: number,
   blockedTasks: readonly DossierTaskRecord[],
+  totalBlockedCount: number,
+  blockedCountIncomplete: boolean,
   expectedWatermark: number,
   windowChangeCount: number,
 ): string {
@@ -442,10 +473,10 @@ function renderSectionBody(
             .join("") +
           `</tbody></table></div>`
         : "";
-    return `${renderAtlasSvg(verticalId, slot, state, blockedTasks.length)}${relationsTable}`;
+    return `${renderAtlasSvg(verticalId, slot, state, totalBlockedCount, blockedCountIncomplete)}${relationsTable}`;
   }
   if (anchor === "pulse-flow") {
-    return `${renderPulseSvg(verticalId, slot, state, workRollups, blockedTasks.length, expectedWatermark, windowChangeCount)}${renderWorkRollupTable(workRollups)}`;
+    return `${renderPulseSvg(verticalId, slot, state, workRollups, totalWorkCount, totalBlockedCount, blockedCountIncomplete, expectedWatermark, windowChangeCount)}${renderWorkRollupTable(workRollups, totalWorkCount, Boolean(state.workCountersTruncated))}`;
   }
   if (anchor === "entity-map") {
     const cards = slot.entityKinds
@@ -490,12 +521,14 @@ function renderSectionBody(
   }
   if (anchor === "risk-signals") {
     const blocked = blockedTasks;
-    const coverageNote = state.blockedTruncated
-      ? `<p>Showing ${blocked.length} most recent retained live blocked tasks (older blocked tasks compacted to fit 512 KiB dossier budget).</p>`
-      : "";
+    const coverageNote = blockedCountIncomplete
+      ? `<p>Showing ${blocked.length} most recent retained live blocked tasks (${totalBlockedCount}+ live blockers; older blocked tasks compacted to fit 512 KiB dossier budget).</p>`
+      : blocked.length < totalBlockedCount
+        ? `<p>Showing ${blocked.length} most recent of ${totalBlockedCount} live blocked tasks.</p>`
+        : "";
     const blockedHtml =
       blocked.length === 0
-        ? `<p>Watermarked at r${state.watermark}: 0 live blocked tasks${state.blockedTruncated ? " in recent retention window" : ""}.</p>`
+        ? `<p>Watermarked at r${state.watermark}: 0${blockedCountIncomplete ? ` retained live blocked tasks in recent window (${totalBlockedCount}+ total)` : " live blocked tasks"}.</p>`
         : `${coverageNote}<div class="table-wrap"><table><thead><tr><th>Rev</th><th>Task</th><th>Work</th><th>Title</th><th>Block Reason</th></tr></thead><tbody>` +
           blocked
             .map(
@@ -528,20 +561,33 @@ export function renderDossierHtmlDocument(input: {
   readonly slot: DossierSlot;
   readonly state: DossierLedgerState;
   readonly workRollups: readonly DossierWorkRollup[];
+  readonly totalWorkCount: number;
   readonly blockedTasks: readonly DossierTaskRecord[];
+  readonly totalBlockedCount: number;
+  readonly blockedCountIncomplete: boolean;
   readonly expectedWatermark: number;
   readonly windowChangeCount: number;
   readonly stateComment: string;
 }): string {
-  const { verticalId, slot, state, workRollups, blockedTasks, expectedWatermark, windowChangeCount, stateComment } =
-    input;
+  const {
+    verticalId,
+    slot,
+    state,
+    workRollups,
+    totalWorkCount,
+    blockedTasks,
+    totalBlockedCount,
+    blockedCountIncomplete,
+    expectedWatermark,
+    windowChangeCount,
+    stateComment,
+  } = input;
   const activeDecisionCount = Object.keys(state.activeDecisions).length;
-  const blockedCount = blockedTasks.length;
   const anchors = slot.requiredAnchors.length > 0 ? slot.requiredAnchors : ["atlas-topology", "change-ledger"];
   const hasDiagramAnchor = anchors.includes("atlas-topology") || anchors.includes("pulse-flow");
   const fallbackDiagram = hasDiagramAnchor
     ? ""
-    : `<section><h2>${escapeHtml(slot.title)}<small>r${state.watermark}</small></h2>${renderAtlasSvg(verticalId, slot, state, blockedCount)}</section>`;
+    : `<section><h2>${escapeHtml(slot.title)}<small>r${state.watermark}</small></h2>${renderAtlasSvg(verticalId, slot, state, totalBlockedCount, blockedCountIncomplete)}</section>`;
   const sections = anchors
     .map(
       (anchor) =>
@@ -553,7 +599,10 @@ export function renderDossierHtmlDocument(input: {
           slot,
           state,
           workRollups,
+          totalWorkCount,
           blockedTasks,
+          totalBlockedCount,
+          blockedCountIncomplete,
           expectedWatermark,
           windowChangeCount,
         ) +
@@ -585,7 +634,7 @@ export function renderDossierHtmlDocument(input: {
       `<div class="metric"><strong>r${state.watermark}</strong><span>Source Watermark</span></div>` +
       `<div class="metric"><strong>${state.totalChanges}</strong><span>Tracked Changes (+${windowChangeCount})</span></div>` +
       `<div class="metric"><strong>${activeDecisionCount}</strong><span>Active Decisions</span></div>` +
-      `<div class="metric"><strong>${blockedCount}</strong><span>Live Blockers</span></div>` +
+      `<div class="metric"><strong>${totalBlockedCount}${blockedCountIncomplete ? "+" : ""}</strong><span>${blockedCountIncomplete ? "Live Blockers (windowed)" : "Live Blockers"}</span></div>` +
       `</div>`,
     fallbackDiagram,
     sections,

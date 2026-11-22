@@ -760,3 +760,211 @@ test("F-DOSSIER-06: chronicler HTML appendix stays bounded across 40 non-empty p
     /exceeds 524288 UTF-8 bytes.*chronicler/iu,
   );
 });
+
+function mkTaskChange(
+  rev: number,
+  taskId: string,
+  type: string,
+  payload: Readonly<Record<string, unknown>>,
+  occurredAt = "2026-11-23T03:00:00.000Z",
+): DossierChangeItem {
+  return {
+    eventId: `evt_t_${rev}`,
+    workspaceRevision: rev,
+    occurredAt,
+    schema: "task-event/v1",
+    type,
+    taskId,
+    actor: { principal: { personId: "person_zeyu" } },
+    payload,
+    entityRefs: [`task/${taskId}`],
+  };
+}
+
+test("F-DOSSIER-11: preserves exact total live blockers across 64/65/80 display-cap thresholds and qualifies incomplete state compaction across header, SVGs, Markdown, and risk table", () => {
+  const at = "2026-11-23T03:00:00.000Z";
+  let pulseBody: string | null = null;
+  let atlasBody: string | null = null;
+  let contextBody: string | null = null;
+  let rev = 0;
+
+  const pushBlockedBatch = (count: number, startIndex: number): void => {
+    const prev = rev;
+    const changes: DossierChangeItem[] = [];
+    for (let idx = startIndex; idx < startIndex + count; idx += 1) {
+      const tid = `task_blk_${String(idx).padStart(4, "0")}`;
+      changes.push(
+        mkTaskChange(++rev, tid, "task_created", {
+          title: `Standalone task ${idx}`,
+          taskClass: "standard",
+          taskStatus: "active",
+          parentTaskId: null,
+        }),
+        mkTaskChange(++rev, tid, "task_transitioned", {
+          title: `Standalone task ${idx}`,
+          taskClass: "standard",
+          taskStatus: "blocked",
+          parentTaskId: null,
+          reason: `Reason ${idx}`,
+        }),
+      );
+    }
+    if (startIndex === 1) {
+      changes.push({
+        eventId: `evt_rel_${++rev}`,
+        workspaceRevision: rev,
+        occurredAt: at,
+        schema: "relation-event/v1",
+        type: "relation_created",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          relation: {
+            relationId: "rel_1",
+            source: "decision/dec_1",
+            target: "task/task_blk_0001",
+            sourceKind: "decision",
+            targetKind: "task",
+            relationType: "derives",
+          },
+        },
+        entityRefs: ["decision/dec_1", "task/task_blk_0001"],
+      });
+    }
+    pulseBody = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: pulseSlot,
+      previousBody: pulseBody,
+      expectedWatermark: prev,
+      targetWatermark: rev,
+      changes,
+      synthesizedAt: at,
+    });
+    atlasBody = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: atlasSlot,
+      previousBody: atlasBody,
+      expectedWatermark: prev,
+      targetWatermark: rev,
+      changes,
+      synthesizedAt: at,
+    });
+    contextBody = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: contextSlot,
+      previousBody: contextBody,
+      expectedWatermark: prev,
+      targetWatermark: rev,
+      changes,
+      synthesizedAt: at,
+    });
+  };
+
+  pushBlockedBatch(64, 1);
+  assert.match(pulseBody!, /<strong>64<\/strong><span>Live Blockers<\/span>/u);
+  assert.ok(pulseBody!.includes("64 live blockers"));
+  assert.ok(!pulseBody!.includes("Showing 64 most recent of"));
+  assert.ok(atlasBody!.includes("blockers 64</text>"));
+  assert.ok(contextBody!.includes("Live Blocked Tasks: 64 ·"));
+
+  pushBlockedBatch(1, 65);
+  assert.match(pulseBody!, /<strong>65<\/strong><span>Live Blockers<\/span>/u);
+  assert.ok(pulseBody!.includes("65 live blockers"));
+  assert.ok(pulseBody!.includes("Showing 64 most recent of 65 live blocked tasks."));
+  assert.ok(atlasBody!.includes("blockers 65</text>"));
+  assert.ok(contextBody!.includes("Live Blocked Tasks: 65 ·"));
+
+  pushBlockedBatch(15, 66);
+  assert.match(pulseBody!, /<strong>80<\/strong><span>Live Blockers<\/span>/u);
+  assert.ok(pulseBody!.includes("80 live blockers"));
+  assert.ok(pulseBody!.includes("Showing 64 most recent of 80 live blocked tasks."));
+  assert.equal((pulseBody!.match(/<code>task\/task_blk_/gu) ?? []).length, 64);
+  assert.ok(atlasBody!.includes("blockers 80</text>"));
+  assert.ok(contextBody!.includes("Live Blocked Tasks: 80 ·"));
+
+  pushBlockedBatch(70, 81);
+  assert.ok(Buffer.byteLength(pulseBody!, "utf8") < 250_000, "fixture must stay well below 512 KiB byte compaction");
+  assert.match(pulseBody!, /<strong>128\+<\/strong><span>Live Blockers \(windowed\)<\/span>/u);
+  assert.ok(pulseBody!.includes("128+ live blockers (windowed)"));
+  assert.ok(pulseBody!.includes("Showing 64 most recent retained live blocked tasks (128+ live blockers;"));
+  assert.ok(atlasBody!.includes("blockers 128+ (windowed)</text>"));
+  assert.ok(contextBody!.includes("Live Blocked Tasks: 128+ (windowed)"));
+});
+
+test("F-DOSSIER-12: reconciles archived blocked child tasks by taskId across unblock, re-block, completion, and subsequent pages without double-counting Work totals", () => {
+  const at = "2026-11-23T03:10:00.000Z";
+  const workId = "task_work_root_132";
+  let pulseBody: string | null = null;
+  let rev = 0;
+
+  const step = (changes: DossierChangeItem[]): string => {
+    const prev = rev;
+    pulseBody = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: pulseSlot,
+      previousBody: pulseBody,
+      expectedWatermark: prev,
+      targetWatermark: rev,
+      changes,
+      synthesizedAt: at,
+    });
+    return pulseBody;
+  };
+
+  const seedEvents: DossierChangeItem[] = [
+    mkTaskChange(++rev, workId, "task_created", {
+      title: "Work 132",
+      taskClass: "work",
+      taskStatus: "active",
+      parentTaskId: null,
+    }),
+  ];
+  for (let i = 1; i <= 132; i += 1) {
+    const cid = `task_child_${String(i).padStart(3, "0")}`;
+    seedEvents.push(
+      mkTaskChange(++rev, cid, "task_created", {
+        title: `Child ${i}`,
+        taskClass: "standard",
+        taskStatus: "active",
+        parentTaskId: workId,
+      }),
+      mkTaskChange(++rev, cid, "task_transitioned", {
+        title: `Child ${i}`,
+        taskClass: "standard",
+        taskStatus: "blocked",
+        parentTaskId: workId,
+        reason: "dep",
+      }),
+    );
+  }
+  const r265 = step(seedEvents);
+  assert.ok(
+    r265.includes(`<td class="rev">0/132</td><td class="rev">132</td>`),
+    "r265 must show exact 0/132 and 132 blocked",
+  );
+  assert.match(r265, /<strong>132<\/strong><span>Live Blockers<\/span>/u);
+
+  const r266 = step([
+    mkTaskChange(++rev, "task_child_001", "task_transitioned", { title: "Child 1", taskStatus: "active" }),
+  ]);
+  assert.ok(r266.includes(`<td class="rev">0/132</td><td class="rev">131</td>`));
+  assert.match(r266, /<strong>131<\/strong><span>Live Blockers<\/span>/u);
+
+  const r267 = step([
+    mkTaskChange(++rev, "task_child_001", "task_transitioned", {
+      title: "Child 1",
+      taskStatus: "blocked",
+      reason: "dep again",
+    }),
+  ]);
+  assert.ok(r267.includes(`<td class="rev">0/132</td><td class="rev">132</td>`));
+  assert.match(r267, /<strong>132<\/strong><span>Live Blockers<\/span>/u);
+
+  const r268 = step([
+    mkTaskChange(++rev, "task_child_002", "task_completed", { title: "Child 2", taskStatus: "done" }),
+  ]);
+  assert.ok(r268.includes(`<td class="rev">1/132</td><td class="rev">131</td>`));
+  rev += 5;
+  const r273 = step([]);
+  assert.ok(r273.includes(`<td class="rev">1/132</td><td class="rev">131</td>`));
+  assert.match(r273, /<strong>131<\/strong><span>Live Blockers<\/span>/u);
+});

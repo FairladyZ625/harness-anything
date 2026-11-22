@@ -1,10 +1,9 @@
 import { dossierContentMaxBytes } from "./cli-operational-policy.ts";
-import {
-  escapeMarkdownCell,
-  sanitizeExternalUrlText,
-  toLedgerEntry,
-  type DossierSynthesisInput,
-} from "./living-dossier-state.ts";
+import { sanitizeExternalUrlText, toLedgerEntry, type DossierSynthesisInput } from "./living-dossier-state.ts";
+
+export function escapeMarkdownCell(value: string): string {
+  return value.replaceAll("|", "/").replace(/\r?\n/gu, " ");
+}
 
 const INCREMENTAL_MD_START = "<!-- dossier-incremental-updates:start -->";
 const INCREMENTAL_MD_END = "<!-- dossier-incremental-updates:end -->";

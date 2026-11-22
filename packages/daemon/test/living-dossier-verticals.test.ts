@@ -662,4 +662,93 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
   });
   assert.ok(Buffer.byteLength(exactHtml1000, "utf8") <= maxBytes);
   validateDossierContent(atlasSlot, exactHtml1000, 1000);
+
+  // 8. F-DOSSIER-11/12 write-boundary validation on Project Pulse (80 blockers + 132 Work blockers -> unblock)
+  let wbRev = 0;
+  const wbEvents = [
+    {
+      eventId: `wb_w_${++wbRev}`,
+      workspaceRevision: wbRev,
+      occurredAt: "2026-11-23T04:10:00.000Z",
+      schema: "task-event/v1",
+      type: "task_created",
+      taskId: "work_wb_132",
+      actor: { principal: { personId: "person_zeyu" } },
+      payload: { title: "Office Work 132", taskClass: "work", taskStatus: "active", parentTaskId: null },
+      entityRefs: ["task/work_wb_132"],
+    },
+  ];
+  for (let i = 1; i <= 132; i += 1) {
+    const cid = `task_wb_${String(i).padStart(3, "0")}`;
+    wbEvents.push(
+      {
+        eventId: `wb_c_${++wbRev}`,
+        workspaceRevision: wbRev,
+        occurredAt: "2026-11-23T04:10:00.000Z",
+        schema: "task-event/v1",
+        type: "task_created",
+        taskId: cid,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: { title: `Item ${i}`, taskClass: "standard", taskStatus: "active", parentTaskId: "work_wb_132" },
+        entityRefs: [`task/${cid}`],
+      },
+      {
+        eventId: `wb_b_${++wbRev}`,
+        workspaceRevision: wbRev,
+        occurredAt: "2026-11-23T04:10:00.000Z",
+        schema: "task-event/v1",
+        type: "task_transitioned",
+        taskId: cid,
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: {
+          title: `Item ${i}`,
+          taskClass: "standard",
+          taskStatus: "blocked",
+          parentTaskId: "work_wb_132",
+          reason: "hold",
+        },
+        entityRefs: [`task/${cid}`],
+      },
+    );
+  }
+  const wbPulse265 = synthesizeDossierDocument({
+    verticalId: "office/collab",
+    slot: pulseSlot,
+    previousBody: null,
+    expectedWatermark: 0,
+    targetWatermark: wbRev,
+    changes: wbEvents,
+    synthesizedAt: "2026-11-23T04:10:00.000Z",
+    kindMap: pulseCtx.kindMap,
+  });
+  validateDossierContent(pulseSlot, wbPulse265, wbRev);
+  assert.ok(wbPulse265.includes("132 live blockers"));
+  assert.ok(wbPulse265.includes("Showing 64 most recent of 132 live blocked tasks."));
+
+  const prevWb = wbRev;
+  const wbPulse266 = synthesizeDossierDocument({
+    verticalId: "office/collab",
+    slot: pulseSlot,
+    previousBody: wbPulse265,
+    expectedWatermark: prevWb,
+    targetWatermark: ++wbRev,
+    changes: [
+      {
+        eventId: `wb_u_${wbRev}`,
+        workspaceRevision: wbRev,
+        occurredAt: "2026-11-23T04:11:00.000Z",
+        schema: "task-event/v1",
+        type: "task_transitioned",
+        taskId: "task_wb_001",
+        actor: { principal: { personId: "person_zeyu" } },
+        payload: { title: "Item 1", taskStatus: "active" },
+        entityRefs: ["task/task_wb_001"],
+      },
+    ],
+    synthesizedAt: "2026-11-23T04:11:00.000Z",
+    kindMap: pulseCtx.kindMap,
+  });
+  validateDossierContent(pulseSlot, wbPulse266, wbRev);
+  assert.ok(wbPulse266.includes(`<td class="rev">0/132</td><td class="rev">131</td>`));
+  assert.ok(wbPulse266.includes("131 live blockers"));
 });

@@ -1,6 +1,24 @@
 import type { DecisionState } from "./decision-event-types.ts";
+import {
+  MAX_ARCHIVED_TASK_INDEX,
+  MAX_BLOCKED_PINNED,
+  MAX_PINNED_WORKS,
+  MAX_TRACKED_TASKS,
+  MAX_WORK_COUNTERS,
+  hasUnindexedArchivedTasks,
+  pruneByRevision,
+  pruneTasks,
+  pruneWorkCounters,
+  reclaimArchivedChildTask,
+  resolveRootWorkId,
+  type ArchivedTaskBucket,
+  type DossierTaskRecord,
+  type DossierWorkCounter,
+} from "./living-dossier-compaction.ts";
 import type { DossierSlot } from "./living-dossier.ts";
 import type { TaskClass } from "./task.ts";
+
+export { resolveRootWorkId, type ArchivedTaskBucket, type DossierTaskRecord, type DossierWorkCounter };
 
 const STATE_COMMENT_PREFIX = "<!-- dossier-state:v1 ";
 const STATE_COMMENT_SUFFIX = " -->";
@@ -8,11 +26,7 @@ const MAX_STORED_ENTRIES = 48;
 const MAX_ACTIVE_DECISIONS = 256;
 const MAX_PENDING_PROPOSALS = 128;
 const MAX_RETIRED_DECISIONS = 48;
-const MAX_TRACKED_TASKS = 128;
-const MAX_PINNED_WORKS = 256;
-const MAX_BLOCKED_PINNED = 64;
 const MAX_TRACKED_RELATIONS = 64;
-const MAX_WORK_COUNTERS = 320;
 
 interface DossierRelationPayload {
   readonly relationId?: string;
@@ -97,21 +111,6 @@ export interface DossierDecisionRecord {
   readonly derivedTaskIds: readonly string[];
 }
 
-export interface DossierTaskRecord {
-  readonly taskId: string;
-  readonly title: string;
-  readonly taskClass: TaskClass;
-  readonly status: string;
-  readonly parentTaskId: string | null;
-  readonly packagePath?: string;
-  readonly surfaces: readonly string[];
-  readonly workspaceRevision: number;
-  readonly occurredAt: string;
-  readonly actorLabel: string;
-  readonly reason?: string;
-  readonly countsIncomplete?: boolean;
-}
-
 export interface DossierRelationEdge {
   readonly relationId?: string;
   readonly source: string;
@@ -121,34 +120,6 @@ export interface DossierRelationEdge {
   readonly relationType: string;
   readonly rationale?: string;
   readonly workspaceRevision: number;
-}
-
-export interface DossierWorkCounter {
-  readonly archivedTotal: number;
-  readonly archivedDone: number;
-  readonly archivedBlocked: number;
-  readonly archivedActive: number;
-  readonly archivedCancelled: number;
-  readonly latestRevision: number;
-  readonly title?: string;
-  readonly packagePath?: string;
-  readonly countsIncomplete?: boolean;
-}
-
-export interface DossierWorkRollup {
-  readonly workId: string;
-  readonly title: string;
-  readonly status: string;
-  readonly totalTasks: number;
-  readonly doneTasks: number;
-  readonly blockedTasks: number;
-  readonly activeTasks: number;
-  readonly cancelledTasks: number;
-  readonly explainerPath: string;
-  readonly packagePath?: string;
-  readonly latestRevision: number;
-  readonly recentChildIds: readonly string[];
-  readonly countsIncomplete?: boolean;
 }
 
 export interface DossierLedgerState {
@@ -196,10 +167,6 @@ export function sanitizeSingleLine(value: string, maxLength = 180): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, maxLength - 1)}…`;
-}
-
-export function escapeMarkdownCell(value: string): string {
-  return value.replaceAll("|", "/").replace(/\r?\n/gu, " ");
 }
 
 export function refKindOf(ref: string): string {
@@ -490,152 +457,6 @@ function upsertDerivedLink(
   return [...filtered, incoming];
 }
 
-export function resolveRootWorkId(
-  task: Pick<DossierTaskRecord, "taskId" | "parentTaskId">,
-  taskMap: Readonly<Record<string, DossierTaskRecord>>,
-): string | null {
-  if (!task.parentTaskId) return null;
-  let cursor: string | null = task.parentTaskId;
-  const visited = new Set<string>([task.taskId]);
-  while (cursor && !visited.has(cursor)) {
-    visited.add(cursor);
-    const parent: DossierTaskRecord | undefined = taskMap[cursor];
-    if (!parent || parent.taskClass === "work" || parent.parentTaskId === null) {
-      return cursor;
-    }
-    cursor = parent.parentTaskId;
-  }
-  return null;
-}
-
-function incrementWorkCounter(
-  workCounters: Record<string, DossierWorkCounter>,
-  workId: string,
-  task: DossierTaskRecord,
-): void {
-  const current = workCounters[workId] ?? {
-    archivedTotal: 0,
-    archivedDone: 0,
-    archivedBlocked: 0,
-    archivedActive: 0,
-    archivedCancelled: 0,
-    latestRevision: 0,
-  };
-  workCounters[workId] = {
-    ...current,
-    archivedTotal: current.archivedTotal + 1,
-    archivedDone: current.archivedDone + (task.status === "done" ? 1 : 0),
-    archivedBlocked: current.archivedBlocked + (task.status === "blocked" ? 1 : 0),
-    archivedCancelled: current.archivedCancelled + (task.status === "cancelled" ? 1 : 0),
-    archivedActive:
-      current.archivedActive +
-      (task.status !== "done" && task.status !== "blocked" && task.status !== "cancelled" ? 1 : 0),
-    latestRevision: Math.max(current.latestRevision, task.workspaceRevision),
-  };
-}
-
-function pruneTasks(
-  tasks: Record<string, DossierTaskRecord>,
-  workCounters: Record<string, DossierWorkCounter>,
-  maxPinnedWorks = MAX_PINNED_WORKS,
-  maxTrackedTasks = MAX_TRACKED_TASKS,
-  maxBlockedPinned = MAX_BLOCKED_PINNED,
-): { readonly tasks: Record<string, DossierTaskRecord>; readonly blockedEvicted: boolean } {
-  const all = Object.values(tasks);
-  const works = all
-    .filter((task) => task.taskClass === "work")
-    .sort(
-      (left, right) =>
-        Math.max(right.workspaceRevision, workCounters[right.taskId]?.latestRevision ?? 0) -
-          Math.max(left.workspaceRevision, workCounters[left.taskId]?.latestRevision ?? 0) ||
-        left.taskId.localeCompare(right.taskId),
-    );
-  const blockedNonWorks = all
-    .filter((task) => task.taskClass !== "work" && task.status === "blocked")
-    .sort((left, right) => right.workspaceRevision - left.workspaceRevision || left.taskId.localeCompare(right.taskId));
-  if (all.length <= maxTrackedTasks && works.length <= maxPinnedWorks && blockedNonWorks.length <= maxBlockedPinned) {
-    return { tasks, blockedEvicted: false };
-  }
-  const keptWorks = works.slice(0, maxPinnedWorks);
-  const evictedWorks = works.slice(maxPinnedWorks);
-  const evictedWorkIds = new Set(evictedWorks.map((task) => task.taskId));
-  for (const evictedWork of evictedWorks) {
-    const existingCounter = workCounters[evictedWork.taskId];
-    const incomplete = Boolean(evictedWork.countsIncomplete || existingCounter?.countsIncomplete);
-    workCounters[evictedWork.taskId] = {
-      archivedTotal: existingCounter?.archivedTotal ?? 0,
-      archivedDone: existingCounter?.archivedDone ?? 0,
-      archivedBlocked: existingCounter?.archivedBlocked ?? 0,
-      archivedActive: existingCounter?.archivedActive ?? 0,
-      archivedCancelled: existingCounter?.archivedCancelled ?? 0,
-      latestRevision: Math.max(existingCounter?.latestRevision ?? 0, evictedWork.workspaceRevision),
-      title: sanitizeSingleLine(evictedWork.title, 72),
-      ...(incomplete ? { countsIncomplete: true } : {}),
-    };
-  }
-  const keptBlocked = blockedNonWorks.slice(0, maxBlockedPinned);
-  const pinned = [...keptWorks, ...keptBlocked];
-  const pinnedIds = new Set(pinned.map((task) => task.taskId));
-  const candidates = all
-    .filter((task) => !pinnedIds.has(task.taskId) && !evictedWorkIds.has(task.taskId))
-    .sort((left, right) => {
-      const leftTerminal = left.status === "done" || left.status === "cancelled" ? 1 : 0;
-      const rightTerminal = right.status === "done" || right.status === "cancelled" ? 1 : 0;
-      return leftTerminal - rightTerminal || right.workspaceRevision - left.workspaceRevision;
-    });
-  const keepCount = Math.max(0, maxTrackedTasks - pinned.length);
-  const kept = candidates.slice(0, keepCount);
-  const evicted = candidates.slice(keepCount);
-  for (const task of evicted) {
-    const rootWorkId = resolveRootWorkId(task, tasks);
-    if (rootWorkId) incrementWorkCounter(workCounters, rootWorkId, task);
-  }
-  const blockedEvicted =
-    evictedWorks.some((task) => task.status === "blocked") || evicted.some((task) => task.status === "blocked");
-  return {
-    tasks: Object.fromEntries([...pinned, ...kept].map((task) => [task.taskId, task])),
-    blockedEvicted,
-  };
-}
-
-function pruneByRevision<T extends { readonly workspaceRevision: number }>(
-  map: Record<string, T>,
-  maxItems: number,
-): Record<string, T> {
-  const entries = Object.entries(map);
-  if (entries.length <= maxItems) return map;
-  return Object.fromEntries(
-    entries.sort((left, right) => right[1].workspaceRevision - left[1].workspaceRevision).slice(0, maxItems),
-  );
-}
-
-function pruneWorkCounters(
-  counters: Record<string, DossierWorkCounter>,
-  prunedTasks: Readonly<Record<string, DossierTaskRecord>>,
-  priorTruncated: boolean,
-  maxOrphanCounters = MAX_WORK_COUNTERS,
-): { readonly counters: Record<string, DossierWorkCounter>; readonly truncated: boolean } {
-  const survivingWorkIds = new Set<string>(Object.keys(prunedTasks));
-  for (const task of Object.values(prunedTasks)) {
-    const rootId = resolveRootWorkId(task, prunedTasks);
-    if (rootId) survivingWorkIds.add(rootId);
-  }
-  const pinnedEntries: [string, DossierWorkCounter][] = [];
-  const orphanEntries: [string, DossierWorkCounter][] = [];
-  for (const entry of Object.entries(counters)) {
-    if (survivingWorkIds.has(entry[0])) pinnedEntries.push(entry);
-    else orphanEntries.push(entry);
-  }
-  orphanEntries.sort((left, right) => right[1].latestRevision - left[1].latestRevision);
-  const dropped = orphanEntries.slice(maxOrphanCounters);
-  const truncated =
-    priorTruncated || dropped.some(([, counter]) => counter.archivedTotal > 0 || Boolean(counter.countsIncomplete));
-  return {
-    counters: Object.fromEntries([...pinnedEntries, ...orphanEntries.slice(0, maxOrphanCounters)]),
-    truncated,
-  };
-}
-
 function applyStructuredUpdate(
   change: DossierChangeItem,
   entry: DossierLedgerEntry,
@@ -720,6 +541,7 @@ function applyStructuredUpdate(
     const taskId = extractTaskId(change);
     if (taskId) {
       const existing = tasks[taskId];
+      const reclaimedWorkId = reclaimArchivedChildTask(taskId, workCounters);
       const rawClass = change.payload.taskClass;
       const status =
         typeof change.payload.taskStatus === "string" && change.payload.taskStatus.length > 0
@@ -734,7 +556,7 @@ function applyStructuredUpdate(
           ? null
           : typeof change.payload.parentTaskId === "string" && change.payload.parentTaskId.length > 0
             ? change.payload.parentTaskId
-            : (existing?.parentTaskId ?? null);
+            : (existing?.parentTaskId ?? reclaimedWorkId ?? null);
       const packagePath =
         typeof change.payload.packagePath === "string" && change.payload.packagePath.trim().length > 0
           ? change.payload.packagePath.trim()
@@ -746,12 +568,11 @@ function applyStructuredUpdate(
             ? sanitizeSingleLine(change.payload.reason)
             : existing?.reason
           : undefined;
-      // Re-admitting a child of an evicted/truncated Work marks its reconstructed counter incomplete;
-      // re-admitting a previously-evicted non-terminal child task shifts its count back from archived to live.
       if (parentTaskId) {
-        const rootWorkId = resolveRootWorkId({ taskId, parentTaskId }, tasks);
+        const rootWorkId = resolveRootWorkId({ taskId, parentTaskId }, tasks, workCounters);
         if (rootWorkId) {
           const counter = workCounters[rootWorkId];
+          const isUnreconciledReentry = !existing && !reclaimedWorkId && change.type !== "task_created";
           if (!counter && !tasks[rootWorkId] && workCountersTruncated) {
             workCounters[rootWorkId] = {
               archivedTotal: 0,
@@ -762,12 +583,8 @@ function applyStructuredUpdate(
               latestRevision: change.workspaceRevision,
               countsIncomplete: true,
             };
-          } else if (!existing && change.type !== "task_created" && counter && counter.archivedActive > 0) {
-            workCounters[rootWorkId] = {
-              ...counter,
-              archivedTotal: Math.max(0, counter.archivedTotal - 1),
-              archivedActive: Math.max(0, counter.archivedActive - 1),
-            };
+          } else if (isUnreconciledReentry && counter && hasUnindexedArchivedTasks(counter)) {
+            workCounters[rootWorkId] = { ...counter, countsIncomplete: true };
           }
         }
       }
@@ -938,6 +755,7 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
       maxPinnedWorks: MAX_PINNED_WORKS,
       maxTrackedTasks: MAX_TRACKED_TASKS,
       maxBlockedPinned: MAX_BLOCKED_PINNED,
+      maxArchivedTaskIndex: MAX_ARCHIVED_TASK_INDEX,
       maxOrphanCounters: MAX_WORK_COUNTERS,
       maxPendingProposals: MAX_PENDING_PROPOSALS,
       maxDecisions: MAX_ACTIVE_DECISIONS,
@@ -953,6 +771,7 @@ export function compactDossierState(
     readonly maxPinnedWorks: number;
     readonly maxTrackedTasks: number;
     readonly maxBlockedPinned?: number;
+    readonly maxArchivedTaskIndex?: number;
     readonly maxOrphanCounters: number;
     readonly maxPendingProposals?: number;
     readonly maxDecisions: number;
@@ -962,20 +781,25 @@ export function compactDossierState(
 ): DossierLedgerState {
   const mutableTasks: Record<string, DossierTaskRecord> = { ...state.tasks };
   const mutableCounters: Record<string, DossierWorkCounter> = { ...state.workCounters };
+  const maxArchivedIndex = limits.maxArchivedTaskIndex ?? MAX_ARCHIVED_TASK_INDEX;
   const prunedTasks = pruneTasks(
     mutableTasks,
     mutableCounters,
     limits.maxPinnedWorks,
     limits.maxTrackedTasks,
     limits.maxBlockedPinned ?? MAX_BLOCKED_PINNED,
+    maxArchivedIndex,
   );
   const prunedCounters = pruneWorkCounters(
     mutableCounters,
     prunedTasks.tasks,
     Boolean(state.workCountersTruncated),
     limits.maxOrphanCounters,
+    maxArchivedIndex,
   );
-  const blockedTruncated = Boolean(state.blockedTruncated || prunedTasks.blockedEvicted);
+  const blockedTruncated = Boolean(
+    state.blockedTruncated || prunedTasks.blockedEvicted || prunedCounters.blockedDropped,
+  );
   const next: DossierLedgerState = {
     ...state,
     entries: state.entries.slice(0, limits.maxEntries),
