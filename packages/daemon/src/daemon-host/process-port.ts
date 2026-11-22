@@ -1,4 +1,5 @@
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { cmdShellInvocation } from "@harness-anything/storage/cmd-command-line";
 import { runProcessText } from "../runtime-engine/process-text.ts";
 import { statSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
@@ -126,13 +127,20 @@ function launchProcessText(
 ): Promise<ProcessTextOutcome> {
   return new Promise((resolve) => {
     let interactionError: Error | null = null;
+    const invocation =
+        process.platform === "win32" && /\.(?:cmd|bat)$/iu.test(command)
+          ? cmdShellInvocation(command, args, env ?? process.env)
+          : null,
+      executable = invocation?.command ?? command,
+      executableArgs = invocation?.args ?? [...args],
+      windowsVerbatimArguments = invocation?.windowsVerbatimArguments ?? options.windowsVerbatimArguments;
     // execFile's own AbortSignal handling fires the callback as soon as the signal aborts,
     // while SIGTERM is still in flight — settling then would release the caller (and any
     // queue slot it holds) before the child has actually exited. Settle only once the child
     // has closed so "cancelled" always means "the process is gone".
     const child = execFile(
-      command,
-      [...args],
+      executable,
+      executableArgs,
       {
         cwd,
         ...(env ? { env } : {}),
@@ -140,9 +148,7 @@ function launchProcessText(
         ...(options.timeoutMs === undefined
           ? {}
           : { timeout: options.timeoutMs, killSignal: options.timeoutSignal ?? "SIGTERM" }),
-        ...(options.windowsVerbatimArguments === undefined
-          ? {}
-          : { windowsVerbatimArguments: options.windowsVerbatimArguments }),
+        ...(windowsVerbatimArguments === undefined ? {} : { windowsVerbatimArguments }),
         ...(options.maxBuffer === undefined ? {} : { maxBuffer: options.maxBuffer }),
         // Provider commands may launch helpers that inherit stdout/stderr. Put the
         // process in its own group so a timeout can terminate the whole tree and

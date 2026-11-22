@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import type { TaskWorktreeBindingV1 } from "@harness-anything/kernel";
@@ -50,12 +50,12 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
   assert.deepEqual(edge.launchedIn, [cwd]);
   assert.equal(git(cwd, "branch", "--show-current"), taskId);
   assert.equal(git(cwd, "rev-parse", "HEAD"), git(fixture.nodeA, "rev-parse", "origin/main"));
-  assert.match(edge.prompts[0]!, new RegExp(`Worker repository root: ${cwd}\\n`, "u"));
-  assert.match(edge.prompts[0]!, new RegExp(`Worktree ${cwd} is checked out on ${taskId} from origin/main\\.`, "u"));
+  assert.ok(edge.prompts[0]!.includes(`Worker repository root: ${cwd}\n`));
+  assert.ok(edge.prompts[0]!.includes(`Worktree ${cwd} is checked out on ${taskId} from origin/main.`));
   // The mission names the mirrored task package under the worker's own root, where the worker can read it.
   const reached = path.join(cwd, packagePath);
-  assert.match(edge.prompts[0]!, new RegExp(`Task package root: ${reached}\n`, "u"));
-  assert.match(edge.prompts[0]!, new RegExp(`Your task package is ${reached}\\.`, "u"));
+  assert.ok(edge.prompts[0]!.includes(`Task package root: ${reached}\n`));
+  assert.ok(edge.prompts[0]!.includes(`Your task package is ${reached}.`));
   assert.equal(edge.prompts[0]!.includes(path.join(fixture.nodeA, packagePath)), false);
   assert.equal(readFileSync(path.join(reached, "task_plan.md"), "utf8"), "# Plan\n");
   assert.equal(git(cwd, "status", "--porcelain"), "", "the linked ledger is ignored, not untracked");
@@ -90,7 +90,7 @@ test("edge dispatch cwd follows its worktree or artifact package, including the 
   assert.deepEqual(reviewer.launchedIn, [reviewCwd], "a reviewer");
   assert.equal(git(reviewCwd, "rev-parse", "HEAD"), reviewCommit, "the reviewer checkout is the center's frozen cut");
   assert.equal(git(reviewCwd, "branch", "--show-current"), "");
-  assert.match(reviewer.prompts[0]!, new RegExp(`Task package root: ${path.join(reviewCwd, packagePath)}\n`, "u"));
+  assert.ok(reviewer.prompts[0]!.includes(`Task package root: ${path.join(reviewCwd, packagePath)}\n`));
   assert.deepEqual(readdirSync(path.join(fixture.nodeA, ".worktrees")).sort(), [".review"]);
 
   const cases: readonly {
@@ -118,7 +118,7 @@ test("edge dispatch cwd follows its worktree or artifact package, including the 
       [scenario.worktree === null ? path.join(fixture.nodeA, packagePath) : fixture.nodeA],
       scenario.name,
     );
-    assert.match(edge.prompts[0]!, new RegExp(`Task package root: ${path.join(fixture.nodeA, packagePath)}\n`, "u"));
+    assert.ok(edge.prompts[0]!.includes(`Task package root: ${path.join(fixture.nodeA, packagePath)}\n`));
     assert.deepEqual(readdirSync(path.join(fixture.nodeA, ".worktrees")).sort(), [".review"], scenario.name);
   }
   // A dry-run preview assembles the prompt and checks nothing else out.
@@ -660,7 +660,8 @@ function commit(cwd: string, file: string): string {
 function git(cwd: string, ...args: string[]): string {
   // A task-bound host injects GIT_AUTHOR_*/GIT_COMMITTER_* and its own git config; env beats both repo config
   // and -c flags, so the fixture must not inherit either.
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+  const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null",
+    env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
   for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
     delete env[name];
   delete env.HARNESS_TASK_BOUND;

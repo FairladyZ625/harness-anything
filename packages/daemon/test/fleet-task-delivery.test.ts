@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/daemon-host/fleet-task-delivery.ts";
@@ -13,11 +13,13 @@ import {
   workerPushFailureCode,
 } from "../src/daemon-host/runtime-worker-push.ts";
 
+const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
+
 for (const denialMode of ["permission", "holder", "cas"])
   test(`edge delivery checks permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
-    const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
     for (const name of [
       "HARNESS_TASK_BOUND",
       "GIT_AUTHOR_NAME",
@@ -162,7 +164,7 @@ for (const scenario of [
   test(`holder proof fences ${scenario.name} before publication`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-holder-proof-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
-    const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
     for (const name of [
       "HARNESS_TASK_BOUND",
       "GIT_AUTHOR_NAME",

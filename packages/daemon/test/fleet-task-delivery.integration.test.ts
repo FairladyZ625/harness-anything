@@ -4,7 +4,6 @@ import { sha256Text, upsertCloseoutSubmissionFacts } from "@harness-anything/ker
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { devNull } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DaemonTaskRuntimeContextResult } from "../src/daemon-host/protocol/daemon-protocol-runtime-context.ts";
@@ -17,6 +16,8 @@ import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+
+const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
@@ -59,7 +60,7 @@ for (const explicit of [false, true])
         edgeRoot = config.workspaceRoot,
         remote = path.join(fixture.root, "origin.git"),
         edgeUser = path.join(fixture.root, "edge-user");
-      const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+      const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
       for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
         delete gitEnv[name];
       const git = (cwd: string, ...args: string[]) =>

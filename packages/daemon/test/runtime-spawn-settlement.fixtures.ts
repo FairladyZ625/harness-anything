@@ -1,12 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 import { publishExit as publishRuntimeExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
+
+const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
 
 /** Give isolated settlement publishers the accepted lifecycle projection that RepoCell owns. */
 export async function publishExit(
@@ -331,7 +333,7 @@ export function git(root: string, ...args: string[]): string {
   // Fixture pushes to main are harness-side git, not a task-bound worker push the wrapper
   // refuses. A task-bound host injects GIT_AUTHOR_*/GIT_COMMITTER_* and its own git config;
   // env beats both repo config and -c flags, so the fixture must not inherit either.
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
   for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
     delete env[name];
   delete env.HARNESS_TASK_BOUND;
