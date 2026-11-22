@@ -3826,6 +3826,20 @@
         "order": 732
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-cloud-target.ts#openCloudRuntime.sendSteerOutcome:266e38380b43cea74c26bdf1a480fd79",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1392
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-cloud-target.ts#openCloudRuntime:1af1dbfc465d1bf54e749c61fdba7691",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1391
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-command-interception-files.ts#compileCommandInterceptionFiles:2d07c1adacbf55899b1e0ce8fc5e8489",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -4369,6 +4383,13 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-spawn-types.ts#RuntimeProcess.terminate",
         "order": 810
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.cleanupFailedLaunch:4394319e3884cb21e2f865cea7b277bf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1393
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawnClaimAttempt.cleanupFailedLaunch:60bacab7d538fc093e20ddade365d715",
@@ -6645,6 +6666,12 @@
         "route": "runtime-cancel",
         "role": "effect",
         "order": 0
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-cloud-target.ts#openCloudRuntime.cloud.stop.receipt:707251051ac0765feb3d0114c595f78a",
+        "route": "runtime-cancel",
+        "role": "support",
+        "order": 1
       }
     ],
     "runtime-instance-update": [
@@ -6709,6 +6736,26 @@
         "route": "runtime-run",
         "role": "effect",
         "order": 11
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-cloud-target.ts#openCloudRuntime.observe.accepted:aba381af265f5d6586de2fc2ec24fc6d",
+        "route": "runtime-run",
+        "role": "support",
+        "order": 12
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-cloud-target.ts#openCloudRuntime.observe.page:587d4e98f8257c408e2908c0a5950e50",
+        "route": "runtime-run",
+        "role": "support",
+        "order": 13
+      }
+    ],
+    "runtime-steer": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-cloud-target.ts#openCloudRuntime.observe.accepted:f0e1b87b025c57810a2436e6d191ecb5",
+        "route": "runtime-steer",
+        "role": "support",
+        "order": 0
       }
     ],
     "schedule-create": [

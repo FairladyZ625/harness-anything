@@ -274,6 +274,19 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
                   })),
               }
             : {}),
+          ...(config.cloudRuntimeTargets
+            ? {
+                cloudRuntime: {
+                  instanceTargets: config.cloudRuntimeTargets,
+                  request: (hostId, method, params) =>
+                    asyncCapability("cloudRuntimeRequest", [hostId, method, params]) as Promise<
+                      import("@harness-anything/application/internal/commands/runtime-execution-target.ts").CloudSandboxResponse<
+                        typeof method
+                      >
+                    >,
+                },
+              }
+            : {}),
           ...(bootstrap.capabilities.prepareRuntimeLaunch
             ? {
                 prepareRuntimeLaunch: (instanceId, request) =>

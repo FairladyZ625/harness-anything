@@ -66,6 +66,7 @@ export async function startDaemon(input: {
   readonly openCell?: DaemonHostOpenInput["openCell"];
   readonly runtimeDiscover?: DaemonHostOpenInput["runtimeDiscover"];
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  readonly cloudRuntime?: DaemonHostOpenInput["cloudRuntime"];
   /** Reads the operator's GitHub token once per launch; set by the resident daemon entry. */
   readonly runtimeGithubToken?: DaemonHostOpenInput["runtimeGithubToken"];
   readonly runtimeCredentialPort?: DaemonHostOpenInput["runtimeCredentialPort"];

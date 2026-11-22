@@ -1,13 +1,7 @@
 import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import type {
-  AgentRuntimeEventV1,
-  CanonicalEventStore,
-  CanonicalSquadRun,
-  DispatchLifecycleView,
-  RuntimeResultClaim,
-} from "@harness-anything/kernel";
+import type { CanonicalSquadRun, DispatchLifecycleView, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   readDispatchStream,
@@ -16,7 +10,7 @@ import {
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeProcess } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeExecutionHandle } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import { workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { strayWriteWarning } from "../runtime-engine/runtime-write-boundary.ts";
@@ -44,7 +38,6 @@ import { disposeActiveRuntimeObservations, flushPendingSteerReceipts } from "./r
 import { captureDispatchForensics } from "./runtime-dispatch-evidence.ts";
 import { dispatchForensicsRequired, writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
-import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
 import { reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
@@ -85,16 +78,32 @@ export async function publishExit(
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     stopProofPending = true;
-    if (!(await runtimeProcessTreeStopped(context.input.rootDir, active.dispatchId, active.process)))
+    if (active.process.cloud && !active.process.cloud.hasStopProof()) {
+      const lifecycle = await dispatchLifecycleForTerminal(context, active.dispatchId);
+      if (lifecycle.attempt.phase !== "settling")
+        await context.publishRuntimeEvent(
+          "runtime_session_liveness_changed",
+          { runtimeSessionId: active.runtimeSessionId, liveness: "unknown", stopUnconfirmed: true },
+          `runtime-stop-unconfirmed-${active.dispatchId}`,
+          active.binding,
+        );
+    }
+    if (!(await runtimeProcessTreeStopped(context.input.rootDir, active.dispatchId, active.process))) {
+      if (active.process.cloud)
+        throw context.runtimeSpawnError(
+          "stop_unconfirmed",
+          "Cloud sandbox stop is unconfirmed; its lease remains reserved.",
+        );
       throw context.runtimeSpawnError(
         "runtime_process_group_unproven",
         `Runtime process group ${String(active.process.pid)} has no stop proof.${processGroupRecoveryHint()}`,
       );
+    }
     stopProofPending = false;
     context.dispatchState?.deactivate(active.runtimeSessionId);
     // Cancel holds the write queue: consume lines flushed by the complete tree stop before
     // settlement retires the runtime and drops its queued output callbacks.
-    if (active.cancelRequested) await consumeDurableOutput(context, active);
+    if (active.cancelRequested && !active.process.cloud) await consumeDurableOutput(context, active);
     disposeActiveRuntimeObservations(active);
     // Every terminal path — success, failure, cancellation, and the daemon-restart loss
     // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -656,7 +665,10 @@ export async function publishExit(
     context.processes.delete(active.runtimeSessionId);
     if (!escalationStop) active.process.release?.();
     const processGroupPid =
-      Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
+      active.process.pid !== undefined &&
+      Number.isSafeInteger(active.process.pid) &&
+      active.process.pid > 1 &&
+      active.process.pid !== process.pid
         ? active.process.pid
         : undefined;
     const fallback = await context.settleFallback(active, attemptOutcome, {
@@ -747,8 +759,9 @@ export async function publishExit(
 export async function runtimeProcessTreeStopped(
   rootDir: string,
   dispatchId: string,
-  runtime: RuntimeProcess,
+  runtime: RuntimeExecutionHandle,
 ): Promise<boolean> {
+  if (runtime.cloud) return runtime.cloud.stop();
   const pid = runtime.pid;
   if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
   if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped") return true;
@@ -851,7 +864,7 @@ async function publishTerminalOutcome(
       event: "runtime_exit",
       runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
-      pid: active.process.pid,
+      ...(active.process.pid === undefined ? {} : { pid: active.process.pid }),
       exitCode: active.lossExitCode ?? payload.exitCode,
       signal: active.lossSignal,
       outcome: active.lossReason ? "lost" : payload.outcome,
@@ -1307,16 +1320,6 @@ function firstDiagnosticLine(value: string): string {
       .map((line) => line.trim())
       .find((line) => line.length > 0) ?? ""
   ).slice(0, 200);
-}
-
-export function applied(
-  _context: RuntimeSpawnerContext,
-  event: AgentRuntimeEventV1,
-  publication: ReturnType<CanonicalEventStore["publication"]>,
-  runtimeSessionId: string,
-  dispatchId: string,
-) {
-  return runtimeSpawnReceipt(event, publication, runtimeSessionId, dispatchId);
 }
 
 export function controlReceipt(

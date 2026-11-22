@@ -1,3 +1,4 @@
+import type { CloudRuntimeExecutionTarget } from "@harness-anything/kernel/internal/domain/runtime-execution-target.ts";
 import {
   closeSync,
   constants as fsConstants,
@@ -148,6 +149,8 @@ export type TrustedManagedCwdKind = "worktree" | "task-package" | "decision-pack
 
 export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly handoffEnabled?: boolean;
+  readonly executionTarget?: CloudRuntimeExecutionTarget;
+  readonly executionAttempt?: number;
   readonly schema: typeof streamSchema;
   readonly kind: "dispatch";
   readonly dispatchId: string;

@@ -1,3 +1,7 @@
+import {
+  isRetryableSandboxFailure,
+  waitForSandboxReply,
+} from "@harness-anything/application/internal/commands/runtime-execution-target.ts";
 import { connectRepoWriterHost } from "./repo-writer-host.ts";
 import {
   daemonWriterSupportsCommitPhase,
@@ -791,6 +795,17 @@ export async function openWriterSupervisor(
         );
         return credential;
       }
+      case "cloudRuntimeRequest": {
+        const [hostId, method, params] = call.payload as Parameters<
+          NonNullable<RepoCellOpenInput["cloudRuntime"]>["request"]
+        >;
+        const signal = AbortSignal.timeout(Math.max(1, params.deadline - Date.now()));
+        try {
+          return await waitForSandboxReply(input.cloudRuntime!.request(hostId, method, params, signal), signal);
+        } catch (error) {
+          throw new CloudSandboxTransportFailure(signal.aborted || isRetryableSandboxFailure(error));
+        }
+      }
       case "prepareRuntimeLaunch": {
         const payload = call.payload as {
           instanceId: string;
@@ -924,6 +939,7 @@ function bootstrapMessage(
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
+      ...(input.cloudRuntime ? { cloudRuntimeTargets: input.cloudRuntime.instanceTargets } : {}),
       ...(input.runtimeInstanceCapacities ? { runtimeInstanceCapacities: input.runtimeInstanceCapacities } : {}),
       ...(input.bootstrap
         ? {
@@ -969,6 +985,14 @@ function writerWorkerUrl(moduleUrl: string | URL = import.meta.url, storage?: Da
   const currentModuleUrl = new URL(moduleUrl),
     extension = path.extname(fileURLToPath(currentModuleUrl));
   return new URL(`../writer-cell/${daemonWriterEntryName(storage)}${extension}`, currentModuleUrl);
+}
+
+class CloudSandboxTransportFailure extends Error {
+  readonly data: { readonly retryable: boolean };
+  constructor(retryable: boolean) {
+    super("Cloud sandbox transport request failed.");
+    this.data = { retryable };
+  }
 }
 
 function respondCapability(

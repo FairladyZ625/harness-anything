@@ -1,3 +1,4 @@
+import type { DaemonRuntimePorts } from "./daemon-host-context.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { enrichCausalContextWithLocalWorktrees } from "./repo-cell-trace-view.ts";
@@ -64,7 +65,7 @@ import { runtimeRecoveryError } from "./runtime-recovery-watch.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
+import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetEdgeRuntimeArchiveClient,
@@ -121,23 +122,8 @@ export interface FleetEdgeRuntimeRequest {
   };
 }
 type FleetRuntimeLocation = Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
-type RuntimePorts = {
-  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
-  readonly runtimeProviderHealth?: import("../runtime-engine/runtime-provider-health.ts").RuntimeProviderHealthStore;
-  readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
-  readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
-  readonly prepareCloudRelay: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
-  readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
-  readonly listRuntimeTempSessionIds?: () => readonly string[];
-  readonly reclaimSettledRuntimeTempDirectories: (
-    settledRuntimeSessionIds: readonly string[],
-  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
-  readonly prepareDaemonGitEnvironment: (
-    instanceId: string,
-    provider: "github" | "gitlab",
-    repoId: string,
-  ) => Promise<NodeJS.ProcessEnv | null>;
-};
+type RuntimePorts = Omit<DaemonRuntimePorts, "runtimeProviderHealth" | "listRuntimeTempSessionIds"> &
+  Partial<Pick<DaemonRuntimePorts, "runtimeProviderHealth" | "listRuntimeTempSessionIds">>;
 const runtimeOverviewPageLimit = daemonProtocolFleetPolicy.defaultValue.fleet.overviewPageLimit;
 const localReplicaWaitBackstopMs = daemonProtocolFleetPolicy.defaultValue.fleet.localReplicaWaitBackstopMs;
 
@@ -1065,6 +1051,7 @@ export function openFleetEdgeRuntime(input: {
     runtimeInstances: input.ports.runtimeInstances,
     runtimeInstanceDispatchState: input.ports.runtimeInstanceDispatchState,
     runtimeProviderHealth: input.ports.runtimeProviderHealth,
+    cloudRuntime: input.ports.cloudRuntime,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareCloudRelay: input.ports.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,

@@ -771,6 +771,7 @@ export interface RepoCellOpenInput {
   readonly writerGeneration?: number;
   readonly mode?: DaemonRepoMode;
   readonly authoredBranch?: string;
+  readonly cloudRuntime?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["cloudRuntime"];
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;

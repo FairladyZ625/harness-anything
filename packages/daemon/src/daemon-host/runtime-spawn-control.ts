@@ -264,7 +264,11 @@ export async function cancelRuntime(
   let orphanStop: ReturnType<typeof orphanRuntimeStopDisposition> = null;
   if (!owned) {
     const { evidence, pid } =
-      reason !== null && !escalation && !context.input.remote && attempt?.attempt.fence.verified
+      reason !== null &&
+      !escalation &&
+      !context.input.remote &&
+      attempt?.attempt.fence.verified &&
+      (!attempt.attempt.executionTarget || attempt.attempt.stopProof === "proven_stopped")
         ? await readOwnerGroup()
         : { evidence: null, pid: null };
     const audit =
@@ -329,7 +333,13 @@ export async function cancelRuntime(
   }
   // Recovery observes only an admitted attempt with a live local spool. Missing or archived spools go
   // to the same fenced process-group observer below; absence never releases a reservation by itself.
-  if (owned && matchingHeader && hasLiveDispatch && !active && attempt?.policy.canAdoptProcess) {
+  if (
+    owned &&
+    matchingHeader &&
+    hasLiveDispatch &&
+    !active &&
+    (attempt?.policy.canAdoptProcess || attempt?.attempt.executionTarget)
+  ) {
     await adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding });
   }
   const currentLifecycle = await readDispatchLifecycle(context, { by: "session", runtimeSessionId });
@@ -345,7 +355,13 @@ export async function cancelRuntime(
     // cancellation that happens to race with a ruling artifact.
     active.cancelOpId = escalation ? `${opId}:escalation` : opId;
     active.cancelRequested = true;
-    if (escalation || !active.process.terminateTree) active.process.terminate();
+    if (active.process.cloud)
+      appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+        kind: "sandbox_cancel_requested",
+        opId: active.cancelOpId,
+        occurredAt: context.input.now(),
+      });
+    if (!active.process.cloud && (escalation || !active.process.terminateTree)) active.process.terminate();
     if (escalation) {
       // The worker may be synchronously waiting for this command's response. Returning only
       // after terminateTree would wait for that CLI child, which waits for us: stop the provider
@@ -392,6 +408,8 @@ export async function cancelRuntime(
     );
   }
   // Missing control transport does not prove the process tree stopped.
+  if (attempt?.attempt.executionTarget && !stopAlreadyProven)
+    throw runtimeSpawnError("stop_unconfirmed", "Cloud sandbox stop is unconfirmed; its lease remains reserved.");
   if (attempt && attempt.attempt.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
     const { evidence: ownerEvidence, pid: processGroupPid } = await readOwnerGroup();
@@ -574,7 +592,7 @@ export async function enforceRuntimeSpendCap(context: RuntimeSpawnerContext, act
   if (!view || view.attempt.dispatchId !== active.dispatchId || view.policy.capacity === "released") return;
   if (!active.spendCapExceeded || active.cancelRequested || context.exiting.has(active.runtimeSessionId)) return;
   if (active.process.terminateTree) await active.process.terminateTree();
-  else active.process.terminate();
+  else if (!active.process.cloud) active.process.terminate();
   await consumeDurableOutput(context, active);
   await context.publishExit(active, null);
 }
@@ -751,6 +769,13 @@ export async function steerRuntime(
     occurredAt: context.input.now(),
     actor: binding.actor,
     source: binding.source,
+    prompt,
+    ...(options?.remoteControlRequestId ? { controlRequestId: options.remoteControlRequestId } : {}),
+    ...(options?.remoteControlOpId ? { requestOpId: options.remoteControlOpId } : {}),
+  });
+  active.process.cloud?.steer({
+    opId,
+    version,
     prompt,
     ...(options?.remoteControlRequestId ? { controlRequestId: options.remoteControlRequestId } : {}),
     ...(options?.remoteControlOpId ? { requestOpId: options.remoteControlOpId } : {}),

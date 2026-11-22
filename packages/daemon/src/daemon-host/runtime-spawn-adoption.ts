@@ -1,3 +1,4 @@
+import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
@@ -266,6 +267,7 @@ async function restoreRuntime(
   authorizationBinding?: RuntimeBinding,
 ): Promise<boolean> {
   if (context.closed?.()) return false;
+  if (lifecycle.attempt.executionTarget && context.processes.has(header.runtimeSessionId)) return false;
   if (context.exiting.has(header.runtimeSessionId) || context.ownsModelSlot?.(header.runtimeSessionId)) return false;
   const metadata = adoptableMetadata(header);
   if (!metadata) return false;
@@ -307,7 +309,7 @@ async function restoreRuntime(
         ...(processPid > 1 ? { processGroupPid: processPid } : {}),
       },
     } as const;
-  if (lifecycle.attempt.process !== "exited")
+  if (!lifecycle.attempt.executionTarget && lifecycle.attempt.process !== "exited")
     await context.publishRuntimeEvent(
       livenessEvent.type,
       livenessEvent.payload,
@@ -329,12 +331,33 @@ async function restoreRuntime(
       { forceTailScan: true },
     );
   }
-  const runtimeProcess = adoptNativeProcess(
-    context.input.rootDir,
-    stream.header.dispatchId,
-    processPid,
-    durableOutputRecordCount(fullStream?.records ?? []),
-  );
+  const cloudTarget = lifecycle.attempt.executionTarget;
+  if (
+    cloudTarget &&
+    (!fullStream || header.executionTarget?.hostId !== cloudTarget.hostId || header.executionAttempt === undefined)
+  )
+    throw context.runtimeSpawnError("runtime_recovery_pending", "Cloud sandbox dispatch stream is unavailable.");
+  const runtimeProcess = cloudTarget
+    ? openCloudRuntime({
+        rootDir: context.input.rootDir,
+        registration: context.input.cloudRuntime,
+        target: cloudTarget,
+        attempt: {
+          repoId: context.input.repoId,
+          dispatchId: header.dispatchId,
+          runtimeSessionId: header.runtimeSessionId,
+          attempt: header.executionAttempt!,
+        },
+        stopping: lifecycle.attempt.phase === "settling" && lifecycle.attempt.stopProof !== "proven_stopped",
+        now: context.input.now,
+        records: fullStream!.records,
+      })
+    : adoptNativeProcess(
+        context.input.rootDir,
+        stream.header.dispatchId,
+        processPid,
+        durableOutputRecordCount(fullStream?.records ?? []),
+      );
   if (!fullStream) runtimeProcess.release?.();
   const active = createActiveRuntime({
     process: runtimeProcess,
@@ -423,6 +446,15 @@ async function restoreRuntime(
     return true;
   }
   context.processes.set(active.runtimeSessionId, active);
+  if (runtimeProcess.cloud) {
+    const cancel = fullStream?.records.findLast((record) => record.kind === "sandbox_cancel_requested");
+    if (typeof cancel?.opId === "string") {
+      active.cancelRequested = true;
+      active.cancelOpId = cancel.opId;
+    }
+    attachAdoptedObservations(context, active);
+    return false;
+  }
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
     else if (fullStream) attachAdoptedObservations(context, active);
@@ -469,7 +501,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
       reason: `runtime observations could not be attached: ${error instanceof Error ? error.message : String(error)}`,
     });
     context.processes.delete(active.runtimeSessionId);
-    active.process.terminate();
+    if (!active.process.cloud) active.process.terminate();
     active.process.release?.();
     active.releaseAuthorization?.();
     throw error;
