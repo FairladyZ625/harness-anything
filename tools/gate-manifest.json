@@ -75,6 +75,7 @@
         "check-cli-path-contract",
         "check-error-classification",
         "check-entity-doc-contract",
+        "check-ontology-facets",
         "check-format",
         "check-import-boundaries",
         "check-c4-architecture",
@@ -132,6 +133,7 @@
         "check-cli-path-contract",
         "check-error-classification",
         "check-entity-doc-contract",
+        "check-ontology-facets",
         "check-format",
         "check-import-boundaries",
         "check-c4-architecture",
@@ -172,7 +174,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 45
+      "harnessLeafGateCount": 46
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -484,6 +486,65 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/generate-entity-doc-contract.test.mjs"]
+      }
+    },
+    {
+      "id": "check-ontology-facets",
+      "command": "npm run harness:check-ontology-facets",
+      "failureHint": "Run `node tools/refresh-ontology-facets.mjs --write` to normalize ontology facet shards.",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/kernel/src/domain/action-source-facets/**",
+        "packages/kernel/src/domain/source-contract-facets/**",
+        "tools/refresh-ontology-facets.mjs"
+      ],
+      "authoritySource": ["tools/refresh-ontology-facets.mjs", "task_35d9fccab69d8a765993bdc8ad"],
+      "consumerScope": [
+        "canonical key order, formatting, and package ownership of ontology facet JSON shards under packages/kernel/src/domain/{action-source-facets,source-contract-facets}"
+      ],
+      "githubContext": {
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Ontology facet shard canonical formatting has no exemptions; rerun tools/refresh-ontology-facets.mjs --write."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/refresh-ontology-facets.mjs",
+          "package.json:scripts.harness:check-ontology-facets",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-ontology-facets"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["quick-gates"]
+        },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-facet-shards.test.mjs"]
       }
     },
     {

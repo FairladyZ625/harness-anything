@@ -1,4 +1,5 @@
 import type { SubmissionV1 } from "./execution.ts";
+import { stripCloseoutFactsRegion } from "./submission-facts.ts";
 import { declarations, descriptorFacets } from "./task-action-contract.ts";
 
 /**
@@ -289,14 +290,15 @@ export function submissionFromCloseout(
 ): SubmissionV1 {
   // The four scaffold headings are read as prefixes, so an authored suffix ("## Summary (what
   // shipped)") still files its prose under that section without the heading having to match exactly.
-  const sections = markdownSections(body, closeoutSectionPrefixes),
+  const authored = stripCloseoutFactsRegion(body),
+    sections = markdownSections(authored, closeoutSectionPrefixes),
     // The risk sections ride along when the author kept them; both feed known and residual risks.
     risks = [sections.get("residual risk"), sections.get("same mechanism elsewhere")].filter(
       (section): section is string => section !== undefined,
     ),
     verification = sections.get("verification");
   return {
-    completionClaim: sections.get("summary") ?? authorProse(body),
+    completionClaim: sections.get("summary") ?? authorProse(authored),
     verificationNotes: verification === undefined ? [] : [verification],
     knownGaps: risks,
     residualRisks: risks,
@@ -344,7 +346,7 @@ export const chineseCloseoutSections: readonly ChineseCloseoutSection[] = Object
 
 /** The authored Chinese closeout text per English section it mirrors; absent means unauthored. */
 export function chineseCloseoutSectionBodies(closeout: string): Readonly<Record<string, string | undefined>> {
-  const entries = [...markdownSectionEntries(closeout)];
+  const entries = [...markdownSectionEntries(stripCloseoutFactsRegion(closeout))];
   return Object.fromEntries(
     chineseCloseoutSections.map(({ aliases, source }) => [source, authoredSection(entries, aliases)]),
   );

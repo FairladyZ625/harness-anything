@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { sha256Text } from "@harness-anything/kernel";
+import { sha256Text, upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -250,7 +250,10 @@ for (const explicit of [false, true])
       );
       assert.equal(accepted.lease, null, "submission atomically releases the lease");
       assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
-      assert.equal(readFileSync(fixture.worktree("node-one", closeout), "utf8"), body);
+      assert.equal(
+        readFileSync(fixture.worktree("node-one", closeout), "utf8"),
+        upsertCloseoutSubmissionFacts(body, accepted.executions[0].submission),
+      );
       const duplicate = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(duplicate.code, 0, JSON.stringify(duplicate));
       fixture.owners.keycloak.revoke("person-node-one", "dual-repo", ["task-submit"]);
