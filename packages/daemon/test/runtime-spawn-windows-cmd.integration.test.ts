@@ -19,7 +19,7 @@ test(
   "a hostile prompt rides through a .cmd shim verbatim without executing commands",
   { skip: windowsOnly },
   async () => {
-    const parent = mkdtempSync(path.join(tmpdir(), "ha-windows-cmd-"));
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-%PATH%-"));
     try {
       const received = path.join(parent, "argv.json"),
         marker = path.join(parent, "injected.txt"),

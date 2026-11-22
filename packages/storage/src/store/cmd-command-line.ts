@@ -69,7 +69,7 @@ export function cmdShellInvocation(
       "/v:OFF",
       "/d",
       "/c",
-      `""${script}"${args.reduce((payload, argument) => `${payload} ${escapeCmdArgument(argument)}`, "")}"`,
+      `""${script.replaceAll("%", "%%cd:~,%")}"${args.reduce((payload, argument) => `${payload} ${escapeCmdArgument(argument)}`, "")}"`,
     ],
     windowsVerbatimArguments: true,
   };

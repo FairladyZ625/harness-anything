@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { cpSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { devNull } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { commitAll, makeRepo, runGit, writeRepoFile } from "./gates/test/helpers.mjs";
@@ -15,6 +14,8 @@ import {
   selectManifestGateIds,
   shouldSkipTestQuarantine,
 } from "./run-manifest-gates.mjs";
+
+const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
 
 test("manifest gate runner can group each quick-gate command for GitHub logs", () => {
   const lines = [],
@@ -111,7 +112,7 @@ console.log("CAPTURE " + JSON.stringify(args));`,
   });
   for (const file of ["run-manifest-gates.mjs", "test-quarantine.mjs"])
     cpSync(path.join(import.meta.dirname, file), path.join(rootDir, "tools", file));
-  runGit(rootDir, ["config", "core.excludesFile", devNull]);
+  runGit(rootDir, ["config", "core.excludesFile", gitConfigNull]);
   commitAll(rootDir);
   runGit(rootDir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
   return rootDir;
@@ -159,7 +160,7 @@ process.exitCode = result.failedGateIds.length ? 1 : 0;`,
   });
 
 function capturedAuthorizationRun(rootDir, eventName, args = []) {
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
   if (eventName === null) delete env.GITHUB_EVENT_NAME;
   else env.GITHUB_EVENT_NAME = eventName;
   const result = spawnSync(

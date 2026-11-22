@@ -52,6 +52,11 @@ test("cmd shell invocation wraps a shim payload with extension and expansion swi
   ]);
 });
 
+test("cmd shell invocation preserves percent sequences in a shim path", () => {
+  const invocation = cmdShellInvocation("C:\\Tools\\%PATH%\\agy.cmd", [], {});
+  assert.equal(invocation.args[4], '""C:\\Tools\\%%cd:~,%PATH%%cd:~,%\\agy.cmd""');
+});
+
 test("cmd shell invocation falls back to cmd.exe and refuses unsafe script paths", () => {
   assert.equal(cmdShellInvocation("C:\\a.cmd", [], {}).command, "cmd.exe");
   assert.deepEqual(cmdShellInvocation("C:\\a.cmd", [], {}).args, ["/e:ON", "/v:OFF", "/d", "/c", '""C:\\a.cmd""']);
