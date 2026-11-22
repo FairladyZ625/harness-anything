@@ -555,6 +555,15 @@ test("G38 keeps doc-submit event-bytes as the registered single-event volume dim
   );
 });
 
+test("G38 ties dossier synthesis to its constant-cost accepted-history probe", () => {
+  const id = "dossier-synthesize:accepted-history",
+    probe = COLLECTION_PROBES[id],
+    budget = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
+  assert.equal(probe?.action, "dossier-synthesize");
+  assert.equal(probe?.growth, "constant");
+  assert.deepEqual(budget.writeCostScaling.actionCoverage.measured["dossier-synthesize"].measurements, [id]);
+});
+
 test("runtime-run dispatch admission measures both declared execution scales", async () => {
   const probe = COLLECTION_PROBES["runtime-run:execution-dispatches"];
   assert.ok(probe, "runtime-run execution dispatch probe must remain registered");

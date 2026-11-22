@@ -994,6 +994,21 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
     ...physicalStoresForKind("document"),
     canonical("document.events", "doc-event/v1", "packages/kernel/src/domain/doc-sync-writer.ts"),
     canonical(
+      "document.dossier-synthesis-events",
+      "dossier-synthesis-event/v1",
+      "packages/kernel/src/domain/dossier-synthesis-event.ts",
+      [],
+      ["dossier_synthesized"],
+    ),
+    projection(
+      "document.dossier-synthesis-state",
+      "document",
+      "document.dossier-synthesis-events",
+      "dossier-synthesis-event/v1",
+      "state",
+      ["dossier_synthesized"],
+    ),
+    canonical(
       "document.entity-events",
       "entity-document-event/v1",
       "packages/kernel/src/domain/entity-document-event.ts",

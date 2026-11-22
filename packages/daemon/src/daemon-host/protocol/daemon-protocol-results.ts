@@ -463,6 +463,9 @@ type DaemonGuiReadDataMap = {
   readonly "repo.entity.rows.read": import("../entity-rows-read.ts").EntityRowListV1;
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
+  readonly "repo.dossier.status": import("@harness-anything/application/internal/queries/living-dossier.ts").DossierStatusResult;
+  readonly "repo.dossier.read": import("@harness-anything/application/internal/queries/living-dossier.ts").DossierContentResult;
+  readonly "repo.dossier.context.read": import("@harness-anything/application/internal/queries/living-dossier.ts").DossierContextResult;
   readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
   readonly "repo.reckoning.signals.read": import("@harness-anything/application/queries").ReckoningResult & {
     readonly ok: true;
@@ -604,6 +607,9 @@ export type DaemonGuiReadPayloadMap = {
     readonly entityId: string;
     readonly path?: string;
   };
+  readonly "repo.dossier.status": Readonly<Record<string, never>>;
+  readonly "repo.dossier.read": { readonly slotId: string };
+  readonly "repo.dossier.context.read": { readonly slotId: string; readonly maxWatermark?: number };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.reckoning.signals.read": { readonly generatedAt?: string; readonly windowHours?: number };
   readonly "repo.policy.metadata.read": Readonly<Record<string, never>>;

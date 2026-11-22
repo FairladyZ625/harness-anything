@@ -24,12 +24,16 @@ import {
  * the canonical bundle makes the refreshed bytes durable and replayable; the projection applies
  * only the document upserts, and the follower publishes the authored files at this cut.
  */
-export type RematerializedDocumentClaim = {
+type ManagedDocumentClaim = {
   readonly path: string;
   readonly sha256: string;
   readonly size: number;
-  readonly mediaType: "text/markdown" | "application/json";
+  readonly mediaType: "text/markdown" | "application/json" | "text/html";
   readonly policyId: string;
+};
+
+export type RematerializedDocumentClaim = ManagedDocumentClaim & {
+  readonly mediaType: "text/markdown" | "application/json";
 };
 
 export type EntityDocumentEventV1 = EventEnvelope<
@@ -115,7 +119,11 @@ export function compileEntityDocumentRematerialization(input: {
   };
 }
 
-export function entityDocumentEventWritePlan(event: EntityDocumentEventV1): FrozenWritePlan {
+export function entityDocumentEventWritePlan(event: {
+  readonly opId: string;
+  readonly type: string;
+  readonly payload: { readonly documentClaims: readonly ManagedDocumentClaim[] };
+}): FrozenWritePlan {
   const claims = event.payload.documentClaims,
     targets: WriteTarget[] = [
       { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
@@ -146,11 +154,11 @@ export function entityDocumentEventWritePlan(event: EntityDocumentEventV1): Froz
         }),
       ),
     ];
-  return freezeDeclaredWritePlan({ commandType: event.type, targets }, ["entity_documents_rematerialized"]);
+  return freezeDeclaredWritePlan({ commandType: event.type, targets }, [event.type]);
 }
 
 export function assertEntityDocumentEventWritePlan(
-  event: EntityDocumentEventV1,
+  event: Parameters<typeof entityDocumentEventWritePlan>[0],
   plan: FrozenWritePlan | undefined,
 ): void {
   const expected = entityDocumentEventWritePlan(event);

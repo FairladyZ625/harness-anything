@@ -132,7 +132,15 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     schemaId: "document/v1",
     refTemplate: "document/{id}",
     statuses: [],
-    actions: ["submit", "retire", "conflict-resolve", "conflict-overwrite-center", "pin", "unpin"],
+    actions: [
+      "synthesize-dossier",
+      "submit",
+      "retire",
+      "conflict-resolve",
+      "conflict-overwrite-center",
+      "pin",
+      "unpin",
+    ],
   },
   execution: {
     schemaId: "Execution/v1",

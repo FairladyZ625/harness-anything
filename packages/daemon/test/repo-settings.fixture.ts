@@ -243,6 +243,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
 
 export async function settleSettingsEvent(input: {
   readonly repoId: string;
+  readonly verticalDefinition?: import("@harness-anything/kernel").VerticalDefinition;
   readonly rootDir: string;
   readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;
   readonly authoredBranch?: string;
@@ -288,7 +289,9 @@ export async function settleSettingsEvent(input: {
     store.append(
       compileVerticalDeclarationEvent({
         type: "vertical_declared",
-        definition: decodeVerticalDefinition(JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8"))),
+        definition:
+          input.verticalDefinition ??
+          decodeVerticalDefinition(JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8"))),
         eventId: `event-vertical-declaration-fixture-${workspaceRevision}`,
         opId: `vertical-declaration-fixture-${workspaceRevision}`,
         workspaceRevision,

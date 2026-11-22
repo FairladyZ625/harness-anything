@@ -1,3 +1,4 @@
+import type { DossierSynthesisEventV1 } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import { assertTaskProgressReferences } from "@harness-anything/kernel/internal/domain/storage-replay-policy.ts";
 import { FACT_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/decision-event.ts";
@@ -448,7 +449,7 @@ function materializationReleaseRefs(db: DatabaseSync, event: PersistedCanonicalE
 
 export function projectEntityDocumentRematerialization(
   db: DatabaseSync,
-  event: EntityDocumentEventV1,
+  event: EntityDocumentEventV1 | DossierSynthesisEventV1,
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {

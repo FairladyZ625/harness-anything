@@ -150,6 +150,7 @@ export type VerticalEntityKindDeclaration =
   | ArtifactEntityKindDefinition;
 
 export interface VerticalDefinition {
+  readonly livingDossier?: import("./living-dossier.ts").LivingDossier;
   readonly schema: "vertical-definition/v1";
   readonly id: string;
   readonly title: string;
