@@ -91,7 +91,7 @@ export function compileDossierSynthesis(input: {
       documentClaims: [document.claim, cursor.claim],
     },
   };
-  const issues = validateDossierSynthesisEvent(event);
+  const issues = validateCurrentDossierSynthesisEvent(event);
   if (issues.length) throw new Error(issues.join(", "));
   return { event, plan: entityDocumentEventWritePlan(event), blobs: [document.blob, cursor.blob] };
 }
@@ -108,33 +108,44 @@ function dossierClaim(path: string, mediaType: DossierDocumentClaim["mediaType"]
 }
 
 export function validateDossierSynthesisEvent(value: unknown): readonly string[] {
+  return validateDossierSynthesisEventFields(value, true);
+}
+
+export function validateCurrentDossierSynthesisEvent(value: unknown): readonly string[] {
+  return validateDossierSynthesisEventFields(value, false);
+}
+
+function validateDossierSynthesisEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, [
-      "schema",
-      "type",
-      "opId",
-      "eventId",
-      "actor",
-      "source",
-      "occurredAt",
-      "workspaceRevision",
-      "payload",
-    ]) ||
+    (!allowUnknownFields &&
+      !hasOnlyFields(value, [
+        "schema",
+        "type",
+        "opId",
+        "eventId",
+        "actor",
+        "source",
+        "occurredAt",
+        "workspaceRevision",
+        "payload",
+      ])) ||
     value.schema !== "dossier-synthesis-event/v1" ||
     value.type !== "dossier_synthesized" ||
-    validateEventEnvelopeIdentity(value).length > 0 ||
+    validateEventEnvelopeIdentity(value, allowUnknownFields).length > 0 ||
     !isDossierWatermark(value.workspaceRevision) ||
     !timestamp(value.occurredAt) ||
     !isRecord(value.payload) ||
-    !hasOnlyFields(value.payload, ["state", "expectedWatermark", "sourceWatermark", "documentClaims"])
+    (!allowUnknownFields &&
+      !hasOnlyFields(value.payload, ["state", "expectedWatermark", "sourceWatermark", "documentClaims"]))
   )
     return ["dossier synthesis event envelope is invalid"];
 
   const { state, expectedWatermark, sourceWatermark, documentClaims } = value.payload;
   if (
     !isRecord(state) ||
-    !hasOnlyFields(state, ["verticalId", "slotId", "path", "lastSynthesizedWatermark", "synthesizedAt"]) ||
+    (!allowUnknownFields &&
+      !hasOnlyFields(state, ["verticalId", "slotId", "path", "lastSynthesizedWatermark", "synthesizedAt"])) ||
     typeof state.verticalId !== "string" ||
     !DOSSIER_VERTICAL_ID_PATTERN.test(state.verticalId) ||
     typeof state.slotId !== "string" ||
@@ -155,7 +166,7 @@ export function validateDossierSynthesisEvent(value: unknown): readonly string[]
   const [document, cursor] = documentClaims;
   const root = dossierRoot(state.verticalId);
   if (
-    !validClaim(document) ||
+    !validClaim(document, allowUnknownFields) ||
     document.path !== state.path ||
     !document.path.startsWith(root) ||
     document.path.toLowerCase().startsWith(`${root}.state/`) ||
@@ -163,7 +174,7 @@ export function validateDossierSynthesisEvent(value: unknown): readonly string[]
       (document.mediaType === "text/markdown" && document.path.toLowerCase().endsWith(".md")) ||
       (document.mediaType === "text/html" && document.path.toLowerCase().endsWith(".html"))
     ) ||
-    !validClaim(cursor) ||
+    !validClaim(cursor, allowUnknownFields) ||
     cursor.path !== dossierStatePath(state.verticalId, state.slotId) ||
     cursor.mediaType !== "application/json"
   )
@@ -181,10 +192,10 @@ export function validateDossierSynthesisEvent(value: unknown): readonly string[]
     : ["dossier synthesis state claim does not match the event"];
 }
 
-function validClaim(value: unknown): value is DossierDocumentClaim {
+function validClaim(value: unknown, allowUnknownFields: boolean): value is DossierDocumentClaim {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "policyId"]) &&
+    (allowUnknownFields || hasOnlyFields(value, ["path", "sha256", "size", "mediaType", "policyId"])) &&
     typeof value.path === "string" &&
     safeWorkspacePath(value.path) &&
     typeof value.sha256 === "string" &&

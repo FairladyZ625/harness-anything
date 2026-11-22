@@ -135,7 +135,7 @@ const dossierProtocolCommands = Object.freeze([
       watermarkInput("--expected-watermark", true, "Slot watermark returned by dossier context."),
       watermarkInput("--watermark", true, "Next watermark returned by dossier context."),
       cliInput(
-        "--content-file",
+        "--body-file",
         "single",
         true,
         { code: "missing_field" },

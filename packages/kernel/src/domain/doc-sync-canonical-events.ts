@@ -8,7 +8,7 @@ import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./a
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
 import type { CanonicalEventV1, DocEventV1, PersistedCanonicalEventV1 } from "./doc-sync-types.ts";
 import { validateCurrentDocEvent } from "./doc-sync-validation.ts";
-import { validateDossierSynthesisEvent } from "./dossier-synthesis-event.ts";
+import { validateCurrentDossierSynthesisEvent, validateDossierSynthesisEvent } from "./dossier-synthesis-event.ts";
 import { validateCurrentEntityDocumentEvent, validateEntityDocumentEvent } from "./entity-document-event.ts";
 import { validateCurrentFactEvent, validateFactEvent } from "./fact-event.ts";
 import {
@@ -142,7 +142,7 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     schema: "dossier-synthesis-event/v1",
     owner: "document",
     validate: validateDossierSynthesisEvent,
-    validateCurrent: validateDossierSynthesisEvent,
+    validateCurrent: validateCurrentDossierSynthesisEvent,
   },
   {
     schema: "entity-document-event/v1",

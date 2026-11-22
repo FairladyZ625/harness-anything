@@ -337,7 +337,8 @@ export const dossierSynthesisPolicy = {
   sources: [
     "policy:packages/daemon:packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim:6a5ae52649e37c97d33d052242234a4a",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-commands.ts#dossierSynthesizeRoute.claimFence:2b39eedf9916382139b7ccdbdb8f3a10",
-    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent:9af422b391be32a92c53613592dc8a3e",
-    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent:99aea578fb99b2cdf487f19774cf56e0",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:22b9c22a41880415864574a8cce45de5",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:2ff89fbe31cc575e8b5c327852f0f6b2",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:d78394ff063590c638fe7fbf7d222639",
   ].map((candidateId) => ({ candidateId, route: "living dossier synthesis fence" })),
 } as const satisfies OntologyPolicyDeclaration;

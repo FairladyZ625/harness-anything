@@ -243,13 +243,13 @@
         "order": 3
       },
       {
-        "id": "kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent",
-        "symbol": "packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent",
+        "id": "kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields",
+        "symbol": "packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields",
         "explain": "Check the canonical cursor state and its authored document claims before append and replay.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent:43757320eddc69412f3e368ee4affe9a",
-            "route": "packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEvent"
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:ecba8332546ff7aa71f9a972a82cdcac",
+            "route": "packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields"
           }
         ],
         "order": 11

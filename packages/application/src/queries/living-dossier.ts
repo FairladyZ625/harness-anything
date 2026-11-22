@@ -1,4 +1,5 @@
 import { canonicalEventFleetSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { parseEntityRef } from "@harness-anything/kernel/internal/domain/entity-ref.ts";
 import {
   DOSSIER_PAGE_SIZE,
   dossierDocumentPath,
@@ -122,7 +123,8 @@ function dossierChange(event: CanonicalEventV1, kinds: ReadonlySet<string>) {
       ...("relation" in event.payload ? [event.payload.relation.source, event.payload.relation.target] : []),
     ];
   } else if (!["fact-event/v1", "entity-event/v1", "vertical-declaration-event/v1"].includes(event.schema)) return [];
-  if (kinds.size > 0 && !refs.some((ref) => kinds.has(ref.slice(0, ref.lastIndexOf("/"))))) return [];
+  if (kinds.size > 0 && !refs.some((ref) => kinds.has(parseEntityRef(ref)?.kind ?? ref.slice(0, ref.lastIndexOf("/")))))
+    return [];
   return [{ ...canonicalEventFleetSummary(event), entityRefs: refs }];
 }
 

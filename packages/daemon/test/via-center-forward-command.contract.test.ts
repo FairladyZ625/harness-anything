@@ -155,7 +155,7 @@ function candidate(command: Command, input: CliInput): string {
         : input.name === "--plan-file"
           ? "tasks/task-one/plan.md"
           : "tasks/task-one/artifacts/body.md";
-  if (input.name === "--mission-file" || input.name === "--content-file") return "body.md";
+  if (input.name === "--mission-file") return "body.md";
   if (input.name === "--source" && command.id === "task-artifact-add") return "artifact.bin";
   if (input.name === "--source" && (command.id === "agent-install" || command.id === "agent-create"))
     return "agent.json";

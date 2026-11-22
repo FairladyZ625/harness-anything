@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
@@ -29,7 +30,7 @@ export async function measureDossierHistory(rootDir, size) {
         id: "context",
         path: "context.md",
         kind: "markdown",
-        entityKinds: ["task"],
+        entityKinds: ["task", "decision"],
         requiredAnchors: ["context"],
       },
       source = "local",
@@ -65,6 +66,14 @@ export async function measureDossierHistory(rootDir, size) {
       body: `<!-- dossier-watermark: ${size} -->\n# Context\nPreviously accepted project context.`,
     }).event;
     db.prepare("UPDATE event SET event_json=? WHERE revision=?").run(JSON.stringify(accepted), size + 1);
+    const relation = JSON.parse(
+      readFileSync(
+        path.join(rootDir, "packages/kernel/fixtures/canonical-events/relation-event-v1/accepted.json"),
+        "utf8",
+      ),
+    );
+    relation.workspaceRevision = size + 2;
+    db.prepare("UPDATE event SET event_json=? WHERE revision=?").run(JSON.stringify(relation), size + 2);
     const pointEvent = (revision) => {
       counts.pointEventReads++;
       return JSON.parse(db.prepare("SELECT event_json FROM event WHERE revision=?").get(revision).event_json);
@@ -111,6 +120,10 @@ export async function measureDossierHistory(rootDir, size) {
     assert.equal(page.nextWatermark, head);
     assert.equal(page.done, true);
     assert.equal(page.changes.length, delta - 1, "ignore the prior synthesis in the source interval");
+    assert.ok(
+      page.changes.some((change) => change.entityRefs.includes(relation.payload.relation.source)),
+      "include relations to a declared decision kind through a clause reference",
+    );
     const prepared = prepareDossierSynthesis({
       actor,
       source,
