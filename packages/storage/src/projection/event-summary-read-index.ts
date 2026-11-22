@@ -84,6 +84,49 @@ export const EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL = `
     DELETE FROM event_summary_entity_ref WHERE workspace_revision = NEW.workspace_revision;${insertEntityRefsSql}
   END`;
 
+export const FLEET_NODE_TASK_SEED_TYPES: ReadonlySet<string> = new Set([
+  "task_created",
+  "task_bootstrapped",
+  "execution_started",
+  "execution_submitted",
+  "runtime_dispatch_requested",
+]);
+
+/** Expand each `kind/id` ref and every non-empty slash-delimited suffix, matching the recursive CTE trigger. */
+export function expandEntityRefSuffixes(entityRefs: readonly string[]): readonly string[] {
+  const expanded = new Set<string>();
+  for (const raw of entityRefs) {
+    let current = raw;
+    for (;;) {
+      if (expanded.has(current)) break;
+      expanded.add(current);
+      const slash = current.indexOf("/");
+      if (slash === -1) break;
+      const next = current.slice(slash + 1);
+      if (next.length === 0) break;
+      current = next;
+    }
+  }
+  return [...expanded];
+}
+
+/** JS twin of `nodeSourceSql` used during trigger-free bulk rebuilds so derived columns match 100%. */
+export function deriveEventSummarySourceNodeId(
+  source: unknown,
+  lookupRuntimeSessionNode: (runtimeSessionId: string) => string | null,
+): string | null {
+  if (source === "local") return "center";
+  if (typeof source === "object" && source !== null) {
+    const record = source as { readonly kind?: unknown; readonly nodeId?: unknown };
+    if (record.kind === "node" || record.kind === "assignment")
+      return typeof record.nodeId === "string" ? record.nodeId : null;
+    return null;
+  }
+  if (typeof source === "string" && source.startsWith("runtime-session/"))
+    return lookupRuntimeSessionNode(source.slice(16));
+  return null;
+}
+
 /** Existing caches predate the scalar columns; add them before the shared DDL indexes them. */
 export function ensureEventSummaryReadIndexColumns(db: DatabaseSync): void {
   if (queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_summary'").length === 0) return;

@@ -8,15 +8,21 @@ const present = `CASE WHEN ${dispatch} AND EXISTS (SELECT 1 FROM runtime_session
 // column. Non-dispatch rows carry '' so NULL remains the "not yet expanded" marker.
 const dispatchKey = `CASE WHEN ${dispatch} THEN COALESCE(json_extract(event_json,'$.payload.dispatchKey'),json_extract(event_json,'$.payload.idempotencyKey'),'') ELSE '' END`;
 
+/** Ensure derived columns exist before bulk replay writes them directly without triggers. */
+export function ensureRuntimeMemberIndexColumns(db: DatabaseSync): void {
+  const columns = queryRows(db, "PRAGMA table_info(event_index)");
+  if (!columns.some(({ name }) => name === "runtime_session_present"))
+    runSql(db, "ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
+  if (!columns.some(({ name }) => name === "dispatch_key"))
+    runSql(db, "ALTER TABLE event_index ADD COLUMN dispatch_key TEXT");
+}
+
 /** Additive, old-writer-compatible cache expansion; commit every 64 pending rows. */
 export function ensureRuntimeMemberIndex(
   db: DatabaseSync,
   onProgress?: (progress: { applied: number; total: number }) => void,
 ): void {
-  if (!queryRows(db, "PRAGMA table_info(event_index)").some(({ name }) => name === "runtime_session_present"))
-    runSql(db, "ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
-  if (!queryRows(db, "PRAGMA table_info(event_index)").some(({ name }) => name === "dispatch_key"))
-    runSql(db, "ALTER TABLE event_index ADD COLUMN dispatch_key TEXT");
+  ensureRuntimeMemberIndexColumns(db);
   const ddl = [
     "CREATE INDEX IF NOT EXISTS event_index_runtime_member_pending ON event_index(workspace_revision) WHERE runtime_session_present IS NULL",
     "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_key_pending ON event_index(workspace_revision) WHERE dispatch_key IS NULL",

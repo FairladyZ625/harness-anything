@@ -40,12 +40,18 @@ import {
   archivedFactDocumentPreimage,
   canonicalDocumentClaims,
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+import {
+  insertEventIndexRow,
+  readDocumentBaseMetadata,
+  recordDocumentArchive,
+  recordDocumentDelete,
+  recordDocumentHistoryDelete,
+  recordDocumentHistoryUpsert,
+  recordDocumentUpsert,
+} from "./bulk-rebuild-state.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
-const DOCUMENT_BASE_SQL =
-  "SELECT json_extract(value_json, '$.blobSha256') AS blob_sha256 FROM " +
-  "(SELECT path,value_json FROM document UNION ALL SELECT path,value_json FROM document_history) WHERE path = ? LIMIT 1";
 const UPSERT_DOCUMENT_SQL = [
   "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
@@ -56,9 +62,14 @@ const ARCHIVE_DOCUMENT_SQL = [
   "SELECT path, ?, value_json FROM document WHERE path = ?",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision, value_json=excluded.value_json",
 ].join(" ");
+function upsertDocument(db: DatabaseSync, path: string, revision: number, document: DocumentState): void {
+  runSql(db, UPSERT_DOCUMENT_SQL, path, revision, canonicalJson(document));
+  recordDocumentUpsert(db, path, document);
+}
 function archiveDocument(db: DatabaseSync, path: string, revision: number): void {
   runSql(db, ARCHIVE_DOCUMENT_SQL, revision, path);
   runSql(db, "DELETE FROM document WHERE path = ?", path);
+  recordDocumentArchive(db, path);
 }
 function storeHistoricalDocument(db: DatabaseSync, document: DocumentState): void {
   runSql(
@@ -70,10 +81,13 @@ function storeHistoricalDocument(db: DatabaseSync, document: DocumentState): voi
     canonicalJson(document),
   );
   runSql(db, "DELETE FROM document WHERE path = ?", document.path);
+  recordDocumentHistoryUpsert(db, document.path, document);
+  recordDocumentDelete(db, document.path);
 }
 function upsertActiveDocument(db: DatabaseSync, path: string, revision: number, document: DocumentState): void {
   runSql(db, "DELETE FROM document_history WHERE path = ?", path);
-  runSql(db, UPSERT_DOCUMENT_SQL, path, revision, canonicalJson(document));
+  recordDocumentHistoryDelete(db, path);
+  upsertDocument(db, path, revision, document);
 }
 
 // Progress, fact, and decision materialized-write handlers.
@@ -87,13 +101,13 @@ export function projectProgress(
     snapshot = readSnapshot(db, taskId),
     packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", taskId)[0]?.package_path,
     claim = event.payload.resultDocumentClaim,
-    base = queryRows(db, DOCUMENT_BASE_SQL, claim.path)[0],
+    base = readDocumentBaseMetadata(db, claim.path),
     bytes = readBlob(claim.sha256),
     runtimeSessionIdValue = event.payload.runtimeSessionId,
     runtime = runtimeSessionIdValue ? readRuntimeSession(db, runtimeSessionIdValue) : null;
   // Admission checks the current lease. Replay checks accepted fact references, not today's authority.
   assertTaskProgressReferences(snapshot, event, packagePath, runtime);
-  if (event.payload.baseDocumentSha256 !== (base?.blob_sha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
+  if (event.payload.baseDocumentSha256 !== (base?.blobSha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`progress document base or blob mismatch for task ${taskId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   const document: DocumentState = {
@@ -105,14 +119,7 @@ export function projectProgress(
     policyId: claim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-    event.opId,
-    event.workspaceRevision,
-    taskId,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, taskId, eventJson, event);
   runSql(
     db,
     "INSERT INTO task_progress(workspace_revision, task_id, execution_id, event_json) VALUES (?, ?, ?, ?)",
@@ -121,9 +128,9 @@ export function projectProgress(
     event.payload.executionId,
     eventJson,
   );
-  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+  upsertDocument(db, claim.path, event.workspaceRevision, document);
   for (const change of event.payload.carriedDocumentClaims ?? []) {
-    const carriedBase = queryRows(db, DOCUMENT_BASE_SQL, change.path)[0],
+    const carriedBase = readDocumentBaseMetadata(db, change.path),
       carriedBytes = readBlob(change.candidate.sha256);
     if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
       throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
@@ -133,7 +140,7 @@ export function projectProgress(
     } catch {
       throw new Error(`carried document blob ${change.candidate.sha256} is not UTF-8`);
     }
-    if (change.baseBlobSha256 !== (carriedBase?.blob_sha256 ?? null))
+    if (change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null))
       throw new Error(`carried document proof mismatch for ${change.path}`);
     const carriedDocument: DocumentState = {
       path: change.path as DocumentState["path"],
@@ -144,7 +151,7 @@ export function projectProgress(
       policyId: change.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(carriedDocument));
+    upsertDocument(db, change.path, event.workspaceRevision, carriedDocument);
     refreshDecisionDocumentSearch(db, carriedDocument);
   }
 }
@@ -157,22 +164,15 @@ export function projectFact(
 ): void {
   if (event.type === "fact_archived") {
     const retirement = event.payload.factsDocumentRetirement,
-      base = queryRows(db, DOCUMENT_BASE_SQL, retirement?.path ?? "")[0];
+      base = readDocumentBaseMetadata(db, retirement?.path ?? "");
     if (
       !retirement ||
       retirement.path !== `facts/${event.factId}.md` ||
-      retirement.sha256 !== (base?.blob_sha256 ?? null)
+      retirement.sha256 !== (base?.blobSha256 ?? null)
     )
       throw new Error(`archived fact document path or base mismatch for ${event.factId}`);
     reduceFactEvent(db, event);
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-      event.opId,
-      event.workspaceRevision,
-      event.taskId ?? null,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, event.taskId ?? null, eventJson, event);
     if (!factMaterializationHeld(db, `fact/${event.factId}`, "archived"))
       archiveDocument(db, retirement.path, event.workspaceRevision);
     return;
@@ -193,14 +193,7 @@ export function projectFact(
     policyId: claim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-    event.opId,
-    event.workspaceRevision,
-    event.taskId ?? null,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, event.taskId ?? null, eventJson, event);
   upsertActiveDocument(db, claim.path, event.workspaceRevision, document);
   const supersededClaim = event.payload.supersededFactsDocumentClaim;
   if (!supersededClaim) return;
@@ -229,11 +222,11 @@ export function projectDecision(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   const claim = event.payload.decisionDocumentClaim,
-    previous = queryRows(db, DOCUMENT_BASE_SQL, claim.path)[0],
+    previous = readDocumentBaseMetadata(db, claim.path),
     bytes = readBlob(claim.sha256);
   if (
     claim.path !== `decisions/decision-${event.decisionId}/decision.md` ||
-    event.payload.baseDocumentSha256 !== (previous?.blob_sha256 ?? null) ||
+    event.payload.baseDocumentSha256 !== (previous?.blobSha256 ?? null) ||
     !bytes ||
     bytes.byteLength !== claim.size
   )
@@ -251,13 +244,7 @@ export function projectDecision(
     policyId: claim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-    event.opId,
-    event.workspaceRevision,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
   const terminal = (terminalDecisionMaterializationStates as readonly string[]).includes(state.state),
     held = terminal && decisionMaterializationHeld(db, event.decisionId, state.state);
   if (terminal && !held) {
@@ -268,11 +255,11 @@ export function projectDecision(
   }
   if (event.type === "decision_review_recorded")
     for (const change of event.payload.carriedDocumentClaims ?? []) {
-      const carriedBase = queryRows(db, DOCUMENT_BASE_SQL, change.path)[0],
+      const carriedBase = readDocumentBaseMetadata(db, change.path),
         carriedBytes = readBlob(change.candidate.sha256);
       if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
         throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
-      if (change.baseBlobSha256 !== (carriedBase?.blob_sha256 ?? null))
+      if (change.baseBlobSha256 !== (carriedBase?.blobSha256 ?? null))
         throw new Error(`carried document proof mismatch for ${change.path}`);
       const carriedDocument: DocumentState = {
         path: change.path as DocumentState["path"],
@@ -465,13 +452,7 @@ export function projectEntityDocumentRematerialization(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-    event.opId,
-    event.workspaceRevision,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
   for (const claim of event.payload.documentClaims) {
     const bytes = readBlob(claim.sha256);
     if (!bytes || bytes.byteLength !== claim.size)
@@ -485,7 +466,7 @@ export function projectEntityDocumentRematerialization(
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    upsertDocument(db, claim.path, event.workspaceRevision, document);
     if (claim.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
   }
 }
@@ -513,7 +494,7 @@ export function projectRelationDocuments(
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    upsertDocument(db, claim.path, event.workspaceRevision, document);
     if (claim.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
   }
 }
@@ -551,14 +532,7 @@ export function projectMigration(
             : entity.kind === "task-document"
               ? entity.taskId
               : null;
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-    event.opId,
-    event.workspaceRevision,
-    taskId,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, taskId, eventJson, event);
   if (entity.kind === "task") {
     runSql(
       db,
@@ -764,7 +738,7 @@ export function storeMigrationDocument(
     policyId: claim.policyId,
     workspaceRevision: event.workspaceRevision,
   };
-  runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+  upsertDocument(db, claim.path, event.workspaceRevision, document);
 }
 export function migrationDocument(db: DatabaseSync, path: string): DocumentState | null {
   const row = queryRows(db, "SELECT value_json FROM document WHERE path=?", path)[0];
