@@ -112,7 +112,9 @@ console.log("CAPTURE " + JSON.stringify(args));`,
   });
   for (const file of ["run-manifest-gates.mjs", "test-quarantine.mjs"])
     cpSync(path.join(import.meta.dirname, file), path.join(rootDir, "tools", file));
-  runGit(rootDir, ["config", "core.excludesFile", gitConfigNull]);
+  const excludesFile = ".git/empty-excludes";
+  writeRepoFile(rootDir, excludesFile, "");
+  runGit(rootDir, ["config", "core.excludesFile", excludesFile]);
   commitAll(rootDir);
   runGit(rootDir, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
   return rootDir;
