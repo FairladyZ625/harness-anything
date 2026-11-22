@@ -5,6 +5,7 @@ export interface KeycloakEdgeLogin {
   readonly port: number;
   readonly caPath: string;
   readonly servername?: string;
+  readonly spkiSha256?: string;
   readonly nodeId: string;
   readonly credential: string;
   readonly loginUrl?: string;
@@ -17,6 +18,7 @@ interface FleetTarget {
   readonly port: number;
   readonly ca: Buffer;
   readonly servername?: string;
+  readonly spkiSha256?: string;
   readonly nodeId: string;
   readonly credential: string;
 }

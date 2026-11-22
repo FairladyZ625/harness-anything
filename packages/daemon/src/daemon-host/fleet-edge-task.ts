@@ -76,6 +76,7 @@ export interface FleetEdgeTaskRequest {
     readonly port: number;
     readonly caPath: string;
     readonly servername?: string;
+    readonly spkiSha256?: string;
     readonly nodeId: string;
     readonly credential: string;
     readonly executionCredential?: string;
@@ -370,6 +371,7 @@ export async function runFleetEdgeTask(
       port: payload.port,
       ca: readFileSync(payload.caPath, "utf8"),
       servername: payload.servername,
+      ...(payload.spkiSha256 ? { spkiSha256: payload.spkiSha256 } : {}),
       nodeId: payload.nodeId,
       credential,
       ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),

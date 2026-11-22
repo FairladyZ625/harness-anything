@@ -249,7 +249,29 @@
       }
     },
     "daemon-fleet-edge-sync": {
-      "owner": "daemon"
+      "owner": "daemon",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "daemon-fleet-edge-sync",
+        "read": false
+      }
     },
     "daemon-local-state": {
       "owner": "daemon",

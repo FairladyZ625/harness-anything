@@ -7,7 +7,8 @@ import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation
 import { recordReplicaHealth, replicaFailure } from "../../fleet-sync/fleet/replica-health.ts";
 import { isDeterministicReplicaFailure, replicaRetryDelay } from "../../fleet-sync/fleet/replica-retry.ts";
 const DEFAULT_CONFIRM_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
-export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
+export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied" | "resumeOnly"> {
+  readonly resumeOnly?: boolean | (() => boolean | undefined);
   readonly signal?: AbortSignal;
   /** Daemon lifetime ends confirmation work even when an edge stream is being drained. */
   readonly shutdownSignal?: AbortSignal;
@@ -34,7 +35,7 @@ const waiters = new Map<string, Set<Waiter>>();
 const revisionWaiters = new Map<string, Set<RevisionWaiter>>();
 const readyWaiters = new Map<string, Set<ReadyWaiter>>();
 /** Running streams by key; `down` holds the last failure until the next connection attempt. */
-const streams = new Map<string, { down: unknown; connection: AbortController }>();
+const streams = new Map<string, { down: unknown; connection: AbortController; superseded: AbortController }>();
 const syncKey = (options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">): string =>
   `${options.viewRoot}\u0000${options.repoId}\u0000${options.nodeId}`;
 
@@ -104,16 +105,20 @@ const settleReady = (key: string, ready: boolean): void => {
  * It waits across resident stream reconnects; the caller's signal owns the wait budget.
  */
 export function waitForFleetReplicaSequence(
-  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">,
+  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId"> & {
+    readonly requireStreamConfirmation?: true;
+  },
   sequence: number,
   signal?: AbortSignal,
 ): Promise<void> {
-  const current = readReplicaGeneration(`${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`);
   if (signal?.aborted) return Promise.reject(signal.reason);
   const key = syncKey(options),
     stream = streams.get(key);
   if (!stream) return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
-  if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
+  if (!options.requireStreamConfirmation) {
+    const current = readReplicaGeneration(`${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`);
+    if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
+  }
   return new Promise<void>((resolve, reject) => {
     const pending = waiters.get(key) ?? new Set<Waiter>();
     const waiter: Waiter = {
@@ -213,7 +218,11 @@ export function waitForFleetReplicaReady(
 /** One long-lived stream per node and repository; it reconnects with backoff only after a failure. */
 export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<void> {
   const key = syncKey(options),
-    stream = { down: null as unknown, connection: new AbortController() },
+    previous = streams.get(key),
+    stream = { down: null as unknown, connection: new AbortController(), superseded: new AbortController() },
+    stopSignal = options.signal
+      ? AbortSignal.any([options.signal, stream.superseded.signal])
+      : stream.superseded.signal,
     viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
   const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
     recordReplicaHealth(viewDir, {
@@ -222,6 +231,8 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       ...(syncFailure === null ? { lastHeartbeatAt: new Date().toISOString() } : {}),
     });
   streams.set(key, stream);
+  previous?.superseded.abort(new Error("replica stream superseded"));
+  previous?.connection.abort(new Error("replica stream superseded"));
   const confirmTimeoutMs = options.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS;
   let failures = 0,
     deterministicFailures = 0,
@@ -377,28 +388,31 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     })();
   };
   try {
-    while (!options.signal?.aborted) {
+    while (!stopSignal.aborted) {
       stream.down = null;
       stream.connection = new AbortController();
-      const attempt = await runSyncAttempt({
-        ...options,
-        signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
-        onApplied: async (position, changedPaths) => {
-          if (`${position.history}:${position.sequence}` !== lastPosition) {
-            failures = 0;
-            deterministicFailures = 0;
-          }
-          lastPosition = `${position.history}:${position.sequence}`;
-          if (!changedPaths) pendingChangedPaths = null;
-          else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
-          observe(null);
-          options.onReplicaHealthChange?.();
-          settle(key, position.sequence, position.revision);
-          settleReady(key, true);
-          confirm();
-        },
-      });
-      if (options.signal?.aborted) return;
+      const resumeOnly = typeof options.resumeOnly === "function" ? options.resumeOnly() : options.resumeOnly,
+        attempt = await runSyncAttempt({
+          ...options,
+          resumeOnly,
+          signal: AbortSignal.any([stopSignal, stream.connection.signal]),
+          onApplied: async (position, changedPaths) => {
+            if (streams.get(key) !== stream || stopSignal.aborted) return;
+            if (`${position.history}:${position.sequence}` !== lastPosition) {
+              failures = 0;
+              deterministicFailures = 0;
+            }
+            lastPosition = `${position.history}:${position.sequence}`;
+            if (!changedPaths) pendingChangedPaths = null;
+            else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
+            observe(null);
+            options.onReplicaHealthChange?.();
+            settle(key, position.sequence, position.revision);
+            settleReady(key, true);
+            confirm();
+          },
+        });
+      if (stopSignal.aborted) return;
       const error = attempt.failed ? attempt.error : null;
       // Release any hung confirmation tied to the dropped connection so reconnects can re-confirm.
       abortActiveConfirmation(streamDown(error ?? new Error("replication stream ended")), true);
@@ -420,16 +434,16 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       if (retryDelay === null) return;
       await new Promise<void>((resolve) => {
         const done = () => {
-            options.signal?.removeEventListener("abort", onAbort);
+            stopSignal.removeEventListener("abort", onAbort);
             resolve();
           },
           timer = setTimeout(done, retryDelay),
           onAbort = () => {
             clearTimeout(timer);
-            options.signal?.removeEventListener("abort", onAbort);
+            stopSignal.removeEventListener("abort", onAbort);
             resolve();
           };
-        options.signal?.addEventListener("abort", onAbort, { once: true });
+        stopSignal.addEventListener("abort", onAbort, { once: true });
       });
     }
   } finally {

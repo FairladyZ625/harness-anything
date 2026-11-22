@@ -45,7 +45,12 @@ import {
   type RuntimeInstallationWitness,
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
-import { fleetEdgeConfigDir, readFleetEdgeConfig, readFleetEdgeConfigForRoot } from "./client/fleet-edge-config.ts";
+import {
+  FleetEdgeConfigError,
+  fleetEdgeConfigDir,
+  readFleetEdgeConfig,
+  readFleetEdgeConfigForRoot,
+} from "./client/fleet-edge-config.ts";
 import {
   openNodeAutoClaimLoop,
   type NodeAutoClaimCandidate,
@@ -66,7 +71,7 @@ import {
   writeNodeAutoClaimPolicy,
   type NodeAutoClaimPolicy,
 } from "./node-auto-claim-config.ts";
-import { createEdgeJoinProgressTap, joinFleetEdge } from "./fleet/edge-join-client.ts";
+import { createEdgeJoinProgressTap, startFleetEdgeJoin } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
@@ -209,7 +214,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     replicaSyncControllers = new Map<
       string,
       { readonly controller: AbortController; readonly config: string; task: Promise<void> }
-    >();
+    >(),
+    replicaSyncFences = new Set<string>();
   const unavailable = new Map<string, RepoCellStatus>(),
     trackedRepoObservability = input.metricsEnabled
       ? instrumentTrackedRepoMaps({ cells, warming, unavailable })
@@ -796,6 +802,26 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       throw error;
     }
   }
+  async function withReplicaSyncFence<T>(repoId: string, operation: () => Promise<T>): Promise<T> {
+    if (replicaSyncFences.has(repoId))
+      throw new FleetEdgeConfigError(
+        "repoint_in_progress",
+        `A replica stream transition for ${repoId} is already active.`,
+      );
+    replicaSyncFences.add(repoId);
+    try {
+      const running = replicaSyncControllers.get(repoId);
+      if (running) {
+        running.controller.abort();
+        await running.task;
+        if (replicaSyncControllers.get(repoId) === running) replicaSyncControllers.delete(repoId);
+      }
+      return await operation();
+    } finally {
+      replicaSyncFences.delete(repoId);
+      startReplicaSyncs();
+    }
+  }
   const scheduleScheduler = makeScheduleScheduler({
     cells,
     now,
@@ -1225,6 +1251,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     replicaSyncTasks,
     replicaSyncControllers,
     startReplicaSyncs: () => startReplicaSyncs(),
+    startReplicaSyncsFor: (repoId) => startReplicaSyncs(repoId),
+    withReplicaSyncFence,
     settleControl,
     buildObserver,
     startInitialAttachments,
@@ -1419,6 +1447,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                       : path.resolve(fleetEdgeConfigDir(input.userRoot, edge.repoId), edge.caPath),
                   ),
                   ...(edge.servername ? { servername: edge.servername } : {}),
+                  ...(edge.spkiSha256 ? { spkiSha256: edge.spkiSha256 } : {}),
                   nodeId: edge.nodeId,
                   credential: edge.credential,
                   repoId: edge.repoId,
@@ -1430,24 +1459,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           }
         }
         if (request.operation === "edge-join") {
-          const originUrls = edgeJoinOriginUrls(request.originUrls);
-          return joinFleetEdge(
-            {
-              link: String(request.link ?? ""),
-              ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
-              ...(request.quotaBytes === undefined ? {} : { quotaBytes: request.quotaBytes }),
-              ...(originUrls === undefined ? {} : { originUrls }),
-            },
-            {
-              session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
-              beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
-              register: (rootDir, repoId) =>
-                host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
-              sync: (payload) => host.fleet.edgeSync(payload, auth),
-              userRoot: input.userRoot,
-              onProgress: edgeJoinProgress.record,
-            },
-          );
+          return startFleetEdgeJoin(request, {
+            session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
+            beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
+            register: (rootDir, repoId) => host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
+            sync: (payload) => host.fleet.edgeSync(payload, auth),
+            userRoot: input.userRoot,
+            onProgress: edgeJoinProgress.record,
+          });
         }
         if (
           request.mode === "external" ||
@@ -1666,7 +1685,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (failure !== undefined) throw failure;
     },
   };
-  const startReplicaSyncs = (): void => {
+  const startReplicaSyncs = (admittedRepoId?: string): void => {
     if (closing) return;
     if (initialAttachments && !initialAttachmentsSettled) {
       if (!replicaSyncStartQueued) {
@@ -1690,8 +1709,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         continue;
       }
       activeRemoteEdges.add(repo.repoId);
+      if (replicaSyncFences.has(repo.repoId) && repo.repoId !== admittedRepoId) continue;
+      // Recording the center epoch for repoint preflight does not change the active transport.
+      const { writerEpoch: _writerEpoch, resumeOnly: _resumeOnly, ...streamConfig } = config;
       const running = replicaSyncControllers.get(repo.repoId),
-        connection = JSON.stringify([rootDir, config]);
+        connection = JSON.stringify([rootDir, streamConfig]);
       if (running?.config === connection) continue;
       fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
@@ -1722,6 +1744,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         port: config.port,
         ca: readFileSync(caPath),
         ...(config.servername ? { servername: config.servername } : {}),
+        ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
+        resumeOnly: () => readFleetEdgeConfig(input.userRoot, repo.repoId)?.resumeOnly,
         nodeId: config.nodeId,
         credential: config.credential,
         repoId: config.repoId,
@@ -1969,25 +1993,4 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   function settleControl(pending: DaemonControlReceipt, ok: boolean, error?: unknown): void {
     return settleControlImpl(extracted, pending, ok, error);
   }
-}
-
-function edgeJoinOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw hostCodedError("edge_origin_invalid", "Edge join origin addresses must be a repository-to-address map.");
-  const entries = Object.entries(value);
-  if (
-    entries.length > 64 ||
-    entries.some(
-      ([repoId, address]) =>
-        !repoId ||
-        repoId.length > 128 ||
-        typeof address !== "string" ||
-        !address.trim() ||
-        address.length > 2_048 ||
-        /[\0\r\n]/u.test(address),
-    )
-  )
-    throw hostCodedError("edge_origin_invalid", "Edge join origin addresses contain an invalid repository or address.");
-  return Object.fromEntries(entries) as Record<string, string>;
 }

@@ -1,4 +1,5 @@
 import type { ReplicaSyncPhase } from "./replica-status.ts";
+import { readReplicationPage, REPOINT_RESUME_ONLY } from "./repoint-lineage.ts";
 import { createReadStream } from "node:fs";
 import {
   replicationCommitBytes,
@@ -160,6 +161,10 @@ export async function runWalSender(input: {
       page = read.page,
       reason = read.reason;
     if (page === null) {
+      if (start.capabilities?.includes(REPOINT_RESUME_ONLY)) {
+        await peer.send({ type: "replica.failure", code: "replication_resume_unavailable", message: reason });
+        throw new Error(reason);
+      }
       if (position !== null) await peer.send({ type: "replica.resync", reason });
       input.onActivity?.("waiting_backup");
       const resumeRequest = position === null ? pendingResumeSnapshot : undefined;
@@ -292,21 +297,5 @@ export async function runWalSender(input: {
       input.onActivity?.("waiting_for_commit");
       await source.wait(position!, signal);
     }
-  }
-}
-
-function readReplicationPage(
-  source: ReplicationSource,
-  position: ReplicationPosition | null,
-): {
-  readonly page: ReturnType<ReplicationSource["read"]>;
-  readonly reason: string;
-} {
-  try {
-    return { page: position === null ? null : source.read(position), reason: "replication window unavailable" };
-  } catch (error) {
-    // A different history requires a new snapshot; every other read failure propagates.
-    if ((error as { readonly code?: unknown }).code !== "revision_conflict") throw error;
-    return { page: null, reason: "replication history mismatch" };
   }
 }

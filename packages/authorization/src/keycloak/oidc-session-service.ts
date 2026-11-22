@@ -332,6 +332,7 @@ export class OidcSessionService {
         port: edge.port,
         ca: readFileSync(edge.caPath),
         servername: edge.servername,
+        spkiSha256: edge.spkiSha256,
         nodeId: edge.nodeId,
         credential: edge.credential,
       },
@@ -719,6 +720,8 @@ export class OidcSessionService {
       realm: config.realm,
       clientId: `harness-node-${nodeId}`,
       ...(listenerCertificate !== undefined ? { certificate: listenerCertificate } : {}),
+      servername: config.listener?.hostname ?? config.servername ?? new URL(url).hostname,
+      browserUrl: config.listener ? managedRbacListenerUrl(config.listener) : url,
     };
   }
 
@@ -1118,6 +1121,7 @@ export class OidcSessionService {
         port: edge.port,
         ca: readFileSync(edge.caPath),
         servername: edge.servername,
+        spkiSha256: edge.spkiSha256,
         nodeId: edge.nodeId,
         credential: edge.credential,
       });
