@@ -72,7 +72,7 @@ export function daemonRpcRoutingDeclarations(
   return methods.flatMap((method) => {
     // The generic methods are discriminated by payload.action.kind, never last-method-wins.
     const candidates =
-      method.method === "repo.task.run" || method.method === "repo.task.read"
+      method.method === "repo.task.run" || method.method === "repo.task.read" || method.method === "repo.trace.read"
         ? commands.filter((command) => command.method === method.method)
         : method.actionKind
           ? [byAction.get(method.actionKind)].filter((command): command is CommandDeclaration => command !== undefined)

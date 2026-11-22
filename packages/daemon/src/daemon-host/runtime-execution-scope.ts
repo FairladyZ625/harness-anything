@@ -308,6 +308,17 @@ export function requireCurrentExecutionScope(input: {
   const session = input.projection.readRuntimeSession(p.runtimeSessionId),
     dispatch = input.projection.readRuntimeDispatch(p.runtimeSessionId),
     actor = runtimeExecutionActor(p);
+  if (
+    ingress &&
+    !input.hostSettlement &&
+    dispatch?.payload.executionTarget &&
+    (terminal ||
+      ingress.type === "runtime_session_cancelled" ||
+      (livenessObservation &&
+        isJsonObject(ingress.payload) &&
+        (ingress.payload.stopUnconfirmed === true || ingress.payload.processGroupPid !== undefined)))
+  )
+    throw executionCredentialRejected("scope", { dispatchId: p.dispatchId, role: p.role });
   const postSubmitCandidate =
       (input.action.kind === "task-push" || (input.action.kind === "task-submit" && input.action.amend === true)) &&
       input.action.taskId === p.taskId &&

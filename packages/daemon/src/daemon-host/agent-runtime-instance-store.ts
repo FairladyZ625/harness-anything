@@ -162,6 +162,7 @@ type RuntimeAuthProbeSnapshot = {
 };
 
 export function openRuntimeInstanceStore(input: {
+  readonly cloudRuntimeTargets?: import("@harness-anything/application/internal/commands/runtime-execution-target.ts").CloudRuntimeRegistration["instanceTargets"];
   readonly userRoot: string;
   readonly discover: () => readonly RuntimeInstallationWitness[];
   readonly refreshDiscovery?: () => Promise<readonly RuntimeInstallationWitness[]>;
@@ -945,6 +946,33 @@ export function openRuntimeInstanceStore(input: {
         dispatchMcpPolicy: request.mcpPolicy,
         instanceMcpPolicy: config.mcpPolicy,
       });
+    const cloud =
+      input.cloudRuntimeTargets && Object.hasOwn(input.cloudRuntimeTargets, instanceId)
+        ? input.cloudRuntimeTargets[instanceId]
+        : undefined;
+    if (cloud) {
+      const versionRefusal = runtimeVersionGate(config.kindId, cloud.version);
+      if (versionRefusal) throw runtimeInstanceError(versionRefusal.code, versionRefusal.hint);
+      const installation: RuntimeInstallationWitness = {
+        installationId: config.installationId,
+        kindId: config.kindId,
+        executablePath: "",
+        version: cloud.version,
+        observedAt: nowIso(),
+      };
+      return {
+        definition: definitionSnapshot(config, model, effort, fast, mcpPolicy),
+        installation,
+        protocolFamily: runtimeKindForId(config.kindId).protocolFamily,
+        executablePath: installation.executablePath,
+        args: [],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+        ...(permissionMode === undefined ? {} : { permissionMode }),
+        ...(mcpPolicy === undefined ? {} : { mcpPolicy }),
+      };
+    }
     let witnessed = input.discover(),
       installation = findInstallation(config, witnessed);
     if (!installation || !installationEntryMatches(installation)) {
@@ -1340,7 +1368,14 @@ export function openRuntimeInstanceStore(input: {
             results.map((result) => [result.instance.instanceId, result.modelCatalogReadiness]),
           ),
         }));
-      const instances = configs.map((config) => publicConfig(config, readiness.get(config.instanceId)));
+      const instances = configs.map((config) =>
+        publicConfig(
+          config,
+          input.cloudRuntimeTargets && Object.hasOwn(input.cloudRuntimeTargets, config.instanceId)
+            ? { status: "ready", code: null, hint: null }
+            : readiness.get(config.instanceId),
+        ),
+      );
       return listed(instances);
     }
     const instanceId = requiredRuntimeInstanceText(action.instanceId, "instanceId");

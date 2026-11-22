@@ -30,6 +30,7 @@ import {
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
+import { makeWorkspaceGitHistoryPort } from "./repo-cell-trace-view.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import type {
   RemoteRuntimePersistence,
@@ -809,7 +810,9 @@ export function deriveTaskMission(
       ? readMissionDocument(rootDir, projection, planDocument.packagePath, taskId, missionName)
       : null,
     causalContextResolved =
-      causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
+      causalContext === undefined
+        ? assembleTaskCausalContext({ projection, taskId, gitHistory: makeWorkspaceGitHistoryPort(rootDir) })
+        : causalContext,
     snapshot = projection.read(taskId).snapshot,
     mission = [
       taskPlanSection(planDocument.body, packageRoot),
@@ -1022,7 +1025,7 @@ export async function resolveRuntimeMission(input: {
       remoteTask === null
         ? taskId === null
           ? null
-          : assembleTaskCausalContext({ projection, taskId })
+          : assembleTaskCausalContext({ projection, taskId, gitHistory: makeWorkspaceGitHistoryPort(rootDir) })
         : remoteTask.causalContext,
     // The tier policy version and risk tier are frozen at creation: locally from the projection,
     // remotely from the center's serving read. Historical tasks without the policy version keep

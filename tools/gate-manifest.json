@@ -26,6 +26,8 @@
         "fast-contract (2)",
         "fast-contract (3)",
         "fast-contract (4)",
+        "fast-contract (5)",
+        "fast-contract (6)",
         "integration-shard (1)",
         "integration-shard (2)",
         "integration-shard (3)",
@@ -231,6 +233,8 @@
         "fast-contract (2)",
         "fast-contract (3)",
         "fast-contract (4)",
+        "fast-contract (5)",
+        "fast-contract (6)",
         "integration-shard (1)",
         "integration-shard (2)",
         "integration-shard (3)",
@@ -1156,7 +1160,14 @@
       "authoritySource": ["tools/test-tier-manifest.mjs", "tools/run-node-tests.mjs", "package.json:scripts.test:fast"],
       "consumerScope": ["node:test suites classified as fast"],
       "githubContext": {
-        "requiredContexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"],
+        "requiredContexts": [
+          "fast-contract (1)",
+          "fast-contract (2)",
+          "fast-contract (3)",
+          "fast-contract (4)",
+          "fast-contract (5)",
+          "fast-contract (6)"
+        ],
         "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
         "nodeVersions": [24, 26]
       },
@@ -1189,7 +1200,14 @@
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"]
+          "contexts": [
+            "fast-contract (1)",
+            "fast-contract (2)",
+            "fast-contract (3)",
+            "fast-contract (4)",
+            "fast-contract (5)",
+            "fast-contract (6)"
+          ]
         },
         "classes": ["local", "pr"]
       },
@@ -1221,7 +1239,14 @@
         "GUI bridge static lock: API registry shipped/deferred methods, preload allowlist, and registered IPC channels stay aligned"
       ],
       "githubContext": {
-        "requiredContexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"],
+        "requiredContexts": [
+          "fast-contract (1)",
+          "fast-contract (2)",
+          "fast-contract (3)",
+          "fast-contract (4)",
+          "fast-contract (5)",
+          "fast-contract (6)"
+        ],
         "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
         "nodeVersions": [24, 26]
       },
@@ -1253,7 +1278,14 @@
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"]
+          "contexts": [
+            "fast-contract (1)",
+            "fast-contract (2)",
+            "fast-contract (3)",
+            "fast-contract (4)",
+            "fast-contract (5)",
+            "fast-contract (6)"
+          ]
         },
         "classes": ["local", "pr"]
       },
@@ -1268,7 +1300,7 @@
       "command": "node tools/run-node-tests.mjs --prefix packages/storage/test/pglite --concurrency 2 && node tools/run-node-tests.mjs --file packages/daemon/test/pglite-repo-cell.integration.test.ts --concurrency 2",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "The PGlite database arm runs on every PR and push under Node 26; existing Node 24 shards verify factory refusal. A new lane is not promoted to branch protection in this change.",
+      "tierReason": "The PGlite database arm runs on storage-related PRs, pushes and the nightly schedule under Node 26. Existing Node 24 shards verify factory refusal.",
       "authoritySource": [
         "decision/dec_09C1CE4481EEF4096867FA034E/CH1",
         "decision/dec_04A9211B073F29F0FC1E1CA573#CH2",
@@ -5375,7 +5407,7 @@
       "command": "node tools/gates/cost-budget.mjs",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G38 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml cost-budget job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "The legacy G38 checks run in quick-gates. Both Node 26 read backends run on storage-related PRs, main pushes and the nightly schedule, with their verdicts verified by cost-budget-read-summary.",
       "localPathGlobs": [
         "packages/kernel/**",
         "packages/daemon/**",

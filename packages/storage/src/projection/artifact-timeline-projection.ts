@@ -63,7 +63,7 @@ const artifactDocumentUpsert =
   "relative=excluded.relative, kind=excluded.kind, sort_ms=excluded.sort_ms, " +
   "occurred_at=excluded.occurred_at, size_bytes=excluded.size_bytes";
 
-export const ARTIFACT_TIMELINE_TABLES_SQL = `
+export const ARTIFACT_TIMELINE_BASE_TABLES_SQL = `
     /* @gate-identity state-store/task.projection.artifact_document */ CREATE TABLE IF NOT EXISTS artifact_document (
       path TEXT PRIMARY KEY,
       package_dir TEXT NOT NULL,
@@ -73,14 +73,16 @@ export const ARTIFACT_TIMELINE_TABLES_SQL = `
       occurred_at TEXT NOT NULL,
       size_bytes INTEGER NOT NULL
     );
+    /* @gate-identity state-store/task.projection.artifact_count */ CREATE TABLE IF NOT EXISTS artifact_count (
+      kind TEXT PRIMARY KEY,
+      total INTEGER NOT NULL
+    );`;
+
+export const ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL = `
     -- One facet page is (kind, sort_ms, relative, package_dir): the row-value cursor consumes the
     -- last three columns in the same order the timeline compares them.
     CREATE INDEX IF NOT EXISTS artifact_document_page
       ON artifact_document(kind, sort_ms, relative, package_dir);
-    /* @gate-identity state-store/task.projection.artifact_count */ CREATE TABLE IF NOT EXISTS artifact_count (
-      kind TEXT PRIMARY KEY,
-      total INTEGER NOT NULL
-    );
     -- Reconcile a document write in both directions: an overwritten path may enter or leave the
     -- timeline, and a retirement removes it. Counts are only touched by real transitions.
     CREATE TRIGGER IF NOT EXISTS document_artifact_insert AFTER INSERT ON document
@@ -118,6 +120,8 @@ export const ARTIFACT_TIMELINE_TABLES_SQL = `
       WHERE kind = (SELECT kind FROM artifact_document WHERE path = OLD.path);
       DELETE FROM artifact_document WHERE path = OLD.path;
     END;`;
+
+export const ARTIFACT_TIMELINE_TABLES_SQL = `${ARTIFACT_TIMELINE_BASE_TABLES_SQL}\n${ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL}`;
 
 const artifactBackfillKey = "artifact-timeline-v1",
   artifactBackfillPage = 500;

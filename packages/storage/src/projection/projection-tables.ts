@@ -8,8 +8,16 @@ import {
 import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
+/**
+ * Reverse code-path trace keys (dec_9979850C7CE87C17271D78E4D1 CH2). SQLite normalizes task executions
+ * into `entity_projection` (`executions: []` in `task_snapshot.snapshot_json`), so execution submission
+ * SHAs are indexed on `entity_projection` while `externalResolution.commitSha` stays on `task_snapshot`.
+ */
+export const EXECUTION_SUBMISSION_COMMIT_SQL =
+  "(CASE WHEN json_valid(value_json) THEN json_extract(value_json, '$.submission.commitSha') END)";
+export const TASK_EXTERNAL_COMMIT_SQL = "json_extract(snapshot_json, '$.externalResolution.commitSha')";
 /** Shared query tables in the center projection and its full physical replica. */
-export const TASK_INDEX_TABLES_SQL = `
+export const TASK_INDEX_BASE_TABLES_SQL = `
     /* @gate-identity state-store/task.projection.task_snapshot */ CREATE TABLE IF NOT EXISTS task_snapshot (
       task_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -23,15 +31,19 @@ export const TASK_INDEX_TABLES_SQL = `
       ) STORED,
       updated_at TEXT NOT NULL DEFAULT ''
     );
-    CREATE INDEX IF NOT EXISTS task_snapshot_status_updated ON task_snapshot(status, updated_at DESC, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC);
-    CREATE INDEX IF NOT EXISTS task_snapshot_active_status ON task_snapshot(status, task_id)
-      WHERE package_disposition = 'active';
-    CREATE INDEX IF NOT EXISTS task_snapshot_parent
-      ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));
     /* @gate-identity state-store/task.projection.task_package */ CREATE TABLE IF NOT EXISTS task_package (task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL UNIQUE);`;
+
+export const TASK_INDEX_DEFERRED_INDEXES: readonly string[] = [
+  "CREATE INDEX IF NOT EXISTS task_snapshot_status_updated ON task_snapshot(status, updated_at DESC, task_id ASC)",
+  "CREATE INDEX IF NOT EXISTS task_snapshot_updated_task ON task_snapshot(updated_at DESC, task_id ASC)",
+  "CREATE INDEX IF NOT EXISTS task_snapshot_revision_task ON task_snapshot(workspace_revision, task_id ASC)",
+  "CREATE INDEX IF NOT EXISTS task_snapshot_agenda_status_pin ON task_snapshot(status, pinned DESC, task_id ASC)",
+  "CREATE INDEX IF NOT EXISTS task_snapshot_active_status ON task_snapshot(status, task_id) WHERE package_disposition = 'active'",
+  "CREATE INDEX IF NOT EXISTS task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'))",
+  `CREATE INDEX IF NOT EXISTS task_snapshot_external_commit ON task_snapshot(${TASK_EXTERNAL_COMMIT_SQL})`,
+];
+
+export const TASK_INDEX_TABLES_SQL = `${TASK_INDEX_BASE_TABLES_SQL}\n    ${TASK_INDEX_DEFERRED_INDEXES.join(";\n    ")};`;
 
 const dispatchActivityAt =
   "COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt'))";
@@ -45,7 +57,7 @@ export const sqliteImportedTaskPinPredicate = `
   AND json_extract(event_json,'$.payload.entity.kind')='task'
   AND json_type(event_json,'$.payload.entity.task.pinned')='true'`;
 
-export const REPOSITORY_READ_TABLES_SQL = `
+export const REPOSITORY_READ_BASE_TABLES_SQL = `
     ${DISPATCH_LIFECYCLE_TABLES_SQL}
     /* @gate-identity state-store/task.projection.artifact_entity_state */ CREATE TABLE IF NOT EXISTS artifact_entity_state (
       entity_kind TEXT NOT NULL, entity_id TEXT NOT NULL, state_json TEXT NOT NULL,
@@ -74,19 +86,6 @@ export const REPOSITORY_READ_TABLES_SQL = `
       entity_ref TEXT NOT NULL,
       PRIMARY KEY(entity_ref, workspace_revision)
     ) WITHOUT ROWID;
-    -- Re-expanding one revision deletes its rows; without this the delete would scan the ref table.
-    CREATE INDEX IF NOT EXISTS event_summary_entity_ref_revision
-      ON event_summary_entity_ref(workspace_revision);
-    CREATE INDEX IF NOT EXISTS event_summary_type_revision
-      ON event_summary(event_type, workspace_revision DESC);
-    CREATE INDEX IF NOT EXISTS event_summary_task_revision
-      ON event_summary(json_extract(summary_json, '$.taskId'), workspace_revision DESC);
-    CREATE INDEX IF NOT EXISTS event_summary_occurred_revision
-      ON event_summary(occurred_at, workspace_revision DESC);
-    CREATE INDEX IF NOT EXISTS event_summary_actor_person_revision
-      ON event_summary(actor_person_id, workspace_revision DESC);
-    CREATE INDEX IF NOT EXISTS event_summary_actor_executor_revision
-      ON event_summary(actor_executor_id, workspace_revision DESC);
     /* @gate-identity state-store/task.projection.fleet_node_task */ CREATE TABLE IF NOT EXISTS fleet_node_task (
       node_id TEXT NOT NULL,
       task_id TEXT NOT NULL,
@@ -95,19 +94,6 @@ export const REPOSITORY_READ_TABLES_SQL = `
       updated_at TEXT NOT NULL,
       PRIMARY KEY(node_id,task_id)
     ) WITHOUT ROWID;
-    CREATE INDEX IF NOT EXISTS fleet_node_task_updated ON fleet_node_task(node_id,updated_at DESC,task_id);
-    CREATE INDEX IF NOT EXISTS event_summary_fleet_node ON event_summary(source_node_id,workspace_revision DESC);
-    CREATE INDEX IF NOT EXISTS event_summary_fleet_dispatch ON event_summary(source_node_id,dispatch_started_at DESC,workspace_revision DESC)
-      WHERE event_type = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_summary_fleet_task_person ON event_summary(activity_task_id,workspace_revision DESC)
-      WHERE actor_person_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS event_summary_fleet_task_node ON event_summary(activity_task_id,workspace_revision DESC)
-      WHERE source_node_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS event_summary_fleet_task_origin ON event_summary(activity_task_id,workspace_revision)
-      WHERE event_type IN ('task_created','task_bootstrapped');
-    CREATE INDEX IF NOT EXISTS event_summary_read_index_pending_v2
-      ON event_summary(workspace_revision) WHERE read_index_version < 2;
-    ${EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL};
     /* @gate-identity state-store/task.projection.runtime_installation */ CREATE TABLE IF NOT EXISTS runtime_installation (
       installation_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -122,23 +108,6 @@ export const REPOSITORY_READ_TABLES_SQL = `
       -- repository's dispatch history.
       execution_node_id TEXT NOT NULL DEFAULT ''
     );
-    -- Startup recovery asks only for unsettled sessions. The trailing session id makes the
-    -- filter and ORDER BY one index range instead of a full history scan plus sort.
-    CREATE INDEX IF NOT EXISTS runtime_session_unsettled_order
-      ON runtime_session(json_extract(value_json, '$.outcome'), runtime_session_id);
-    -- A resume names its native provider session; find it without walking settled history.
-    CREATE INDEX IF NOT EXISTS runtime_session_provider_session
-      ON runtime_session(json_extract(value_json, '$.providerSessionId'), runtime_session_id);
-    -- Default runtime overview reads only live sessions; the partial index excludes exited history.
-    CREATE INDEX IF NOT EXISTS runtime_session_non_exited_order
-      ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') <> 'exited';
-    CREATE INDEX IF NOT EXISTS runtime_session_live_order
-      ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') = 'live';
-    CREATE INDEX IF NOT EXISTS runtime_session_observed
-      ON runtime_session(${isoTimestampMillisecondsSql("json_extract(value_json, '$.lastObservedAt')")}, runtime_session_id);
-    -- Edge recovery filters by node before outcome, so node-settled history is never visited.
-    CREATE INDEX IF NOT EXISTS runtime_session_node_unsettled
-      ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id);
     -- Replaced by runtime_session_unsettled_order, which also carries the recovery ORDER BY.
     DROP INDEX IF EXISTS runtime_session_unsettled;
     /* @gate-identity state-store/task.projection.runtime_session_task_binding */ CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
@@ -174,176 +143,94 @@ export const REPOSITORY_READ_TABLES_SQL = `
     );
     CREATE INDEX IF NOT EXISTS lease_interval_current ON lease_interval(task_id, lease_expires_at)
       WHERE released_revision IS NULL;
-    CREATE INDEX IF NOT EXISTS lease_interval_active ON lease_interval(task_active, lease_expires_at, task_id)
-      WHERE released_revision IS NULL;
-    -- Latest-acquisition reads seek one row per task; without this the acquisition order has to
-    -- sort every re-entry the task accumulated.
-    CREATE INDEX IF NOT EXISTS lease_interval_task_acquisition ON lease_interval(task_id, acquired_revision);
     /* @gate-identity state-store/task.projection.event_index */ CREATE TABLE IF NOT EXISTS event_index (
       op_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL UNIQUE,
       task_id TEXT,
       event_json TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
-    -- The task list derives created_at and completed_at per row from that task's event history. Both
-    -- lookups take the first event in revision order, and event_index_task_id has no revision column,
-    -- so each one sorts the task's whole history before returning its first row: one long-lived task
-    -- makes a single page unbounded. These two carry revision order in the index instead. They are
-    -- separate names because CREATE INDEX IF NOT EXISTS never replaces an existing index, so widening
-    -- event_index_task_id would be skipped on every cache already built.
-    CREATE INDEX IF NOT EXISTS event_index_task_created ON event_index (task_id, workspace_revision);
-    -- completed_at takes the first completion event of the task: the same lookup restricted to
-    -- completion events, so it does not walk that task's unrelated history.
-    CREATE INDEX IF NOT EXISTS event_index_task_completed ON event_index (task_id, workspace_revision)
-      WHERE json_extract(event_json, '$.schema') = 'task-event/v1'
-        AND json_extract(event_json, '$.type') = 'task_completed';
-    CREATE INDEX IF NOT EXISTS event_index_submission_lookup ON event_index (
-      task_id,
-      json_extract(event_json, '$.payload.execution.executionId'),
-      workspace_revision DESC
-    ) WHERE
-      json_extract(event_json, '$.schema') = 'task-event/v1'
-      AND json_extract(event_json, '$.type') = 'execution_submitted';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_lookup ON event_index (
-      json_extract(event_json, '$.payload.runtimeSessionId'),
-      json_extract(event_json, '$.payload.definitionSnapshotRef'),
-      workspace_revision
-    ) WHERE
-      json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    -- Agent reference counts ask "how many dispatches name this agent"; without this index the
-    -- count walks every dispatch ever recorded, the same all-history cost as a full read.
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_agent ON event_index(
-      json_extract(event_json, '$.payload.agentId'), workspace_revision
-    ) WHERE
-      json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_id ON event_index(
-      json_extract(event_json, '$.payload.dispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_resume_source ON event_index(
-      json_extract(event_json, '$.payload.resumedFromDispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_started ON event_index(
-      json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_migrated_task_pin ON event_index(
-      json_extract(event_json,'$.actor.principal.personId'), workspace_revision
-    ) WHERE ${sqliteImportedTaskPinPredicate};
-    -- Match the event type as well as the range so the planner can seek the ordered window.
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_epoch_ms ON event_index(
-      json_extract(event_json, '$.type'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_task_dispatch_epoch_ms ON event_index(
-      json_extract(event_json, '$.payload.taskId'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_agent_dispatch_epoch_ms ON event_index(
-      json_extract(event_json, '$.payload.agentId'), ${sqliteDispatchPageTimeKey} DESC, json_extract(event_json, '$.payload.dispatchId') ASC
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_squad_dispatch_epoch_ms ON event_index(
-      json_extract(event_json, '$.payload.squadId'), ${sqliteDispatchPageTimeKey} DESC, json_extract(event_json, '$.payload.dispatchId') ASC
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(
-      json_extract(event_json, '$.payload.attemptGroupId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_task_execution ON event_index(
-      json_extract(event_json, '$.payload.taskId'), json_extract(event_json, '$.payload.executionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    -- "The current dispatch for this task" is one index seek, not a walk over every dispatch the
-    -- task ever had: aggregate reads (fleet overview) only need each task's newest effective
-    -- start, startedAt falling back to occurredAt, matching the dispatch row timestamp fallback.
-    CREATE INDEX IF NOT EXISTS event_index_runtime_session_started ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'),
-      COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
-      json_extract(event_json, '$.payload.dispatchId') DESC
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_task_started ON event_index(
-      json_extract(event_json, '$.payload.taskId'),
-      COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
-      json_extract(event_json, '$.payload.dispatchId') DESC
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_review_decision ON event_index(
-      json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_decision_review_dispatch ON event_index(
-      json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
-      AND json_extract(event_json, '$.payload.reviewTarget.kind') = 'decision';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_control ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND (
-        json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested')
-        OR (
-          json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'
-          AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL
-        )
-      );
-    CREATE INDEX IF NOT EXISTS event_index_runtime_cancel_control ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND (
-        json_extract(event_json, '$.type') = 'runtime_cancel_requested'
-        OR (
-          json_extract(event_json, '$.type') = 'runtime_session_liveness_changed'
-          AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel'
-        )
-      );
-    CREATE INDEX IF NOT EXISTS event_index_runtime_control_receipt ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed')
-      AND json_extract(event_json, '$.payload.controlReceipt') IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS event_index_runtime_control_receipt_req ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'),
-      json_extract(event_json, '$.payload.controlReceipt.requestOpId'),
-      workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed')
-      AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS event_index_runtime_applied_steer_receipt ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed')
-      AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied'
-      AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS event_index_fleet_session_launch ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC
-    ) WHERE json_extract(event_json,'$.schema')='agent-runtime-event/v1'
-      AND json_extract(event_json,'$.type')='runtime_session_started'
-      AND json_extract(event_json,'$.source.nodeId') IS NOT NULL;
     -- Recovery now reads its node scope from runtime_session.execution_node_id; this superseded
     -- dispatch-source scan index is removed when an existing projection reopens.
-    DROP INDEX IF EXISTS event_index_runtime_dispatch_node;
-    CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
-      WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_type_instant ON event_index(
-      json_extract(event_json, '$.type'), ${isoTimestampMillisecondsSql("json_extract(event_json, '$.occurredAt')")}, workspace_revision
-    );
-    CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (
-      json_extract(event_json, '$.entity.id'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_actor_executor ON event_index (
-      json_extract(event_json, '$.actor.executor.id'), workspace_revision
-    ) WHERE
-      json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1');
-    `;
+    DROP INDEX IF EXISTS event_index_runtime_dispatch_node;`;
+
+export const REPOSITORY_READ_DEFERRED_INDEXES: readonly string[] = [
+  // Re-expanding one revision deletes its rows; without this the delete would scan the ref table.
+  "CREATE INDEX IF NOT EXISTS event_summary_entity_ref_revision ON event_summary_entity_ref(workspace_revision)",
+  "CREATE INDEX IF NOT EXISTS event_summary_type_revision ON event_summary(event_type, workspace_revision DESC)",
+  "CREATE INDEX IF NOT EXISTS event_summary_task_revision ON event_summary(json_extract(summary_json, '$.taskId'), workspace_revision DESC)",
+  "CREATE INDEX IF NOT EXISTS event_summary_occurred_revision ON event_summary(occurred_at, workspace_revision DESC)",
+  "CREATE INDEX IF NOT EXISTS event_summary_actor_person_revision ON event_summary(actor_person_id, workspace_revision DESC)",
+  "CREATE INDEX IF NOT EXISTS event_summary_actor_executor_revision ON event_summary(actor_executor_id, workspace_revision DESC)",
+  "CREATE INDEX IF NOT EXISTS fleet_node_task_updated ON fleet_node_task(node_id,updated_at DESC,task_id)",
+  "CREATE INDEX IF NOT EXISTS event_summary_fleet_node ON event_summary(source_node_id,workspace_revision DESC)",
+  "CREATE INDEX IF NOT EXISTS event_summary_fleet_dispatch ON event_summary(source_node_id,dispatch_started_at DESC,workspace_revision DESC) WHERE event_type = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_summary_fleet_task_person ON event_summary(activity_task_id,workspace_revision DESC) WHERE actor_person_id IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS event_summary_fleet_task_node ON event_summary(activity_task_id,workspace_revision DESC) WHERE source_node_id IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS event_summary_fleet_task_origin ON event_summary(activity_task_id,workspace_revision) WHERE event_type IN ('task_created','task_bootstrapped')",
+  "CREATE INDEX IF NOT EXISTS event_summary_read_index_pending_v2 ON event_summary(workspace_revision) WHERE read_index_version < 2",
+  // Startup recovery asks only for unsettled sessions. The trailing session id makes the
+  // filter and ORDER BY one index range instead of a full history scan plus sort.
+  "CREATE INDEX IF NOT EXISTS runtime_session_unsettled_order ON runtime_session(json_extract(value_json, '$.outcome'), runtime_session_id)",
+  // A resume names its native provider session; find it without walking settled history.
+  "CREATE INDEX IF NOT EXISTS runtime_session_provider_session ON runtime_session(json_extract(value_json, '$.providerSessionId'), runtime_session_id)",
+  // Default runtime overview reads only live sessions; the partial index excludes exited history.
+  "CREATE INDEX IF NOT EXISTS runtime_session_non_exited_order ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') <> 'exited'",
+  "CREATE INDEX IF NOT EXISTS runtime_session_live_order ON runtime_session(runtime_session_id) WHERE json_extract(value_json, '$.liveness') = 'live'",
+  `CREATE INDEX IF NOT EXISTS runtime_session_observed ON runtime_session(${isoTimestampMillisecondsSql("json_extract(value_json, '$.lastObservedAt')")}, runtime_session_id)`,
+  // Edge recovery filters by node before outcome, so node-settled history is never visited.
+  "CREATE INDEX IF NOT EXISTS runtime_session_node_unsettled ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id)",
+  "CREATE INDEX IF NOT EXISTS lease_interval_active ON lease_interval(task_active, lease_expires_at, task_id) WHERE released_revision IS NULL",
+  // Latest-acquisition reads seek one row per task; without this the acquisition order has to
+  // sort every re-entry the task accumulated.
+  "CREATE INDEX IF NOT EXISTS lease_interval_task_acquisition ON lease_interval(task_id, acquired_revision)",
+  "CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id)",
+  // The task list derives created_at and completed_at per row from that task's event history. Both
+  // lookups take the first event in revision order, and event_index_task_id has no revision column,
+  // so each one sorts the task's whole history before returning its first row: one long-lived task
+  // makes a single page unbounded. These two carry revision order in the index instead. They are
+  // separate names because CREATE INDEX IF NOT EXISTS never replaces an existing index, so widening
+  // event_index_task_id would be skipped on every cache already built.
+  "CREATE INDEX IF NOT EXISTS event_index_task_created ON event_index (task_id, workspace_revision)",
+  // completed_at takes the first completion event of the task: the same lookup restricted to
+  // completion events, so it does not walk that task's unrelated history.
+  "CREATE INDEX IF NOT EXISTS event_index_task_completed ON event_index (task_id, workspace_revision) WHERE json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'task_completed'",
+  "CREATE INDEX IF NOT EXISTS event_index_submission_lookup ON event_index (task_id, json_extract(event_json, '$.payload.execution.executionId'), workspace_revision DESC) WHERE json_extract(event_json, '$.schema') = 'task-event/v1' AND json_extract(event_json, '$.type') = 'execution_submitted'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_lookup ON event_index (json_extract(event_json, '$.payload.runtimeSessionId'), json_extract(event_json, '$.payload.definitionSnapshotRef'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  // Agent reference counts ask "how many dispatches name this agent"; without this index the
+  // count walks every dispatch ever recorded, the same all-history cost as a full read.
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_agent ON event_index(json_extract(event_json, '$.payload.agentId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_id ON event_index(json_extract(event_json, '$.payload.dispatchId')) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_resume_source ON event_index(json_extract(event_json, '$.payload.resumedFromDispatchId')) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_started ON event_index(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  `CREATE INDEX IF NOT EXISTS event_index_migrated_task_pin ON event_index(json_extract(event_json,'$.actor.principal.personId'), workspace_revision) WHERE ${sqliteImportedTaskPinPredicate}`,
+  // Match the event type as well as the range so the planner can seek the ordered window.
+  `CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_epoch_ms ON event_index(json_extract(event_json, '$.type'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'`,
+  `CREATE INDEX IF NOT EXISTS event_index_runtime_task_dispatch_epoch_ms ON event_index(json_extract(event_json, '$.payload.taskId'), ${sqliteDispatchPageTimeKey}, json_extract(event_json, '$.payload.dispatchId')) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'`,
+  `CREATE INDEX IF NOT EXISTS event_index_runtime_agent_dispatch_epoch_ms ON event_index(json_extract(event_json, '$.payload.agentId'), ${sqliteDispatchPageTimeKey} DESC, json_extract(event_json, '$.payload.dispatchId') ASC) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'`,
+  `CREATE INDEX IF NOT EXISTS event_index_runtime_squad_dispatch_epoch_ms ON event_index(json_extract(event_json, '$.payload.squadId'), ${sqliteDispatchPageTimeKey} DESC, json_extract(event_json, '$.payload.dispatchId') ASC) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'`,
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(json_extract(event_json, '$.payload.attemptGroupId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_task_execution ON event_index(json_extract(event_json, '$.payload.taskId'), json_extract(event_json, '$.payload.executionId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  // "The current dispatch for this task" is one index seek, not a walk over every dispatch the
+  // task ever had: aggregate reads (fleet overview) only need each task's newest effective
+  // start, startedAt falling back to occurredAt, matching the dispatch row timestamp fallback.
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_session_started ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_task_started ON event_index(json_extract(event_json, '$.payload.taskId'), COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC, json_extract(event_json, '$.payload.dispatchId') DESC) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_review_decision ON event_index(json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "CREATE INDEX IF NOT EXISTS event_index_decision_review_dispatch ON event_index(json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND json_extract(event_json, '$.payload.reviewTarget.kind') = 'decision'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_control ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND (json_extract(event_json, '$.type') IN ('runtime_cancel_requested', 'runtime_steer_requested') OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.controlRequest') IS NOT NULL))",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_cancel_control ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND (json_extract(event_json, '$.type') = 'runtime_cancel_requested' OR (json_extract(event_json, '$.type') = 'runtime_session_liveness_changed' AND json_extract(event_json, '$.payload.controlRequest.action') = 'cancel'))",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_control_receipt ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt') IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_control_receipt_req ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), json_extract(event_json, '$.payload.controlReceipt.requestOpId'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt.requestOpId') IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS event_index_runtime_applied_steer_receipt ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') IN ('runtime_session_provider_bound', 'runtime_session_liveness_changed') AND json_extract(event_json, '$.payload.controlReceipt.status') = 'applied' AND json_extract(event_json, '$.payload.controlReceipt.steerVersion') IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS event_index_fleet_session_launch ON event_index(json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision DESC) WHERE json_extract(event_json,'$.schema')='agent-runtime-event/v1' AND json_extract(event_json,'$.type')='runtime_session_started' AND json_extract(event_json,'$.source.nodeId') IS NOT NULL",
+  "CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision) WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
+  `CREATE INDEX IF NOT EXISTS event_index_type_instant ON event_index(json_extract(event_json, '$.type'), ${isoTimestampMillisecondsSql("json_extract(event_json, '$.occurredAt')")}, workspace_revision)`,
+  "CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (json_extract(event_json, '$.entity.id'), workspace_revision) WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1'",
+  "CREATE INDEX IF NOT EXISTS event_index_actor_executor ON event_index (json_extract(event_json, '$.actor.executor.id'), workspace_revision) WHERE json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1')",
+];
+
+export const REPOSITORY_READ_TABLES_SQL = `${REPOSITORY_READ_BASE_TABLES_SQL}\n    ${REPOSITORY_READ_DEFERRED_INDEXES.join(";\n    ")};\n    ${EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL};`;
 
 /**
  * Existing projections predate the lease visibility flag; add it before the DDL creates the
@@ -374,7 +261,10 @@ export function ensureLeaseTaskActiveColumn(db: DatabaseSync): void {
     AND NOT EXISTS (SELECT 1 FROM task_snapshot WHERE task_snapshot.task_id = lease_interval.task_id AND status = 'active')`);
 }
 
-export function createProjectionTables(db: DatabaseSync): void {
+export function createProjectionTables(
+  db: DatabaseSync,
+  onValidationProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
+): void {
   /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
     TASK_INDEX_TABLES_SQL,
   );
@@ -384,7 +274,7 @@ export function createProjectionTables(db: DatabaseSync): void {
   /* @gate-identity state-store/task.source.storage.src.projection.projection-tables.sqlite-database */ db.exec(
     REPOSITORY_READ_TABLES_SQL,
   );
-  ensureRuntimeMemberIndex(db);
-  backfillEventSummaryReadIndex(db);
-  catchUpDispatchLifecycle(db);
+  ensureRuntimeMemberIndex(db, onValidationProgress);
+  backfillEventSummaryReadIndex(db, onValidationProgress);
+  catchUpDispatchLifecycle(db, onValidationProgress);
 }

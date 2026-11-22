@@ -11,6 +11,10 @@ export {
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget,
 } from "./client/local-json-rpc-client.ts";
+export type {
+  CloudRuntimeRegistration,
+  CloudSandboxTransport,
+} from "@harness-anything/application/internal/commands/runtime-execution-target.ts";
 export { openDaemonHost, type DaemonHost, type DaemonHostOpenInput } from "./daemon-host.ts";
 export {
   SkillEvalRunner,

@@ -201,7 +201,8 @@ test("CI file partitions cover every fast and contract file and only share the d
   assert.deepEqual(Object.values(tiers).flat().sort(), discoverTestFiles(repoRoot).sort());
   const weights = JSON.parse(readFileSync(path.join(repoRoot, "tools/fast-contract-test-weights.json"), "utf8"));
   const indices = job.strategy.matrix.partition;
-  assert.deepEqual(indices, [1, 2, 3, 4]);
+  assert.deepEqual(indices, [1, 2, 3, 4, 5, 6]);
+  assert.equal(job.env.HARNESS_TEST_PARTITION, `\${{ matrix.partition }}/${indices.length}`);
   for (const tier of ["fast", "contract"]) {
     const files = tiers[tier];
     const sharedInTier = shared.filter((file) => files.includes(file));

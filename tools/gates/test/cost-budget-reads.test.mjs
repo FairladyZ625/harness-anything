@@ -4,6 +4,7 @@ import test from "node:test";
 import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 import { parse } from "yaml";
 import { combineReadShards } from "../cost-budget-read-lane.mjs";
 import { planRowsRead } from "../../../packages/daemon/test/fixtures/g38-read-probe.mjs";
@@ -323,16 +324,12 @@ test("G38 shard join rejects missing, duplicate and unknown backend/dimension sl
   );
 });
 
-test("G38 conditional summary accepts PGlite-only shards but still requires every PGlite dimension", () => {
+test("G38 cannot report a measured verdict with only PGlite shards", () => {
   const f = fixture();
   const shards = READ_DIMENSIONS.map((dimension) => ({
     schema: "g38-read-shard/v1",
     measured: { pglite: { [dimension]: f.measured.pglite[dimension] } },
   }));
-  const measured = combineReadShards(shards, ["pglite"]);
-  assert.deepEqual(Object.keys(measured), ["pglite"]);
-  assert.equal(evaluateReadMeasurements({ ...f, measured, backends: ["pglite"] }).ok, true);
-  assert.throws(() => combineReadShards(shards.slice(1), ["pglite"]), /missing G38 shard pglite/u);
   assert.throws(() => combineReadShards(shards), /missing G38 shard sqlite/u);
 });
 
@@ -382,16 +379,43 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
       (step) => step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_BACKEND === "sqlite",
     ),
   );
-  assert.ok(summary.needs.includes("cost-budget-reads"));
+  assert.deepEqual(summary.needs, ["install", "cost-budget-reads", "cost-budget-reads-sqlite"]);
   assert.equal(
-    summary.steps.find((step) => step.env?.G38_PHASE === "read-summary").env.G38_REQUIRED_BACKENDS,
-    "${{ github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads == 'false' && 'pglite' || 'pglite,sqlite' }}",
+    summary.env.G38_SKIP_READS,
+    "${{ github.event_name == 'pull_request' && needs.install.result == 'success' && needs.install.outputs.costBudgetReads == 'false' }}",
   );
+  const [check, ...verification] = summary.steps;
+  assert.equal(check.uses, "actions/github-script@v7");
+  assert.equal(check.if, undefined);
+  assert.equal(check.env.PGLITE_RESULT, "${{ needs.cost-budget-reads.result }}");
+  assert.equal(check.env.SQLITE_RESULT, "${{ needs.cost-budget-reads-sqlite.result }}");
+  assert.equal(check["continue-on-error"], undefined);
+  for (const step of verification) assert.match(step.if, /env\.G38_SKIP_READS != 'true'/u);
+  const checkResults = (skip, pglite, sqlite) => {
+    const notices = [],
+      failures = [];
+    runInNewContext(check.with.script, {
+      process: { env: { G38_SKIP_READS: skip, PGLITE_RESULT: pglite, SQLITE_RESULT: sqlite } },
+      core: { notice: (message) => notices.push(message), setFailed: (message) => failures.push(message) },
+    });
+    return { notices, failures };
+  };
+  const skipped = checkResults("true", "skipped", "skipped");
+  assert.match(skipped.notices.join(), /G38 read-cost skipped/u);
+  assert.deepEqual(skipped.failures, []);
+  assert.deepEqual(checkResults("false", "success", "success"), { notices: [], failures: [] });
+  for (const [pglite, sqlite] of [
+    ["failure", "success"],
+    ["success", "cancelled"],
+    ["skipped", "skipped"],
+  ])
+    assert.match(checkResults("false", pglite, sqlite).failures.join(), /G38 read jobs must pass/u);
   assert.ok(
     summary.steps.some(
       (step) =>
         step.run === "node tools/gates/cost-budget.mjs" &&
         step.env?.G38_PHASE === "read-summary" &&
+        !Object.hasOwn(step.env, "G38_REQUIRED_BACKENDS") &&
         !step["continue-on-error"],
     ),
   );

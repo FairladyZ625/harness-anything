@@ -40,6 +40,10 @@ import type {
   RuntimeSessionReadQuery,
 } from "@harness-anything/kernel";
 import { readRelationProjectionRows, readRelationProjectionRowsForTargets } from "./relation-entity-projection.ts";
+import { relationFreshnessAnchorForType } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import { bulkRebuildContext } from "./bulk-rebuild-state.ts";
+import { readEntityVersionWitnesses } from "./entity-freshness-projection.ts";
+import { relationFreshnessColumns } from "./relation-freshness-columns.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
@@ -261,9 +265,35 @@ function readSnapshotsInternal(
           taskIds.map((taskId) => `task/${taskId}`),
         ),
     relations = new Map<string, ReturnType<typeof lifecycleRelation>[]>();
+  const liveFreshnessWitnesses =
+    bulkRebuildContext(db) !== undefined && relationRows.length > 0
+      ? readEntityVersionWitnesses(
+          db,
+          relationRows.flatMap((row) =>
+            relationFreshnessAnchorForType(row.relationType) === "source"
+              ? [row.targetRef, row.sourceRef]
+              : [row.targetRef],
+          ),
+        )
+      : null;
   for (const row of relationRows) {
     const values = relations.get(row.targetRef) ?? [];
-    values.push(lifecycleRelation(row));
+    const effective =
+      liveFreshnessWitnesses === null
+        ? row
+        : {
+            ...row,
+            freshness: relationFreshnessColumns(
+              {
+                type: row.relationType,
+                target: row.targetRef,
+                targetObservedVersion: row.targetObservedVersion,
+              },
+              liveFreshnessWitnesses.get(row.targetRef)!,
+              liveFreshnessWitnesses.get(row.sourceRef),
+            ).freshness,
+          };
+    values.push(lifecycleRelation(effective));
     relations.set(row.targetRef, values);
   }
   return new Map(

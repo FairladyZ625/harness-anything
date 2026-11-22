@@ -1,3 +1,7 @@
+import type {
+  CloudRuntimeRegistration,
+  CloudSandboxSteer,
+} from "@harness-anything/application/internal/commands/runtime-execution-target.ts";
 import type { OrphanRuntimeRecoveryAudit } from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
 import type { SquadDispatchSelection } from "./agent-entities.ts";
 import type { DispatchLifecycleQuery, DispatchLifecycleRead, DispatchLifecycleView } from "@harness-anything/kernel";
@@ -56,24 +60,43 @@ export interface RuntimeSteerOutcome {
   readonly message?: string;
 }
 
-export interface RuntimeProcess {
-  readonly pid: number;
-  readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
-  readonly onErrorOutput: (listener: (chunk: string) => void) => void;
+interface RuntimeExecutionObserver {
+  readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void | Promise<void>) => void;
+  readonly onErrorOutput: (listener: (chunk: string) => void | Promise<void>) => void;
   /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
   readonly onExit: (
     listener: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => void,
   ) => void;
   /** Fires when the worker host appends a correlated remote steer outcome (`steer_resumed` / `steer_dropped`). */
   readonly onSteerOutcome?: (listener: (outcome: RuntimeSteerOutcome) => void) => void;
+  readonly release?: () => void;
+}
+
+export interface RuntimeProcess extends RuntimeExecutionObserver {
+  readonly pid: number;
+  readonly cloud?: never;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
   /** Live descendants of this runtime's root process, excluding the root itself. The probe
    *  reports unavailability as a failure result rather than an empty list: the watchdog must
    *  keep its historical deadline when the process table cannot be read. */
   readonly liveDescendantPids?: () => Promise<LiveDescendantProbeResult>;
-  readonly release?: () => void;
 }
+
+export interface CloudRuntimeProcess extends RuntimeExecutionObserver {
+  readonly pid?: never;
+  readonly terminate?: never;
+  readonly terminateTree?: never;
+  readonly liveDescendantPids?: never;
+  readonly cloud: {
+    readonly stop: () => Promise<boolean>;
+    readonly hasStopProof: () => boolean;
+    readonly onLiveness: (listener: (live: boolean) => void | Promise<void>) => void;
+    readonly steer: (request: CloudSandboxSteer) => void;
+  };
+}
+
+export type RuntimeExecutionHandle = RuntimeProcess | CloudRuntimeProcess;
 
 export type RuntimeProcessObservation = Extract<
   AgentRuntimeEventV1,
@@ -208,7 +231,7 @@ export type RuntimeAgent = {
 };
 
 export type ActiveRuntime = {
-  readonly process: RuntimeProcess;
+  readonly process: RuntimeExecutionHandle;
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly dispatchOpId: string;
@@ -521,6 +544,7 @@ export interface RuntimeSpawnerInput {
     readonly token: string;
     readonly close: () => Promise<void>;
   } | null>;
+  readonly cloudRuntime?: CloudRuntimeRegistration;
   readonly prepareLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   /** Reclaims one runtime session's per-run temp directory under its instance state root;
    *  a no-op for instances without enforced isolation. Returns the filesystem failure (if
@@ -551,7 +575,7 @@ export interface RuntimeSpawnerInput {
     verticalId?: string,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
-  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;
+  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void | Promise<void>;
   readonly onRuntimeOutcome?: (
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
     schedule: TrustedScheduleRuntime | null,

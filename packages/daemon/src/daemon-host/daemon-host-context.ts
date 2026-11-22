@@ -31,6 +31,7 @@ export interface DaemonPoint extends JsonObject {
 }
 
 export interface DaemonRuntimePorts {
+  readonly cloudRuntime?: DaemonHostOpenInput["cloudRuntime"];
   readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth: RuntimeProviderHealthStore;

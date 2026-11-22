@@ -35,6 +35,7 @@ const DEFAULT_MAX_OUT_OF_ORDER_STEERS = 64;
 
 const retryableControlCodes = new Set([
   "runtime_steer_unavailable",
+  "stop_unconfirmed",
   "dispatch_lifecycle_pending",
   "fleet_peer_unavailable",
   "fleet_transport_closed",

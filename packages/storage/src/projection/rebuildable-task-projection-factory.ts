@@ -228,7 +228,14 @@ export function makeTaskProjection(
         isEventShapeMigrationEvent(event) &&
         withDatabase(projectionPath, readHead, (db) => requiresEventShapeReplay([event], watermark(db)))
       )
-        rebuildProjection(projectionPath, readHead, options.eventStore, limit, onProgress);
+        rebuildProjection(
+          projectionPath,
+          readHead,
+          options.eventStore,
+          limit,
+          onProgress,
+          options.onValidationProgress,
+        );
       // As with schema repair at open, prerequisite replay is separate from this apply receipt.
       return withDatabase(projectionPath, readHead, (db) =>
         reduceBatch(db, [event], limit, options.eventStore.readContentBlob, options.eventStore.readHead()),
@@ -236,7 +243,14 @@ export function makeTaskProjection(
     },
     rebuild: () => {
       closeDatabase(projectionPath, readHead);
-      return rebuildProjection(projectionPath, readHead, options.eventStore, limit, onProgress);
+      return rebuildProjection(
+        projectionPath,
+        readHead,
+        options.eventStore,
+        limit,
+        onProgress,
+        options.onValidationProgress,
+      );
     },
     catchUp: () => {
       let initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
