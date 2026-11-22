@@ -106,7 +106,7 @@ jobs:
               - 'packages/kernel/**'
               - 'packages/application/**'
               - 'packages/preset/**'
-              - 'packages/authorization-{builtin,keycloak}/**'
+              - 'packages/authorization/**'
               - 'packages/cli/src/cli-agent-rollback.ts'
               - 'packages/cli/test/fixtures/g38-read-rollback.mjs'
               - 'tools/gates/cost-budget*'

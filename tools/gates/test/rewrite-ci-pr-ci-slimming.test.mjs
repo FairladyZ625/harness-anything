@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { parse } from "yaml";
@@ -76,9 +76,9 @@ test("Node 26 storage jobs skip only a proven unrelated PR and keep main and nig
     "packages/storage/src/pglite/storage-backend.ts",
     "packages/daemon/test/pglite-repo-cell.integration.test.ts",
     "packages/kernel/src/domain/task-lifecycle-publication.ts",
-    "packages/application/src/commands.ts",
+    "packages/application/src/commands/index.ts",
     "packages/preset/src/preset-resolver-common.ts",
-    "packages/authorization-keycloak/src/index.ts",
+    "packages/authorization/src/keycloak/keycloak-policy-adapter.ts",
     "packages/cli/src/cli-agent-rollback.ts",
     "packages/cli/test/fixtures/g38-read-rollback.mjs",
     "tools/gates/cost-budget-read-lane.mjs",
@@ -87,15 +87,19 @@ test("Node 26 storage jobs skip only a proven unrelated PR and keep main and nig
     "packages/gui/package.json",
     "tsconfig.json",
     ".github/workflows/rewrite-ci.yml",
-  ])
+  ]) {
+    assert.ok(existsSync(path.join(rootDir, file)), `Expected storage trigger fixture to exist: ${file}`);
     assert.ok(selected(file), `${file} must run the storage jobs`);
+  }
   for (const file of [
-    "packages/gui/src/App.tsx",
-    "packages/cli/src/cli-version.ts",
+    "packages/gui/src/renderer/App.tsx",
+    "packages/cli/src/cli/thin-command-help.ts",
     "packages/dsh-plugin/src/index.ts",
     "tools/check-gate-surface.mjs",
-  ])
+  ]) {
+    assert.ok(existsSync(path.join(rootDir, file)), `Expected unrelated path fixture to exist: ${file}`);
     assert.equal(selected(file), false, `${file} alone must skip the storage jobs`);
+  }
   for (const jobId of ["pglite-node26", "cost-budget-reads", "cost-budget-reads-sqlite"]) {
     const job = jobs[jobId];
     const push =
