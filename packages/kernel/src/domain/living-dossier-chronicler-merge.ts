@@ -106,51 +106,81 @@ function updateHtmlWatermarkMeta(body: string, targetWatermark: number): string 
   return body.replace(/<head(\s[^>]*)?>/iu, (match) => `${match}\n${replacement}`);
 }
 
-const ANY_HREF_ATTR_RE = /\s+href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/iu;
-const ANY_HREF_ATTR_GLOBAL_RE = /\s+href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu;
+const HTML_OPEN_TAG_RE = /<([a-z][\w:-]*)\b((?:"[^"]*"|'[^']*'|[^'">])*)>/giu;
+const HTML_ATTR_RE = /(\s+([^\s/="'<>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>\x60]+)))?)/gu;
+const URL_BEARER_ATTRS = new Set([
+  "href",
+  "background",
+  "data",
+  "poster",
+  "src",
+  "srcset",
+  "xlink:href",
+  "action",
+  "formaction",
+]);
 
-function isInPageFragmentHref(value: string): boolean {
+function isAllowedLocalResource(value: string): boolean {
   const trimmed = value.trim();
-  return trimmed === "" || /^#[A-Za-z0-9_.:-]+$/u.test(trimmed);
+  return (
+    trimmed === "" ||
+    /^#[A-Za-z0-9_.:-]+$/u.test(trimmed) ||
+    /^data:(?:image\/(?:png|gif|jpe?g|webp|avif)|font\/(?:woff2?|ttf));base64,[A-Za-z0-9+/=]+$/iu.test(trimmed)
+  );
 }
 
 /**
- * Losslessly scrubs external URIs and non-fragment links from chronicler-authored HTML so GUI
- * continuation outputs stay 100% offline-clean without dropping curated sections or citation clues.
+ * Losslessly scrubs external URIs and non-local resource attributes from chronicler-authored HTML
+ * strictly at parsed HTML tag boundaries so code/prose examples stay untouched.
  */
 export function sanitizeExternalHtmlOffline(html: string): string {
-  // 1. Convert <a ... href="<non-fragment>">text</a> to an offline linkless reference preserving readable source clue.
-  let cleaned = html.replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/giu, (full, attrs: string, inner: string) => {
-    const hrefMatch = ANY_HREF_ATTR_RE.exec(attrs);
-    if (!hrefMatch) return full;
-    const rawUrl = (hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? "").trim();
-    if (isInPageFragmentHref(rawUrl)) return full;
-    const strippedRef = sanitizeExternalUrlText(rawUrl).replace(/^[a-z][a-z0-9+.-]*:(?:\/\/)?/iu, "");
-    const cleanedAttrs = attrs.replace(ANY_HREF_ATTR_RE, "");
-    const cleanedInner = sanitizeExternalUrlText(inner);
-    const refSuffix =
-      strippedRef.length > 0 && !cleanedInner.includes(strippedRef)
-        ? ` [ref: ${escapeInlineHtmlText(strippedRef)}]`
-        : "";
-    return `<a${cleanedAttrs}>${cleanedInner}${refSuffix}</a>`;
-  });
-
-  // 2. Strip redundant SVG/XLink XML namespaces that embed external URIs (HTML5 inline SVG needs none).
-  cleaned = cleaned.replace(
-    /\s+xmlns(?::[a-z][\w-]*)?\s*=\s*(?:"(?:https?|ftps?|wss?):\/\/[^"]*"|'(?:https?|ftps?|wss?):\/\/[^']*')/giu,
-    "",
-  );
-
-  // 3. Strip any remaining non-fragment href attributes on malformed/unclosed anchors.
-  cleaned = cleaned.replace(
-    ANY_HREF_ATTR_GLOBAL_RE,
-    (full, dq: string | undefined, sq: string | undefined, bare: string | undefined) => {
-      const rawUrl = (dq ?? sq ?? bare ?? "").trim();
-      return isInPageFragmentHref(rawUrl) ? full : "";
+  // 1. Convert <a ... href="<non-local>">text</a> to an offline linkless reference preserving readable source clue.
+  let cleaned = html.replace(
+    /<a\b((?:"[^"]*"|'[^']*'|[^'">])*)>([\s\S]*?)<\/a\s*>/giu,
+    (full, attrs: string, inner: string) => {
+      let extractedHref: string | null = null;
+      const nextAttrs = attrs.replace(
+        HTML_ATTR_RE,
+        (attrFull, _whole: string, rawName: string, dq?: string, sq?: string, bare?: string) => {
+          if (rawName.toLowerCase() !== "href") return attrFull;
+          const val = (dq ?? sq ?? bare ?? "").trim();
+          if (isAllowedLocalResource(val)) return attrFull;
+          if (extractedHref === null) extractedHref = val;
+          return "";
+        },
+      );
+      if (extractedHref === null) return full;
+      const strippedRef = sanitizeExternalUrlText(extractedHref).replace(/^[a-z][a-z0-9+.-]*:(?:\/\/)?/iu, "");
+      const cleanedInner = sanitizeExternalUrlText(inner);
+      const refSuffix =
+        strippedRef.length > 0 && !cleanedInner.includes(strippedRef)
+          ? ` [ref: ${escapeInlineHtmlText(strippedRef)}]`
+          : "";
+      return `<a${nextAttrs}>${cleanedInner}${refSuffix}</a>`;
     },
   );
 
-  // 4. Fixed-point scrub any residual external URI schemes or protocol-relative URLs in prose/comments.
+  // 2. Scrub external xmlns and non-local URL-bearing attributes ONLY on actual HTML opening tags (never prose/code text).
+  cleaned = cleaned.replace(HTML_OPEN_TAG_RE, (tag, rawElement: string, attrs: string) => {
+    if (!attrs) return tag;
+    const nextAttrs = attrs.replace(
+      HTML_ATTR_RE,
+      (attrFull, _whole: string, rawName: string, dq?: string, sq?: string, bare?: string) => {
+        const key = rawName.toLowerCase();
+        const val = (dq ?? sq ?? bare ?? "").trim();
+        if (key === "xmlns" || key.startsWith("xmlns:")) {
+          return isAllowedLocalResource(val) ? attrFull : "";
+        }
+        if (URL_BEARER_ATTRS.has(key)) {
+          return isAllowedLocalResource(val) ? attrFull : "";
+        }
+        return attrFull;
+      },
+    );
+    return nextAttrs === attrs ? tag : `<${rawElement}${nextAttrs}>`;
+  });
+
+  // 3. Fixed-point scrub any residual external URI schemes or protocol-relative URLs in prose/comments.
   return sanitizeExternalUrlText(cleaned);
 }
 

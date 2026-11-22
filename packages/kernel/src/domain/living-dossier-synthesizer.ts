@@ -61,10 +61,11 @@ function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRoll
       counter?.latestRevision ?? 0,
       ...children.map((child) => child.workspaceRevision),
     );
-    const packagePath = workRecord?.packagePath;
+    const packagePath = workRecord?.packagePath ?? counter?.packagePath;
+    const countsIncomplete = Boolean(workRecord?.countsIncomplete);
     rollups.push({
       workId,
-      title: workRecord?.title ?? workId,
+      title: workRecord?.title ?? counter?.title ?? workId,
       status:
         workRecord?.status ??
         (blockedTasks > 0 ? "blocked" : totalTasks > 0 && doneTasks === totalTasks ? "done" : "active"),
@@ -79,12 +80,13 @@ function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRoll
       ...(packagePath ? { packagePath } : {}),
       latestRevision,
       recentChildIds: children.slice(0, 6).map((child) => child.taskId),
+      ...(countsIncomplete ? { countsIncomplete: true } : {}),
     });
   }
 
-  return rollups.sort(
-    (left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId),
-  );
+  return rollups
+    .sort((left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId))
+    .slice(0, 256);
 }
 
 const MARKDOWN_ANCHOR_HEADINGS: Readonly<Record<string, string>> = {
@@ -201,8 +203,9 @@ function renderMarkdownAnchorBody(anchor: string, state: DossierLedgerState, tar
         "| --- | --- | --- | --- | --- | --- | --- |",
       ];
       for (const work of workRollups) {
+        const progressLabel = `${work.doneTasks}/${work.totalTasks}${work.countsIncomplete ? " (partial)" : ""}`;
         lines.push(
-          `| \`${escapeMarkdownCell(work.workId)}\` | ${escapeMarkdownCell(work.title)} | \`${work.status}\` | ${work.doneTasks}/${work.totalTasks} | ${work.blockedTasks} | \`${escapeMarkdownCell(work.explainerPath)}\` | r${work.latestRevision} |`,
+          `| \`${escapeMarkdownCell(work.workId)}\` | ${escapeMarkdownCell(work.title)} | \`${work.status}\` | ${progressLabel} | ${work.blockedTasks} | \`${escapeMarkdownCell(work.explainerPath)}\` | r${work.latestRevision} |`,
         );
       }
       lines.push("");

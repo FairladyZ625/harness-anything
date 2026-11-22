@@ -11,7 +11,7 @@ const MAX_RETIRED_DECISIONS = 48;
 const MAX_TRACKED_TASKS = 128;
 const MAX_PINNED_WORKS = 256;
 const MAX_TRACKED_RELATIONS = 64;
-const MAX_WORK_COUNTERS = 64;
+const MAX_WORK_COUNTERS = 1024;
 
 interface DossierRelationPayload {
   readonly relationId?: string;
@@ -108,6 +108,7 @@ export interface DossierTaskRecord {
   readonly occurredAt: string;
   readonly actorLabel: string;
   readonly reason?: string;
+  readonly countsIncomplete?: boolean;
 }
 
 export interface DossierRelationEdge {
@@ -128,6 +129,8 @@ export interface DossierWorkCounter {
   readonly archivedActive: number;
   readonly archivedCancelled: number;
   readonly latestRevision: number;
+  readonly title?: string;
+  readonly packagePath?: string;
 }
 
 export interface DossierWorkRollup {
@@ -143,6 +146,7 @@ export interface DossierWorkRollup {
   readonly packagePath?: string;
   readonly latestRevision: number;
   readonly recentChildIds: readonly string[];
+  readonly countsIncomplete?: boolean;
 }
 
 export interface DossierLedgerState {
@@ -162,11 +166,12 @@ export interface DossierLedgerState {
   readonly retiredDecisions: readonly DossierDecisionRecord[];
   readonly tasks: Readonly<Record<string, DossierTaskRecord>>;
   readonly workCounters: Readonly<Record<string, DossierWorkCounter>>;
+  readonly workCountersTruncated?: boolean;
   readonly relations: readonly DossierRelationEdge[];
 }
 
-const EXTERNAL_SCHEME_PREFIX_RE = /(?:https?|ftps?|wss?|sftp|ssh|git|file|webcal):(?:\/\/|\\\/\\\/)/giu;
-const EXTERNAL_CONTACT_URI_RE = /\b(?:mailto|tel):([^\s"'<>`]+)/giu;
+const EXTERNAL_SCHEME_PREFIX_RE = /\b[a-z][a-z0-9+.-]{1,31}:(?:\/\/|\\\/\\\/)(?=[^\s"'<>`])/giu;
+const EXTERNAL_CONTACT_URI_RE = /\b(?:mailto|tel|webcal|callto|sip|sips|xmpp):([^\s"'<>`]+)/giu;
 const PROTOCOL_RELATIVE_URL_RE =
   /(^|[\s(>[{"'`=,;])\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:[:/?#][^\s"'<>`]*)?)/giu;
 
@@ -372,6 +377,7 @@ export function parseManagedState(previousBody: string | null, synthesizedAt: st
       : [],
     tasks: typeof parsed.tasks === "object" && parsed.tasks !== null ? parsed.tasks : {},
     workCounters: typeof parsed.workCounters === "object" && parsed.workCounters !== null ? parsed.workCounters : {},
+    ...(parsed.workCountersTruncated ? { workCountersTruncated: true } : {}),
     relations: parsedRelations,
   };
 }
@@ -540,6 +546,7 @@ function incrementWorkCounter(
     latestRevision: 0,
   };
   workCounters[workId] = {
+    ...current,
     archivedTotal: current.archivedTotal + 1,
     archivedDone: current.archivedDone + (task.status === "done" ? 1 : 0),
     archivedBlocked: current.archivedBlocked + (task.status === "blocked" ? 1 : 0),
@@ -566,8 +573,25 @@ function pruneTasks(
         left.taskId.localeCompare(right.taskId),
     );
   const keptWorks = works.slice(0, MAX_PINNED_WORKS);
-  const evictedWorkIds = new Set(works.slice(MAX_PINNED_WORKS).map((task) => task.taskId));
-  for (const workId of evictedWorkIds) delete workCounters[workId];
+  const evictedWorks = works.slice(MAX_PINNED_WORKS);
+  const evictedWorkIds = new Set(evictedWorks.map((task) => task.taskId));
+  for (const evictedWork of evictedWorks) {
+    const existingCounter = workCounters[evictedWork.taskId];
+    workCounters[evictedWork.taskId] = {
+      archivedTotal: existingCounter?.archivedTotal ?? 0,
+      archivedDone: existingCounter?.archivedDone ?? 0,
+      archivedBlocked: existingCounter?.archivedBlocked ?? 0,
+      archivedActive: existingCounter?.archivedActive ?? 0,
+      archivedCancelled: existingCounter?.archivedCancelled ?? 0,
+      latestRevision: Math.max(existingCounter?.latestRevision ?? 0, evictedWork.workspaceRevision),
+      title: evictedWork.title,
+      ...(evictedWork.packagePath
+        ? { packagePath: evictedWork.packagePath }
+        : existingCounter?.packagePath
+          ? { packagePath: existingCounter.packagePath }
+          : {}),
+    };
+  }
   const blockedNonWorks = all.filter((task) => task.taskClass !== "work" && task.status === "blocked");
   const pinned = [...keptWorks, ...blockedNonWorks];
   const pinnedIds = new Set(pinned.map((task) => task.taskId));
@@ -583,7 +607,7 @@ function pruneTasks(
   const evicted = candidates.slice(keepCount);
   for (const task of evicted) {
     const rootWorkId = resolveRootWorkId(task, tasks);
-    if (rootWorkId && !evictedWorkIds.has(rootWorkId)) incrementWorkCounter(workCounters, rootWorkId, task);
+    if (rootWorkId) incrementWorkCounter(workCounters, rootWorkId, task);
   }
   return Object.fromEntries([...pinned, ...kept].map((task) => [task.taskId, task]));
 }
@@ -609,7 +633,8 @@ function prunePendingProposals(proposals: Record<string, DossierProposalMeta>): 
 function pruneWorkCounters(
   counters: Record<string, DossierWorkCounter>,
   prunedTasks: Readonly<Record<string, DossierTaskRecord>>,
-): Record<string, DossierWorkCounter> {
+  priorTruncated: boolean,
+): { readonly counters: Record<string, DossierWorkCounter>; readonly truncated: boolean } {
   const survivingWorkIds = new Set<string>(Object.keys(prunedTasks));
   for (const task of Object.values(prunedTasks)) {
     const rootId = resolveRootWorkId(task, prunedTasks);
@@ -622,7 +647,12 @@ function pruneWorkCounters(
     else orphanEntries.push(entry);
   }
   orphanEntries.sort((left, right) => right[1].latestRevision - left[1].latestRevision);
-  return Object.fromEntries([...pinnedEntries, ...orphanEntries.slice(0, MAX_WORK_COUNTERS)]);
+  const dropped = orphanEntries.slice(MAX_WORK_COUNTERS);
+  const truncated = priorTruncated || dropped.some(([, counter]) => counter.archivedTotal > 0);
+  return {
+    counters: Object.fromEntries([...pinnedEntries, ...orphanEntries.slice(0, MAX_WORK_COUNTERS)]),
+    truncated,
+  };
 }
 
 function applyStructuredUpdate(
@@ -634,6 +664,7 @@ function applyStructuredUpdate(
   tasks: Record<string, DossierTaskRecord>,
   workCounters: Record<string, DossierWorkCounter>,
   relations: DossierRelationEdge[],
+  workCountersTruncated: boolean,
   kindMap?: Readonly<Record<string, string>>,
 ): { readonly retiredMatched: boolean } {
   if (change.schema === "decision-event/v1") {
@@ -725,10 +756,6 @@ function applyStructuredUpdate(
     if (taskId) {
       const existing = tasks[taskId];
       const rawClass = change.payload.taskClass;
-      const taskClass: TaskClass =
-        rawClass === "work" || rawClass === "standard" || rawClass === "long_running"
-          ? rawClass
-          : (existing?.taskClass ?? "standard");
       const status =
         typeof change.payload.taskStatus === "string" && change.payload.taskStatus.length > 0
           ? change.payload.taskStatus
@@ -748,10 +775,6 @@ function applyStructuredUpdate(
           ? change.payload.packagePath.trim()
           : existing?.packagePath;
       const surfaces = stringListFrom(change.payload.surfaces);
-      const title =
-        typeof change.payload.title === "string" && change.payload.title.trim().length > 0
-          ? sanitizeSingleLine(change.payload.title)
-          : (existing?.title ?? entry.summary);
       const reason =
         status === "blocked" || status === "cancelled"
           ? typeof change.payload.reason === "string"
@@ -770,18 +793,36 @@ function applyStructuredUpdate(
           };
         }
       }
+      const priorCounter = workCounters[taskId];
+      const inferredClass: TaskClass =
+        rawClass === "work" || rawClass === "standard" || rawClass === "long_running"
+          ? rawClass
+          : (existing?.taskClass ?? (priorCounter && parentTaskId === null ? "work" : "standard"));
+      const resolvedPackagePath = packagePath ?? priorCounter?.packagePath;
+      const resolvedTitle =
+        typeof change.payload.title === "string" && change.payload.title.trim().length > 0
+          ? sanitizeSingleLine(change.payload.title)
+          : (existing?.title ?? priorCounter?.title ?? entry.summary);
+      const countsIncomplete =
+        existing?.countsIncomplete ??
+        (!existing &&
+          change.type !== "task_created" &&
+          inferredClass === "work" &&
+          !priorCounter &&
+          workCountersTruncated);
       tasks[taskId] = {
         taskId,
-        title,
-        taskClass,
+        title: resolvedTitle,
+        taskClass: inferredClass,
         status,
         parentTaskId,
-        ...(packagePath ? { packagePath } : {}),
+        ...(resolvedPackagePath ? { packagePath: resolvedPackagePath } : {}),
         surfaces: surfaces.length > 0 ? surfaces : (existing?.surfaces ?? []),
         workspaceRevision: change.workspaceRevision,
         occurredAt: change.occurredAt,
         actorLabel: entry.actorLabel,
         ...(reason ? { reason } : {}),
+        ...(countsIncomplete ? { countsIncomplete: true } : {}),
       };
     }
   }
@@ -878,6 +919,7 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
       tasks,
       workCounters,
       relations,
+      Boolean(prior.workCountersTruncated),
       input.kindMap,
     );
     // Skip logging relation_retired noise on slots that neither track that edge nor declare "relation".
@@ -896,6 +938,7 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
     .slice(0, MAX_STORED_ENTRIES);
 
   const prunedTasks = pruneTasks(tasks, workCounters);
+  const prunedCounters = pruneWorkCounters(workCounters, prunedTasks, Boolean(prior.workCountersTruncated));
 
   return {
     watermark: input.targetWatermark,
@@ -908,7 +951,8 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
     activeDecisions: pruneActiveDecisions(activeDecisions),
     retiredDecisions: retiredDecisions.slice(0, MAX_RETIRED_DECISIONS),
     tasks: prunedTasks,
-    workCounters: pruneWorkCounters(workCounters, prunedTasks),
+    workCounters: prunedCounters.counters,
+    ...(prunedCounters.truncated ? { workCountersTruncated: true } : {}),
     relations: relations.slice(0, MAX_TRACKED_RELATIONS),
   };
 }

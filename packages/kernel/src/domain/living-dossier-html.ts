@@ -353,7 +353,7 @@ function renderWorkRollupTable(workRollups: readonly DossierWorkRollup[]): strin
         `<td class="refs"><code>${escapeHtml(work.workId)}</code></td>` +
         `<td>${escapeHtml(work.title)}</td>` +
         `<td><span class="pill ${work.blockedTasks > 0 ? "pill-bad" : work.status === "done" ? "pill-done" : "pill-accent"}">${escapeHtml(work.status)}</span></td>` +
-        `<td class="rev">${work.doneTasks}/${work.totalTasks}</td>` +
+        `<td class="rev">${work.doneTasks}/${work.totalTasks}${work.countsIncomplete ? " (partial)" : ""}</td>` +
         `<td class="rev">${work.blockedTasks}</td>` +
         `<td class="refs"><code>${escapeHtml(work.explainerPath)}</code></td>` +
         `<td class="rev">r${work.latestRevision}</td>` +
