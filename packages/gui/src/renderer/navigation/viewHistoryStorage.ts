@@ -46,6 +46,7 @@ const VIEW_ID_LIST = [
   "overview",
   "liveFloor",
   "work",
+  "dossier",
   "agenda",
   "todos",
   "workspace",

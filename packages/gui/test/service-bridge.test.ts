@@ -248,7 +248,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
                                                 entityKind: "architecture-decision-record",
                                                 entityId: "ADR-00000000000000000000000000000000",
                                               }
-                                            : scope;
+                                            : contract.id === "dossier.read" || contract.id === "dossier.context"
+                                              ? { ...scope, slotId: "project-atlas" }
+                                              : scope;
       // 版本读按声明 revision 寻址;这个 fixture 装过 terra,所以给它的一个既有 revision。
       // 读面无版本时应如实答错,而不是伪装成空历史。
       const readPayload =
@@ -270,6 +272,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         assert.equal(parsed.schema, "entity-kind-catalog/v1", contract.method);
       else if (contract.id === "vertical.declaration.read")
         assert.equal(parsed.schema, "repository-vertical-declaration-read/v1", contract.method);
+      else if (contract.id === "dossier.status") assert.equal(parsed.schema, "dossier-status/v1", contract.method);
+      else if (contract.id === "dossier.read") assert.equal(parsed.schema, "dossier-content/v1", contract.method);
+      else if (contract.id === "dossier.context") assert.equal(parsed.schema, "dossier-context/v1", contract.method);
       else if (contract.method === "repo.tasks.assignmentDirectory")
         assert.deepEqual(parseDaemonReadResult("repo.tasks.assignmentDirectory", result), {
           schema: "task-assignment-directory/v1",

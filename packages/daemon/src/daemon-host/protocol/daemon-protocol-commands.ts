@@ -35,43 +35,8 @@ import {
 } from "./daemon-protocol-action-routes.ts";
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
-import { actionRpc, declaredActionClass, optionalEnum, shape } from "./daemon-protocol-results.ts";
+import { declaredActionClass, optionalEnum, shape } from "./daemon-protocol-results.ts";
 import { AGENDA_PIN_CRITERIA, daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
-
-const dossierSynthesizeRoute = actionRpc(
-  "dossier.synthesize",
-  "repo.dossier.synthesize",
-  "dossier-synthesize",
-  shape({
-    slotId: "string",
-    expectedWatermark: "number",
-    watermark: "number",
-    body: "string",
-    scheduleId: "string?",
-    claimFence: "string?",
-    idempotencyKey: "string?",
-  }),
-);
-
-const dossierQueries = [
-  { id: "dossier.status", method: "repo.dossier.status", payload: shape({}) },
-  { id: "dossier.read", method: "repo.dossier.read", payload: shape({ slotId: "string" }) },
-  {
-    id: "dossier.context",
-    method: "repo.dossier.context.read",
-    payload: shape({ slotId: "string", maxWatermark: "number?" }),
-  },
-] as const;
-
-const dossierReadRoutes = dossierQueries.map(({ id, method, payload }) => ({
-  id,
-  method,
-  phase: "LivingDossier",
-  repositoryRead: true as const,
-  requiresRepo: true as const,
-  params: shape({ repo: shape({ repoId: "string" }), payload: { ...payload, optional: id === "dossier.status" } }),
-  commandClass: "repo-read" as const,
-}));
 
 const slotInput = cliInput(
   "--slot",
@@ -460,7 +425,6 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
 
 /** Socket reads share the host's repository-read admission without declaring GUI routes. */
 export const daemonRepositoryReadMethods = Object.freeze([
-  ...dossierReadRoutes,
   {
     id: "events.read",
     phase: "Ledger-Read",
@@ -1030,7 +994,6 @@ export const fleetProtocolMethods = Object.freeze([
 
 export const daemonOwnedRpcMethods = Object.freeze([
   ...daemonProtocolMethods,
-  dossierSynthesizeRoute,
   ...runtimeInstanceMethods,
   ...providerMethods,
   ...runtimeInstanceAuthMethods,

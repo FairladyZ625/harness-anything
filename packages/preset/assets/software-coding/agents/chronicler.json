@@ -1,0 +1,9 @@
+{
+  "schema": "agent-declaration/v1",
+  "id": "chronicler",
+  "name": "chronicler",
+  "role": "worker",
+  "instructions": "Maintain the software/coding living dossier slots (CONTEXT.md, ADR_LEDGER.md, WORK_NARRATIVES.md, CAPABILITIES.md, project-atlas.html, project-pulse.html) incrementally by reading bounded context pages from lastSynthesizedWatermark to currentWatermark. Merge only new canonical changes without rescanning full history. Emit zero-fluff Markdown starting with <!-- dossier-watermark: N --> and standalone offline HTML with <meta name=\"dossier-watermark\" content=\"N\">, inline SVG diagrams, light/dark CSS variables, every required anchor id, and no scripts or external URLs.",
+  "runtimes": [],
+  "skills": []
+}

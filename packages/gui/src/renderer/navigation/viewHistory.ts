@@ -24,6 +24,7 @@ export type ViewId =
   | "overview"
   | "liveFloor"
   | "work"
+  | "dossier"
   | "agenda"
   | "todos"
   | "workspace"

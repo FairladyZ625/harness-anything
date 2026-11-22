@@ -1235,6 +1235,15 @@
         "order": 0
       }
     ],
+    "dossier-synthesize": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/dossier-client.ts#dossierClient.synthesize:a1a93161363d2bf5e9e0753594737e46",
+        "route": "dossier.synthesize",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 0
+      }
+    ],
     "entity-archive": [
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-locator-client.ts#archiveEntity:1a733af9651f1d8c9b6c7a4402da6da1",
@@ -1929,6 +1938,27 @@
         "route": "repository-read",
         "role": "support",
         "order": 156
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/dossier-client.ts#dossierClient.context.result:bf84a300256eb1224f9949923c0f64e3",
+        "route": "dossier.context.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 242
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/dossier-client.ts#dossierClient.read.result:e4b99a2bb7b8db677c83e36412e2e6e0",
+        "route": "dossier.read",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 243
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/dossier-client.ts#dossierClient.status.result:3a66e1cb7236b83e5791b8d1b5aa48bc",
+        "route": "dossier.status",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 244
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/entity-content-client.ts#readEntityOwnedContent.value:339d2faa132f4855018a782e594325cf",

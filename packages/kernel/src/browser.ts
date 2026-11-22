@@ -40,3 +40,15 @@ export type { BlockingAvailabilityState } from "./domain/task-blocking.ts";
 export type { RuntimeLiveness } from "./domain/agent-runtime.ts";
 export type { CloseoutGateStatus } from "./domain/status-word-register-closeout.ts";
 export { writeReceiptOutcomes, type WriteReceiptOutcome } from "./domain/write-receipt-status.ts";
+export {
+  DOSSIER_PAGE_SIZE,
+  type DossierSlot,
+  type DossierSlotState,
+  type DossierTrigger,
+  type LivingDossier,
+} from "./domain/living-dossier.ts";
+export {
+  synthesizeDossierDocument,
+  type DossierChangeItem,
+  type DossierSynthesisInput,
+} from "./domain/living-dossier-synthesizer.ts";

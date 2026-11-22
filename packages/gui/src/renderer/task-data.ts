@@ -368,6 +368,7 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
     // 缓存随 cut 失效,两处都不需要自己的轮询。
     queryClient.invalidateQueries({ queryKey: ["todos", repoId], refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: ["artifacts", repoId], refetchType: "active" }),
+    queryClient.invalidateQueries({ queryKey: ["dossier", repoId], refetchType: "active" }),
   ]);
 }
 

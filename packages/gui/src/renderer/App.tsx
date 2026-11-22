@@ -93,6 +93,7 @@ import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { workspaceTitleIndex } from "./model/workspace-readable.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { WorkView } from "./views/WorkView.tsx";
+import { LivingDossierView } from "./views/LivingDossierView.tsx";
 import { WorkspaceView } from "./views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages, useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
@@ -889,6 +890,8 @@ function AppShell() {
                   onNavigateEntity={navigateToEntity}
                   onFocusGraph={focusEntityInGraph}
                 />
+              ) : view === "dossier" ? (
+                <LivingDossierView repoId={projectId} />
               ) : view === "work" ? (
                 <WorkView
                   tasks={tasks}

@@ -249,18 +249,78 @@
       { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
     "seededDocs": [
-      { "slot": "repository.context.index", "templateRef": "template://repository/context-index@1", "materializeAs": "{{paths.contextRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.context.architecture", "templateRef": "template://repository/context-architecture@1", "materializeAs": "{{paths.contextRoot}}/architecture/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.context.development", "templateRef": "template://repository/context-development@1", "materializeAs": "{{paths.contextRoot}}/development/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.context.integrations", "templateRef": "template://repository/context-integrations@1", "materializeAs": "{{paths.contextRoot}}/integrations/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.context.research", "templateRef": "template://repository/context-research@1", "materializeAs": "{{paths.contextRoot}}/research/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.standard.index", "templateRef": "template://repository/standards-index@1", "materializeAs": "{{paths.standardsRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.standard.governance", "templateRef": "template://repository/repository-governance@1", "materializeAs": "{{paths.standardsRoot}}/repository-governance.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.standard.decision-writing", "templateRef": "template://repository/decision-writing@1", "materializeAs": "{{paths.standardsRoot}}/decision-writing.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.walls.manifest", "templateRef": "template://repository/walls-manifest@1", "materializeAs": "{{paths.governanceRoot}}/walls/walls.json", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.walls.runner", "templateRef": "template://repository/walls-runner@1", "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.gitattributes", "templateRef": "template://repository/gitattributes@1", "materializeAs": "{{paths.authoredRoot}}/.gitattributes", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.claude.entry", "templateRef": "template://repository/claude-entry@1", "materializeAs": "{{paths.rootDir}}/CLAUDE.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } }
+      {
+        "slot": "repository.context.index",
+        "templateRef": "template://repository/context-index@1",
+        "materializeAs": "{{paths.contextRoot}}/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.context.architecture",
+        "templateRef": "template://repository/context-architecture@1",
+        "materializeAs": "{{paths.contextRoot}}/architecture/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.context.development",
+        "templateRef": "template://repository/context-development@1",
+        "materializeAs": "{{paths.contextRoot}}/development/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.context.integrations",
+        "templateRef": "template://repository/context-integrations@1",
+        "materializeAs": "{{paths.contextRoot}}/integrations/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.context.research",
+        "templateRef": "template://repository/context-research@1",
+        "materializeAs": "{{paths.contextRoot}}/research/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.index",
+        "templateRef": "template://repository/standards-index@1",
+        "materializeAs": "{{paths.standardsRoot}}/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.governance",
+        "templateRef": "template://repository/repository-governance@1",
+        "materializeAs": "{{paths.standardsRoot}}/repository-governance.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.decision-writing",
+        "templateRef": "template://repository/decision-writing@1",
+        "materializeAs": "{{paths.standardsRoot}}/decision-writing.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.walls.manifest",
+        "templateRef": "template://repository/walls-manifest@1",
+        "materializeAs": "{{paths.governanceRoot}}/walls/walls.json",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.walls.runner",
+        "templateRef": "template://repository/walls-runner@1",
+        "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.gitattributes",
+        "templateRef": "template://repository/gitattributes@1",
+        "materializeAs": "{{paths.authoredRoot}}/.gitattributes",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.claude.entry",
+        "templateRef": "template://repository/claude-entry@1",
+        "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      }
     ],
     "agentsEntry": {
       "materializeAs": "{{paths.rootDir}}/AGENTS.md",
@@ -278,7 +338,12 @@
       "reads": ["{{outputRoot}}/architecture/**"],
       "writes": ["{{outputRoot}}/architecture/**"],
       "inputs": {},
-      "metadata": { "description": "Materialize the opt-in repository architecture manifest and LikeC4 scaffold without overwriting authored content.", "purpose": "scaffold", "contractVersion": "script-entry/v1", "produces": ["{{outputRoot}}/architecture/**"] }
+      "metadata": {
+        "description": "Materialize the opt-in repository architecture manifest and LikeC4 scaffold without overwriting authored content.",
+        "purpose": "scaffold",
+        "contractVersion": "script-entry/v1",
+        "produces": ["{{outputRoot}}/architecture/**"]
+      }
     },
     {
       "id": "vertical:software-coding:architecture-snapshot",
@@ -287,7 +352,12 @@
       "reads": ["{{paths.contextRoot}}/architecture/**"],
       "writes": ["{{outputRoot}}/artifacts/architecture/**"],
       "inputs": {},
-      "metadata": { "description": "Run declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.", "purpose": "generate", "contractVersion": "script-entry/v1", "produces": ["{{outputRoot}}/artifacts/architecture/**"] }
+      "metadata": {
+        "description": "Run declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.",
+        "purpose": "generate",
+        "contractVersion": "script-entry/v1",
+        "produces": ["{{outputRoot}}/artifacts/architecture/**"]
+      }
     },
     {
       "id": "vertical:software-coding:repository-audit",
@@ -296,7 +366,12 @@
       "reads": [],
       "writes": [],
       "inputs": {},
-      "metadata": { "description": "Inspect the bundled software/coding repository scaffold contract.", "purpose": "audit", "contractVersion": "script-entry/v1", "produces": [] }
+      "metadata": {
+        "description": "Inspect the bundled software/coding repository scaffold contract.",
+        "purpose": "audit",
+        "contractVersion": "script-entry/v1",
+        "produces": []
+      }
     },
     {
       "id": "vertical:software-coding:decision-conformance",
@@ -305,13 +380,23 @@
       "reads": ["{{paths.tasksRoot}}/**", "{{paths.decisionsRoot}}/**", "{{paths.sessionsRoot}}/**"],
       "writes": [],
       "inputs": {},
-      "metadata": { "description": "Inspect decision conformance across task derivation, relation coverage, fact coverage, supersession, and proposed-decision drift.", "purpose": "audit", "kind": "check", "contractVersion": "script-entry/v1", "produces": [] }
+      "metadata": {
+        "description": "Inspect decision conformance across task derivation, relation coverage, fact coverage, supersession, and proposed-decision drift.",
+        "purpose": "audit",
+        "kind": "check",
+        "contractVersion": "script-entry/v1",
+        "produces": []
+      }
     }
   ],
   "templateSelections": [],
   "completion": {
     "sources": {
-      "manual-attest": { "kind": "manual", "predicateType": "harness/attestation/v1", "resultSchema": { "type": "object", "additionalProperties": false } }
+      "manual-attest": {
+        "kind": "manual",
+        "predicateType": "harness/attestation/v1",
+        "resultSchema": { "type": "object", "additionalProperties": false }
+      }
     },
     "gates": {},
     "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false }
@@ -321,5 +406,93 @@
     { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
     { "id": "fact-event", "schemaRef": "schema://fact-event" },
     { "id": "artifact-descriptor", "schemaRef": "schema://artifact-descriptor" }
-  ]
+  ],
+  "livingDossier": {
+    "slots": [
+      {
+        "id": "context",
+        "path": "CONTEXT.md",
+        "kind": "markdown",
+        "title": "Domain Context",
+        "summary": "System boundaries, module ownership, and verified engineering facts.",
+        "entityKinds": ["task", "decision", "fact", "research"],
+        "requiredAnchors": ["overview", "active-invariants", "recent-changes"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 8 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "adr-ledger",
+        "path": "ADR_LEDGER.md",
+        "kind": "markdown",
+        "title": "ADR Ledger",
+        "summary": "Active architectural decisions, supersessions, and governing constraints.",
+        "entityKinds": ["decision", "architecture-decision-record", "fact"],
+        "requiredAnchors": ["active-decisions", "supersession-log"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 4 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "work-narratives",
+        "path": "WORK_NARRATIVES.md",
+        "kind": "markdown",
+        "title": "Work Narratives",
+        "summary": "Chronological delivery arc across completed workstreams and tasks.",
+        "entityKinds": ["task", "decision", "external-issue"],
+        "requiredAnchors": ["delivery-arc", "work-log"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 6 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "capabilities",
+        "path": "CAPABILITIES.md",
+        "kind": "markdown",
+        "title": "Capabilities Inventory",
+        "summary": "Delivered system capabilities, evidence anchors, and verification boundaries.",
+        "entityKinds": ["task", "fact", "research"],
+        "requiredAnchors": ["capability-map", "verification-log"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 8 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "project-atlas",
+        "path": "project-atlas.html",
+        "kind": "html",
+        "title": "Project Atlas",
+        "summary": "System architecture topology, entity map, and governing change ledger.",
+        "entityKinds": ["task", "decision", "fact", "architecture-decision-record", "research"],
+        "requiredAnchors": ["atlas-topology", "entity-map", "change-ledger"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 10 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "project-pulse",
+        "path": "project-pulse.html",
+        "kind": "html",
+        "title": "Project Pulse",
+        "summary": "Cross-work progress flow, decision trail, and active risk signals.",
+        "entityKinds": ["task", "decision", "fact", "external-issue"],
+        "requiredAnchors": ["pulse-flow", "decision-trail", "risk-signals"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 5 },
+          { "kind": "periodic", "everyMs": 43200000 }
+        ]
+      }
+    ]
+  }
 }
