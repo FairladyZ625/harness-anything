@@ -1003,7 +1003,7 @@ test("a raw publication that fails leaves no accepted artifact and no raw claim 
     assert.equal(decision.code, "unresolved_touch");
     assert.equal(decision.detail.unresolvedTouches[0]?.requiredRoute, "task-artifact-add");
   } finally {
-    rmSync(confinementRoot, { recursive: true, force: true });
+    removeTempRepository(confinementRoot);
   }
 });
 
