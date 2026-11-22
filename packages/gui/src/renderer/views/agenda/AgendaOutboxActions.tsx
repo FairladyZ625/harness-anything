@@ -3,7 +3,7 @@ import { startWorkIdempotencyKey, startWorkPlan } from "../../start-work-flow.ts
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient } from "../../api-client.ts";
-import { settleTaskReceipt, useTaskActions } from "../../task-actions.ts";
+import { pendingMutationKind, settleTaskReceipt, useTaskActions } from "../../task-actions.ts";
 import { taskReworkClient } from "../../task-rework-client.ts";
 import { taskQueryKeys } from "../../task-data.ts";
 import { agendaQueryKeys } from "../../agenda-data.ts";
@@ -131,6 +131,7 @@ export function AgendaOutboxActions({
   };
   if (!task) return null;
   const mutation = actions.feedback.get(task.taskId);
+  const pendingKind = pendingMutationKind(mutation);
   const consentReviewId = task.consentTarget?.reviewId;
   return (
     <section className="grid min-w-0 gap-3 border-t border-border pt-3" data-testid="agenda-outbox-actions">
@@ -141,7 +142,7 @@ export function AgendaOutboxActions({
               <Button
                 testId="agenda-consent"
                 variant="primary"
-                disabled={mutation?.state === "pending"}
+                disabled={pendingKind === "consent"}
                 onClick={() => {
                   setFeedback(null);
                   void actions.consentReview(task, consentReviewId);
@@ -153,7 +154,7 @@ export function AgendaOutboxActions({
             {taskCan(task, "complete") && (
               <Button
                 testId="agenda-complete"
-                disabled={mutation?.state === "pending"}
+                disabled={pendingKind === "complete"}
                 onClick={() => {
                   setFeedback(null);
                   void actions.completeTask(task);
@@ -171,7 +172,7 @@ export function AgendaOutboxActions({
           />
           <Button
             testId="agenda-rework"
-            disabled={!reason.trim() || !rework.data?.reworkTargets[0] || mutation?.state === "pending"}
+            disabled={!reason.trim() || !rework.data?.reworkTargets[0] || pendingKind === "rework"}
             onClick={() => void actions.reworkTask(task, { ...rework.data!.reworkTargets[0], reason: reason.trim() })}
           >
             {t("views.agenda.reworkDispatch")}

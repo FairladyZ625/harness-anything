@@ -9,7 +9,7 @@ import { harnessClient } from "../src/renderer/api-client.ts";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import type { AttestationPoolTabId } from "../src/renderer/model/attestation-pool.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
-import type { TaskMutationFeedback } from "../src/renderer/task-actions.ts";
+import { useTaskActions, type TaskMutationFeedback } from "../src/renderer/task-actions.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -22,6 +22,7 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await act(async () => {
     for (const { root, client } of mounted.splice(0)) {
       root.unmount();
@@ -652,5 +653,105 @@ describe("AttestationPoolView", () => {
     expect(inboxAlert.getAttribute("role")).toBe("alert");
     expect(inboxAlert.textContent).toContain("human_confirmation_required");
     expect(inboxAlert.textContent).toContain("client granted the consent scope");
+  });
+
+  it("F-3: real click-to-rejection surfaces error in lanes and inbox, and canonical_not_visible keeps retry clickable", async () => {
+    const consentReview = vi
+      .spyOn(harnessClient, "consentReview")
+      .mockResolvedValueOnce({
+        schema: "command-receipt/v2",
+        ok: false,
+        outcome: "op_rejected",
+        opId: "op-pool-reject",
+        error: {
+          code: "human_confirmation_required",
+          hint: "Consent requires a personal session and a client granted the consent scope.",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        schema: "command-receipt/v2",
+        ok: true,
+        outcome: "applied",
+        opId: "op-pool-invisible",
+        proof: { committedRevision: 9, appliedCut: 9, durable: true, canonicalVisible: false },
+      } as never)
+      .mockResolvedValueOnce({
+        schema: "command-receipt/v2",
+        ok: true,
+        outcome: "applied",
+        opId: "op-pool-retry",
+        proof: { committedRevision: 10, appliedCut: 10, durable: true, canonicalVisible: true },
+      } as never);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      container = document.createElement("div"),
+      root = createRoot(container);
+    document.body.append(container);
+    mounted.push({ root, client });
+
+    function LivePool() {
+      const actions = useTaskActions("repo-a");
+      return createElement(AttestationPoolView, {
+        repoId: "repo-a",
+        decisions: [],
+        summary: { ...summary, inboxCount: 0 },
+        facts: [],
+        relations: [],
+        tasks: [consentTask],
+        decisionsLoading: false,
+        decisionGroup: "proposed",
+        onDecisionGroupChange: vi.fn(),
+        taskFeedback: (taskId) => actions.feedback.get(taskId),
+        onConsentReview: (target, reviewId) => actions.consentReview(target, reviewId),
+        onNavigateTask: () => undefined,
+        onNavigateDecision: () => undefined,
+        poolTab: "consents",
+        onPoolTabChange: () => undefined,
+      });
+    }
+
+    await act(async () => {
+      root.render(createElement(QueryClientProvider, { client }, createElement(LivePool)));
+    });
+    await flushEffects();
+
+    // 1. Click in Lanes -> real op_rejected surfaces role=alert in both Lanes and Inbox.
+    await act(async () => {
+      byTestId("pool-consent-approve-task-consent").click();
+    });
+    await flushEffects();
+    expect(consentReview).toHaveBeenCalledTimes(1);
+    const laneAlert = byTestId("pool-consent-feedback-task-consent");
+    expect(laneAlert.getAttribute("role")).toBe("alert");
+    expect(laneAlert.textContent).toContain("human_confirmation_required");
+
+    // 2. Retry in Lanes -> canonical_not_visible must NOT disable Lanes button or Inbox approve button.
+    await act(async () => {
+      byTestId("pool-consent-approve-task-consent").click();
+    });
+    await flushEffects();
+    expect(consentReview).toHaveBeenCalledTimes(2);
+    expect((byTestId("pool-consent-approve-task-consent") as HTMLButtonElement).disabled).toBe(false);
+
+    // Switch to Inbox view, expand the row, verify approve button is clickable after canonical_not_visible.
+    const inboxToggle = [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("收件箱视图"),
+    );
+    expect(inboxToggle).toBeTruthy();
+    await act(async () => {
+      inboxToggle!.click();
+    });
+    await flushEffects();
+    await act(async () => {
+      byTestId("inbox-item-consent-task-consent-toggle").click();
+    });
+    await flushEffects();
+    const inboxApprove = byTestId("inbox-item-consent-task-consent-action-approve") as HTMLButtonElement;
+    expect(inboxApprove.disabled).toBe(false);
+    await act(async () => {
+      inboxApprove.click();
+    });
+    await flushEffects();
+    expect(consentReview).toHaveBeenCalledTimes(3);
   });
 });

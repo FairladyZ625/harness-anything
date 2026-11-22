@@ -791,29 +791,58 @@ export class KeycloakPolicyAdapter
   }
 
   /**
-   * Creates the node's client in one POST carrying the machine credential the center minted for
-   * it, so no read-back can fail between the client existing and its holder knowing the credential.
+   * Creates the node's client in one POST carrying the machine credential and default client scopes
+   * the center minted for it, so no post-write read or scope bind can fail after the client exists.
    */
   async createNode(adminAccessToken: string, registration: NodeRegistration, secret: string): Promise<void> {
-    const node = newDevice(registration),
-      response = await this.#request(adminAccessToken, "/clients", {
-        method: "POST",
-        body: JSON.stringify({ ...nodeClientBody(this.#config, node), secret }),
+    await this.#ensureConsentClientScope(adminAccessToken);
+    const [realmDefaultScopes, realmOptionalScopes] = await Promise.all([
+      this.#json<readonly ClientScopeRepresentation[]>(adminAccessToken, "/default-default-client-scopes"),
+      this.#json<readonly ClientScopeRepresentation[]>(adminAccessToken, "/default-optional-client-scopes"),
+    ]);
+    const defaultClientScopes = [
+      ...new Set([
+        ...realmDefaultScopes
+          .map((scope) => scope.name)
+          .filter((name): name is string => typeof name === "string" && name.length > 0),
+        consentClientScopeName,
+      ]),
+    ];
+    const optionalClientScopes = realmOptionalScopes
+      .map((scope) => scope.name)
+      .filter((name): name is string => typeof name === "string" && name.length > 0 && name !== consentClientScopeName);
+    const node = newDevice(registration);
+    await this.#request(adminAccessToken, "/clients", {
+      method: "POST",
+      body: JSON.stringify({
+        ...nodeClientBody(this.#config, node),
+        secret,
+        defaultClientScopes,
+        optionalClientScopes,
       }),
-      clientUuid = locationId(response) ?? (await this.#nodeClient(adminAccessToken, node.nodeId))?.id;
-    if (!clientUuid) throw new Error(`Keycloak did not return an id for node ${node.nodeId}.`);
-    await this.#syncManagedClientConsentScope(adminAccessToken, clientUuid, true);
+    });
   }
 
   /** The center's serialized device write updates owner and device metadata together. */
   async writeNode(adminAccessToken: string, node: KeycloakNode): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, node.nodeId);
     if (!current) throw new Error(`Keycloak has no client for node ${node.nodeId}; it was removed.`);
+    if (node.revocation === "pending") {
+      // Disable admission first so a failed scope detach still blocks the device and remains visibly pending.
+      await this.#request(adminAccessToken, `/clients/${current.id}`, {
+        method: "PUT",
+        body: JSON.stringify(nodeClientBody(this.#config, node)),
+      });
+      await this.#syncManagedClientConsentScope(adminAccessToken, current.id, false);
+      return;
+    }
+    // Sync scope before publishing the completed node revision so a scope failure never advances
+    // the observable revision/state past what reconcile verifies.
+    await this.#syncManagedClientConsentScope(adminAccessToken, current.id, isActiveNode(node));
     await this.#request(adminAccessToken, `/clients/${current.id}`, {
       method: "PUT",
       body: JSON.stringify(nodeClientBody(this.#config, node)),
     });
-    await this.#syncManagedClientConsentScope(adminAccessToken, current.id, isActiveNode(node));
   }
 
   /** Rotate an existing node secret while preserving its owner and registration metadata. */
@@ -1090,16 +1119,29 @@ export class KeycloakPolicyAdapter
     enabled: boolean,
     consentScopeId?: string,
   ): Promise<void> {
-    const basePath = `/clients/${encodeURIComponent(clientUuid)}/default-client-scopes`;
+    const clientPath = `/clients/${encodeURIComponent(clientUuid)}`,
+      defaultPath = `${clientPath}/default-client-scopes`,
+      optionalPath = `${clientPath}/optional-client-scopes`;
     if (enabled) {
       const scopeId = consentScopeId ?? (await this.#ensureConsentClientScope(token));
-      await this.#request(token, `${basePath}/${encodeURIComponent(scopeId)}`, { method: "PUT" });
+      // Keycloak 26.7.3 skips PUT default-client-scopes when the client already maps the same scope
+      // as optional (JpaRealmProvider.addClientScopes); remove the optional mapping first to promote it.
+      const optionalScopes = await this.#json<readonly ClientScopeRepresentation[]>(token, optionalPath),
+        optionalConsent = optionalScopes.find((scope) => scope.name === consentClientScopeName || scope.id === scopeId);
+      if (optionalConsent && typeof optionalConsent.id === "string" && optionalConsent.id)
+        await this.#request(
+          token,
+          `${optionalPath}/${encodeURIComponent(optionalConsent.id)}`,
+          { method: "DELETE" },
+          true,
+        );
+      await this.#request(token, `${defaultPath}/${encodeURIComponent(scopeId)}`, { method: "PUT" });
       return;
     }
-    const attached = await this.#json<readonly ClientScopeRepresentation[]>(token, basePath),
+    const attached = await this.#json<readonly ClientScopeRepresentation[]>(token, defaultPath),
       consent = attached.find((scope) => scope.name === consentClientScopeName);
     if (consent && typeof consent.id === "string" && consent.id)
-      await this.#request(token, `${basePath}/${encodeURIComponent(consent.id)}`, { method: "DELETE" }, true);
+      await this.#request(token, `${defaultPath}/${encodeURIComponent(consent.id)}`, { method: "DELETE" }, true);
   }
 
   async #nodeClient(token: string, nodeId: string): Promise<NodeClient | undefined> {

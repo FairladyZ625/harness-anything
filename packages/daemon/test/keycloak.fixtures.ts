@@ -49,6 +49,7 @@ type NodeClient = {
   serviceAccountsEnabled?: boolean;
   fullScopeAllowed?: boolean;
   defaultClientScopes: Set<string>;
+  optionalClientScopes: Set<string>;
 };
 
 /**
@@ -290,8 +291,23 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       }
       return method === "GET" ? json(scope) : new Response(null, { status: 204 });
     }
+    if (route === "/default-default-client-scopes" && method === "GET") return json([]);
+    if (route === "/default-optional-client-scopes" && method === "GET") return json([]);
     if (route === "/clients" && method === "POST") {
       const clientId = String(body!.clientId),
+        scopeIdsByName = (names: unknown): Set<string> => {
+          const matched = new Set<string>();
+          if (!Array.isArray(names)) return matched;
+          for (const name of names) {
+            const scope = [...clientScopes.values()].find((entry) => entry.name === name);
+            if (scope) matched.add(scope.id);
+          }
+          return matched;
+        },
+        defaultScopes = scopeIdsByName(body!.defaultClientScopes),
+        optionalScopes = new Set(
+          [...scopeIdsByName(body!.optionalClientScopes)].filter((scopeId) => !defaultScopes.has(scopeId)),
+        ),
         client: NodeClient = {
           id: id("node-client"),
           enabled: body!.enabled !== false,
@@ -301,7 +317,8 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
           attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
           // Keycloak 26 stores the secret a caller supplies with a new client (F-2CBA6A96).
           secret: typeof body!.secret === "string" && body!.secret ? body!.secret : id("node-secret"),
-          defaultClientScopes: new Set<string>(),
+          defaultClientScopes: defaultScopes,
+          optionalClientScopes: optionalScopes,
         };
       if (nodeClients.has(clientId)) return json({ errorMessage: `Client ${clientId} already exists` }, 409);
       nodeClients.set(clientId, client);
@@ -314,7 +331,12 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
           [
             { id: "client-1", clientId: "harness-center" },
             ...[...nodeClients.values()].map(
-              ({ secret: _secret, defaultClientScopes: _defaultClientScopes, ...client }) => client,
+              ({
+                secret: _secret,
+                defaultClientScopes: _defaultClientScopes,
+                optionalClientScopes: _optionalClientScopes,
+                ...client
+              }) => client,
             ),
           ],
           url,
@@ -326,7 +348,14 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         url.searchParams.get("search") === "true" ? client.clientId.startsWith(clientId) : client.clientId === clientId,
       );
       return page(
-        found.map(({ secret: _secret, defaultClientScopes: _defaultClientScopes, ...client }) => client),
+        found.map(
+          ({
+            secret: _secret,
+            defaultClientScopes: _defaultClientScopes,
+            optionalClientScopes: _optionalClientScopes,
+            ...client
+          }) => client,
+        ),
         url,
       );
     }
@@ -335,7 +364,8 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       return route === clientPath || route.startsWith(`${clientPath}/`);
     });
     if (nodeClient) {
-      const defaultScopesPrefix = `/clients/${nodeClient.id}/default-client-scopes`;
+      const defaultScopesPrefix = `/clients/${nodeClient.id}/default-client-scopes`,
+        optionalScopesPrefix = `/clients/${nodeClient.id}/optional-client-scopes`;
       if (route === defaultScopesPrefix && method === "GET") {
         return json(
           [...nodeClient.defaultClientScopes]
@@ -347,11 +377,31 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         const scopeId = decodeURIComponent(route.slice(defaultScopesPrefix.length + 1));
         if (method === "PUT") {
           if (!clientScopes.has(scopeId)) return json({}, 404);
-          nodeClient.defaultClientScopes.add(scopeId);
+          // Keycloak 26.7.3 JpaRealmProvider.addClientScopes skips duplicates across both default and optional maps.
+          if (!nodeClient.optionalClientScopes.has(scopeId)) nodeClient.defaultClientScopes.add(scopeId);
           return new Response(null, { status: 204 });
         }
         if (method === "DELETE") {
           nodeClient.defaultClientScopes.delete(scopeId);
+          return new Response(null, { status: 204 });
+        }
+      }
+      if (route === optionalScopesPrefix && method === "GET") {
+        return json(
+          [...nodeClient.optionalClientScopes]
+            .map((scopeId) => clientScopes.get(scopeId))
+            .filter((scope): scope is ClientScope => scope !== undefined),
+        );
+      }
+      if (route.startsWith(`${optionalScopesPrefix}/`)) {
+        const scopeId = decodeURIComponent(route.slice(optionalScopesPrefix.length + 1));
+        if (method === "PUT") {
+          if (!clientScopes.has(scopeId)) return json({}, 404);
+          if (!nodeClient.defaultClientScopes.has(scopeId)) nodeClient.optionalClientScopes.add(scopeId);
+          return new Response(null, { status: 204 });
+        }
+        if (method === "DELETE") {
+          nodeClient.optionalClientScopes.delete(scopeId);
           return new Response(null, { status: 204 });
         }
       }
@@ -368,7 +418,13 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
       // Keycloak exposes a confidential client's stored secret for the owning realm administrator.
       if (route.endsWith("/client-secret") && method === "GET")
         return json({ type: "secret", value: nodeClient.secret });
-      if (method === "GET") return json({ ...nodeClient, secret: undefined, defaultClientScopes: undefined });
+      if (method === "GET")
+        return json({
+          ...nodeClient,
+          secret: undefined,
+          defaultClientScopes: undefined,
+          optionalClientScopes: undefined,
+        });
       // Admin client PUT replaces its secret in the same update as the device metadata.
       if (typeof body!.secret === "string") nodeClient.secret = body!.secret;
       if (typeof body!.enabled === "boolean") nodeClient.enabled = body!.enabled;
@@ -657,6 +713,7 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
           serviceAccountsEnabled: true,
           fullScopeAllowed: false,
           defaultClientScopes: new Set<string>(),
+          optionalClientScopes: new Set<string>(),
         };
       client.attributes = {
         ...client.attributes,

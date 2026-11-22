@@ -253,6 +253,8 @@ test("login-client synchronization upgrades an existing node to a one-hour acces
       synchronized = JSON.parse(String(init.body)) as Record<string, unknown>;
       return new Response(null, { status: 204 });
     }
+    if (url.pathname.endsWith(`/clients/${client.id}/optional-client-scopes`) && !init?.method)
+      return Response.json([]);
     if (url.pathname.endsWith(`/clients/${client.id}/default-client-scopes/scope-consent`) && init?.method === "PUT") {
       attachedDefaultScopes.push("scope-consent");
       return new Response(null, { status: 204 });

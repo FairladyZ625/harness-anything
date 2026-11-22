@@ -100,8 +100,8 @@ test("removal revokes only the registered owner's device consent while retaining
     "GET /users/user-id/consents",
     "DELETE /users/user-id/consents/harness-node-A",
     "GET /clients",
-    "PUT /clients/uuid-A",
     "GET /clients/uuid-A/default-client-scopes",
+    "PUT /clients/uuid-A",
   ]);
   assert.deepEqual(
     updates.map((entry) => [
@@ -127,8 +127,8 @@ test("a device with no offline grant can be removed without inventing a session 
     "GET /users",
     "GET /users/user-id/consents",
     "GET /clients",
-    "PUT /clients/uuid-A",
     "GET /clients/uuid-A/default-client-scopes",
+    "PUT /clients/uuid-A",
   ]);
 });
 
@@ -150,8 +150,8 @@ test("a deleted owner has no remaining consent and removal completes its disable
     "GET /clients",
     "GET /users",
     "GET /clients",
-    "PUT /clients/uuid-A",
     "GET /clients/uuid-A/default-client-scopes",
+    "PUT /clients/uuid-A",
   ]);
   assert.deepEqual(
     updates.map((entry) => {

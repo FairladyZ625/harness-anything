@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import type { TaskCompletionRead } from "../../../api/renderer-dto.ts";
-import type { TaskMutationFeedback } from "../../task-actions.ts";
+import { pendingMutationKind, type TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery } from "../../task-data.ts";
 import { taskCan, type TaskRow } from "../../model/types.ts";
 import {
@@ -283,7 +283,7 @@ function CompletionPanel({
   const complete = taskCan(task, "complete");
   const completionFeedback =
     mutationFeedback?.kind === "consent" || mutationFeedback?.kind === "complete" ? mutationFeedback : undefined;
-  const pending = completionFeedback?.state === "pending";
+  const pendingKind = pendingMutationKind(completionFeedback);
 
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
@@ -304,7 +304,7 @@ function CompletionPanel({
         {stage === "consent" ? (
           <Button
             testId="task-completion-consent"
-            disabled={!onConsentReview || !consentReviewId || pending}
+            disabled={!onConsentReview || !consentReviewId || pendingKind === "consent"}
             variant="primary"
             onClick={() => consentReviewId && void onConsentReview?.(consentReviewId)}
           >
@@ -313,7 +313,7 @@ function CompletionPanel({
         ) : null}
         <Button
           testId="task-completion-complete"
-          disabled={!complete || !onComplete || pending}
+          disabled={!complete || !onComplete || pendingKind === "complete"}
           tip={complete ? undefined : t("components.taskCloseout.completionCompleteTip")}
           variant="primary"
           onClick={() => void onComplete?.()}

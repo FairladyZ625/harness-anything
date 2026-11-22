@@ -15,7 +15,7 @@ import {
   type AttestationPoolTabId,
   type GateAttestationItem,
 } from "../model/attestation-pool.ts";
-import type { TaskMutationFeedback } from "../task-actions.ts";
+import { pendingMutationKind, type TaskMutationFeedback } from "../task-actions.ts";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
@@ -226,7 +226,7 @@ export function AttestationPoolView({
                 {
                   kind: "approve" as const,
                   label: t("views.attestationPoolView.consentApprove"),
-                  disabled: consentFeedback?.state === "pending",
+                  disabled: pendingMutationKind(consentFeedback) === "consent",
                   onTrigger: () => {
                     void onConsentReview(task, consent.reviewId);
                   },
@@ -578,7 +578,7 @@ function GateLaneRow({
   const [open, setOpen] = useState(false),
     mode = item.mode,
     attestFeedback = feedback?.kind === "attest" ? feedback : undefined,
-    pending = attestFeedback?.state === "pending",
+    pending = pendingMutationKind(attestFeedback) === "attest",
     approve = mode === "approve";
   return (
     <>
@@ -666,7 +666,7 @@ function ConsentLaneRow({
   readonly onConsentReview?: () => void;
   readonly onNavigateTask?: (taskId: string) => void;
 }) {
-  const pending = feedback?.state === "pending";
+  const pending = pendingMutationKind(feedback) === "consent";
   return (
     <div data-testid={`pool-consent-card-${item.taskId}`} className="cv-auto-3r">
       <LaneActionRow

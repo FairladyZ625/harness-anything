@@ -1,15 +1,26 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { act } from "react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { harnessClient } from "../src/renderer/api-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { useTaskActions } from "../src/renderer/task-actions.ts";
+import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
+import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import {
   byTestId,
+  child,
   cleanupMountedDetail,
   clickTab,
+  decision,
+  flushEffects,
   installBridge,
   mount,
+  mounted,
+  parent,
   prepareDetailEnvironment,
   task,
 } from "./task-detail.fixtures.ts";
@@ -17,6 +28,7 @@ import {
 beforeAll(prepareDetailEnvironment);
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   setActiveLocale("zh-CN");
   await cleanupMountedDetail();
 });
@@ -204,7 +216,125 @@ describe("Task completion panel", () => {
     });
     await clickTab("收口");
     expect((byTestId("task-completion-consent") as HTMLButtonElement).disabled).toBe(true);
-    expect((byTestId("task-completion-complete") as HTMLButtonElement).disabled).toBe(true);
+    // Scoped by action kind: an in-flight consent feedback never disables the independent complete button.
+    expect((byTestId("task-completion-complete") as HTMLButtonElement).disabled).toBe(false);
     expect(document.querySelector('[data-testid="task-completion-error"]')).toBeNull();
+  });
+
+  it("F-3: real click-to-rejection renders role=alert and consent canonical_not_visible never locks out complete after projection catches up", async () => {
+    const bridge = installBridge({
+      completionAction: "ha task review-consent task-w3",
+      completionBlocker: { code: "consent_missing", gate: "consent" },
+    });
+    const consentReview = vi
+      .spyOn(harnessClient, "consentReview")
+      .mockResolvedValueOnce({
+        schema: "command-receipt/v2",
+        ok: false,
+        outcome: "op_rejected",
+        opId: "op-detail-reject",
+        error: {
+          code: "human_confirmation_required",
+          hint: "Consent requires a personal session and a client granted the consent scope.",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        schema: "command-receipt/v2",
+        ok: true,
+        outcome: "applied",
+        opId: "op-detail-invisible",
+        proof: { committedRevision: 9, appliedCut: 9, durable: true, canonicalVisible: false },
+      } as never);
+    const completeTask = vi.spyOn(harnessClient, "completeTask").mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: true,
+      outcome: "applied",
+      opId: "op-detail-complete",
+      proof: { committedRevision: 10, appliedCut: 10, durable: true, canonicalVisible: true },
+    } as never);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    document.body.append(container);
+    mounted.push({ root, client });
+
+    function HarnessDetail({ currentTask }: { readonly currentTask: TaskRow }) {
+      const actions = useTaskActions("repo-a");
+      return createElement(TaskDetailView, {
+        task: currentTask,
+        tasks: [parent, currentTask, child],
+        relations: [],
+        decisions: [decision],
+        onBack: () => undefined,
+        onSelect: () => undefined,
+        onNavigateDecision: () => undefined,
+        onNavigateEntity: () => undefined,
+        mutationFeedback: actions.feedback.get(currentTask.taskId),
+        onConsentReview: (reviewId) => actions.consentReview(currentTask, reviewId),
+        onComplete: () => actions.completeTask(currentTask),
+        projectName: "Harness",
+      });
+    }
+
+    const waitingConsentTask: TaskRow = {
+      ...task,
+      ...projectedTaskFields("in_review", { can: [] }),
+      consentTarget: { reviewId: "review-projected", executionId: "execution-current-cut" },
+    };
+    const renderTask = async (nextTask: TaskRow) => {
+      await act(async () => {
+        root.render(
+          createElement(QueryClientProvider, { client }, createElement(HarnessDetail, { currentTask: nextTask })),
+        );
+      });
+      await flushEffects();
+    };
+
+    await renderTask(waitingConsentTask);
+    await clickTab("收口");
+
+    // 1. Click consent -> real op_rejected receipt renders role=alert with code + hint.
+    await act(async () => {
+      byTestId("task-completion-consent").click();
+    });
+    await flushEffects();
+    expect(consentReview).toHaveBeenCalledTimes(1);
+    const alert = byTestId("task-completion-error");
+    expect(alert.getAttribute("role")).toBe("alert");
+    expect(alert.textContent).toContain("human_confirmation_required");
+    expect(alert.textContent).toContain("client granted the consent scope");
+
+    // 2. Retry consent -> applied with canonicalVisible:false (settles to pending/canonical_not_visible).
+    await act(async () => {
+      byTestId("task-completion-consent").click();
+    });
+    await flushEffects();
+    expect(consentReview).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('[data-testid="task-completion-error"]')).toBeNull();
+    // Consent button itself is not locked by canonical_not_visible either.
+    expect((byTestId("task-completion-consent") as HTMLButtonElement).disabled).toBe(false);
+
+    // 3. Projection catches up: blocker clears and complete capability becomes available.
+    bridge.getTaskCompletion.mockResolvedValue({
+      ok: true,
+      taskId: "task-w3",
+      factRetirement: null,
+      reviewReverify: null,
+      completionNext: null,
+      completionBlocker: null,
+    });
+    await client.invalidateQueries();
+    await renderTask({
+      ...waitingConsentTask,
+      ...projectedTaskFields("in_review", { can: ["complete"] }),
+    });
+    const completeBtn = byTestId("task-completion-complete") as HTMLButtonElement;
+    expect(completeBtn.disabled).toBe(false);
+    await act(async () => {
+      completeBtn.click();
+    });
+    await flushEffects();
+    expect(completeTask).toHaveBeenCalledTimes(1);
   });
 });
