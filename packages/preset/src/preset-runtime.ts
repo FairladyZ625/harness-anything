@@ -1,4 +1,4 @@
-import { isRetiredCodeDocRequirement } from "@harness-anything/kernel";
+import { INITIAL_SETTINGS_V1, isRetiredCodeDocRequirement } from "@harness-anything/kernel";
 import {
   assertCanonicalVertical,
   loadCanonicalAssets,
@@ -511,7 +511,11 @@ export function resolveWorkPresetId(input: PresetResolverOptions & { readonly ve
 
 /** Resolve a valid default preset and profile for repository bootstrap on `verticalId`. */
 export function resolveDefaultPresetSelection(
-  input: PresetResolverOptions & { readonly verticalId: string; readonly presetId?: string },
+  input: PresetResolverOptions & {
+    readonly verticalId: string;
+    readonly presetId?: string;
+    readonly preferredPresetId?: string;
+  },
 ): { readonly presetId: string; readonly profileId: string } {
   const assetsRoot = input.assetsRoot ?? resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
     assets = loadCanonicalAssets(assetsRoot),
@@ -520,23 +524,45 @@ export function resolveDefaultPresetSelection(
     catalog = effectiveCatalog(bundledRoot, userRoot, assets.compiledVertical.definition.id),
     providers = providerIndex(assets.providers);
   assertCanonicalVertical(assets, input.verticalId);
+  const candidates = defaultPresetCandidatesForVertical(catalog, input.verticalId, providers);
   if (input.presetId) {
     const selected = catalog.get(key(input.verticalId, input.presetId));
-    if (selected?.decoded) return { presetId: selected.id, profileId: selected.decoded.manifest.defaultProfile };
     if (selected?.error) throw selected.error;
-    const runtime = createRuntime({ ...input, assetsRoot, bundledRoot, userRoot });
-    throw missingPresetFailure(catalog, input.verticalId, input.presetId, (presetId) => {
-      const attempt = attemptResolution(runtime.resolveInternal, {
-        presetId,
-        verticalId: input.verticalId,
-        locale: "en-US",
-        purpose: "inspect",
+    if (!selected?.decoded) {
+      const runtime = createRuntime({ ...input, assetsRoot, bundledRoot, userRoot });
+      throw missingPresetFailure(catalog, input.verticalId, input.presetId, (presetId) => {
+        const attempt = attemptResolution(runtime.resolveInternal, {
+          presetId,
+          verticalId: input.verticalId,
+          locale: "en-US",
+          purpose: "inspect",
+        });
+        return attempt.ok ? { ok: true } : attempt;
       });
-      return attempt.ok ? { ok: true } : attempt;
-    });
+    }
+    const ancestry = requireAncestry(catalog, selected, input.verticalId),
+      availability = presetAvailability({
+        catalog,
+        verticalId: input.verticalId,
+        ancestry,
+        providers,
+      });
+    if (availability.missingProviderIds.length) throw missingProviderFailure(availability.missingProviderIds);
+    if (availability.requiredTaskClass === "work") {
+      const selectable = candidates.map((candidate) => candidate.id);
+      throw presetFailure(
+        "invalid_preset",
+        `Preset ${selected.id} requires taskClass="work" and cannot be used as the repository defaultPreset for ${input.verticalId}.` +
+          (selectable.length ? ` Selectable default presets: ${selectable.join(", ")}.` : ""),
+      );
+    }
+    return { presetId: selected.id, profileId: selected.decoded.manifest.defaultProfile };
   }
-  const candidates = defaultPresetCandidatesForVertical(catalog, input.verticalId, providers);
   if (candidates.length === 0)
     throw presetFailure("preset_not_found", `Vertical ${input.verticalId} has no selectable default preset.`);
-  return { presetId: candidates[0]!.id, profileId: candidates[0]!.decoded!.manifest.defaultProfile };
+  const preferred =
+      input.preferredPresetId ??
+      (input.verticalId === INITIAL_SETTINGS_V1.defaultVertical ? INITIAL_SETTINGS_V1.defaultPreset : undefined),
+    chosen = (preferred ? candidates.find((candidate) => candidate.id === preferred) : undefined) ?? candidates[0]!;
+  return { presetId: chosen.id, profileId: chosen.decoded!.manifest.defaultProfile };
 }

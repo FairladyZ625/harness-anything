@@ -118,6 +118,9 @@ export function resolveRepoBootstrap(
             rootDir,
             verticalId: requestedVertical || INITIAL_SETTINGS_V1.defaultVertical,
             ...(requestedPreset ? { presetId: requestedPreset } : {}),
+            ...(!requestedPreset && (!requestedVertical || requestedVertical === INITIAL_SETTINGS_V1.defaultVertical)
+              ? { preferredPresetId: INITIAL_SETTINGS_V1.defaultPreset }
+              : {}),
           })
         : {
             verticalId: INITIAL_SETTINGS_V1.defaultVertical,

@@ -124,7 +124,17 @@ export function workPresetIdsForVertical(
     .sort((left, right) => left.localeCompare(right));
 }
 
-/** Valid non-work presets of one vertical selectable as a repository default, in id order. */
+function defaultPresetPriority(candidate: Candidate): number {
+  const manifest = candidate.decoded!.manifest;
+  const isRegularKind = manifest.kind !== "process-action";
+  const isRepositoryDiff = manifest.outputShape === "repository-diff";
+  if (isRegularKind && isRepositoryDiff) return 0;
+  if (isRegularKind) return 1;
+  if (isRepositoryDiff) return 2;
+  return 3;
+}
+
+/** Valid non-work presets of one vertical selectable as a repository default, ordered by regular task suitability then id. */
 export function defaultPresetCandidatesForVertical(
   catalog: ReadonlyMap<string, Candidate>,
   verticalId: string,
@@ -138,7 +148,9 @@ export function defaultPresetCandidatesForVertical(
       return availability !== null && availability.requiredTaskClass !== "work";
     })
     .map(([, item]) => item)
-    .sort((left, right) => left.id.localeCompare(right.id));
+    .sort(
+      (left, right) => defaultPresetPriority(left) - defaultPresetPriority(right) || left.id.localeCompare(right.id),
+    );
 }
 
 export function profileFor(

@@ -818,3 +818,204 @@ test("pure custom vertical finance/audit (zero coding presets/agents): full life
     rmSync(noWorkRoot, { recursive: true, force: true });
   }
 });
+
+test("repo bootstrap default preset preserves standard-task for software/coding, prefers regular presets over process-action audits, and rejects work-only or unavailable --preset values", () => {
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-bootstrap-default-preset-")));
+  initGitRepo(rootDir);
+  try {
+    // 1. Explicit --vertical software/coding preserves INITIAL_SETTINGS_V1.defaultPreset (`standard-task`), never `architecture-rot-audit`
+    const codingBootstrap = resolveRepoBootstrap(
+      {
+        rootDir,
+        repoId: "bootstrap-coding",
+        personId: "person-owner",
+        displayName: "Owner",
+        vertical: "software/coding",
+      },
+      ownerAuth,
+    );
+    assert.equal(codingBootstrap.settingsBootstrap[0].defaultVertical, "software/coding");
+    assert.equal(codingBootstrap.settingsBootstrap[0].defaultPreset, "standard-task");
+    assert.equal(codingBootstrap.settingsBootstrap[0].defaultProfile, "baseline");
+
+    // 2. Explicit --vertical office/collab selects regular non-work default preset `deliverable-task`
+    const officeBootstrap = resolveRepoBootstrap(
+      {
+        rootDir,
+        repoId: "bootstrap-office",
+        personId: "person-owner",
+        displayName: "Owner",
+        vertical: "office/collab",
+      },
+      ownerAuth,
+    );
+    assert.equal(officeBootstrap.settingsBootstrap[0].defaultVertical, "office/collab");
+    assert.equal(officeBootstrap.settingsBootstrap[0].defaultPreset, "deliverable-task");
+    assert.equal(officeBootstrap.settingsBootstrap[0].defaultProfile, "baseline");
+
+    // 3. Explicit --preset work-root on office/collab (and create-work on software/coding) is rejected with invalid_preset
+    assert.throws(
+      () =>
+        resolveRepoBootstrap(
+          {
+            rootDir,
+            repoId: "bootstrap-office-work-root",
+            personId: "person-owner",
+            displayName: "Owner",
+            vertical: "office/collab",
+            preset: "work-root",
+          },
+          ownerAuth,
+        ),
+      (error: unknown) =>
+        (error as { code?: string }).code === "invalid_preset" &&
+        /requires taskClass="work"/u.test(error instanceof Error ? error.message : String(error)) &&
+        /deliverable-task/u.test(error instanceof Error ? error.message : String(error)),
+    );
+    assert.throws(
+      () =>
+        resolveRepoBootstrap(
+          {
+            rootDir,
+            repoId: "bootstrap-coding-work-root",
+            personId: "person-owner",
+            displayName: "Owner",
+            preset: "create-work",
+          },
+          ownerAuth,
+        ),
+      (error: unknown) =>
+        (error as { code?: string }).code === "invalid_preset" &&
+        /requires taskClass="work"/u.test(error instanceof Error ? error.message : String(error)),
+    );
+
+    // 4. Cross-vertical preset (`standard-task` under `office/collab`) is rejected with preset_not_found
+    assert.throws(
+      () =>
+        resolveRepoBootstrap(
+          {
+            rootDir,
+            repoId: "bootstrap-cross-vertical",
+            personId: "person-owner",
+            displayName: "Owner",
+            vertical: "office/collab",
+            preset: "standard-task",
+          },
+          ownerAuth,
+        ),
+      (error: unknown) => (error as { code?: string }).code === "preset_not_found",
+    );
+
+    // 5. Custom vertical with an alphabetically earlier process-action audit preset + regular preset + missing-provider preset
+    seedCustomAuditVertical(rootDir, { verticalId: "finance/custom-default", includeWorkPreset: true });
+    const customDir = path.join(rootDir, "verticals", "finance-custom-default");
+    rmSync(path.join(customDir, "presets", "audit-policy-patch"), { recursive: true, force: true });
+    rmSync(path.join(customDir, "presets", "audit-review"), { recursive: true, force: true });
+    writeFile(
+      path.join(customDir, "presets", "alpha-audit", "preset.json"),
+      JSON.stringify({
+        schema: "preset-manifest/v3",
+        id: "alpha-audit",
+        title: "Alpha Process Audit",
+        vertical: "finance/custom-default",
+        version: "1.0.0",
+        kind: "process-action",
+        outputShape: "task-package-artifact",
+        kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+        capabilityImports: [],
+        profiles: [{ id: "audit", title: "Audit", completionGates: [], templateSelections: [] }],
+        defaultProfile: "audit",
+      }),
+    );
+    writeFile(
+      path.join(customDir, "presets", "alpha-audit", "PRESET.md"),
+      "---\nschema: preset-document/v1\ndescription: Audit process preset.\nwhenToUse: Use for periodic audits.\n---\n# Alpha Audit\n",
+    );
+    writeFile(
+      path.join(customDir, "presets", "zeta-regular", "preset.json"),
+      JSON.stringify({
+        schema: "preset-manifest/v3",
+        id: "zeta-regular",
+        title: "Zeta Regular Task",
+        vertical: "finance/custom-default",
+        version: "1.0.0",
+        kind: "template-content",
+        outputShape: "task-package-artifact",
+        kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+        capabilityImports: [],
+        profiles: [{ id: "standard", title: "Standard", completionGates: [], templateSelections: [] }],
+        defaultProfile: "standard",
+      }),
+    );
+    writeFile(
+      path.join(customDir, "presets", "zeta-regular", "PRESET.md"),
+      "---\nschema: preset-document/v1\ndescription: Regular task preset.\nwhenToUse: Default daily work.\n---\n# Zeta Regular\n",
+    );
+    writeFile(
+      path.join(customDir, "presets", "missing-cap", "preset.json"),
+      JSON.stringify({
+        schema: "preset-manifest/v3",
+        id: "missing-cap",
+        title: "Missing Capability Preset",
+        vertical: "finance/custom-default",
+        version: "1.0.0",
+        kind: "template-content",
+        outputShape: "task-package-artifact",
+        kernelVersionRange: { min: "1.0.0", maxExclusive: "2.0.0" },
+        capabilityImports: [{ id: "policy:nonexistent-provider/v1", kind: "command", version: "1", required: true }],
+        profiles: [{ id: "standard", title: "Standard", completionGates: [], templateSelections: [] }],
+        defaultProfile: "standard",
+      }),
+    );
+    writeFile(
+      path.join(customDir, "presets", "missing-cap", "PRESET.md"),
+      "---\nschema: preset-document/v1\ndescription: Missing capability preset.\nwhenToUse: Never selectable.\n---\n# Missing Cap\n",
+    );
+
+    const customBootstrap = resolveRepoBootstrap(
+      {
+        rootDir,
+        repoId: "bootstrap-custom",
+        personId: "person-owner",
+        displayName: "Owner",
+        vertical: "finance/custom-default",
+      },
+      ownerAuth,
+    );
+    assert.equal(customBootstrap.settingsBootstrap[0].defaultPreset, "zeta-regular");
+    assert.equal(customBootstrap.settingsBootstrap[0].defaultProfile, "standard");
+
+    assert.throws(
+      () =>
+        resolveRepoBootstrap(
+          {
+            rootDir,
+            repoId: "bootstrap-custom-work",
+            personId: "person-owner",
+            displayName: "Owner",
+            vertical: "finance/custom-default",
+            preset: "audit-engagement",
+          },
+          ownerAuth,
+        ),
+      (error: unknown) => (error as { code?: string }).code === "invalid_preset",
+    );
+    assert.throws(
+      () =>
+        resolveRepoBootstrap(
+          {
+            rootDir,
+            repoId: "bootstrap-custom-missing-cap",
+            personId: "person-owner",
+            displayName: "Owner",
+            vertical: "finance/custom-default",
+            preset: "missing-cap",
+          },
+          ownerAuth,
+        ),
+      (error: unknown) => (error as { code?: string }).code === "missing_provider",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

@@ -221,12 +221,14 @@ export function resolveRepoBootstrapDefaults(input: {
   readonly rootDir: string;
   readonly verticalId: string;
   readonly presetId?: string;
+  readonly preferredPresetId?: string;
 }): { readonly verticalId: string; readonly presetId: string; readonly profileId: string } {
   const selected = resolveDefaultPresetSelection({
     repoRoot: input.rootDir,
     userRoot: presetUserRoot(input.rootDir),
     verticalId: input.verticalId,
     ...(input.presetId ? { presetId: input.presetId } : {}),
+    ...(input.preferredPresetId ? { preferredPresetId: input.preferredPresetId } : {}),
   });
   return { verticalId: input.verticalId, ...selected };
 }
