@@ -204,7 +204,8 @@ export function catalogRecovery(
       missingProviderIds,
       nextAction:
         `Remove the broken user preset pointer with \`ha preset uninstall ${entry.id}\` ` +
-        `(or repair ${entry.source} and reinstall with \`ha preset install --source <dir>\`), then rerun ha preset audit.${retiredCheckerProfile}`,
+        `(or repair the ${failureValue.code} object at ${entry.source} and reinstall with \`ha preset install --source <dir>\`), ` +
+        `then rerun ha preset list or ha preset audit.${retiredCheckerProfile}`,
     };
   }
   return {

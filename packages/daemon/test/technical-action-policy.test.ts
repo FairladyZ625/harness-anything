@@ -130,7 +130,9 @@ test("policy metadata from both production providers omits technical actions and
   ] as const) {
     const metadata = await readPolicyMetadata({ provider, accessToken });
     const actions = metadata.actions.map((row) => row.action);
-    assert.equal(actions.length, 175);
+    // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
+    // adds host-local repo-write actions preset-init and vertical-init (175 -> 177).
+    assert.equal(actions.length, 177);
     for (const scope of technicalScopes) assert.equal(actions.includes(scope), false, scope);
     for (const scope of business.scopes) assert.equal(actions.includes(scope), true, scope);
   }
