@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type * as ReadSet from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import { DatabaseSync } from "node:sqlite";
 import { createHash, type Hash } from "node:crypto";
@@ -53,6 +54,33 @@ const stateDigestColumns: Partial<Record<(typeof stateDigestTables)[number][0], 
     "relation_id,source_ref,target_ref,relation_type,state,target_observed_version,owner_ref,workspace_revision,updated_at,row_json",
 };
 const stateDigestChunkBytes = 1024 * 1024;
+const projectionSqlHeartbeat = new AsyncLocalStorage<{ state: BigInt64Array | undefined } | undefined>();
+
+export async function withProjectionSqlHeartbeat<Result>(
+  sharedState: SharedArrayBuffer | undefined,
+  work: () => Result | Promise<Result>,
+): Promise<Result> {
+  if (sharedState === undefined) return work();
+  const previous = projectionSqlHeartbeat.getStore(),
+    scope: { state: BigInt64Array | undefined } = { state: new BigInt64Array(sharedState) };
+  try {
+    let pending: Result | Promise<Result>;
+    projectionSqlHeartbeat.enterWith(scope);
+    try {
+      pending = work();
+    } finally {
+      projectionSqlHeartbeat.enterWith(previous);
+    }
+    return await pending;
+  } finally {
+    scope.state = undefined;
+  }
+}
+
+function markProjectionSqlProgress(): void {
+  const heartbeat = projectionSqlHeartbeat.getStore()?.state;
+  if (heartbeat !== undefined) Atomics.store(heartbeat, 0, process.hrtime.bigint());
+}
 
 export function watermark(db: DatabaseSync): number {
   const row = prepareQuery(db, "SELECT watermark FROM projection_meta WHERE singleton = 1", (sql) =>
@@ -99,6 +127,7 @@ export function isAtSourceCut(db: DatabaseSync, sourceRevision: number): boolean
 
 // Hashes every projection row, so only explicit rebuilds and read-side checks call it; writes never do.
 export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha256:${string}` | null {
+  markProjectionSqlProgress();
   return queryTransaction(db, () => {
     if (!isAtSourceCut(db, sourceRevision)) return null;
     let digest = sha256Text("task-projection-state/v1");
@@ -112,8 +141,10 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
       for (const row of prepareQuery(
         db,
         `SELECT ${stateDigestColumns[table] ?? "*"} FROM ${table} ORDER BY ${order}`,
-      ).iterate())
+      ).iterate()) {
+        markProjectionSqlProgress();
         digest = sha256Text(`${digest}\n${canonicalJson(row as ProjectionSqlRow)}`);
+      }
     }
     return `sha256:${digest}` as const;
   });
@@ -121,35 +152,30 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
 
 function digestDocumentRows(db: DatabaseSync, digest: string, table: "document" | "document_history"): string {
   const documents = prepareQuery(
-      db,
-      `SELECT path, workspace_revision, length(CAST(value_json AS BLOB)) AS value_json_bytes FROM ${table} ORDER BY path`,
-    ).iterate() as Iterable<{
-      readonly path: string;
-      readonly workspace_revision: number;
-      readonly value_json_bytes: number;
-    }>,
-    chunkQuery = prepareQuery(
-      db,
-      `SELECT substr(CAST(value_json AS BLOB), ?, ?) AS chunk FROM ${table} WHERE path = ?`,
-    );
-  for (const { path, workspace_revision, value_json_bytes } of documents) {
-    function* readChunks(): Iterable<Uint8Array> {
-      for (let offset = 0; offset < value_json_bytes; offset += stateDigestChunkBytes) {
-        const row = chunkQuery.get(offset + 1, stateDigestChunkBytes, path) as
-          | { readonly chunk: Uint8Array }
-          | undefined;
-        if (row?.chunk === undefined) throw new Error(`document ${path} disappeared during state digest`);
-        yield row.chunk;
-      }
-    }
+    db,
+    `SELECT path, workspace_revision, CAST(value_json AS BLOB) AS document_bytes FROM ${table} ORDER BY path`,
+  ).iterate() as Iterable<{
+    readonly path: string;
+    readonly workspace_revision: number;
+    readonly document_bytes: Uint8Array;
+  }>;
+  for (const { path, workspace_revision, document_bytes } of documents) {
+    markProjectionSqlProgress();
     digest = hashCanonicalJsonTextFieldChunks(
       digest,
       { path, workspace_revision, value_json: "" },
       "value_json",
-      readChunks(),
+      documentDigestChunks(document_bytes),
     );
   }
   return digest;
+}
+
+function* documentDigestChunks(bytes: Uint8Array): Iterable<Uint8Array> {
+  for (let offset = 0; offset < bytes.length; offset += stateDigestChunkBytes) {
+    markProjectionSqlProgress();
+    yield bytes.subarray(offset, offset + stateDigestChunkBytes);
+  }
 }
 export function transaction<A>(db: DatabaseSync, run: () => A): A {
   /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */
@@ -191,6 +217,7 @@ export function queryTransaction<A>(db: DatabaseSync, run: () => A): A {
 }
 type SqlValue = string | number | bigint | Uint8Array | null;
 export function runSql(db: DatabaseSync, sql: string, ...values: readonly SqlValue[]): number | bigint {
+  markProjectionSqlProgress();
   return prepareQuery(db, sql, (text) =>
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-sql.sqlite-database */ db.prepare(
       text,
@@ -213,6 +240,7 @@ export function prepareQuery(
       text,
     ),
 ): StatementSync {
+  markProjectionSqlProgress();
   let statements = connectionStatements.get(db);
   if (statements === undefined) connectionStatements.set(db, (statements = new Map()));
   let statement = statements.get(sql);

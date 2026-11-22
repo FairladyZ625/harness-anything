@@ -20,6 +20,8 @@ export const REPO_WRITER_PROTOCOL_VERSION = 1 as const;
 export interface RepoWriterBootstrapV1 {
   /** Host-owned liveness signal; a dead commit Worker must wake a synchronous DB caller. */
   readonly commitState?: SharedArrayBuffer;
+  /** Monotonic Worker progress, readable even while the Worker event loop is blocked. */
+  readonly readyWatchdogState?: SharedArrayBuffer;
   readonly storageContext?: import("@harness-anything/storage").StorageWorkerContext;
   readonly role?: "reader";
   readonly schema: "harness-repo-writer-bootstrap/v1";

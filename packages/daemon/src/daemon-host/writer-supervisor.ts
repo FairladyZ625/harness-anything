@@ -372,6 +372,9 @@ export async function openWriterSupervisor(
     return new Promise((resolve, reject) => {
       writerGeneration = Math.max(writerGeneration + 1, Date.now() * 1_000 + (process.pid % 1_000));
       const watchdogMs = resolveWriterReadyWatchdogMs(),
+        readyWatchdogState = new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT),
+        readyProgress = new BigInt64Array(readyWatchdogState),
+        watchdogNs = BigInt(watchdogMs) * 1_000_000n,
         context = prepareStorageWorkerContext(input.storage, input.repoId),
         workerOptions = {
           name: "repo-writer",
@@ -392,6 +395,7 @@ export async function openWriterSupervisor(
                 : input,
               options.canonicalStore !== undefined,
               writerGeneration,
+              readyWatchdogState,
             ),
             storageContext: context.context,
           },
@@ -413,9 +417,18 @@ export async function openWriterSupervisor(
       candidate.once("exit", context.close);
       let settled = false,
         lastAttachProgress: RepoCellAttachProgress | null = null;
-      let readyWatchdog: ReturnType<typeof setTimeout>;
+      let readyWatchdog: ReturnType<typeof setTimeout>,
+        lastReadyMessage = process.hrtime.bigint();
       const readyInactive = () => {
         if (settled) return;
+        const currentReadyProgress = Atomics.load(readyProgress, 0);
+        if (currentReadyProgress > lastReadyMessage) {
+          const remaining = watchdogNs - (process.hrtime.bigint() - currentReadyProgress);
+          if (remaining > 0n) {
+            scheduleReadyWatchdog(Number((remaining + 999_999n) / 1_000_000n));
+            return;
+          }
+        }
         settled = true;
         const error = new Error(`RepoWriterCell did not publish ready after ${watchdogMs}ms without progress`);
         if (!opened) closed = true;
@@ -423,10 +436,14 @@ export async function openWriterSupervisor(
         failActive(error);
         void candidate.terminate();
       };
-      const armReadyWatchdog = () => {
+      const scheduleReadyWatchdog = (delayMs: number) => {
         clearTimeout(readyWatchdog);
-        readyWatchdog = setTimeout(readyInactive, watchdogMs);
+        readyWatchdog = setTimeout(readyInactive, delayMs);
         readyWatchdog.unref?.();
+      };
+      const armReadyWatchdog = () => {
+        lastReadyMessage = process.hrtime.bigint();
+        scheduleReadyWatchdog(watchdogMs);
       };
       armReadyWatchdog();
       worker = candidate;
@@ -892,10 +909,12 @@ function bootstrapMessage(
   input: RepoCellOpenInput,
   canonicalStore: boolean,
   writerGeneration: number,
+  readyWatchdogState: SharedArrayBuffer,
 ): RepoWriterBootstrapV1 {
   return {
     schema: "harness-repo-writer-bootstrap/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+    readyWatchdogState,
     config: {
       ...(input.storage ? { storage: input.storage } : {}),
       repoId: input.repoId,
