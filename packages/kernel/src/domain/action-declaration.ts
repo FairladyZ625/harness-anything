@@ -89,6 +89,7 @@ export const actionPresentation = {
   "doc-conflict-resolve": { domain: "doc", name: "解决文档冲突", description: "提交文档冲突的处理结果。" },
   "doc-materialize": { domain: "doc", name: "生成本地文档", description: "将中心文档生成到本地工作区。" },
   "doc-retire": { domain: "doc", name: "退役文档", description: "结束文档的现行用途。" },
+  "dossier-synthesize": { domain: "dossier", name: "合成项目活档案", description: "按水位更新项目活档案槽位。" },
   "doc-submit": { domain: "doc", name: "提交文档", description: "将本地文档提交到中心。" },
   "entity-archive": { domain: "entity", name: "归档对象", description: "将对象移入归档。" },
   "entity-delete": { domain: "entity", name: "删除对象", description: "删除指定业务对象。" },
@@ -431,6 +432,7 @@ export const actionDeclarations = Object.freeze([
   declare("doc-materialize", "repo-write", hostResidency, { catalogId: "task/materialize" }),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
+  canonical("dossier-synthesize", null, "repo-write", "canonical-acceptance", "maintainer"),
   // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind
   // projects its own <kind>/<action> declaration into the runtime registry
   // (artifact-action-declarations.ts) under dec_2446BC2F8C68630F71AE3E3BD7/CH4.

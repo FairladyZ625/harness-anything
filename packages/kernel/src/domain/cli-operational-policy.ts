@@ -1174,3 +1174,6 @@ export const daemonAuthorizationReceiptContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/rpc-command-routing.ts#assertDaemonRpcRouting:44c9510588b412fe3102d073ff7c4f32",
   ].map((candidateId) => ({ candidateId, route: "daemonAuthorizationReceiptContractPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
+
+/** Shared transport and write-boundary limit for one living dossier document. */
+export const dossierContentMaxBytes = 512 * 1024;

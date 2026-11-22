@@ -42,7 +42,23 @@ function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcSha
   }
 }
 
+const dossierSynthesizeRoute = actionRpc(
+  "dossier.synthesize",
+  "repo.dossier.synthesize",
+  "dossier-synthesize",
+  shape({
+    slotId: "string",
+    expectedWatermark: "number",
+    watermark: "number",
+    body: "string",
+    scheduleId: "string?",
+    claimFence: "string?",
+    idempotencyKey: "string?",
+  }),
+);
+
 export const daemonActionRoutes = Object.freeze([
+  dossierSynthesizeRoute,
   actionRpc(
     "agentRuntime.handoff",
     "repo.agentRuntime.handoff",

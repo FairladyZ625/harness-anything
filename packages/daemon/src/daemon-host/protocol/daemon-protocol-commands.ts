@@ -1,6 +1,7 @@
 import {
   cliInput,
   defineCliCommand,
+  defineCenterForwardWriteCommand,
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   generatedSettingsFieldProtocolProjection,
@@ -9,6 +10,7 @@ import {
   type CliInputGroup,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { EntityActionContract } from "@harness-anything/kernel";
+import { dossierContentMaxBytes } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { todoProtocolCommands } from "./daemon-protocol-commands-todo.ts";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
 import { assignmentProtocolCommands } from "./daemon-protocol-commands-assignment.ts";
@@ -35,6 +37,107 @@ import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 import { declaredActionClass, optionalEnum, shape } from "./daemon-protocol-results.ts";
 import { AGENDA_PIN_CRITERIA, daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
+
+const slotInput = cliInput(
+  "--slot",
+  "single",
+  true,
+  { code: "missing_field" },
+  {
+    field: "slotId",
+    pathKind: "non-path",
+    description: "Declared dossier slot id.",
+  },
+);
+const watermarkInput = (name: string, required: boolean, description: string) =>
+  cliInput(
+    name,
+    "single",
+    required,
+    { code: "invalid_field" },
+    {
+      pathKind: "non-path",
+      regex: "^(?:0|[1-9][0-9]*)$",
+      projection: "number",
+      description,
+    },
+  );
+
+const dossierProtocolCommands = Object.freeze([
+  defineRepoReadCommand({
+    id: "dossier-status",
+    phase: "LivingDossier",
+    path: ["dossier", "status"],
+    summary: "List dossier slots, accepted watermarks and due triggers.",
+    method: "repo.task.read",
+    inputs: [],
+  }),
+  defineRepoReadCommand({
+    id: "dossier-context",
+    phase: "LivingDossier",
+    path: ["dossier", "context"],
+    summary: "Read the next bounded page of source changes for a dossier slot.",
+    method: "repo.task.read",
+    inputs: [slotInput, watermarkInput("--max-watermark", false, "Keep an earlier source cut fixed across pages.")],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "dossier-synthesize",
+    phase: "LivingDossier",
+    path: ["dossier", "synthesize"],
+    summary: "Accept a validated Markdown or HTML update through the canonical writer.",
+    method: "repo.dossier.synthesize",
+    payloadFields: [
+      { field: "slotId", type: "string", required: true },
+      { field: "expectedWatermark", type: "number", required: true },
+      { field: "watermark", type: "number", required: true },
+      { field: "body", type: "string", required: true },
+      { field: "scheduleId", type: "string", required: false },
+      { field: "claimFence", type: "string", required: false },
+      { field: "idempotencyKey", type: "string", required: false },
+    ],
+    inputs: [
+      slotInput,
+      watermarkInput("--expected-watermark", true, "Slot watermark returned by dossier context."),
+      watermarkInput("--watermark", true, "Next watermark returned by dossier context."),
+      cliInput(
+        "--content-file",
+        "single",
+        true,
+        { code: "missing_field" },
+        {
+          codec: { kind: "text-file", target: "body", maxBytes: dossierContentMaxBytes },
+          wire: { omit: true },
+          pathKind: "workspace-file",
+          zeroHit: "not-a-selection",
+          description: "Read synthesized Markdown or HTML from a local file.",
+        },
+      ),
+      cliInput(
+        "--schedule-id",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          requires: ["--claim-fence"],
+          description: "Schedule owning this synthesis.",
+        },
+      ),
+      cliInput(
+        "--claim-fence",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          pathKind: "non-path",
+          requires: ["--schedule-id"],
+          description: "Active occurrence claim fence.",
+        },
+      ),
+      cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+    ],
+  }),
+]);
 
 const settingsWriteTopology = {
     commandClass: "repo-write" as const,
@@ -182,6 +285,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...providerProtocolCommands,
   ...runtimeFleetProtocolCommands,
   ...scheduleProtocolCommands,
+  ...dossierProtocolCommands,
   ...settingsProtocolCommands,
   ...eventProtocolCommands,
   ...peopleProtocolCommands,

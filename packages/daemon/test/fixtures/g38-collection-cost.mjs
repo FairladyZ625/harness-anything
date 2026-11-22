@@ -1,3 +1,4 @@
+import { measureDossierHistory } from "./g38-dossier-cost.mjs";
 import { MATERIALIZATION_PROBES } from "./g38-materialization-cost.mjs";
 import assert from "node:assert/strict";
 import { createHash, Hash } from "node:crypto";
@@ -790,6 +791,13 @@ export async function measureCollectionCosts(rootDir, scales = COLLECTION_SCALES
 export const COLLECTION_PROBES = Object.freeze({
   ...DECISION_PROBES,
   ...MATERIALIZATION_PROBES,
+  // dec_4276A0CEACD4D402F122295925 CH2: advance a fixed delta after already synthesized history.
+  "dossier-synthesize:accepted-history": {
+    action: "dossier-synthesize",
+    dimension: "accepted-history",
+    growth: "constant",
+    run: measureDossierHistory,
+  },
   // Writer-held work must not grow with the unchanged ledger: the gate holds it constant, not linear.
   "schedule-run-now:unchanged-ledger-files": {
     action: "schedule-run-now",

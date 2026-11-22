@@ -23,6 +23,7 @@ import {
 } from "../domain/event-shape-migration-event.ts";
 import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
+import { isDossierSynthesisEvent } from "../domain/dossier-synthesis-event.ts";
 import { assertEntityDocumentEventWritePlan, isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { assertRelationEventWritePlan, isRelationEvent } from "../domain/relation-event.ts";
 import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
@@ -179,7 +180,7 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
         "decision write plan must exactly declare event, document, blob, and projection targets",
       );
     }
-  if (isEntityDocumentEvent(event))
+  if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event))
     try {
       assertEntityDocumentEventWritePlan(event, plan);
     } catch {

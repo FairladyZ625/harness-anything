@@ -229,6 +229,11 @@
             "doc-submit:event-bytes"
           ]
         },
+        "dossier-synthesize": {
+          "measurements": [
+            "dossier-synthesize:accepted-history"
+          ]
+        },
         "task-start": {
           "measurements": [
             "task-start:ledger-events"

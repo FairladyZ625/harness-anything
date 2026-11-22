@@ -12,6 +12,8 @@ import type {
 import { OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
 import type { DecisionEventV1 } from "./decision-event.ts";
 import type { LeaseV1 } from "./execution.ts";
+import { DOSSIER_DIRECTORY } from "./living-dossier.ts";
+import type { DossierSynthesisEventV1 } from "./dossier-synthesis-event.ts";
 import type { EntityDocumentEventV1 } from "./entity-document-event.ts";
 import type { FactEventV1 } from "./fact-event.ts";
 import type { LedgerLayoutMigrationEventV1 } from "./ledger-layout-migration-event.ts";
@@ -68,6 +70,7 @@ export class DocSyncContractError extends Error {
 }
 
 export const docRouteRegistry = Object.freeze([
+  { prefix: DOSSIER_DIRECTORY, requiredRoute: "dossier-synthesize" },
   { prefix: "events/", requiredRoute: "canonical-event" },
   { prefix: "objects/", requiredRoute: "content-blob" },
   { prefix: "harness.yaml", requiredRoute: "workspace-config" },
@@ -201,6 +204,7 @@ export type CanonicalEventV1 =
   | PresetSnapshotUpgradeEventV1
   | FactEventV1
   | EntityDocumentEventV1
+  | DossierSynthesisEventV1
   | DecisionEventV1
   | RelationEventV1
   | MigrationImportEventV1

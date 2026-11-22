@@ -1,3 +1,4 @@
+import { validateDossierSlots } from "./living-dossier.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import type {
   ArtifactEntityKindDefinition,
@@ -84,6 +85,8 @@ export function compileVerticalContract(
     ),
     registeredSchemaRefs = new Set(definition.projectionSchemas.map(({ schemaRef }) => schemaRef));
   validateUniqueContracts(definition, artifacts);
+  if (definition.livingDossier)
+    validateDossierSlots(definition.id, definition.livingDossier, new Set(definition.entityKinds.map(({ id }) => id)));
 
   const compiledArtifacts = artifacts.map((artifact) => {
     validateArtifactDeclaration(artifact, registeredSchemaRefs);

@@ -54,6 +54,7 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["doc-materialize", "repo-write"],
     ["doc-retire", "repo-write"],
     ["doc-submit", "repo-write"],
+    ["dossier-synthesize", "repo-write"],
     ["entity-archive", "repo-write"],
     ["entity-delete", "repo-write"],
     ["entity-import", "repo-write"],

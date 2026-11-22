@@ -132,6 +132,7 @@ import {
   canonicalContractDecodePolicy,
   documentClaimPolicy,
   documentSyncRoutingPolicy,
+  dossierSynthesisPolicy,
   verticalDecodeDetailPolicy,
 } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
@@ -1685,7 +1686,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
-    policies: [documentClaimPolicy, documentSyncRoutingPolicy],
+    policies: [documentClaimPolicy, documentSyncRoutingPolicy, dossierSynthesisPolicy],
   },
   {
     kind: "migration",

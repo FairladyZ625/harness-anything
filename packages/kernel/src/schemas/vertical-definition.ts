@@ -1,3 +1,4 @@
+import { DOSSIER_ANCHOR_PATTERN, DOSSIER_SLOT_ID_PATTERN } from "../domain/living-dossier.ts";
 import * as ParseResult from "effect/ParseResult";
 import * as Schema from "effect/Schema";
 import { VerticalCompletionDeclarationSchema } from "./completion-source.ts";
@@ -242,7 +243,30 @@ const ArtifactEntityKindSchema = Schema.Struct({
   maturityVocabulary: Schema.optional(Schema.Array(NonBlankStringSchema).pipe(Schema.minItems(1))),
 });
 
+const PositiveSafeInteger = Schema.Number.pipe(Schema.int(), Schema.between(1, Number.MAX_SAFE_INTEGER));
+const LivingDossierSchema = Schema.Struct({
+  slots: Schema.Array(
+    Schema.Struct({
+      id: Schema.String.pipe(Schema.pattern(DOSSIER_SLOT_ID_PATTERN)),
+      path: NonBlankStringSchema,
+      kind: Schema.Literal("markdown", "html"),
+      title: NonBlankStringSchema,
+      summary: NonBlankStringSchema,
+      entityKinds: StringArray,
+      requiredAnchors: Schema.Array(Schema.String.pipe(Schema.pattern(DOSSIER_ANCHOR_PATTERN))),
+      watermarkMetadata: Schema.Literal("required"),
+      triggers: Schema.Array(
+        Schema.Union(
+          Schema.Struct({ kind: Schema.Literal("periodic"), everyMs: PositiveSafeInteger }),
+          Schema.Struct({ kind: Schema.Literal("event-watermark"), minimumDelta: PositiveSafeInteger }),
+        ),
+      ),
+    }),
+  ).pipe(Schema.minItems(1)),
+});
+
 export const VerticalDefinitionSchema = Schema.Struct({
+  livingDossier: Schema.optional(LivingDossierSchema),
   schema: Schema.Literal("vertical-definition/v1"),
   id: Schema.String,
   title: Schema.String,

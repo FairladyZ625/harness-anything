@@ -12,6 +12,7 @@ import {
   entityOwnedDocumentClaims,
   entityRetiredDirectories,
 } from "../domain/entity-owned-content.ts";
+import { isDossierSynthesisEvent } from "../domain/dossier-synthesis-event.ts";
 import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { isScheduleEvent } from "../domain/schedule-event.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
@@ -78,7 +79,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
   /** Present on entity/decorated claims; content-object policies are not materialized documents. */
   readonly policyId?: string;
 }[] {
-  if (isEntityDocumentEvent(event)) return event.payload.documentClaims;
+  if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) return event.payload.documentClaims;
   if (isEntityEvent(event))
     return isEntityDeclarationEvent(event) ? entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event)) : [];
   if (isScheduleEvent(event))
@@ -229,7 +230,7 @@ export function contentClaims(event: PersistedCanonicalEventV1): readonly {
     const ref = event.payload.detailRef;
     return ref ? [{ sha256: ref.sha256, size: ref.encodedBytes, mediaType: ref.mediaType }] : [];
   }
-  if (isEntityDocumentEvent(event))
+  if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event))
     return [...new Map(event.payload.documentClaims.map((claim) => [claim.sha256, claim])).values()];
   if (isScheduleEvent(event))
     return "declarationDocumentClaim" in event.payload ? [event.payload.declarationDocumentClaim] : [];

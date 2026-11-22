@@ -473,6 +473,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
       "title",
       "version",
       "entityFieldExtensions",
+      "livingDossier",
       "entityKinds",
       "contractEntityKinds",
       "packageScaffolds",
