@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
 import { createDefaultFdeDraft, type FdeDomainDraft, type FdeLocale } from "../studio/domain-draft.ts";
+import { consumeKnownError } from "../studio/error-consumption.ts";
 import type { FdeCompiledPackage, FdePersistResult, FdeSimulateReportDto } from "../studio/studio-api.ts";
 import { fdeApi } from "./api.ts";
 import { AgentsSection } from "./sections/AgentsSection.tsx";
@@ -51,6 +52,7 @@ export function App() {
       setCompiled(next);
       setErrorMessage(null);
     } catch (error) {
+      consumeKnownError(error);
       setErrorMessage(error instanceof Error ? error.message : String(error));
     }
   }, []);
@@ -63,6 +65,7 @@ export function App() {
       setReport(result.report);
       setErrorMessage(null);
     } catch (error) {
+      consumeKnownError(error);
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setSimulating(false);
@@ -95,6 +98,7 @@ export function App() {
       setPersistResult(receipt);
       setErrorMessage(null);
     } catch (error) {
+      consumeKnownError(error);
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setPersisting(false);

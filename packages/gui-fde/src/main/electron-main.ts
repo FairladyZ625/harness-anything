@@ -2,6 +2,7 @@ import net from "node:net";
 import path from "node:path";
 import { app, BrowserWindow } from "electron";
 import { startFdeStudioServer, type FdeStudioServer } from "../server/fde-server.ts";
+import { consumeKnownError } from "../studio/error-consumption.ts";
 
 let activeServer: FdeStudioServer | null = null;
 
@@ -49,6 +50,7 @@ void app.whenReady().then(async () => {
   try {
     await createWorkbenchWindow();
   } catch (error) {
+    consumeKnownError(error);
     await notifyLaunchReadiness({
       ok: false,
       reason: "fde_launch_failed",

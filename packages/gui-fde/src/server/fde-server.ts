@@ -6,6 +6,7 @@ import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/cli
 import type { ScaffoldPresetInput, SimulationSamplePair } from "@harness-anything/preset";
 import { compileStudioDraft } from "../studio/compiler.ts";
 import { createDefaultFdeDraft, type FdeDomainDraft, type FdeLocale } from "../studio/domain-draft.ts";
+import { consumeKnownError } from "../studio/error-consumption.ts";
 import {
   applyPresetScaffold,
   persistStudioDraft,
@@ -202,7 +203,8 @@ async function handleApiRequest(
     }
     return sendStatus(response, 404);
   } catch (error) {
-    return sendJson(response, 400, {
+    consumeKnownError(error);
+    sendJson(response, 400, {
       ok: false,
       error: {
         code:
@@ -212,6 +214,7 @@ async function handleApiRequest(
         message: error instanceof Error ? error.message : String(error),
       },
     });
+    return;
   }
 }
 
@@ -244,6 +247,7 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
         }
         resolve(parsed as Record<string, unknown>);
       } catch (error) {
+        consumeKnownError(error);
         reject(error);
       }
     });

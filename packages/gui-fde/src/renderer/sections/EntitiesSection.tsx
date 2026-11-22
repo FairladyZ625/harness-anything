@@ -1,5 +1,7 @@
 import { Plus, Trash } from "@phosphor-icons/react";
 import {
+  DEFAULT_GOVERNED_RELATION_PIN,
+  DEFAULT_GOVERNED_RELATION_REF,
   FDE_LOCATOR_KINDS,
   FDE_RELATION_KINDS,
   type FdeAttributeType,
@@ -85,8 +87,8 @@ export function EntitiesSection({ draft, onChange }: EntitiesSectionProps) {
       targetKind: "task",
       reads: "relates to",
       strength: "weak",
-      sourceDecisionRef: "decision/dec_42EB7B8F636C12381A447E52A3/CH2",
-      sourceDecisionPin: "sha256:29118aba05892be46bac27c5865c4823470e09f3035dc15d396bd8589810f3da",
+      sourceDecisionRef: DEFAULT_GOVERNED_RELATION_REF,
+      sourceDecisionPin: DEFAULT_GOVERNED_RELATION_PIN,
     };
     onChange({ ...draft, relations: [...draft.relations, nextRelation] });
   };

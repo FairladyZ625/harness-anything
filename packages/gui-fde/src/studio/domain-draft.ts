@@ -1,3 +1,4 @@
+import { canonicalGovernedRelationAuthority } from "@harness-anything/kernel/internal/domain/governed-relation-direction.ts";
 import { relationTypes, type RelationType } from "@harness-anything/kernel/internal/domain/relation-type-registry.ts";
 
 export type FdeLocale = "zh-CN" | "en-US";
@@ -6,7 +7,7 @@ export type FdeAttributeType = "string" | "number" | "integer" | "boolean";
 
 export type FdeLocatorKind = "repository-path" | "url" | "external-key" | "local-path";
 
-export type FdeRelationKind = RelationType;
+export type FdeRelationKind = Extract<RelationType, "relates" | "supersedes">;
 
 export interface FdeEntityAttributeDraft {
   readonly name: string;
@@ -118,7 +119,15 @@ export interface FdeDomainDraft {
   readonly livingDossier: readonly FdeDossierSlotDraft[];
 }
 
-export const FDE_RELATION_KINDS: readonly FdeRelationKind[] = relationTypes;
+const canonicalRelationDecision = canonicalGovernedRelationAuthority.decisions[0]!;
+
+export const DEFAULT_GOVERNED_RELATION_REF = `decision/${canonicalRelationDecision.decisionId}/${canonicalRelationDecision.claimIds[0]!}`;
+export const DEFAULT_GOVERNED_RELATION_PIN = canonicalRelationDecision.contentPin;
+
+/** Governed-vertical open subset of Kernel relationTypes (governed-relation-direction.ts). */
+export const FDE_RELATION_KINDS: readonly FdeRelationKind[] = Object.freeze(
+  relationTypes.filter((type): type is FdeRelationKind => type === "relates" || type === "supersedes"),
+);
 
 export const FDE_LOCATOR_KINDS: readonly FdeLocatorKind[] = Object.freeze([
   "repository-path",
@@ -181,13 +190,13 @@ export function createDefaultFdeDraft(input?: {
     ],
     relations: [
       {
-        type: "evidences",
+        type: "relates",
         sourceKind: "deliverable",
         targetKind: "task",
-        reads: "evidences delivery of",
-        strength: "strong",
-        sourceDecisionRef: "decision/dec_42EB7B8F636C12381A447E52A3/CH2",
-        sourceDecisionPin: "sha256:29118aba05892be46bac27c5865c4823470e09f3035dc15d396bd8589810f3da",
+        reads: "relates deliverable to",
+        strength: "weak",
+        sourceDecisionRef: DEFAULT_GOVERNED_RELATION_REF,
+        sourceDecisionPin: DEFAULT_GOVERNED_RELATION_PIN,
       },
     ],
     gates: [

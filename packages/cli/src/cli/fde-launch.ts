@@ -144,7 +144,9 @@ export async function runFdeLaunch(
       reject,
     });
   } catch (error) {
-    return reject("fde_launch_failed", `GUI-FDE could not start. Cause: ${cliErrorMessage(error)}`);
+    consumeKnownError(error);
+    reject("fde_launch_failed", `GUI-FDE could not start. Cause: ${cliErrorMessage(error)}`);
+    return 1;
   }
 }
 
