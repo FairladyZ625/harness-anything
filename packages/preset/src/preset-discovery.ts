@@ -186,14 +186,30 @@ export function listCatalogWithResolution(
 }
 
 export function catalogRecovery(
-  entry: Pick<Candidate, "source">,
+  entry: Pick<Candidate, "id" | "layer" | "source">,
   failureValue: PresetFailure,
 ): Pick<PresetCatalogEntryV1, "missingProviderIds" | "nextAction"> {
   const missingProviderIds = [...(failureValue.missingProviderIds ?? [])];
+  if (missingProviderIds.length) {
+    return {
+      missingProviderIds,
+      nextAction: `Use a Harness build that provides ${missingProviderIds.join(", ")}, then rerun ha preset list.`,
+    };
+  }
+  if (entry.layer === "user") {
+    const retiredCheckerProfile = /\bcheckerProfile\b/u.test(failureValue.message)
+      ? " Legacy field checkerProfile was retired in favor of declarative completion.sources and completion.gates."
+      : "";
+    return {
+      missingProviderIds,
+      nextAction:
+        `Remove the broken user preset pointer with \`ha preset uninstall ${entry.id}\` ` +
+        `(or repair the ${failureValue.code} object at ${entry.source} and reinstall with \`ha preset install --source <dir>\`), ` +
+        `then rerun ha preset list or ha preset audit.${retiredCheckerProfile}`,
+    };
+  }
   return {
     missingProviderIds,
-    nextAction: missingProviderIds.length
-      ? `Use a Harness build that provides ${missingProviderIds.join(", ")}, then rerun ha preset list.`
-      : `Repair ${entry.source} (${failureValue.code}), then rerun ha preset list.`,
+    nextAction: `Repair ${entry.source} (${failureValue.code}), then rerun ha preset list.`,
   };
 }

@@ -763,6 +763,31 @@
       },
       "technical": true
     },
+    "preset-init": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "preset-init",
+        "read": false
+      }
+    },
     "preset-install": {
       "owner": "preset",
       "concurrency": {
@@ -1756,6 +1781,31 @@
     },
     "vertical-declaration-migrate": {
       "owner": "vertical-declaration"
+    },
+    "vertical-init": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "vertical-init",
+        "read": false
+      }
     },
     "vertical-kind-publish-schema": {
       "owner": "vertical"

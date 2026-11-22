@@ -1,6 +1,8 @@
 import { existsSync } from "node:fs";
 import { createRuntime } from "./preset-runtime.ts";
 import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { enumerateUser } from "./preset-catalog.ts";
+import { catalogRecovery } from "./preset-discovery.ts";
 import { decodePackage, presetDocumentValue, scan } from "./preset-package.ts";
 import {
   asFailure,
@@ -152,6 +154,20 @@ export function validateVerticalSource(
           purpose: "inspect",
         })
       : undefined;
+    const userPointerDiagnostics = input.userRoot
+      ? enumerateUser(input.userRoot)
+          .filter((entry) => !entry.decoded && (entry.verticalId === "*" || entry.verticalId === vertical.id))
+          .map((entry) => {
+            const failure = entry.error ?? presetFailure("invalid_package", "User preset package is invalid.");
+            return {
+              presetId: entry.id,
+              source: entry.source,
+              code: failure.code,
+              message: failure.message,
+              remediation: catalogRecovery(entry, failure).nextAction,
+            };
+          })
+      : [];
     return {
       schema: "vertical-validate-report/v1" as const,
       source: isBuiltinSource ? `builtin:${vertical.id}` : source,
@@ -164,14 +180,27 @@ export function validateVerticalSource(
         completion: resolved?.snapshot.completion ?? vertical.completion,
       },
       issues,
+      ...(userPointerDiagnostics.length > 0 ? { userPointerDiagnostics } : {}),
     };
   } catch (error) {
+    const failure = asFailure(error);
+    const brokenPointer =
+      input.userRoot && input.presetId
+        ? enumerateUser(input.userRoot).find((entry) => !entry.decoded && entry.id === input.presetId)
+        : undefined;
+    const remediation = brokenPointer
+      ? catalogRecovery(brokenPointer, brokenPointer.error ?? failure).nextAction
+      : undefined;
     return {
       schema: "vertical-validate-report/v1" as const,
       source: builtin ? `builtin:${builtinId}` : source,
       available: builtin || existsSync(source),
       valid: false,
-      issues: [asFailure(error)],
+      issues: [
+        remediation
+          ? presetFailure(failure.code, `${failure.message} Remediation: ${remediation}`, failure.missingProviderIds)
+          : failure,
+      ],
     };
   }
 }

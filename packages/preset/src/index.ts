@@ -42,3 +42,27 @@ export {
   readAnyBundledAgentDeclaration,
   readBundledAgentDeclaration,
 } from "./bundled-agent-declarations.ts";
+export {
+  planPresetScaffold,
+  planVerticalScaffold,
+  scaffoldPresetPackage,
+  scaffoldVerticalPackage,
+} from "./vertical-scaffold.ts";
+export type {
+  PresetScaffoldPlan,
+  PresetScaffoldReport,
+  ScaffoldPresetInput,
+  ScaffoldVerticalInput,
+  VerticalScaffoldPlan,
+  VerticalScaffoldReport,
+} from "./vertical-scaffold.ts";
+export { simulateVerticalPackage } from "./vertical-simulate.ts";
+export type {
+  SimulateVerticalInput,
+  SimulatedDiagnostic,
+  SimulatedDocumentPreview,
+  SimulatedGateProbeResult,
+  SimulatedGateReport,
+  SimulationSamplePair,
+  VerticalSimulateReport,
+} from "./vertical-simulate.ts";

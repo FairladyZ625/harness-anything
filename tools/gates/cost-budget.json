@@ -1624,6 +1624,7 @@
             "command:script-list",
             "command:template-list",
             "command:template-render",
+            "command:vertical-simulate",
             "command:vertical-validate",
             "method:repo.preset.audit",
             "method:repo.preset.check",
@@ -1634,6 +1635,7 @@
             "method:repo.script.list",
             "method:repo.template.list",
             "method:repo.template.render",
+            "method:repo.vertical.simulate",
             "method:repo.vertical.validate"
           ],
           "reason": "Read/validate current selected package assets or current active preset pointers (preset-system.ts, preset-catalog.ts); no canonical event, runtime, dispatch, output or relation history query. Canonical Settings selection is covered by cli-settings-read and repo.settings.read. Catalog size is the explicit result/input k."

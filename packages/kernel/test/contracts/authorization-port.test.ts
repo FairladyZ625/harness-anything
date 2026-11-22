@@ -60,7 +60,9 @@ test("retired People mutations are absent from the durable authorization invento
   // task_a28bf79f248c4e59f2149f22ad separates the own-session password change from access-manage.
   // dec_4276A0CEACD4D402F122295925/CH2: one canonical dossier synthesis action.
   assert.equal(durablePolicyActions.includes("dossier-synthesize"), true);
-  assert.equal(durablePolicyActions.length, 174);
+  // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
+  // adds host-local repo-write actions preset-init and vertical-init (174 -> 176).
+  assert.equal(durablePolicyActions.length, 176);
   for (const kind of ["cli-local-effects", "package-assets-build", "daemon-local-state", "preset-convert-local"]) {
     assert.equal(durablePolicyActions.includes(kind), false);
     assert.equal(durableActionKinds.includes(kind), false);

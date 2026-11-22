@@ -417,14 +417,14 @@ export function executeRepoAction(
   }
   if (
     action.kind.startsWith("preset-") ||
-    /^(?:vertical-(?:list|validate)|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
+    /^(?:vertical-(?:list|init|validate|simulate)|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
     // Execution credentials scope their reads to the dispatched repository (dec_9DFDC635180975FDFC0CDB33D7):
     // a caller-supplied validator source resolving outside the repository root would turn the
     // catalog validators into an arbitrary file read. path.resolve accepts ../ and absolute paths,
     // so the bound is checked here, where the repository root is known.
     const source =
-      action.kind === "vertical-validate"
+      action.kind === "vertical-validate" || action.kind === "vertical-simulate"
         ? action.verticalSource
         : action.kind === "preset-validate"
           ? action.packageSource
@@ -444,9 +444,11 @@ export function executeRepoAction(
     }).then((result) => {
       const revision = cell.store.readHead()?.revision ?? 0,
         opId = cell.operationId(action, binding, cell.input.repoId, revision),
-        // Install, seed, and uninstall write the local preset store, never the ledger: a finished
-        // write carries no committed proof and settles as a determinate no-write; only a dry run stays a preview.
-        preview = action.dryRun === true && ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
+        // Install, seed, uninstall, and scaffold writes mutate local/repository declaration files, never the ledger:
+        // a finished write carries no committed proof and settles as a determinate no-write; only a dry run stays a preview.
+        preview =
+          action.dryRun === true &&
+          ["preset-init", "preset-install", "preset-seed", "preset-uninstall", "vertical-init"].includes(action.kind);
       if (!preview) {
         const cut = cell.projection.readCut(),
           base = { opId, revision, evidence: JSON.stringify(result), visibility: "center" as const };

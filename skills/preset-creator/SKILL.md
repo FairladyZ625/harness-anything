@@ -1,231 +1,52 @@
 ---
 name: preset-creator
-description: Create, review, or update Harness Anything preset-manifest/v3 packages, including profiles, completion gate selection, template selections, output shapes, script entrypoints, capability declarations, package validation, and preset tests. Use when authoring or migrating a Harness Anything preset.
+description: Scaffold, customize, validate, and simulate Harness Anything preset-manifest/v3 packages using `ha preset init`, `ha preset validate`, and `ha vertical simulate`. Use when authoring or migrating presets within the FDE domain bootstrap workflow.
 ---
 
-# Preset Creator
+# Preset Creator (FDE Preset Authoring Workflow)
 
-## Use the current contract
+Treat `packages/preset/src/preset.contract.ts` as the single schema contract and `ha preset init` as the canonical starting point. Presets are declaration-first packages; never add CLI or daemon branches keyed by preset id.
 
-Treat `packages/preset/src/preset.contract.ts` as the contract and
-`packages/preset/assets/software-coding/presets/standard-task/preset.json` as
-the minimal bundled example. Presets are declaration-first packages. Keep
-preset-specific behavior in package assets or scripts; never add a CLI core
-branch keyed by preset id, title, or action name.
+## Workflow (Inside the 5-Step FDE Loop)
 
-A self-contained package contains:
+1. **Define the job**: choose `template-content` (deliverable/review tasks) or `process-action` (e.g. `work-root` orchestration) and its `outputShape` (`task-package-artifact` for non-code domains, `repository-diff` for code repos).
+2. **Scaffold with `ha preset init`**:
+   ```sh
+   ha preset init vendor-check --vertical procurement/review --title "Vendor Check" --dry-run
+   ha preset init vendor-check --vertical procurement/review --title "Vendor Check"
+   ```
+   - When `--vertical` points to a local vertical under `verticals/<slug>/`, the preset lands directly in `verticals/<slug>/presets/<preset-id>/` with matching `samples/<gate-id>/{positive,negative}.json` fixtures.
+   - For a builtin vertical without a local override, it scaffolds into `presets/<preset-id>/` for installation via `ha preset install --source presets/<preset-id>`.
+   - Generated files include `preset.json` (`preset-manifest/v3`), `PRESET.md` (`preset-document/v1`), `template-catalog.json` (`template-catalog/v2`), bilingual `templates/brief/{en-US,zh-CN}.md`, and `checks/verify-deliverable.mjs`.
+3. **Customize profiles, templates & gates**:
+   - Keep shared domain completion rules in `vertical.json` and preset-specific gates in `preset.json`'s optional `completion` object; profiles only select gate ids via `profiles[].completionGates` (use `[]` when no gate applies).
+   - Reference templates via `template://<id>@<version>` with `localePolicy: { prefer, fallback }`; keep template bodies in `bodyPath` Markdown assets, never inline.
+   - For command completion sources, import and produce `{ id: "completion-witness", kind: "checker", version: "1" }` and read frozen inputs from `HA_PRESET_INPUT` (see [gate-customization](../gate-customization/SKILL.md)).
+4. **Validate & Dry-Run Simulate**:
+   ```sh
+   ha preset validate --source verticals/procurement-review/presets/vendor-check --json
+   ha vertical simulate --source procurement/review --preset vendor-check --json
+   ```
+   For user-installed presets outside a local vertical:
+   ```sh
+   ha preset install --source ./presets/<preset-id> --dry-run --json
+   ha preset install --source ./presets/<preset-id>
+   ha preset audit --vertical <vertical-id>
+   ```
+5. **Diagnose broken user pointers**: if `ha preset list` or `ha preset audit` reports a blocked user shadow (such as a legacy manifest carrying the retired `checkerProfile` field), follow its printed remediation: remove the stale pointer with `ha preset uninstall <preset-id>` or migrate the manifest to `preset-manifest/v3` and reinstall.
 
-```text
-<preset-id>/
-  preset.json
-  PRESET.md
-  policy.json       # only when policyPath declares it
-  scripts/          # only when an entrypoint declares a script
-```
+## Migrating Legacy (v2) Presets
 
-`PRESET.md` uses this frontmatter:
+Validation is closed-field and fails closed:
 
-```markdown
----
-schema: preset-document/v1
-description: One sentence describing the supplied workflow or shape.
-whenToUse: One sentence naming the triggering situation.
----
-```
+- Upgrade `schema` to `preset-manifest/v3` and add required `outputShape`, `profiles`, and `defaultProfile`.
+- Remove retired keys (`checkerProfile`, raw-fs `reads`/`writes` globs, object `inputs`/`intent`); replace `checkerProfile` with declarative `completion.sources` + `completion.gates` selected in `profiles[].completionGates`.
+- Convert entrypoint `inputs` to `{ name, type, required }[]` and capability refs to flat `{ id, kind, version }` arrays.
 
-## Manifest v3
+## Review Checklist
 
-Use `schema: "preset-manifest/v3"`. Required top-level keys are exactly:
-
-- `schema`, `id`, `title`, `vertical`, `version`, `kind`, and `outputShape`
-- `kernelVersionRange` and `capabilityImports`
-- `profiles` and `defaultProfile`
-
-Optional top-level keys are `extends`, `policyPath`, `entrypoints`, and
-`completion`. No other top-level key is accepted. `kind` is `template-content`
-or `process-action`; `outputShape` is a required non-empty string.
-
-Each profile requires `id`, `title`, `completionGates`, and
-`templateSelections`; it may add `capabilityImports`, `closeoutOverrides`, and
-`archiveOnComplete`. `completionGates` is an array of gate ids declared by the
-vertical or preset, including an explicit empty array when there are no gates.
-`defaultProfile` must name one declared profile. `closeoutOverrides` accepts
-boolean values for `review`, `consent`, `fact`, and `factDisposition`;
-`archiveOnComplete` is a boolean. These are task-creation choices,
-not a way to change an existing task's frozen profile.
-
-The vertical owns domain-wide `completion.sources`, `completion.gates`, and
-`completion.closeoutDefaults`. A preset may declare additional completion
-sources or gates in its top-level `completion` object. The runtime merges both
-declarations and rejects duplicate source ids, duplicate gate ids, invalid
-references, and profile selections that do not resolve. Keep the shared
-domain contract in the vertical and use profiles only to select gate ids.
-
-Each template selection is exactly:
-
-```json
-{
-  "slot": "task.plan",
-  "templateRef": "template://planning/task-plan@1",
-  "materializeAs": "task_plan.md",
-  "localePolicy": { "prefer": "project", "fallback": "en-US" }
-}
-```
-
-`localePolicy.prefer` is `project`, `preset`, or `explicit`; `fallback` is
-`zh-CN` or `en-US`.
-
-Top-level `capabilityImports` items require `id`, `kind`, `version`, and a
-boolean `required`. Profile and entrypoint capability items use `id`, `kind`,
-and `version`, with an optional boolean `required`. Valid kinds are `checker`,
-`scaffold`, `projection`, `command`, `template`, and `raw-fs`.
-
-## Minimal valid package
-
-Use this manifest shape:
-
-```json
-{
-  "schema": "preset-manifest/v3",
-  "id": "example-note",
-  "title": "Example Note",
-  "vertical": "software/coding",
-  "version": "1.0.0",
-  "kind": "template-content",
-  "outputShape": "repository-diff",
-  "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
-  "capabilityImports": [],
-  "profiles": [
-    {
-      "id": "baseline",
-      "title": "Baseline",
-      "completionGates": ["ci"],
-      "templateSelections": []
-    }
-  ],
-  "defaultProfile": "baseline"
-}
-```
-
-Validate the package directory, not an individual manifest file:
-
-```bash
-ha preset validate --source /path/to/example-note --json
-```
-
-Continue only when the report has `"valid": true` and an empty `issues` array.
-
-## Select a declared completion gate
-
-A profile selects gate ids; it does not repeat source schemas or gate
-contracts:
-
-```json
-{
-  "id": "experiment",
-  "title": "Experiment",
-  "completionGates": ["version-pinned"],
-  "templateSelections": []
-}
-```
-
-The selected id must exist in the merged vertical and preset declarations.
-For a full CSV, PNG, and `experiment.json` example—including a command
-entrypoint, a required `seed`, artifact binding, task submit, rejection, and
-repair—follow [gate-customization](../gate-customization/SKILL.md).
-Completion gates govern task completion; use the repository's separate
-delivery pre-review gate when preparing a submission for review.
-
-## Script entrypoints
-
-A v3 entrypoint is a named object with exactly these fields:
-
-```json
-{
-  "type": "script",
-  "intent": "Produce a bounded preset result.",
-  "inputs": [
-    { "name": "title", "type": "string", "required": true }
-  ],
-  "requires": [
-    { "id": "capability:input/v1", "kind": "command", "version": "1" }
-  ],
-  "produces": [
-    { "id": "capability:result/v1", "kind": "projection", "version": "1" }
-  ],
-  "sideEffects": [],
-  "command": "scripts/run.mjs"
-}
-```
-
-Input types are `string`, `number`, `boolean`, or `json`. `intent` is a plain
-string. `requires`, `produces`, and `sideEffects` are flat capability-ref
-arrays. The command path must name a regular package-local file. Ordinary
-entrypoints receive their declared context through `HARNESS_PRESET_CONTEXT`.
-A command completion source names an entrypoint as
-`<preset-id>/<entrypoint-id>`, declares the `completion-witness` checker
-capability in both `capabilityImports` and `produces`, and reads the frozen
-witness input through `HA_PRESET_INPUT`. The script cannot choose its task,
-execution, source identity, or accepted artifact set.
-
-## Migrating v2 packages
-
-Do not relabel a v2 object and leave its fields in place. Apply these mappings:
-
-- Add the required top-level `outputShape` when absent.
-- Keep profile ids, titles, string completion-gate ids, and valid current
-  template selections.
-- Convert script `inputs` from an object/map to the v3 array of
-  `{name,type,required}` only when the types and requiredness are explicit.
-- Convert a structured/object `intent` to one plain string only when its exact
-  user-visible meaning is present.
-- Replace nested capability selectors with flat `requires`, `produces`, and
-  `sideEffects` refs only when current providers are explicitly known.
-- Discard v2 raw-filesystem `reads` and `writes` path-glob fields. They have no
-  v3 manifest counterpart. A `raw-fs` capability ref names a provider; it does
-  not restore those old path scopes.
-- Remove any entrypoint whose authority or input meaning cannot be expressed
-  without guessing. Preserve its user-visible procedure in `PRESET.md` and
-  report the removed behavior to the owner.
-- Delete all unknown v2 keys. Validation is exact-field and fails closed.
-
-## Template assets
-
-Preset manifests select templates; the vertical template catalog owns template
-metadata and Markdown assets own bodies. Use
-`template://<id>@<version>` references. Do not inline template bodies in the
-manifest. Run `ha template list` to discover current builtin declarations and
-validate that every selected slot, path, locale policy, and required anchor
-resolves.
-
-## Workflow
-
-1. State the preset job in one sentence and choose `template-content` or
-   `process-action`.
-2. Read the v3 contract and a nearby bundled manifest; do not copy a v2 schema.
-3. Create `preset.json` and `PRESET.md`, then add only declared completion,
-   policy, template, or script files.
-4. Run `ha preset validate --source <package-directory> --json`.
-5. Run `ha preset install --source <package-directory> --dry-run --json` before
-   installation and inspect its issues.
-6. Run `ha vertical validate --source <vertical-directory> --preset <installed-preset-id>`
-   to check the combined completion catalog.
-7. Add resolver, materialization, permission, or execution tests at the tier
-   matching the behavior. Put exactly one `// harness-test-tier:` declaration
-   on the first line of every new Node test file.
-
-## Review checklist
-
-- The schema is `preset-manifest/v3`; `outputShape` is present.
-- Top-level, profile, selection, capability, input, and entrypoint fields are
-  exact current-contract fields.
-- `profiles` is non-empty and `defaultProfile` resolves.
-- Every selected gate id resolves in the merged vertical/preset declaration;
-  template selections use the current nested locale policy.
-- Command sources point at an installed entrypoint that declares the
-  `completion-witness` checker capability.
-- No v2 `reads`, `writes`, object input/intent, or nested capability selector
-  survives.
-- `PRESET.md` has valid `preset-document/v1` frontmatter.
-- Package validation reports valid with no issues.
-- No preset-specific behavior was added to generic CLI dispatch.
+- `ha preset validate --source <dir> --json` reports `valid: true` with zero issues.
+- `ha vertical simulate --source <vertical-id> --preset <preset-id>` passes materialization and positive/negative gate probes.
+- `PRESET.md` carries valid `preset-document/v1` frontmatter (`description`, `whenToUse`).
+- Every profile declares `completionGates` explicitly and every selected gate resolves in the merged vertical/preset declaration.
+- New tests carry `// harness-test-tier:` on line 1 and verify real contract behavior.

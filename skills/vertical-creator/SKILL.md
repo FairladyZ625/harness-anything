@@ -1,259 +1,87 @@
 ---
 name: vertical-creator
-description: Create, review, or update Harness Anything verticals. Use when designing vertical-definition JSON, declarative completion sources and gates, template catalogs, entity kinds, package scaffolds, projection schemas, and preset layering for a new Harness Anything domain such as coding, QA, docs, design, or operations.
+description: Productized FDE 5-step workflow to interview a domain, scaffold a complete local vertical with `ha vertical init`, customize entities/templates/agents/gates, dry-run simulate with `ha vertical simulate`, and hand off a verified non-code or code vertical.
 ---
 
-# Vertical Creator
+# Vertical Creator (FDE Domain Bootstrap Workflow)
 
-## Core Rule
+Keep verticals 100% declarative: entity kinds, bilingual templates, presets, agents, and completion gates live under `verticals/<slug>/`. Never add domain-specific branches keyed by vertical id to the kernel, daemon, or CLI.
 
-Keep verticals declarative. A vertical defines entity shape, template catalogs, scaffolds, defaults, and applicable presets. It must not require CLI core branches for a specific domain.
-
-The CLI may provide only generic vertical infrastructure:
-
-- Schema validation.
-- Template catalog loading.
-- Template materialization.
-- Settings/dev-mode gating.
-- Generic preset and profile selection.
-
-Vertical-specific behavior belongs in vertical assets, template catalogs, preset manifests, and declared process scripts. A vertical's `completion.sources`, `completion.gates`, and `completion.closeoutDefaults` describe domain checks; a preset profile selects gate ids. Keep the source and gate declarations in the package that owns their domain meaning, and keep execution inside a declared preset entrypoint.
-
-A vertical asset root must include `vertical.json`, `template-catalog.json`, and
-`capabilities.json`. The catalogs are required even when a vertical has no
-templates or command providers; use empty arrays for those catalogs. When a
-completion command emits `completion-witness`, declare its provider in
-`capabilities.json` with the action kind and exact payload fields, as shown
-below.
-
-## Workflow
-
-1. Name the domain and list its entity kinds using the entity declaration tuple.
-2. Decide which entities are lifecycle package entities and which are schema-only metadata entities.
-3. Define package scaffolds and repository roots for every lifecycle entity.
-4. Put template bodies in Markdown assets under `assets/<vertical>/templates/<slot>/<locale>.md`.
-5. Register those assets in `template-catalog/v2` with `bodyPath`; do not use inline `body`.
-6. Define required documents as `templateSelections` that point at catalog refs.
-7. Define domain completion sources, gates, and closeout defaults in `completion`; profiles select gates by id.
-8. Define applicable presets separately as `preset-manifest/v3`; put profile-specific gate selection in `profiles[].completionGates`.
-9. Run `ha vertical validate --source <vertical-directory> --preset <installed-preset-id>` to check the vertical and its completion source catalog.
-10. Add validation tests for schema shape, source/entrypoint references, materialized paths, catalog body paths, and default preset/profile behavior.
-11. Add integration tests only for real CLI/filesystem behavior. See [gate-customization](../gate-customization/SKILL.md) for a complete artifact-only research gate.
-
-## Entity Declaration Tuple
-
-Declare each entity with the v2 five-part contract:
-
-- `id`
-- `entityType`
-- `packageKind` for lifecycle entities or `schemaRef` for schema entities
-- `contractEntity`
-- matching scaffold/root membership where required
-
-Lifecycle entities must have both a `packageScaffolds` entry and a `repositoryScaffold.entityRoots` entry. Schema entities must not have package scaffolds or repository roots.
-
-## Vertical Definition Pattern
-
-A vertical package contains `vertical.json` and its catalog/assets. Validate the package directory with `ha vertical validate --source <package-directory>`; this fragment illustrates the declaration shape.
-
-```json
-{
-  "schema": "vertical-definition/v1",
-  "id": "example/work",
-  "title": "Example Work",
-  "version": "1.0.0",
-  "entityFieldExtensions": [],
-  "entityKinds": [
-    {
-      "id": "task",
-      "entityType": "lifecycle",
-      "packageKind": "task-package/v2",
-      "contractEntity": true
-    },
-    {
-      "id": "fact",
-      "entityType": "schema",
-      "schemaRef": "schema://fact-record",
-      "contractEntity": true
-    }
-  ],
-  "contractEntityKinds": ["task", "fact"],
-  "packageScaffolds": [
-    {
-      "entityKind": "task",
-      "templateSelections": []
-    }
-  ],
-  "repositoryScaffold": {
-    "entityRoots": [
-      {
-        "entityKind": "task",
-        "path": "{{paths.tasksRoot}}",
-        "create": "init"
-      }
-    ],
-    "dirs": [],
-    "seededDocs": []
-  },
-  "scripts": [],
-  "templateSelections": [],
-  "completion": {
-    "sources": {},
-    "gates": {},
-    "closeoutDefaults": {}
-  },
-  "projectionSchemas": []
-}
-```
-
-The same package root also needs both runtime catalogs. For an artifact-only
-command gate, the provider declaration is:
-
-```json
-{
-  "schema": "preset-capabilities/v1",
-  "providers": [
-    {
-      "id": "completion-witness",
-      "kind": "checker",
-      "version": "1",
-      "actionKind": "completion-witness",
-      "payloadFields": ["result", "subjects", "predicateType", "predicate", "diagnostic"]
-    }
-  ]
-}
-```
-
-`template-catalog.json` uses `template-catalog/v2`, a package record, and a
-`documents` array. A vertical with no templates may use `"documents": []`;
-otherwise register each Markdown body under its `bodyPath` as shown in the
-Template Catalog v2 example. Do not omit either catalog file: runtime loading
-requires both before it can validate the vertical and its completion sources.
-
-Validate it:
-
-```sh
-ha vertical validate --source <package-directory>
-```
-
-## Template Catalog v2
-
-A vertical package should keep bodies as Markdown assets and register them by `bodyPath`:
+## 5-Step FDE Domain Bootstrap Loop
 
 ```text
-assets/software-coding/
-  vertical.json
-  template-catalog.json
-  templates/
-    task.plan/
-      en-US.md
-      zh-CN.md
-  presets/
-    standard-task/
-      preset.json
+1. Domain Interview ─▶ 2. ha vertical init ─▶ 3. Author Rules & Gates ─▶ 4. ha vertical simulate ─▶ 5. Preview & Handoff
+   (entities, roles,      (work-root + default    (entities, bilingual       (zero-side-effect          (ha init --vertical,
+    artifacts, gates)      preset + agents)        templates, checkers)       PASS/FAIL probes)          ha work create)
 ```
 
-Catalog root:
+### Step 1 — Domain Interview
 
-```json
-{
-  "schema": "template-catalog/v2",
-  "package": {
-    "id": "software-coding-core",
-    "title": "Software Coding Core Templates",
-    "version": "1.0.0",
-    "owner": "harness-anything",
-    "locales": ["zh-CN", "en-US"]
-  },
-  "documents": [
-    {
-      "id": "planning/task-plan",
-      "version": "1",
-      "documentKind": "task-plan",
-      "slot": "task.plan",
-      "materializeAs": "task_plan.md",
-      "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Goal", "## Verification"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        {
-          "locale": "en-US",
-          "anchors": ["## Goal", "## Verification"],
-          "bodyPath": "templates/task.plan/en-US.md"
-        },
-        {
-          "locale": "zh-CN",
-          "anchors": ["## Goal", "## Verification"],
-          "bodyPath": "templates/task.plan/zh-CN.md"
-        }
-      ]
-    }
-  ]
-}
+Extract four concrete decisions before touching files:
+
+1. **Vertical ID & Title**: lowercase `<domain>/<name>` (e.g. `procurement/review`, `finance/audit`). Never reuse `software/coding`.
+2. **Lifecycle & Artifact Entities**: `task`, `decision` (lifecycle) and `fact` (schema) are contract entities; add domain `artifact` kinds (e.g. `vendor-dossier`, `audit-finding`) with `idPrefix`, `schemaVersions`, `store.pathTemplate`, and `maturityVocabulary`.
+3. **Roles**: domain worker (`agents/contributor.json`) and independent reviewer (`agents/closeout-reviewer.json`) declarations (`agent-declaration/v1`).
+4. **Declarative Completion Gates**: what structured JSON artifact under `artifacts/` proves readiness, which fields are bound via RFC 6901 JSON Pointer, and what positive vs. negative sample payloads look like.
+
+### Step 2 — Scaffold the Vertical (`ha vertical init`)
+
+Generate a complete, immediately-valid package instead of hand-writing JSON:
+
+```sh
+ha vertical init procurement/review --title "Procurement Review" --preset review-task --dry-run
+ha vertical init procurement/review --title "Procurement Review" --preset review-task
 ```
 
-`templates/task.plan/en-US.md` must contain all required anchors:
+Out of the box, `ha vertical init` creates `verticals/<slug>/` with:
 
-```md
-## Goal
+- `vertical.json`, `capabilities.json` (with `completion-witness` and `requiredTaskClass: "work"` provider), and `template-catalog.json` (`template-catalog/v2`, `bodyPath`-backed `en-US`/`zh-CN` templates).
+- `presets/work-root/` so `ha work create` works immediately.
+- `presets/<default-preset>/` (`preset-manifest/v3`) with a working artifact-only command gate (`checks/verify-deliverable.mjs`).
+- `agents/{contributor,closeout-reviewer}.json` so domain agents load without falling back to `software/coding`.
+- `samples/<gate-id>/{positive,negative}.json` ready for dry-run gate probes.
 
-Describe the target outcome.
+Existing files are protected by default; pass `--force` only when intentionally regenerating. Add extra task presets with `ha preset init <preset-id> --vertical <vertical-id>` (see [preset-creator](../preset-creator/SKILL.md)).
 
-## Verification
+### Step 3 — Author Domain Rules, Templates & Gates
 
-List the validation steps.
+Customize the scaffolded files inside `verticals/<slug>/`:
+
+- **Entities**: extend `vertical.json` `entityKinds` (`artifact` kinds only need `kindId`, `schemaVersions`, `store`, `locatorKinds`, `maturityVocabulary`; lifecycle entities need matching `packageScaffolds` and `repositoryScaffold.entityRoots`).
+- **Templates**: edit bilingual Markdown under `templates/<slot>/{en-US,zh-CN}.md` and keep `requiredAnchors` aligned with each locale's `anchors` in `template-catalog.json`. Never inline template bodies.
+- **Agents**: refine role instructions in `agents/*.json`.
+- **Gates**: add or customize command/manual/external sources, `resultSchema`, and artifact `bindings` (see [gate-customization](../gate-customization/SKILL.md)), updating `samples/<gate-id>/{positive,negative}.json` to match.
+
+### Step 4 — Zero-Side-Effect Dry-Run Simulation (`ha vertical simulate`)
+
+Verify the entire vertical before creating any ledger events or tasks:
+
+```sh
+ha vertical validate --source procurement/review
+ha vertical simulate --source procurement/review --locale zh-CN --json
 ```
 
-Preset overlays should reference the same catalog documents from `preset-manifest/v3` profiles:
+`ha vertical simulate` runs in an isolated temporary sandbox (**0 ledger writes**) and checks six dimensions in one pass:
 
-```json
-{
-  "id": "baseline",
-  "title": "Baseline",
-  "completionGates": [],
-  "templateSelections": [
-    {
-      "slot": "task.plan",
-      "templateRef": "template://planning/task-plan@1",
-      "materializeAs": "task_plan.md",
-      "localePolicy": { "prefer": "project", "fallback": "en-US" }
-    }
-  ]
-}
-```
+1. `validateVerticalSource` schema and catalog integrity.
+2. `resolveRepoBootstrapDefaults` and `work-root` (`taskClass="work"`) resolution.
+3. Full rendered repository scaffold preview (`AGENTS.md`, `CLAUDE.md`, context/standards).
+4. Dual-mode task materialization previews for both regular tasks and `taskClass="work"` roots.
+5. Domain `agents/*.json` roster resolution (`listBundledAgentDeclarationIds`).
+6. Real sandbox execution of every declarative command completion gate against `positive.json` (must PASS with 0 predicate issues) and `negative.json` (must FAIL with deterministic `gate_witness_missing` blocker).
 
-## Design Rules
+If `preset-audit` or `vertical-simulate` warns about a broken legacy user preset pointer (for example unknown field `checkerProfile`), remove it with `ha preset uninstall <id>` or migrate its manifest and reinstall.
 
-- Use templates for document structure, not ad hoc file writes.
-- Use presets for optional process or content overlays.
-- Use `preset-manifest/v3` for all new preset examples.
-- Use `template-catalog/v2` with `bodyPath`; never teach inline template `body`.
-- Keep domain source and gate IDs in the declarative `completion` object; do not add a vertical-id branch to the CLI.
-- For command-backed completion, point a source at an installed preset entrypoint that produces `completion-witness`; the declaration alone does not grant runtime permissions.
-- Use `resultSchema.required` for required predicate fields and `gates.<id>.bindings` when a predicate value must equal a JSON Pointer value in a frozen submitted artifact.
-- `completion.closeoutDefaults` may set `review`, `consent`, and `factDisposition`; repository and task-profile choices take precedence over domain defaults.
-- Keep template `requiredAnchors` in the template catalog. They validate document structure and are separate from completion predicate schema requirements.
-- Keep project/user overrides additive and fail closed on invalid active overrides.
-- Do not promise unattended conversion when the system supports Legacy Intake plus explicit rebuild only.
-- Keep private harness operating state out of public docs unless explicitly designing public product documentation.
+### Step 5 — Preview & Handoff
+
+1. Inspect the rendered file trees and gate diagnostics from `ha vertical simulate --source <id>`.
+2. Activate in a target repository via `ha init --vertical <id>` and prove `ha work create` + `ha task create`.
+3. Add automated validation/simulation tests at the matching tier (`// harness-test-tier:`) without introducing vertical-id branches in core code.
 
 ## Review Checklist
 
-- `ha vertical validate --source <package-directory>` passes.
-- Entity kinds declare `entityType` and exactly one of `packageKind` or `schemaRef`.
-- Every lifecycle entity has a package scaffold and repository root.
-- Schema entities do not declare package scaffolds or repository roots.
-- Template refs exist in `template-catalog/v2` and use asset-backed `bodyPath`.
-- Required anchors match locale anchors and appear in each body asset.
-- Presets shipped with the vertical use `preset-manifest/v3`, `profiles`, and
-  `defaultProfile`; every v3 profile explicitly declares `completionGates`, even
-  when empty (ADR-0027 D7).
-- Preset manifests pass `ha preset validate --source <package-directory>`.
-- The vertical works without CLI branches keyed by vertical id.
-- Template refs exist in the catalog and materialize to stable paths.
-- Default preset/profile behavior is explicit.
-- Every `completion.gates.<id>.source` resolves to one declared source, and every command source resolves to an installed preset entrypoint.
-- Predicate JSON Schemas and artifact bindings express only domain checks; authorization and runner authority remain outside the vertical package.
-- The completion example's profile selects the declared gate id; it does not duplicate source or gate declarations.
-- Custom verticals remain gated by user dev mode and project settings.
-- Tests are placed in the proper tier manifest when new test files are added.
+- `ha vertical validate --source <id>` and `ha vertical simulate --source <id>` both pass (`ok: true`, `zeroLedgerWrites: true`).
+- `work-root` preset declares `requiredTaskClass: "work"` and at least one non-work default preset resolves.
+- `agents/*.json` declares domain worker and reviewer roles.
+- Positive gate probes PASS and negative gate probes FAIL with `gate_witness_missing`.
+- No vertical-id branches were added to kernel, daemon, or CLI.
