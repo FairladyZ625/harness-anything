@@ -342,7 +342,10 @@ export function compileStudioDraft(draft: FdeDomainDraft, rootDir: string): FdeC
         role: agent.role,
         instructions: agent.instructions,
         runtimes: [],
-        skills: [...agent.skills],
+        skills: [...new Set(agent.skills.map((skill) => skill.trim()).filter(Boolean))].map((skill) => ({
+          id: skill,
+          path: `skills/${skill}`,
+        })),
       }),
     );
   }
