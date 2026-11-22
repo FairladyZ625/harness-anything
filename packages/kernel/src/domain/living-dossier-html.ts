@@ -171,7 +171,7 @@ function renderTopologyEdgesSvg(
     `<text x="${hubX + 12}" y="${hubY + 26}" font-size="13" class="svg-title">${escapeHtml(clipLabel(verticalId, 20))}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 50}" font-size="15" class="svg-num">r${state.watermark}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 72}" font-size="11" class="svg-mono">rels ${state.relations.length} · ADR ${activeDecisionCount}</text>`,
-    `<text x="${hubX + 12}" y="${hubY + 92}" font-size="11" class="svg-mono">blockers ${blockedCount}</text>`,
+    `<text x="${hubX + 12}" y="${hubY + 92}" font-size="11" class="svg-mono">blockers ${blockedCount}${state.blockedTruncated ? "+" : ""}</text>`,
     `<text x="${hubX + 12}" y="${hubY + 112}" font-size="11" class="svg-mono">total ${state.totalChanges} changes</text>`,
     `</svg>`,
   ].join("");
@@ -254,38 +254,52 @@ function renderPulseSvg(
 ): string {
   const rows =
     workRollups.length > 0
-      ? workRollups.slice(0, 4).map((work) => ({
-          label: clipLabel(work.title, 18),
-          ratio: work.totalTasks > 0 ? work.doneTasks / work.totalTasks : work.status === "done" ? 1 : 0,
-          valueLabel: `${work.doneTasks}/${work.totalTasks}${work.blockedTasks > 0 ? ` (${work.blockedTasks} blk)` : ""}`,
-          cls:
-            work.blockedTasks > 0
-              ? "bar-bad"
-              : work.totalTasks > 0 && work.doneTasks === work.totalTasks
-                ? "bar-done"
-                : "bar-fill",
-        }))
+      ? workRollups.slice(0, 4).map((work) => {
+          const partial = Boolean(work.countsIncomplete);
+          return {
+            label: clipLabel(work.title, 18),
+            partial,
+            ratio: partial
+              ? 0
+              : work.totalTasks > 0
+                ? work.doneTasks / work.totalTasks
+                : work.status === "done"
+                  ? 1
+                  : 0,
+            valueLabel: `${work.doneTasks}/${work.totalTasks}${partial ? " (partial)" : ""}${work.blockedTasks > 0 ? ` (${work.blockedTasks} blk)` : ""}`,
+            cls:
+              work.blockedTasks > 0
+                ? "bar-bad"
+                : !partial && work.totalTasks > 0 && work.doneTasks === work.totalTasks
+                  ? "bar-done"
+                  : "bar-fill",
+          };
+        })
       : [
           {
             label: "Tasks",
+            partial: false,
             ratio: state.categoryCounts.task,
             valueLabel: String(state.categoryCounts.task),
             cls: "bar-done",
           },
           {
             label: "Decisions",
+            partial: false,
             ratio: state.categoryCounts.decision,
             valueLabel: String(state.categoryCounts.decision),
             cls: "bar-fill",
           },
           {
             label: "Facts",
+            partial: false,
             ratio: state.categoryCounts.fact,
             valueLabel: String(state.categoryCounts.fact),
             cls: "bar-wait",
           },
           {
             label: "Domain",
+            partial: false,
             ratio: state.categoryCounts.domain,
             valueLabel: String(state.categoryCounts.domain),
             cls: "bar-bad",
@@ -299,11 +313,14 @@ function renderPulseSvg(
       return [
         `<text x="424" y="${y + 16}" class="svg-title">${escapeHtml(item.label)}</text>`,
         `<rect x="580" y="${y + 4}" width="260" height="16" rx="3" class="bar-track"/>`,
-        `<rect x="580" y="${y + 4}" width="${barW}" height="16" rx="3" class="${item.cls}"/>`,
+        ...(item.partial
+          ? []
+          : [`<rect x="580" y="${y + 4}" width="${barW}" height="16" rx="3" class="${item.cls}"/>`]),
         `<text x="852" y="${y + 16}" class="svg-mono">${escapeHtml(item.valueLabel)}</text>`,
       ].join("");
     })
     .join("");
+  const anyPartial = workRollups.slice(0, 4).some((work) => Boolean(work.countsIncomplete));
   return [
     `<svg viewBox="0 0 960 210" role="img" aria-label="${escapeHtml(`${verticalId} ${slot.title} revision pulse`)}">`,
     `<rect x="24" y="34" width="140" height="62" rx="5" class="svg-box"/>`,
@@ -315,8 +332,8 @@ function renderPulseSvg(
     `<text x="232" y="82" font-size="15" class="svg-num">r${state.watermark}</text>`,
     `<rect x="24" y="116" width="368" height="66" rx="5" class="${blockedCount > 0 ? "svg-box-bad" : "svg-box-done"}"/>`,
     `<text x="38" y="142" font-size="13" class="svg-title">${escapeHtml(clipLabel(verticalId, 24))}</text>`,
-    `<text x="38" y="166" font-size="11" class="svg-mono">delta +${windowChangeCount} · ${workRollups.length} works · ${blockedCount} live blockers</text>`,
-    `<text x="424" y="20" font-size="11" class="svg-mono">${workRollups.length > 0 ? "WORK COMPLETION ROLLUP" : "CATEGORY VOLUME"}</text>`,
+    `<text x="38" y="166" font-size="11" class="svg-mono">delta +${windowChangeCount} · ${workRollups.length} works · ${blockedCount}${state.blockedTruncated ? "+" : ""} live blockers</text>`,
+    `<text x="424" y="20" font-size="11" class="svg-mono">${workRollups.length > 0 ? (anyPartial ? "WORK COMPLETION ROLLUP (WINDOWED)" : "WORK COMPLETION ROLLUP") : "CATEGORY VOLUME"}</text>`,
     bars,
     `</svg>`,
   ].join("");
@@ -473,10 +490,13 @@ function renderSectionBody(
   }
   if (anchor === "risk-signals") {
     const blocked = blockedTasks;
+    const coverageNote = state.blockedTruncated
+      ? `<p>Showing ${blocked.length} most recent retained live blocked tasks (older blocked tasks compacted to fit 512 KiB dossier budget).</p>`
+      : "";
     const blockedHtml =
       blocked.length === 0
-        ? `<p>Watermarked at r${state.watermark}: 0 live blocked tasks.</p>`
-        : `<div class="table-wrap"><table><thead><tr><th>Rev</th><th>Task</th><th>Work</th><th>Title</th><th>Block Reason</th></tr></thead><tbody>` +
+        ? `<p>Watermarked at r${state.watermark}: 0 live blocked tasks${state.blockedTruncated ? " in recent retention window" : ""}.</p>`
+        : `${coverageNote}<div class="table-wrap"><table><thead><tr><th>Rev</th><th>Task</th><th>Work</th><th>Title</th><th>Block Reason</th></tr></thead><tbody>` +
           blocked
             .map(
               (task) =>

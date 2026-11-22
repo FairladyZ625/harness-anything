@@ -858,6 +858,8 @@ test("F-DOSSIER-04/05/08 (amend): retains exact 1/1 across 256 & 257 Works, mark
     synthesizedAt: at,
   });
   assert.ok(truncatedBody.includes("0/1 (partial)"), "child-first reactivation page must mark 0/1 (partial)");
+  const svgChildFirst = truncatedBody.split("</svg>")[0] ?? "";
+  assert.ok(svgChildFirst.includes("0/1 (partial)"), "Pulse SVG must also label partial Work counts");
   const prevRootW = truncatedWatermark;
   truncatedBody = synthesizeDossierDocument({
     verticalId: "software/coding",
@@ -876,4 +878,66 @@ test("F-DOSSIER-04/05/08 (amend): retains exact 1/1 across 256 & 257 Works, mark
     synthesizedAt: at,
   });
   assert.ok(truncatedBody.includes("0/1 (partial)"), "subsequent root transition page must retain 0/1 (partial)");
+  const svgRootNext = truncatedBody.split("</svg>")[0] ?? "";
+  assert.ok(svgRootNext.includes("0/1 (partial)"), "Pulse SVG must retain partial label after root transition");
+  assert.ok(svgRootNext.includes("WORK COMPLETION ROLLUP (WINDOWED)"));
+
+  // F-DOSSIER-10: 320 live blocked tasks across 20 pages of 32 events stay <= 512 KiB and label windowed blockers
+  let blockedPulse: string | null = null;
+  let bWatermark = 0;
+  for (let page = 0; page < 20; page += 1) {
+    const prevBW = bWatermark;
+    const pageEvents: DossierChangeItem[] = [];
+    for (let i = 0; i < 16; i += 1) {
+      const idx = page * 16 + i + 1;
+      const tid = `task_${idx.toString(16).padStart(24, "0")}`;
+      const longTitle = `Blocked enterprise migration workflow verification slice ${idx} awaiting external gateway credentials and schema sign-off`;
+      const longReason = `Waiting on upstream identity gateway approval and remote dialect certificate rotation for batch ${idx}`;
+      pageEvents.push(
+        {
+          eventId: `evt_blk_create_${++bWatermark}`,
+          workspaceRevision: bWatermark,
+          occurredAt: at,
+          schema: "task-event/v1",
+          type: "task_created",
+          taskId: tid,
+          actor: { principal: { personId: "person_probe" } },
+          payload: { title: longTitle, taskClass: "standard", taskStatus: "active", parentTaskId: null },
+          entityRefs: [`task/${tid}`],
+        },
+        {
+          eventId: `evt_blk_block_${++bWatermark}`,
+          workspaceRevision: bWatermark,
+          occurredAt: at,
+          schema: "task-event/v1",
+          type: "task_transitioned",
+          taskId: tid,
+          actor: { principal: { personId: "person_probe" } },
+          payload: {
+            title: longTitle,
+            taskClass: "standard",
+            taskStatus: "blocked",
+            parentTaskId: null,
+            reason: longReason,
+          },
+          entityRefs: [`task/${tid}`],
+        },
+      );
+    }
+    blockedPulse = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: pulseSlot,
+      previousBody: blockedPulse,
+      expectedWatermark: prevBW,
+      targetWatermark: bWatermark,
+      changes: pageEvents,
+      synthesizedAt: at,
+    });
+    assert.ok(
+      Buffer.byteLength(blockedPulse, "utf8") <= 524_288,
+      `blocked-heavy Pulse page ${page + 1} must stay <= 524288 UTF-8 bytes (got ${Buffer.byteLength(blockedPulse, "utf8")})`,
+    );
+  }
+  assert.ok(blockedPulse!.includes("older blocked tasks compacted to fit 512 KiB dossier budget"));
+  assert.ok(blockedPulse!.includes("+ live blockers"));
 });

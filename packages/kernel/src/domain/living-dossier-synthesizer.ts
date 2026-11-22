@@ -3,12 +3,11 @@ import { preserveExternalHtmlBody, preserveExternalMarkdownBody } from "./living
 import { renderDossierHtmlDocument } from "./living-dossier-html.ts";
 import {
   compactDossierState,
-  emptyState,
   escapeMarkdownCell,
   mergeLedgerState,
   parseManagedState,
   resolveRootWorkId,
-  serializeStateComment,
+  sanitizeExternalUrlText,
   type DossierChangeItem,
   type DossierDecisionRecord,
   type DossierLedgerEntry,
@@ -22,42 +21,78 @@ export { type DossierChangeItem, type DossierSynthesisInput };
 
 const utf8Encoder = new TextEncoder();
 
+function serializeStateComment(state: DossierLedgerState, stripUrls: boolean): string {
+  const rawJson = JSON.stringify(state);
+  const urlSafe = stripUrls ? sanitizeExternalUrlText(rawJson) : rawJson;
+  const safeJson = urlSafe
+    .replaceAll("--", "\\u002d\\u002d")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
+  return `<!-- dossier-state:v1 ${safeJson} -->`;
+}
+
+function emptyState(watermark: number, synthesizedAt: string): DossierLedgerState {
+  return {
+    watermark,
+    synthesizedAt,
+    totalChanges: 0,
+    categoryCounts: { task: 0, decision: 0, fact: 0, domain: 0 },
+    kindCounts: {},
+    entries: [],
+    pendingProposals: {},
+    activeDecisions: {},
+    retiredDecisions: [],
+    tasks: {},
+    workCounters: {},
+    relations: [],
+  };
+}
+
 const BUDGET_COMPACTION_PROFILES = [
   {
     maxPinnedWorks: 144,
     maxTrackedTasks: 96,
+    maxBlockedPinned: 48,
     maxOrphanCounters: 160,
     maxDecisions: 144,
     maxEntries: 36,
     maxRelations: 48,
     maxVisibleWorks: 128,
+    maxVisibleBlocked: 48,
   },
   {
     maxPinnedWorks: 96,
     maxTrackedTasks: 64,
+    maxBlockedPinned: 32,
     maxOrphanCounters: 96,
     maxDecisions: 96,
     maxEntries: 24,
     maxRelations: 32,
     maxVisibleWorks: 96,
+    maxVisibleBlocked: 32,
   },
   {
     maxPinnedWorks: 48,
     maxTrackedTasks: 48,
+    maxBlockedPinned: 16,
     maxOrphanCounters: 48,
     maxDecisions: 48,
     maxEntries: 16,
     maxRelations: 16,
     maxVisibleWorks: 48,
+    maxVisibleBlocked: 16,
   },
   {
     maxPinnedWorks: 16,
     maxTrackedTasks: 16,
+    maxBlockedPinned: 8,
     maxOrphanCounters: 0,
     maxDecisions: 16,
     maxEntries: 8,
     maxRelations: 8,
     maxVisibleWorks: 16,
+    maxVisibleBlocked: 8,
   },
 ] as const;
 
@@ -208,7 +243,7 @@ function renderMarkdownAnchorBody(
       const modules = [...new Set(activeDecisions.flatMap((decision) => decision.modules))].slice(0, 12);
       const blocked = activeBlockedTasks(state);
       const lines = [
-        `- Active Decisions: ${activeDecisions.length} · Tracked Works: ${workRollups.length} · Live Blocked Tasks: ${blocked.length} · Active Relations: ${state.relations.length}`,
+        `- Active Decisions: ${activeDecisions.length} · Tracked Works: ${workRollups.length} · Live Blocked Tasks: ${blocked.length}${state.blockedTruncated ? "+ (windowed)" : ""} · Active Relations: ${state.relations.length}`,
       ];
       if (surfaces.length > 0 || modules.length > 0) {
         lines.push(
@@ -377,6 +412,7 @@ function renderManagedCandidate(
   input: DossierSynthesisInput,
   state: DossierLedgerState,
   maxVisibleWorks: number,
+  maxVisibleBlocked: number,
 ): string {
   const stateComment = serializeStateComment(state, input.slot.kind === "html");
   if (input.slot.kind === "html") {
@@ -385,7 +421,7 @@ function renderManagedCandidate(
       slot: input.slot,
       state,
       workRollups: computeWorkRollups(state, maxVisibleWorks),
-      blockedTasks: activeBlockedTasks(state),
+      blockedTasks: activeBlockedTasks(state).slice(0, maxVisibleBlocked),
       expectedWatermark: input.expectedWatermark,
       windowChangeCount: input.changes.length,
       stateComment,
@@ -410,14 +446,14 @@ export function synthesizeDossierDocument(input: DossierSynthesisInput): string 
 
   const prior = managedPrior ?? emptyState(input.expectedWatermark, input.synthesizedAt);
   let state = mergeLedgerState(input, prior);
-  let candidate = renderManagedCandidate(input, state, 256);
+  let candidate = renderManagedCandidate(input, state, 256, 64);
   if (utf8Encoder.encode(candidate).byteLength <= dossierContentMaxBytes) {
     return candidate;
   }
 
   for (const profile of BUDGET_COMPACTION_PROFILES) {
     state = compactDossierState(state, profile);
-    candidate = renderManagedCandidate(input, state, profile.maxVisibleWorks);
+    candidate = renderManagedCandidate(input, state, profile.maxVisibleWorks, profile.maxVisibleBlocked);
     if (utf8Encoder.encode(candidate).byteLength <= dossierContentMaxBytes) {
       return candidate;
     }

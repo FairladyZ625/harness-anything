@@ -10,6 +10,7 @@ const MAX_PENDING_PROPOSALS = 128;
 const MAX_RETIRED_DECISIONS = 48;
 const MAX_TRACKED_TASKS = 128;
 const MAX_PINNED_WORKS = 256;
+const MAX_BLOCKED_PINNED = 64;
 const MAX_TRACKED_RELATIONS = 64;
 const MAX_WORK_COUNTERS = 320;
 
@@ -168,7 +169,8 @@ export interface DossierLedgerState {
   readonly tasks: Readonly<Record<string, DossierTaskRecord>>;
   readonly workCounters: Readonly<Record<string, DossierWorkCounter>>;
   readonly workCountersTruncated?: boolean;
-  readonly relations: readonly DossierRelationEdge[];
+  readonly blockedTruncated?: boolean;
+  readonly relations: ReadonlyArray<DossierRelationEdge>;
 }
 
 const EXTERNAL_SCHEME_PREFIX_RE = /\b[a-z][a-z0-9+.-]{1,31}:(?:\/\/|\\\/\\\/)(?=[^\s"'<>`])/giu;
@@ -313,23 +315,6 @@ export function toLedgerEntry(
   };
 }
 
-export function emptyState(watermark: number, synthesizedAt: string): DossierLedgerState {
-  return {
-    watermark,
-    synthesizedAt,
-    totalChanges: 0,
-    categoryCounts: { task: 0, decision: 0, fact: 0, domain: 0 },
-    kindCounts: {},
-    entries: [],
-    pendingProposals: {},
-    activeDecisions: {},
-    retiredDecisions: [],
-    tasks: {},
-    workCounters: {},
-    relations: [],
-  };
-}
-
 export function parseManagedState(previousBody: string | null, synthesizedAt: string): DossierLedgerState | null {
   if (!previousBody) return null;
   const start = previousBody.lastIndexOf(STATE_COMMENT_PREFIX);
@@ -379,19 +364,9 @@ export function parseManagedState(previousBody: string | null, synthesizedAt: st
     tasks: typeof parsed.tasks === "object" && parsed.tasks !== null ? parsed.tasks : {},
     workCounters: typeof parsed.workCounters === "object" && parsed.workCounters !== null ? parsed.workCounters : {},
     ...(parsed.workCountersTruncated ? { workCountersTruncated: true } : {}),
+    ...(parsed.blockedTruncated ? { blockedTruncated: true } : {}),
     relations: parsedRelations,
   };
-}
-
-export function serializeStateComment(state: DossierLedgerState, stripUrls: boolean): string {
-  const rawJson = JSON.stringify(state);
-  const urlSafe = stripUrls ? sanitizeExternalUrlText(rawJson) : rawJson;
-  const safeJson = urlSafe
-    .replaceAll("--", "\\u002d\\u002d")
-    .replaceAll("<", "\\u003c")
-    .replaceAll(">", "\\u003e")
-    .replaceAll("&", "\\u0026");
-  return `${STATE_COMMENT_PREFIX}${safeJson}${STATE_COMMENT_SUFFIX}`;
 }
 
 function stringListFrom(value: unknown): readonly string[] {
@@ -564,7 +539,8 @@ function pruneTasks(
   workCounters: Record<string, DossierWorkCounter>,
   maxPinnedWorks = MAX_PINNED_WORKS,
   maxTrackedTasks = MAX_TRACKED_TASKS,
-): Record<string, DossierTaskRecord> {
+  maxBlockedPinned = MAX_BLOCKED_PINNED,
+): { readonly tasks: Record<string, DossierTaskRecord>; readonly blockedEvicted: boolean } {
   const all = Object.values(tasks);
   const works = all
     .filter((task) => task.taskClass === "work")
@@ -574,7 +550,12 @@ function pruneTasks(
           Math.max(left.workspaceRevision, workCounters[left.taskId]?.latestRevision ?? 0) ||
         left.taskId.localeCompare(right.taskId),
     );
-  if (all.length <= maxTrackedTasks && works.length <= maxPinnedWorks) return tasks;
+  const blockedNonWorks = all
+    .filter((task) => task.taskClass !== "work" && task.status === "blocked")
+    .sort((left, right) => right.workspaceRevision - left.workspaceRevision || left.taskId.localeCompare(right.taskId));
+  if (all.length <= maxTrackedTasks && works.length <= maxPinnedWorks && blockedNonWorks.length <= maxBlockedPinned) {
+    return { tasks, blockedEvicted: false };
+  }
   const keptWorks = works.slice(0, maxPinnedWorks);
   const evictedWorks = works.slice(maxPinnedWorks);
   const evictedWorkIds = new Set(evictedWorks.map((task) => task.taskId));
@@ -592,8 +573,8 @@ function pruneTasks(
       ...(incomplete ? { countsIncomplete: true } : {}),
     };
   }
-  const blockedNonWorks = all.filter((task) => task.taskClass !== "work" && task.status === "blocked");
-  const pinned = [...keptWorks, ...blockedNonWorks];
+  const keptBlocked = blockedNonWorks.slice(0, maxBlockedPinned);
+  const pinned = [...keptWorks, ...keptBlocked];
   const pinnedIds = new Set(pinned.map((task) => task.taskId));
   const candidates = all
     .filter((task) => !pinnedIds.has(task.taskId) && !evictedWorkIds.has(task.taskId))
@@ -609,7 +590,12 @@ function pruneTasks(
     const rootWorkId = resolveRootWorkId(task, tasks);
     if (rootWorkId) incrementWorkCounter(workCounters, rootWorkId, task);
   }
-  return Object.fromEntries([...pinned, ...kept].map((task) => [task.taskId, task]));
+  const blockedEvicted =
+    evictedWorks.some((task) => task.status === "blocked") || evicted.some((task) => task.status === "blocked");
+  return {
+    tasks: Object.fromEntries([...pinned, ...kept].map((task) => [task.taskId, task])),
+    blockedEvicted,
+  };
 }
 
 function pruneByRevision<T extends { readonly workspaceRevision: number }>(
@@ -945,11 +931,13 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
       tasks,
       workCounters,
       ...(prior.workCountersTruncated ? { workCountersTruncated: true } : {}),
+      ...(prior.blockedTruncated ? { blockedTruncated: true } : {}),
       relations,
     },
     {
       maxPinnedWorks: MAX_PINNED_WORKS,
       maxTrackedTasks: MAX_TRACKED_TASKS,
+      maxBlockedPinned: MAX_BLOCKED_PINNED,
       maxOrphanCounters: MAX_WORK_COUNTERS,
       maxPendingProposals: MAX_PENDING_PROPOSALS,
       maxDecisions: MAX_ACTIVE_DECISIONS,
@@ -964,6 +952,7 @@ export function compactDossierState(
   limits: {
     readonly maxPinnedWorks: number;
     readonly maxTrackedTasks: number;
+    readonly maxBlockedPinned?: number;
     readonly maxOrphanCounters: number;
     readonly maxPendingProposals?: number;
     readonly maxDecisions: number;
@@ -973,21 +962,29 @@ export function compactDossierState(
 ): DossierLedgerState {
   const mutableTasks: Record<string, DossierTaskRecord> = { ...state.tasks };
   const mutableCounters: Record<string, DossierWorkCounter> = { ...state.workCounters };
-  const prunedTasks = pruneTasks(mutableTasks, mutableCounters, limits.maxPinnedWorks, limits.maxTrackedTasks);
+  const prunedTasks = pruneTasks(
+    mutableTasks,
+    mutableCounters,
+    limits.maxPinnedWorks,
+    limits.maxTrackedTasks,
+    limits.maxBlockedPinned ?? MAX_BLOCKED_PINNED,
+  );
   const prunedCounters = pruneWorkCounters(
     mutableCounters,
-    prunedTasks,
+    prunedTasks.tasks,
     Boolean(state.workCountersTruncated),
     limits.maxOrphanCounters,
   );
+  const blockedTruncated = Boolean(state.blockedTruncated || prunedTasks.blockedEvicted);
   const next: DossierLedgerState = {
     ...state,
     entries: state.entries.slice(0, limits.maxEntries),
     pendingProposals: pruneByRevision({ ...state.pendingProposals }, limits.maxPendingProposals ?? limits.maxDecisions),
     activeDecisions: pruneByRevision({ ...state.activeDecisions }, limits.maxDecisions),
     retiredDecisions: state.retiredDecisions.slice(0, Math.min(MAX_RETIRED_DECISIONS, limits.maxDecisions)),
-    tasks: prunedTasks,
+    tasks: prunedTasks.tasks,
     workCounters: prunedCounters.counters,
+    ...(blockedTruncated ? { blockedTruncated: true } : {}),
     relations: state.relations.slice(0, limits.maxRelations),
   };
   return prunedCounters.truncated ? { ...next, workCountersTruncated: true } : next;
