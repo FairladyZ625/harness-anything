@@ -6,6 +6,7 @@ import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
+import { projectInboxEvent } from "./inbox-projection.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
@@ -210,6 +211,7 @@ function applyEventProjection(
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
   projectDispatchLifecycleEvent(db, event);
+  projectInboxEvent(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
