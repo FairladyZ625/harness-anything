@@ -43,7 +43,8 @@ export {
   validateSessionEnvironment,
 };
 
-const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u;
+const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u,
+  catalogActionMethods = new Set(["repo.task.run", "repo.task.read", "repo.trace.read"]);
 
 function validateDaemonWorkTopologyPayload(value: unknown): string[] {
   if (!isJsonObject(value) || Object.keys(value).length !== 1 || typeof value.workRootTaskId !== "string")
@@ -112,7 +113,7 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "observe.tail")
     errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
-  if (!errors.length && (value.method === "repo.task.run" || value.method === "repo.task.read"))
+  if (!errors.length && catalogActionMethods.has(value.method))
     errors.push(...validateCatalogActionPayload(value.params as JsonObject));
   if (!errors.length && value.method === "repo.task.run") {
     const payload = (value.params as JsonObject).payload as JsonObject,

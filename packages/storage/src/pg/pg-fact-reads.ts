@@ -5,6 +5,7 @@ import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import { filterLiteralTextRows } from "./pg-text-search.ts";
+import { pgEvidenceSourcePathClause } from "./pg-trace-index.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
 /** The search and graph ports share one physical query, on the caller's committed snapshot. */
@@ -49,6 +50,17 @@ export async function readPgFactsInTransaction(
     values.push(filters.observedBefore);
     where.push(`(value->>'observedAt')::timestamptz <= $${values.length}::timestamptz`);
   }
+  if (filters.observedCommits !== undefined) {
+    values.push(filters.observedCommits);
+    where.push(`observed_commit = ANY($${values.length}::text[])`);
+  }
+  if (filters.evidenceSourcePaths !== undefined)
+    where.push(
+      pgEvidenceSourcePathClause(filters.evidenceSourcePaths, (value) => {
+        values.push(value);
+        return `$${values.length}`;
+      }),
+    );
   if (filters.cursor !== undefined) {
     const cursor = decodeFactCursor(filters.cursor);
     values.push(cursor[0], cursor[0], cursor[1]);

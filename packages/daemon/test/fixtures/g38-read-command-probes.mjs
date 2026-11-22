@@ -21,6 +21,7 @@ const selectors = {
   "relation-list": { source: `task/${READ_TASK_ID}`, limit: 1 },
   "relation-triples": {},
   graph: { ref: `task/${READ_TASK_ID}` },
+  trace: { path: READ_DOCUMENT },
   "doctor-health": {},
   "todo-list": {},
   "todo-show": { todoId: "todo_222222222222222222222222" },
@@ -96,7 +97,7 @@ export const COMMAND_READ_PROBES = Object.fromEntries(
     .map((command) => [
       `cli-${command.id}`,
       {
-        reads: [`command:${command.id}`],
+        reads: [`command:${command.id}`, ...(command.method === "repo.trace.read" ? [`method:${command.method}`] : [])],
         run: (fixture) =>
           fixture.runtime.run(
             {

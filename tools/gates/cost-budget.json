@@ -1230,6 +1230,11 @@
             "cli-todo-show"
           ]
         },
+        "command:trace": {
+          "measurements": [
+            "cli-trace"
+          ]
+        },
         "command:vertical-kind-list": {
           "measurements": [
             "cli-vertical-kind-list"
@@ -1429,6 +1434,11 @@
             "task-dispatches",
             "dispatch-point",
             "task-dispatches-page"
+          ]
+        },
+        "method:repo.trace.read": {
+          "measurements": [
+            "cli-trace"
           ]
         },
         "method:repo.task.show": {

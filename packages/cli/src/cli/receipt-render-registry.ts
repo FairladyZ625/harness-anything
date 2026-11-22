@@ -12,6 +12,7 @@ import {
   type EntityActionExplanationRenderInput,
 } from "./entity-action-explain-render.ts";
 import { renderCausalGraph } from "./graph-render.ts";
+import { renderTraceReceipt } from "./thin-command-trace.ts";
 import { humanError, renderReceiptGuidance } from "./guidance-plane.ts";
 import {
   renderScheduleList,
@@ -74,6 +75,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
     (r) => renderTaskDeliveryCertificateReceipt(r, parseEvidence(r)) ?? renderSuccessfulReceipt(r),
   ],
   ["graph", (receipt) => renderCausalGraph(receipt) ?? renderSuccessfulReceipt(receipt)],
+  ["trace", (receipt) => renderTraceReceipt(receipt) ?? renderSuccessfulReceipt(receipt)],
 ]);
 
 const preOutcomeCommandRenderers = new Map<string, ReceiptRenderer>([["runtime-batch", renderRuntimeBatchReceipt]]);
