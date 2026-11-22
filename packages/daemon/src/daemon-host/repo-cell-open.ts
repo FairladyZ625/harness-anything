@@ -58,7 +58,11 @@ import { acquireWorkspaceLock, causeClassOf, latchReprobeThrottleMs } from "./re
 import { operationId } from "./repo-cell-proof.ts";
 import { makeScheduleActionRuntime, settleScheduledRuntime } from "./schedule-action-runtime.ts";
 import { commitRuntimeSessionAction, runtimeSessionActionPreparer } from "./runtime-session-action-runtime.ts";
-import { makeRepoCellSettingsState, readEffectiveDispatchArchiveRetention } from "./repo-cell-settings-state.ts";
+import {
+  makeRepoCellSettingsState,
+  projectedRepositorySettings,
+  readEffectiveDispatchArchiveRetention,
+} from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
 import { commitRuntimeSettlement } from "./repo-cell-runtime-settlement.ts";
@@ -444,6 +448,7 @@ export async function openRepoWriterCell(
     runtimeInstanceCapacities: input.runtimeInstanceCapacities,
     runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,
+    cloudRuntime: input.cloudRuntime,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareCloudRelay ? { prepareCloudRelay: input.prepareCloudRelay } : {}),
     ...(input.reclaimRuntimeTempDirectory ? { reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory } : {}),
@@ -452,23 +457,25 @@ export async function openRepoWriterCell(
       ? { reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories }
       : {}),
     ...(input.prepareDaemonGitEnvironment ? { prepareDaemonGitEnvironment: input.prepareDaemonGitEnvironment } : {}),
-    resolveAgent: (agentId) => {
+    resolveAgent: (agentId, verticalId) => {
       const projected = projection.getEntity("agent", agentId);
       const entityStore = createEntityStore(store),
         declaration = readAgentDeclaration({
           rootDir,
           agentId,
           entityStore,
+          verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
         });
       return resolveAgentRuntimeDeclaration(declaration, projected);
     },
-    resolveSquadDispatch: (squadId, leaderId, workerId) =>
+    resolveSquadDispatch: (squadId, leaderId, workerId, _binding, verticalId) =>
       resolveSquadDispatch({
         rootDir,
         ...(squadId ? { squadId } : {}),
         leaderId,
         ...(workerId ? { workerId } : {}),
         entityStore: createEntityStore(store),
+        verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
       }),
     onRuntimeOutcome: (event) => {
       schedule(() => squadCoordinator.observeOutcome(event));
@@ -528,9 +535,20 @@ export async function openRepoWriterCell(
       await authorizeRuntimeAction({ ...payload, kind: "runtime-spawn" }, binding, actionId),
     commitRuntimeEvent: async (draft, binding) => {
       const action = { kind: "event" as const, ...draft },
+        livenessControlRequest =
+          draft.type === "runtime_session_liveness_changed" &&
+          typeof draft.payload === "object" &&
+          draft.payload !== null &&
+          "controlRequest" in draft.payload &&
+          draft.payload.controlRequest !== undefined,
+        trustedControl =
+          draft.type === "runtime_cancel_requested" ||
+          draft.type === "runtime_steer_requested" ||
+          livenessControlRequest,
+        commitBinding = trustedControl ? { ...binding, trustedRemoteControl: true as const } : binding,
         receipt = runtimeSessionActionIds.includes(draft.type as never)
-          ? await commitRuntimeSessionAction(extracted, action, binding)
-          : extracted.appendAuxiliaryRuntimeIngress(action, binding),
+          ? await commitRuntimeSessionAction(extracted, action, commitBinding)
+          : extracted.appendAuxiliaryRuntimeIngress(action, commitBinding, false, trustedControl),
         event = (receipt as typeof receipt & { readonly event?: AgentRuntimeEventV1 }).event,
         runtimeReceipt = { ...(receipt as unknown as JsonObject) };
       delete runtimeReceipt.event;
@@ -539,10 +557,24 @@ export async function openRepoWriterCell(
         receipt: runtimeReceipt,
       };
     },
-    authorizeRuntimeEvent: async ({ type, payload, opId, binding }) =>
-      await authorizeRuntimeAction(
+    authorizeRuntimeEvent: async ({ type, payload, opId, binding }) => {
+      const livenessControlAction =
+        type === "runtime_session_liveness_changed" &&
+        typeof payload === "object" &&
+        payload !== null &&
+        "controlRequest" in payload &&
+        typeof (payload as { readonly controlRequest?: { readonly action?: unknown } }).controlRequest === "object" &&
+        (payload as { readonly controlRequest?: { readonly action?: unknown } }).controlRequest !== null
+          ? (payload as { readonly controlRequest: { readonly action?: unknown } }).controlRequest.action
+          : null;
+      return await authorizeRuntimeAction(
         {
-          kind: "runtime-run",
+          kind:
+            type === "runtime_cancel_requested" || livenessControlAction === "cancel"
+              ? "runtime-cancel"
+              : type === "runtime_steer_requested" || livenessControlAction === "steer"
+                ? "runtime-steer"
+                : "runtime-run",
           runtimeEventType: type,
           ...(Object.hasOwn(payload, "runtimeSessionId")
             ? { runtimeSessionId: (payload as { readonly runtimeSessionId: string }).runtimeSessionId }
@@ -550,7 +582,8 @@ export async function openRepoWriterCell(
         },
         binding,
         `runtime-event:${opId}`,
-      ),
+      );
+    },
     authorizeRuntimeArchive: async (archive, binding) =>
       await authorizeRuntimeAction(
         {
@@ -669,7 +702,11 @@ export async function openRepoWriterCell(
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
       if (contract.target.kind === "agent" && contract.id === "retire")
-        prepareAgentEntityRetire({ action, replayed: store.readEvent(opId) });
+        prepareAgentEntityRetire({
+          rootDir,
+          action,
+          replayed: store.readEvent(opId),
+        });
       if (contract.id === "delete") {
         const existing = store.readEvent(opId);
         if (
@@ -683,7 +720,12 @@ export async function openRepoWriterCell(
             baseBlobSha256: existing.payload.ownedContent.retirements[0]!.baseBlobSha256,
             reason: existing.payload.reason,
           };
-        const prepared = prepareAgentEntityDelete({ action, entityStore: createEntityStore(store), projection });
+        const prepared = prepareAgentEntityDelete({
+          rootDir,
+          action,
+          entityStore: createEntityStore(store),
+          projection,
+        });
         return { ...action, ...prepared };
       }
       if (contract.id !== "install") return action;
@@ -719,21 +761,10 @@ export async function openRepoWriterCell(
       "runtime-session": runtimeSessionActionPreparer(() => projection),
     },
   };
-  const squadCoordinator = makeRepoCellSquadCoordinator({
-    rootDir,
-    repoId: input.repoId,
-    now,
+  const squadCoordinator = makeRepoCellSquadCoordinator(runtimeContext, {
     readWorktreeSetup: () => readSettings().worktree,
-    projection,
-    store,
-    runtimeContext,
-    extracted,
-    runtimeSpawner,
-    entityActionExecutor,
-    entityActionRuntimes,
     authorizeRuntimeAction,
     onlineBinding,
-    ...(input.killpoint ? { killpoint: input.killpoint } : {}),
   });
   const operationalContext = Object.defineProperty(runtimeContext, "settings", {
     value: settings,
@@ -853,14 +884,19 @@ export async function openRepoWriterCell(
         entityActionRuntimes,
       );
     });
-  const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
   let restoringRuntimes = true;
   setImmediate(() => {
     if (state === "closed") return;
     void recoveryWork
-      .run(() => runtimeSpawner.adopt())
+      .run(async () => {
+        const [recoveryResults, squadRecoveryDispatchIds] = await Promise.all([
+          runtimeSpawner.adopt(),
+          squadCoordinator.retentionProtectedDispatchIds(),
+        ]);
+        return { recoveryResults, squadRecoveryDispatchIds };
+      })
       .then(
-        (recoveryResults) => {
+        ({ recoveryResults, squadRecoveryDispatchIds }) => {
           if (state === "closed") return;
           const adoptionProtectedIds = recoveryResults.flatMap((entry) =>
             entry.outcome !== "settled" && entry.dispatchId !== null ? [entry.dispatchId] : [],

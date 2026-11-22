@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import ts from "typescript";
 import {
   bindArguments,
   buildFlowGraph,
@@ -8,9 +9,30 @@ import {
   freshEvaluationGraph,
   makeEvaluator,
 } from "../authorization-flow-graph.mjs";
-import { processSourceSites, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
+import { processNativeSourceSites } from "../authorization-process-source-sites.mjs";
+import { sourceOriginFilter } from "../authorization-source-origins.mjs";
+import { processSourceSites, sourceFrameKey, sourceSite, sourceWitnesses } from "../authorization-source-proof.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { makeRepo } from "./helpers.mjs";
+
+test("shard roots retain callable union types imported from an unlisted TSX module", () => {
+  const entry = "packages/gui/src/renderer/graph/entry.ts",
+    filters = "packages/gui/src/renderer/filters.tsx",
+    { rootDir } = makeRepo({
+      [entry]: `import type { Filters } from "../filters.tsx";
+type Update = Filters | ((previous: Filters) => Filters);
+function apply(update: Update) {
+  if (typeof update === "function") return update({ density: "all" });
+}`,
+      [filters]: 'export interface Filters { density: "all" | "focus" }',
+    }),
+    graph = buildFlowGraph(rootDir, { sourceFiles: [entry] }),
+    fn = graph.modules.get(entry).sourceFile.statements[2],
+    callback = fn.body.statements[0].thenStatement.expression,
+    signature = graph.callDeclaration(callback);
+  assert.ok(signature && ts.isFunctionTypeNode(signature), "the callback resolves without a second TSX root");
+  graph.releaseQueries();
+});
 
 test("shared source witnesses survive caller mutation and reject replaced syntax", () => {
   const file = "packages/daemon/src/witness.ts",
@@ -248,6 +270,55 @@ function entry() { first(); }`,
   );
 });
 
+test("target-only source queries reuse a proven suffix reached by another caller", () => {
+  const file = "packages/daemon/src/shared-suffix.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function target() { store.append("target"); }
+function middle() { target(); }
+function shared() { middle(); }
+function first() { shared(); }
+function second() { shared(); }`,
+  });
+  const original = buildFlowGraph(rootDir);
+  const [target, , , first, second] = original.modules.get(file).sourceFile.statements;
+  let targetReads = 0;
+  const graph = {
+    ...original,
+    fileOf(node) {
+      if (node === target) targetReads++;
+      return original.fileOf(node);
+    },
+  };
+  const site = sourceSite(original, target.body.statements[0].expression);
+  const evaluator = makeEvaluator(graph, { strictMembers: true });
+  const query = (entry) => processSourceSites(graph, entry, { evaluator, targets: [site], targetOnly: true });
+  assert.deepEqual([...query(first)], [site]);
+  assert.ok(targetReads > 0);
+  const firstReads = targetReads;
+  assert.deepEqual([...query(second)], [site]);
+  assert.equal(targetReads, firstReads, "a proven suffix does not traverse its target edge again");
+});
+
+test("native witnesses share their walk and retain the same reachable sites", () => {
+  const file = "packages/daemon/src/native-targets.ts";
+  const { rootDir } = makeRepo({
+    [file]: `function left() { store.append("left"); }
+function right() { store.append("right"); }
+function invoke(callback) { callback(); }
+function ignore(callback) {}
+function entry() { ignore(() => store.append("unused")); invoke(left); invoke(right); }`,
+  });
+  const graph = buildFlowGraph(rootDir);
+  const [left, right, , , entry] = graph.modules.get(file).sourceFile.statements;
+  const [first, second] = [left, right].map((fn) => sourceSite(graph, fn.body.statements[0].expression));
+  const absent = sourceSite(graph, entry.body.statements[0].expression.arguments[0].body);
+  const targets = [second, absent, first, second];
+  const evaluator = makeEvaluator(graph, { strictMembers: true });
+  const expected = processSourceSites(graph, entry, { evaluator, targets, targetOnly: true });
+  assert.deepEqual(expected, new Set([first, second]));
+  assert.deepEqual(processNativeSourceSites(graph, entry, evaluator, targets), expected);
+});
+
 test("matchAny source queries stop at the first hit without marking unvisited targets missing", () => {
   const file = "packages/daemon/src/match-any.ts";
   const { rootDir } = makeRepo({
@@ -274,10 +345,66 @@ function entry() { hit(); later(); }`,
     true,
     "an early matchAny exit must not cache unvisited targets as missing",
   );
+  assert.deepEqual(
+    [...processSourceSites(graph, entry, { evaluator, targets: [secondSite, absentSite], targetOnly: true })],
+    [secondSite],
+  );
   assert.equal(
     processSourceSites(graph, entry, { evaluator, targets: [absentSite], matchAny: true }).has(absentSite),
     false,
   );
+});
+
+test("source origins keep typed member implementations and caller-bound functions", () => {
+  const file = "packages/daemon/src/origin-entry.ts",
+    implementation = "packages/daemon/src/origin-implementation.ts",
+    { rootDir } = makeRepo({
+      [file]: `import { alternate, write } from "./origin-implementation.ts";
+import type { Port } from "./origin-implementation.ts";
+declare const port: Port;
+function relay(callback) { callback(); }
+function throughPort() { port.commit(); }
+function bindings() { relay(alternate); relay(write); }`,
+      [implementation]: `export interface Port { commit(): void }
+export function write() { store.append("wanted"); }
+export function alternate() { store.append("unrelated"); }
+export const port: Port = { commit() { write(); } };`,
+    }),
+    graph = buildFlowGraph(rootDir),
+    [, write] = graph.modules.get(implementation).sourceFile.statements,
+    [, , , relay, throughPort, bindings] = graph.modules.get(file).sourceFile.statements,
+    call = write.body.statements[0].expression,
+    site = sourceSite(graph, call),
+    mayReach = sourceOriginFilter(graph, [{ file: implementation, start: call.getStart(), end: call.end }]),
+    frame = (index) =>
+      bindArguments({ node: relay, env: EMPTY_ENV }, bindings.body.statements[index].expression.arguments, EMPTY_ENV);
+  assert.equal(mayReach(relay, frame(0)), false);
+  assert.equal(mayReach(relay, frame(1)), true);
+  const query = { targets: [site], targetOnly: true, mayReachTarget: mayReach };
+  assert.equal(processSourceSites(graph, relay, { ...query, env: frame(0) }).has(site), false);
+  assert.equal(processSourceSites(graph, relay, { ...query, env: frame(1) }).has(site), true);
+  assert.equal(mayReach(throughPort, EMPTY_ENV), true);
+  assert.equal(processSourceSites(graph, throughPort, query).has(site), true);
+});
+
+test("a lexical class receiver retains the source of a sibling method", () => {
+  const file = "packages/daemon/src/receiver.mjs",
+    { rootDir } = makeRepo({
+      [file]: `class Receiver {
+  run() { this.write(); }
+  write() { store.append(); }
+}`,
+    }),
+    graph = buildFlowGraph(rootDir, { lexicalFiles: [file] }),
+    [receiver] = graph.modules.get(file).sourceFile.statements,
+    [run, write] = receiver.members,
+    call = write.body.statements[0].expression,
+    site = sourceSite(graph, call),
+    options = { targets: [site], targetOnly: true };
+  assert.equal(graph.callDeclaration(run.body.statements[0].expression), undefined);
+  assert.equal(processSourceSites(graph, run, options).has(site), true);
+  const mayReachTarget = sourceOriginFilter(graph, [{ file, start: call.getStart(), end: call.end }]);
+  assert.equal(processSourceSites(graph, run, { ...options, mayReachTarget }).has(site), true);
 });
 
 test("source summaries reuse unchanged frames and retain separate callback bindings", () => {
@@ -395,4 +522,66 @@ test("interleaved Programs bind through their own query owner on shared source f
   right.releaseQueries();
   assert.deepEqual(first.fold(expression, EMPTY_ENV), { value: "ok" });
   left.releaseQueries();
+});
+
+test("separate descriptor evaluators preserve deeply captured source proofs with equal recursion keys", () => {
+  const file = "packages/daemon/src/nested.ts";
+  const { rootDir } = makeRepo({
+    [file]: `
+function record() { sink.append("witness"); }
+function idle() {}
+function inner(value) { return () => value(); }
+function outer(thunk) { return () => thunk(); }
+function enter(callable) { if (true) callable(); }`,
+  });
+  const graph = buildFlowGraph(rootDir);
+  try {
+    const [record, idle, inner, outer, entry] = graph.modules.get(file).sourceFile.statements;
+    const site = sourceSite(graph, record.body.statements[0].expression);
+    const bind = (fn, expression, env) => graph.internEnv([[fn.parameters[0], { expression, env }]]);
+    const envs = [idle, record, idle].map((implementation) => {
+      const captured = bind(inner, implementation.name, EMPTY_ENV);
+      const nested = bind(outer, inner.body.statements[0].expression, captured);
+      return bind(entry, outer.body.statements[0].expression, nested);
+    });
+    assert.equal(sourceFrameKey(graph, entry, envs[0]), sourceFrameKey(graph, entry, envs[1]));
+    assert.notEqual(envs[0], envs[1]);
+    assert.deepEqual(
+      envs.map((env) => processSourceSites(graph, entry, { env, targets: [site], targetOnly: true }).has(site)),
+      [false, true, false],
+    );
+  } finally {
+    graph.releaseQueries();
+  }
+});
+
+test("a request-free call frame answers provenance without evaluating its conditional", () => {
+  const file = "packages/daemon/src/provenance.ts";
+  const { rootDir } = makeRepo({
+    [file]: 'import { select } from "@test/authority"; function choose(arg) { return select(1) ? arg : null; }',
+  });
+  const graph = buildFlowGraph(rootDir);
+  const owner = graph.modules.get(file).sourceFile.statements[1];
+  const expression = owner.body.statements[0].expression;
+  const input = owner.parameters[0];
+  const empty = graph.internEnv([[input, { expression: expression.whenFalse, env: EMPTY_ENV }]]);
+  const request = graph.internEnv([[input, { root: true }]]);
+  let calls = 0;
+  const functions = {
+    select() {
+      calls++;
+      return true;
+    },
+  };
+  try {
+    for (const kind of ["first", "second"]) {
+      const evaluator = makeEvaluator(graph, { kind, authorityModule: "@test/authority", constants: {}, functions });
+      const before = calls;
+      assert.equal(evaluator.provenance(expression, empty), null);
+      assert.equal(calls, before, "a closed input cannot supply either request or action provenance");
+      assert.equal(evaluator.provenance(expression, request), "request");
+    }
+  } finally {
+    graph.releaseQueries();
+  }
 });

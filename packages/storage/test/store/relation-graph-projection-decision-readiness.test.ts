@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { decisionReviewState } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import { compileDecisionWrite, decisionWritePlan, renderDecisionDocument, sha256Text } from "@harness-anything/kernel";
 import { projectDecisionReadiness } from "../../src/projection/decision-readiness-projection.ts";
 import { readDecisionDocumentState, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
@@ -18,6 +20,53 @@ import {
   proposal,
   testReadinessSource,
 } from "./relation-graph-projection.fixtures.ts";
+
+test("SQLite retries a rolled-back v38 Decision expansion and preserves the reviewed prose", () => {
+  withTempStore((rootDir) => {
+    const fixture = projectionFixture(rootDir),
+      id = "dec_LIST_UPGRADE";
+    try {
+      applyDecision(fixture, proposal(1, id));
+      const before = fixture.projection.readDecision(id),
+        decision = before.decision;
+      assert.ok(decision?.body?.body);
+      assert.equal(before.watermark, 1);
+      fixture.projection.close();
+
+      const legacy = new DatabaseSync(fixture.projection.path);
+      try {
+        legacy.exec(`ALTER TABLE decision DROP COLUMN list_options_json;
+          ALTER TABLE decision DROP COLUMN review_summary_json;
+          UPDATE projection_meta SET schema_version=38;
+          CREATE TRIGGER fail_review_backfill BEFORE UPDATE ON decision
+          BEGIN SELECT RAISE(ABORT, 'injected review backfill failure'); END;`);
+        // This fixture has blobs and a head but no readable event history to rebuild from.
+        assert.throws(() => fixture.reopen(), /injected review backfill failure/);
+        assert.equal(legacy.prepare("SELECT schema_version FROM projection_meta").get()?.schema_version, 38);
+        legacy.exec("DROP TRIGGER fail_review_backfill");
+
+        const reopened = fixture.reopen();
+        try {
+          assert.deepEqual(reopened.readDecision(id), before);
+          const summary = reopened.listDecisions({}, "summary").decisions[0],
+            review = reopened.listDecisions({}, "review").decisions[0];
+          assert.ok(review);
+          assert.equal(review.body, null);
+          assert.deepEqual(summary?.chosen, decision.chosen);
+          assert.deepEqual(summary?.rejected, decision.rejected);
+          for (const requirement of ["all", "medium_and_high", "high", "off"] as const)
+            assert.deepEqual(decisionReviewState(review, requirement), decisionReviewState(decision, requirement));
+        } finally {
+          reopened.close();
+        }
+      } finally {
+        legacy.close();
+      }
+    } finally {
+      fixture.projection.close();
+    }
+  });
+});
 
 test("Decision readiness is commit-bound and ignores uncommitted worktree guesses", () => {
   withTempStore((rootDir) => {

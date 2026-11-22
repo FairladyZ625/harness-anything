@@ -1,3 +1,4 @@
+import type { CloudRuntimeExecutionTarget } from "@harness-anything/kernel/internal/domain/runtime-execution-target.ts";
 import {
   closeSync,
   constants as fsConstants,
@@ -38,6 +39,13 @@ import {
   readDispatchEvidenceState,
   removeDispatchEvidenceState,
 } from "./dispatch-evidence-state.ts";
+import {
+  initDispatchSteerState,
+  prepareDispatchSteerAppend,
+  recordDispatchResumedTo,
+  recordDispatchSteerRequest,
+  removeDispatchSteerState,
+} from "./dispatch-steer-state.ts";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
 import { resolveOwnedLocalDirectory } from "./local-root-paths.ts";
 
@@ -133,12 +141,16 @@ const streamSchema = "runtime-dispatch-stream/v1" as const;
 // footprint, at the cost of log retention: past the write cap only lifecycle records land and
 // provider output is dropped, past the read cap full replays are skipped. Raising them keeps
 // more provider output readable for longer on daemon disk; lowering them sheds tail output sooner.
-const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
+export const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
 
+export type TrustedManagedCwdKind = "worktree" | "task-package" | "decision-package";
+
 export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly handoffEnabled?: boolean;
+  readonly executionTarget?: CloudRuntimeExecutionTarget;
+  readonly executionAttempt?: number;
   readonly schema: typeof streamSchema;
   readonly kind: "dispatch";
   readonly dispatchId: string;
@@ -147,6 +159,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
     | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
+  /** Provenance of a system-materialized managed cwd; absent for repo-root or caller-selected cwds. */
+  readonly trustedManagedCwd?: TrustedManagedCwdKind;
   readonly leaseVersion?: number;
   readonly schedule?: {
     readonly scheduleId: string;
@@ -201,6 +215,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly transcriptCompactionVersion?: 1;
   /** New settlements carry a sidecar evidence disposition; a missing sidecar is then fail-closed. */
   readonly evidenceTrackingVersion?: 1;
+  /** Worker host supports correlated remote steer outcome records (`steer_resumed` / `steer_dropped`) (F17). */
+  readonly steerReceiptProtocolVersion?: 1;
 }
 
 export type DispatchStreamRecord = Record<string, unknown>;
@@ -290,6 +306,8 @@ export interface DispatchStreamWriter {
           readonly notBeforeAt: string;
           readonly waitStartedAt?: string;
           readonly nextProvider: { readonly instance: string; readonly model?: string };
+          readonly sameSessionResume?: boolean;
+          readonly providerSessionId?: string;
         }
       | { readonly state: "dispatched"; readonly nextDispatchId: string; readonly nextRuntimeSessionId: string }
       | { readonly state: "exhausted"; readonly reason: string },
@@ -369,6 +387,10 @@ export function openDispatchStream(
       encoding: "utf8",
       mode: 0o600,
     });
+    initDispatchSteerState(rootDir, header.dispatchId, statSync(target, { throwIfNoEntry: false })?.size ?? 0);
+    if (header.taskId === null && header.resumedFromDispatchId) {
+      recordDispatchResumedTo(rootDir, header.resumedFromDispatchId, header.dispatchId);
+    }
     if (header.taskId) {
       try {
         upsertDispatchLiveIndex(rootDir, {
@@ -475,6 +497,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
   if (existsSync(target)) /* @gate-identity state-store/execution.dispatch-stream */ unlinkSync(target);
+  removeDispatchSteerState(rootDir, dispatchId);
   if (header?.taskId) removeDispatchLiveIndexEntries(rootDir, header.taskId, new Set([dispatchId]));
   removeDispatchEvidenceState(rootDir, dispatchId);
 }
@@ -706,6 +729,26 @@ function readDispatchStreamSummaryAt(target: string, dispatchId: string): Dispat
   return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt, lastProviderReconnect);
 }
 
+/** O(1) probe returning 1 if any live (non-archived) dispatch stream exists, 0 otherwise, without reading headers or archive/ (F4). */
+export function countActiveDispatchStreams(rootDir: string): number {
+  const layout = resolveHarnessLayout(rootDir),
+    directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
+  if (directory === null) return 0;
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isFile() && /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(entry.name)) return 1;
+  }
+  return 0;
+}
+
+/** O(1) lookup returning the live (non-archived) stream path for a specific dispatch, or null (F4). */
+export function findLiveDispatchStreamPath(rootDir: string, dispatchId: string): string | null {
+  const layout = resolveHarnessLayout(rootDir),
+    directory = resolveOwnedLocalDirectory(layout, ["runtime", "dispatches"]);
+  if (directory === null) return null;
+  const candidate = path.join(directory, `${dispatchId}.jsonl`);
+  return lstatSync(candidate, { throwIfNoEntry: false })?.isFile() === true ? candidate : null;
+}
+
 export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
   const layout = resolveHarnessLayout(rootDir);
   return (includeArchived ? [[], ["archive"]] : [[]]).flatMap((segments) => {
@@ -743,6 +786,7 @@ export function readDispatchStream(
   readonly process: DispatchProcessState | null;
   readonly attemptOutcome: RuntimeAttemptOutcome | null;
   readonly terminalOutcome: DispatchTerminalOutcome | null;
+  readonly scheduledFallback: { readonly sameSessionResume?: boolean; readonly providerSessionId?: string } | null;
   /** The latest evidence-copy disposition; absent streams settle and compact as before. */
   readonly evidenceState: Exclude<OperationalStatus.DispatchEvidenceState, "not-required"> | null;
   readonly runtimeMetrics: RuntimeMetrics | null;
@@ -796,6 +840,17 @@ export function appendRuntimeWorkerRecord(
   // arrive concurrently with that rename; resolve the path again after an ENOENT so the state
   // remains durable on the archived stream instead of failing the coordinator's write queue.
   const target = dispatchStreamPath(rootDir, dispatchId);
+  const isSteerRequest = value.kind === "steer_requested";
+  const steerOpId = isSteerRequest && typeof value.opId === "string" ? value.opId : undefined;
+  if (isSteerRequest && steerOpId) {
+    const streamOffsetBefore = statSync(target, { throwIfNoEntry: false })?.size ?? 0,
+      version =
+        typeof value.version === "number" && Number.isSafeInteger(value.version) && value.version >= 1
+          ? value.version
+          : 1;
+    prepareDispatchSteerAppend(rootDir, dispatchId, { opId: steerOpId, version, streamOffsetBefore });
+  }
+  let writtenTarget = target;
   try {
     appendDispatchStreamRecord(target, value);
   } catch (error) {
@@ -803,7 +858,12 @@ export function appendRuntimeWorkerRecord(
     consumeKnownError(error);
     const retry = dispatchStreamPath(rootDir, dispatchId);
     if (retry === target || !existsSync(retry)) throw error;
+    writtenTarget = retry;
     appendDispatchStreamRecord(retry, value);
+  }
+  if (isSteerRequest) {
+    const streamOffsetAfter = statSync(writtenTarget, { throwIfNoEntry: false })?.size ?? 0;
+    recordDispatchSteerRequest(rootDir, dispatchId, steerOpId, streamOffsetAfter);
   }
 }
 
@@ -948,8 +1008,11 @@ function archivedDispatchStreamPath(rootDir: string, dispatchId: string): string
   assertDispatchId(dispatchId);
   return path.join(dispatchStreamRoot(layout), "archive", `${dispatchId}.jsonl`);
 }
+export function isValidDispatchStreamId(dispatchId: string): boolean {
+  return /^dispatch_[a-f0-9]{24}$/u.test(dispatchId);
+}
 function assertDispatchId(dispatchId: string): void {
-  if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("dispatch id is invalid");
+  if (!isValidDispatchStreamId(dispatchId)) throw new Error("dispatch id is invalid");
 }
 function dispatchStreamPathForLayout(layout: ReturnType<typeof resolveHarnessLayout>, dispatchId: string): string {
   assertDispatchId(dispatchId);
@@ -1042,6 +1105,7 @@ function summarizeDispatch(
     processState: DispatchProcessState | null = null,
     attemptOutcome: RuntimeAttemptOutcome | null = null,
     terminalOutcome: DispatchTerminalOutcome | null = null,
+    scheduledFallback: { readonly sameSessionResume?: boolean; readonly providerSessionId?: string } | null = null,
     evidenceState: "pending" | "stored" | null = null,
     runtimeMetrics: RuntimeMetrics | null = null,
     decisionActionRecord: DispatchStreamRecord | null = null;
@@ -1058,6 +1122,11 @@ function summarizeDispatch(
         exited: true,
       };
     if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
+    if (record.kind === "fallback_state" && record.state === "scheduled")
+      scheduledFallback = {
+        ...(record.sameSessionResume === true ? { sameSessionResume: true } : {}),
+        ...(typeof record.providerSessionId === "string" ? { providerSessionId: record.providerSessionId } : {}),
+      };
     if (record.kind === "terminal_outcome" && isDispatchTerminalOutcome(record, header.runtimeSessionId))
       terminalOutcome = {
         payload: record.payload,
@@ -1084,6 +1153,7 @@ function summarizeDispatch(
     process: processState,
     attemptOutcome,
     terminalOutcome,
+    scheduledFallback,
     evidenceState,
     runtimeMetrics,
     decisionActionRecord,
@@ -1438,6 +1508,10 @@ function isHeader(value: Record<string, unknown> | null): value is Record<string
     typeof value.startedAt === "string" &&
     (value.stallTimeoutMs === undefined ||
       (Number.isSafeInteger(value.stallTimeoutMs) && Number(value.stallTimeoutMs) >= 10_000)) &&
+    (value.trustedManagedCwd === undefined ||
+      value.trustedManagedCwd === "worktree" ||
+      value.trustedManagedCwd === "task-package" ||
+      value.trustedManagedCwd === "decision-package") &&
     typeof value.eventStreamRef === "string"
   );
 }

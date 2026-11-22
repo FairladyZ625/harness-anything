@@ -274,6 +274,48 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
   assert.equal(existsSync(path.join(stagingDir, "snapshots")), false, "staging/snapshots must be cleaned up after ACK");
 });
 
+test("resume-only admission rejection preserves the existing replica", async (t) => {
+  const directory = mkdtempSync(path.join(tmpdir(), "ha-repoint-resume-reject-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const position = { history: "a".repeat(64), sequence: 4, revision: 2 };
+  let resetCount = 0,
+    revokeCount = 0,
+    startSent = false;
+  await assert.rejects(
+    runWalReceiver({
+      peer: {
+        send: async (frame) => {
+          if (frame.type === "replica.start") startSent = frame.capabilities.includes("repoint-resume-only/v1");
+        },
+        receive: async () => ({ type: "replica.resync", reason: "authorization_denied" }),
+      },
+      resumeOnly: true,
+      repoId: replicationRepoId,
+      target: {
+        position: () => position,
+        install: async () => {},
+        apply: () => {},
+        installObject: async () => {},
+        project: async () => {},
+        reset: async () => {
+          resetCount += 1;
+        },
+        revoke: async () => {
+          revokeCount += 1;
+        },
+      },
+      directory,
+      quotaBytes: 1_024,
+      maxBufferedBytes: 1_024,
+      signal: new AbortController().signal,
+    }),
+    { code: "authorization_denied" },
+  );
+  assert.equal(startSent, true);
+  assert.equal(resetCount, 0);
+  assert.equal(revokeCount, 0);
+});
+
 test("walsender falls back to offset 0 with new snapshotId when requested snapshot is missing/expired", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-snap-fallback-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

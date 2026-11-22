@@ -135,7 +135,13 @@ function parseRuntimeControl(
       rootDir,
       repoId,
       json,
-      { kind, runtimeSessionId: id, ...(flags.one.has("--ruling") ? { ruling: flags.one.get("--ruling") } : {}) },
+      {
+        kind,
+        runtimeSessionId: id,
+        ...(flags.one.has("--ruling") ? { ruling: flags.one.get("--ruling") } : {}),
+        ...(flags.one.has("--reason") ? { reason: flags.one.get("--reason") } : {}),
+        ...(flags.one.has("--idempotency-key") ? { idempotencyKey: flags.one.get("--idempotency-key") } : {}),
+      },
       route.method,
     );
   // Like agent run, --prompt-file rides the action and is materialized into
@@ -160,6 +166,7 @@ function parseRuntimeControl(
       ...prompt,
       ...(promptFile ? { promptFile } : {}),
       ...(expected ? { expected } : {}),
+      ...(flags.one.has("--idempotency-key") ? { idempotencyKey: flags.one.get("--idempotency-key") } : {}),
     },
     route.method,
   );

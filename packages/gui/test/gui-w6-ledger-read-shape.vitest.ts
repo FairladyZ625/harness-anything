@@ -14,6 +14,7 @@ import {
   invalidateLedgerDependents,
   mergeTaskRows,
   readActiveTaskSlice,
+  readRecentTerminalTasks,
   readTaskList,
   TASK_LIST_PAGE_LIMIT,
 } from "../src/renderer/task-data.ts";
@@ -413,6 +414,21 @@ describe("首屏活跃切片:状态下推 + 首屏合并", () => {
       "task_000003",
       "task_000004",
     ]);
+  });
+
+  it("reads recent terminal rows without waiting for the complete ledger cut", async () => {
+    const ledger = installStatusLedger();
+    const recent = await readRecentTerminalTasks("repo-a", Date.parse("2026-11-20T00:00:00Z"));
+    expect(ledger.calls).toEqual(
+      ["done", "cancelled"].map((status) => ({
+        repoId: "repo-a",
+        status,
+        statusSource: "raw",
+        updatedAfter: "2026-11-13T00:00:00.000Z",
+        limit: TASK_LIST_PAGE_LIMIT,
+      })),
+    );
+    expect(recent.map(({ taskId }) => taskId)).toEqual(["task_000005", "task_000006"]);
   });
 
   it("合并:完整切面的行胜出(增量持续更新),切片只补缺;两侧都没有时为空", () => {

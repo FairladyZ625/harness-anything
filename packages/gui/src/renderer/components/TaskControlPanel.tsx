@@ -83,6 +83,7 @@ export function TaskControlPanel({
     pending = feedback?.state === "pending";
   const progress = taskCapabilityOf(task, "progress"),
     start = taskCapabilityOf(task, "start"),
+    submit = taskCapabilityOf(task, "submit"),
     reason = readOnlyReason(task, progress, start);
 
   return (
@@ -171,6 +172,10 @@ export function TaskControlPanel({
               </button>
             </form>
           </details>
+        </div>
+      )}
+      {submit?.available === true && (
+        <div className="mt-2">
           <details className="rounded border border-border bg-surface p-2">
             <summary className="cursor-pointer ui-meta font-medium text-text">
               {t("components.taskControlPanel.requestReview")}

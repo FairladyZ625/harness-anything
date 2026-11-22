@@ -191,7 +191,6 @@ test(
             name: "Copied host reviewer",
             instructions: "Review the submitted cut.",
             runtimes: [{ type: "codex", model: "review-model" }],
-            instance: "review-first",
             role: "reviewer",
             skills: [{ id: "self-iteration", path: "skills/self-iteration" }],
           },
@@ -483,7 +482,6 @@ test("one reviewer per cut: a live dispatch owns the lane, and a replaced review
             name: "Alternate reviewer",
             instructions: "Independently inspect the submitted cut.",
             runtimes: [{ type: "codex", model: "review-model" }],
-            instance: "review-first",
             role: "reviewer",
           },
         })
@@ -514,7 +512,7 @@ test("one reviewer per cut: a live dispatch owns the lane, and a replaced review
     // Once the automatic reviewer's session ends, the explicit selection owns the next attempt.
     const holding = f.events().find((event) => event.type === "runtime_dispatch_requested");
     assert.ok(holding?.type === "runtime_dispatch_requested");
-    f.failPending();
+    f.endPending();
     await f.awaitOutcome(holding.payload.runtimeSessionId);
     const selected = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "alternate-reviewer" });
     assert.equal(selected.outcome, "applied", JSON.stringify(selected));
@@ -552,7 +550,6 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
         name: "Alternate reviewer",
         instructions: "Independently inspect the submitted cut.",
         runtimes: [{ type: "codex", model: "review-model" }],
-        instance: "review-first",
         role: "reviewer",
       },
     });
@@ -600,7 +597,7 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
     assert.equal(step[0]?.runtimeSessionId, legacyEvent.payload.runtimeSessionId);
     assert.equal(f.launches.length, 1, "dispatch-review must recognize the legacy key as well");
 
-    f.failPending();
+    f.endPending();
     await f.awaitOutcome(legacyEvent.payload.runtimeSessionId);
     const nextAttempt = await f.run({
       kind: "task-dispatch-review",

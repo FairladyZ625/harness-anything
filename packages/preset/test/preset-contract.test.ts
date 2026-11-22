@@ -281,10 +281,23 @@ test("builtin vertical and template discovery stay read-only while vertical run 
   assert.deepEqual(
     presetContract.commands
       .filter(({ id }) =>
-        ["vertical-validate", "template-list", "template-render", "script-list", "script-inspect"].includes(id),
+        [
+          "vertical-list",
+          "vertical-validate",
+          "template-list",
+          "template-render",
+          "script-list",
+          "script-inspect",
+        ].includes(id),
       )
       .map(({ id, path, method, commandClass }) => ({ id, path, method, commandClass })),
     [
+      {
+        id: "vertical-list",
+        path: ["vertical", "list"],
+        method: "repo.vertical.list",
+        commandClass: "repo-read",
+      },
       {
         id: "vertical-validate",
         path: ["vertical", "validate"],

@@ -113,7 +113,7 @@ test("registered edges read only their current repository's member directory wit
       path.join(canonicalRoot, "harness/harness.yaml"),
       readFileSync(path.join(root, `center-${repoId}`, "harness/harness.yaml")),
     );
-    writeFleetEdgeConfig(canonicalRoot, {
+    writeFleetEdgeConfig(edgeUserRoot, repoId, {
       repoId,
       nodeId,
       host: "localhost",
@@ -192,6 +192,23 @@ test("registered edges read only their current repository's member directory wit
     canManageFleetNodes: false,
     members: [],
   });
+  for (const method of ["repo.agenda.read", "repo.works.briefs.read", "repo.workspace.scope.read"]) {
+    const result = await requestDaemonJsonRpcAt(
+      running.endpoint,
+      method,
+      {
+        repo: { repoId: "repo-a" },
+        payload: {
+          scopePersonId: "repo-admin",
+          ...(method === "repo.workspace.scope.read" ? { rootTaskId: "task-cross-member" } : {}),
+        },
+      },
+      1_000,
+      15_000,
+    );
+    assert.equal(result.ok, false, method);
+    assert.equal(result.code, "authorization_denied", `${method}: ${String(result.rejectionExplanation)}`);
+  }
   assert.equal(existsSync(path.join(edgeUserRoot, "rbac/config.json")), false);
 
   await t.test("Fleet retirement previews and confirms at the bound center", async () => {

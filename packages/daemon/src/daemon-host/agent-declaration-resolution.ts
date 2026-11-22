@@ -1,6 +1,9 @@
-import { readBundledAgentDeclaration } from "@harness-anything/preset";
+import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
-import type { AgentState } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
+import {
+  withoutLegacyAgentInstanceBindings,
+  type AgentState,
+} from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
 import {
   consumeKnownError,
   entitySlug,
@@ -15,7 +18,9 @@ export type ProjectedAgentDeclaration = AgentDeclarationV1 & {
 
 /** Projection metadata is not part of the authored declaration schema. */
 export function readProjectedAgentDeclaration(value: unknown): ProjectedAgentDeclaration {
-  const { lifecycleState, retirement, ...declaration } = value as ProjectedAgentDeclaration;
+  const { lifecycleState, retirement, ...declaration } = withoutLegacyAgentInstanceBindings(
+    value,
+  ) as ProjectedAgentDeclaration;
   return {
     ...parseAgentDeclarationV1(declaration),
     ...(lifecycleState === undefined ? {} : { lifecycleState }),
@@ -64,8 +69,8 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
  * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
  * (install an overriding copy) stays open, which is how model changes reach it.
  */
-export function assertBundledAgentLifecycleOpen(agentId: string): void {
-  if (readBundledAgentDeclaration(agentId) === null) return;
+export function assertBundledAgentLifecycleOpen(agentId: string, rootDir?: string): void {
+  if (readAnyBundledAgentDeclaration(agentId, rootDir) === null) return;
   throw Object.assign(
     new Error(
       `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
@@ -117,6 +122,7 @@ export function readAgentDeclarationResolution(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly verticalId?: string;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
@@ -130,7 +136,7 @@ export function readAgentDeclarationResolution(input: {
     throw agentDeclarationInvalidError(input.agentId, error);
   }
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
-  const bundled = readBundledAgentDeclaration(input.agentId);
+  const bundled = input.verticalId ? readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir) : null;
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
 
@@ -138,6 +144,7 @@ export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly verticalId?: string;
 }): ProjectedAgentDeclaration {
   const resolved = readAgentDeclarationResolution(input);
   if (!resolved)

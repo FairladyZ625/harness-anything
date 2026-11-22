@@ -10,6 +10,7 @@ import { addAbortListener } from "node:events";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { replicaGenerationReaders } from "../fleet-sync/fleet/replica-generation.ts";
 import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -102,17 +103,27 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
         now = input.now?.(),
         runtimeInstances = input.runtimeInstances?.();
       // The receiver and collector live on the host. Worker-local Maps cannot protect its files.
-      const edgeConfig = input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : undefined,
+      const userRoot = input.userRoot ?? input.runtimeDaemonRoute?.userRoot ?? daemonUserRoot(),
+        edgeConfig = input.mode === "remote-edge" ? readFleetEdgeConfig(userRoot, input.repoId) : undefined,
         replicaRoot = edgeConfig
           ? path.resolve(edgeConfig.viewRoot, "repos", input.repoId, "views", edgeConfig.nodeId)
           : undefined,
         replicaPin = replicaRoot ? replicaGenerationReaders(replicaRoot).acquire() : null;
+      const detailPayload =
+          method === "read" && args[0] === "repo.agentRuntime.tokenUsageDetail"
+            ? (args[1] as Readonly<Record<string, unknown>> | undefined)
+            : undefined,
+        cursorSecret =
+          detailPayload !== undefined && (detailPayload.limit !== undefined || detailPayload.cursor !== undefined)
+            ? input.fleetCursorSecret?.()
+            : undefined;
       const payload: RepoReadPayload = {
         config,
         readerId,
         method,
         args,
         now,
+        ...(cursorSecret !== undefined ? { cursorSecret } : {}),
         runtimeInstances,
         ...(edgeConfig !== undefined
           ? {

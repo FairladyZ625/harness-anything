@@ -55,7 +55,9 @@ export async function measureTaskSubmitArtifacts(rootDir, size) {
     cell = {
       rootDir: "/nonexistent",
       cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
-      settings: { readRepository: () => ({ gates: [] }) },
+      settings: {
+        readRepository: () => ({ defaultVertical: "software/coding", defaultPreset: "standard-task", gates: [] }),
+      },
       store: {
         readEventAtRevision: () => {
           counts.acceptanceReads += 1;
@@ -483,7 +485,9 @@ export async function measureTaskReviewDispatchBatch(rootDir, size) {
         readRuntimeSessionEvents: () => [],
         readRuntimeSessionEventsByType: () => [],
       },
-      settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
+      settings: {
+        readRepository: () => ({ defaultVertical: "software/coding", roles: { defaultReviewer: "closeout-reviewer" } }),
+      },
       now: () => "2026-11-02T00:00:00.000Z",
       runtimeSpawner: {
         prepareWorktree: async () => ({ path: rootDir, cleanup: async () => undefined }),

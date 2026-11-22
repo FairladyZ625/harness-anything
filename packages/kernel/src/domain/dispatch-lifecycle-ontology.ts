@@ -1,16 +1,40 @@
+import { cloudSandboxPolicy } from "./runtime-execution-target.ts";
 import { DEFAULT_DISPATCH_INSTANCE_CAPACITY, DISPATCH_LIFECYCLE_PAGE_LIMIT } from "./dispatch-lifecycle.ts";
 import type { OntologyPolicyDeclaration, OntologyJudgmentDeclaration } from "./ontology-source.ts";
 
 /** Runtime aggregate declarations for dec_AEB05951C69E47FCE53E53C341/CH1 consumer cutover. */
 export const dispatchLifecyclePolicies = [
+  cloudSandboxPolicy,
+  {
+    id: "orphan-runtime-recovery",
+    ownerRef: "runtime-session/runtime_session_outcome_observed",
+    unit: "current RuntimeSession attempt and lease generation",
+    bounds:
+      "Repository admin recovery requires the original principal to be absent, a reason, and accepted stop evidence or an explicit unreachable ruling. Release uses the current terminal attempt's task, execution, and unreleased lease generation.",
+    defaultValue: null,
+    version: 1,
+    scope: "center runtime terminal publication and task lease release",
+    reason: "dec_B3802F58B1A80FBFC5AB8111CC/CH1 preserves original ownership while recording the acting administrator.",
+    fixtures: [
+      "packages/kernel/test/contracts/dispatch-lifecycle.test.ts",
+      "packages/daemon/test/orphan-runtime-recovery.integration.test.ts",
+    ],
+    sources: [
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/orphan-runtime-recovery.ts#orphanRuntimeLeaseStop:84674658c0e82d91fe7bfbf5424fcdcf",
+        route: "orphan runtime lease release",
+      },
+    ],
+  },
   {
     id: "dispatch-reservations",
     ownerRef: "runtime-session/run",
     unit: "provider slots / lifecycle capability",
     bounds:
-      "Positive safe-integer capacity (default 64); reserved/held occupy a slot until accepted stop proof; recovering owners fail closed. Only a verified current running leaf with a declared provider steering strategy can steer; process liveness and attach remain independent of steering support. CLI steering uses interrupt-resume, ACP steering uses cancel-reprompt in the same session, and agy/zcode have no steering strategy. Only closed stopped groups hand off; consent waits for group closure even after delivery registration; group closure releases workspace ownership. A task admits only one implementation process until accepted stop proof, across instances and nodes, even after task lease release.",
+      "Positive safe-integer capacity (default 64); reserved/held occupy a slot until accepted stop proof; recovering owners fail closed. Only a verified current running leaf with a declared provider steering strategy can steer; process liveness and attach remain independent of steering support. CLI steering uses interrupt-resume, ACP steering uses cancel-reprompt in the same session, and agy/zcode have no steering strategy. Only closed stopped groups hand off; consent waits for group closure even after delivery registration; group closure releases workspace ownership. A task admits only one implementation target until accepted stop proof, across instances and nodes, even after task lease release. An unconfirmed cloud stop revokes write authority and retains capacity until the admitting host reports a matched termination receipt.",
     defaultValue: DEFAULT_DISPATCH_INSTANCE_CAPACITY,
-    version: 3,
+    version: 4,
     scope: "center-accepted dispatch lifecycle",
     reason: "Consumers use the reducer policy; node observations do not grant capacity or authority.",
     fixtures: [
@@ -21,6 +45,7 @@ export const dispatchLifecyclePolicies = [
       "packages/daemon/test/dispatch-read-lifecycle.test.ts",
       "packages/daemon/test/runtime-steering-capability.test.ts",
       "packages/daemon/test/runtime-worker-acp.test.ts",
+      "packages/daemon/test/runtime-execution-target.integration.test.ts",
     ],
     sources: [
       "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-runtime-ingress.ts#appendAuxiliaryRuntimeIngress:bafde6c7428425b528f1814ff097ad5a",
@@ -42,7 +67,7 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceDispatchLifecycle:c41671665f96a2179bde52064ae469c8",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceDispatchLifecycle:b9f7804a5216d05b525d0a06811c57cd",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceDispatchLifecycle.ruling:009d57c1b7f3765c6a9fd1b3f0b1a793",
-      "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#admit.attempt:a3f57d28f1f5fed571add9a422f704ca",
+      "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#admit.attempt:6dba184e3b1114eae18563b6b97332b8",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#admit.attempt.task.leaseVersion:2ab8993af980b44a91f1a45b2613c14a",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#admit.attempt.task.leaseReleased:0918a2f9659dad6c63671c8ae06c7017",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceTaskInput.leaseReleased:0918a2f9659dad6c63671c8ae06c7017",
@@ -50,6 +75,12 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt:63605f8a41fedb841529e78733cab616",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt.process:fa83101db8a4eb6f0cd97ba2992000f8",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt:48a3fe14a3312d70e7455c4ee250ac58",
+      "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt:1a0c1f96aeada60fa9bab7ff3c6ce7ea",
+      "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#advanceAttempt:14cce213856acfa3802e6a745d6e1f56",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#restoreRuntime:d39fbef62f44828009059f3f0ce2fd2c",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-adoption.ts#adoptRuntimes.attempts:3acc8e2fd2bd500969e418a061417356",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#cancelRuntime:f5df1a0d1e12f3f5c929f18372136fb9",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-settlement.ts#publishExit:60f86f6f5bf22a6150394316d146f8be",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#groupPhase:171d9f15c52731280169438855ac1d16",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reservationState:5a6b67dc8e36505999c566a5eb523563",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reservationState:1a22eb8370060eb30e748ffda9d9be05",
@@ -109,7 +140,7 @@ export const dispatchLifecyclePolicies = [
     ownerRef: "runtime-session/runtime_dispatch_requested",
     unit: "attempt index / attempt outcome",
     bounds:
-      "A dispatch request's attemptIndex is a non-negative integer when present; an observed outcome attempt carries only its declared classification, reason and fallback fields. Handoff packets report a known failure only for failed, unknown or stopped attempts, with the error clipped to 500 characters.",
+      "A dispatch request's attemptIndex is a non-negative integer when present, and its cloud execution target names a registered host; an observed outcome attempt carries only its declared classification, reason and fallback fields. Handoff packets report a known failure only for failed, unknown or stopped attempts, with the error clipped to 500 characters.",
     defaultValue: null,
     version: 1,
     scope: "runtime session events and handoff packets",
@@ -119,8 +150,9 @@ export const dispatchLifecyclePolicies = [
       "packages/kernel/test/handoff-packet.test.ts",
     ],
     sources: [
-      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:9306d05d3442a560bd8e326ed3ad21c8",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:2f154e232f9b5aaa8f34ed945c55873e",
       "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:d414e72c89c251c45f5e4fba8c81516a",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:dd2ef093bbcda3d6ec5575a89f38b657",
       "policy:packages/kernel:packages/kernel/src/handoff-packet.ts#failureList:36c6074f0b2268c178b00030c123d468",
     ].map((candidateId) => ({ candidateId, route: "runtime attempt record" })),
   },
@@ -216,6 +248,36 @@ export const daemonRuntimeSessionPolicySources = [
     "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#overviewQuery.limit:5b9089c35509a9df61ead8005a774475",
     "packages/daemon/src/daemon-host/agent-runtime-read.ts#overviewQuery.limit",
     'limit: typeof payload.limit === "number" ? payload.limit : null,',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_DEFAULT_LIMIT:09578efe5364ecdfaeebbb37a219f021",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_DEFAULT_LIMIT",
+    "const CONTROL_RECEIPTS_DEFAULT_LIMIT = 500;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_MAX_LIMIT:4ff8b8e114c2f48d0dce350e4911c49b",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#CONTROL_RECEIPTS_MAX_LIMIT",
+    "const CONTROL_RECEIPTS_MAX_LIMIT = 500;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.events.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.events.limit",
+    "limit: 1,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.hasMore.limit:0dd585c292e12f6bf0b47a1d330750d6",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#readSessionControlReceipts.hasMore.limit",
+    "limit: 1,",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget:8421dc0737d3a7b15f44d51f0a83d4e8",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget",
+    "if (",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget.controlReceiptsLimit:6bb93896e32ae507c9b44d3773c1ed8b",
+    "packages/daemon/src/daemon-host/agent-runtime-read.ts#runtimeSessionTarget.controlReceiptsLimit",
+    'controlReceiptsLimit: typeof controlReceiptsLimit === "number" ? controlReceiptsLimit : null,',
   ],
   [
     "policy:packages/daemon:packages/daemon/src/daemon-host/agent-runtime-stream.ts#BUFFER_LIMIT:a18e2d7cd087689da1cdcf957be93f10",

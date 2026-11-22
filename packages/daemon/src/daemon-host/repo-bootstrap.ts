@@ -23,6 +23,7 @@ import {
 import {
   assertRepositoryScaffoldPlanCurrent,
   compileRepoRepositoryScaffold,
+  resolveRepoBootstrapDefaults,
   type RepositoryScaffoldPlan,
 } from "@harness-anything/preset";
 import {
@@ -40,6 +41,8 @@ export interface RepoBootstrapRequest {
   readonly personId?: string;
   readonly displayName?: string;
   readonly name?: string;
+  readonly vertical?: string;
+  readonly preset?: string;
   readonly addNpmScripts?: boolean;
   readonly configureOnly?: boolean;
 }
@@ -107,6 +110,23 @@ export function resolveRepoBootstrap(
   if (request.name !== undefined && (!request.name.trim() || /[\r\n]/u.test(request.name)))
     throw repoBootstrapError("invalid_name", "name must be one non-empty line.");
   const normalizedRepoId = workspaceId(repoId),
+    requestedVertical = request.vertical?.trim(),
+    requestedPreset = request.preset?.trim(),
+    bootstrapDefaults =
+      requestedVertical || requestedPreset
+        ? resolveRepoBootstrapDefaults({
+            rootDir,
+            verticalId: requestedVertical || INITIAL_SETTINGS_V1.defaultVertical,
+            ...(requestedPreset ? { presetId: requestedPreset } : {}),
+            ...(!requestedPreset && (!requestedVertical || requestedVertical === INITIAL_SETTINGS_V1.defaultVertical)
+              ? { preferredPresetId: INITIAL_SETTINGS_V1.defaultPreset }
+              : {}),
+          })
+        : {
+            verticalId: INITIAL_SETTINGS_V1.defaultVertical,
+            presetId: INITIAL_SETTINGS_V1.defaultPreset,
+            profileId: INITIAL_SETTINGS_V1.defaultProfile,
+          },
     config = [
       "schema: harness-anything/v1",
       `name: ${request.name === undefined ? repoId : JSON.stringify(request.name)}`,
@@ -118,9 +138,9 @@ export function resolveRepoBootstrap(
       "  contextRoot: harness/context",
       "  governanceRoot: harness/governance",
       "settings:",
-      `  defaultVertical: ${INITIAL_SETTINGS_V1.defaultVertical}`,
-      `  defaultPreset: ${INITIAL_SETTINGS_V1.defaultPreset}`,
-      `  defaultProfile: ${INITIAL_SETTINGS_V1.defaultProfile}`,
+      `  defaultVertical: ${bootstrapDefaults.verticalId}`,
+      `  defaultPreset: ${bootstrapDefaults.presetId}`,
+      `  defaultProfile: ${bootstrapDefaults.profileId}`,
       "  tasks:",
       `    wipLimit: ${DEFAULT_TASK_WIP_LIMIT}`,
       "  agenda:",

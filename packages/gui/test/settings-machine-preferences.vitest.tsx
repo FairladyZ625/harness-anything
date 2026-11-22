@@ -192,8 +192,19 @@ describe("settings distinguish machine preferences from repository governance", 
         !testId?.startsWith("settings-tab-")
       );
     });
+    const localFields = new Set(
+      settingsFieldsFace()
+        .filter((field) => field.ownership === "local")
+        .map((field) => field.field),
+    );
     expect(editControls.length).toBeGreaterThan(3);
-    expect(editControls.every((control) => control.disabled)).toBe(true);
+    expect(
+      editControls
+        .filter((control) => !control.disabled)
+        .every((control) =>
+          Array.from(localFields).some((field) => control.dataset.testid?.startsWith(`settings-${field}-`)),
+        ),
+    ).toBe(true);
   });
 
   it.each(["local", "remote-edge"] as const)(

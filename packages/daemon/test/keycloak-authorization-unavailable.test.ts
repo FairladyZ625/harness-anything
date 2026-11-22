@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { code as hostErrorCode } from "../src/daemon-host/daemon-host-errors.ts";
 import { isKeycloakTransportFailure } from "../src/daemon-host/keycloak-transport-failure.ts";
 import { rpcServerErrorCode } from "../src/daemon-host/protocol/json-rpc-dispatch-support.ts";

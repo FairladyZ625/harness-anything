@@ -492,7 +492,7 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     assert.equal(overGuiWire(retry).status, "accepted_durable", JSON.stringify(retry));
     assert.equal(f.launches.length, 1);
     const first = requested[0]!.payload;
-    f.failPending();
+    f.endPending();
     await f.awaitOutcome(first.runtimeSessionId);
     const redispatched = await runDecision({ kind: "decision-dispatch-review", decisionId });
     assert.equal(redispatched.outcome, "applied", JSON.stringify(redispatched));
@@ -586,7 +586,6 @@ test(
           name: "Second reviewer",
           instructions: "Inspect the decision cut and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-second",
           role: "reviewer",
         },
       });
@@ -1003,7 +1002,6 @@ test(
           name: "Second reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-second",
           role: "reviewer",
         },
       });
@@ -1253,7 +1251,7 @@ test(
       // session lets the retry lane dispatch the installed declaration.
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
-      f.failPending();
+      f.endPending();
       await f.awaitOutcome(first.payload.runtimeSessionId);
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -1284,7 +1282,7 @@ test(
       assert.equal((await f.submit()).outcome, "applied");
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
-      f.failPending();
+      f.endPending();
       await f.awaitOutcome(first.payload.runtimeSessionId);
 
       const receipt = await f.run({
@@ -1324,7 +1322,7 @@ test(
       assert.equal((await f.submit()).outcome, "applied");
       const first = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(first?.type === "runtime_dispatch_requested");
-      f.failPending();
+      f.endPending();
       await f.awaitOutcome(first.payload.runtimeSessionId);
       await f.setWorktreeSetup(["run: exit 29"]);
 
@@ -1780,7 +1778,6 @@ test(
           name: "Second reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-second",
           role: "reviewer",
         },
       });

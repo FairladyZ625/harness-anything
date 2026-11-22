@@ -74,9 +74,14 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
       `RuntimeSession Action ${type} was ${String(published.receipt.outcome ?? "rejected")}.`,
     );
   }
-  if (!runtimeEventHasType(published.event, type))
+  const receiptCarrierUpgraded =
+    type === "runtime_session_liveness_changed" &&
+    published.event.type === "runtime_session_provider_bound" &&
+    "controlReceipt" in payload &&
+    payload.controlReceipt !== undefined;
+  if (!runtimeEventHasType(published.event, type) && !receiptCarrierUpgraded)
     throw context.runtimeSpawnError("invalid_runtime_event", "Runtime publication changed the event type.");
-  return { ...published, event: published.event };
+  return { ...published, event: published.event as RuntimeEventOf<T> };
 }
 
 export async function consumeProviderChunk(

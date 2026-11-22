@@ -9,11 +9,18 @@ import {
   markDaemonOperationPhase,
   observeDaemonOperation,
 } from "../daemon-operation.ts";
-import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
-import { commandClassForAction, commandDescriptorForAction } from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonRpcParams, validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
+import {
+  actionForDaemonMethod,
+  commandClassForAction,
+  commandDescriptorForAction,
+  makeDaemonCommandReceipt,
+} from "../protocol/daemon-protocol.contract.ts";
+import { parseDaemonActionResult } from "../protocol/daemon-result-validation.ts";
 import { createFleetDeliveryDrain } from "../../fleet-sync/fleet/center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
+import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "../squad-control-result.ts";
@@ -31,15 +38,19 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  cursorSecretBytesOrNull,
+  finalizeFleetTokenUsageDetailResult,
+  fleetTokenUsageDetailCursorKey,
+  unwrapFleetTokenUsageDetailCursor,
+} from "@harness-anything/application/internal/queries/token-usage-detail-read.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
   consumeKnownError,
   resolveHarnessLayout,
   sha256Bytes,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
-  type SquadRunObservation,
 } from "@harness-anything/kernel";
-import { squadObservationEventOpId } from "../squad-observation.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import {
   readFileWindow,
@@ -57,17 +68,28 @@ import {
   uploadWindow,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
+import {
+  digestId,
+  immediate,
+  loadState,
+  mid,
+  ownedUpload,
+  serve,
+  withFleetRequestMetrics,
+  writeCenterDurableJson,
+} from "./center-transport.ts";
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
+import { dispatchCenterRuntimeControl, runtimeEventStorageOpId } from "./center-runtime-control.ts";
 import {
   closeableCenterReplicationSlots,
   createCenterNodePrincipals,
+  centerMovedFleetFault,
   openCenterRelocationEpochs,
   readListenerCenterRelocated,
 } from "./center-listener-relocation.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { type FleetFrameV1 } from "./command-protocol.ts";
+import { fleetBusinessOperationalReadMethods, type FleetFrameV1 } from "./command-protocol.ts";
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
 import {
@@ -85,7 +107,9 @@ import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 import { createBaseBackupQueue } from "../../fleet-sync/fleet/basebackup-queue.ts";
 import { forwardingIntentForAction, forwardingIntentIssue } from "./forwarding-intent.ts";
-import { readFleetRepointLineage } from "./repoint-lineage.ts";
+import { fleetErrorCode, sendCenterMovedReplicaReject } from "./center-listener-errors.ts";
+import { readCenterRepointLineage } from "./center-listener-repoint.ts";
+import { awaitWithSignal, delay } from "./center-listener-async.ts";
 import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
@@ -93,43 +117,58 @@ const REPLICATION_HEAD_POLL_MS = 50;
 export const REPLICATION_KEEPALIVE_MS = 15_000;
 /** Active (unfinished) uploads one node may hold across all of its sessions. */
 const FLEET_NODE_ACTIVE_UPLOADS = 16;
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const done = () => {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener("abort", done, { once: true });
-  });
-}
-function awaitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => {
-      signal.removeEventListener("abort", onAbort);
-      reject(signal.reason);
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    promise.then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort);
-        resolve(value);
-      },
-      (error: unknown) => {
-        signal.removeEventListener("abort", onAbort);
-        reject(error);
-      },
-    );
-  });
-}
+const FLEET_BUSINESS_READ_METHODS = new Set<string>(fleetBusinessOperationalReadMethods);
+const FLEET_READ_FAULT_CODES = new Set<string>([
+  "cursor_secret_unconfigured",
+  "entity_not_found",
+  "execution_scope_mismatch",
+  "human_confirmation_required",
+  "ingress_binding_forbidden",
+  "invalid_command",
+  "invalid_cursor",
+  "invalid_field",
+  "invalid_request",
+  "runtime_session_not_found",
+  "unsupported_command",
+]);
+const FLEET_TASK_READ_DENIAL_CODES = new Set<string>([
+  "authentication_required",
+  "authorization_denied",
+  "execution_scope_mismatch",
+  "human_confirmation_required",
+  "ingress_binding_forbidden",
+  "repo_mode_read_only",
+]);
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   /* @gate-identity non-state/environment-io.f4d8382218704581 */ mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController(),
     centerRelocated = readListenerCenterRelocated(options);
   const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
-  const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const resourceBudget = options.commandResourceBudget ?? createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+  const reserveDocShowBudget = (nodeId: string, repoId: string, sessionId: string) => {
+    try {
+      return resourceBudget.reserve({ nodeId, repoId, sessionId }, { bulkTransfers: 1 });
+    } catch (error) {
+      if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
+      throw error;
+    }
+  };
+  const deliverWithReservation = (
+    frame: FleetFrameV1,
+    reservation: { readonly release: () => void } | null,
+  ): Delivery =>
+    reservation
+      ? {
+          key: null,
+          bulkTransferReserved: true,
+          onComplete: () => reservation.release(),
+          onFailure: () => reservation.release(),
+          frames: (async function* () {
+            yield frame;
+          })(),
+        }
+      : immediate(frame);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
@@ -354,7 +393,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         let loaded = false;
         if (snapEntry.isDirectory()) {
           try {
-            const raw = readFileSync(path.join(snapshotDir, "pin.json"), "utf8");
+            const raw = readFileSync(hostEnvironmentFilePath("fleetSnapshotPin", snapshotDir), "utf8");
             const pin = JSON.parse(raw) as Partial<SnapshotPinRecord>;
             const createdAtMs = typeof pin.createdAt === "string" ? Date.parse(pin.createdAt) : Number.NaN;
             const expiresAtMs = typeof pin.expiresAt === "string" ? Date.parse(pin.expiresAt) : Number.NaN;
@@ -477,6 +516,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
         throw error;
       }
+      await sendCenterMovedReplicaReject({
+        peer,
+        error,
+        centerBuildCommit: daemonBuildStamp().commit,
+        taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      });
       throw error;
     }
     const centerBuildCommit = daemonBuildStamp().commit;
@@ -676,47 +721,38 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             buildSignal,
           );
         })()
-          .then(
-            (built) => {
-              completed = true;
-              const createdAtMs = Date.now();
-              const expiresAtMs = createdAtMs + snapshotPinTtlMs;
-              cachedArchive.size = built.size;
-              cachedArchive.positionSequence = built.metadata.position.sequence;
-              cachedArchive.createdAtMs = createdAtMs;
-              cachedArchive.expiresAtMs = expiresAtMs;
-              const pinRecord: SnapshotPinRecord = {
-                schema: "fleet-snapshot-pin/v1",
-                snapshotId,
-                repoId: frame.repoId,
-                mode,
-                metadata: { ...built.metadata, readerProfile: null },
-                position: built.metadata.position,
-                size: built.size,
-                sha256: built.sha256,
-                archiveFile: path.basename(built.file),
-                ...(built.objects ? { objects: built.objects } : {}),
-                ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
-                createdAt: new Date(createdAtMs).toISOString(),
-                expiresAt: new Date(expiresAtMs).toISOString(),
-              };
-              const pinTmp = path.join(directory, "pin.json.tmp");
-              const pinFile = path.join(directory, "pin.json");
-              /* @gate-identity non-state/environment-io.3a4b5c6d7e8f9012 */ writeFileSync(
-                pinTmp,
-                JSON.stringify(pinRecord),
-                "utf8",
-              );
-              /* @gate-identity non-state/environment-io.4b5c6d7e8f901234 */ renameSync(pinTmp, pinFile);
-              pinnedSnapshots.set(snapshotId, cachedArchive);
-              resolveArchive(built);
-              evictSnapshotsIfNeeded();
-            },
-            (error: unknown) => {
-              rejectArchive(error);
-              retireBackup(cachedArchive);
-            },
-          )
+          .then(async (built) => {
+            const createdAtMs = Date.now();
+            const expiresAtMs = createdAtMs + snapshotPinTtlMs;
+            cachedArchive.size = built.size;
+            cachedArchive.positionSequence = built.metadata.position.sequence;
+            cachedArchive.createdAtMs = createdAtMs;
+            cachedArchive.expiresAtMs = expiresAtMs;
+            const pinRecord: SnapshotPinRecord = {
+              schema: "fleet-snapshot-pin/v1",
+              snapshotId,
+              repoId: frame.repoId,
+              mode,
+              metadata: { ...built.metadata, readerProfile: null },
+              position: built.metadata.position,
+              size: built.size,
+              sha256: built.sha256,
+              archiveFile: path.basename(built.file),
+              ...(built.objects ? { objects: built.objects } : {}),
+              ...(built.objectCount !== undefined ? { objectCount: built.objectCount } : {}),
+              createdAt: new Date(createdAtMs).toISOString(),
+              expiresAt: new Date(expiresAtMs).toISOString(),
+            };
+            await writeHostEnvironmentFile("fleetSnapshotPin", directory, JSON.stringify(pinRecord));
+            completed = true;
+            pinnedSnapshots.set(snapshotId, cachedArchive);
+            resolveArchive(built);
+            evictSnapshotsIfNeeded();
+          })
+          .catch((error: unknown) => {
+            rejectArchive(error);
+            retireBackup(cachedArchive);
+          })
           .finally(() => {
             cachedArchive.building = false;
             releaseSlot?.(completed);
@@ -825,6 +861,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
+    const moved = readListenerCenterRelocated(options, repoId);
+    if (moved) throw centerMovedFleetFault(moved);
     const a = await nodeContext(nodeId, repoId, accessToken);
     // The request user's repository-read authority admits this node's replica (CH1).
     const principal = await replicaAdmission(a),
@@ -923,16 +961,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           )
         : { originUrl: null, originAddress: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       const owned = ownedEpochFor(a.repoId),
-        lineage = frame.resumePosition
-          ? await readFleetRepointLineage({
-              rootDir: repoRoot(a.repoId),
-              repoId: a.repoId,
-              storage: options.storage?.[a.repoId],
-              position: frame.resumePosition,
-              retentionWindowCommits,
-            })
-          : undefined;
-      if (lineage) writerEpoch.assert(a.repoId, owned.epoch, owned.holderId);
+        lineage = await readCenterRepointLineage({
+          rootDir: repoRoot(a.repoId),
+          repoId: a.repoId,
+          storage: options.storage?.[a.repoId],
+          position: frame.resumePosition,
+          retentionWindowCommits,
+          ownedEpoch: owned,
+          assertWriterEpoch: (repoId, epoch, holderId) => writerEpoch.assert(repoId, epoch, holderId),
+        });
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
         personId: principal.fleetReplicaPrincipal?.personId ?? principal.oidcPrincipal!.personId,
@@ -1262,18 +1299,23 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
         };
         const commandAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
-        let reservation;
+        const reservation =
+          command.kind === "doc-show" ? reserveDocShowBudget(nodeId, a.repoId, window.holderId) : null;
         try {
-          reservation =
-            command.kind === "doc-show"
-              ? resourceBudget.reserve({ nodeId, repoId: a.repoId, sessionId: window.holderId }, { bulkTransfers: 1 })
-              : null;
-        } catch (error) {
-          if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
-          throw error;
-        }
-        try {
-          const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          let receipt: Awaited<ReturnType<typeof observedRunCenterWriter>>;
+          if (command.kind === "runtime-cancel" || command.kind === "runtime-steer") {
+            const { kind: controlKind, ...controlPayload } = command;
+            receipt = (await dispatchCenterRuntimeControl(
+              options,
+              a.repoId,
+              controlKind,
+              controlPayload,
+              frame.opId,
+              commandAuth,
+            )) as unknown as Awaited<ReturnType<typeof observedRunCenterWriter>>;
+          } else {
+            receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          }
           if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const applied = receipt.outcome !== "op_rejected" && receipt.outcome !== "indeterminate";
@@ -1311,16 +1353,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             inReplyTo: frame.messageId,
             ...result,
           };
-          if (reservation)
-            return {
-              key: null,
-              onComplete: () => reservation.release(),
-              onFailure: () => reservation.release(),
-              frames: (async function* () {
-                yield response;
-              })(),
-            };
-          return immediate(response);
+          return deliverWithReservation(response, reservation);
         } catch (error) {
           reservation?.release();
           throw error;
@@ -1399,19 +1432,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           resultBody = bytes.toString("utf8");
         }
         let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
-        // The frame opId correlates the caller's request. Most runtime events get a center-minted
-        // storage identity, so a reused frame opId cannot hit storage dedup/op_conflict and the
-        // RuntimeSession reducer decides duplicate, late, and interleaved transitions. A Squad
-        // observation instead carries its own identity (run + revision) in the payload, and the
-        // Squad ingress validates the stored identity against it. Deriving that identity from the
-        // payload keeps frame.opId correlation-only while preserving the same observation's replay
-        // identity across different requests.
-        const runtimeEventOpId =
-          frame.eventType === "runtime_squad_run_observed"
-            ? squadObservationEventOpId(
-                frame.payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">,
-              )
-            : randomUUID();
+        const runtimeEventOpId = runtimeEventStorageOpId(a.repoId, frame.eventType, frame.payload);
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,
@@ -1539,13 +1560,31 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "execution_scope_mismatch",
           "Runtime read repository must match the authenticated node request.",
         );
+      const businessRead = FLEET_BUSINESS_READ_METHODS.has(frame.method);
       const binding = {
-        ...(await (frame.method === "repo.access.members.read" ? repoAdmission(a) : auth(a))),
+        ...(await (businessRead
+          ? replicaAdmission(a)
+          : frame.method === "repo.access.members.read"
+            ? repoAdmission(a)
+            : auth(a))),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
       markDaemonOperationPhase("repository-admission");
-      let result;
+      let result,
+        reservation: { readonly release: () => void } | null = null;
       try {
+        if (businessRead) {
+          const parsed = parseDaemonRpcParams(frame.method, {
+            repo: { repoId: a.repoId },
+            payload: frame.payload,
+          });
+          if (!parsed.ok) throw new FleetFault("invalid_field", parsed.errors.join("; "));
+          if (frame.method === "observe.tail" && frame.payload.kind !== "events")
+            throw new FleetFault(
+              "execution_scope_mismatch",
+              `observe.tail kind ${String(frame.payload.kind)} is runtime-local and cannot be read through a repository-scoped Fleet read.`,
+            );
+        }
         if (frame.method === "repo.access.members.read") {
           if (Object.keys(frame.payload).length > 0)
             throw new FleetFault("invalid_field", "The repository directory read takes no payload.");
@@ -1566,13 +1605,71 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         } else if (frame.method === "repo.tasks.autoDispatchCandidates") {
           markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoDispatchCandidates(a.repoId, binding);
+        } else if (frame.method === "repo.task.show" || frame.method === "repo.task.read") {
+          const action = actionForDaemonMethod(frame.method, frame.payload as JsonObject),
+            descriptor = commandDescriptorForAction(action.kind),
+            edgeMode = descriptor.admission["remote-edge"];
+          if (
+            descriptor.commandClass !== "repo-read" ||
+            !("repoCellExecution" in descriptor) ||
+            descriptor.repoCellExecution !== "query-only" ||
+            edgeMode !== "edge-replica"
+          )
+            throw new FleetFault(
+              "unsupported_command",
+              `${action.kind} is not an allowed remote repository read command.`,
+            );
+          if (action.kind === "doc-show") reservation = reserveDocShowBudget(nodeId, a.repoId, window.holderId);
+          const receipt = await observedRunCenterWriter(a.repoId, action, binding);
+          if (reservation) connectionSignal.throwIfAborted();
+          if (
+            "outcome" in receipt &&
+            receipt.outcome === "op_rejected" &&
+            "code" in receipt &&
+            typeof receipt.code === "string" &&
+            FLEET_TASK_READ_DENIAL_CODES.has(receipt.code)
+          ) {
+            throw new FleetFault(
+              receipt.code,
+              "rejectionExplanation" in receipt && typeof receipt.rejectionExplanation === "string"
+                ? receipt.rejectionExplanation
+                : receipt.code,
+            );
+          }
+          const commandReceipt = makeDaemonCommandReceipt(action.kind, receipt);
+          result =
+            frame.method === "repo.task.show"
+              ? parseDaemonActionResult("repo.task.show", commandReceipt)
+              : commandReceipt;
         } else {
           markDaemonOperationPhase("projection-read");
           if (frame.method === "repo.task.dispatches") {
             const errors = validateTaskDispatchesPayload(frame.payload);
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
-          result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+          let readPayload = frame.payload as JsonObject;
+          const isDetailRead = frame.method === "repo.agentRuntime.tokenUsageDetail",
+            isPaginatedDetailRead =
+              isDetailRead && (frame.payload.limit !== undefined || frame.payload.cursor !== undefined),
+            outerDetailCursor = isDetailRead && typeof frame.payload.cursor === "string" ? frame.payload.cursor : null;
+          let detailCursorKey: Buffer | null = null;
+          if (isPaginatedDetailRead) {
+            const secretBytes = cursorSecretBytesOrNull(options.cursorSecret);
+            if (secretBytes === null)
+              throw new FleetFault(
+                "cursor_secret_unconfigured",
+                "Fleet token usage detail pagination requires a configured cursorSecret.",
+              );
+            detailCursorKey = fleetTokenUsageDetailCursorKey(a.repoId, secretBytes);
+            if (outerDetailCursor !== null) {
+              const innerCursor = unwrapFleetTokenUsageDetailCursor(detailCursorKey, a.repoId, outerDetailCursor);
+              if (innerCursor === null) throw new FleetFault("invalid_cursor", "Token usage detail cursor is invalid.");
+              readPayload = { ...readPayload, cursor: innerCursor };
+            }
+          }
+          result = await options.host.read(a.repoId, frame.method, readPayload, binding);
+          if (isDetailRead)
+            result = finalizeFleetTokenUsageDetailResult(detailCursorKey, a.repoId, outerDetailCursor, result);
           if (frame.method === "repo.fleet.overview.read") {
             const warning = versionWarnings.get(nodeId);
             if (warning !== undefined) {
@@ -1582,7 +1679,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           }
         }
       } catch (error) {
+        reservation?.release();
+        if (error instanceof FleetFault) throw error;
         const code = runtimeErrorCode(error);
+        if (code === "resource_exhausted") throw new FleetFault(code, runtimeErrorMessage(error), true);
         if (
           code &&
           ["authentication_required", "authorization_denied", "keycloak_unavailable", "projection_pending"].includes(
@@ -1590,15 +1690,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           )
         )
           throw new FleetFault(code, runtimeErrorMessage(error));
+        if (code && FLEET_READ_FAULT_CODES.has(code)) throw new FleetFault(code, runtimeErrorMessage(error));
         throw error;
       }
-      return immediate({
-        schema: "fleet.operational.read.result/v1",
-        messageId: mid(frame.messageId, "runtime-read"),
-        inReplyTo: frame.messageId,
-        result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
-        ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
-      });
+      return deliverWithReservation(
+        {
+          schema: "fleet.operational.read.result/v1",
+          messageId: mid(frame.messageId, "runtime-read"),
+          inReplyTo: frame.messageId,
+          result: previousDispatchLifecycleReadResult(frame.method, result) as Readonly<Record<string, unknown>>,
+          ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
+        },
+        reservation,
+      );
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };
@@ -1749,6 +1853,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
     });
   });
+  const trackedHandle = withFleetRequestMetrics(options, observedHandle);
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
@@ -1764,7 +1869,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           options.onVersionWarning?.(nodeId, warning);
         },
       },
-      observedHandle,
+      trackedHandle,
       sessions,
       replicationOwners,
       nodeSessions,
@@ -1788,6 +1893,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   return {
     port: address.port,
     pendingDeliveries: deliveries.pending,
+    connectionMetrics: () => ({
+      activeConnections: connections.size,
+      authenticatedNodes: sessions.size,
+      replicationStreams: replicationOwners.size,
+      pendingDeliveries: deliveries.pending(),
+    }),
     inspectNode: (nodeId) => ({
       online: (sessions.get(nodeId)?.size ?? 0) > 0,
       inFlight: nodeAdmission.inFlight(nodeId),
@@ -1800,6 +1911,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       versionWarnings.delete(nodeId);
       for (const socket of sessions.get(nodeId) ?? []) socket.destroy();
       sessions.delete(nodeId);
+      options.onNodeDisconnected?.(nodeId);
       replicationSlots.removeNode(nodeId);
       replicaStatus.removeNode(nodeId);
       nodeSessions.removeNode(nodeId);
@@ -1809,6 +1921,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!live) return;
       sessions.delete(nodeId);
       for (const socket of live) socket.destroy();
+      options.onNodeDisconnected?.(nodeId);
     },
     close: async () => {
       if (closed) return;
@@ -1860,10 +1973,4 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ...(repoId === undefined ? {} : { repoId }),
     });
   }
-}
-
-function fleetErrorCode(error: unknown): string | null {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? error.code
-    : null;
 }

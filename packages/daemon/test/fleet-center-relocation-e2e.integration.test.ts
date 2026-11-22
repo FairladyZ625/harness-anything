@@ -9,10 +9,10 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import {
-  MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
   readManagedRbacRelocationBundle,
   writeManagedRbacRelocationBundle,
-} from "@harness-anything/authorization-keycloak/managed-rbac-relocation";
+} from "@harness-anything/authorization/keycloak";
+import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 import {
   activateEmptyCanonicalGeneration,
   closeSqliteEventStoresUnder,
@@ -148,7 +148,7 @@ test(
               realmJson: JSON.stringify({ realm: "harness", clients: [{ clientId: "harness-center" }] }),
               centerClientSecret: "fixture-center-client-secret",
               edgeJoinJournal: {
-                schema: MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
+                schema: IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA,
                 entries: [JSON.stringify({ personId: "fixture-admin", action: "member-admitted" })],
               },
             });
@@ -234,7 +234,7 @@ test(
             assert.equal(bundle.realm, "harness");
             assert.equal(bundle.centerClientSecret, "fixture-center-client-secret");
             assert.deepEqual(bundle.edgeJoinJournal, {
-              schema: MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
+              schema: IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA,
               entries: [JSON.stringify({ personId: "fixture-admin", action: "member-admitted" })],
             });
             importedRbacBundle = true;

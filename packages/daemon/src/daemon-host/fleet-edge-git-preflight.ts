@@ -287,7 +287,7 @@ export async function fleetEdgeRepositoryGitFailure(
           { timeoutMs: gitTimeoutMs },
         ).catch(() => null)
       : null;
-  if (!originContainsCenter || originContainsCenter.exitCode !== 0)
+  if (!remoteHead || originContainsCenter?.exitCode !== 0)
     return new FleetEdgeGitPreflightError(
       "edge_origin_mismatch",
       `Cannot start ${operation}: the edge origin's ${center.defaultBranch} default branch history does not contain the center head ${center.defaultBranchCommit}. Point origin at a repository with that history, then retry; Harness will not change remotes automatically.`,
@@ -334,30 +334,29 @@ export async function fleetEdgeRepositoryGitFailure(
       "edge_default_branch_unavailable",
       `Cannot start ${operation}: the edge default branch has no commit. Fetch ${center.defaultBranch} from origin, then retry.`,
     );
-  const relation = await runProcessExitAsync(
-    "git",
-    ["rev-list", "--left-right", "--count", `${local.defaultBranchCommit}...${center.defaultBranchCommit}`],
+  const localOnly = await gitText(
     input.rootDir,
-    nonInteractiveGitEnv,
-    undefined,
-    undefined,
-    { timeoutMs: gitTimeoutMs },
-  ).catch(() => null);
-  if (!relation || relation.exitCode !== 0)
+    ["rev-list", "--count", `${remoteHead}..${local.defaultBranchCommit}`],
+    true,
+  );
+  if (localOnly === null)
     return new FleetEdgeGitPreflightError(
-      "edge_origin_mismatch",
-      `Cannot start ${operation}: the edge origin's ${center.defaultBranch} history does not contain the center default branch head ${center.defaultBranchCommit}. Point origin at a repository with that history, then retry; Harness will not change remotes automatically.`,
+      "edge_default_branch_unverifiable",
+      `Cannot start ${operation}: Git could not compare the edge ${center.defaultBranch} with origin/${center.defaultBranch}. Repair the edge checkout and retry.`,
     );
-  const [localOnly, centerOnly] = relation.stdout.trim().split(/\s+/u).map(Number);
-  if (localOnly > 0 && centerOnly > 0)
+  if (localOnly !== "0")
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_diverged",
-      `Cannot start ${operation}: the edge default branch diverges from the center ${center.defaultBranch}. Rebase or reset it explicitly onto the center head, then retry.`,
+      `Cannot start ${operation}: the edge default branch ${center.defaultBranch} has ${localOnly} commit${localOnly === "1" ? "" : "s"} not present in origin/${center.defaultBranch}. Reconcile the local branch explicitly, then retry.`,
     );
-  if (centerOnly > 0)
+  // CH2 admits a behind branch only when the root checkout is clean. New task worktrees use the published base.
+  if (
+    local.defaultBranchCommit !== remoteHead &&
+    (await gitText(input.rootDir, ["status", "--porcelain", "--untracked-files=normal"]))
+  )
     return new FleetEdgeGitPreflightError(
-      "edge_default_branch_behind",
-      `Cannot start ${operation}: the edge default branch is behind the center ${center.defaultBranch} by ${centerOnly} commit${centerOnly === 1 ? "" : "s"}. Run git -C ${input.rootDir} fetch origin ${center.defaultBranch} && git -C ${input.rootDir} merge --ff-only origin/${center.defaultBranch}, then retry.`,
+      "edge_root_checkout_dirty",
+      `Cannot start ${operation}: the edge root checkout at ${input.rootDir} has uncommitted changes. Make the checkout clean, then retry.`,
     );
   return null;
 }

@@ -16,7 +16,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ManagedPostgresBinaries } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import type { ManagedPostgresBinaries } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 
 const LOCK_WAIT_MS = 120_000;
 const LOCK_POLL_MS = 25;

@@ -1,6 +1,7 @@
-import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { daemonUserRoot } from "../src/daemon-host/client/local-daemon-target.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { sqliteLedgerPath, startBaseBackup } from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 
@@ -10,7 +11,12 @@ import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sy
  * places the readable generation under the view root the edge config names. The caller reopens
  * the cell in remote-edge mode and answers reads from this replica without a center.
  */
-export async function materializeCellReplica(rootDir: string, repoId: string, personId: string) {
+export async function materializeCellReplica(
+  rootDir: string,
+  repoId: string,
+  personId: string,
+  userRoot: string = daemonUserRoot(),
+) {
   const viewRoot = path.join(rootDir, ".fleet-view"),
     viewDir = path.join(viewRoot, "repos", repoId, "views", "test-edge"),
     layout = resolveHarnessLayout(rootDir),
@@ -30,19 +36,15 @@ export async function materializeCellReplica(rootDir: string, repoId: string, pe
       quotaBytes: 64 * 1024 * 1024,
     }),
     generation = readReplicaGeneration(viewDir)!;
-  writeFileSync(
-    path.join(rootDir, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId,
-      nodeId: "test-edge",
-      host: "127.0.0.1",
-      port: 1,
-      caPath: path.join(rootDir, "unused-ca.pem"),
-      credential: "unused-offline-test",
-      viewRoot,
-      quotaBytes: 64 * 1024 * 1024,
-    }),
-  );
+  writeFleetEdgeConfig(userRoot, repoId, {
+    repoId,
+    nodeId: "test-edge",
+    host: "127.0.0.1",
+    port: 1,
+    caPath: path.join(rootDir, "unused-ca.pem"),
+    credential: "unused-offline-test",
+    viewRoot,
+    quotaBytes: 64 * 1024 * 1024,
+  });
   return { revision: installed.metadata.position.revision, generation };
 }

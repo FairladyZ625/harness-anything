@@ -3,6 +3,8 @@ import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { explainEdgeTaskConsentScopeMismatch } from "./repo-cell-task-consent-errors.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
 // the fleet TLS channel, attaches to the center's wait queue for as long as the
 // caller is willing to wait, reconnects with full-jitter exponential backoff
@@ -19,15 +21,17 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import { randomUUID } from "node:crypto";
 import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
-import { readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, statSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
 import { tmpdir } from "node:os";
+import { writeFileDurably } from "@harness-anything/storage";
 import {
   consumeKnownError,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
   resolveHarnessLayout,
+  sha256Bytes,
 } from "@harness-anything/kernel";
 import {
   FleetRemoteError,
@@ -57,6 +61,7 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
+import { worktreeAuthoredRelative } from "./worktree-setup.ts";
 import { runFleetEdgeTaskCommand, runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
@@ -71,6 +76,7 @@ export interface FleetEdgeTaskRequest {
     readonly port: number;
     readonly caPath: string;
     readonly servername?: string;
+    readonly spkiSha256?: string;
     readonly nodeId: string;
     readonly credential: string;
     readonly executionCredential?: string;
@@ -302,10 +308,15 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
 
 /** A repository read on an edge: answered by the host's edge cell after this edge's own writes land. */
 export async function runFleetEdgeRepositoryRead(
-  input: { readonly rootDir: string; readonly repoId: string; readonly action: FleetTaskAction },
+  input: {
+    readonly userRoot?: string;
+    readonly rootDir: string;
+    readonly repoId: string;
+    readonly action: FleetTaskAction;
+  },
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
-  const config = readFleetEdgeConfig(input.rootDir);
+  const config = readFleetEdgeConfig(input.userRoot ?? daemonUserRoot(), input.repoId);
   if (!config) return readLocal();
   if (config.repoId !== input.repoId)
     throw Object.assign(new Error("The edge repository configuration is unavailable."), {
@@ -344,6 +355,7 @@ export async function runFleetEdgeTask(
 ): Promise<Record<string, unknown>> {
   const payload = input.payload;
   const signal = input.signal;
+  const source = { kind: "node", nodeId: payload.nodeId } as const;
   let action = payload.action;
   const readOnly = commandDescriptorForAction(action.kind).commandClass === "repo-read";
   const credential = payload.credential;
@@ -359,6 +371,7 @@ export async function runFleetEdgeTask(
       port: payload.port,
       ca: readFileSync(payload.caPath, "utf8"),
       servername: payload.servername,
+      ...(payload.spkiSha256 ? { spkiSha256: payload.spkiSha256 } : {}),
       nodeId: payload.nodeId,
       credential,
       ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),
@@ -631,6 +644,37 @@ export async function runFleetEdgeTask(
         : null;
     let mirror: Record<string, unknown> | null = null;
     const staged: FleetStagedConflict[] = [];
+    let acceptedWorktreeChanges = bundle?.acceptedWorktreeChanges ?? null;
+    if (applied && action.kind === "task-submit" && workspaceRoot !== null && taskId !== null && bundle !== null) {
+      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
+          entriesPrefix: `tasks/${taskId}`,
+        }),
+        packagePath = view === null ? null : fleetExactTaskPackagePath(view, workspaceRoot, taskId);
+      if (view !== null && packagePath !== null) {
+        const closeoutPath = `${packagePath}/closeout.md`,
+          carriedCloseout = bundle.docChanges.find((change) => change.path === closeoutPath),
+          acceptedBytes = carriedCloseout === undefined ? null : fleetMirrorCutFile(view, closeoutPath);
+        if (carriedCloseout !== undefined && acceptedBytes !== null) {
+          const layout = resolveHarnessLayout(workspaceRoot),
+            syncMatchingCopy = (root: string, expectedSha256: string): boolean => {
+              const target = path.join(root, ...closeoutPath.split("/")),
+                stat = lstatSync(target, { throwIfNoEntry: false });
+              if (!stat?.isFile() || stat.isSymbolicLink()) return false;
+              if (sha256Bytes(readAuthoredDocumentBytes(root, closeoutPath)) !== expectedSha256) return false;
+              writeFileDurably(target, acceptedBytes);
+              return true;
+            };
+          syncMatchingCopy(layout.authoredRoot, carriedCloseout.candidate.sha256);
+          acceptedWorktreeChanges = bundle.acceptedWorktreeChanges.map((change) => {
+            if (change.path !== closeoutPath || change.worktreeRoot === undefined) return change;
+            const worktreeAuthoredRoot = path.join(change.worktreeRoot, worktreeAuthoredRelative(layout));
+            return syncMatchingCopy(worktreeAuthoredRoot, sha256Bytes(change.bytes))
+              ? { ...change, bytes: acceptedBytes }
+              : change;
+          });
+        }
+      }
+    }
     // Any center effect (applied) and any content conflict both end in a pull:
     // applied commands must land in the mirror, and a rejected bundle needs the
     // center bytes staged beside the local ones for the explicit exits.
@@ -673,8 +717,8 @@ export async function runFleetEdgeTask(
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
     if (applied) {
-      if (workspaceRoot !== null && bundle !== null)
-        acceptEdgeWorktreeScanBases(bundle.acceptedWorktreeChanges, workspaceRoot);
+      if (workspaceRoot !== null && acceptedWorktreeChanges !== null)
+        acceptEdgeWorktreeScanBases(acceptedWorktreeChanges, workspaceRoot);
       rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
     }
     if (receiptFormat === "domain")
@@ -729,7 +773,7 @@ export async function runFleetEdgeTask(
           }
         : {}),
     } as Record<string, unknown>;
-  });
+  }).then((receipt) => explainEdgeTaskConsentScopeMismatch(receipt, action, source));
 
   // PUSHING_DOCS_AND_TRANSITION: gather this task's dirty registered-harness prose
   // (doc-sync-allowed routes only, inside the canonical task package), upload the

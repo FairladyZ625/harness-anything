@@ -155,20 +155,86 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
   const readRuntimeSessionEventsByType: PgTaskProjectionSource["readRuntimeSessionEventsByType"] = (
     runtimeSessionId,
     types,
+    queryOptions,
   ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
         const requested = assertRuntimeEventTypes(types),
-          events = await readEventsInTransaction(
-            client,
-            claims,
-            readers,
-            repoId,
-            "runtime_session_id = $6 AND event_type = ANY($7::text[]) AND event_type <> ALL($8::text[])",
-            [runtimeSessionId, requested, privateRuntimeEventTypes],
+          maxRevision = queryOptions?.maxRevision,
+          afterRevision = queryOptions?.afterRevision,
+          filter = queryOptions?.filter,
+          windowed =
+            afterRevision !== undefined ||
+            queryOptions?.limit !== undefined ||
+            queryOptions?.order !== undefined ||
+            filter !== undefined,
+          limit = windowed ? (queryOptions?.limit ?? 500) : queryOptions?.limit,
+          order = queryOptions?.order === "desc" ? "DESC" : "ASC";
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime session event read maxRevision must be a non-negative safe integer");
+        if (afterRevision !== undefined && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
+          throw new Error("runtime session event read afterRevision must be a non-negative safe integer");
+        if (maxRevision !== undefined && afterRevision !== undefined && maxRevision < afterRevision)
+          throw new Error("runtime session event read maxRevision must not precede afterRevision");
+        if (limit !== undefined && !validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
+          throw new Error("runtime session event read limit must be between 1 and 500");
+        const requestOpId =
+            filter === "control_receipt" &&
+            typeof queryOptions?.requestOpId === "string" &&
+            queryOptions.requestOpId.length > 0
+              ? queryOptions.requestOpId
+              : null,
+          privateTypes =
+            filter === "control_receipt" || filter === "applied_steer_receipt"
+              ? privateRuntimeEventTypes.filter((type) => type !== "runtime_session_provider_bound")
+              : privateRuntimeEventTypes,
+          predicates: string[] = [],
+          predicateValues: unknown[] = [];
+        if (windowed) {
+          predicates.push(`revision > $${6 + predicateValues.length}`);
+          predicateValues.push(afterRevision ?? 0);
+        }
+        predicates.push(`runtime_session_id = $${6 + predicateValues.length}`);
+        predicateValues.push(runtimeSessionId);
+        predicates.push(`event_type = ANY($${6 + predicateValues.length}::text[])`);
+        predicateValues.push(requested);
+        predicates.push(`event_type <> ALL($${6 + predicateValues.length}::text[])`);
+        predicateValues.push(privateTypes);
+        if (maxRevision !== undefined) {
+          predicates.push(`revision <= $${6 + predicateValues.length}::bigint`);
+          predicateValues.push(maxRevision);
+        }
+        if (filter === "control_request") {
+          predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_kind IS NOT NULL");
+        } else if (filter === "cancel_control_request") {
+          predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_kind = 'cancel'");
+        } else if (filter === "control_receipt") {
+          if (requestOpId !== null) {
+            predicates.push(
+              `event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_req_op_id = $${6 + predicateValues.length}`,
+            );
+            predicateValues.push(requestOpId);
+          } else {
+            predicates.push("event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status IS NOT NULL");
+          }
+        } else if (filter === "applied_steer_receipt") {
+          predicates.push(
+            "event_schema = 'agent-runtime-event/v1' AND runtime_control_receipt_status = 'applied_versioned'",
           );
-        return events
+        }
+        const rows = await readEventRowsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          predicates.join(" AND "),
+          predicateValues,
+          order,
+          limit,
+        );
+        return rows
+          .map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1))
           .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
           .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
       },
@@ -179,8 +245,17 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (!validateStorageReadWindow(query.limit, storageReadPolicy.defaultValue.pageSizes.standard))
-          throw new Error("event list limit must be between 1 and 500");
+        if (
+          !validateStorageReadWindow(
+            query.limit,
+            storageReadPolicy.defaultValue.pageSizes.standard,
+            query.afterRevision,
+            query.revisionBound,
+          )
+        )
+          throw new Error("event list limit must be between 1 and 500 with valid revision bounds");
+        const order = query.order ?? "desc";
+        if (order !== "asc" && order !== "desc") throw new Error("event list order must be asc or desc");
         await assertPgEventReadIndexReady(client, claims, repoId, 6);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, cut.watermark],
@@ -193,6 +268,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             values.push(value);
             where.push(predicate(values.length));
           };
+        if (query.afterRevision !== undefined)
+          add((parameter) => `event.revision > $${parameter}`, query.afterRevision);
         if (query.revisionBound !== undefined)
           add((parameter) => `event.revision < $${parameter}`, query.revisionBound);
         if (query.type !== undefined) add((parameter) => `event.event_type = $${parameter}`, query.type);
@@ -215,7 +292,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               = (event.tenant_id,event.project_id,event.repo_id,event.policy_epoch,event.revision)`,
           rows = await client.query<{ list_row: string }>(
             `SELECT event.list_row FROM ${from} WHERE ${where.join(" AND ")}
-            ORDER BY ${query.entity === undefined ? "event" : "ref"}.revision DESC LIMIT $${values.length}`,
+            ORDER BY ${query.entity === undefined ? "event" : "ref"}.revision ${order === "asc" ? "ASC" : "DESC"} LIMIT $${values.length}`,
             values,
           ),
           selected = rows.rows.map(({ list_row }) => JSON.parse(list_row) as EventListRow);
@@ -247,12 +324,28 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit, fields) =>
+  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (
+    afterRevision,
+    limit,
+    fields,
+    beforeRevision,
+    order,
+  ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.summaries, afterRevision))
+        if (
+          !validateStorageReadWindow(
+            limit,
+            storageReadPolicy.defaultValue.pageSizes.summaries,
+            afterRevision,
+            beforeRevision,
+          )
+        )
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        const scanOrder = order ?? (beforeRevision === undefined ? "asc" : "desc");
+        if (scanOrder !== "asc" && scanOrder !== "desc")
+          throw new Error("event summary page order must be asc or desc");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         if (typeof fields === "object" && "taskIds" in fields) {
           const taskIds = [...new Set(fields.taskIds)].filter((taskId) => taskId.length > 0);
@@ -312,16 +405,30 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           if (!ready.rowCount) {
             // During the current/previous upgrade window, preserve the existing event reader
             // until this repo's bounded summary projection has been certified.
-            const rows = await readEventRowsInTransaction(
-              client,
-              claims,
-              readers,
-              repoId,
-              "revision > $6 AND revision <= $7",
-              [afterRevision, cut.watermark],
-              "ASC",
-              limit,
-            );
+            const sqlOrder = scanOrder === "asc" ? "ASC" : "DESC",
+              rawRows =
+                beforeRevision === undefined
+                  ? await readEventRowsInTransaction(
+                      client,
+                      claims,
+                      readers,
+                      repoId,
+                      "revision > $6 AND revision <= $7",
+                      [afterRevision, cut.watermark],
+                      sqlOrder,
+                      limit,
+                    )
+                  : await readEventRowsInTransaction(
+                      client,
+                      claims,
+                      readers,
+                      repoId,
+                      "revision > $6 AND revision < $7 AND revision <= $8",
+                      [afterRevision, beforeRevision, cut.watermark],
+                      sqlOrder,
+                      limit,
+                    ),
+              rows = scanOrder === "desc" ? rawRows.toReversed() : rawRows;
             return {
               ...cut,
               events: rows.map(({ event_json }) =>
@@ -330,17 +437,51 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               ...(fleetActivity === undefined ? {} : { fleetActivity }),
             };
           }
-          const result = await client.query<PgFleetHeaderRow>(
-            `SELECT summary_json, fleet_node_id,
-                    COALESCE(fleet_source_json, (ha_read_index_json(event_json)->'source')::text) AS fleet_source_json,
-                    COALESCE(actor_person_id, ha_read_index_json(event_json)#>>'{actor,principal,personId}') AS actor_person_id
+          const upperPredicate = beforeRevision === undefined ? "" : "AND revision < $9",
+            sqlOrder = scanOrder === "asc" ? "ASC" : "DESC",
+            params = [
+              claims.tenantId,
+              claims.projectId,
+              repoId,
+              claims.policyEpoch,
+              readers,
+              afterRevision,
+              cut.watermark,
+              limit,
+              ...(beforeRevision === undefined ? [] : [beforeRevision]),
+            ],
+            result = await client.query<PgFleetHeaderRow>(
+              `SELECT summary_json, fleet_node_id,
+                      COALESCE(fleet_source_json, (ha_read_index_json(event_json)->'source')::text) AS fleet_source_json,
+                      COALESCE(actor_person_id, ha_read_index_json(event_json)#>>'{actor,principal,personId}') AS actor_person_id
+               FROM ha_events
+               WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+                 AND event_type <> 'ci_run_observed'
+                 AND summary_json IS NOT NULL
+                 AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
+                 AND revision <= $7 AND revision > $6 ${upperPredicate}
+               ORDER BY revision ${sqlOrder} LIMIT $8`,
+              params,
+            ),
+            rows = scanOrder === "desc" ? result.rows.toReversed() : result.rows;
+          return {
+            ...cut,
+            events: rows.map(pgFleetHeader),
+            ...(fleetActivity === undefined ? {} : { fleetActivity }),
+          };
+        }
+        await assertPgEventReadIndexReady(client, claims, repoId);
+        await pgDefaultEventSummaryGate(client, claims, repoId);
+        const upperPredicate = beforeRevision === undefined ? "" : "AND revision < $9",
+          sqlOrder = scanOrder === "asc" ? "ASC" : "DESC",
+          result = await client.query<{ revision: string; summary_json: string }>(
+            `SELECT revision::text AS revision, default_summary_json AS summary_json
              FROM ha_events
-             WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+             WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
                AND event_type <> 'ci_run_observed'
-               AND summary_json IS NOT NULL
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
-               AND revision <= $7 AND revision > $6
-             ORDER BY revision ASC LIMIT $8`,
+               AND revision > $6 AND revision <= $7 ${upperPredicate}
+             ORDER BY ha_events.revision ${sqlOrder} LIMIT $8`,
             [
               claims.tenantId,
               claims.projectId,
@@ -350,29 +491,13 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               afterRevision,
               cut.watermark,
               limit,
+              ...(beforeRevision === undefined ? [] : [beforeRevision]),
             ],
-          );
-          return {
-            ...cut,
-            events: result.rows.map(pgFleetHeader),
-            ...(fleetActivity === undefined ? {} : { fleetActivity }),
-          };
-        }
-        await assertPgEventReadIndexReady(client, claims, repoId);
-        await pgDefaultEventSummaryGate(client, claims, repoId);
-        const result = await client.query<{ revision: string; summary_json: string }>(
-          `SELECT revision::text AS revision, default_summary_json AS summary_json
-           FROM ha_events
-           WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
-             AND event_type <> 'ci_run_observed'
-             AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
-             AND revision > $6 AND revision <= $7
-           ORDER BY ha_events.revision ASC LIMIT $8`,
-          [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, afterRevision, cut.watermark, limit],
-        );
+          ),
+          rows = scanOrder === "desc" ? result.rows.toReversed() : result.rows;
         return {
           ...cut,
-          events: result.rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)),
+          events: rows.map(({ summary_json }) => parseDefaultEventSummaryRow(summary_json)),
         };
       },
       claims,

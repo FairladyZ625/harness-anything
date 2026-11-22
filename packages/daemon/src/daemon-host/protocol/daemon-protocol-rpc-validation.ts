@@ -10,12 +10,14 @@ import {
 import {
   admitUseCaseProjectionSelector,
   validateShape,
+  shape,
   isRuntimeStreamCursor,
   validateObserveTailPayload,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
   type DaemonStreamMethod,
 } from "./daemon-protocol-results.ts";
+import { daemonCollaboratorScopeFields } from "./daemon-protocol-schema-ids.ts";
 import {
   digest,
   exactRecord,
@@ -41,7 +43,8 @@ export {
   validateSessionEnvironment,
 };
 
-const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u;
+const TASK_ID = /^[A-Za-z0-9_-]{1,96}$/u,
+  catalogActionMethods = new Set(["repo.task.run", "repo.task.read", "repo.trace.read"]);
 
 function validateDaemonWorkTopologyPayload(value: unknown): string[] {
   if (!isJsonObject(value) || Object.keys(value).length !== 1 || typeof value.workRootTaskId !== "string")
@@ -71,6 +74,14 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
   const method = daemonRpcByMethod.get(value.method);
   if (!method) return ["RPC method is not contracted"];
   const errors = validateShape(value.params === undefined ? {} : value.params, method.params, "params");
+  if (
+    !errors.length &&
+    ["repo.works.index", "repo.works.briefs.read", "repo.entity.rows.read"].includes(value.method)
+  ) {
+    const payload = (value.params as JsonObject).payload;
+    if (payload !== undefined)
+      errors.push(...validateShape(payload, shape(daemonCollaboratorScopeFields), "params.payload"));
+  }
   if (!errors.length && value.method === "protocol.hello")
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
   if (!errors.length && value.method === "repo.agentRuntime.quote")
@@ -102,7 +113,7 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSquadRunReadPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "observe.tail")
     errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
-  if (!errors.length && (value.method === "repo.task.run" || value.method === "repo.task.read"))
+  if (!errors.length && catalogActionMethods.has(value.method))
     errors.push(...validateCatalogActionPayload(value.params as JsonObject));
   if (!errors.length && value.method === "repo.task.run") {
     const payload = (value.params as JsonObject).payload as JsonObject,
@@ -193,11 +204,12 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
 
 function validateRuntimeSteerPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["runtime steer request is invalid"];
-  const { runtimeSessionId, dispatchId, prompt } = value;
+  const { runtimeSessionId, dispatchId, prompt, idempotencyKey } = value;
   return !nonEmpty(prompt) ||
     nonEmpty(runtimeSessionId) === nonEmpty(dispatchId) ||
     (runtimeSessionId !== undefined && !nonEmpty(runtimeSessionId)) ||
-    (dispatchId !== undefined && !nonEmpty(dispatchId))
+    (dispatchId !== undefined && !nonEmpty(dispatchId)) ||
+    (idempotencyKey !== undefined && (!nonEmpty(idempotencyKey) || !idempotencyKey.trim()))
     ? ["runtime steer request is invalid"]
     : [];
 }
@@ -271,11 +283,41 @@ export function validateAgendaQueryPayload(value: unknown): string[] {
   if (value.work !== undefined && !nonEmpty(value.work)) errors.push("repo.agenda.read.payload.work is invalid");
   if (value.attentionOnly !== undefined && typeof value.attentionOnly !== "boolean")
     errors.push("repo.agenda.read.payload.attentionOnly is invalid");
+  if (value.scopePersonId !== undefined && !nonEmpty(value.scopePersonId))
+    errors.push("repo.agenda.read.payload.scopePersonId is invalid");
+  if (value.filterNodeId !== undefined && !nonEmpty(value.filterNodeId))
+    errors.push("repo.agenda.read.payload.filterNodeId is invalid");
   return errors;
 }
 
 export function validateTaskDispatchesPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["task dispatches payload must be an object"];
+  if (value.floor !== undefined || value.runtimeSessionIds !== undefined) {
+    const { floor, limit, runtimeSessionIds } = value;
+    const maxRows = daemonProtocolFleetPolicy.defaultValue.fleet.overviewPageLimit;
+    const validWidth = typeof limit === "number" && integer(limit) && limit >= 1 && limit <= maxRows;
+    const hasOtherSelector = [
+      value.taskId,
+      value.taskIds,
+      value.agentId,
+      value.squadId,
+      value.latestOnly,
+      value.cursor,
+    ].some((item) => item !== undefined);
+    const validScope = [value.personId, value.nodeId].every((item) => item === undefined || nonEmpty(item));
+    const selector =
+      floor === "ended"
+        ? runtimeSessionIds === undefined
+        : floor === "active" &&
+          Array.isArray(runtimeSessionIds) &&
+          runtimeSessionIds.length > 0 &&
+          runtimeSessionIds.length <= Number(limit) &&
+          runtimeSessionIds.every((id) => nonEmpty(id)) &&
+          new Set(runtimeSessionIds).size === runtimeSessionIds.length;
+    return selector && validWidth && !hasOtherSelector && validScope
+      ? []
+      : ["repo.task.dispatches.payload has an invalid live-floor dispatch selector"];
+  }
   if (value.agentId !== undefined || value.squadId !== undefined) {
     const member =
       nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&
@@ -285,10 +327,17 @@ export function validateTaskDispatchesPayload(value: unknown): string[] {
       integer(value.limit) &&
       Number(value.limit) >= 1 &&
       Number(value.limit) <= daemonProtocolFleetPolicy.defaultValue.protocol.listLimitMaximum;
-    return member
-      ? []
-      : ["repo.task.dispatches.payload member reads require one agent or squad id and a limit of 1..500"];
+    if (!member)
+      return ["repo.task.dispatches.payload member reads require one agent or squad id and a limit of 1..500"];
+    return ["personId", "nodeId"].flatMap((field) => {
+      const filter = value[field];
+      return filter === undefined || (typeof filter === "string" && filter.trim())
+        ? []
+        : [`repo.task.dispatches.payload.${field} must be non-empty text`];
+    });
   }
+  if (value.personId !== undefined || value.nodeId !== undefined)
+    return ["repo.task.dispatches.payload attribution filters require a member read"];
   const single =
       nonEmpty(value.taskId) && value.taskIds === undefined && value.limit === undefined && value.cursor === undefined,
     taskIds = value.taskIds;
@@ -480,7 +529,10 @@ export function validateNamedActionPayload(method: DaemonGuiActionMethod, value:
     errors.push("runtime spawn request is invalid");
   if (
     method === "repo.agentRuntime.cancel" &&
-    (!nonEmpty(value.runtimeSessionId) || (value.ruling !== undefined && !nonEmpty(value.ruling)))
+    (!nonEmpty(value.runtimeSessionId) ||
+      (value.ruling !== undefined && !nonEmpty(value.ruling)) ||
+      (value.reason !== undefined && (!nonEmpty(value.reason) || !value.reason.trim())) ||
+      (value.idempotencyKey !== undefined && (!nonEmpty(value.idempotencyKey) || !value.idempotencyKey.trim())))
   )
     errors.push("runtime cancel request is invalid");
   if (method === "repo.gui.catalog.reread" && value.expectedDigest !== undefined && !digest(value.expectedDigest))

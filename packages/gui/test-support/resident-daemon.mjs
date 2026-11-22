@@ -8,7 +8,7 @@ import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/storage";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { registerDaemonRepo } from "@harness-anything/storage";
-import { BuiltinIdentitySession } from "@harness-anything/authorization-builtin";
+import { BuiltinIdentitySession } from "@harness-anything/authorization/builtin";
 import { serveKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { assessHermeticConfig } from "../../../tools/test-hermetic-preflight.mjs";

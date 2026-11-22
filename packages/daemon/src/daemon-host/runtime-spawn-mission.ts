@@ -6,7 +6,13 @@ import type {
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
-import { consumeKnownError, documentWorkspacePath, resolveHarnessLayout } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  documentWorkspacePath,
+  findExhaustedSubscriptionQuotaWindow,
+  projectRuntimeProviderHealth,
+  resolveHarnessLayout,
+} from "@harness-anything/kernel";
 import { projectedRepositorySettings } from "./repo-cell-settings-state.ts";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import {
@@ -17,10 +23,14 @@ import {
 } from "./agent-runtime-contract.ts";
 import { compareRuntimeInstanceRank, runtimeInstanceRank } from "./runtime-instance-selection.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import type { RuntimeProviderHealth } from "../runtime-engine/runtime-provider-health.ts";
+import {
+  effectiveProviderBlockedUntil,
+  type RuntimeProviderHealth,
+} from "../runtime-engine/runtime-provider-health.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
+import { makeWorkspaceGitHistoryPort } from "./repo-cell-trace-view.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import type {
   RemoteRuntimePersistence,
@@ -165,13 +175,15 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly model?: string;
   /** The concrete kind selected for an unbound runtime dispatch. */
   readonly runtimeKind?: string;
-  /** Repository-scoped allowlist; undefined means the repository has not been initialized yet. */
+  /** This node's eligible catalog order for this repository, if explicitly configured. */
   readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
   readonly selectionStrategy?: RuntimeSelectionStrategy;
   readonly dispatchState?: RuntimeInstanceDispatchState;
   readonly health?: readonly RuntimeProviderHealth[];
+  /** When true (fallback chain construction), retain candidates whose quota is currently exhausted so they can recover before later hops. */
+  readonly chainMembershipOnly?: boolean;
   readonly now?: string;
 }): string[] {
   input = {
@@ -179,7 +191,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     instances: input.instances.map((instance) => ({ ...instance, models: runtimeInstanceDispatchModels(instance) })),
   };
   const configured = input.allowedInstanceIds !== undefined,
-    allowed = input.allowedInstanceIds ?? [],
+    allowed = input.allowedInstanceIds ?? input.instances.map((instance) => instance.instanceId),
     allowedNames = allowed.length ? allowed.join(", ") : "none",
     enableCommand = (instanceId: string): string =>
       [...allowed, instanceId]
@@ -190,16 +202,11 @@ export function resolveRuntimeInstanceCandidates(input: {
     if (configured && allowed.includes(instanceId)) return;
     if (!input.instances.some((instance) => instance.instanceId === instanceId))
       throw runtimeSpawnError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    if (!configured)
-      throw runtimeSpawnError(
-        "runtime_instance_allowlist_uninitialized",
-        "This repository has no runtime instance allowlist. Run ha init or enable the instance in repository settings before dispatching.",
-      );
     if (allowed.includes(instanceId)) return;
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
-      `Runtime instance ${instanceId} is not allowed for this repository. ` +
-        `Allowed instances: ${allowedNames}. Enable it without replacing the existing allowlist with ` +
+      `Runtime instance ${instanceId} is not allowed for this repository on this node. ` +
+        `Allowed instances: ${allowedNames}. Adjust the local order with ` +
         `ha settings update ${enableCommand(instanceId)}.`,
     );
   };
@@ -252,7 +259,7 @@ export function resolveRuntimeInstanceCandidates(input: {
           `Supported models: ${pinned.models.join(", ")}. ` +
           "Use --model <supported-model> or run ha runtime instance list, then retry with --instance <instance-id>.",
       );
-    if (input.agent?.instance !== input.requested || served) return [input.requested];
+    if (input.explicitlyRequested || input.agent?.instance !== input.requested || served) return [input.requested];
     unusableDeclaredPin = input.requested;
   }
   // input.model is the dispatch-level override (--model); the per-kind declared model lives
@@ -260,11 +267,6 @@ export function resolveRuntimeInstanceCandidates(input: {
   const declaredModel = input.model,
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
-  if (!configured && input.instances.length > 0)
-    throw runtimeSpawnError(
-      "runtime_instance_allowlist_uninitialized",
-      "This repository has no runtime instance allowlist. Run ha init or enable an instance in repository settings before dispatching.",
-    );
   const unavailable = input.unavailableReasons ?? [],
     allowedInstances = input.instances.filter((instance) => allowed.includes(instance.instanceId)),
     // An unusable declaration pin is not a machine instance the declaration can use; excluding it
@@ -287,23 +289,32 @@ export function resolveRuntimeInstanceCandidates(input: {
       (declaredTargets !== undefined && !agentRuntimeKindMatches(declaredTargets, instance.kindId))
     )
       continue;
-    const model = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
+    const explicitModel = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
+    const effectiveModel =
+      explicitModel ??
+      (typeof instance.defaultModel === "string" && instance.defaultModel.trim().length > 0
+        ? instance.defaultModel
+        : undefined);
+    const now = input.now ?? new Date().toISOString();
     const providerHealth = input.health?.find((row) => row.instanceId === instance.instanceId),
-      healthUntil = providerHealth?.frozen ? null : (providerHealth?.frozenUntil ?? providerHealth?.cooldownUntil),
-      healthBlocked =
-        providerHealth?.frozen === true ||
-        (healthUntil !== null &&
-          healthUntil !== undefined &&
-          Date.parse(healthUntil) > Date.parse(input.now ?? new Date().toISOString())),
+      projectedHealth = projectRuntimeProviderHealth(providerHealth, now),
+      healthUntil = projectedHealth.status === "frozen" ? null : projectedHealth.recoverAt,
+      healthBlocked = projectedHealth.status !== "ready",
+      modelQuotaBlocked =
+        !input.chainMembershipOnly && !healthBlocked && instance.quota && effectiveModel
+          ? findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [effectiveModel] })
+          : null,
       reason = !instance.enabled
         ? "runtime_instance_disabled"
         : healthBlocked
-          ? `runtime_provider_unavailable (${providerHealth?.reason ?? "cooldown"}; recover at ${healthUntil})`
-          : !agentRuntimeModelMatches(instance.models, model ?? instance.defaultModel)
-            ? `agent_model_unavailable (${model})`
-            : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
-              ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
-              : undefined;
+          ? `runtime_provider_unavailable (${projectedHealth.reason ?? "cooldown"}; recover at ${healthUntil})`
+          : modelQuotaBlocked
+            ? `runtime_provider_unavailable (quota_exhausted:${modelQuotaBlocked.window.id}; recover at ${modelQuotaBlocked.resetAt})`
+            : !agentRuntimeModelMatches(instance.models, explicitModel ?? instance.defaultModel)
+              ? `agent_model_unavailable (${explicitModel})`
+              : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
+                ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
+                : undefined;
     if (reason) unavailable.push(`${instance.kindId}/${instance.instanceId}: ${reason}`);
   }
   const detail = unavailable.length ? ` Candidates: ${unavailable.join("; ")}` : "";
@@ -324,7 +335,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
-    if (allowedInstances.length === 0)
+    if (configured && allowedInstances.length === 0)
       throw runtimeSpawnError(
         "runtime_instance_not_allowed",
         `No runtime instance is allowed for this repository. Allowed instances: ${allowedNames}. ` +
@@ -371,12 +382,21 @@ export function resolveRuntimeInstanceCandidates(input: {
         instance.authReadiness.status === "ready" || instance.authReadiness.code === "runtime_auth_not_checked",
     )
     .filter((instance) => {
+      const now = input.now ?? new Date().toISOString();
       const health = input.health?.find((row) => row.instanceId === instance.instanceId),
-        blockedUntil = health?.frozenUntil ?? health?.cooldownUntil;
-      return !(
-        health?.frozen ||
-        (blockedUntil && Date.parse(blockedUntil) > Date.parse(input.now ?? new Date().toISOString()))
-      );
+        blockedUntil = effectiveProviderBlockedUntil(health, now),
+        targetModel =
+          declaredModel ??
+          declaredTargets?.find((row) => row.type === instance.kindId)?.model ??
+          (typeof instance.defaultModel === "string" && instance.defaultModel.trim().length > 0
+            ? instance.defaultModel
+            : undefined),
+        modelQuotaBlocked =
+          !input.chainMembershipOnly &&
+          instance.quota !== undefined &&
+          targetModel !== undefined &&
+          findExhaustedSubscriptionQuotaWindow(instance.quota, now, { models: [targetModel] }) !== null;
+      return !health?.frozen && blockedUntil === null && !modelQuotaBlocked;
     });
   if (ready.length === 0)
     throw runtimeSpawnError(
@@ -790,7 +810,9 @@ export function deriveTaskMission(
       ? readMissionDocument(rootDir, projection, planDocument.packagePath, taskId, missionName)
       : null,
     causalContextResolved =
-      causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
+      causalContext === undefined
+        ? assembleTaskCausalContext({ projection, taskId, gitHistory: makeWorkspaceGitHistoryPort(rootDir) })
+        : causalContext,
     snapshot = projection.read(taskId).snapshot,
     mission = [
       taskPlanSection(planDocument.body, packageRoot),
@@ -1003,7 +1025,7 @@ export async function resolveRuntimeMission(input: {
       remoteTask === null
         ? taskId === null
           ? null
-          : assembleTaskCausalContext({ projection, taskId })
+          : assembleTaskCausalContext({ projection, taskId, gitHistory: makeWorkspaceGitHistoryPort(rootDir) })
         : remoteTask.causalContext,
     // The tier policy version and risk tier are frozen at creation: locally from the projection,
     // remotely from the center's serving read. Historical tasks without the policy version keep

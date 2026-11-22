@@ -1,8 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { parse } from "yaml";
+import { AUTHORIZATION_CI_SHARD_COUNT } from "../authorization-ci-shards.mjs";
 import { parseGateWorkflow } from "../../gate-workflow-parser.mjs";
 import { selectGuiSmokeCommand } from "../../gui-e2e/run-smoke.mjs";
 import { parseManifestGateArgs, selectManifestGateIds } from "../../run-manifest-gates.mjs";
@@ -45,36 +47,72 @@ test("CH1 keeps clean-build and Windows-only smoke off pull_request", () => {
   assert.deepEqual(pullRequestJobs, { "platform-smoke": ["quick-gates"], "clean-build": [] });
 });
 
-test("CH2 keeps required path gates green when their expensive step is not selected", () => {
+test("CH2 keeps package policy green when its expensive step is not selected", () => {
   const install = workflow.get("install");
   const packagePolicy = workflow.get("package-policy");
-  const sqlite = workflow.get("cost-budget-reads-sqlite");
-  assert.ok(install && packagePolicy && sqlite);
+  assert.ok(install && packagePolicy);
   assert.match(
     workflowText,
     /packagePolicy:\n\s+- 'package\.json'\n\s+- 'package-lock\.json'\n\s+- 'packages\/\*\*\/package\.json'/u,
   );
-  assert.match(workflowText, /costBudgetReads:\n\s+- 'packages\/storage\/\*\*'\n\s+- 'packages\/daemon\/src\/\*\*'/u);
   assert.match(workflowText, /needs\.install\.outputs\.packagePolicy != 'false'/u);
-  assert.match(workflowText, /needs\.install\.outputs\.costBudgetReads != 'false'/u);
   assert.equal(packagePolicy.isPullRequestJob, true);
   assert.equal(packagePolicy.isNonPullRequestJob, true, "package policy remains on main and schedule");
   assert.match(
     workflowText,
     /- if: github\.event_name != 'pull_request' \|\| needs\.install\.outputs\.packagePolicy != 'false'\n\s+run: node tools\/run-manifest-gates\.mjs --workflow-job package-policy/u,
   );
-  assert.match(workflowText, /github\.event_name == 'schedule'/u);
-  assert.equal(sqlite.isPullRequestJob, true, "SQLite remains a conditional PR observer job");
-  assert.match(sqlite.ifExpressions[0], /needs\.install\.outputs\.costBudgetReads != 'false'/u);
-  assert.match(sqlite.ifExpressions[0], /github\.event_name == 'schedule'/u);
-  assert.match(
-    workflowText,
-    /G38_REQUIRED_BACKENDS: \$\{\{ github\.event_name == 'pull_request' && needs\.install\.outputs\.costBudgetReads == 'false' && 'pglite' \|\| 'pglite,sqlite' \}\}/u,
-  );
   assert.match(
     workflowText,
     /run: node tools\/run-manifest-gates\.mjs --workflow-job quick-gates --github-groups --parallel 4 --exclude typecheck/u,
   );
+});
+
+test("Node 26 storage jobs skip only a proven unrelated PR and keep main and nightly coverage", () => {
+  const jobs = parse(workflowText).jobs;
+  const { costBudgetReads: patterns } = parse(jobs.install.steps.find((step) => step.id === "policy").with.filters);
+  const selected = (file) => patterns.some((pattern) => path.posix.matchesGlob(file, pattern));
+  for (const file of [
+    "packages/storage/src/pglite/storage-backend.ts",
+    "packages/daemon/test/pglite-repo-cell.integration.test.ts",
+    "packages/kernel/src/domain/task-lifecycle-publication.ts",
+    "packages/application/src/commands/index.ts",
+    "packages/preset/src/preset-resolver-common.ts",
+    "packages/authorization/src/keycloak/keycloak-policy-adapter.ts",
+    "packages/cli/src/cli-agent-rollback.ts",
+    "packages/cli/test/fixtures/g38-read-rollback.mjs",
+    "tools/gates/cost-budget-read-lane.mjs",
+    "tools/gate-manifest.json",
+    "package-lock.json",
+    "packages/gui/package.json",
+    "tsconfig.json",
+    ".github/workflows/rewrite-ci.yml",
+  ]) {
+    assert.ok(existsSync(path.join(rootDir, file)), `Expected storage trigger fixture to exist: ${file}`);
+    assert.ok(selected(file), `${file} must run the storage jobs`);
+  }
+  for (const file of [
+    "packages/gui/src/renderer/App.tsx",
+    "packages/cli/src/cli/thin-command-help.ts",
+    "packages/dsh-plugin/src/index.ts",
+    "tools/check-gate-surface.mjs",
+  ]) {
+    assert.ok(existsSync(path.join(rootDir, file)), `Expected unrelated path fixture to exist: ${file}`);
+    assert.equal(selected(file), false, `${file} alone must skip the storage jobs`);
+  }
+  for (const jobId of ["pglite-node26", "cost-budget-reads", "cost-budget-reads-sqlite"]) {
+    const job = jobs[jobId];
+    const push =
+      jobId === "pglite-node26"
+        ? "github.event_name == 'push'"
+        : "(github.event_name == 'push' && github.ref == 'refs/heads/main')";
+    assert.equal(job.needs, "install", jobId);
+    assert.equal(
+      job.if,
+      `always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || ${push} || github.event_name == 'schedule')`,
+      jobId,
+    );
+  }
 });
 
 test("CH4 assigns all twelve light gates to the serial quick-gates runner", () => {
@@ -126,6 +164,40 @@ test("quick-gates keeps every gate while typecheck runs alone and the rest share
   assert.deepEqual(executed, declared, "the separate typecheck step plus the pool cover the same gate set as before");
 });
 
+test("the required quick-gates context depends on the pool and every durable authorization shard", () => {
+  const jobs = parse(workflowText).jobs;
+  const shard = jobs["authorization-shard"],
+    summary = jobs["authorization-summary"];
+  assert.deepEqual(
+    shard.strategy.matrix.shard,
+    Array.from({ length: AUTHORIZATION_CI_SHARD_COUNT }, (_, i) => i),
+  );
+  assert.equal(shard.strategy["fail-fast"], false);
+  assert.deepEqual(summary.needs, ["install", "quick-gates", "authorization-shard"]);
+  assert.equal(summary.name, "quick-gates");
+  assert.notEqual(jobs["quick-gates"].name, summary.name);
+  assert.match(summary.if, /^always\(\)/u);
+  for (const job of [shard, summary]) {
+    for (const event of ["pull_request", "merge_group", "push"]) assert.ok(job.if.includes(`== '${event}'`));
+  }
+  const producer = shard.steps.find((step) => step.env?.AUTHORIZATION_CI_MODE === "shard");
+  const collector = summary.steps.find((step) => step.run?.includes("--workflow-job authorization-summary "));
+  assert.ok(producer && collector);
+  assert.match(
+    collector.env.AUTHORIZATION_CI_MODE,
+    /needs\.install\.result == 'success' && needs\.quick-gates\.result == 'success' && needs\.authorization-shard\.result == 'success' && 'collect' \|\| 'blocked'/u,
+  );
+  assert.equal(producer.env.AUTHORIZATION_CI_DATE, collector.env.AUTHORIZATION_CI_DATE);
+  assert.equal(producer.env.AUTHORIZATION_BASE, collector.env.AUTHORIZATION_BASE);
+  for (const eventName of ["pull_request", "merge_group", "push"]) {
+    const gates = (job) => selectManifestGateIds(manifest, { workflowJob: job, eventName });
+    const gateId = "ontology-durable-action-authorization";
+    assert.ok(!gates("quick-gates").includes(gateId));
+    assert.deepEqual(gates("authorization-shard"), [gateId]);
+    assert.deepEqual(gates("authorization-summary"), [gateId]);
+  }
+});
+
 test("crlf-checkout runs one partition on PR and merge_group, four on main pushes", () => {
   assert.ok(workflowText.includes("fromJSON('[1]')"), "PR and merge_group expand a single partition");
   assert.ok(workflowText.includes("fromJSON('[1, 2, 3, 4]')"), "main pushes keep four partitions");
@@ -166,7 +238,7 @@ function assertGateTestsInFastContractOnly({ workflowMap, manifestData, tierMani
     assert.equal(
       fastAndContract.has(file),
       true,
-      `${file} must belong to fast or contract tier so fast-contract (1..4) executes it`,
+      `${file} must belong to fast or contract tier so the fast-contract matrix executes it`,
     );
   }
 }
@@ -232,7 +304,9 @@ test("CH3 leaves the required PR evidence lanes intact and retires duplicate gat
   assert.ok(boundaryGates.length > 0);
   for (const gate of boundaryGates) {
     assert.ok(
-      gate.executionSurfaces.rewriteCi.pullRequestJobs.includes("quick-gates"),
+      gate.executionSurfaces.rewriteCi.pullRequestJobs.includes(
+        gate.id === "ontology-durable-action-authorization" ? "authorization-summary" : "quick-gates",
+      ),
       `${gate.id} must stay on the merged required PR lane`,
     );
     assert.deepEqual(gate.githubContext.requiredContexts, ["quick-gates"], `${gate.id} required context`);
@@ -293,8 +367,8 @@ test("CH1 merges the G38 read matrix into two PGlite sets and one SQLite set", (
   assert.ok(reads && sqlite);
   const pgliteSets = [...workflowText.matchAll(/dimensions: ([^\n]+)/gu)].map((match) => match[1]);
   assert.deepEqual(pgliteSets, [
-    "task-history,runtime-sessions,dispatches,task-outputs",
-    "relations,relation-visibility,event-bytes,source-events",
+    "source-events,dispatches,runtime-sessions,task-history,relation-visibility",
+    "task-outputs,relations,event-bytes",
   ]);
   assert.match(workflowText, /G38_DIMENSION: \$\{\{ matrix\.dimensions \}\}/u);
   assert.match(

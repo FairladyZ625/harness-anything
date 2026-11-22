@@ -7,13 +7,13 @@ import {
   keycloakLoginMappers,
   managedListenerProblem as readManagedListenerProblem,
   type KeycloakPolicyAdapterConfig,
-} from "@harness-anything/authorization-keycloak";
+} from "@harness-anything/authorization/keycloak";
 import {
   BuiltinIdentityManagement,
   BuiltinIdentitySession,
   BuiltinPolicyAdapter,
   userRootFromBuiltinUrl,
-} from "@harness-anything/authorization-builtin";
+} from "@harness-anything/authorization/builtin";
 import {
   artifactActionPoliciesByKind,
   normalizeHistoricalVerticalDocument,
@@ -48,9 +48,13 @@ export const createAuthorizationProvider = (
 };
 export { keycloakLoginAttributes, keycloakLoginMappers };
 
-import { OidcSessionService } from "@harness-anything/authorization-keycloak";
+import { OidcSessionService } from "@harness-anything/authorization/keycloak";
 import type { IdentitySessionPort, OidcSessionPorts } from "@harness-anything/kernel";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import {
+  hasAnyFleetEdgeConfig,
+  readFleetEdgeConfigForRoot,
+  resolveFleetEdgeRepoIdForRoot,
+} from "./client/fleet-edge-config.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 import { oidcCenterSelections } from "./oidc-center-selection.ts";
 import { errorMessageWithCause } from "./error-cause.ts";
@@ -67,7 +71,7 @@ export function createIdentitySession(userRoot: string, ports: Partial<OidcSessi
     userRoot,
     {
       centers: oidcCenterSelections(userRoot),
-      readFleetEdgeConfig,
+      readFleetEdgeConfig: (target: string) => readFleetEdgeConfigForRoot(userRoot, target),
       reportFleetDeviceLogin,
       readFleetLoginAuthorityClient,
       errorMessageWithCause,
@@ -79,11 +83,18 @@ export function createIdentitySession(userRoot: string, ports: Partial<OidcSessi
     ports,
   );
   return mode === "builtin"
-    ? new BuiltinIdentitySession(userRoot, readArtifactActionScopes(userRoot), external)
+    ? new BuiltinIdentitySession(
+        userRoot,
+        readArtifactActionScopes(userRoot),
+        external,
+        (target) =>
+          resolveFleetEdgeRepoIdForRoot(userRoot, target) !== null &&
+          readFleetEdgeConfigForRoot(userRoot, target) !== null,
+      )
     : external;
 }
 
-import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization-keycloak";
+import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization/keycloak";
 import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./process-port.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { managedRbacReceiptJournal } from "./access-admin-state.ts";
@@ -170,7 +181,7 @@ export function readProviderMode(userRoot: string): "builtin" | "managed" | "ext
   // resolving that root through the Keycloak implementation until the operator writes an
   // explicit mode; a brand-new local root remains builtin by default.
   if (!existsSync(file))
-    return existsSync(path.join(userRoot, "fleet-edge.json")) ||
+    return hasAnyFleetEdgeConfig(userRoot) ||
       existsSync(path.join(userRoot, "rbac", "oidc-session.json")) ||
       existsSync(path.join(userRoot, "rbac", "oidc-sessions")) ||
       existsSync(path.join(userRoot, "rbac", "oidc-centers"))

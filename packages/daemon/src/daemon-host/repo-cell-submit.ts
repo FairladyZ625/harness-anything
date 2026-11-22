@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   completionContractGap,
   completionGuidance,
+  heldLeaseForExecutionActor,
   missingChineseCloseoutSections,
   resolveCompletionContract,
   submissionFromCloseout,
@@ -14,6 +15,7 @@ import {
   type SubmissionV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import { validateSubmissionV1 } from "@harness-anything/kernel/internal/domain/execution.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import {
   isAgentRuntimeEvent,
@@ -24,6 +26,7 @@ import type { RepoCellBinding, RepoCellContinuationWrite, RepoTaskAction, Snapsh
 import { readSubmissionAdmission } from "./submission-admission.ts";
 import { createSubmissionArtifactReader } from "@harness-anything/application/internal/commands/submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
+import { prepareSubmittedCloseoutFacts, publishSubmittedCloseoutFacts } from "./submit-closeout-facts.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
@@ -217,7 +220,7 @@ function freezeCompletionContract(
 ): SubmissionV1["completionContract"] {
   const task = snapshot.task;
   if (!task) throw cell.cellCodedError("invalid_submission", "Submission has no task contract to freeze.");
-  const gap = completionContractGap(task);
+  const gap = completionContractGap(task, cell.settings?.readRepository().defaultPreset);
   if (gap)
     throw Object.assign(cell.cellCodedError("invalid_submission", `${gap.reason} Run ${gap.action}.`), {
       nextAction: gap.action,
@@ -232,7 +235,7 @@ function freezeCompletionContract(
   if (!frozenPreset) {
     // `readPresetSnapshot` answers null when the frozen bytes are unavailable. The old path passed
     // that null into resolveCompletionContract and read `.completion` from it.
-    const presetId = task.metadata?.presetId ?? "standard-task",
+    const presetId = task.metadata?.presetId ?? cell.settings?.readRepository().defaultPreset ?? "<preset-id>",
       action = `ha task contract migrate --task ${task.taskId} --to-preset ${presetId} --apply`;
     throw Object.assign(
       cell.cellCodedError(
@@ -772,14 +775,53 @@ export async function submitTask(
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
+  const heldLease = heldLeaseForExecutionActor(fresh.snapshot, executionId, binding.actor) ?? null;
+  let factsSynced: WriteReceiptDraft | null = null;
+  if (!validateSubmissionV1(submission).length && (fresh.snapshot.lease === null || heldLease !== null)) {
+    const preparedCloseoutFacts = prepareSubmittedCloseoutFacts(cell, taskId, submission);
+    if (!preparedCloseoutFacts.ok)
+      return submissionStopped(
+        cell,
+        action,
+        binding,
+        fresh.snapshot,
+        executionId,
+        fresh.packagePath,
+        preparedCloseoutFacts.error,
+        synced ? [synced] : [],
+      );
+    if (preparedCloseoutFacts.plan !== null) {
+      factsSynced = publishSubmittedCloseoutFacts(
+        cell,
+        taskId,
+        binding,
+        taskRoot,
+        heldLease,
+        preparedCloseoutFacts.plan,
+      );
+      if (!["applied", "no_changes"].includes(factsSynced.outcome))
+        return {
+          ...factsSynced,
+          next: [
+            completionGuidance(
+              fresh.snapshot,
+              executionId,
+              `ha task submit ${taskId}`,
+              `Closeout delivery-facts synchronization is ${factsSynced.outcome}; resume this submission after receipt ${factsSynced.opId} settles.`,
+            ),
+          ],
+        } as WriteReceiptDraft;
+    }
+  }
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const warnings = anchorDriftWarnings;
+  const warnings = anchorDriftWarnings,
+    syncSteps = [...(synced ? [synced] : []), ...(factsSynced ? [factsSynced] : [])];
   return {
     ...receipt,
     ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),
     ...(warnings.length ? { warnings } : {}),
-    steps: synced ? [synced] : [],
+    steps: syncSteps,
   } as WriteReceiptDraft;
 }
 

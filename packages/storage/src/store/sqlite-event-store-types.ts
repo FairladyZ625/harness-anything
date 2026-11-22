@@ -205,6 +205,9 @@ export interface SqliteEventStore {
     readonly revisionBound?: number;
     readonly limit: number;
   }) => readonly CanonicalEventV1[];
+  readonly readEventWindow: (
+    input: import("@harness-anything/kernel/internal/ports/task-event-store.ts").AuditEventWindowQuery,
+  ) => import("@harness-anything/kernel/internal/ports/task-event-store.ts").AuditEventWindowBatch;
   /** Runs multi-statement SQLite queries inside one frozen deferred WAL read transaction. */
   readonly readSnapshot: <A>(run: () => A) => A;
   readonly close: () => void;

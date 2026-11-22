@@ -861,13 +861,14 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
   }
 });
 
-// A locally present refresh token can be revoked while `codex login status` still exits 0.
-// The explicit instance probe must exercise the provider path and report that rejection.
-test("a codex auth probe rejects an invalid refresh token despite successful login status", async () => {
+// Codex subscription probes stay read-only (`login status` + read-only quota endpoints) and
+// never fall through to active `codex exec` inference when read-only quota routes return 401/fail.
+test("a codex auth probe stays read-only without invoking codex exec when read-only quota routes fail", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-metadata-")),
     home = path.join(parent, "home"),
     userRoot = path.join(parent, "user"),
-    authFile = path.join(home, ".codex", "auth.json");
+    authFile = path.join(home, ".codex", "auth.json"),
+    execMarker = path.join(parent, "exec-called");
   try {
     mkdirSync(path.dirname(authFile), { recursive: true });
     writeFileSync(
@@ -894,8 +895,8 @@ if (args.length === 2 && args[0] === "login" && args[1] === "status") {
   process.exit(0);
 }
 if (args[0] === "exec") {
-  console.log(JSON.stringify({ type: "turn.failed", error: { code: "invalid_refresh_token", message: "invalid_refresh_token" } }));
-  process.exit(1);
+  fs.writeFileSync(${JSON.stringify(execMarker)}, "called");
+  process.exit(99);
 }
 process.exit(9);
 `,
@@ -911,6 +912,7 @@ process.exit(9);
       userRoot,
       env: { HOME: home, PATH: [path.dirname(executablePath), process.env.PATH].filter(Boolean).join(path.delimiter) },
       discover: () => [installation],
+      quotaFetch: async () => new Response(null, { status: 401 }),
     });
     store.create({
       schemaVersion: 2,
@@ -927,20 +929,20 @@ process.exit(9);
       auth: { mode: "subscription" },
     });
     const readiness = (await store.authStatus("codex-metadata")) as unknown as Record<string, unknown>;
-    assert.equal(readiness.status, "not-ready");
-    assert.equal(readiness.code, "runtime_refresh_token_invalid");
-    assert.match(String(readiness.hint), /ha runtime instance login/u);
+    assert.equal(readiness.status, "ready");
+    assert.equal(readiness.code, null);
     const receipt = (await store.command({
       kind: "runtime-instance-show",
       instanceId: "codex-metadata",
       probe: true,
     })) as Record<string, unknown>;
-    assert.match(String(receipt.summary), /auth: not-ready/u);
+    assert.match(String(receipt.summary), /auth: ready/u);
     assert.equal(
-      (JSON.parse(String(receipt.evidence)) as { readonly authReadiness: { readonly code: string } }).authReadiness
-        .code,
-      "runtime_refresh_token_invalid",
+      (JSON.parse(String(receipt.evidence)) as { readonly authReadiness: { readonly status: string } }).authReadiness
+        .status,
+      "ready",
     );
+    assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

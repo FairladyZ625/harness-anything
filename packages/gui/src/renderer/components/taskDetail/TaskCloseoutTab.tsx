@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import type { TaskCompletionRead } from "../../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery } from "../../task-data.ts";
-import type { TaskRow } from "../../model/types.ts";
+import { taskCan, type TaskRow } from "../../model/types.ts";
 import {
   adaptTaskExecutions,
   buildExecutionEvidenceContext,
@@ -276,7 +276,8 @@ function CompletionPanel({
   const hasDeliveryDiff = diffFiles !== undefined && diffFiles.length > 0;
   if (!["submitted", "in_review"].includes(task.coordinationStatus) || (stage === "other" && !hasDeliveryDiff))
     return null;
-  const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1);
+  const consentReviewId = task.consentTarget?.reviewId;
+  const complete = taskCan(task, "complete");
 
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
@@ -297,17 +298,17 @@ function CompletionPanel({
         {stage === "consent" ? (
           <Button
             testId="task-completion-consent"
-            disabled={!onConsentReview || !approved}
+            disabled={!onConsentReview || !consentReviewId}
             variant="primary"
-            onClick={() => approved && void onConsentReview?.(approved.reviewId)}
+            onClick={() => consentReviewId && void onConsentReview?.(consentReviewId)}
           >
             {t("components.taskCloseout.completionConsent")}
           </Button>
         ) : null}
         <Button
           testId="task-completion-complete"
-          disabled={stage !== "ready" || !onComplete}
-          tip={stage === "ready" ? undefined : t("components.taskCloseout.completionCompleteTip")}
+          disabled={!complete || !onComplete}
+          tip={complete ? undefined : t("components.taskCloseout.completionCompleteTip")}
           variant="primary"
           onClick={() => void onComplete?.()}
         >

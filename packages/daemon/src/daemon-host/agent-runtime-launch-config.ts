@@ -17,7 +17,7 @@ import type {
   RuntimeInstallationWitness,
   RuntimeAuthReadiness,
 } from "./agent-runtime-instance-types.ts";
-import { runExecutable, runExecutableResult } from "./agent-runtime-installation-discovery.ts";
+import { runExecutable } from "./agent-runtime-installation-discovery.ts";
 import { providerConfigDirectory, tomlString } from "./agent-runtime-instance-storage.ts";
 import {
   isRuntimeInstanceRecord,
@@ -518,14 +518,6 @@ export async function providerSubscriptionReadiness(
     readonly installation: RuntimeInstallationWitness;
     readonly env: NodeJS.ProcessEnv;
     readonly isolationState: RuntimeIsolationState;
-    readonly codexProbe?: {
-      readonly config: RuntimeInstanceConfig;
-      readonly cwd: string;
-      readonly model: string;
-      readonly effort: string | null;
-      readonly fast: boolean;
-      readonly permissionMode: RuntimePermissionMode;
-    };
   },
   platform: NodeJS.Platform,
 ): Promise<RuntimeAuthReadiness> {
@@ -587,29 +579,6 @@ export async function providerSubscriptionReadiness(
       timeoutMs: declaration.auth.subscriptionProbeTimeoutMs,
       captureOutput: false,
     });
-    if (input.codexProbe && input.installation.kindId === "codex") {
-      const prompt = "Reply with exactly READY. Do not use tools or inspect files.",
-        args = codexProbeArgs(
-          launchArgs(
-            input.codexProbe.config,
-            input.codexProbe.model,
-            prompt,
-            undefined,
-            input.codexProbe.effort,
-            input.codexProbe.permissionMode,
-            input.codexProbe.fast,
-            undefined,
-            platform,
-          ),
-        ),
-        result = await runExecutableResult(platform, input.installation.executablePath, args, {
-          env: input.env,
-          timeoutMs: 30_000,
-          cwd: input.codexProbe.cwd,
-          input: `${prompt}\n`,
-        });
-      return codexProviderRequestReadiness(result.stdout, result.stderr, result.exitCode);
-    }
     return available();
   } catch (error) {
     consumeKnownError(error);
@@ -634,132 +603,6 @@ export async function providerSubscriptionReadiness(
             : "Provider authentication probe could not determine readiness.",
         );
   }
-}
-
-// `codex exec` refuses a cwd outside a trusted git work tree unless the caller opts out.
-// The probe's cwd is the instance directory, which is deliberately not a repository, while a
-// dispatch always runs in a git worktree and keeps the unmodified launch contract. Insert the
-// flag before the trailing "-" (prompt on stdin), never after it.
-function codexProbeArgs(args: readonly string[]): string[] {
-  const promptMarker = args.lastIndexOf("-");
-  return promptMarker < 0
-    ? [...args, "--skip-git-repo-check"]
-    : args.toSpliced(promptMarker, 0, "--skip-git-repo-check");
-}
-
-// The provider's rejection is the only place the real cause is visible: `codex login status`
-// can exit 0 while the stored refresh token is already revoked. Keep every Codex readiness
-// classification here; store, GUI, and spawn call sites only read the resulting code + hint.
-function codexProviderRequestReadiness(stdout: string, stderr: string, exitCode: number): RuntimeAuthReadiness {
-  const frames = `${stdout}\n${stderr}`.split(/\r?\n/u).flatMap((line) => {
-      try {
-        const value: unknown = JSON.parse(line);
-        return isPlainRecord(value) ? [value] : [];
-      } catch {
-        return [];
-      }
-    }),
-    completed = frames.some((frame) => frame.type === "turn.completed");
-  if (exitCode === 0 && completed) return available("provider");
-
-  const failures = frames.filter(
-      (frame) =>
-        frame.type === "turn.failed" ||
-        frame.type === "error" ||
-        (isPlainRecord(frame.item) && frame.item.type === "error"),
-    ),
-    records = failures.flatMap(codexDiagnosticRecords),
-    codes = records.flatMap((record) =>
-      [record.code, record.error_code, record.type]
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.toLowerCase()),
-    ),
-    statuses = records
-      .flatMap((record) => [record.http_status, record.status_code, record.status])
-      .filter((value): value is number => typeof value === "number" && Number.isInteger(value)),
-    messages = records
-      .flatMap((record) => [record.message, record.detail])
-      .filter((value): value is string => typeof value === "string"),
-    codeText = codes.join(" "),
-    messageText = messages.join(" "),
-    diagnosticText = `${codeText} ${messageText} ${stdout} ${stderr}`;
-
-  const refreshTokenInvalid =
-    /invalid[_ -]?refresh[_ -]?token/iu.test(diagnosticText) ||
-    /refresh[_ -]?token\b[^\n]{0,40}\b(?:revoked|expired|rejected|invalid|already[_ -]?used|retired)\b/iu.test(
-      diagnosticText,
-    ) ||
-    /(?:no|missing)[_ -]refresh[_ -]?token/iu.test(diagnosticText) ||
-    /refresh[_ -]?token[_ -]?data is not available/iu.test(diagnosticText) ||
-    /(?:access[_ -]?)?token could not be refreshed/iu.test(diagnosticText) ||
-    /token refresh not possible/iu.test(diagnosticText);
-  if (refreshTokenInvalid)
-    return unavailable(
-      "runtime_refresh_token_invalid",
-      "Codex refresh token is invalid, revoked, or has expired. Run ha runtime instance login <instance-id> to sign in again.",
-    );
-  // Codex's own directory gate fires before any provider request, so it says nothing about
-  // the credential. Name the workspace instead of reporting a generic probe failure.
-  if (/not inside a trusted directory/iu.test(diagnosticText))
-    return unavailable(
-      "runtime_probe_workspace_untrusted",
-      "Codex rejected the probe working directory as untrusted even with --skip-git-repo-check; check the runtime instance directory and probe again.",
-    );
-  if (
-    statuses.includes(429) ||
-    /\b(?:quota|insufficient[_ -]?quota|billing[_ -]?(?:hard[_ -]?)?limit|usage limit|credit balance|resource[_ -]?exhausted)\b/iu.test(
-      diagnosticText,
-    )
-  )
-    return unavailable(
-      "runtime_quota_unavailable",
-      "Codex account quota is unavailable. Check the account quota or billing, or choose another runtime instance.",
-    );
-  if (
-    statuses.includes(401) ||
-    /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu.test(
-      diagnosticText,
-    )
-  )
-    return unavailable(
-      "runtime_authentication_failed",
-      "Codex rejected the configured credential. Run ha runtime instance login <instance-id> and probe again.",
-    );
-  // A transport failure is not a credential verdict: name the network cause so the user is not
-  // told to sign in again, and leave the instance's authState unknown rather than unauthenticated.
-  if (
-    /network (?:error|failure|unreachable|is unreachable)|connection (?:error|refused|reset|closed|aborted|dropped|lost|failed|terminated|interrupted|timed out|timeout)|failed to connect|socket (?:error|hang ?up|closed)|transport (?:error|failure)|stream (?:disconnected|error|closed)|disconnected before completion|request timed out|fetch failed|getaddrinfo|\b(?:ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)\b/iu.test(
-      diagnosticText,
-    )
-  )
-    return unavailable(
-      "runtime_provider_unreachable",
-      "Codex provider is unreachable (network or transport failure). Check the network connection and retry the probe; the credential was not rejected.",
-    );
-  if (
-    /chatgpt login is required|login is required|not logged in|logged out|not signed in|signed out|no credentials|missing credentials|not authenticated|authentication required|auth required|please (?:log|sign) in|sign in to continue|missing refresh metadata/iu.test(
-      diagnosticText,
-    )
-  )
-    return unavailable(
-      "runtime_subscription_required",
-      "Codex is not signed in. Run ha runtime instance login <instance-id> to sign in again.",
-    );
-  return unavailable(
-    "runtime_auth_probe_failed",
-    "Codex provider request did not complete; check the runtime installation and try the probe again.",
-  );
-}
-
-function codexDiagnosticRecords(frame: Record<string, unknown>): Record<string, unknown>[] {
-  const records = [frame],
-    nested = [frame.error, frame.item, frame.payload];
-  for (const value of nested) {
-    if (!isPlainRecord(value)) continue;
-    records.push(value);
-    if (isPlainRecord(value.error)) records.push(value.error);
-  }
-  return records;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

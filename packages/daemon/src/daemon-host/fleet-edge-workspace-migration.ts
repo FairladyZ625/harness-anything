@@ -1,14 +1,16 @@
 import { existsSync, renameSync } from "node:fs";
 import path from "node:path";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { oidcCenterSelections } from "./oidc-center-selection.ts";
 
 /** Relocate only edge-owned paths that were rooted in the old workspace's join layout. */
 export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repoId: string, userRoot?: string): void {
   const sourceRoot = path.resolve(oldRoot),
-    targetRoot = path.resolve(newRoot);
+    targetRoot = path.resolve(newRoot),
+    effectiveUserRoot = userRoot ?? daemonUserRoot();
   if (sourceRoot === targetRoot) return;
-  const config = readFleetEdgeConfig(targetRoot);
+  const config = readFleetEdgeConfig(effectiveUserRoot, repoId);
   if (!config) return;
   if (config.repoId !== repoId)
     throw codedError(
@@ -24,6 +26,7 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
           port: config.port,
           caPath: config.caPath,
           ...(config.servername ? { servername: config.servername } : {}),
+          ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
         });
 
   const relocatedCaPath = relocateAbsolutePath(config.caPath, sourceRoot, targetRoot),
@@ -43,7 +46,7 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
   if (moveView) moveDefaultView(oldDefaultViewRoot, newDefaultViewRoot);
   if (relocatedCaPath !== null || viewRoot !== config.viewRoot) {
     try {
-      writeFleetEdgeConfig(targetRoot, { ...config, caPath, viewRoot });
+      writeFleetEdgeConfig(effectiveUserRoot, repoId, { ...config, caPath, viewRoot });
     } catch (error) {
       if (moveView && existsSync(newDefaultViewRoot) && !existsSync(oldDefaultViewRoot))
         /* @gate-identity state-store/task.replica-view-relocation */ renameSync(
@@ -53,7 +56,15 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
       throw error;
     }
   }
-  if (selection !== undefined && userRoot !== undefined) oidcCenterSelections(userRoot).write(targetRoot, selection);
+  if (selection !== undefined && userRoot !== undefined)
+    oidcCenterSelections(userRoot).write(targetRoot, selection, {
+      repoId: config.repoId,
+      host: config.host,
+      port: config.port,
+      caPath,
+      ...(config.servername ? { servername: config.servername } : {}),
+      ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
+    });
 }
 
 function relocateAbsolutePath(value: string, sourceRoot: string, targetRoot: string): string | null {

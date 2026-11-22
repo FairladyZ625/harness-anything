@@ -561,8 +561,17 @@ export const complete: Transition = {
     const command = raw as CompleteTaskCommand,
       proof = rawProof as Partial<CompleteTaskProof>,
       issues = revisionIssues(snapshot, command),
-      task = snapshot.task,
-      current = execution(snapshot, command.executionId),
+      task = snapshot.task;
+    if (task?.supersededBy !== undefined && task.supersededBy !== null) {
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          `Task ${task.taskId} was superseded by ${task.supersededBy} and cannot be completed`,
+        ),
+      );
+      return issues;
+    }
+    const current = execution(snapshot, command.executionId),
       gatesValid = isValidCloseoutGateRecord(proof.closeoutGates),
       assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined, proof.delivery);
     if (command.resolution) {

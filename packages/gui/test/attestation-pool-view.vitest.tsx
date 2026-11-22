@@ -85,8 +85,14 @@ const attestTask: TaskRow = {
   source: "local-document",
   iteration: 0,
   lastKnownAt: "2026-09-16T10:31:00.000Z",
-  gates: [{ name: "ux-signoff", ok: null, status: "missing" }],
-  executions: [submittedExecution("task-attest", "ux-signoff", "manual-attest")],
+  gates: [
+    {
+      name: "ux-signoff",
+      ok: null,
+      status: "missing",
+      attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task-attest" },
+    },
+  ],
   docs: [],
   ...projectedTaskFields("in_review"),
 } as TaskRow;
@@ -95,16 +101,30 @@ const failedTask: TaskRow = {
   ...attestTask,
   taskId: "task-failed",
   title: "CI 失败任务",
-  gates: [{ name: "ci-gate", ok: false, status: "failed", detail: "current execution cut did not pass" }],
-  executions: [submittedExecution("task-failed", "ci-gate", "github-actions", { allowOverride: true })],
+  gates: [
+    {
+      name: "ci-gate",
+      ok: false,
+      status: "failed",
+      detail: "current execution cut did not pass",
+      attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-failed" },
+    },
+  ],
 } as TaskRow;
 
 const missingWitnessTask: TaskRow = {
   ...attestTask,
   taskId: "task-unavailable",
   title: "无自动见证任务",
-  gates: [{ name: "e2e", ok: null, status: "missing", detail: "runner unreachable; no gate witness" }],
-  executions: [submittedExecution("task-unavailable", "e2e", "local-command", { allowOverride: true })],
+  gates: [
+    {
+      name: "e2e",
+      ok: null,
+      status: "missing",
+      detail: "runner unreachable; no gate witness",
+      attestation: { mode: "override", adapterId: "local-command", executionId: "execution-task-unavailable" },
+    },
+  ],
 } as TaskRow;
 
 const consentTask: TaskRow = {
@@ -114,7 +134,8 @@ const consentTask: TaskRow = {
   gates: [],
   executions: [submittedExecution("task-consent", "any", "manual-attest")],
   closeoutBlocker: "consent",
-  reviews: [{ reviewId: "review-pool-approved", verdict: "approved", reason: "ok", reviewedAt: "2026-09-19" }],
+  consentTarget: { reviewId: "review-pool-approved", executionId: "execution-current-cut" },
+  reviews: [{ reviewId: "review-old-cut", verdict: "approved", reason: "historical", reviewedAt: "2026-09-19" }],
 } as TaskRow;
 
 const proposedDecision: DecisionRow = {
@@ -429,10 +450,10 @@ describe("AttestationPoolView", () => {
           name: "e2e",
           ok: false,
           status: "signoff_missing",
+          attestation: { mode: "approve", adapterId: "local-command", executionId: "execution-task-dual" },
           detail: "the automated witness passed; the mandatory human signoff is missing",
         },
       ],
-      executions: [submittedExecution("task-dual", "e2e", "local-command", { mandatorySignoff: true })],
     } as TaskRow;
     const harness = await mountPool("gates", [dualControl]);
     await act(async () => {

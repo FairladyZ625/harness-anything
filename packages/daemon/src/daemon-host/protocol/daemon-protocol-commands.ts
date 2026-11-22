@@ -292,7 +292,7 @@ export function repoCellExecutionForAction(kind: string): "query-only" | "writer
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
-  if (method === "repo.task.run" || method === "repo.task.read") {
+  if (method === "repo.task.run" || method === "repo.task.read" || method === "repo.trace.read") {
     const action = payload.action as JsonObject & { readonly kind: string },
       descriptor = commandDescriptorByActionKind.get(action.kind);
     if (descriptor?.method !== method)
@@ -321,6 +321,18 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
 
 /** Socket reads share the host's repository-read admission without declaring GUI routes. */
 export const daemonRepositoryReadMethods = Object.freeze([
+  {
+    id: "events.read",
+    phase: "Ledger-Read",
+    method: "repo.events.read",
+    requiresRepo: true,
+    repositoryRead: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ afterRevision: "number", limit: "number", waitMs: "number?" }),
+    }),
+  },
   {
     id: "tasks.runtimeContext.read",
     phase: "W3",
@@ -551,6 +563,8 @@ export const daemonProtocolMethods = Object.freeze([
       personId: "string?",
       displayName: "string?",
       name: "string?",
+      vertical: "string?",
+      preset: "string?",
       addNpmScripts: "boolean?",
       configureOnly: "boolean?",
     }),
@@ -789,6 +803,16 @@ export const daemonProtocolMethods = Object.freeze([
     id: "repo.task.read",
     phase: "W3",
     method: "repo.task.read",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ action: shape({ kind: "string" }, true) }),
+    }),
+  },
+  {
+    id: "repo.trace.read",
+    phase: "W3",
+    method: "repo.trace.read",
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),

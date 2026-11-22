@@ -1,7 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { type ActorIdentity, type LeaseV1, type TaskLifecycleSnapshot, type TaskV2 } from "@harness-anything/kernel";
+import {
+  type ActorIdentity,
+  type AgentRuntimeEventV1,
+  type LeaseV1,
+  type TaskLifecycleSnapshot,
+  type TaskV2,
+} from "@harness-anything/kernel";
 import { taskSurfaceWrite } from "../src/daemon-host/repo-cell-task-command-docs.ts";
 import { taskMutation } from "../src/daemon-host/repo-cell-task-mutation.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
@@ -68,14 +74,15 @@ const snapshot = (): TaskLifecycleSnapshot => ({
 function lifecycleProjection(runtimeSessionId: string, phase: "running" | "stopped", executionId = lease.executionId) {
   const dispatchId = `dispatch-${runtimeSessionId}`,
     source = "local" as const,
+    dispatch = lifecycleEvent("R", runtimeSessionId, {
+      instanceId: "codex-test",
+      source,
+      dispatchId,
+      taskId: task.taskId,
+      executionId,
+    }) as Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
     events = [
-      lifecycleEvent("R", runtimeSessionId, {
-        instanceId: "codex-test",
-        source,
-        dispatchId,
-        taskId: task.taskId,
-        executionId,
-      }),
+      dispatch,
       ...(phase === "running"
         ? [lifecycleEvent("S", runtimeSessionId, { instanceId: "codex-test", source })]
         : [lifecycleEvent("X", runtimeSessionId, { instanceId: "codex-test", source })]),
@@ -86,6 +93,7 @@ function lifecycleProjection(runtimeSessionId: string, phase: "running" | "stopp
     };
   return {
     readRuntimeSession: (id: string) => (id === runtimeSessionId ? session : null),
+    readRuntimeDispatch: (id: string) => (id === runtimeSessionId ? dispatch : null),
     readDispatchLifecycle: dispatchLifecycleReadOf(() => events),
   };
 }

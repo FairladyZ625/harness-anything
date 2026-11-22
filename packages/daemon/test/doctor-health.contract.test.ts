@@ -52,6 +52,7 @@ test("doctor health reports the nine checks and degrades to indeterminate withou
         "orphan-lease",
         "wip-pressure",
         "local-root-residue",
+        "edge-config-residue",
         "doc-debt",
         "relation-cycles",
         "exited-unsettled-runtime",
@@ -69,6 +70,7 @@ test("doctor health reports the nine checks and degrades to indeterminate withou
       "executor-undeclared",
       "orphan-lease",
       "wip-pressure",
+      "edge-config-residue",
       "relation-cycles",
       "exited-unsettled-runtime",
     ])
@@ -221,7 +223,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string; summary: string; next: string }[];
-      assert.equal(checks.length, 13);
+      assert.equal(checks.length, 14);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
       // The host check reads the repository's selected provider and the machine-local record.
@@ -238,12 +240,15 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const edgeChecks = receipt.checks as { id: string; status: string }[];
-    assert.equal(edgeChecks.length, 11);
+    assert.equal(edgeChecks.length, 12);
     assert.equal(edgeChecks.find((check) => check.id === "edge-replica")?.status, "fail");
+    assert.equal(edgeChecks.find((check) => check.id === "edge-config-residue")?.status, "ok");
     assert.equal(receipt.failureCode, "fleet_edge_config_invalid");
     assert.ok(
       edgeChecks
-        .filter((check) => check.id !== "edge-replica" && check.id !== "fleet-version")
+        .filter(
+          (check) => check.id !== "edge-replica" && check.id !== "edge-config-residue" && check.id !== "fleet-version",
+        )
         .every((check) => check.status === "indeterminate"),
     );
     assert.equal(edgeChecks.find((check) => check.id === "fleet-version")?.status, "ok");
@@ -450,4 +455,54 @@ test("doctor identifies process_exit while canonical dispatch remains running an
   const after = await check();
   assert.equal(after.status, "ok");
   assert.equal(after.count, 0);
+});
+
+test("doctor alerts on residual fleet-edge.json or fleet-center-ca.pem in the repository workspace and prints migration guidance", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-doctor-edge-residue-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    repoId = "doctor-edge-residue";
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  mkdirSync(rootDir, { recursive: true });
+  initRepo(rootDir);
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    mode: "remote-edge",
+    userRoot,
+    createConvenienceLinks: false,
+  });
+  const host = await openSignedInHost({ daemonId: "doctor-edge-residue", userRoot });
+  await host.attachmentsSettled();
+  try {
+    const clean = (await host.run(repoId, { kind: "doctor-health" }, auth)) as {
+      checks: readonly { id: string; status: string; count: number; summary: string; next: string }[];
+    };
+    const cleanCheck = clean.checks.find((c) => c.id === "edge-config-residue");
+    assert.equal(cleanCheck?.status, "ok");
+    assert.equal(cleanCheck?.count, 0);
+
+    writeFileSync(path.join(rootDir, "fleet-edge.json"), '{"schema":"fleet-edge-config/v1","credential":"secret"}\n');
+    writeFileSync(path.join(rootDir, "fleet-center-ca.pem"), "-----BEGIN CERTIFICATE-----\n");
+    const dirty = (await host.run(repoId, { kind: "doctor-health" }, auth)) as {
+      checks: readonly { id: string; status: string; count: number; summary: string; next: string }[];
+    };
+    const dirtyCheck = dirty.checks.find((c) => c.id === "edge-config-residue");
+    assert.equal(dirtyCheck?.status, "fail");
+    assert.equal(dirtyCheck?.count, 2);
+    assert.match(dirtyCheck!.summary, /fleet-edge\.json/u);
+    assert.match(dirtyCheck!.summary, /fleet-center-ca\.pem/u);
+    assert.match(
+      dirtyCheck!.next,
+      new RegExp(path.join(userRoot, "fleet", "edge", repoId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "u"),
+    );
+  } finally {
+    await host.close();
+    await removeTemporaryDirectory(parent);
+  }
 });

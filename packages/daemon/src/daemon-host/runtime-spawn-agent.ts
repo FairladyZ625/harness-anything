@@ -3,7 +3,7 @@ import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/
 import type { AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 import { mergeRepositorySkills, resolveAgentSkills } from "./agent-skills.ts";
 import { runtimeErrorCode, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
-import type { RuntimeBinding, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
+import type { RuntimeAgent, RuntimeBinding, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 
 /** Resolve the dispatch identity and its prompt resources in the worker's checkout. */
 export function resolveDispatchAgent(
@@ -13,10 +13,11 @@ export function resolveDispatchAgent(
   agentId: string | undefined,
   squadId: string | undefined,
   targetAgentId: string | undefined,
+  verticalId?: string,
 ) {
   const squad =
       squadId || targetAgentId
-        ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId, binding) ??
+        ? (input.resolveSquadDispatch?.(squadId, agentId!, targetAgentId, binding, verticalId) ??
           (() => {
             if (squadId) throw runtimeSpawnError("squad_not_found", `Squad ${squadId} is unavailable.`);
             throw runtimeSpawnError(
@@ -26,15 +27,16 @@ export function resolveDispatchAgent(
           })())
         : null,
     delegatedBy = squad?.worker ? squad.leader : null,
-    agent =
+    declaration =
       squad?.worker ??
       squad?.leader ??
       (agentId
-        ? (input.resolveAgent?.(agentId) ??
+        ? (input.resolveAgent?.(agentId, verticalId) ??
           (() => {
             throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
           })())
         : null),
+    agent = declaration ? applyLocalAgentBinding(input, declaration) : null,
     resolvedSkills = agent ? resolveDispatchSkills(input, agent) : [],
     preset = agent?.preset
       ? (() => {
@@ -49,12 +51,22 @@ export function resolveDispatchAgent(
           return presetDocumentBody({
             repoRoot: input.rootDir,
             userRoot: presetUserRoot(input.rootDir),
-            verticalId: defaults.verticalId,
+            verticalId: verticalId ?? defaults.verticalId,
             presetId: agent.preset!,
           });
         })()
       : undefined;
   return { squad, delegatedBy, agent, resolvedSkills, preset };
+}
+
+export function applyLocalAgentBinding(
+  input: Pick<RuntimeSpawnerInput, "readSettings">,
+  agent: RuntimeAgent,
+): RuntimeAgent {
+  const binding = input.readSettings?.().runtimeAgentBindings?.find(({ agentId }) => agentId === agent.id);
+  if (!binding) return agent;
+  const { agentId: _agentId, ...selection } = binding;
+  return { ...agent, ...selection };
 }
 
 /**

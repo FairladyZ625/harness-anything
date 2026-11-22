@@ -1,3 +1,4 @@
+import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
@@ -9,14 +10,18 @@ import type * as OperationalStatus from "@harness-anything/kernel/internal/domai
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
-  archiveDispatchStream,
+  dispatchStreamPath,
+  parseRecord,
   readDispatchStream,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
   readDispatchStreamHeaders,
+  readRuntimeWorkerChunk,
   reopenDispatchStream,
   type DispatchStreamHeader,
 } from "./dispatch-stream.ts";
+import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
+import { reconcileDispatchSteerStateFromStream } from "./dispatch-steer-state.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { listLocalSkillSnapshotSessionIds, reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
 import { createActiveRuntime, attachActiveRuntime, isRuntimeProcessProvenStopped } from "./runtime-spawn-active.ts";
@@ -119,7 +124,12 @@ export async function adoptRuntimes(
       const existing = pending.get(runtimeSessionId);
       if (existing && existing.result?.outcome !== "failed") {
         // Retry the durable stream when the aggregate no longer observes a live process.
-        if (existing.result?.outcome !== "ready" || initial.attempt.process === "alive") return existing.promise;
+        if (
+          initial.attempt.executionTarget ||
+          existing.result?.outcome !== "ready" ||
+          initial.attempt.process === "alive"
+        )
+          return existing.promise;
         pending.delete(runtimeSessionId);
       }
       let restored = false;
@@ -277,7 +287,7 @@ async function restoreRuntime(
   if (header.fallbackAttempt) await context.reconcileFallback(header.dispatchId);
   if (lifecycle.policy.attemptSettled) {
     if (streamSummary && lifecycle.policy.groupSettled && !lifecycle.policy.successorAdmissible)
-      archiveDispatchStream(context.input.rootDir, header.dispatchId);
+      await releaseFallbackResources(context, lifecycle, header.role, header.cwd);
     removeRuntimeCallbackRelay(header.dispatchId);
     return true;
   }
@@ -303,7 +313,7 @@ async function restoreRuntime(
         ...(processPid > 1 ? { processGroupPid: processPid } : {}),
       },
     } as const;
-  if (lifecycle.attempt.process !== "exited")
+  if (!lifecycle.attempt.executionTarget && lifecycle.attempt.process !== "exited")
     await context.publishRuntimeEvent(
       livenessEvent.type,
       livenessEvent.payload,
@@ -311,12 +321,57 @@ async function restoreRuntime(
       binding,
     );
   if (context.closed?.()) return false;
-  const runtimeProcess = adoptNativeProcess(
-    context.input.rootDir,
-    stream.header.dispatchId,
-    processPid,
-    durableOutputRecordCount(fullStream?.records ?? []),
-  );
+  // F12 & F17: Reconcile (or hydrate from a legacy stream) per-dispatch steer state once on
+  // adoption when the stream is within the read ceiling (`fullStream !== null`), so a crash
+  // between stream append and sidecar write never re-delivers a steer and oversized truncated
+  // streams (>200 MiB) are never scanned end-to-end.
+  if (fullStream !== null) {
+    reconcileDispatchSteerStateFromStream(
+      context.input.rootDir,
+      stream.header.dispatchId,
+      dispatchStreamPath(context.input.rootDir, stream.header.dispatchId),
+      readRuntimeWorkerChunk,
+      parseRecord,
+      { forceTailScan: true },
+    );
+  }
+  const cloudTarget = lifecycle.attempt.executionTarget;
+  if (
+    cloudTarget &&
+    (!fullStream || header.executionTarget?.hostId !== cloudTarget.hostId || header.executionAttempt === undefined)
+  )
+    throw context.runtimeSpawnError("runtime_recovery_pending", "Cloud sandbox dispatch stream is unavailable.");
+  const stopping = lifecycle.attempt.phase === "settling" && lifecycle.attempt.stopProof !== "proven_stopped";
+  const cloudProcess = cloudTarget
+    ? openCloudRuntime({
+        rootDir: context.input.rootDir,
+        registration: context.input.cloudRuntime,
+        target: cloudTarget,
+        attempt: {
+          repoId: context.input.repoId,
+          dispatchId: header.dispatchId,
+          runtimeSessionId: header.runtimeSessionId,
+          attempt: header.executionAttempt!,
+        },
+        stopping,
+        now: context.input.now,
+        records: fullStream!.records,
+      })
+    : null;
+  const runtimeProcess = cloudProcess
+    ? {
+        ...cloudProcess,
+        release: () => {
+          cloudProcess.release?.();
+          recoveries.get(context)?.delete(header.runtimeSessionId);
+        },
+      }
+    : adoptNativeProcess(
+        context.input.rootDir,
+        stream.header.dispatchId,
+        processPid,
+        durableOutputRecordCount(fullStream?.records ?? []),
+      );
   if (!fullStream) runtimeProcess.release?.();
   const active = createActiveRuntime({
     process: runtimeProcess,
@@ -372,6 +427,7 @@ async function restoreRuntime(
     providerUnreachable: session?.providerUnreachable ?? null,
     workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
     stalledAt: streamSummary?.stalledAt ?? null,
+    steerReceiptCapable: stream.header.steerReceiptProtocolVersion === 1,
     startedAt: stream.header.startedAt,
     stream: reopenDispatchStream(context.input.rootDir, stream.header),
     fallbackAttempt: stream.header.fallbackAttempt ?? null,
@@ -404,6 +460,19 @@ async function restoreRuntime(
     return true;
   }
   context.processes.set(active.runtimeSessionId, active);
+  if (runtimeProcess.cloud) {
+    const cancel = fullStream?.records.findLast((record) => record.kind === "sandbox_cancel_requested");
+    if (typeof cancel?.opId === "string") {
+      active.cancelRequested = true;
+      active.cancelOpId = cancel.opId;
+    }
+    attachAdoptedObservations(context, active);
+    // Reissue a cancellation interrupted by daemon replacement through the same admitted stop;
+    // the sandbox command carries the attempt's original idempotency key.
+    if (stopping || active.cancelRequested)
+      context.input.schedule(() => context.publishExit(active, null), active.binding);
+    return false;
+  }
   if (observedAttempt.attempt.process === "alive") {
     if (active.spendCapExceeded) await context.enforceSpendCap(active);
     else if (fullStream) attachAdoptedObservations(context, active);
@@ -450,7 +519,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
       reason: `runtime observations could not be attached: ${error instanceof Error ? error.message : String(error)}`,
     });
     context.processes.delete(active.runtimeSessionId);
-    active.process.terminate();
+    if (!active.process.cloud) active.process.terminate();
     active.process.release?.();
     active.releaseAuthorization?.();
     throw error;

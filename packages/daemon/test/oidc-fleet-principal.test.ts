@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { verifyFleetHuman, verifyFleetReplica } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
+import { verifyFleetHuman, verifyFleetReplica } from "@harness-anything/authorization/keycloak/oidc-fleet-principal";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 

@@ -116,9 +116,19 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ],
   [
     "task-create:repository-diff-contract",
-    () =>
-      "contract: repository-diff requires a committable public-repository diff and real CI. " +
-      "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+    (args) => {
+      const presets = Array.isArray(args.artifactPresets)
+        ? args.artifactPresets.filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
+        : [];
+      return (
+        "contract: repository-diff requires a committable public-repository diff and real CI. " +
+        (presets.length === 1
+          ? `For a task-package-only report or decision, use the task-package-artifact preset ${presets[0]}.`
+          : presets.length > 1
+            ? `For a task-package-only report or decision, use a task-package-artifact preset (${presets.join(", ")}).`
+            : "For a task-package-only report or decision, use a task-package-artifact preset declared by this vertical.")
+      );
+    },
   ],
   ["task-create:task-create-publish", () => "next: remove --dry-run to publish this exact resolved scaffold"],
   [

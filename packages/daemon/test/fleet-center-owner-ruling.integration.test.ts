@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { sha256Text, submissionDigest } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import type { PreparedRuntimeLaunch } from "../src/daemon-host/agent-runtime-instances.ts";
 import { dispatchStreamPath } from "../src/daemon-host/dispatch-stream.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
@@ -26,66 +27,13 @@ for (const reviewer of [false, true])
         { repoId, nodeId } = fixture.subject,
         owner = localAuthFixture(),
         cut = reviewer ? await submitReviewerTask(fixture, owner) : null;
-      const center = await fixture.center(),
-        workspaceRoot = path.join(fixture.root, "unreachable-edge"),
-        viewRoot = path.join(fixture.root, "unreachable-view"),
-        quotaBytes = 64 * 1024 * 1024;
-      mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
-      writeFileSync(
-        path.join(workspaceRoot, "harness/harness.yaml"),
-        "schema: harness-anything/v1\nname: unreachable-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-      );
-      const connection = {
-        readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
-        port: center.port,
-        ca: fixture.cert,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        viewRoot,
-        diskQuotaBytes: quotaBytes,
-      };
-      await catchUpReplica(connection);
-      const resident = startResidentReplicaSync({ ...connection, hostname: "127.0.0.1" });
-      fixture.track(resident.close);
-      applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
       let executionCredential: string | undefined;
-      const runtime = openFleetEdgeRuntime({
-        readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-        readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
-        controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-        resolveLocation: () => ({
-          host: "127.0.0.1",
-          port: center.port,
-          caPath: fixture.certFile,
-          nodeId: fixture.subject.nodeId,
-          credential: "machine-secret",
-          repoId: fixture.subject.repoId,
-          viewRoot,
-          quotaBytes,
-          workspaceRoot,
-          method: "repo.agentRuntime.spawn",
-          action: {},
-        }),
-        daemonGeneration: 1,
-        daemonRoute: {
-          userRoot: path.join(fixture.root, "unreachable-edge-user"),
-          daemonId: "unreachable-edge",
-          endpoint: path.join(fixture.root, "unreachable-edge.sock"),
-        },
-        ports: scheduleRuntimePorts(),
-        launch: (prepared) => {
+      const { runtime, center, connection, resident, viewRoot, workspaceRoot, quotaBytes } = await openEdge(
+        fixture,
+        (prepared) => {
           executionCredential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
-          return {
-            pid: 2_147_483_647,
-            onOutput: () => undefined,
-            onErrorOutput: () => undefined,
-            onExit: () => undefined,
-            terminate: () => undefined,
-          };
         },
-      });
-      fixture.track(() => runtime.close());
+      );
       const launched = await runtime.run("repo.agentRuntime.spawn", {
         taskId: cut?.taskId ?? fixture.subject.taskId,
         ...(reviewer ? { role: "reviewer" } : {}),
@@ -182,9 +130,19 @@ for (const reviewer of [false, true])
           connection.readAccessToken,
         );
         assert.equal(businessWrite.code, "execution_credential_rejected", JSON.stringify(businessWrite));
-        await assert.rejects(fixture.host.cancelRuntime(repoId, { runtimeSessionId }, owner), {
-          code: "execution_scope_mismatch",
-        });
+        const remoteCancel = await fixture.host.cancelRuntime(repoId, { runtimeSessionId }, owner);
+        assert.equal(remoteCancel.ok, true, JSON.stringify(remoteCancel));
+        assert.equal(remoteCancel.detail, "cancel_requested", JSON.stringify(remoteCancel));
+        assert.equal(remoteCancel.targetNodeId, nodeId, JSON.stringify(remoteCancel));
+        const afterRemoteCancel = await fixture.host.readDispatchLifecycle(
+          repoId,
+          { by: "session", runtimeSessionId },
+          owner,
+        );
+        assert.equal(afterRemoteCancel.status, "ready");
+        if (afterRemoteCancel.status !== "ready") assert.fail("canonical lifecycle must remain ready");
+        assert.equal(afterRemoteCancel.rows[0]?.policy.groupSettled, false);
+        assert.equal(afterRemoteCancel.rows[0]?.attempt.stopProof, "unproven");
       }
       const unprovenBody = "An observation without physical stop proof is not an owner ruling.",
         unprovenSha = sha256Text(unprovenBody),
@@ -283,6 +241,189 @@ for (const reviewer of [false, true])
     },
   );
 
+test(
+  "edge cancel exhausts the current reviewer fallback after the local stream is lost",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]),
+      { repoId, nodeId } = fixture.subject,
+      owner = localAuthFixture(),
+      cut = await submitReviewerTask(fixture, owner),
+      { runtime, open, connection, workspaceRoot } = await openEdge(fixture);
+    const launched = await runtime.run("repo.agentRuntime.spawn", {
+      taskId: cut.taskId,
+      role: "reviewer",
+      runtimeInstanceId: definition.instanceId,
+      cwd: { scope: "repo-root" },
+      prompt: "Review this cut.",
+      dispatchKey: "edge-cancel-fallback",
+    });
+    assert.equal(launched.outcome, "applied", JSON.stringify(launched));
+    const runtimeSessionId = String(launched.runtimeSessionId),
+      dispatchId = String(launched.dispatchId),
+      body = "Reviewer ran out of provider capacity.",
+      sha256 = sha256Text(body),
+      resultRef = `artifact:runtime-result/sha256/${sha256}`,
+      nodeAuth = fixture.owners.auth(fixture.subject);
+    // Model a stopped edge whose accepted terminal publication survived loss of its local spool.
+    runtime.close();
+    const stream = dispatchStreamPath(workspaceRoot, dispatchId);
+    assert.ok(existsSync(stream));
+    rmSync(stream);
+    const stopped = await fixture.host.runtimeIngress(
+      repoId,
+      {
+        kind: "event",
+        type: "runtime_session_exited",
+        payload: { runtimeSessionId },
+        opId: "edge-cancel-fallback-exited",
+      },
+      nodeAuth,
+    );
+    assert.equal(stopped.outcome, "applied", JSON.stringify(stopped));
+    const failed = await fixture.host.runtimeIngress(
+      repoId,
+      {
+        kind: "event",
+        type: "runtime_session_outcome_observed",
+        opId: "edge-cancel-fallback-waiting",
+        payload: {
+          runtimeSessionId,
+          dispatchId,
+          outcome: "failed",
+          exitCode: 1,
+          resultRef,
+          result: { sha256, size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+          reasonCode: "provider_quota",
+          attempt: {
+            classification: "provider_quota",
+            reason: body,
+            fallbackState: "scheduled",
+            fallbackSchedule: {
+              notBeforeAt: new Date(Date.now() + 3_600_000).toISOString(),
+              nextProvider: { instance: definition.instanceId, model: definition.model },
+            },
+          },
+        },
+        resultBody: body,
+      },
+      nodeAuth,
+    );
+    assert.equal(failed.outcome, "applied", JSON.stringify(failed));
+    await catchUpReplica(connection);
+
+    const lifecycle = () => fixture.host.readDispatchLifecycle(repoId, { by: "session", runtimeSessionId }, owner);
+    const pending = await lifecycle();
+    assert.equal(pending.status, "ready");
+    assert.equal(pending.rows[0]?.groupPhase, "waiting_backoff");
+    assert.equal(pending.rows[0]?.policy.attemptSettled, true);
+    assert.equal(pending.rows[0]?.policy.consentBlocked, true);
+
+    const restarted = open(() => assert.fail("Cancelling a closed attempt must not launch a provider."));
+    const cancel = () => restarted.run("repo.agentRuntime.cancel", { runtimeSessionId });
+    const receipts = await Promise.all([cancel(), cancel()]);
+    const repeated = await cancel();
+    t.diagnostic(JSON.stringify({ pending: pending.rows[0]?.groupPhase, receipts, repeated }));
+    assert.ok(
+      receipts.some(({ outcome }) => outcome === "applied"),
+      JSON.stringify(receipts),
+    );
+    for (const receipt of [...receipts, repeated]) {
+      assert.equal(receipt.detail, "already-exited", JSON.stringify(receipt));
+      assert.ok(receipt.outcome === "applied" || receipt.outcome === "no_changes", JSON.stringify(receipt));
+    }
+    const closed = await lifecycle();
+    assert.equal(closed.status, "ready");
+    assert.equal(closed.rows[0]?.groupPhase, "closed");
+    assert.equal(closed.rows[0]?.policy.consentBlocked, false);
+    const outcomes = makeTaskEventReader({ repoId, rootDir: fixture.repo })
+      .read()
+      .events.filter(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.equal(outcomes.length, 2, "one provider failure and one group settlement");
+    const exhaustion = outcomes.at(-1);
+    assert.ok(exhaustion?.type === "runtime_session_outcome_observed");
+    assert.deepEqual(exhaustion.source, { kind: "node", nodeId });
+    assert.equal(exhaustion.payload.outcome, "failed");
+    assert.equal(exhaustion.payload.resultRef, resultRef);
+    assert.equal(exhaustion.payload.attempt?.fallbackState, "exhausted");
+    assert.equal(exhaustion.payload.attempt?.fallbackSchedule, undefined);
+  },
+);
+
+async function openEdge(
+  fixture: Awaited<ReturnType<typeof fleetFixture>>,
+  onLaunch?: (prepared: PreparedRuntimeLaunch) => void,
+) {
+  const { repoId, nodeId } = fixture.subject,
+    center = await fixture.center(),
+    workspaceRoot = path.join(fixture.root, "unreachable-edge"),
+    viewRoot = path.join(fixture.root, "unreachable-view"),
+    quotaBytes = 64 * 1024 * 1024;
+  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(workspaceRoot, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: unreachable-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  const connection = {
+    readAccessToken: fixture.owners.readAccessToken(nodeId),
+    port: center.port,
+    ca: fixture.cert,
+    nodeId,
+    credential: "machine-secret",
+    repoId,
+    viewRoot,
+    diskQuotaBytes: quotaBytes,
+  };
+  await catchUpReplica(connection);
+  const resident = startResidentReplicaSync({ ...connection, hostname: "127.0.0.1" });
+  fixture.track(resident.close);
+  applyFleetMirrorCut(viewRoot, repoId, workspaceRoot, "pull");
+
+  const open = (observeLaunch = onLaunch) => {
+    const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding(nodeId),
+      readAccessToken: connection.readAccessToken,
+      controlBinding: () => fixture.owners.binding(nodeId),
+      resolveLocation: () => ({
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId,
+        credential: "machine-secret",
+        repoId,
+        viewRoot,
+        quotaBytes,
+        workspaceRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {},
+      }),
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "unreachable-edge-user"),
+        daemonId: "unreachable-edge",
+        endpoint: path.join(fixture.root, "unreachable-edge.sock"),
+      },
+      ports: scheduleRuntimePorts(),
+      launch: (prepared) => {
+        observeLaunch?.(prepared);
+        return {
+          pid: 2_147_483_647,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    fixture.track(runtime.close);
+    return runtime;
+  };
+  return { runtime: open(), open, connection, resident, center, workspaceRoot, viewRoot, quotaBytes };
+}
+
 async function submitReviewerTask(
   fixture: Awaited<ReturnType<typeof fleetFixture>>,
   owner: ReturnType<typeof localAuthFixture>,
@@ -319,6 +460,7 @@ async function submitReviewerTask(
     owner,
   );
   assert.equal(evidence.outcome, "applied", JSON.stringify(evidence));
+  await waitForFleetPublication(fixture.host, repoId, evidence.opId, owner);
   const closeoutPath = path.join(fixture.repo, "harness", packagePath, "closeout.md"),
     closeout =
       "# Closeout\n\n## Summary\nFirst cut.\n\n## Verification\nChecked the evidence.\n\n## Residual Risk\nNone.\n\n## Same Mechanism Elsewhere\nReviewer settlement.\n";

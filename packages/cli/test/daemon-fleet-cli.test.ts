@@ -2,8 +2,10 @@
 import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
+import { createHash, X509Certificate } from "node:crypto";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -136,24 +138,19 @@ test(
       stop(fixture, "center");
       assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
       // No second center-start: the same verified TLS port must survive a real CLI restart.
-      writeFileSync(
-        path.join(fixture.edgeRepo, "fleet-edge.json"),
-        JSON.stringify({
-          schema: "fleet-edge-config/v1",
-          repoId: "fleet-demo",
-          host: "127.0.0.1",
-          port,
-          caPath: fixture.ca,
-          nodeId: "edge-one",
-          credential: machineCredential,
-          viewRoot: fixture.viewRoot,
-          quotaBytes,
-        }),
-      );
+      writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", {
+        repoId: "fleet-demo",
+        host: "127.0.0.1",
+        port,
+        caPath: fixture.ca,
+        nodeId: "edge-one",
+        credential: machineCredential,
+        viewRoot: fixture.viewRoot,
+        quotaBytes,
+      });
       // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
       await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
       realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       assert.equal(
         run(fixture, "edge", [
@@ -169,6 +166,9 @@ test(
         ]).ok,
         true,
       );
+      signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
+      stop(fixture, "edge");
+      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       const initialStatus = run(fixture, "edge", ["daemon", "status"]);
       assert.equal(initialStatus.ok, true, "an unsynced edge has no canonical Git publication to fail");
       assert.equal(
@@ -412,6 +412,32 @@ test(
       ]);
       assert.equal(repaired.ok, true);
       assert.equal(retryReplicaPending(sync).ok, true);
+      const originalEdgeConfig = readFleetEdgeConfig(fixture.edgeUser, "fleet-demo")!,
+        spkiSha256 = createHash("sha256")
+          .update(new X509Certificate(readFileSync(fixture.cert)).publicKey.export({ type: "spki", format: "der" }))
+          .digest("hex");
+      writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", {
+        ...originalEdgeConfig,
+        servername: "old-center.example.test",
+        spkiSha256,
+      });
+      const servernameProbe = maybeRun(fixture, "edge", [
+        "daemon",
+        "fleet",
+        "edge",
+        "repoint",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(port),
+        "--ca",
+        fixture.ca,
+        "--spki-sha256",
+        "0".repeat(64),
+      ]);
+      assert.equal(servernameProbe.status, 1, JSON.stringify(servernameProbe));
+      assert.equal(servernameProbe.receipt.code, "pin_mismatch", JSON.stringify(servernameProbe));
+      writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", originalEdgeConfig);
       assert.equal(
         existsSync(
           path.join(fixture.edgeUser, "fleet", localDaemonTargetKey(fixture.edgeUser, "default"), "center.json"),
@@ -590,20 +616,16 @@ test(
         resource: "fleet-demo",
         actions: ["repository-read"],
       });
-      writeFileSync(
-        path.join(fixture.edgeRepo, "fleet-edge.json"),
-        JSON.stringify({
-          schema: "fleet-edge-config/v1",
-          repoId: "fleet-demo",
-          host: "127.0.0.1",
-          port,
-          caPath: fixture.ca,
-          nodeId: "edge-one",
-          credential,
-          viewRoot: fixture.viewRoot,
-          quotaBytes,
-        }),
-      );
+      writeFleetEdgeConfig(fixture.edgeUser, "fleet-demo", {
+        repoId: "fleet-demo",
+        host: "127.0.0.1",
+        port,
+        caPath: fixture.ca,
+        nodeId: "edge-one",
+        credential,
+        viewRoot: fixture.viewRoot,
+        quotaBytes,
+      });
       signInAt(fixture.edgeUser, "edge-operator", undefined, undefined, fixture.edgeRepo);
       // The sync command observes the resident stream; attach its registered config first.
       stop(fixture, "edge");

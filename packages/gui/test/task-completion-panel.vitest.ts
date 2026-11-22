@@ -58,7 +58,10 @@ describe("Task completion panel", () => {
       completionBlocker: { code: "consent_missing", gate: "consent" },
     });
     const consents: string[] = [];
-    await mount({ onConsentReview: (reviewId) => (consents.push(reviewId), Promise.resolve()) });
+    await mount({
+      task: { ...task, consentTarget: { reviewId: "review-projected", executionId: "execution-current-cut" } },
+      onConsentReview: (reviewId) => (consents.push(reviewId), Promise.resolve()),
+    });
     await clickTab("收口");
     const panel = byTestId("task-completion-panel");
     const consent = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-consent"]');
@@ -69,7 +72,7 @@ describe("Task completion panel", () => {
     await act(async () => {
       consent!.click();
     });
-    expect(consents).toEqual(["review-w3"]);
+    expect(consents).toEqual(["review-projected"]);
   });
 
   it("keeps button behavior identical when the action prose changes", async () => {

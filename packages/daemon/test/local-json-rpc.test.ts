@@ -1070,6 +1070,8 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "receipt-show": "repo-read",
     "event-list": "repo-read",
     "event-show": "repo-read",
+    "ledger-audit-export": "repo-read",
+    "task-delivery-certificate": "repo-read",
     "doc-status": "repo-read",
     "doc-dry-run": "repo-read",
     "doc-submit": "repo-write",

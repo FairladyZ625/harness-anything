@@ -10,9 +10,10 @@ import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes 
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { daemonMethodAcceptsPayload } from "../src/daemon-host/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
@@ -134,7 +135,7 @@ test(
       quotaBytes: 64 * 1024 * 1024,
       waitTimeoutMs: 2000,
     };
-    writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+    writeFleetEdgeConfig(edgeUser, "lease-repo", config);
     edge = await openDaemonHost({
       daemonId: "read-edge",
       userRoot: edgeUser,
@@ -408,7 +409,10 @@ test(
     // what lets its edge answer reads locally (dec_0C26B97C5B6CEA37101FC0A84D).
     // `ha daemon fleet edge sync` for this edge: the production sync waits on the edge daemon's stream.
     const edgeSync = () =>
-      syncFleetEdgeMirror({ payload: { ...config, workspaceRoot: edgeRoot } }, f.peer("node-one").readAccessToken);
+      syncFleetEdgeMirror(
+        { userRoot: edgeUser, payload: { ...config, workspaceRoot: edgeRoot } },
+        f.peer("node-one").readAccessToken,
+      );
     const viewerPull = await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: config.viewRoot,

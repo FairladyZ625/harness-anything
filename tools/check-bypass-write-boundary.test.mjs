@@ -6,11 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { unloggedTableSource } from "./gates/test/fixtures/state-residency-unlogged.mjs";
+import { hostCheckpointSource } from "./gates/test/fixtures/state-residency-host-checkpoint.mjs";
 import { checkBypassWriteBoundary as runBoundaryCheck, scanBypassWriteCalls } from "./check-bypass-write-boundary.mjs";
 import { stateResidencyBaseline } from "./gate-allowlists/state-residency-baseline.mjs";
 import { auditCacheDriverImports, cacheDriverAdapterCandidates } from "./gates/cache-driver-import-boundary.mjs";
+import { hostEnvironmentIoModule, hostEnvironmentIoPorts } from "../packages/kernel/src/domain/host-environment-io.ts";
 
-const checkBypassWriteBoundary = (root, options) => runBoundaryCheck(root, { nonStateIoDeclarations: [], ...options });
+const checkBypassWriteBoundary = (root, options) =>
+  runBoundaryCheck(root, { nonStateIoDeclarations: [], hostEnvironmentIoPorts: [], ...options });
 
 function fixture(body, relativePath = "packages/demo/src/state-writer.ts") {
   const root = mkdtempSync(path.join(tmpdir(), "state-residency-gate-"));
@@ -302,6 +305,52 @@ test("accepts only a path-bound, reasoned environment I/O declaration", () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Ontology host I/O allows only the registered filesystem effects and checkpoint owners", (t) => {
+  // dec_89D06D7360CBEC09795F7B12EC/CH4 replaces scattered environment I/O exceptions.
+  const root = fixture(hostCheckpointSource, hostEnvironmentIoModule);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const port = hostEnvironmentIoPorts.find(({ scope }) => scope === "writeHostEnvironmentFile");
+  const check = () => checkBypassWriteBoundary(root, { contracts: [], baseline: [], hostEnvironmentIoPorts: [port] });
+  assert.deepEqual(check().violations, []);
+
+  const proof = "import { writeHostEnvironmentFile as save } from '../host-environment-io.ts';\n";
+  const owner = "packages/daemon/src/daemon-host/fleet/center-listener.ts";
+  mkdirSync(path.dirname(path.join(root, owner)), { recursive: true });
+  writeFileSync(path.join(root, owner), `${proof}save('fleetSnapshotPin','owned','{}');`);
+  assert.deepEqual(check().violations, []);
+  writeFileSync(path.join(root, owner), `${proof}save('fleetSnapshotTransfer','owned','{}');`);
+  assert.match(check().violations[0]?.message, /checkpoint is not owned/u);
+  writeFileSync(path.join(root, owner), `${proof}const key = 'fleetSnapshotPin'; save(key,'owned','{}');`);
+  assert.match(check().violations[0]?.message, /checkpoint is not owned/u);
+
+  writeFileSync(path.join(root, owner), `${proof}save('fleetSnapshotPin','owned','{}');`);
+  writeFileSync(
+    path.join(root, hostEnvironmentIoModule),
+    hostCheckpointSource.replace("await rm('temp');", "await rm('temp'); await rm('extra');"),
+  );
+  assert.match(check().violations[0]?.message, /duplicated/u);
+  writeFileSync(path.join(root, hostEnvironmentIoModule), hostCheckpointSource.replace("await rm('temp');", ""));
+  assert.match(check().violations[0]?.message, /effect is missing/u);
+});
+
+test("the registered workspace lock cannot lose its execution store ownership", (t) => {
+  const port = hostEnvironmentIoPorts.find(({ scope }) => scope === "openWriterLockFile");
+  const source =
+    "import { openSync } from 'node:fs';\nfunction openWriterLockFile() { return openSync('workspace.lock', 'wx'); }";
+  const root = fixture(source, port.module);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const contracts = [
+    { kind: "execution", stateStores: [authority(port.stateStore, { kind: "filesystem-store", module: port.module })] },
+  ];
+  const check = () => checkBypassWriteBoundary(root, { contracts, baseline: [], hostEnvironmentIoPorts: [port] });
+  assert.match(check().violations[0]?.message, /state ownership/u);
+  writeFileSync(
+    path.join(root, port.module),
+    source.replace("return openSync", `return /* @gate-identity state-store/${port.stateStore} */ openSync`),
+  );
+  assert.deepEqual(check().violations, []);
 });
 
 test("requires a cache adapter to match its registered medium exactly", () => {

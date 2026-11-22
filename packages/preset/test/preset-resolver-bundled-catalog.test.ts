@@ -66,7 +66,7 @@ function workKindAnchors(locale: {
 }
 
 test("bundled closeout reviewer is machine-independent and leaves instance model selection open", () => {
-  const reviewer = readBundledAgentDeclaration("closeout-reviewer");
+  const reviewer = readBundledAgentDeclaration("closeout-reviewer", "software/coding");
   assert.ok(reviewer);
   assert.deepEqual(reviewer.runtimes, []);
   assert.equal(reviewer.role, "reviewer");
@@ -84,7 +84,7 @@ test("bundled closeout reviewer is machine-independent and leaves instance model
   // skill script, so a fresh repository can dispatch it without a host checkout's private tree.
   assert.deepEqual(reviewer.skills ?? [], []);
   assert.doesNotMatch(reviewer.instructions, /review-facts|self-iteration|skills\//u);
-  assert.equal(readBundledAgentDeclaration("not-bundled"), null);
+  assert.equal(readBundledAgentDeclaration("not-bundled", "software/coding"), null);
 });
 test("bundled candidates are decoded once per process while user packages stay live", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-catalog-cache-")),

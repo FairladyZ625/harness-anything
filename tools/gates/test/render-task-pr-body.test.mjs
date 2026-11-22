@@ -77,8 +77,8 @@ ${chineseVerification}
   },
   dependencySubmission = {
     ...codeSubmission,
-    deliverables: ["packages/authorization-gui/package.json"],
-    changedFiles: ["packages/authorization-gui/package.json"],
+    deliverables: ["packages/authorization/package.json"],
+    changedFiles: ["packages/authorization/package.json"],
     outputs: [],
   },
   dependencyCloseout = closeout.replace(

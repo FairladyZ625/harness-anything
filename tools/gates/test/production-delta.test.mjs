@@ -32,24 +32,24 @@ test("G33 measures additions and deletions in tool source", () => {
 
 test("G33 classifies replaceable authorization packages into governed production modules", () => {
   const { rootDir, base } = makeRepo({
-    "packages/authorization-builtin/src/provider.ts": "old\n",
-    "packages/authorization-keycloak/src/provider.ts": "old\n",
-    "packages/authorization-gui/src/contract.ts": "old\n",
-    "packages/authorization-keycloak-gui/src/access-control.tsx": "old\n",
+    "packages/authorization/src/builtin/provider.ts": "old\n",
+    "packages/authorization/src/keycloak/provider.ts": "old\n",
+    "packages/authorization/src/gui/contract.ts": "old\n",
+    "packages/authorization/src/keycloak-gui/access-control.tsx": "old\n",
   });
-  writeRepoFile(rootDir, "packages/authorization-builtin/src/provider.ts", "new\n");
-  writeRepoFile(rootDir, "packages/authorization-keycloak/src/provider.ts", "new\n");
-  writeRepoFile(rootDir, "packages/authorization-gui/src/contract.ts", "new\n");
-  writeRepoFile(rootDir, "packages/authorization-keycloak-gui/src/access-control.tsx", "new\n");
+  writeRepoFile(rootDir, "packages/authorization/src/builtin/provider.ts", "new\n");
+  writeRepoFile(rootDir, "packages/authorization/src/keycloak/provider.ts", "new\n");
+  writeRepoFile(rootDir, "packages/authorization/src/gui/contract.ts", "new\n");
+  writeRepoFile(rootDir, "packages/authorization/src/keycloak-gui/access-control.tsx", "new\n");
   const result = computeProductionDelta({ rootDir, base });
   assert.deepEqual(result.unclassified, []);
   assert.deepEqual(
     result.changed.map(({ filePath, module }) => ({ filePath, module })),
     [
-      { filePath: "packages/authorization-builtin/src/provider.ts", module: "identity-rbac" },
-      { filePath: "packages/authorization-gui/src/contract.ts", module: "gui" },
-      { filePath: "packages/authorization-keycloak-gui/src/access-control.tsx", module: "gui" },
-      { filePath: "packages/authorization-keycloak/src/provider.ts", module: "identity-rbac" },
+      { filePath: "packages/authorization/src/builtin/provider.ts", module: "identity-rbac" },
+      { filePath: "packages/authorization/src/gui/contract.ts", module: "gui" },
+      { filePath: "packages/authorization/src/keycloak-gui/access-control.tsx", module: "gui" },
+      { filePath: "packages/authorization/src/keycloak/provider.ts", module: "identity-rbac" },
     ],
   );
 });

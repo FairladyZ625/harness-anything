@@ -1,15 +1,20 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "../src/daemon-host/runtime-spawn-context.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
-import { resolveDispatchCwd } from "../src/daemon-host/runtime-resume-admission.ts";
+import {
+  dispatchDecisionPackageRoot,
+  managedRootsForTrustedCwd,
+  resolveDispatchCwd,
+} from "../src/daemon-host/runtime-resume-admission.ts";
+import { resolveManagedReviewWorktreePath } from "../src/daemon-host/task-worktree.ts";
 
 test("an unbound runtime inherits its spawning daemon route and runtime actor", async () => {
   const prepared = {
@@ -153,7 +158,182 @@ test("an artifact task resume discards an inherited canonical cwd and any explic
 test("an artifact task rooted at the repository uses the repo-root cwd scope", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-root-cwd-"));
   context.after(() => rmSync(root, { recursive: true, force: true }));
-  assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, root);
+  assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, realpathSync.native(root));
+});
+
+test(
+  "resolveDispatchCwd permits symlinked managed authoredRoot packages while rejecting external escapes",
+  { skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  (context) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-symlink-authored-")),
+      root = path.join(parent, "repo"),
+      externalLedger = path.join(parent, "private-ledger"),
+      externalOutside = path.join(parent, "outside"),
+      taskPackage = path.join(externalLedger, "tasks", "task_1");
+    context.after(() => rmSync(parent, { recursive: true, force: true }));
+    mkdirSync(root, { recursive: true });
+    mkdirSync(taskPackage, { recursive: true });
+    mkdirSync(externalOutside, { recursive: true });
+    symlinkSync(externalLedger, path.join(root, "harness"), "dir");
+    symlinkSync(externalOutside, path.join(root, "user-link"), "dir");
+    symlinkSync(externalOutside, path.join(externalLedger, "tasks", "escape"), "dir");
+
+    // Managed taskPackageRoot inside symlinked harness/ resolves cleanly.
+    const resolvedPackage = resolveDispatchCwd(
+      root,
+      {},
+      undefined,
+      null,
+      path.join(root, "harness", "tasks", "task_1"),
+    );
+    assert.equal(resolvedPackage.cwd, realpathSync.native(taskPackage));
+
+    // Ordinary inherited cwd without managed roots must still stay inside the repository realpath.
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, resolvedPackage.cwd, null),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd must stay inside the repository.",
+    );
+
+    // Ordinary inherited cwd replaced with an out-of-repo symlink during backoff is rejected on re-validation.
+    const ordinarySub = path.join(root, "ordinary-dir");
+    mkdirSync(ordinarySub, { recursive: true });
+    assert.equal(resolveDispatchCwd(root, {}, ordinarySub, null).cwd, realpathSync.native(ordinarySub));
+    rmSync(ordinarySub, { recursive: true, force: true });
+    symlinkSync(externalOutside, ordinarySub, "dir");
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, ordinarySub, null),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd must stay inside the repository.",
+    );
+
+    // Inherited cwd with explicit managed root resolves only while realpath remains inside that managed root.
+    assert.equal(
+      resolveDispatchCwd(
+        root,
+        {},
+        resolvedPackage.cwd,
+        null,
+        undefined,
+        managedRootsForTrustedCwd(root, "task-package"),
+      ).cwd,
+      resolvedPackage.cwd,
+    );
+    assert.deepEqual(managedRootsForTrustedCwd(root, undefined), []);
+    assert.deepEqual(managedRootsForTrustedCwd(root, "worktree"), [path.join(root, ".worktrees")]);
+    assert.deepEqual(managedRootsForTrustedCwd(root, "task-package"), [path.join(root, "harness")]);
+    assert.deepEqual(managedRootsForTrustedCwd(root, "decision-package"), [path.join(root, "harness")]);
+
+    // A symlinked .worktrees target outside the repository is allowed ONLY with trusted "worktree" provenance,
+    // never for ordinary caller-selected Task-bound cwds (inheritedManagedRoots = []).
+    const externalWorktrees = path.join(parent, "external-worktrees"),
+      externalCheckout = path.join(externalWorktrees, ".review", "task_1", "abc");
+    mkdirSync(externalCheckout, { recursive: true });
+    symlinkSync(externalWorktrees, path.join(root, ".worktrees"), "dir");
+    assert.equal(
+      resolveDispatchCwd(
+        root,
+        {},
+        path.join(root, ".worktrees", ".review", "task_1", "abc"),
+        null,
+        undefined,
+        managedRootsForTrustedCwd(root, "worktree"),
+      ).cwd,
+      realpathSync.native(externalCheckout),
+    );
+    assert.throws(
+      () =>
+        resolveDispatchCwd(
+          root,
+          {},
+          path.join(root, ".worktrees", ".review", "task_1", "abc"),
+          null,
+          undefined,
+          managedRootsForTrustedCwd(root, undefined),
+        ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd must stay inside the repository.",
+    );
+
+    // Missing inherited cwd fails with directory-does-not-exist instead of containment escape.
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, path.join(root, ".worktrees", ".review", "missing"), null),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "invalid_runtime_cwd" &&
+        error.message === "Runtime cwd directory does not exist.",
+    );
+
+    // Symlink escape inside harness/ pointing outside authoredRoot is still rejected.
+    assert.throws(
+      () => resolveDispatchCwd(root, {}, undefined, null, path.join(root, "harness", "tasks", "escape")),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_cwd",
+    );
+
+    // External caller payload.cwd symlink escape is still rejected.
+    assert.throws(
+      () => resolveDispatchCwd(root, { cwd: { scope: "repo-relative", path: "user-link" } }, undefined, null),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_cwd",
+    );
+
+    // Decision review package under symlinked harness/ resolves only for its own package path, never an escape.
+    const decisionPackage = path.join(externalLedger, "decisions", "decision-dec_1");
+    mkdirSync(decisionPackage, { recursive: true });
+    assert.equal(
+      dispatchDecisionPackageRoot(
+        root,
+        { cwd: { scope: "repo-relative", path: "harness/decisions/decision-dec_1" } },
+        { decisionId: "dec_1" },
+      ),
+      path.join(root, "harness", "decisions", "decision-dec_1"),
+    );
+    assert.equal(
+      dispatchDecisionPackageRoot(
+        root,
+        { cwd: { scope: "repo-relative", path: "user-link" } },
+        { decisionId: "dec_1" },
+      ),
+      null,
+    );
+  },
+);
+
+test("resolveManagedReviewWorktreePath matches realpath containment under symlinked .worktrees roots and rejects escapes", (context) => {
+  if (process.platform === "win32") return;
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-review-reclaim-root-")),
+    root = path.join(parent, "repo"),
+    externalWorktrees = path.join(parent, "external-worktrees"),
+    reviewCheckout = path.join(externalWorktrees, ".review", "task_1", "a".repeat(40)),
+    implWorktree = path.join(externalWorktrees, "task_1"),
+    outsideDir = path.join(parent, "outside");
+  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  mkdirSync(root, { recursive: true });
+  mkdirSync(reviewCheckout, { recursive: true });
+  mkdirSync(implWorktree, { recursive: true });
+  mkdirSync(outsideDir, { recursive: true });
+  symlinkSync(externalWorktrees, path.join(root, ".worktrees"), "dir");
+  symlinkSync(outsideDir, path.join(externalWorktrees, ".review", "escape-link"), "dir");
+
+  const resolvedExpected = realpathSync.native(reviewCheckout);
+  assert.equal(resolveManagedReviewWorktreePath(root, resolvedExpected), resolvedExpected);
+  assert.equal(
+    resolveManagedReviewWorktreePath(root, path.join(root, ".worktrees", ".review", "task_1", "a".repeat(40))),
+    resolvedExpected,
+  );
+  assert.equal(resolveManagedReviewWorktreePath(root, path.join(root, ".worktrees", ".review")), null);
+  assert.equal(resolveManagedReviewWorktreePath(root, implWorktree), null);
+  assert.equal(resolveManagedReviewWorktreePath(root, path.join(root, ".worktrees", ".review", "escape-link")), null);
+  assert.equal(resolveManagedReviewWorktreePath(root, outsideDir), null);
 });
 
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {

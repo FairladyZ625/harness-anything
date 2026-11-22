@@ -26,6 +26,7 @@ import {
   FLEET_HELLO_TIMEOUT_MS,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
+  FLEET_SESSION_CAPABILITY,
   currentFleetProtocolVersion,
   isFleetProtocolVersionCompatible,
   FleetUtf8LineDecoder,
@@ -33,6 +34,7 @@ import {
   parseFleetFrame,
   type FleetCut,
   type FleetFrameV1,
+  type FleetLoginAuthority,
 } from "./command-protocol.ts";
 import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "./command-transfer.ts";
 import {
@@ -53,17 +55,29 @@ function peerDisconnected(socket: TLSSocket, error: unknown): boolean {
     typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : null;
   return typeof code === "string" && PEER_GONE_CODES.includes(code);
 }
+function loginAuthorityForSession(
+  authority: FleetLoginAuthority | null,
+  capabilities: readonly string[] | undefined,
+): FleetLoginAuthority | null {
+  if (!authority || capabilities?.includes(FLEET_SESSION_CAPABILITY.extendedLoginAuthority)) return authority;
+  const { servername: _servername, browserUrl: _browserUrl, ...legacyAuthority } = authority;
+  return legacyAuthority;
+}
 function reserveFleetTransfer(
   options: FleetCenterOptions,
   nodeId: string,
   sessionId: string,
   repoId: string,
   bytes: number,
+  chargeBulkTransfer = true,
 ) {
   const scope = { nodeId, repoId, sessionId };
   try {
     return (
-      options.commandResourceBudget?.reserve(scope, { memoryBytes: bytes, bulkTransfers: 1 }) ?? {
+      options.commandResourceBudget?.reserve(
+        scope,
+        chargeBulkTransfer ? { memoryBytes: bytes, bulkTransfers: 1 } : { memoryBytes: bytes },
+      ) ?? {
         release: () => undefined,
       }
     );
@@ -75,6 +89,40 @@ function reserveFleetTransfer(
       true,
     );
   }
+}
+
+/** Tracks requests until delivery completes or fails, including streamed replies. */
+export function withFleetRequestMetrics(
+  options: Pick<FleetCenterOptions, "onRequestStarted" | "onRequestSettled">,
+  handle: Parameters<typeof serve>[2],
+): Parameters<typeof serve>[2] {
+  if (!options.onRequestStarted && !options.onRequestSettled) return handle;
+  return (...args) => {
+    let settled = false;
+    const settleRequest = (): void => {
+      if (settled) return;
+      settled = true;
+      options.onRequestSettled?.();
+    };
+    options.onRequestStarted?.();
+    return handle(...args).then(
+      (delivery) => ({
+        ...delivery,
+        onComplete: () => {
+          settleRequest();
+          delivery.onComplete?.();
+        },
+        onFailure: (error: unknown) => {
+          settleRequest();
+          delivery.onFailure?.(error);
+        },
+      }),
+      (error: unknown) => {
+        settleRequest();
+        throw error;
+      },
+    );
+  };
 }
 
 export async function serve(
@@ -133,7 +181,10 @@ export async function serve(
     const live = sessions.get(node);
     if (!live) return;
     live.delete(socket);
-    if (live.size === 0) sessions.delete(node);
+    if (live.size === 0) {
+      sessions.delete(node);
+      if (nodeId === node) options.onNodeDisconnected?.(node);
+    }
   };
   let replicationRepoId: string | null = null;
   const recordFailure = (error: unknown, fallback: string): void => {
@@ -208,7 +259,14 @@ export async function serve(
             : "transport",
         (repoId, bytes) => {
           if (!nodeId) throw new FleetFault("authentication_required", "Authenticate before sending a Fleet transfer.");
-          return reserveFleetTransfer(options, nodeId, window.holderId, repoId, bytes);
+          return reserveFleetTransfer(
+            options,
+            nodeId,
+            window.holderId,
+            repoId,
+            bytes,
+            delivery?.bulkTransferReserved !== true,
+          );
         },
       )) {
         const line = `${JSON.stringify(encoded)}\n`,
@@ -357,7 +415,8 @@ export async function serve(
           messageId: null,
           error,
         });
-      socket.destroy(error instanceof Error ? error : new Error(String(error)));
+      if (error instanceof FleetFault && error.code === "CENTER_MOVED") socket.end();
+      else socket.destroy(error instanceof Error ? error : new Error(String(error)));
     });
   };
   socket.on("data", (chunk) => {
@@ -599,6 +658,7 @@ export async function serve(
           startReplication(nodeId, start);
         }
         const centerBuildCommit = daemonBuildStamp().commit,
+          loginAuthority = (await options.loginAuthority?.(nodeId)) ?? null,
           versionWarning =
             frame.buildCommit !== undefined &&
             frame.buildCommit !== null &&
@@ -617,7 +677,7 @@ export async function serve(
             chunkBytes: FLEET_CHUNK_BYTES,
             centerBuildCommit,
             ...(versionWarning === undefined ? {} : { versionWarning }),
-            loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
+            loginAuthority: loginAuthorityForSession(loginAuthority, frame.capabilities),
           }),
         );
         return;

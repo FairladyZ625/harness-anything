@@ -9,7 +9,7 @@ import { taskQueryKeys } from "../../task-data.ts";
 import { agendaQueryKeys } from "../../agenda-data.ts";
 import { useCatalogSnapshot, useCatalogPreset } from "../../catalog-data.ts";
 import type { AgendaWorkbenchItem } from "../../model/agenda-workbench.ts";
-import type { TaskRow } from "../../model/types.ts";
+import { taskCan, type TaskRow } from "../../model/types.ts";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { TextInput } from "../../components/primitives/TextInput.tsx";
@@ -62,11 +62,9 @@ export function AgendaOutboxActions({
         (row) =>
           (row.workId ?? row.taskId) === item.workRootId &&
           row.coordinationStatus === "done" &&
-          row.packageDisposition === "active",
+          taskCan(row, "archive"),
       )
     : [];
-  const approved = task?.reviews?.findLast((review) => review.verdict === "approved");
-  const needsConsent = approved && !task?.consents?.some((consent) => consent.reviewId === approved.reviewId);
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId) }),
@@ -132,22 +130,23 @@ export function AgendaOutboxActions({
   };
   if (!task) return null;
   const mutation = actions.feedback.get(task.taskId);
+  const consentReviewId = task.consentTarget?.reviewId;
   return (
     <section className="grid min-w-0 gap-3 border-t border-border pt-3" data-testid="agenda-outbox-actions">
       {reviewing && (
         <>
           <div className="flex flex-wrap gap-2">
-            {needsConsent && (
+            {consentReviewId && (
               <Button
                 testId="agenda-consent"
                 variant="primary"
                 disabled={mutation?.state === "pending"}
-                onClick={() => void actions.consentReview(task, approved.reviewId)}
+                onClick={() => void actions.consentReview(task, consentReviewId)}
               >
                 {t("views.agenda.consentCloseout")}
               </Button>
             )}
-            {approved && !needsConsent && (
+            {taskCan(task, "complete") && (
               <Button
                 testId="agenda-complete"
                 disabled={mutation?.state === "pending"}
@@ -177,27 +176,29 @@ export function AgendaOutboxActions({
           )}
         </>
       )}
-      {done && task.packageDisposition === "active" && (
+      {done && !task.visibility.archived && (
         <>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              testId="agenda-archive"
-              variant="primary"
-              loading={busy}
-              onClick={() => void archive([task.taskId])}
-            >
-              {t("views.agenda.receiveDelivery")}
-            </Button>
-            {batch.length >= 2 && (
+          {taskCan(task, "archive") && (
+            <div className="flex flex-wrap gap-2">
               <Button
-                testId="agenda-archive-work"
-                disabled={busy}
-                onClick={() => void archive(batch.map((row) => row.taskId))}
+                testId="agenda-archive"
+                variant="primary"
+                loading={busy}
+                onClick={() => void archive([task.taskId])}
               >
-                {t("views.agenda.receiveWork", { count: batch.length })}
+                {t("views.agenda.receiveDelivery")}
               </Button>
-            )}
-          </div>
+              {batch.length >= 2 && (
+                <Button
+                  testId="agenda-archive-work"
+                  disabled={busy}
+                  onClick={() => void archive(batch.map((row) => row.taskId))}
+                >
+                  {t("views.agenda.receiveWork", { count: batch.length })}
+                </Button>
+              )}
+            </div>
+          )}
           <TextInput
             testId="agenda-followup-title"
             label={t("views.agenda.followupTitle")}

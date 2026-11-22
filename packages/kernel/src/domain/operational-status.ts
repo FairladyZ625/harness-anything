@@ -160,6 +160,9 @@ export type RuntimeAuthState = (typeof runtimeAuthStateWords)[number];
 export const runtimeAuthReadinessStatusWords = ["ready", "not-ready"] as const;
 export type RuntimeAuthReadinessStatus = (typeof runtimeAuthReadinessStatusWords)[number];
 
+export const runtimeProviderHealthStatusWords = ["frozen", "cooldown", "ready"] as const;
+export type RuntimeProviderHealthStatus = (typeof runtimeProviderHealthStatusWords)[number];
+
 export const runtimeEndpointAvailabilities = ["none", "optional", "required"] as const;
 export type RuntimeEndpointAvailability = (typeof runtimeEndpointAvailabilities)[number];
 

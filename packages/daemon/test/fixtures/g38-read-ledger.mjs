@@ -28,6 +28,7 @@ import { appendTaskEventQueryFixtures } from "../../../storage/test/postgres/pg-
 import { appendRuntimeQueryFixtures } from "../../../storage/test/postgres/pg-runtime-query-parity.fixture.ts";
 
 export const READ_TASK_ID = "task_111111111111111111111111";
+export const READ_DONE_TASK_ID = "task_222222222222222222222222";
 export const HISTORY_OUTPUT_TASK_ID = "task_333333333333333333333333";
 export const READ_ACTIVE_SESSION_ID = "history-active";
 export const READ_HISTORY_BATCH_SIZE = 100;
@@ -153,6 +154,15 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
       };
       await add({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
+  }
+  for (const source of lifecycleFixture({ taskId: READ_DONE_TASK_ID, executionId: "execution-done" }).events) {
+    const event = {
+      ...source,
+      workspaceRevision: next,
+      opId: `seed-done-${source.type}`,
+      eventId: `seed-done-${source.type}`,
+    };
+    await add({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
   }
   await appendTaskEventQueryFixtures(add, () => next);
   await appendRuntimeQueryFixtures(add, () => next);

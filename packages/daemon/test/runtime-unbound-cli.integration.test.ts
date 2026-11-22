@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -105,7 +105,6 @@ test(
             role: "worker",
             instructions: "Inspect the repository.",
             runtimes: [{ type: "codex" }],
-            instance: "codex-session",
           },
         })
       ).outcome,

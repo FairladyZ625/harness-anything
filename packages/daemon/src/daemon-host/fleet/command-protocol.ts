@@ -66,6 +66,9 @@ export interface FleetLoginAuthority {
   readonly servername?: string;
   readonly browserUrl?: string;
 }
+export const FLEET_SESSION_CAPABILITY = {
+  extendedLoginAuthority: "login-authority-extended-v1",
+} as const;
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
 // declared for its kind. The daemon re-binds principal authority server-side,
@@ -79,6 +82,31 @@ export interface FleetRuntimeDispatchContext {
   /** New owners admit the dispatch and its RuntimeSession in one canonical transaction. */
   readonly launchGeneration?: number;
 }
+export const fleetBusinessOperationalReadMethods = [
+  "repo.tasks.list",
+  "repo.task.show",
+  "repo.task.read",
+  "observe.tail",
+  "repo.events.read",
+  "repo.agentRuntime.events.read",
+  "repo.agentRuntime.tokenUsage",
+  "repo.agentRuntime.tokenUsageDetail",
+  "repo.artifacts.list",
+  "repo.agenda.read",
+] as const;
+const fleetOperationalReadMethods = [
+  "repo.tasks.runtimeContext.read",
+  "repo.agentRuntime.lifecycle.read",
+  "repo.agentRuntime.sessions.await",
+  "repo.task.dispatches",
+  "repo.access.members.read",
+  "repo.fleet.overview.read",
+  "repo.policy.metadata.read",
+  "repo.tasks.autoClaimCandidates",
+  "repo.tasks.autoDispatchCandidates",
+  ...fleetBusinessOperationalReadMethods,
+] as const;
+type FleetOperationalReadMethod = (typeof fleetOperationalReadMethods)[number];
 type Msg<S extends string, P extends object = object> = S extends string
   ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
   : never;
@@ -138,7 +166,13 @@ export type FleetFrameV1 =
   | Msg<"fleet.device.login.result/v1", { inReplyTo: string }>
   | Msg<
       "fleet.session.hello/v1",
-      { protocolVersion: ContractVersion; nodeId: string; credential: string; buildCommit?: string | null }
+      {
+        protocolVersion: ContractVersion;
+        nodeId: string;
+        credential: string;
+        buildCommit?: string | null;
+        capabilities?: readonly string[];
+      }
     >
   | Msg<
       "fleet.session.ready/v1",
@@ -324,16 +358,7 @@ export type FleetFrameV1 =
       "fleet.operational.read/v1",
       {
         repoId: string;
-        method:
-          | "repo.tasks.runtimeContext.read"
-          | "repo.agentRuntime.lifecycle.read"
-          | "repo.agentRuntime.sessions.await"
-          | "repo.task.dispatches"
-          | "repo.access.members.read"
-          | "repo.fleet.overview.read"
-          | "repo.policy.metadata.read"
-          | "repo.tasks.autoClaimCandidates"
-          | "repo.tasks.autoDispatchCandidates";
+        method: FleetOperationalReadMethod;
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -500,9 +525,27 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
         ("actionKind" in command ? command.actionKind : command.id) === kind &&
         ((command.admission["remote-edge"] === "via-center-forward" && command.path[0] !== "schedule") ||
           // Execution-bound doc-show resolves frozen submission blobs at the center.
-          command.id === "doc-show"),
+          command.id === "doc-show" ||
+          // Cross-machine BFF/CLI remote runtime control executes through center single-write queue.
+          command.id === "runtime-cancel" ||
+          command.id === "runtime-steer"),
     ),
   declaredActionFields = (kind: string): readonly EntityActionInputField[] | null => {
+    if (kind === "runtime-cancel")
+      return [
+        { field: "runtimeSessionId", type: "string", required: true },
+        { field: "ruling", type: "string", required: false },
+        { field: "reason", type: "string", required: false },
+        { field: "idempotencyKey", type: "string", required: false },
+      ];
+    if (kind === "runtime-steer")
+      return [
+        { field: "runtimeSessionId", type: "string", required: false },
+        { field: "dispatchId", type: "string", required: false },
+        { field: "prompt", type: "string", required: true },
+        { field: "expected", type: "json-object", required: false },
+        { field: "idempotencyKey", type: "string", required: false },
+      ];
     const command = fleetCommand(kind);
     if (!command) return null;
     const fields = new Map<string, EntityActionInputField>(),
@@ -873,6 +916,7 @@ const schemas: Readonly<Record<string, Check>> = {
       nodeId: id,
       credential: text,
       buildCommit: nullable(gitCommitSha),
+      capabilities: array(id, 64),
     },
     ["schema", "messageId", "protocolVersion", "nodeId", "credential"],
   ),
@@ -1044,17 +1088,7 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.operational.read/v1": shape({
     ...common,
     repoId: id,
-    method: one(
-      "repo.tasks.runtimeContext.read",
-      "repo.agentRuntime.lifecycle.read",
-      "repo.agentRuntime.sessions.await",
-      "repo.task.dispatches",
-      "repo.access.members.read",
-      "repo.fleet.overview.read",
-      "repo.policy.metadata.read",
-      "repo.tasks.autoClaimCandidates",
-      "repo.tasks.autoDispatchCandidates",
-    ),
+    method: one(...fleetOperationalReadMethods),
     payload: record,
   }),
   "fleet.operational.read.result/v1": optionalShape({ ...reply, result: record, versionWarning: text }, [

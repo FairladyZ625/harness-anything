@@ -163,6 +163,23 @@ export interface CanonicalEventQuery {
   readonly revisionBound?: number;
   readonly limit: number;
 }
+export interface AuditEventWindowQuery {
+  readonly afterRevision: number;
+  readonly maxRevision?: number;
+  readonly after?: string;
+  readonly before?: string;
+  readonly limit: number;
+  /** Opaque storage hint. The revision and time bounds remain authoritative. */
+  readonly continuation?: string;
+}
+export interface AuditEventWindowBatch {
+  readonly sourceRevision: number;
+  readonly events: readonly CanonicalEventV1[];
+  readonly lastScannedRevision: number;
+  readonly windowMaxRevision: number;
+  readonly done: boolean;
+  readonly continuation?: string;
+}
 export function canonicalEventEntityRefs(event: PersistedCanonicalEventV1): readonly string[] {
   const refs = new Set<string>(),
     envelope = event as unknown as Readonly<Record<string, unknown>>,
@@ -228,6 +245,7 @@ export interface CanonicalEventStore {
     readonly worktree: CanonicalFollowerFacet;
   };
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
+  readonly readEventWindow?: (query: AuditEventWindowQuery) => AuditEventWindowBatch;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   /** Bounded positioned read for content transport; implementations must not aggregate the object. */
   readonly readContentBlobRange: (sha256: string, offset: number, maxBytes: number) => Uint8Array | null;

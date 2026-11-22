@@ -86,6 +86,7 @@ import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA } from "./settings.ts";
 import { PERSON_V1_SCHEMA } from "./person-profile.ts";
+import { peerRequestStates, peerRequestV1JsonSchema } from "./peer-collaboration.ts";
 import { createTaskActionCatalog } from "./task-action-contract.ts";
 import { createScheduleActionCatalog, daemonSchedulePolicySources } from "./schedule-action-contract.ts";
 import { createRuntimeSessionActionCatalog } from "./runtime-session-action-contract.ts";
@@ -151,17 +152,7 @@ import {
 } from "./managed-identity-policy.ts";
 import { guiQueryPacing } from "./gui-query-pacing.ts";
 import { taskLeaseGuidancePolicy, returnToPlannedJudgment } from "./task-lease-guidance.ts";
-import sourceContractFacets from "./source-contract-facets.json" with { type: "json" };
-
-const sourceContracts = sourceContractFacets as Readonly<
-  Record<
-    string,
-    {
-      readonly judgments: readonly import("./ontology-source.ts").OntologyJudgmentDeclaration[];
-      readonly contracts: readonly import("./ontology-source.ts").OntologySourceContract[];
-    }
-  >
->;
+import { sourceContractFacets } from "./source-contract-facets.ts";
 
 export type EntityStorageForm =
   | "lifecycle"
@@ -653,7 +644,7 @@ const baseEntityAction = (
 const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contracts: T): T =>
   Object.freeze(
     contracts.map((contract) => {
-      const facets = sourceContracts[contract.kind];
+      const facets = sourceContractFacets[contract.kind];
       if (facets)
         contract = {
           ...contract,
@@ -1629,6 +1620,61 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     sdkExposure: noSdkExposure,
   },
   {
+    kind: "peer-request",
+    ...entityTypeContractFields("peer-request"),
+    schema: peerRequestV1JsonSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    stateStores: stateStoresForKind("peer-request"),
+    statusVocabulary: [{ field: "state", words: peerRequestStates }],
+    judgments: [{
+      id: "authenticated-sender",
+      symbol: "packages/kernel/src/domain/peer-collaboration.ts#verifyPeerSenderIdentity",
+      inputs: ["claimed person id", "authenticated person id"],
+      output: "Peer sender identity result",
+      failureCodes: ["peer_sender_spoofing_denied"],
+      explain: "Bind the claimed sender to the principal authenticated by the center.",
+      consumers: ["packages/kernel/src/domain/peer-collaboration.ts"],
+      sources: [],
+    }],
+    policies: [{
+      id: "execution-ceiling",
+      ownerRef: "peer-request",
+      unit: "Tier A operation",
+      bounds: "L0 is read-only. L1 requires local preflight and local human confirmation. L2 and unknown operations are draft-only.",
+      defaultValue: "draft_only",
+      version: 1,
+      scope: "Receiver-side evaluation of untrusted peer intent",
+      reason: "A remote request cannot delegate the receiving principal's authority.",
+      fixtures: ["packages/kernel/test/peer-collaboration.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluatePeerExecutionCeiling.tier:1aa4cf7aa9729a9ae689d62ff902fa74",
+        route: "evaluatePeerExecutionCeiling",
+      }],
+    }, {
+      id: "claim-fence",
+      ownerRef: "peer-request",
+      unit: "request claim",
+      bounds: "A terminal event requires a live claim owned by the recipient and must present its fence. Reclaim is available at expiry.",
+      defaultValue: null,
+      version: 1,
+      scope: "PeerRequest lifecycle",
+      reason: "A window that loses its claim cannot settle the request after takeover.",
+      fixtures: ["packages/kernel/test/peer-collaboration.test.ts"],
+      sources: [{
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#peerRequestV1JsonSchema.claim:02c52e58cabf7ab5083a713eb26afc70",
+        route: "PeerRequestV1 claim schema",
+      }, {
+        candidateId: "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#reducePeerRequestEvent:49adb3c8f0bf4390ec0d6b480bbf3670",
+        route: "reducePeerRequestEvent",
+      }],
+    }],
+    actionCatalog: noActionCatalog("kernel/peer-request/v1", "Pure event aggregate pending transport and write ingress."),
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
     kind: "document",
     ...entityTypeContractFields("document"),
     schema: documentKindSchema,
@@ -1765,7 +1811,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
 
 /** Policy scopes for the shared base pin actions, including runtime-local entity kinds. */
 export const baseEntityPolicyActions = Object.freeze(
-  entityKindContracts.flatMap(({ kind }) => [`${kind}/pin`, `${kind}/unpin`]),
+  entityKindContracts.flatMap(({ kind, baseActions }) =>
+    baseActions.filter((id) => id === "pin" || id === "unpin").map((id) => `${kind}/${id}`),
+  ),
 );
 
 const entityKindContractByKind = new Map<string, EntityKindContract>(
@@ -1840,12 +1888,22 @@ export function explainEntityKind(kind: string): EntityKindExplanation {
  */
 export function explainEntityKindContract(contract: EntityKindContract): EntityKindExplanation {
   const actions =
-    contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [];
+      contract.actionCatalog?.actions.map(({ execution: _execution, ...action }) => Object.freeze(action)) ?? [],
+    documentFields = [...explainEntityJsonSchema(contract.schema)];
+  // Agent rows have always exposed these two names to GUI entity documentation. They are now
+  // node-local overlay fields rather than declaration fields, so keep them in the explanation
+  // projection for older readers while the strict declaration schema rejects them on writes.
+  if (contract.kind === "agent") {
+    documentFields.push(
+      { name: "instance", type: "string", required: false, description: "Node-local binding overlay." },
+      { name: "preferredInstances", type: "array", required: false, description: "Node-local preference overlay." },
+    );
+  }
   return {
     schema: "entity-kind-explanation/v1",
     kind: contract.kind,
     residency: contract.residency,
-    documentSchema: { id: contract.schema.$id, fields: explainEntityJsonSchema(contract.schema) },
+    documentSchema: { id: contract.schema.$id, fields: documentFields },
     id: contract.id,
     relations: contract.relations,
     canonicalProjection: contract.canonicalProjection,

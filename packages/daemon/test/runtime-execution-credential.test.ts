@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -30,7 +30,7 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { executeRepoAction } from "../src/daemon-host/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/daemon-host/repo-cell-authorization.ts";
-import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
+import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 import { center, principal, executionLifecycle } from "./runtime-execution-credential.fixtures.ts";
@@ -1129,7 +1129,9 @@ test("every repo-read protocol command resolves through the execution request pr
     const kind = "actionKind" in command ? command.actionKind : command.id,
       params = {
         repo: { repoId: worker.repoId },
-        payload: command.method === "repo.task.run" || command.method === "repo.task.read" ? { action: { kind } } : {},
+        payload: ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(command.method)
+          ? { action: { kind } }
+          : {},
       };
     // CH2 (dec_CF96A3C910B31D2D7498F32DDD): a task-bound worker keeps every repository read.
     assert.doesNotThrow(() => requireExecutionRequestScope(worker, command.method, params), command.method);

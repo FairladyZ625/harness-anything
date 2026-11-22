@@ -548,7 +548,7 @@ export function SessionDetailView({
             )}
           </div>
           <Right>
-            {session.lifecycle?.displayStatus === "running" && (
+            {session.lifecycle?.policy?.processAlive === true && (
               <Button
                 size="sm"
                 variant="danger"

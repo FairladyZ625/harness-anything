@@ -1,8 +1,8 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { randomUUID } from "node:crypto";
-import { runDaemonRetry } from "./daemon-retry.ts";
+import { exponentialBackoffMs, runDaemonRetry } from "./daemon-retry.ts";
 export { raceLifetime } from "./daemon-retry.ts";
-import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
+import { waitForFleetReplicaRevision, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import {
   FleetRemoteError as FleetRemoteErrorClass,
   runFleetRuntimeArchiveClient as peerRunFleetRuntimeArchiveClient,
@@ -31,14 +31,14 @@ export type {
 
 export interface FleetEdgeWriteReceipt {
   readonly replicationSequence: number | null;
+  readonly revision?: number | null;
 }
 
 const { edgeBackoffMinMs: BACKOFF_MIN_MS, edgeBackoffMaxMs: BACKOFF_MAX_MS } =
   daemonProtocolFleetPolicy.defaultValue.fleet;
 
 export function fleetEdgeBackoffMs(attempt: number): number {
-  const ceiling = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** attempt);
-  return Math.floor(Math.random() * ceiling) + 1;
+  return exponentialBackoffMs({ attempt, baseMs: BACKOFF_MIN_MS, maxMs: BACKOFF_MAX_MS });
 }
 
 function retryableEdgeError(error: unknown): boolean {
@@ -163,20 +163,39 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
   readonly signal?: AbortSignal;
 }): Promise<T> {
   const receipt = await options.write();
-  if ("outcome" in receipt && receipt.outcome !== "applied") return receipt;
-  if (receipt.replicationSequence === null) return receipt;
+  if ("outcome" in receipt && receipt.outcome !== "applied" && receipt.outcome !== "no_changes") return receipt;
+  const nestedRevision =
+    "receipt" in receipt && typeof receipt.receipt === "object" && receipt.receipt !== null
+      ? (receipt.receipt as { readonly revision?: unknown }).revision
+      : undefined;
+  const rawRevision = typeof receipt.revision === "number" ? receipt.revision : nestedRevision;
+  const targetRevision =
+    receipt.replicationSequence === null &&
+    typeof rawRevision === "number" &&
+    Number.isSafeInteger(rawRevision) &&
+    rawRevision > 0
+      ? rawRevision
+      : null;
+  if (receipt.replicationSequence === null && targetRevision === null) return receipt;
   const timeoutSignal = AbortSignal.timeout(options.timeoutMs),
     signal = options.signal ? AbortSignal.any([timeoutSignal, options.signal]) : timeoutSignal;
   try {
-    await waitForFleetReplicaSequence(
-      { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
-      receipt.replicationSequence,
-      signal,
-    );
+    if (receipt.replicationSequence !== null)
+      await waitForFleetReplicaSequence(
+        { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
+        receipt.replicationSequence,
+        signal,
+      );
+    else if (targetRevision !== null)
+      await waitForFleetReplicaRevision(
+        { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
+        targetRevision,
+        signal,
+      );
   } catch (error) {
     if (options.signal?.aborted) throw options.signal.reason ?? error;
     if (timeoutSignal.aborted)
-      throw new FleetReplicaLagTimeoutError(receipt.replicationSequence, options.timeoutMs, error);
+      throw new FleetReplicaLagTimeoutError(receipt.replicationSequence ?? targetRevision!, options.timeoutMs, error);
     throw error;
   }
   return receipt;

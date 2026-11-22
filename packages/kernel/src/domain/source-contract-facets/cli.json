@@ -1,0 +1,127 @@
+{
+  "host": {
+    "contracts": [
+      {
+        "id": "cli/src/cli/gui-browser-broker.ts#BrowserGuiBroker.authorized",
+        "symbol": "packages/cli/src/cli/gui-browser-broker.ts#authorized",
+        "explain": "BrowserGuiBroker: Local broker origin and request authentication transport boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/gui-browser-broker.ts#authorized:1342a545b8a6c7074fedd4bd9f1c9f4c",
+            "route": "packages/cli/src/cli/gui-browser-broker.ts#authorized"
+          }
+        ],
+        "order": 11
+      },
+      {
+        "id": "cli/src/cli/gui-browser-broker.ts#BrowserGuiBroker.isBrowserGuiParentOrigin",
+        "symbol": "packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin",
+        "explain": "BrowserGuiBroker: Local broker origin and request authentication transport boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin:792ef7091829f05fa670e6b70de3770f",
+            "route": "packages/cli/src/cli/gui-browser-broker.ts#isBrowserGuiParentOrigin"
+          }
+        ],
+        "order": 10
+      },
+      {
+        "id": "cli/src/cli/thin-command-doctor-health.ts#DoctorCheck",
+        "symbol": "packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck",
+        "explain": "DoctorCheck: Health response shape guard before presentation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck:16092fbc63ffd41839e381535a74f513",
+            "route": "packages/cli/src/cli/thin-command-doctor-health.ts#isDoctorCheck"
+          }
+        ],
+        "order": 13
+      },
+      {
+        "id": "cli/src/cli/thin-command-doctor.ts#doctorInvocation",
+        "symbol": "packages/cli/src/cli/thin-command-doctor.ts#validateInvocation",
+        "explain": "doctorInvocation: Document command invocation syntax checking for doctor diagnostics.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-doctor.ts#validateInvocation:eeb6dbded09ffd88896f755a8a545fbc",
+            "route": "packages/cli/src/cli/thin-command-doctor.ts#validateInvocation"
+          }
+        ],
+        "order": 14
+      },
+      {
+        "id": "cli/src/cli/thin-command-inputs.ts#CliInputFacet",
+        "symbol": "packages/cli/src/cli/thin-command-inputs.ts#isInput",
+        "explain": "CliInputFacet: Input descriptor shape guard; domain action availability is not computed.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-inputs.ts#isInput:3ccee56f047340c7e5caf5c48d5de1f9",
+            "route": "packages/cli/src/cli/thin-command-inputs.ts#isInput"
+          }
+        ],
+        "order": 15
+      },
+      {
+        "id": "cli/src/cli/thin-command-router.ts#ThinCommand",
+        "symbol": "packages/cli/src/cli/thin-command-router.ts#validateEdgeJoinBootstrap",
+        "explain": "ThinCommand: Edge-join bootstrap CLI wire validation.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/cli/thin-command-router.ts#validateEdgeJoinBootstrap:990e8a77db982f7a1a1173e500e4b631",
+            "route": "packages/cli/src/cli/thin-command-router.ts#validateEdgeJoinBootstrap"
+          }
+        ],
+        "order": 16
+      },
+      {
+        "id": "cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry",
+        "symbol": "packages/cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry",
+        "explain": "assertCanonicalCliEntry: Canonical executable selection at process entry.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry:031aeb7307e48f99ccf605434eafdb02",
+            "route": "packages/cli/src/daemon/cli-entry-guard.ts#assertCanonicalCliEntry"
+          }
+        ],
+        "order": 17
+      },
+      {
+        "id": "cli/src/daemon/fleet-payload-serializer.ts#EntityActionInputField",
+        "symbol": "packages/cli/src/daemon/fleet-payload-serializer.ts#validateInputs",
+        "explain": "EntityActionInputField: CLI serialized invocation validation against the declared protocol fields.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#validateInputs:00738dbe9ab651a587c3a6a1dfe133d0",
+            "route": "packages/cli/src/daemon/fleet-payload-serializer.ts#validateInputs"
+          }
+        ],
+        "order": 18
+      },
+      {
+        "id": "cli/src/daemon/metrics.ts#DaemonMetricsArgs",
+        "symbol": "packages/cli/src/daemon/metrics.ts#validateDaemonMetricsArgs",
+        "explain": "DaemonMetricsArgs: Metrics command argument grammar.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/daemon/metrics.ts#validateDaemonMetricsArgs:7db8d685822e5522278e97b51f18ec68",
+            "route": "packages/cli/src/daemon/metrics.ts#validateDaemonMetricsArgs"
+          }
+        ],
+        "order": 19
+      },
+      {
+        "id": "cli/src/index.ts#resolveHarnessLayout",
+        "symbol": "packages/cli/src/index.ts#isCliEntrypoint",
+        "explain": "resolveHarnessLayout: CLI entry/path syntax adapter or kernel task-ID grammar.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/cli:packages/cli/src/index.ts#isCliEntrypoint:89e788d3d66f7dddeab7816581a1c7ec",
+            "route": "packages/cli/src/index.ts#isCliEntrypoint"
+          }
+        ],
+        "order": 20
+      }
+    ],
+    "judgments": []
+  }
+}

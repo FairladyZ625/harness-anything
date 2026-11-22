@@ -1,3 +1,4 @@
+import { prepareOrphanRuntimeLeaseRelease } from "./runtime-orphan-recovery.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
@@ -114,6 +115,8 @@ export function executeRepoAction(
     return runVerticalDeclarationAction({
       action,
       binding,
+      rootDir: cell.rootDir,
+      verticalId: cell.settings.readRepository().defaultVertical,
       store: cell.store,
       projection: cell.projection,
       now: cell.now,
@@ -194,6 +197,8 @@ export function executeRepoAction(
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
   if (action.kind === "event-list") return cell.listEvents(action, binding);
   if (action.kind === "event-show") return cell.showEvent(action, binding);
+  if (action.kind === "ledger-audit-export") return cell.auditExportPage(action, binding);
+  if (action.kind === "task-delivery-certificate") return cell.taskDeliveryCertificate(action, binding);
   if (action.kind === "relation-triples") {
     const revision = cell.projection.readCut().sourceRevision,
       rows = declaredRelationTriples({
@@ -209,6 +214,7 @@ export function executeRepoAction(
   }
   if (action.kind === "task-read-set") return cell.taskReadSet(action, binding);
   if (action.kind === "graph") return cell.graphView(action, binding);
+  if (action.kind === "trace") return cell.traceView(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);
   if (
@@ -304,6 +310,8 @@ export function executeRepoAction(
           if (catalogAction.kind === "task-escalation-resolve")
             return resolveTaskEscalation(cell, catalogAction, catalogBinding);
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-release")
+            catalogBinding = await prepareOrphanRuntimeLeaseRelease(cell, catalogAction, catalogBinding);
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (catalogAction.kind === "preset-upgrade") return cell.upgradePresetSnapshot(catalogAction, catalogBinding);
@@ -406,7 +414,7 @@ export function executeRepoAction(
   }
   if (
     action.kind.startsWith("preset-") ||
-    /^(?:vertical-validate|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
+    /^(?:vertical-(?:list|validate)|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
     // Execution credentials scope their reads to the dispatched repository (dec_9DFDC635180975FDFC0CDB33D7):
     // a caller-supplied validator source resolving outside the repository root would turn the

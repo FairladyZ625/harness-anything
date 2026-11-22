@@ -1502,6 +1502,24 @@ export const agentProtocolCommands = Object.freeze([
         },
         { pathKind: "non-path", regex: "^[^\\r\\n]+$" },
       ),
+      cliInput(
+        "--vertical",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path", field: "vertical" },
+      ),
+      cliInput(
+        "--preset",
+        "single",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path", field: "preset" },
+      ),
       cliInput("--configure-only", "boolean", false, {
         code: "invalid_field",
       }),

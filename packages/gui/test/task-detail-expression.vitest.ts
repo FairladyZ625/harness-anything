@@ -115,6 +115,25 @@ describe("Task detail expression", () => {
     });
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith();
   });
+
+  it("renders progress and submit independently from the server's capabilities", async () => {
+    const host = document.createElement("div"),
+      root = createRoot(host),
+      client = new QueryClient();
+    document.body.append(host);
+    mounted.push({ root, client });
+    const render = async (can: readonly ("progress" | "submit")[]) => {
+      await act(async () => {
+        root.render(createElement(TaskControlPanel, { task: { ...task, ...projectedTaskFields("active", { can }) } }));
+      });
+    };
+    await render(["progress"]);
+    expect(host.querySelectorAll("form")).toHaveLength(1);
+    expect(host.querySelector("textarea[name='text']")).not.toBeNull();
+    await render(["submit"]);
+    expect(host.querySelectorAll("form")).toHaveLength(1);
+    expect(host.querySelector("textarea")).toBeNull();
+  });
   it("offers an open-terminal action in the header only when the app wires one", async () => {
     await mount();
     expect(document.querySelector('[data-testid="task-detail-open-terminal"]')).toBeNull();

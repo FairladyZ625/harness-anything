@@ -4,6 +4,9 @@ import type { SquadControlResult } from "./squad-control-result.ts";
 import {
   type AuthorizationDecision,
   type DaemonRepoMode,
+  type FleetMetricsSnapshot,
+  type RepoMetricsAggregates,
+  type RepoMetricsSnapshot,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type {
@@ -310,6 +313,17 @@ export interface DaemonHost {
   };
   /** Lightweight queue snapshot from loaded cells only; no registry/build/cell re-read. */
   readonly writeQueues: () => readonly { readonly repoId: string; readonly queueDepth: number | null }[];
+  /** Pure in-memory O(1) observability snapshot for Prometheus scrapes; zero registry, cell polling, or DB scans. */
+  readonly observabilitySnapshot: () => {
+    readonly repos: readonly RepoMetricsSnapshot[];
+    readonly repoAggregates: RepoMetricsAggregates;
+    readonly fleet: FleetMetricsSnapshot;
+  };
+  /** Pure in-memory readiness probe judgment separating process liveness from service readiness. */
+  readonly probeSnapshot: () => {
+    readonly ready: boolean;
+    readonly reasons: readonly string[];
+  };
   readonly configureNodeAutoClaim: (policy: unknown, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;
@@ -319,11 +333,14 @@ export interface DaemonHost {
 
 export interface DaemonHostOpenInput {
   readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
+  /** Optional strict storage backend policy (defaults to HARNESS_STORAGE_BACKEND env when set). */
+  readonly requiredStorageBackend?: import("@harness-anything/storage").StorageBackend;
   readonly daemonId: string;
   readonly userRoot: string;
   readonly endpoint?: string;
   readonly startedAt?: string;
   readonly now?: () => string;
+  readonly cloudRuntime?: import("@harness-anything/application/internal/commands/runtime-execution-target.ts").CloudRuntimeRegistration;
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
   readonly runtimeDiscover?: () =>
@@ -337,12 +354,21 @@ export interface DaemonHostOpenInput {
     credential: string,
   ) => Promise<import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal>;
   readonly runtimeFile?: string;
+  /** Enables O(1) in-memory tracked repo metrics instrumentation (disabled by default when metrics are off). */
+  readonly metricsEnabled?: boolean;
+  /** When true, /readyz requires external/managed identity configuration to be present before advertising ready. */
+  readonly requireIdentityReady?: boolean;
+  /** Minimum interval (ms) between live upstream OIDC re-verifications while already ready (default 10000). */
+  readonly identityReadyReverifyIntervalMs?: number;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   readonly buildDraining?: () => boolean;
   readonly onRepoStatusChange?: () => void;
   /** One persisted transport record per completed request, shared with local JSON-RPC traffic. */
   readonly recordTraffic?: (entry: import("./conn-log.ts").DaemonTrafficLogEntry) => void;
+  /** Tracks in-flight Fleet center RPC requests alongside local Unix JSON-RPC requests. */
+  readonly onFleetRequestStarted?: () => void;
+  readonly onFleetRequestSettled?: () => void;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: IdentitySessionPort;
   /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */

@@ -202,7 +202,6 @@ test(
           principal,
         );
       assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
-      await waitForFixturePublication(cell, allowed.opId, principal);
 
       const created = await cell.run({ kind: "task-create", taskId, title: "Fresh default review" }, owner);
       assert.equal(created.outcome, "applied", JSON.stringify(created));

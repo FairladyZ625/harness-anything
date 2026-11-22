@@ -12,8 +12,13 @@ import path from "node:path";
 import { createServer } from "node:https";
 import { connect, createSecureContext, createServer as createTlsServer } from "node:tls";
 import test from "node:test";
-import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import {
+  fleetEdgeCaPath,
+  fleetEdgeConfigPath,
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { keycloakNodeRegistry } from "../src/daemon-host/fleet-center-admission.ts";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
@@ -222,10 +227,7 @@ test(
           },
           beforeOpen: (edgeRoot) => {
             execFileSync("git", ["-C", edgeRoot, "rm", "--cached", "harness/harness.yaml"]);
-            writeFileSync(
-              path.join(edgeRoot, ".gitignore"),
-              "harness/\n.harness/\nfleet-edge.json\nfleet-center-ca.pem\n",
-            );
+            writeFileSync(path.join(edgeRoot, ".gitignore"), "harness/\n.harness/\n");
             execFileSync("git", ["-C", edgeRoot, "add", ".gitignore"]);
             execFileSync("git", [
               "-C",
@@ -299,6 +301,7 @@ test(
       let response = joined.response;
       if (nodeName === "node-one") {
         assert.match(JSON.stringify(response), /join_reply_lost/u);
+        assert.equal(existsSync(fleetEdgeConfigPath(edge.edgeUser, "lease-repo")), false);
         assert.equal(existsSync(path.join(workspaceRoot, "lease-repo", "fleet-edge.json")), false);
         response = (await edge.rpc.handle({
           jsonrpc: "2.0",
@@ -315,7 +318,10 @@ test(
       const credential = f.owners.keycloak.nodeClients.get(`harness-node-${issuedNodeId}`)!.secret;
       assert.equal(JSON.stringify(response).includes(credential), false, "the receipt carries no credential");
       const repoWorkspace = path.join(workspaceRoot, "lease-repo"),
-        config = readFleetEdgeConfig(repoWorkspace);
+        config = readFleetEdgeConfig(edge.edgeUser, "lease-repo");
+      assert.equal(existsSync(path.join(repoWorkspace, "fleet-edge.json")), false);
+      assert.equal(existsSync(path.join(repoWorkspace, "fleet-center-ca.pem")), false);
+      assert.equal(existsSync(fleetEdgeCaPath(edge.edgeUser, "lease-repo")), true);
       assert.equal(config?.nodeId, issuedNodeId);
       assert.equal(config?.credential, credential);
       assert.equal(await adapter.authenticateNode(issuedNodeId, credential), true);
@@ -332,7 +338,7 @@ test(
       });
       assert.equal((repeated.result as Record<string, unknown>)?.ok, true, JSON.stringify(repeated));
       assert.equal((repeated.result as Record<string, unknown>).nodeId, issuedNodeId);
-      assert.equal(readFleetEdgeConfig(repoWorkspace)!.credential, credential);
+      assert.equal(readFleetEdgeConfig(edge.edgeUser, "lease-repo")!.credential, credential);
       assert.equal(f.owners.keycloak.nodeClients.size, count);
       assert.equal(JSON.stringify(repeated).includes(credential), false);
       joinedEdges.set(issuedNodeId, edge);
@@ -344,7 +350,7 @@ test(
         assert.equal(config?.loginServername, "localhost");
         assert.equal(config?.loginBrowserUrl, loginUrl);
       }
-      assert.equal(statSync(path.join(repoWorkspace, "fleet-edge.json")).mode & 0o777, 0o600);
+      assert.equal(statSync(fleetEdgeConfigPath(edge.edgeUser, "lease-repo")).mode & 0o777, 0o600);
       const tasks = path.join(repoWorkspace, "harness", "tasks");
       assert.ok(
         existsSync(tasks) && readdirSync(tasks).some((name) => name.includes("joined-0")),
@@ -368,7 +374,7 @@ test(
       "pending",
       "the pin is checked before the invite token is sent",
     );
-    assert.equal(existsSync(path.join(pinRefused.workspaceRoot, "lease-repo", "fleet-edge.json")), false);
+    assert.equal(existsSync(fleetEdgeConfigPath(pinRefused.edge.edgeUser, "lease-repo")), false);
 
     f.owners.keycloak.account("person-two");
     const wrongPerson = await link("person-two");
@@ -376,13 +382,13 @@ test(
     const refused = await join("node-four", wrongPerson.link);
     assert.equal("result" in refused.response && (refused.response.result as { ok?: unknown }).ok === true, false);
     assert.match(JSON.stringify(refused.response), /person_mismatch|another person|human_confirmation_required/u);
-    assert.equal(existsSync(path.join(refused.workspaceRoot, "fleet-edge.json")), false);
+    assert.equal(existsSync(fleetEdgeConfigPath(refused.edge.edgeUser, "lease-repo")), false);
     const formerOwnerNodeId = [...joinedEdges.keys()][0]!,
       formerOwnerEdge = joinedEdges.get(formerOwnerNodeId)!;
     f.owners.reassign(formerOwnerNodeId, "person-two");
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
     // Use the repository accepted by this join rather than the fixture's pre-join defaults.
-    const joinedRepoId = readFleetEdgeConfig(formerOwnerEdge.edgeRoot)!.repoId;
+    const joinedRepoId = readFleetEdgeConfig(formerOwnerEdge.edgeUser, "lease-repo")!.repoId;
     let postJoinId = 100;
     const joinedCreate = async (taskId: string, title: string) => {
       const reply = await formerOwnerEdge.rpc.handle({
@@ -505,7 +511,9 @@ test(
       code: "pin_mismatch",
     });
     servernames.length = 0;
+    const recoveredUser = path.join(f.root, "recovered-user");
     const ports = {
+      userRoot: recoveredUser,
       probeLogin: async () => {},
       session: async () => ({
         accessToken: "alice-recovery",
@@ -539,16 +547,18 @@ test(
     await assert.rejects(joinFleetEdge(request, ports), { code: "join_reply_lost" });
     assert.deepEqual(servernames.splice(0), []);
     const recovered = await joinFleetEdge(request, ports),
-      saved = readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!;
+      saved = readFleetEdgeConfig(recoveredUser, "repo-a")!;
     assert.equal(recovered.state, "synced");
     assert.equal(saved.nodeId, issued[0]!.nodeId);
     assert.notEqual(saved.credential, issued[0]!.credential);
     assert.equal(await f.provider.authenticateNode(saved.nodeId, issued[0]!.credential), false);
     assert.equal(await f.provider.authenticateNode(saved.nodeId, saved.credential), true);
     if (process.platform !== "win32")
-      assert.equal(statSync(path.join(request.workspaceRoot, "repo-a", "fleet-edge.json")).mode & 0o777, 0o600);
+      assert.equal(statSync(fleetEdgeConfigPath(recoveredUser, "repo-a")).mode & 0o777, 0o600);
+    assert.equal(existsSync(path.join(edgeRepo, "fleet-edge.json")), false);
+    assert.equal(existsSync(path.join(edgeRepo, "fleet-center-ca.pem")), false);
     const count = f.keycloak.nodeClients.size;
-    writeFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"), {
+    writeFleetEdgeConfig(recoveredUser, "repo-a", {
       ...saved,
       waitTimeoutMs: 3456,
       maxAgeMs: 123,
@@ -558,7 +568,7 @@ test(
     const repeated = await joinFleetEdge({ link: request.link, workspaceRoot: request.workspaceRoot }, ports);
     assert.deepEqual(servernames, []);
     assert.equal(repeated.nodeId, saved.nodeId);
-    assert.equal(readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!.credential, saved.credential);
+    assert.equal(readFleetEdgeConfig(recoveredUser, "repo-a")!.credential, saved.credential);
     assert.equal(f.keycloak.nodeClients.size, count);
     assert.equal(JSON.stringify([recovered, repeated, f.journal()]).includes(saved.credential), false);
     const status = await f.admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "alice-recovery" });

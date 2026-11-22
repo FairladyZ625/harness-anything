@@ -1,0 +1,683 @@
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { AccessAdminApi, AccessRejection, AccessSessionLifetimeReply } from "../gui/access-admin-contract.ts";
+import type { EmbeddedLoginPage, OidcAuthApi } from "../gui/oidc-auth-contract.ts";
+import { identityProviderOf } from "../gui/identity-presentation.ts";
+import { createAccessModel } from "./access-model.js";
+import type { RepoMode } from "./ui-host.js";
+import { createAccessParts } from "./AccessParts.js";
+import type { KeycloakUiHost } from "./ui-host.js";
+
+export function createAccessServiceTab(host: KeycloakUiHost) {
+  const {
+    t,
+    BrowserView,
+    formatTime,
+    DenseRow,
+    Region,
+    BoardColumn,
+    BoardMain,
+    BoardRegion,
+    BoardSide,
+    RegionBoard,
+    StatusTag,
+    Button,
+  } = host;
+  const { isRejection, sessionDuration } = createAccessModel(host);
+  const { AccessNotice, INPUT, asRejection, useAccessRead } = createAccessParts(host);
+
+  type RecordValue = Record<string, unknown>;
+
+  interface DeviceRequest {
+    readonly nodeId: string;
+    readonly userCode: string;
+    readonly createdAt: number;
+    readonly expiresAt: number;
+  }
+
+  function message(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * Who is signed in and which Keycloak carries authorization: Harness-managed or external, where it
+   * is, whether it answers. The native administration console opens in the system browser.
+   */
+  function AccessServiceTab({
+    auth,
+    access,
+    repoId,
+    rootDir,
+    repoMode,
+    autoLogin = false,
+    onAutoLoginConsumed,
+  }: {
+    readonly auth: OidcAuthApi;
+    readonly repoId?: string;
+    readonly rootDir?: string;
+    readonly repoMode?: RepoMode;
+    readonly access: AccessAdminApi | undefined;
+    /** The account header or an error surface asked for the sign-in flow on arrival. */
+    readonly autoLogin?: boolean;
+    readonly onAutoLoginConsumed?: () => void;
+  }) {
+    const [session, setSession] = useState<RecordValue | null>(null),
+      [sessionFailed, setSessionFailed] = useState(false),
+      [binding, setBinding] = useState<RecordValue | null | undefined>(undefined),
+      [bootstrapRequired, setBootstrapRequired] = useState(false),
+      [busy, setBusy] = useState(false),
+      [feedback, setFeedback] = useState("");
+    const [login, setLogin] = useState<{
+      readonly userCode?: string;
+      readonly url?: string;
+      readonly partitionToken?: string;
+      readonly loadError?: string;
+    } | null>(null);
+    const loggingIn = useRef(false),
+      sessionRequest = useRef(0),
+      auxRequest = useRef(0),
+      sessionAuthenticated = useRef<boolean | null>(null),
+      loginConfirmationPending = useRef(false),
+      autoLoginHandled = useRef(false);
+    useEffect(
+      () => () => {
+        if (loggingIn.current) void auth.cancelLogin();
+      },
+      [auth],
+    );
+
+    // A session read is authoritative for the session snapshot alone. The binding and bootstrap
+    // reads are ancillary: their failure or a newer poll must not swallow a confirmed sign-in.
+    const applySession = (reply: RecordValue) => {
+      const authenticated = reply.authenticated === true;
+      const previous = sessionAuthenticated.current;
+      sessionAuthenticated.current = authenticated;
+      if (!authenticated) loginConfirmationPending.current = false;
+      setSession(reply);
+      setSessionFailed(false);
+      // A recovery notification is either a false->true transition or the confirmation of a
+      // login that just completed. The login flag covers an unknown/stale prior state: when the
+      // first read is still pending, or the page still holds an authenticated snapshot that the
+      // daemon has already invalidated, the next confirmed authenticated read must still restore
+      // the reads that authentication refused.
+      if (authenticated && (previous === false || loginConfirmationPending.current)) {
+        loginConfirmationPending.current = false;
+        window.dispatchEvent(new Event("harness-auth-signed-in"));
+      }
+    };
+
+    const refresh = async () => {
+      const request = ++sessionRequest.current;
+      const statusReply = await auth.status(repoId, rootDir).then(
+        (reply) => ({ ok: true as const, reply: reply as RecordValue }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      // A read superseded by a newer session read or a repository change must not write state.
+      if (sessionRequest.current !== request) return;
+      if (!statusReply.ok) {
+        // A failed identity read must not leave the previous session labelled as current.
+        setSession(null);
+        setSessionFailed(true);
+        throw statusReply.error;
+      }
+      applySession(statusReply.reply);
+      const aux = ++auxRequest.current;
+      const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
+      if (auxRequest.current !== aux) return;
+      if (nextBinding.configured === false) {
+        setBinding(null);
+        setBootstrapRequired(false);
+        return;
+      }
+      setBinding(nextBinding);
+      const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
+      if (auxRequest.current !== aux) return;
+      setBootstrapRequired(bootstrap.required === true);
+    };
+
+    useEffect(() => {
+      sessionAuthenticated.current = null;
+      loginConfirmationPending.current = false;
+      setSession(null);
+      setSessionFailed(false);
+      void refresh().catch((error: unknown) => setFeedback(message(error)));
+      return () => {
+        sessionRequest.current += 1;
+        auxRequest.current += 1;
+      };
+    }, [repoId, rootDir]);
+
+    const run = async (operation: () => Promise<unknown>) => {
+      setBusy(true);
+      setFeedback("");
+      return operation()
+        .then(() => {
+          window.dispatchEvent(new Event("harness-auth-changed"));
+          return refresh();
+        })
+        .then(
+          () => setBusy(false),
+          (error: unknown) => {
+            setFeedback(message(error));
+            setBusy(false);
+          },
+        );
+    };
+
+    useEffect(() => {
+      const refreshRequests = () => {
+        const request = ++sessionRequest.current;
+        void auth.status(repoId, rootDir).then(
+          (reply) => {
+            if (sessionRequest.current !== request) return;
+            applySession(reply as RecordValue);
+          },
+          (error: unknown) => {
+            if (sessionRequest.current !== request) return;
+            setSession(null);
+            setSessionFailed(true);
+            setFeedback(message(error));
+          },
+        );
+      };
+      const interval = setInterval(refreshRequests, 3_000);
+      return () => clearInterval(interval);
+    }, [auth, repoId, rootDir]);
+
+    const signIn = (userCode?: string) => {
+      // One in-flight login owns the panel. A second entry point must not start a main-process
+      // login that the first call's cleanup would then tear down.
+      if (loggingIn.current) return Promise.resolve();
+      loggingIn.current = true;
+      loginConfirmationPending.current = false;
+      return run(async () => {
+        setLogin({ userCode });
+        try {
+          const openBrowser = (page: EmbeddedLoginPage) =>
+            setLogin({ userCode, url: page.url, partitionToken: page.partitionToken });
+          await auth.login(repoId, openBrowser, userCode, rootDir);
+          // The identity port still has to confirm this login; whichever successful status read
+          // observes it first (this refresh or the periodic poll) consumes this flag.
+          loginConfirmationPending.current = true;
+        } finally {
+          loggingIn.current = false;
+          setLogin(null);
+        }
+      });
+    };
+
+    // The account header and the business-read error surface share this one login flow.
+    useEffect(() => {
+      if (!autoLogin) {
+        autoLoginHandled.current = false;
+        return;
+      }
+      if (autoLoginHandled.current) return;
+      autoLoginHandled.current = true;
+      onAutoLoginConsumed?.();
+      void signIn();
+    }, [autoLogin, onAutoLoginConsumed, signIn]);
+
+    const provider = identityProviderOf(binding?.mode),
+      builtin = provider === "builtin",
+      external = provider === "external",
+      signInLabel = builtin
+        ? "identityAccess.localSignIn"
+        : external
+          ? "identityAccess.signIn"
+          : "identityAccess.signInNeutral";
+    if (login)
+      return (
+        <section className="flex min-h-0 flex-1 flex-col" data-testid="account-login">
+          <header className="flex items-center justify-between gap-2 px-2 py-1">
+            <span>{t(login.userCode ? "identityAccess.deviceApproval" : signInLabel)}</span>
+            <Button testId="account-login-cancel" onClick={() => void auth.cancelLogin()}>
+              {t(login.userCode ? "identityAccess.closeDeviceApproval" : "identityAccess.cancelLogin")}
+            </Button>
+          </header>
+          {/* A failed page load keeps the panel: the reason stays visible and the sign-in itself runs
+            until the person retries (the embedded browser offers it) or cancels. */}
+          {login.loadError ? (
+            <p
+              role="alert"
+              data-testid="account-login-error"
+              className="border-l-2 border-status-blocked px-3 py-2 text-status-blocked ui-meta"
+            >
+              {t("identityAccess.loginLoadError", { error: login.loadError })}
+            </p>
+          ) : null}
+          {login.url ? (
+            <BrowserView
+              initialUrl={login.url}
+              partition={login.partitionToken}
+              onLoadError={(error) =>
+                setLogin((current) =>
+                  current && current.loadError !== error ? { ...current, loadError: error ?? undefined } : current,
+                )
+              }
+            />
+          ) : (
+            <p className="p-2 text-text-muted">{t("identityAccess.loading")}</p>
+          )}
+        </section>
+      );
+
+    const authenticated = session?.authenticated === true,
+      ready = binding?.ready === true,
+      // An edge reads the center's authority, and a remote-proxy repository's binding writes are
+      // refused at the daemon (local_transport_required); either way the binding is configurable
+      // only at the center's original local session, so this page reads it instead of offering a form.
+      managedElsewhere = binding?.source === "fleet-center" || repoMode === "remote-proxy";
+    return (
+      <RegionBoard data-testid="access-service-board">
+        <BoardMain>
+          <BoardColumn>
+            {feedback ? (
+              <p role="alert" className="border-l-2 border-status-blocked px-3 py-2 text-status-blocked ui-meta">
+                {feedback}
+              </p>
+            ) : null}
+            {((session?.deviceLoginRequests as readonly DeviceRequest[] | undefined) ?? []).length > 0 ? (
+              <BoardRegion region="device-login" data-testid="device-login-requests">
+                <Region title={t("identityAccess.deviceRequests")}>
+                  {(session!.deviceLoginRequests as readonly DeviceRequest[]).map((request) => (
+                    <DenseRow
+                      key={`${request.nodeId}:${request.userCode}`}
+                      relaxed
+                      title={
+                        <span data-testid={`device-login-${request.nodeId}`}>
+                          {t("identityAccess.deviceRequest", { node: request.nodeId })}
+                        </span>
+                      }
+                      reason={<span className="font-mono">{request.userCode}</span>}
+                      time={t("identityAccess.deviceTimes", {
+                        created:
+                          formatTime(new Date(request.createdAt).toISOString(), { style: "date-time-seconds" }) ?? "",
+                        expires:
+                          formatTime(new Date(request.expiresAt).toISOString(), { style: "date-time-seconds" }) ?? "",
+                      })}
+                      action={
+                        <Button
+                          testId={`device-approve-${request.nodeId}`}
+                          disabled={busy}
+                          onClick={() => void signIn(request.userCode)}
+                        >
+                          {t("identityAccess.approveDevice")}
+                        </Button>
+                      }
+                    />
+                  ))}
+                </Region>
+              </BoardRegion>
+            ) : null}
+            {bootstrapRequired ? (
+              <BoardRegion region="bootstrap">
+                <BootstrapAdminForm
+                  builtin={builtin}
+                  busy={busy}
+                  submit={(input) => run(() => auth.bootstrapAdmin(input, rootDir))}
+                />
+              </BoardRegion>
+            ) : null}
+            <BoardRegion region="service" data-testid="access-service-card">
+              <Region
+                title={t(
+                  builtin
+                    ? "identityAccess.localService"
+                    : external
+                      ? "accessControl.service.title"
+                      : "identityAccess.serviceNeutral",
+                )}
+                tag={
+                  binding ? (
+                    <StatusTag
+                      tone={ready ? "done" : "bad"}
+                      label={ready ? t("identityAccess.healthy") : t("identityAccess.unavailable")}
+                    />
+                  ) : undefined
+                }
+                edge={binding && !ready ? "bad" : undefined}
+                footer={
+                  <>
+                    <span className="min-w-0 truncate">
+                      {t(
+                        builtin
+                          ? "identityAccess.localDescription"
+                          : external
+                            ? "identityAccess.description"
+                            : "identityAccess.descriptionNeutral",
+                      )}
+                    </span>
+                  </>
+                }
+              >
+                <DenseRow
+                  title={t("identityAccess.currentIdentity")}
+                  time={
+                    <span className="flex items-center gap-2.5 font-sans">
+                      <span data-testid="identity-session" className="text-text ui-body">
+                        {sessionFailed
+                          ? t("identityAccess.identityUnavailable")
+                          : authenticated
+                            ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
+                            : t("identityAccess.signedOut")}
+                      </span>
+                      <Button
+                        size="sm"
+                        disabled={busy || (!authenticated && !ready)}
+                        tip={!authenticated && !ready && external ? t("identityAccess.signInDisabled") : undefined}
+                        testId="account-session-action"
+                        onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
+                      >
+                        {authenticated ? t("identityAccess.signOut") : t(signInLabel)}
+                      </Button>
+                    </span>
+                  }
+                />
+                {binding === null ? (
+                  <div className="border-t border-border px-3.5 py-2.5 ui-body">
+                    <p>{t("identityAccess.unbound")}</p>
+                    <p className="text-text-muted">{t("identityAccess.unboundNextStep")}</p>
+                  </div>
+                ) : binding ? (
+                  <>
+                    <DenseRow
+                      title={t("identityAccess.mode")}
+                      time={t(
+                        builtin
+                          ? "identityAccess.localMode"
+                          : binding.mode === "managed"
+                            ? "accessControl.service.managed"
+                            : "accessControl.service.external",
+                      )}
+                    />
+                    {!builtin ? (
+                      <>
+                        <DenseRow title={t("identityAccess.url")} time={String(binding.url ?? "—")} />
+                        <DenseRow title={t("identityAccess.realm")} time={String(binding.realm ?? "—")} />
+                        <DenseRow
+                          title={t("identityAccess.version")}
+                          time={String(
+                            (binding.versions as RecordValue | undefined)?.keycloak ??
+                              binding.version ??
+                              t("identityAccess.unknown"),
+                          )}
+                        />
+                      </>
+                    ) : null}
+                    {managedElsewhere ? (
+                      <p
+                        data-testid="binding-managed-elsewhere"
+                        className="border-t border-border px-3.5 py-2.5 text-text-muted ui-meta"
+                      >
+                        {t("identityAccess.bindingManagedAtCenter")}
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <p className="border-t border-border px-3.5 py-2.5 text-text-muted ui-meta">
+                    {t("identityAccess.loading")}
+                  </p>
+                )}
+              </Region>
+            </BoardRegion>
+            {access && authenticated ? (
+              <BoardRegion region="lifetime" data-testid="access-session-lifetime">
+                <SessionLifetime access={access} builtin={builtin} />
+              </BoardRegion>
+            ) : null}
+          </BoardColumn>
+        </BoardMain>
+        {binding !== undefined && !builtin && !managedElsewhere ? (
+          <BoardSide region="binding">
+            <Region
+              title={t("accessControl.service.operations")}
+              padded
+              footer={
+                <span className="ml-auto">
+                  <Button
+                    disabled={busy || binding?.mode === "managed"}
+                    onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId, rootDir))}
+                  >
+                    {t("identityAccess.useManaged")}
+                  </Button>
+                </span>
+              }
+            >
+              <p className="text-status-blocked ui-body">{t("accessControl.service.danger")}</p>
+              <details className="mt-3">
+                <summary className="cursor-pointer py-2 ui-body">{t("identityAccess.externalTitle")}</summary>
+                <ExternalBindingForm
+                  busy={busy}
+                  submit={(input) => run(() => auth.configure(input, repoId, rootDir))}
+                />
+              </details>
+              <div className="mt-3">
+                <Button
+                  testId="access-open-console"
+                  disabled={busy || !ready}
+                  onClick={() => void run(() => auth.openConsole(repoId, rootDir))}
+                >
+                  {t("identityAccess.openConsole")}
+                </Button>
+              </div>
+            </Region>
+          </BoardSide>
+        ) : null}
+      </RegionBoard>
+    );
+  }
+
+  /** How long a signed-in session survives unused. The realm holds the only copy; a change is made against the value read. */
+  function SessionLifetime({ access, builtin }: { readonly access: AccessAdminApi; readonly builtin: boolean }) {
+    const { data, rejection, reload } = useAccessRead<AccessSessionLifetimeReply>(access.sessionLifetime),
+      [minutes, setMinutes] = useState(""),
+      [unit, setUnit] = useState(60),
+      [busy, setBusy] = useState(false),
+      [refusal, setRefusal] = useState<AccessRejection | null>(null);
+    useEffect(() => {
+      if (data) {
+        setMinutes(String(data.seconds / 60));
+        setUnit(data.seconds % 86400 === 0 ? 86400 : data.seconds % 3600 === 0 ? 3600 : 60);
+      }
+    }, [data]);
+    const save = async () => {
+      if (!data) return;
+      setBusy(true);
+      const reply = await access
+        .setSessionLifetime({ sessionLifetimeSeconds: Math.round(Number(minutes) * 60), expectedVersion: data.version })
+        .catch(asRejection);
+      setRefusal(isRejection(reply) ? reply : null);
+      await reload();
+      setBusy(false);
+    };
+    return (
+      <Region title={t("accessControl.lifetime.title")} padded>
+        {rejection ? (
+          <AccessNotice rejection={rejection} origin="read" testId="access-lifetime-unavailable" />
+        ) : data ? (
+          <div className="flex flex-col gap-2">
+            {!builtin ? (
+              <p data-testid="access-lifetime-authority" className="text-text-muted ui-meta">
+                {t("accessControl.lifetime.authority", { url: data.authority.url, realm: data.authority.name })}
+              </p>
+            ) : null}
+            {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-lifetime-refusal" />}
+            <label className="flex flex-col gap-1 ui-meta text-text-muted">
+              {t("accessControl.lifetime.label")}
+              <span className="flex flex-wrap items-center gap-2">
+                <input
+                  type="number"
+                  data-testid="access-lifetime-minutes"
+                  className={`${INPUT} w-32 font-mono`}
+                  min={data.minimumSeconds / unit}
+                  max={data.maximumSeconds / unit}
+                  value={minutes === "" ? "" : String((Number(minutes) * 60) / unit)}
+                  onChange={(event) =>
+                    setMinutes(
+                      event.currentTarget.value === "" ? "" : String((Number(event.currentTarget.value) * unit) / 60),
+                    )
+                  }
+                />
+                <select
+                  className={INPUT}
+                  aria-label={t("accessControl.lifetime.label")}
+                  value={unit}
+                  onChange={(event) => setUnit(Number(event.currentTarget.value))}
+                >
+                  <option value={60}>{t("accessControl.lifetime.minutes")}</option>
+                  <option value={3600}>{t("accessControl.lifetime.hours")}</option>
+                  <option value={86400}>{t("accessControl.lifetime.days")}</option>
+                </select>
+                {[1800, 3600, 28800, 86400, 604800].map((seconds) => (
+                  <Button
+                    key={seconds}
+                    size="sm"
+                    onClick={() => {
+                      setMinutes(String(seconds / 60));
+                      setUnit(seconds % 86400 === 0 ? 86400 : seconds % 3600 === 0 ? 3600 : 60);
+                    }}
+                  >
+                    {sessionDuration(seconds)}
+                  </Button>
+                ))}
+                <Button
+                  testId="access-lifetime-save"
+                  disabled={busy || minutes.trim() === "" || Number(minutes) * 60 === data.seconds}
+                  onClick={() => void save()}
+                >
+                  {t("accessControl.groups.save")}
+                </Button>
+              </span>
+            </label>
+            <p className="text-text-faint ui-meta">
+              {t("accessControl.lifetime.range", {
+                minimum: Math.ceil(data.minimumSeconds / 60),
+                maximum: Math.floor(data.maximumSeconds / 60),
+              })}
+            </p>
+            <p className="text-text-faint ui-meta">
+              {t("accessControl.lifetime.versionHint", { version: data.version })}
+            </p>
+          </div>
+        ) : (
+          <p className="text-text-muted ui-meta">{t("accessControl.loading")}</p>
+        )}
+      </Region>
+    );
+  }
+
+  function ExternalBindingForm({
+    busy,
+    submit,
+  }: {
+    readonly busy: boolean;
+    readonly submit: (input: {
+      mode: "external";
+      url: string;
+      settings: { realm: string; clientId: string; clientSecret: string };
+    }) => Promise<void>;
+  }) {
+    const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      const secretInput = event.currentTarget.elements.namedItem("clientSecret") as HTMLInputElement;
+      secretInput.value = "";
+      void submit({
+        mode: "external",
+        url: String(data.get("url")),
+        settings: {
+          realm: String(data.get("realm")),
+          clientId: String(data.get("clientId")),
+          clientSecret: String(data.get("clientSecret")),
+        },
+      });
+    };
+    return (
+      <form className="flex flex-col gap-2" onSubmit={onSubmit} data-testid="external-binding-form">
+        <p className="text-text-muted ui-meta">{t("identityAccess.externalDescription")}</p>
+        <input required name="url" type="url" placeholder={t("identityAccess.urlPlaceholder")} className={INPUT} />
+        <input required name="realm" placeholder={t("identityAccess.realm")} className={INPUT} />
+        <input
+          required
+          name="clientId"
+          value="harness-center"
+          readOnly
+          aria-label={t("identityAccess.clientId")}
+          className={INPUT}
+        />
+        <input
+          required
+          name="clientSecret"
+          type="password"
+          autoComplete="new-password"
+          aria-label={t("identityAccess.clientSecret")}
+          placeholder={t("identityAccess.clientSecret")}
+          className={INPUT}
+        />
+        <span className="self-start">
+          <Button type="submit" disabled={busy}>
+            {t("identityAccess.applyExternal")}
+          </Button>
+        </span>
+      </form>
+    );
+  }
+
+  function BootstrapAdminForm({
+    builtin,
+    busy,
+    submit,
+  }: {
+    readonly builtin: boolean;
+    readonly busy: boolean;
+    readonly submit: (input: {
+      username: string;
+      email: string;
+      displayName: string;
+      password: string;
+      personId: string;
+    }) => Promise<void>;
+  }) {
+    const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget),
+        read = (key: string) => String(data.get(key));
+      void submit({
+        username: read("username"),
+        email: read("email"),
+        displayName: read("displayName"),
+        password: read("password"),
+        personId: read("personId"),
+      });
+    };
+    return (
+      <Region title={t("identityAccess.bootstrapTitle")} edge="wait" padded>
+        <form className="flex flex-col gap-2" onSubmit={onSubmit} data-testid="bootstrap-admin-form">
+          <p className="text-text-muted ui-meta">
+            {t(builtin ? "identityAccess.localBootstrapDescription" : "identityAccess.bootstrapDescription")}
+          </p>
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-2">
+            <input required name="username" placeholder={t("identityAccess.username")} className={INPUT} />
+            <input required name="email" type="email" placeholder={t("identityAccess.email")} className={INPUT} />
+            <input required name="displayName" placeholder={t("identityAccess.displayName")} className={INPUT} />
+            <input required name="personId" placeholder={t("identityAccess.personId")} className={INPUT} />
+            <input
+              required
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              placeholder={t("identityAccess.password")}
+              className={INPUT}
+            />
+          </div>
+          <span className="self-start">
+            <Button type="submit" disabled={busy}>
+              {t("identityAccess.createAdmin")}
+            </Button>
+          </span>
+        </form>
+      </Region>
+    );
+  }
+  return { AccessServiceTab };
+}

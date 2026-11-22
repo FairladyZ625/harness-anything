@@ -20,6 +20,8 @@ export const REPO_WRITER_PROTOCOL_VERSION = 1 as const;
 export interface RepoWriterBootstrapV1 {
   /** Host-owned liveness signal; a dead commit Worker must wake a synchronous DB caller. */
   readonly commitState?: SharedArrayBuffer;
+  /** Monotonic Worker progress, readable even while the Worker event loop is blocked. */
+  readonly readyWatchdogState?: SharedArrayBuffer;
   readonly storageContext?: import("@harness-anything/storage").StorageWorkerContext;
   readonly role?: "reader";
   readonly schema: "harness-repo-writer-bootstrap/v1";
@@ -34,6 +36,7 @@ export interface RepoWriterBootstrapV1 {
     readonly authoredBranch?: string;
     readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
     readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+    readonly cloudRuntimeTargets?: NonNullable<RepoWriterInputPorts["cloudRuntime"]>["instanceTargets"];
     readonly bootstrap?: Omit<RepoBootstrapInput, "keycloakAuthorization"> & {
       readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
     };
@@ -70,6 +73,7 @@ export interface RepoWriterRequestV1 {
     | "run"
     | "presetRun"
     | "spawnRuntime"
+    | "spawnCenterReview"
     | "cancelRuntime"
     | "steerRuntime"
     | "handoffRuntime"
@@ -204,6 +208,7 @@ export type RepoWriterCapabilityName =
   | "retainCurrentAccessToken"
   | "releaseCurrentAccessToken"
   | "prepareRuntimeLaunch"
+  | "cloudRuntimeRequest"
   | "reclaimRuntimeTempDirectory"
   | "listRuntimeTempSessionIds"
   | "reclaimSettledRuntimeTempDirectories"
@@ -277,6 +282,7 @@ export type RepoWriterPrepareLaunchPayload = {
   readonly request: Parameters<NonNullable<RepoWriterInputPorts["prepareRuntimeLaunch"]>>[1];
 };
 export interface RepoWriterInputPorts {
+  readonly cloudRuntime?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["cloudRuntime"];
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch?: (
     instanceId: string,
@@ -354,5 +360,6 @@ export interface RepoReadPayload {
     readonly pin?: import("../fleet-sync/fleet/replica-generation.ts").BorrowedReplicaGeneration;
   };
   readonly now?: string;
+  readonly cursorSecret?: string | Uint8Array;
   readonly runtimeInstances?: readonly RuntimeInstanceSummary[];
 }

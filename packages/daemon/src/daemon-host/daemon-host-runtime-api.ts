@@ -1,7 +1,7 @@
 import path from "node:path";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { fleetEdgeConfigDir, readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import {
   parseFleetCenterExternalUrl,
@@ -14,7 +14,12 @@ import { readCenterRelocated, throwIfCenterMigrating, throwIfCenterRelocated } f
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { readDaemonRegistry, type FleetDeviceLoginNotice } from "@harness-anything/kernel";
+import {
+  projectRuntimeProviderHealth,
+  readDaemonRegistry,
+  type FleetDeviceLoginNotice,
+  type RuntimeInstanceAccountCut,
+} from "@harness-anything/kernel";
 import { catalogRereadReceipt } from "./gui-catalog.ts";
 import {
   ledgerWriteCommandTopology,
@@ -94,7 +99,7 @@ export function createDaemonHostRuntimeApi(
     if (repo.mode !== "remote-edge") return "center";
     if (repo.canonicalRoot === null)
       throw context.hostCodedError("repo_namespace_unknown", `Runtime repository ${repoId} has no local root.`);
-    const edge = readFleetEdgeConfig(repo.canonicalRoot);
+    const edge = readFleetEdgeConfig(context.input.userRoot, repoId);
     if (edge === null || edge.repoId !== repoId)
       throw context.hostCodedError(
         "fleet_edge_config_missing",
@@ -503,6 +508,10 @@ export function createDaemonHostRuntimeApi(
             host: context.host,
             buildDraining: context.input.buildDraining,
             onDeliverySettled: context.input.onRepoStatusChange,
+            onNodeDisconnected: () => context.triggerCenterReviewFallback?.("fleet-node-disconnected"),
+            recordTraffic: context.input.recordTraffic,
+            onRequestStarted: context.input.onFleetRequestStarted,
+            onRequestSettled: context.input.onFleetRequestSettled,
             ...(context.input.authenticateExecutionPrincipal
               ? { authenticateExecutionPrincipal: context.input.authenticateExecutionPrincipal }
               : {}),
@@ -567,6 +576,7 @@ export function createDaemonHostRuntimeApi(
               throw error;
             }
             context.fleetCenter = started.center;
+            context.triggerCenterReviewFallback?.("fleet-center-started");
             await context.accessAdmin.resumeEdgeJoinTunnels(started.center.port);
             const externalAddressReachable = request.externalUrl
               ? await probeTlsAddress(request.externalUrl)
@@ -605,23 +615,6 @@ export function createDaemonHostRuntimeApi(
           centerStarting = false;
         }
       },
-      promoteCenterFromEdge: async (payload, auth) => {
-        context.localOnly(auth);
-        const repoId = context.requiredText(payload.repoId, "repoId"),
-          repo = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
-          binding = await context.binding(repo.status().rootDir, auth);
-        await requireAuthorizedHostAction({
-          kind: "daemon-fleet-center-promote-from-edge",
-          binding,
-          actionId: `center-promote-from-edge:${repoId}`,
-          evaluatedAtCut: "host-local:current",
-          repoId,
-        });
-        throw context.hostCodedError(
-          "edge_daemon_running",
-          "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
-        );
-      },
       edgeSync: async (payload, auth) => {
         const request = payload as unknown as FleetEdgeSyncRequest["payload"] & { readonly repoint?: unknown },
           repoint = request.repoint === true,
@@ -642,7 +635,7 @@ export function createDaemonHostRuntimeApi(
               : "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
         context.localOnly(auth);
-        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),
+        const persistedConfig = readFleetEdgeConfig(context.input.userRoot, request.repoId),
           edgeRoot = registeredRoot as string;
         if (repoint) {
           const { workspaceRoot: _workspaceRoot, repoint: _repoint, ...repointPayload } = request;
@@ -652,15 +645,12 @@ export function createDaemonHostRuntimeApi(
               workspaceRoot: edgeRoot,
               payload: repointPayload as FleetEdgeRepointRequest["payload"],
             },
-            async () => {
-              const session = await context.oidc.bind(auth, edgeRoot, true);
-              return session.oidcPrincipal?.accessToken;
-            },
-            () => context.startReplicaSyncs(),
+            context.withReplicaSyncFence,
+            () => context.startReplicaSyncsFor(request.repoId),
           );
         }
-        const syncRequest = request as FleetEdgeSyncRequest["payload"];
-        const matchingConfig =
+        const syncRequest = request as FleetEdgeSyncRequest["payload"],
+          matchingConfig =
             persistedConfig?.repoId === syncRequest.repoId &&
             persistedConfig.host === syncRequest.host &&
             persistedConfig.port === syncRequest.port &&
@@ -675,7 +665,7 @@ export function createDaemonHostRuntimeApi(
               ...(matchingConfig?.loginServername ? { loginServername: matchingConfig.loginServername } : {}),
               ...(matchingConfig?.loginCertificate ? { loginCertificate: matchingConfig.loginCertificate } : {}),
             },
-            workspaceRoot: syncRequest.workspaceRoot,
+            configDir: fleetEdgeConfigDir(context.input.userRoot, syncRequest.repoId),
             readUserAccessToken: async () => {
               const session = await context.oidc.bind(auth, syncRequest.workspaceRoot);
               return session.localSessionAccessToken
@@ -683,8 +673,10 @@ export function createDaemonHostRuntimeApi(
                 : session.oidcPrincipal?.accessToken;
             },
           });
-        const receipt = await syncFleetEdgeMirror({ payload: syncRequest }, readAccessToken, () =>
-          context.startReplicaSyncs(),
+        const receipt = await syncFleetEdgeMirror(
+          { userRoot: context.input.userRoot, payload: syncRequest },
+          readAccessToken,
+          () => context.startReplicaSyncs(),
         );
         await runReplicaConfirmedRound({
           reconcile: async () => {
@@ -772,7 +764,18 @@ export function createDaemonHostRuntimeApi(
                 "",
                 "NODE\tID\tNAME\tKIND\tMODEL\tENABLED\tHEALTH\tREASON\tRECOVER AT",
                 ...(instances as Record<string, unknown>[]).map((row) => {
-                  const health = row.providerHealth as Record<string, unknown>;
+                  const health = row.providerHealth as Record<string, unknown>,
+                    stringField = (value: unknown): string | null => (typeof value === "string" ? value : null),
+                    projected = projectRuntimeProviderHealth(
+                      {
+                        frozen: health.frozen === true,
+                        cooldownUntil: stringField(health.cooldownUntil),
+                        frozenUntil: stringField(health.frozenUntil),
+                        quotaExhaustedUntil: stringField(health.quotaExhaustedUntil),
+                        reason: stringField(health.reason),
+                      },
+                      context.now(),
+                    );
                   return [
                     health.nodeId,
                     row.instanceId,
@@ -780,9 +783,9 @@ export function createDaemonHostRuntimeApi(
                     row.kindId,
                     Array.isArray(row.models) ? row.models.join(",") : "",
                     row.enabled ? "enabled" : "disabled",
-                    health.frozen ? "frozen" : health.cooldownUntil ? "cooldown" : "ready",
-                    health.reason ?? "-",
-                    health.frozenUntil ?? health.cooldownUntil ?? "-",
+                    projected.status,
+                    projected.reason ?? "-",
+                    projected.recoverAt ?? "-",
                   ].join("\t");
                 }),
               ]
@@ -843,19 +846,42 @@ export function createDaemonHostRuntimeApi(
         env = Object.fromEntries(
           Object.entries(command.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
         ),
-        result = cell.terminal.spawnTrusted(
-          {
-            idempotencyKey: context.requiredText(payload.idempotencyKey, "idempotencyKey"),
-            name: `${command.name} · ${operation === "logout" ? "Sign out" : "Sign in"}`,
-            executablePath: command.executablePath,
-            args: command.args,
-            env,
-            cwd: command.cwd,
-            publicCwd: `runtime-instance:${command.instanceId}`,
-            profile: "runtime-auth",
+        idempotencyKey = context.requiredText(payload.idempotencyKey, "idempotencyKey");
+      let sessionCut: RuntimeInstanceAccountCut | undefined;
+      const result = cell.terminal.spawnTrusted(
+        {
+          idempotencyKey,
+          name: `${command.name} · ${operation === "logout" ? "Sign out" : "Sign in"}`,
+          executablePath: command.executablePath,
+          args: command.args,
+          env,
+          cwd: command.cwd,
+          publicCwd: `runtime-instance:${command.instanceId}`,
+          profile: "runtime-auth",
+          onBeforeSpawn: () => {
+            context.instances.rejectActiveAuthSession(command.instanceId);
           },
-          { ...serverBinding, authorizationDecision },
-        ) as JsonObject;
+          onAdmitted: () => {
+            sessionCut =
+              context.instances.beginAuthSession(
+                command.instanceId,
+                idempotencyKey,
+                command.accountCut,
+                operation as "login" | "logout",
+              ) ?? undefined;
+          },
+          onExit: (exitCode) => {
+            context.instances.completeAuthSession(
+              command.instanceId,
+              idempotencyKey,
+              operation as "login" | "logout",
+              exitCode,
+              sessionCut ?? command.accountCut,
+            );
+          },
+        },
+        { ...serverBinding, authorizationDecision },
+      ) as JsonObject;
       return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject };
     },
   };

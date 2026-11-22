@@ -9,12 +9,20 @@ import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-con
 import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 import { openNodeAutoDispatchLoop, type NodeAutoDispatchCandidate } from "../src/daemon-host/node-auto-dispatch.ts";
 import {
+  deterministicReplicaConfirmFailure,
   openRuntimeRecoveryWatch,
+  renderReplicaConfirmFailure,
   renderStuckRuntimeRecoveries,
   runReplicaConfirmedRound,
   runtimeRecoveryError,
   type RuntimeRecoveryFailure,
 } from "../src/daemon-host/runtime-recovery-watch.ts";
+import { FleetEdgeGitPreflightError } from "../src/daemon-host/fleet-edge-git-preflight.ts";
+import {
+  FleetMirrorError,
+  mirrorPathsFingerprint,
+  pullBlockedMirrorError,
+} from "../src/daemon-host/fleet-edge-mirror.ts";
 
 const reworkCandidate: NodeAutoDispatchCandidate = {
   repoId: "repo-edge",
@@ -154,4 +162,89 @@ test("the watch reports a runtime only after it keeps failing, and forgets it on
   );
   watch.observe("repo-edge", [], at);
   assert.deepEqual(watch.stuck("repo-edge", "2026-11-07T12:00:00.000Z"), []);
+});
+
+test("a deterministic mirror failure is isolated from reconcile and auto-dispatch, enters agenda immediately, and clears on recovery", async () => {
+  const watch = openRuntimeRecoveryWatch(),
+    steps: string[] = [],
+    conflictError = pullBlockedMirrorError({
+      dirtyPaths: ["tasks/task_1/task_plan.md"],
+      conflicts: [],
+    });
+
+  await assert.rejects(
+    runReplicaConfirmedRound({
+      materialize: () => {
+        steps.push("materialize");
+        throw conflictError;
+      },
+      observeConfirm: (failure) => watch.observeConfirm("repo-edge", failure, "2026-11-20T05:00:00.000Z", "fp-1"),
+      reconcile: async () => {
+        steps.push("reconcile");
+      },
+      observeRecovery: (failures) => watch.observe("repo-edge", failures, "2026-11-20T05:00:00.000Z"),
+      triggers: [
+        async () => {
+          steps.push("auto-claim");
+        },
+        async () => {
+          steps.push("auto-dispatch");
+        },
+      ],
+    }),
+    (error: unknown) => (error as { code?: string }).code === "pull_blocked",
+  );
+
+  assert.deepEqual(steps, ["materialize", "reconcile", "auto-claim", "auto-dispatch"]);
+  const active = watch.confirmFailure("repo-edge");
+  assert.ok(active !== null);
+  assert.equal(active.code, "pull_blocked");
+  assert.deepEqual(active.dirtyPaths, ["tasks/task_1/task_plan.md"]);
+  assert.equal(watch.confirmDirtyFingerprint("repo-edge"), "fp-1");
+  assert.equal(watch.confirmFailure("repo-other"), null);
+  assert.match(
+    renderReplicaConfirmFailure(active, "2026-11-20T05:03:10.000Z"),
+    /本节点副本确认待处理 \[阻塞\][\s\S]*\[pull_blocked\] 已持续 3 分钟（自 2026-11-20T05:00:00\.000Z）[\s\S]*tasks\/task_1\/task_plan\.md/u,
+  );
+
+  assert.equal(watch.noteConfirmFailure("repo-edge", conflictError), true, "first deterministic occurrence logs");
+  assert.equal(watch.noteConfirmFailure("repo-edge", conflictError), false, "identical state is suppressed");
+  assert.equal(watch.noteConfirmFailure("repo-other", conflictError), true, "deduplication is scoped per repoId");
+
+  const diverged = new FleetEdgeGitPreflightError("edge_default_branch_diverged", "edge branch diverged");
+  assert.equal(watch.noteConfirmFailure("repo-edge", diverged), true, "a changed deterministic state logs once");
+  assert.equal(watch.noteConfirmFailure("repo-edge", diverged), false, "unchanged diverged state stays suppressed");
+
+  const transient = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+  assert.equal(deterministicReplicaConfirmFailure(transient), null);
+  assert.equal(
+    watch.noteConfirmFailure("repo-edge", transient),
+    true,
+    "transient errors are never latched as deterministic",
+  );
+
+  await runReplicaConfirmedRound({
+    materialize: () => {
+      steps.push("materialize-recovered");
+    },
+    observeConfirm: (failure) => watch.observeConfirm("repo-edge", failure, "2026-11-20T05:05:00.000Z"),
+    reconcile: async () => {
+      steps.push("reconcile-recovered");
+    },
+    observeRecovery: (failures) => watch.observe("repo-edge", failures, "2026-11-20T05:05:00.000Z"),
+    triggers: [],
+  });
+
+  assert.equal(watch.confirmFailure("repo-edge"), null, "confirmed recovery clears the agenda alert");
+  assert.equal(watch.noteConfirmFailure("repo-edge", conflictError), true, "a new conflict after recovery logs again");
+});
+
+test("mirrorPathsFingerprint reflects only edits on the tracked conflicting paths", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "mirror-fingerprint-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  assert.equal(mirrorPathsFingerprint(rootDir, []), "");
+  const missing = mirrorPathsFingerprint(rootDir, ["tasks/task_1/task_plan.md"]);
+  assert.match(missing, /:missing$/u);
+  const error = new FleetMirrorError("pull_blocked", "blocked", ["tasks/task_1/task_plan.md"]);
+  assert.deepEqual(deterministicReplicaConfirmFailure(error)?.dirtyPaths, ["tasks/task_1/task_plan.md"]);
 });

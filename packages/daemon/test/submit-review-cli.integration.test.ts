@@ -129,7 +129,6 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
               name: id,
               instructions: "Independently review the submitted cut.",
               runtimes: [{ type: "codex", model: definition.model }],
-              instance: definition.instanceId,
               role: "reviewer",
             },
           })

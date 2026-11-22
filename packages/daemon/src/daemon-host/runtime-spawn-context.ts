@@ -64,6 +64,7 @@ export interface RuntimeTerminalReplay {
 export interface RuntimeSpawnerContext {
   readonly dispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly closed?: () => boolean;
+  readonly closeSignal?: AbortSignal;
   readonly input: RuntimeSpawnerInput;
   readonly requiredRuntimeStore: typeof requiredRuntimeStore;
   readonly requiredRuntimeProjection: typeof requiredRuntimeProjection;
@@ -106,7 +107,12 @@ export interface RuntimeSpawnerContext {
   /** Stops a runtime whose provider-reported consumption passed its frozen token limit and
    * settles the terminal outcome; a no-op once cancellation or settlement owns the runtime. */
   readonly enforceSpendCap: (active: ActiveRuntime) => Promise<void>;
-  readonly controlReceipt: (opId: string, runtimeSessionId: string, detail?: string) => JsonObject;
+  readonly controlReceipt: (
+    opId: string,
+    runtimeSessionId: string,
+    detail?: string,
+    settlementReceipt?: JsonObject,
+  ) => JsonObject;
   readonly captureErrorOutput: (active: ActiveRuntime, chunk: string) => void;
   readonly prepareDaemonGitEnvironment: (
     instanceId: string,
@@ -118,6 +124,8 @@ export interface RuntimeSpawnerContext {
     terminal: RuntimeAttemptTerminal,
   ) => Promise<FallbackSettlement | void>;
   readonly reconcileFallback: (dispatchId: string) => void | Promise<void>;
+  /** Non-blocking wake for the background steer receipt uplink pump (F13). */
+  readonly triggerSteerReceiptFlush?: () => void;
 }
 
 /** The runtime environment is the sole delivery point for its short-lived execution secret. */

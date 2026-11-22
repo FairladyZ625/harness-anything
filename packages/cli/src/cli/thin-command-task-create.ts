@@ -52,8 +52,8 @@ export function parseTaskCreate(
       ...(id ? { taskId: id } : {}),
       ...(id ? { createMode: modes[0] } : {}),
       ...forwarded,
-      // `ha work create` is task-create fixed to the create-work preset and the declared work class.
-      ...(route.id === "work-create" ? { presetId: "create-work", taskClass: "work", requirePlan: true } : {}),
+      // `ha work create` is task-create with the declared work class; the daemon resolves the vertical's work preset.
+      ...(route.id === "work-create" ? { taskClass: "work", requirePlan: true } : {}),
       ...(f.many.get("--surface")?.length ? { surfaces: f.many.get("--surface") } : {}),
       ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
     },

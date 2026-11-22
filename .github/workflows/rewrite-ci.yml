@@ -53,7 +53,10 @@ jobs:
       gui: ${{ steps.surfaces.outputs.gui }}
       packagePolicy: ${{ steps.policy.outputs.packagePolicy }}
       costBudgetReads: ${{ steps.policy.outputs.costBudgetReads }}
+      authorizationDate: ${{ steps.authorization-date.outputs.date }}
     steps:
+      - id: authorization-date
+        run: echo "date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -85,8 +88,8 @@ jobs:
               - 'package.json'
               - 'package-lock.json'
               - 'tsconfig*.json'
-      # Package policy is workspace-manifest scoped. Daemon readers share source directories,
-      # so this detector conservatively covers daemon production/read-probe source and storage.
+      # Package policy is workspace-manifest scoped. The Node 26 storage lanes share a trigger
+      # covering their backend dependencies, test probes and CI entrypoints.
       - uses: dorny/paths-filter@v4
         id: policy
         with:
@@ -99,8 +102,23 @@ jobs:
               - 'packages/**/package.json'
             costBudgetReads:
               - 'packages/storage/**'
-              - 'packages/daemon/src/**'
-              - 'packages/daemon/test/fixtures/g38-read-*.mjs'
+              - 'packages/daemon/**'
+              - 'packages/kernel/**'
+              - 'packages/application/**'
+              - 'packages/preset/**'
+              - 'packages/authorization/**'
+              - 'packages/cli/src/cli-agent-rollback.ts'
+              - 'packages/cli/test/fixtures/g38-read-rollback.mjs'
+              - 'tools/gates/cost-budget*'
+              - 'tools/gate-manifest.json'
+              - 'tools/run-manifest-gates.mjs'
+              - 'tools/run-node-tests.mjs'
+              - 'tools/node-test-runner-lib.mjs'
+              - 'tools/test-tier-manifest.mjs'
+              - '.github/workflows/rewrite-ci.yml'
+              - 'package*.json'
+              - 'packages/**/package.json'
+              - 'tsconfig*.json'
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -145,6 +163,7 @@ jobs:
   # every gate command and verdict is unchanged. The documentation-only narrowing still applies to
   # the merged selection because the runner derives it from the same manifest localPathGlobs.
   quick-gates:
+    name: quick-gate-checks
     needs: install
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
     permissions:
@@ -174,8 +193,8 @@ jobs:
       # different revision.
       #
       # typecheck writes packages/*/dist and tsbuildinfo, so it runs alone before the pool; the
-      # other 59 gates only read the tree or write mkdtemp roots. The pool is still one required
-      # context, so no branch-protection name moves for this job.
+      # other gates only read the tree or write mkdtemp roots. authorization-summary preserves the
+      # required context and requires this pool and the complete authorization proof.
       - name: Typecheck before the parallel gate pool
         run: npm run typecheck
       - name: Run quick and boundary PR gates
@@ -184,6 +203,76 @@ jobs:
           G38_PHASE: legacy
           NODE_OPTIONS: --max-old-space-size=4096
         run: node tools/run-manifest-gates.mjs --workflow-job quick-gates --github-groups --parallel 4 --exclude typecheck
+  # dec_88CAA23DE4907261D7ECB107ED/CH1: disjoint proof shards share one checkout, comparison
+  # base and UTC date. Client proofs are decided only after joining all planned server routes.
+  authorization-shard:
+    name: authorization-shard (${{ matrix.shard }})
+    needs: install
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+      - name: Trace assigned durable authorization routes and sources
+        shell: bash
+        env:
+          AUTHORIZATION_CI_MODE: shard
+          AUTHORIZATION_CI_SHARD: ${{ matrix.shard }}
+          AUTHORIZATION_CI_DIR: ${{ runner.temp }}
+          AUTHORIZATION_CI_DATE: ${{ needs.install.outputs.authorizationDate }}
+          AUTHORIZATION_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/main' }}
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node tools/run-manifest-gates.mjs --workflow-job authorization-shard --changed-base "$AUTHORIZATION_BASE" --github-groups | awk -v proof="$AUTHORIZATION_CI_DIR/authorization-shard-$AUTHORIZATION_CI_SHARD.json" '/^AUTH_SHARD_PROOF / { if (++count > 1) exit 1; sub(/^AUTH_SHARD_PROOF /, ""); print > proof; next } { print } END { if (count != 1) exit 1 }'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: authorization-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/authorization-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+  authorization-summary:
+    name: quick-gates
+    needs: [install, quick-gates, authorization-shard]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: authorization-shard-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/authorization
+      - name: Require the quick gate pool and the complete durable authorization verdict
+        env:
+          AUTHORIZATION_CI_MODE: ${{ needs.install.result == 'success' && needs.quick-gates.result == 'success' && needs.authorization-shard.result == 'success' && 'collect' || 'blocked' }}
+          AUTHORIZATION_CI_DIR: ${{ runner.temp }}/authorization
+          AUTHORIZATION_CI_DATE: ${{ needs.install.outputs.authorizationDate }}
+          AUTHORIZATION_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || 'origin/main' }}
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: node tools/run-manifest-gates.mjs --workflow-job authorization-summary --changed-base "$AUTHORIZATION_BASE" --github-groups
   fast-contract:
     name: fast-contract (${{ matrix.partition }})
     needs: install
@@ -192,12 +281,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        partition: [1, 2, 3, 4]
+        partition: [1, 2, 3, 4, 5, 6]
     env:
-      # All partitions derive from the same tier manifest. The expensive mutation suite uses a
-      # measured weighted assignment to keep its four partitions balanced.
-      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/4
+      HARNESS_TEST_PARTITION: ${{ matrix.partition }}/6
+      HARNESS_TEST_PARTITION_STRATEGY: measured
       HARNESS_TEST_PARTITION_SHARED_FILES: tools/gates/test/ontology-durable-action-authorization.test.mjs
+      HARNESS_TEST_CONCURRENCY: 4
     steps:
       - uses: actions/checkout@v4
         with:
@@ -308,6 +397,7 @@ jobs:
       - if: needs.install.outputs.code != 'false'
         env:
           HARNESS_INTEGRATION_DURATION_LOG: ${{ runner.temp }}/integration-durations-shard-${{ matrix.shard }}.log
+          HARNESS_TEST_CONCURRENCY: 3
         run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
       - if: always() && (github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && needs.install.outputs.code != 'false'
         uses: actions/upload-artifact@v4
@@ -322,7 +412,7 @@ jobs:
   # Install separately because native dependencies in the shared artifact target Node 24.
   pglite-node26:
     needs: install
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push') && needs.install.outputs.code != 'false'
+    if: always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || github.event_name == 'push' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -334,6 +424,29 @@ jobs:
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job pglite-node26
+
+  # dec_DBEC28020550D3F11A21C15FB4/CH2 (G6 / HA-06): native linux-arm64 clean build, native module load
+  # (node-pty + node:sqlite), CLI/daemon tarball verification + isolated install executing public ha /
+  # harness-anything bins, and external OIDC center daemon + Fleet edge smoke on ubuntu-24.04-arm within
+  # a single 180s observable internal budget (outer 5m step / 7m job envelope preserves cleanup headroom).
+  # Installs separately because the shared install artifact is built on linux-x64.
+  linux-arm64-smoke:
+    needs: install
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push') && needs.install.outputs.code != 'false'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: ./.github/actions/electron-runtime-cache
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      - run: node tools/run-manifest-gates.mjs --workflow-job linux-arm64-smoke
+        timeout-minutes: 5
 
   windows-integration-shard:
     # The integration tier is where every POSIX host assumption lives: symlinks, deletable open
@@ -576,7 +689,7 @@ jobs:
   # The same G38 entrypoint splits backend/collection setup and rejoins the complete matrix.
   cost-budget-reads:
     needs: install
-    if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule')
+    if: always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule')
     name: cost-budget-reads (pglite, set ${{ matrix.set }})
     runs-on: ubuntu-latest
     strategy:
@@ -584,9 +697,9 @@ jobs:
       matrix:
         include:
           - set: 1
-            dimensions: task-history,runtime-sessions,dispatches,task-outputs
+            dimensions: source-events,dispatches,runtime-sessions,task-history,relation-visibility
           - set: 2
-            dimensions: relations,relation-visibility,event-bytes,source-events
+            dimensions: task-outputs,relations,event-bytes
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -650,31 +763,49 @@ jobs:
     needs: [install, cost-budget-reads, cost-budget-reads-sqlite]
     if: always() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'schedule')
     runs-on: ubuntu-latest
+    env:
+      G38_SKIP_READS: ${{ github.event_name == 'pull_request' && needs.install.result == 'success' && needs.install.outputs.costBudgetReads == 'false' }}
     steps:
+      - name: Check the G38 read jobs
+        uses: actions/github-script@v7
+        env:
+          PGLITE_RESULT: ${{ needs.cost-budget-reads.result }}
+          SQLITE_RESULT: ${{ needs.cost-budget-reads-sqlite.result }}
+        with:
+          script: |
+            const { G38_SKIP_READS, PGLITE_RESULT, SQLITE_RESULT } = process.env;
+            if (G38_SKIP_READS === "true") {
+              core.notice("G38 read-cost skipped because no changed path affects the Node 26 storage lanes.");
+            } else if (PGLITE_RESULT !== "success" || SQLITE_RESULT !== "success") {
+              core.setFailed(`G38 read jobs must pass (PGlite: ${PGLITE_RESULT}, SQLite: ${SQLITE_RESULT})`);
+            }
       - uses: actions/checkout@v4
+        if: env.G38_SKIP_READS != 'true'
       - uses: actions/setup-node@v4
+        if: env.G38_SKIP_READS != 'true'
         with:
           node-version: 24
           cache: npm
       - uses: ./.github/actions/electron-runtime-cache
-        if: github.event_name == 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name == 'schedule'
       - uses: actions/download-artifact@v4
-        if: github.event_name != 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name != 'schedule'
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
       - run: npm ci
-        if: github.event_name == 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name == 'schedule'
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
-        if: github.event_name != 'schedule'
+        if: env.G38_SKIP_READS != 'true' && github.event_name != 'schedule'
       - uses: actions/download-artifact@v4
+        if: env.G38_SKIP_READS != 'true'
         with:
           pattern: g38-read-*
           merge-multiple: true
           path: ${{ runner.temp }}/g38
       - name: Require the selected G38 read matrix
+        if: env.G38_SKIP_READS != 'true'
         env:
           G38_PHASE: read-summary
           G38_RESULTS: ${{ runner.temp }}/g38
-          G38_REQUIRED_BACKENDS: ${{ github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads == 'false' && 'pglite' || 'pglite,sqlite' }}
         run: node tools/gates/cost-budget.mjs

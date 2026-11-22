@@ -7,7 +7,8 @@ import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 test("a reviewer launch failure closes its admitted attempt without a process or transcript", async () => {
   const f = await fixture(false, true, false, false, false, { autoSubmit: false, providerInputLimit: 1 });
   try {
-    await f.install();
+    // Pin the final candidate so no backup provider is scheduled; the single admitted attempt must settle immediately.
+    await f.install("review-second");
     const submitted = await f.submit();
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");

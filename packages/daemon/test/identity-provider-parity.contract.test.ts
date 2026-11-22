@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { effectivePolicyGroupScopes, type AuthorizationProvider } from "@harness-anything/kernel";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 

@@ -30,6 +30,7 @@ const expectedKinds = [
   "todo",
   "vertical-declaration",
   "host",
+  "peer-request",
 ] as const;
 const expectedResidency = {
   agent: { authored: "ledger" },
@@ -51,6 +52,7 @@ const expectedResidency = {
   todo: { authored: "ledger" },
   "vertical-declaration": { authored: "ledger" },
   host: { process: "host-local" },
+  "peer-request": { authored: "ledger" },
 } as const;
 
 test("one named kind-contract authority explains all registered entity kinds with one shape", () => {

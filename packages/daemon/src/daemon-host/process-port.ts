@@ -271,6 +271,52 @@ export function makeGitReadinessSource() {
   };
 }
 
+export type GitHistoryLogResult =
+  | { readonly ok: true; readonly stdout: string }
+  | {
+      readonly ok: false;
+      /** Process exit status; null when git never ran or was killed (see errorCode). */
+      readonly exitCode: number | null;
+      /** System error code such as ENOENT or ETIMEDOUT; null for an ordinary non-zero exit. */
+      readonly errorCode: string | null;
+      readonly stderr: string;
+    };
+
+const GIT_HISTORY_STDERR_BYTES = 512;
+
+/**
+ * Read-only Git history and status for reverse code-path trace (dec_9979850C7CE87C17271D78E4D1 CH1). Unlike
+ * makeGitReadinessSource it keeps the exit status, system error code and a bounded stderr digest, so
+ * callers can tell "no history" from "git failed". Host read and dispatch entries only; the writer
+ * plane never imports this module.
+ */
+export function runGitHistoryLog(
+  rootDir: string,
+  args: readonly string[],
+  timeoutMs: number = daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs,
+): GitHistoryLogResult {
+  try {
+    return {
+      ok: true,
+      stdout: runProcessText("git", args, rootDir, { ...process.env, LC_ALL: "C" }, timeoutMs),
+    };
+  } catch (error) {
+    const failure = (typeof error === "object" && error !== null ? error : {}) as {
+      readonly status?: unknown;
+      readonly code?: unknown;
+      readonly stderr?: unknown;
+    };
+    return {
+      ok: false,
+      exitCode: typeof failure.status === "number" ? failure.status : null,
+      errorCode: typeof failure.code === "string" ? failure.code : null,
+      stderr: Buffer.from(String(failure.stderr ?? "").trim(), "utf8")
+        .subarray(0, GIT_HISTORY_STDERR_BYTES)
+        .toString("utf8"),
+    };
+  }
+}
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);

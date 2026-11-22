@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RepositoryMembersReply } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { RepositoryMembersReply } from "@harness-anything/authorization/gui/access-admin-contract";
 import { consumeKnownError } from "../api/error-consumption.ts";
 import type { FleetOverviewNode } from "../api/renderer-dto.ts";
 import { guiHostBridge } from "./gui-transport.ts";
@@ -15,10 +15,12 @@ import type { TaskRow } from "./model/types.ts";
 import { t } from "./i18n/index.tsx";
 
 export interface MemberScopeContext {
+  readonly identityPending: boolean;
   readonly currentPersonId: string | null;
   readonly canManageFleetNodes: boolean;
   readonly canUseGlobalLens: boolean;
   readonly scopePersonId: string | null;
+  readonly selectedPersonId: string | null | undefined;
   readonly setScopePersonId: (personId: string | null) => void;
   readonly lensMembers: readonly MemberOption[];
   readonly memberOptions: readonly MemberOption[];
@@ -29,15 +31,17 @@ export interface MemberScopeContext {
 
 const EMPTY_NODES: readonly FleetOverviewNode[] = [];
 const EMPTY_MEMBERS: RepositoryMembersReply["members"] = [];
+const EMPTY_LENS_MEMBERS: readonly MemberOption[] = [];
 
 export function useMemberScopeContext(input: {
   readonly repoId: string | null;
   readonly rootDir: string | undefined;
   readonly tasks: readonly TaskRow[];
   readonly fleetNodes?: readonly FleetOverviewNode[];
+  readonly collaborative?: boolean;
   readonly view?: string;
 }): MemberScopeContext {
-  const { repoId, rootDir, tasks, fleetNodes = EMPTY_NODES, view } = input;
+  const { repoId, rootDir, tasks, fleetNodes = EMPTY_NODES, collaborative, view } = input;
   const bridge = guiHostBridge();
   const auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined;
   const access = useMemo(
@@ -181,23 +185,32 @@ export function useMemberScopeContext(input: {
     [fleetNodes, tasks],
   );
 
-  const canUseGlobalLens =
-    adminState?.isRepoAdmin === true && currentPersonId !== null && (lensMembers.length >= 2 || hasExternalNodes);
-  const [selection, setSelection] = useState<{ key: string; personId: string } | null>(null);
-  const scopePersonId =
-    canUseGlobalLens &&
-    selection?.key === accessKey &&
-    lensMembers.some(({ personId }) => personId === selection.personId)
-      ? selection.personId
-      : null;
+  const canUseGlobalLens = currentPersonId !== null && (collaborative || lensMembers.length >= 2 || hasExternalNodes);
+  const allowedMembers = adminState?.isRepoAdmin === true ? lensMembers : EMPTY_LENS_MEMBERS;
+  const [selection, setSelection] = useState<{ key: string; personId: string | null } | null>(null);
+  const selected = selection?.key === accessKey ? selection : null;
+  const personalLanding = view === "overview" || view === "todos";
+  // Retain the personal read while the effective topology is unknown.
+  const defaultScope = personalLanding && (collaborative !== false || canUseGlobalLens) ? currentPersonId : null;
+  const selectedPersonId = canUseGlobalLens ? selected?.personId : undefined;
+  const scopePersonId = selectedPersonId === undefined ? defaultScope : selectedPersonId;
 
   return {
+    identityPending: auth !== undefined && snapshot === null,
     currentPersonId,
     canManageFleetNodes: adminState?.canManageFleetNodes === true,
     canUseGlobalLens,
     scopePersonId,
-    setScopePersonId: (personId) => setSelection(personId === null ? null : { key: accessKey, personId }),
-    lensMembers,
+    selectedPersonId,
+    setScopePersonId: (personId) => {
+      if (
+        personId === null ||
+        personId === currentPersonId ||
+        allowedMembers.some((member) => member.personId === personId)
+      )
+        setSelection({ key: accessKey, personId });
+    },
+    lensMembers: allowedMembers,
     memberOptions,
     nodeOptions,
     peopleById,

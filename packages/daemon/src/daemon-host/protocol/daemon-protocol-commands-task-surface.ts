@@ -99,7 +99,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           description:
-            "Let the task creator release a stopped worker lease with a reason; this does not arrange or launch a replacement.",
+            "Release a stopped worker lease as its task creator, or a settled orphan runtime lease as repository admin.",
         },
       ),
     ],
@@ -882,6 +882,27 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
+    id: "trace",
+    phase: "W3",
+    path: ["trace", "<path>"],
+    summary:
+      "Trace one repository path back to the ledger: first-parent merges that touched it and their Tasks, " +
+      "governing Decisions with rejected redlines (whyNot), Facts anchored to it, and unmerged task branches " +
+      "that also change it. --limit is 1–200 commits (default 20). Center cells without a Git worktree report git unavailable.",
+    method: "repo.trace.read",
+    positional: "path",
+    positionalInputs: [{ name: "<path>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$", format: "<integer; 1..200>" },
+      ),
+    ],
+  }),
+  defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-read-set",
     repositoryRead: true,
     phase: "Governed-Entity-W2-B",
@@ -889,5 +910,30 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     summary: "Derive what a Task must read from its declared relations at one projection cut.",
     method: "repo.task.read",
     inputs: [],
+  }),
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "task-delivery-certificate",
+    helpTier: "advanced",
+    repositoryRead: true,
+    phase: "Ledger-Read",
+    path: ["task", "delivery-certificate", "<task-id>"],
+    summary: "Export a tamper-evident delivery-certificate/v1 JSON for a done Task.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput(
+        "--algorithm",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", enum: ["sha256", "sm3"] },
+      ),
+      cliInput(
+        "--output",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "cli-local", pathReader: "cli-local" },
+      ),
+    ],
   }),
 ] as const);

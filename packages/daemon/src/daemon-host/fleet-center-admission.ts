@@ -7,6 +7,7 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "../fleet-sync/fleet/replica-generation.ts";
+import { FLEET_SESSION_CAPABILITY } from "./fleet/command-protocol.ts";
 import { FleetRemoteError, readFleetLoginAuthorityClient, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import { failFleetReplicaSync, waitForFleetReplicaReady, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
@@ -14,8 +15,9 @@ import { applyFleetMirrorCut, revokeFleetMirrorTree, withFleetMirrorLock } from 
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "@harness-anything/storage";
 import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything/storage";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { FleetEdgeConfigError, readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
+import { parseFleetCenterExternalUrl, resolveFleetCursorSecret } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 import { readFleetCenterGitMetadata } from "./fleet-edge-git-preflight.ts";
@@ -49,8 +51,12 @@ export interface FleetCenterAdmissionRequest {
   readonly host: FleetCenterOptions["host"];
   readonly buildDraining?: FleetCenterOptions["buildDraining"];
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
+  readonly onNodeDisconnected?: FleetCenterOptions["onNodeDisconnected"];
   readonly recordTraffic?: FleetCenterOptions["recordTraffic"];
+  readonly onRequestStarted?: FleetCenterOptions["onRequestStarted"];
+  readonly onRequestSettled?: FleetCenterOptions["onRequestSettled"];
   readonly authenticateExecutionPrincipal?: FleetCenterOptions["authenticateExecutionPrincipal"];
+  readonly cursorSecret?: FleetCenterOptions["cursorSecret"];
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
@@ -113,22 +119,28 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     bind,
     ...(externalUrl ? [new URL(externalUrl).hostname.replace(/^\[|\]$/gu, "")] : []),
   ]);
+  const stateRoot = request.stateRoot ?? path.join(input.userRoot, "fleet"),
+    cursorSecret = input.cursorSecret ?? resolveFleetCursorSecret(stateRoot);
   return {
     host: input.host,
     storage: input.storage,
     buildDraining: input.buildDraining,
     onDeliverySettled: input.onDeliverySettled,
+    onNodeDisconnected: input.onNodeDisconnected,
     ...(input.authenticateExecutionPrincipal
       ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
       : {}),
     ...(input.recordTraffic ? { recordTraffic: input.recordTraffic } : {}),
-    stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
+    ...(input.onRequestStarted ? { onRequestStarted: input.onRequestStarted } : {}),
+    ...(input.onRequestSettled ? { onRequestSettled: input.onRequestSettled } : {}),
+    stateRoot,
     centerRepoId: request.repoId,
     relocationRoot: input.userRoot,
     writerEpochStateRoot: path.join(input.userRoot, "fleet"),
     ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
     key,
     cert,
+    cursorSecret,
     hostname: request.bind,
     port: request.port,
     replicaDiskQuotaBytes: request.quotaBytes,
@@ -192,6 +204,7 @@ export async function startFleetCenterAdmission(
   }
 }
 export interface FleetEdgeSyncRequest {
+  readonly userRoot?: string;
   /** Center-published OIDC metadata used to repair an older edge config missing loginRealm. */
   readonly loginAuthority?: {
     readonly url: string;
@@ -271,9 +284,14 @@ export async function syncFleetEdgeMirror(
     center: head,
     operation: "edge sync",
   });
-  // The admitted connection becomes the workspace's fleet-edge.json, which the resident stream follows
+  // The admitted connection becomes the node's fleet-edge.json under userRoot, which the resident stream follows
   // (started or restarted by onAdmitted); sync then waits on that stream.
-  persistEdgeConnection(request, input.loginAuthority ?? head.loginAuthority, head.writerEpoch);
+  persistEdgeConnection(
+    input.userRoot ?? daemonUserRoot(),
+    request,
+    input.loginAuthority ?? head.loginAuthority,
+    head.writerEpoch,
+  );
   onAdmitted?.();
   const viewDir = path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
     replicaReady = await waitForFleetReplicaReady(request);
@@ -343,11 +361,21 @@ export interface FleetEdgeRepointRequest {
 /** Verify a relocated center against the durable edge cut before changing any edge state. */
 export async function repointFleetEdgeMirror(
   input: FleetEdgeRepointRequest,
+  withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>,
+  onAdmitted?: () => void,
+  readAccessToken?: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
+  const run = () => repointFleetEdgeMirrorFenced(input, readAccessToken, onAdmitted);
+  return withReplicaSyncFence(input.payload.repoId, run);
+}
+
+async function repointFleetEdgeMirrorFenced(
+  input: FleetEdgeRepointRequest,
   readAccessToken?: () => Promise<string | undefined>,
   onAdmitted?: () => void,
 ): Promise<Record<string, unknown>> {
   const request = input.payload,
-    previous = readFleetEdgeConfig(input.workspaceRoot);
+    previous = readFleetEdgeConfig(input.userRoot, request.repoId);
   if (!previous || previous.repoId !== request.repoId || previous.nodeId !== request.nodeId)
     throw new FleetEdgeConfigError(
       "fleet_edge_config_invalid",
@@ -397,6 +425,7 @@ export async function repointFleetEdgeMirror(
     nodeId: request.nodeId,
     credential: request.credential,
     repoId: request.repoId,
+    sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
     actionKind: "repository-read",
     resumePosition: generation.metadata.position,
     signal: deadline,
@@ -437,7 +466,14 @@ export async function repointFleetEdgeMirror(
       "lineage_tip_mismatch",
       "The new center history forks from the edge tip; repoint was refused.",
     );
-  if (head.writerEpoch <= oldEpoch)
+  const sameRepointTarget =
+    previous.resumeOnly === true &&
+    previous.host === request.host &&
+    previous.port === request.port &&
+    previous.caPath === request.caPath &&
+    previous.servername === request.servername &&
+    previous.spkiSha256 === request.spkiSha256;
+  if (head.writerEpoch < oldEpoch || (head.writerEpoch === oldEpoch && !sameRepointTarget))
     throw new FleetEdgeConfigError(
       "writer_epoch_not_advanced",
       `The new center writer epoch ${head.writerEpoch} is not greater than ${oldEpoch}.`,
@@ -460,12 +496,13 @@ export async function repointFleetEdgeMirror(
     spkiSha256: request.spkiSha256,
     nodeId: request.nodeId,
     credential: request.credential,
+    sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
     signal: deadline,
     timeoutMs,
   });
   const current = readReplicaGeneration(viewDir);
   if (
-    JSON.stringify(readFleetEdgeConfig(input.workspaceRoot)) !== JSON.stringify(previous) ||
+    JSON.stringify(readFleetEdgeConfig(input.userRoot, request.repoId)) !== JSON.stringify(previous) ||
     current?.id !== generation.id ||
     current.metadata.position.sequence !== generation.metadata.position.sequence
   )
@@ -480,7 +517,7 @@ export async function repointFleetEdgeMirror(
     workspaceRoot: input.workspaceRoot,
   };
   oidcCenterSelections(input.userRoot).clearAll();
-  persistEdgeConnection(persistRequest, loginAuthority, head.writerEpoch, true);
+  persistEdgeConnection(input.userRoot, persistRequest, loginAuthority, head.writerEpoch, true, true);
   onAdmitted?.();
   // Even at the same sequence, the new stream must confirm it can resume before we lift the backup guard.
   await waitForFleetReplicaSequence(
@@ -489,7 +526,7 @@ export async function repointFleetEdgeMirror(
     deadline,
   );
   const applied = readReplicaGeneration(viewDir),
-    activeConfig = readFleetEdgeConfig(input.workspaceRoot);
+    activeConfig = readFleetEdgeConfig(input.userRoot, request.repoId);
   if (
     !applied ||
     applied.metadata.position.sequence < head.replicationSequence ||
@@ -504,7 +541,7 @@ export async function repointFleetEdgeMirror(
   )
     throw new FleetEdgeConfigError("replica_cut_changed", "The edge changed while the new center was catching up.");
   const { resumeOnly: _resumeOnly, ...steadyConfig } = activeConfig;
-  writeFleetEdgeConfig(input.workspaceRoot, steadyConfig);
+  writeFleetEdgeConfig(input.userRoot, request.repoId, steadyConfig);
   onAdmitted?.();
   return {
     schema: "command-receipt/v2",
@@ -525,18 +562,31 @@ export async function repointFleetEdgeMirror(
 
 /** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid one fails the sync. */
 function persistEdgeConnection(
+  userRoot: string,
   request: FleetEdgeSyncRequest["payload"],
   loginAuthority?: FleetEdgeSyncRequest["loginAuthority"],
   writerEpoch?: number,
   resumeOnly?: true,
+  replaceLoginAuthority = false,
 ): void {
-  const previous = readFleetEdgeConfig(request.workspaceRoot);
-  const loginUrl = loginAuthority?.url ?? previous?.loginUrl,
-    loginRealm = loginAuthority?.realm ?? previous?.loginRealm,
-    loginServername = loginAuthority ? loginAuthority.servername : previous?.loginServername,
-    loginBrowserUrl = loginAuthority ? loginAuthority.browserUrl : previous?.loginBrowserUrl,
-    loginCertificate = loginAuthority ? loginAuthority.certificate : previous?.loginCertificate;
-  writeFleetEdgeConfig(request.workspaceRoot, {
+  const previous = readFleetEdgeConfig(userRoot, request.repoId);
+  const advertisedRealm = loginAuthority?.realm;
+  const loginUrl = replaceLoginAuthority
+      ? loginAuthority?.url
+      : previous?.loginRealm === undefined && loginAuthority?.realm
+        ? loginAuthority.url
+        : (previous?.loginUrl ?? loginAuthority?.url),
+    loginRealm = replaceLoginAuthority ? advertisedRealm : (previous?.loginRealm ?? advertisedRealm),
+    loginServername = replaceLoginAuthority
+      ? loginAuthority?.servername
+      : (previous?.loginServername ?? loginAuthority?.servername),
+    loginBrowserUrl = replaceLoginAuthority
+      ? loginAuthority?.browserUrl
+      : (previous?.loginBrowserUrl ?? loginAuthority?.browserUrl),
+    loginCertificate = replaceLoginAuthority
+      ? loginAuthority?.certificate
+      : (previous?.loginCertificate ?? loginAuthority?.certificate);
+  writeFleetEdgeConfig(userRoot, request.repoId, {
     repoId: request.repoId,
     host: request.host,
     port: request.port,

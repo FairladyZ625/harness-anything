@@ -3,9 +3,19 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
-import { settleFallbackAttempt } from "../src/daemon-host/runtime-spawn-fallback.ts";
-import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "../src/daemon-host/runtime-fallback-contract.ts";
+import test, { type TestContext } from "node:test";
+import { openDispatchStream, readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import {
+  initialFallbackAttempt,
+  scheduleFallbackContinuation,
+  settleFallbackAttempt,
+} from "../src/daemon-host/runtime-spawn-fallback.ts";
+import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instances.ts";
+import type {
+  RuntimeAttemptOutcome,
+  RuntimeFallbackAttempt,
+  RuntimeProviderFault,
+} from "../src/daemon-host/runtime-fallback-contract.ts";
 import type { RuntimeProviderHealth } from "../src/runtime-engine/runtime-provider-health.ts";
 import type {
   ActiveRuntime,
@@ -88,33 +98,436 @@ test("a single provider retries request_unavailable with backoff, then settles a
   assert.match(String(exhausted.terminal?.reason), /Provider fallback exhausted after 2 attempt/u);
 });
 
+test("post-tool transient fault retries up to 2 times on the same session without recording health failure, then exhausts without cold replay", async () => {
+  const retry1 = await settle({
+    candidates: ["provider-a", "provider-b"],
+    rows: [],
+    toolCallObserved: true,
+    providerSessionId: "session-same-1",
+    providerFault: { code: "server_error", faultClass: "server_error", reason: "HTTP 503 upstream unavailable" },
+    reason: "HTTP 503 upstream unavailable",
+  });
+  assert.equal(retry1.fallback?.state, "scheduled");
+  assert.equal(retry1.fallback?.sameSessionResume, true);
+  assert.equal(retry1.fallback?.providerSessionId, "session-same-1");
+  assert.deepEqual(retry1.fallback?.nextProvider, { instance: "provider-a", model: "model-a" });
+  assert.ok(
+    Number.isInteger(retry1.fallback?.delayMs) &&
+      Number(retry1.fallback?.delayMs) >= 0 &&
+      Number(retry1.fallback?.delayMs) <= 500,
+    `expected attempt 0 full-jitter delay in [0, 500], got ${String(retry1.fallback?.delayMs)}`,
+  );
+  assert.equal(retry1.recordFailureCalls, 0);
+  assert.equal(retry1.terminal, null);
+
+  // Attempt 1 may fail before observing a new tool call; sameSessionRetryCount keeps it on the same session.
+  const retry2 = await settle({
+    candidates: ["provider-a", "provider-b"],
+    rows: [],
+    toolCallObserved: false,
+    providerSessionId: "session-same-1",
+    sameSessionRetryCount: 1,
+    sameSessionProviderSessionId: "session-same-1",
+    providerFault: { code: "provider_disconnected", faultClass: "provider_disconnected", reason: "stream closed" },
+    reason: "stream closed",
+  });
+  assert.equal(retry2.fallback?.state, "scheduled");
+  assert.equal(retry2.fallback?.sameSessionResume, true);
+  assert.deepEqual(retry2.fallback?.nextProvider, { instance: "provider-a", model: "model-a" });
+  assert.ok(
+    Number.isInteger(retry2.fallback?.delayMs) &&
+      Number(retry2.fallback?.delayMs) >= 0 &&
+      Number(retry2.fallback?.delayMs) <= 1000,
+    `expected attempt 1 full-jitter delay in [0, 1000], got ${String(retry2.fallback?.delayMs)}`,
+  );
+  assert.equal(retry2.recordFailureCalls, 0);
+  assert.equal(retry2.terminal, null);
+
+  // Retry budget exhausted (sameSessionRetryCount === 2): fail closed with zero cold replay onto provider-b.
+  const exhausted = await settle({
+    candidates: ["provider-a", "provider-b"],
+    rows: [],
+    toolCallObserved: false,
+    providerSessionId: "session-same-1",
+    sameSessionRetryCount: 2,
+    sameSessionProviderSessionId: "session-same-1",
+    providerFault: { code: "server_error", faultClass: "server_error", reason: "HTTP 503 upstream unavailable" },
+    reason: "HTTP 503 upstream unavailable",
+  });
+  assert.equal(exhausted.fallback?.state, "exhausted");
+  assert.equal(exhausted.terminal?.outcome, "failed");
+  assert.match(String(exhausted.terminal?.reason), /Same-session resume exhausted after 2 retry/u);
+  assert.equal(exhausted.recordFailureCalls, 1);
+});
+
+test("post-tool missing providerSessionId, deterministic error, or quota_exhausted fails closed with zero retries", async () => {
+  const missingSession = await settle({
+    candidates: ["provider-a", "provider-b"],
+    rows: [],
+    toolCallObserved: true,
+    providerSessionId: null,
+    providerFault: { code: "server_error", faultClass: "server_error", reason: "HTTP 503 upstream unavailable" },
+    reason: "HTTP 503 upstream unavailable",
+  });
+  assert.equal(missingSession.fallback?.state, "exhausted");
+  assert.equal(missingSession.terminal?.outcome, "failed");
+  assert.equal(missingSession.recordFailureCalls, 1);
+
+  const deterministicError = await settle({
+    candidates: ["provider-a", "provider-b"],
+    rows: [],
+    toolCallObserved: true,
+    providerSessionId: "session-same-1",
+    providerFault: { code: "request_unavailable", faultClass: null, reason: "request_unavailable" },
+    reason: "request_unavailable",
+  });
+  assert.equal(deterministicError.fallback?.state, "exhausted");
+  assert.equal(deterministicError.terminal?.outcome, "failed");
+  assert.equal(deterministicError.recordFailureCalls, 1);
+
+  const quota = await settle({
+    candidates: ["provider-a", "provider-b"],
+    rows: [],
+    toolCallObserved: true,
+    providerSessionId: "session-same-1",
+    classification: "provider_quota",
+    providerFault: { code: "quota_exhausted", faultClass: "quota_exhausted", reason: "quota exhausted" },
+    reason: "quota exhausted",
+  });
+  assert.equal(quota.fallback?.state, "exhausted");
+  assert.equal(quota.terminal?.outcome, "failed");
+  assert.equal(quota.recordFailureCalls, 1);
+});
+
+test("scheduleFallbackContinuation cancels pending same-session timer when closeSignal aborts", (t) =>
+  exerciseFallbackContinuation(t, true));
+test("QUOTA-17: wrapping past a frozen tail consumes the last provider retry round", { timeout: 10_000 }, (t) =>
+  exerciseFallbackContinuation(t, false),
+);
+
+async function exerciseFallbackContinuation(t: TestContext, abort: boolean) {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "fallback-abort-"));
+  const abortController = new AbortController();
+  const candidates = abort ? ["provider-a"] : ["provider-a", "provider-b", "provider-c"];
+  const candidateIndex = abort ? 0 : 1;
+  const rows = [health("provider-c", { frozen: true })];
+  const { promise: launchedAttempt, resolve: captureAttempt } = Promise.withResolvers<RuntimeFallbackAttempt>();
+  let scheduled = 0;
+  let launched = 0;
+  let clock = now;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const dispatchId = "dispatch_0123456789abcdef01234568";
+    const notBeforeAt = "2026-10-22T00:00:02.000Z";
+    const nextProvider = { instance: "provider-a", model: "model-a" };
+    const settlement = abort ? null : await settle({ candidates, rows, candidateIndex, maxRetries: 1 });
+    if (!abort) {
+      assert.equal(settlement?.fallback?.state, "scheduled");
+      assert.deepEqual(settlement?.fallback?.nextProvider, nextProvider);
+    }
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      runtimeSessionId: "runtime_0123456789abcdef01234568",
+      executionId: null,
+      taskId: null,
+      cwd: rootDir,
+      instanceId: candidates[candidateIndex]!,
+      kindId: "codex",
+      model: "model-a",
+      startedAt: now,
+      fallbackAttempt: {
+        attemptGroupId: "attempt-group",
+        attemptIndex: candidateIndex,
+        candidateIndex,
+        retryRound: 0,
+        rootDispatchKey: "root",
+        originalMission: "mission",
+        candidates: candidates.map((instance) => ({ instance, model: "model-a" })),
+      },
+      binding: {
+        actor: { principal: { kind: "person", personId: "person_1", role: "owner" }, sessionId: "session_1" },
+        source: "local-cli",
+        repoId: "repo_1",
+      } as never,
+    });
+    writer.appendAttemptOutcome(outcome("HTTP 503 upstream unavailable"), "2026-10-22T00:00:01.000Z");
+    writer.appendFallbackState(
+      {
+        state: "scheduled",
+        notBeforeAt,
+        nextProvider,
+        waitStartedAt: now,
+        delayMs: 2_000,
+        ...(abort ? { sameSessionResume: true, providerSessionId: "session-same-1" } : {}),
+      },
+      now,
+    );
+    assert.ok(readDispatchStream(rootDir, dispatchId)?.attemptOutcome);
+    const context = {
+      closed: () => false,
+      closeSignal: abortController.signal,
+      input: {
+        rootDir,
+        now: () => clock,
+        remote: {
+          readDispatchLifecycle: async () => ({
+            status: "ready" as const,
+            rows: [
+              {
+                controlLeafDispatchId: dispatchId,
+                policy: { fallbackPending: true, groupSettled: false },
+                successor: { schedule: { notBeforeAt, nextProvider, waitStartedAt: now } },
+              },
+            ],
+          }),
+        },
+        schedule: async (work: () => Promise<void>) => {
+          scheduled += 1;
+          await work();
+        },
+      },
+    } as unknown as RuntimeSpawnerContext;
+    await scheduleFallbackContinuation({
+      context,
+      dispatchId,
+      launch: async (_payload, _binding, next) => {
+        launched += 1;
+        captureAttempt(next);
+      },
+    });
+    if (abort) abortController.abort();
+    clock = notBeforeAt;
+    t.mock.timers.tick(5_000);
+    if (abort) {
+      await Promise.resolve();
+      assert.equal(scheduled, 0);
+      assert.equal(launched, 0);
+    } else {
+      const next = await launchedAttempt;
+      const exhausted = await settle({ candidates, rows, candidateIndex, retryRound: next.retryRound, maxRetries: 1 });
+      assert.equal(exhausted.fallback?.state, "exhausted");
+      assert.equal(next.retryRound, 1);
+    }
+  } finally {
+    t.mock.timers.reset();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
+test("QUOTA-17: fallback chain keeps quota-exhausted successors for recovery, checks live model quota on hops, and honors quotaExhaustedUntil in terminal recoverAt", async () => {
+  const makeInstance = (
+    instanceId: string,
+    overrides: Partial<RuntimeInstanceSummary> = {},
+  ): RuntimeInstanceSummary => ({
+    schemaVersion: 2,
+    instanceId,
+    name: instanceId,
+    kindId: "agy",
+    installationId: "agy-install",
+    providerId: "google",
+    models: ["gemini-4-argon-high", "gemini-4-hydrogen-low"],
+    availableModels: ["gemini-4-argon-high", "gemini-4-hydrogen-low"],
+    defaultModel: "gemini-4-argon-high",
+    enabled: true,
+    tier: 1,
+    credentialSource: "instance",
+    permissionMode: "bypass",
+    isolationState: "enforced",
+    authMode: "subscription",
+    authState: "authenticated",
+    authReadiness: { status: "ready", code: null, hint: null, basis: "provider" },
+    configuration: {},
+    ...overrides,
+  });
+
+  // 1. Chain construction retains provider-b even though provider-b's quota is exhausted at T0;
+  //    once provider-b recovers during attempt 0 (at T0 + 60s), settle schedules provider-b immediately.
+  const providerA = makeInstance("provider-a");
+  const providerBExhaustedAtBuild = makeInstance("provider-b", {
+    quota: {
+      schemaVersion: 1,
+      observedAt: now,
+      source: "agy-cli",
+      plan: "Pro",
+      windows: [
+        {
+          id: "argon-weekly",
+          label: "Argon",
+          kind: "weekly",
+          scope: "primary",
+          remainingFraction: 0,
+          usedPercent: 100,
+          resetsAt: "2026-10-22T00:00:30.000Z",
+        },
+      ],
+    },
+  });
+  const chain = initialFallbackAttempt(
+    null,
+    undefined,
+    "gemini-4-argon-high",
+    undefined,
+    "dispatch-key-quota-17",
+    "dispatch-17",
+    "mission",
+    [providerA, providerBExhaustedAtBuild],
+    [],
+    ["provider-a", "provider-b"],
+    [],
+    now,
+  );
+  assert.ok(chain);
+  assert.deepEqual(
+    chain.candidates.map((candidate) => candidate.instance),
+    ["provider-a", "provider-b"],
+    "quota-exhausted successor must stay in fallback chain at construction time",
+  );
+  const afterRecovery = await settle({
+    candidates: ["provider-a", "provider-b"],
+    model: "gemini-4-argon-high",
+    now: "2026-10-22T00:01:00.000Z",
+    rows: [
+      health("provider-b", { cooldownUntil: null, reason: null, quotaExhaustedUntil: "2026-10-22T00:00:30.000Z" }),
+    ],
+    instances: [providerA, providerBExhaustedAtBuild],
+  });
+  assert.equal(afterRecovery.fallback?.state, "scheduled");
+  assert.equal((afterRecovery.fallback?.nextProvider as { instance?: string } | undefined)?.instance, "provider-b");
+  assert.equal(afterRecovery.fallback?.notBeforeAt, "2026-10-22T00:01:00.000Z");
+
+  // 2. Mid-flight single-model quota exhaustion on mixed-model provider-b (providerHealth has NO instance-wide
+  //    quotaExhaustedUntil because hydrogen still has quota) skips provider-b to healthy provider-c!
+  const providerBMixedMidFlight = makeInstance("provider-b", {
+    quota: {
+      schemaVersion: 1,
+      observedAt: now,
+      source: "agy-cli",
+      plan: "Pro",
+      windows: [
+        {
+          id: "argon-weekly",
+          label: "Argon",
+          kind: "weekly",
+          scope: "primary",
+          remainingFraction: 0,
+          usedPercent: 100,
+          resetsAt: "2026-10-22T00:02:00.000Z",
+        },
+        {
+          id: "gemini-weekly",
+          label: "Gemini",
+          kind: "weekly",
+          scope: "primary",
+          remainingFraction: 0.85,
+          usedPercent: 15,
+          resetsAt: "2026-10-29T00:00:00.000Z",
+        },
+      ],
+    },
+  });
+  const providerCHealthy = makeInstance("provider-c");
+  const skipMixed = await settle({
+    candidates: ["provider-a", "provider-b", "provider-c"],
+    model: "gemini-4-argon-high",
+    rows: [],
+    instances: [providerA, providerBMixedMidFlight, providerCHealthy],
+  });
+  assert.equal(skipMixed.fallback?.state, "scheduled");
+  assert.equal((skipMixed.fallback?.nextProvider as { instance?: string } | undefined)?.instance, "provider-c");
+  assert.equal(skipMixed.fallback?.notBeforeAt, now);
+
+  // Without provider-c, mixed-model provider-b waits until its Argon resetAt instead of launching immediately!
+  const waitMixed = await settle({
+    candidates: ["provider-a", "provider-b"],
+    model: "gemini-4-argon-high",
+    rows: [],
+    instances: [providerA, providerBMixedMidFlight],
+  });
+  assert.equal(waitMixed.fallback?.state, "scheduled");
+  assert.equal((waitMixed.fallback?.nextProvider as { instance?: string } | undefined)?.instance, "provider-b");
+  assert.equal(waitMixed.fallback?.notBeforeAt, "2026-10-22T00:02:00.000Z");
+
+  // 3. Full-chain exhausted pass honors quotaExhaustedUntil in terminal recoverAt (both within & over wait budget).
+  const retryOnQuotaClock = await settle({
+    candidates: ["provider-a"],
+    rows: [
+      health("provider-a", {
+        cooldownUntil: null,
+        frozenUntil: null,
+        reason: null,
+        quotaExhaustedUntil: "2026-10-22T00:02:00.000Z",
+      }),
+    ],
+    maxRetries: 1,
+    maxWaitSeconds: 300,
+  });
+  assert.equal(retryOnQuotaClock.fallback?.state, "scheduled");
+  assert.equal(retryOnQuotaClock.fallback?.notBeforeAt, "2026-10-22T00:02:00.000Z");
+
+  const budgetExceededOnQuotaClock = await settle({
+    candidates: ["provider-a"],
+    rows: [
+      health("provider-a", {
+        cooldownUntil: null,
+        frozenUntil: null,
+        reason: null,
+        quotaExhaustedUntil: "2026-10-22T00:05:00.000Z",
+      }),
+    ],
+    maxRetries: 1,
+    maxWaitSeconds: 60,
+  });
+  assert.equal(budgetExceededOnQuotaClock.fallback?.state, "exhausted");
+  assert.match(String(budgetExceededOnQuotaClock.fallback?.reason ?? ""), /wait budget exhausted/u);
+  assert.match(String(budgetExceededOnQuotaClock.fallback?.reason ?? ""), /quota_exhausted/u);
+});
+
 async function settle(options: {
   readonly candidates: readonly string[];
   readonly rows: readonly RuntimeProviderHealth[];
+  readonly instances?: readonly RuntimeInstanceSummary[];
+  readonly model?: string;
+  readonly now?: string;
   readonly maxWaitSeconds?: number;
   readonly maxRetries?: number;
+  readonly candidateIndex?: number;
   readonly retryRound?: number;
   readonly backoffBaseSeconds?: number;
   readonly reason?: string;
+  readonly kind?: string;
+  readonly classification?: RuntimeAttemptOutcome["classification"];
+  readonly toolCallObserved?: boolean;
+  readonly providerSessionId?: string | null;
+  readonly sameSessionRetryCount?: number;
+  readonly sameSessionProviderSessionId?: string;
+  readonly providerFault?: RuntimeProviderFault | null;
 }) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "fallback-health-selection-"));
+  const effectiveNow = options.now ?? now;
+  const effectiveModel = options.model ?? "model-a";
   let fallback: Record<string, unknown> | null = null;
   let terminal: RuntimeAttemptTerminal | null = null;
+  let recordFailureCalls = 0;
   const rows = new Map(options.rows.map((row) => [row.instanceId, row]));
   try {
     const attempt: RuntimeFallbackAttempt = {
       attemptGroupId: "attempt-group",
-      attemptIndex: options.retryRound ?? 0,
-      candidateIndex: 0,
+      attemptIndex: options.sameSessionRetryCount ?? options.retryRound ?? 0,
+      candidateIndex: options.candidateIndex ?? 0,
       retryRound: options.retryRound ?? 0,
       rootDispatchKey: "root",
       originalMission: "mission",
-      candidates: options.candidates.map((instance) => ({ instance, model: "model-a" })),
+      candidates: options.candidates.map((instance) => ({ instance, model: effectiveModel })),
+      ...(options.sameSessionRetryCount === undefined ? {} : { sameSessionRetryCount: options.sameSessionRetryCount }),
+      ...(options.sameSessionProviderSessionId === undefined
+        ? {}
+        : { sameSessionProviderSessionId: options.sameSessionProviderSessionId }),
     };
     const context = {
       input: {
         rootDir,
-        now: () => now,
+        now: () => effectiveNow,
+        ...(options.instances ? { runtimeInstances: () => options.instances! } : {}),
         readSettings: () => ({
           runtime: {
             providerMaxRetries: options.maxRetries ?? 0,
@@ -126,7 +539,9 @@ async function settle(options: {
         runtimeProviderHealth: {
           get: (instanceId: string) => rows.get(instanceId) ?? health(instanceId),
           list: () => [...rows.values()],
-          recordFailure: () => undefined,
+          recordFailure: () => {
+            recordFailureCalls += 1;
+          },
           recordSuccess: () => undefined,
           reset: () => undefined,
         },
@@ -142,14 +557,18 @@ async function settle(options: {
         dispatchId: "dispatch_0123456789abcdef01234567",
         fallbackAttempt: attempt,
         providerOutcome: "succeeded",
-        startedAt: now,
+        startedAt: effectiveNow,
+        toolCallObserved: options.toolCallObserved ?? false,
+        providerSessionId: options.providerSessionId ?? null,
+        providerFault: options.providerFault ?? null,
+        lossReason: null,
         stream: {
           appendFallbackState: (value: Record<string, unknown>) => {
             fallback = value;
           },
         },
       } as unknown as ActiveRuntime,
-      outcome(options.reason),
+      outcome(options.reason, options.kind, options.classification),
       {
         runtimeSessionId: "runtime_0123456789abcdef01234567",
         dispatchId: "dispatch_0123456789abcdef01234567",
@@ -157,22 +576,26 @@ async function settle(options: {
         schedule: null,
         outcome: "failed",
         reason: "provider fault",
-        endedAt: now,
+        endedAt: effectiveNow,
         binding: {} as never,
       },
     );
-    return { fallback, terminal };
+    return { fallback, terminal, recordFailureCalls };
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 }
 
-function outcome(reason = "provider fault"): RuntimeAttemptOutcome {
+function outcome(
+  reason = "provider fault",
+  kind = "codex",
+  classification: RuntimeAttemptOutcome["classification"] = "provider_fault",
+): RuntimeAttemptOutcome {
   return {
     outcome: "stopped",
-    classification: "provider_fault",
+    classification,
     reason,
-    provider: { instance: "provider-a", model: "model-a", kind: "codex" },
+    provider: { instance: "provider-a", model: "model-a", kind },
     attemptGroupId: "attempt-group",
     attemptIndex: 0,
   } as RuntimeAttemptOutcome;

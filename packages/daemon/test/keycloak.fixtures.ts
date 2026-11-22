@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 
@@ -681,7 +681,7 @@ export function signInAt(
         : (config.url ?? keycloakUrl),
     issuer = `${issuerBase}/realms/${realm}`,
     authority = { url: issuerBase, realm, clientId: "harness-gui" };
-  if (loginTarget) oidcCenterSelections(userRoot).write(loginTarget, { issuer, authority }, true);
+  if (loginTarget) oidcCenterSelections(userRoot).write(loginTarget, { issuer, authority });
   keycloakSessionStore(userRoot, issuer, realm).write(
     JSON.stringify({
       schema: "harness-oidc-session/v3",

@@ -3,8 +3,13 @@ import { publicPublication } from "./repo-cell-receipts.ts";
 import { attachWriteReceiptAcceptance } from "@harness-anything/application/commands";
 import { nodeMaterializationStorage } from "./node-materialization-settings.ts";
 import { readRuntimeCanAttach } from "./agent-runtime-read.ts";
-import { taskListQueryFromPayload } from "@harness-anything/application/queries";
-import { type TaskProjection, type TaskProjectionQueries, type WriteReceiptDraft } from "@harness-anything/kernel";
+import { readCanonicalEventPage, taskListQueryFromPayload } from "@harness-anything/application/queries";
+import {
+  type CanonicalEventReadRequest,
+  type TaskProjection,
+  type TaskProjectionQueries,
+  type WriteReceiptDraft,
+} from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -22,6 +27,7 @@ import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
 import { readObserveEventTail } from "./observe-tail.ts";
 import { nodeReworkDispatchCandidate } from "./task-return-dispatch.ts";
+import type { NodeAutoDispatchQuery } from "./node-auto-dispatch.ts";
 import { nodeReviewDispatchCandidate } from "./task-review-dispatch.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
@@ -50,7 +56,7 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 export function makeRepoReadRuntime(
   input: Pick<
     RepoCellOpenInput,
-    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances"
+    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances" | "fleetCursorSecret"
   > & { readonly edgeConfig?: () => FleetEdgeConfig | null },
 ) {
   input = { ...input, storage: nodeMaterializationStorage(input) };
@@ -205,12 +211,19 @@ export function makeRepoReadRuntime(
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
         steer: unsupportedWrite,
+        activeRuntimeSessionIds: () => [],
+        activeRuntimeCount: () => 0,
+        isRuntimeActive: () => false,
+        activeDispatchId: () => null,
+        activeRuntimeForSelector: () => null,
+        flushPendingSteerReceipts: unsupportedWrite,
         isIdle: unsupportedWrite,
         close: unsupportedWrite,
       },
       actionContext = createRepoCellActionContext({
         input: {
           repoId: input.repoId,
+          edgeConfig,
           get nodeTaskMaterializationPolicy() {
             return input.storage?.nodeTaskMaterializationPolicy;
           },
@@ -276,6 +289,8 @@ export function makeRepoReadRuntime(
         mode: input.mode ?? "local",
         input: {
           repoId: input.repoId,
+          edgeConfig,
+          ...(input.fleetCursorSecret ? { fleetCursorSecret: input.fleetCursorSecret } : {}),
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
         },
         state: "attached",
@@ -373,6 +388,12 @@ export function makeRepoReadRuntime(
       binding?: RepoCellBinding,
       revision?: number,
     ): Awaited<ReturnType<RepoCell["read"]>> => {
+      if (method === "repo.events.read")
+        return readCanonicalEventPage(
+          ledgerReadStore(),
+          input.repoId,
+          payload as unknown as CanonicalEventReadRequest,
+        ) as never;
       if (method === "repo.entity.locator.read")
         return readEntityLocator({
           rootDir: input.rootDir,
@@ -391,7 +412,13 @@ export function makeRepoReadRuntime(
           checkRevision(projection);
           return { ...readAtCut(projection, method, payload, binding), ...frame };
         }) as never;
-      if (method === "repo.tasks.list")
+      if (
+        method === "repo.tasks.list" &&
+        payload.attestationOnly !== true &&
+        payload.scopePersonId === undefined &&
+        payload.filterPersonId === undefined &&
+        payload.filterNodeId === undefined
+      )
         return query((projection) =>
           makeTaskQueryReadModel({
             rootDir: input.rootDir,
@@ -442,11 +469,13 @@ export function makeRepoReadRuntime(
         ? edgeReplicaRead(binding, (projection) => readAssignments(projection))
         : query(readAssignments);
     },
-    readNodeAutoDispatchCandidates: (nodeId: string) =>
+    readNodeAutoDispatchCandidates: (dispatchQuery: NodeAutoDispatchQuery) =>
       query((projection) => {
         const cell = readRuntime(projection).actionContext,
           rows: import("@harness-anything/kernel").TaskProjectionListRow[] = [];
-        for (const status of ["in_review", "active"] as const) {
+        for (const status of dispatchQuery.kind === "center-review-fallback"
+          ? (["in_review"] as const)
+          : (["in_review", "active"] as const)) {
           let cursor: string | undefined;
           while (true) {
             const page = projection.list({
@@ -462,9 +491,13 @@ export function makeRepoReadRuntime(
         }
         return rows.flatMap((row) => {
           const taskId = row.taskId;
-          const review = nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: nodeId });
+          const review =
+            dispatchQuery.kind === "center-review-fallback"
+              ? nodeReviewDispatchCandidate(cell, { taskId, centerFallback: true })
+              : nodeReviewDispatchCandidate(cell, { taskId, requiredNodeId: dispatchQuery.nodeId });
           if (review) return [review];
-          const rework = nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: nodeId });
+          if (dispatchQuery.kind === "center-review-fallback") return [];
+          const rework = nodeReworkDispatchCandidate(cell, { taskId, requiredNodeId: dispatchQuery.nodeId });
           return rework ? [rework] : [];
         });
       }),

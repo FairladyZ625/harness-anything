@@ -12,6 +12,7 @@ import {
   applyTransition,
   normalizeTaskLifecycleCommand,
   emptyTaskLifecycleSnapshot,
+  TaskLifecycleContractError,
 } from "../../src/domain/task-lifecycle.contract.ts";
 import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
@@ -223,4 +224,99 @@ test("external completion records the commit already on main and replays without
       ),
     /durably done/u,
   );
+});
+
+test("superseded tasks reject CompleteTask across external, sibling, and execution completion even when cached open", () => {
+  const readyReviewSnapshot = snapshotAfter(5),
+    activeUnleasedSnapshot: TaskLifecycleSnapshot = {
+      ...snapshotAfter(2),
+      lease: null,
+    },
+    externalResolution = {
+      resolvedByCommit: "a".repeat(40),
+      rationale: "Upstream PR merged the fix",
+      factRef: "fact/F-1234ABCD",
+    },
+    siblingResolution = {
+      resolvedByTaskId: "task-source",
+      rationale: "Sibling delivery resolved the issue",
+      factRef: "fact/F-1234ABCD",
+    };
+
+  for (const [label, baseSnapshot] of [
+    ["cached in_review with supersededBy", readyReviewSnapshot],
+    ["cached active with supersededBy", activeUnleasedSnapshot],
+  ] as const) {
+    const supersededSnapshot: TaskLifecycleSnapshot = {
+        ...baseSnapshot,
+        task: { ...baseSnapshot.task!, supersededBy: "task-v2" },
+      },
+      externalCommand = {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: supersededSnapshot.revision,
+          },
+          {
+            type: "CompleteTask",
+            taskId: supersededSnapshot.task!.taskId,
+            executionId: "",
+            resolution: externalResolution,
+          },
+        ),
+        eventId: `event-ext-superseded-${label}`,
+        workspaceRevision: supersededSnapshot.revision + 1,
+        occurredAt: "2026-11-06T06:00:00.000Z",
+      },
+      externalProof = {
+        ...completeProof(standardGates),
+        externalResolution: {
+          commitSha: externalResolution.resolvedByCommit,
+          factOnMain: true,
+          factRef: externalResolution.factRef,
+        },
+      },
+      siblingCommand = {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: supersededSnapshot.revision,
+          },
+          {
+            type: "CompleteTask",
+            taskId: supersededSnapshot.task!.taskId,
+            executionId: "",
+            resolution: siblingResolution,
+          },
+        ),
+        eventId: `event-sib-superseded-${label}`,
+        workspaceRevision: supersededSnapshot.revision + 1,
+        occurredAt: "2026-11-06T06:00:00.000Z",
+      },
+      siblingProof = {
+        ...completeProof(standardGates),
+        siblingResolution: {
+          sourceTaskId: siblingResolution.resolvedByTaskId,
+          sourceDone: true,
+          factRef: siblingResolution.factRef,
+        },
+      };
+
+    for (const [mode, cmd, prf] of [
+      ["execution completion (strictGates)", completeCommand(supersededSnapshot), completeProof(strictGates)],
+      ["execution completion (standardGates)", completeCommand(supersededSnapshot), completeProof(standardGates)],
+      ["externalResolution", externalCommand, externalProof],
+      ["siblingResolution", siblingCommand, siblingProof],
+    ] as const) {
+      assert.throws(
+        () => applyTransition(supersededSnapshot, cmd, prf),
+        (err: unknown) => err instanceof TaskLifecycleContractError && err.code === "invalid_transition",
+        `${label} / ${mode} must fail with invalid_transition`,
+      );
+    }
+  }
 });

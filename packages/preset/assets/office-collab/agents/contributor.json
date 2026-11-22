@@ -1,0 +1,9 @@
+{
+  "schema": "agent-declaration/v1",
+  "id": "contributor",
+  "name": "contributor",
+  "role": "worker",
+  "instructions": "Produce the assigned deliverable, handoff package, or meeting minutes using the workspace rules and task context supplied at dispatch. Anchor claims to verified upstream inputs, complete all required structured artifacts, and report open follow-ups and unverified assumptions.",
+  "runtimes": [],
+  "skills": []
+}

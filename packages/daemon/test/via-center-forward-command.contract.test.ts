@@ -438,8 +438,10 @@ function setupRoot(t: { after(callback: () => void): void }) {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-via-center-forward-"))),
     userRoot = path.join(root, "user");
   mkdirSync(userRoot);
+  const edgeConfigDir = path.join(userRoot, "fleet", "edge", "probe-repo");
+  mkdirSync(edgeConfigDir, { recursive: true });
   writeFileSync(
-    path.join(root, "fleet-edge.json"),
+    path.join(edgeConfigDir, "fleet-edge.json"),
     `${JSON.stringify({ schema: "fleet-edge-config/v1", repoId: "probe-repo", host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "fixture-credential", viewRoot: "/view", quotaBytes: 65_536 })}\n`,
   );
   writeFileSync(
@@ -554,17 +556,15 @@ test("each remote-edge via-center-forward declaration becomes one validated daem
           ) as Record<string, unknown>,
           intent = forwardingIntentForAction(command.method, action as Record<string, unknown> & { kind: string });
         assert.equal(forwardingIntentIssue(intent), null, `${descriptor.id} is not accepted as a forwarding intent`);
-        const payload =
-          command.method === "repo.task.run" || command.method === "repo.task.read"
-            ? { action }
-            : command.method === "repo.script.run"
-              ? Object.fromEntries(
-                  Object.entries(action).filter(
-                    ([field, value]) =>
-                      field !== "kind" && field !== "schema" && !(field === "taskId" && value === null),
-                  ),
-                )
-              : Object.fromEntries(Object.entries(action).filter(([field]) => field !== "kind"));
+        const payload = ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(command.method)
+          ? { action }
+          : command.method === "repo.script.run"
+            ? Object.fromEntries(
+                Object.entries(action).filter(
+                  ([field, value]) => field !== "kind" && field !== "schema" && !(field === "taskId" && value === null),
+                ),
+              )
+            : Object.fromEntries(Object.entries(action).filter(([field]) => field !== "kind"));
         const centerParams = parseDaemonRpcParams(command.method, { repo: { repoId: "probe-repo" }, payload });
         assert.ok(
           centerParams.ok,

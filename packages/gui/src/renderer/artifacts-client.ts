@@ -1,5 +1,5 @@
 import { guiInteractionPolicy } from "../api/renderer-dto.ts";
-import type { ArtifactGuiKind, ArtifactsListResult } from "@harness-anything/daemon/protocol";
+import type { ArtifactGuiKind, ArtifactsListResult, DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 import { drainCursorPages } from "./paginated-read.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import { invoke } from "./api-client-invoke.ts";
@@ -13,12 +13,17 @@ export const artifactsQueryKeys = {
 };
 
 export const artifactsClient = {
-  list: async (repoId: string, kind: ArtifactGuiKind): Promise<ArtifactsListResult> => {
+  list: async (
+    repoId: string,
+    kind: ArtifactGuiKind,
+    scope: DaemonGuiReadPayloadMap["repo.works.index"] = {},
+  ): Promise<ArtifactsListResult> => {
     const pages = await drainCursorPages(async (facets) => {
       const value = await invoke("repo.artifacts.list", {
         repoId,
         kind,
         limit: guiInteractionPolicy.defaultValue.pageSizes.artifacts,
+        ...scope,
         ...facets,
       });
       if (

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { sha256Text } from "@harness-anything/kernel";
+import { sha256Text, upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -16,6 +16,7 @@ import { runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
@@ -110,10 +111,7 @@ for (const explicit of [false, true])
         userRoot: edgeUser,
         createConvenienceLinks: false,
       });
-      writeFileSync(
-        path.join(edgeRoot, "fleet-edge.json"),
-        JSON.stringify({ schema: "fleet-edge-config/v1", ...config }),
-      );
+      writeFleetEdgeConfig(edgeUser, "dual-repo", config);
       fixture.owners.signIn(edgeUser, "node-one", edgeRoot);
       // The delivery daemon claims node-one's replication slot when it attaches; the fixture's own
       // resident stream must stop first, or the two keep fencing each other for the slot and every
@@ -252,7 +250,10 @@ for (const explicit of [false, true])
       );
       assert.equal(accepted.lease, null, "submission atomically releases the lease");
       assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
-      assert.equal(readFileSync(fixture.worktree("node-one", closeout), "utf8"), body);
+      assert.equal(
+        readFileSync(fixture.worktree("node-one", closeout), "utf8"),
+        upsertCloseoutSubmissionFacts(body, accepted.executions[0].submission),
+      );
       const duplicate = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(duplicate.code, 0, JSON.stringify(duplicate));
       fixture.owners.keycloak.revoke("person-node-one", "dual-repo", ["task-submit"]);
@@ -512,7 +513,7 @@ test("edge close cancels an in-flight center retry while the center is offline",
     userRoot: edgeUser,
     createConvenienceLinks: false,
   });
-  writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify({ schema: "fleet-edge-config/v1", ...config }));
+  writeFleetEdgeConfig(edgeUser, "dual-repo", config);
   fixture.owners.signIn(edgeUser, "node-one", edgeRoot);
   const edge = await openDaemonHost({
     daemonId: "offline-close-edge",

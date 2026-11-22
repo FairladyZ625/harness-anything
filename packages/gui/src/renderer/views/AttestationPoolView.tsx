@@ -52,6 +52,7 @@ const LANE_LABEL_KEY: Record<(typeof TASK_CLOSEOUT_TABS)[number], MessageKey> = 
  */
 export function AttestationPoolView({
   repoId,
+  scopeControl,
   decisions,
   summary,
   facts,
@@ -79,6 +80,7 @@ export function AttestationPoolView({
   onPoolTabChange,
 }: {
   repoId: string;
+  scopeControl?: ReactNode;
   decisions: DecisionRow[];
   summary: WorkspaceSummaryRead["decisions"];
   facts: FactRef[];
@@ -206,7 +208,6 @@ export function AttestationPoolView({
     for (const consent of lanes.consents) {
       seenTaskIds.add(consent.taskId);
       const task = tasks.find((c) => c.taskId === consent.taskId);
-      const approved = (task?.reviews ?? []).filter((r) => r.verdict === "approved").at(-1);
       items.push({
         id: `consent-${consent.taskId}`,
         title: consent.taskTitle,
@@ -214,13 +215,13 @@ export function AttestationPoolView({
         lane: "needs-you",
         note: t("views.attestationPoolView.consentHint"),
         actions: [
-          ...(onConsentReview && task && approved
+          ...(onConsentReview && task
             ? [
                 {
                   kind: "approve" as const,
                   label: t("views.attestationPoolView.consentApprove"),
                   onTrigger: () => {
-                    void onConsentReview(task, approved.reviewId);
+                    void onConsentReview(task, consent.reviewId);
                   },
                 },
               ]
@@ -324,6 +325,7 @@ export function AttestationPoolView({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="attestation-pool-view">
+      {scopeControl}
       <PageHeader
         title={t("views.attestationPoolView.title")}
         note={t("views.attestationPoolView.subtitle")}
@@ -472,18 +474,14 @@ export function AttestationPoolView({
                       {lanes.consents.map((item) => {
                         const task = tasks.find((candidate) => candidate.taskId === item.taskId),
                           feedback = taskFeedback?.(item.taskId),
-                          approved = (task?.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
                           consentFeedback = feedback?.kind === "consent" ? feedback : undefined;
                         return (
                           <ConsentLaneRow
                             key={item.taskId}
                             item={item}
-                            approvedReviewId={approved?.reviewId ?? null}
-                            pending={consentFeedback?.state === "pending" || !task || !approved}
+                            pending={consentFeedback?.state === "pending"}
                             onConsentReview={
-                              onConsentReview && task && approved
-                                ? () => void onConsentReview(task, approved.reviewId)
-                                : undefined
+                              onConsentReview && task ? () => void onConsentReview(task, item.reviewId) : undefined
                             }
                             onNavigateTask={onNavigateTask}
                           />
@@ -652,13 +650,11 @@ function GateLaneRow({
 /** 同意收口 lane 行:动作直接行内完成,失败就地显示回执。 */
 function ConsentLaneRow({
   item,
-  approvedReviewId,
   pending,
   onConsentReview,
   onNavigateTask,
 }: {
   readonly item: { readonly taskId: string; readonly taskTitle: string };
-  readonly approvedReviewId: string | null;
   readonly pending: boolean;
   readonly onConsentReview?: () => void;
   readonly onNavigateTask?: (taskId: string) => void;
@@ -677,7 +673,7 @@ function ConsentLaneRow({
         ) : null}
         <Button
           testId={`pool-consent-approve-${item.taskId}`}
-          disabled={!onConsentReview || pending || approvedReviewId === null}
+          disabled={!onConsentReview || pending}
           onClick={onConsentReview}
           variant="primary"
           size="sm"

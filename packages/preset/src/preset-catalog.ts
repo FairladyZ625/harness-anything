@@ -1,7 +1,7 @@
 import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
 import { decodePackage } from "./preset-package.ts";
 import { parsePresetJson } from "./preset-json.ts";
-import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
+import { asFailure, builtinBundledRootSet, key, presetFailure } from "./preset-resolver-common.ts";
 import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
@@ -11,20 +11,24 @@ import path from "node:path";
 // decode is cached per process; repository and user packages stay enumerated live.
 const bundledCache = new Map<string, readonly Candidate[]>();
 
-function cachedBundled(bundledRoot: string): readonly Candidate[] {
+function cachedBundled(bundledRoot: string, bundledVerticalId?: string): readonly Candidate[] {
   const resolved = path.resolve(bundledRoot);
-  if (resolved !== path.resolve(defaultBundled)) return enumerateBundled(resolved);
+  if (!builtinBundledRootSet.has(resolved)) return enumerateBundled(resolved, bundledVerticalId);
   let cached = bundledCache.get(resolved);
   if (cached === undefined) {
-    cached = enumerateBundled(resolved);
+    cached = enumerateBundled(resolved, bundledVerticalId);
     bundledCache.set(resolved, cached);
   }
   return cached;
 }
 
-export function effectiveCatalog(bundledRoot: string, userRoot: string): Map<string, Candidate> {
+export function effectiveCatalog(
+  bundledRoot: string,
+  userRoot: string,
+  bundledVerticalId?: string,
+): Map<string, Candidate> {
   const result = new Map<string, Candidate>();
-  for (const item of cachedBundled(bundledRoot)) result.set(key(item.verticalId, item.id), item);
+  for (const item of cachedBundled(bundledRoot, bundledVerticalId)) result.set(key(item.verticalId, item.id), item);
   for (const item of enumerateUser(userRoot)) {
     const targets =
       item.verticalId === "*"
@@ -77,11 +81,13 @@ export function missingPresetFailure(
   );
 }
 
-export function enumerateBundled(root: string): Candidate[] {
+export function enumerateBundled(root: string, verticalId?: string): Candidate[] {
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-    .map((entry) => decodeCandidate(path.join(root, entry.name), "bundled", entry.name));
+    .map((entry) =>
+      decodeCandidate(path.join(root, entry.name), "bundled", entry.name, undefined, undefined, verticalId),
+    );
 }
 
 export function enumerateUser(root: string): Candidate[] {
@@ -134,6 +140,7 @@ export function decodeCandidate(
   directoryId: string,
   pointerVertical?: unknown,
   pointerDigest?: unknown,
+  fallbackVerticalId?: string,
 ): Candidate {
   try {
     const decoded = decodePackage(
@@ -158,7 +165,7 @@ export function decodeCandidate(
   } catch (error) {
     return {
       id: directoryId,
-      verticalId: typeof pointerVertical === "string" ? pointerVertical : "software/coding",
+      verticalId: typeof pointerVertical === "string" ? pointerVertical : (fallbackVerticalId ?? "*"),
       layer,
       source: root,
       error: asFailure(error),

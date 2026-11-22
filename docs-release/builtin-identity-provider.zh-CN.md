@@ -20,7 +20,7 @@ ha bootstrap --operation login-poll
 需要协作能力时，先安装 Keycloak provider 包：
 
 ```bash
-npm install --global @harness-anything/authorization-keycloak@0.1.0
+npm install --global @harness-anything/authorization@0.1.0
 ```
 
 该包提供 Keycloak 身份 provider；部署仍需自行提供并配置 Keycloak 服务和 realm。daemon、GUI 和授权接口保持不变，只切换选中的身份 provider。然后显式切换到已有 Keycloak：

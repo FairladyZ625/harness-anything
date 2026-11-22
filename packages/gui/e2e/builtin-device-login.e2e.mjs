@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
-import { BuiltinIdentitySession } from "@harness-anything/authorization-builtin";
+import { BuiltinIdentitySession } from "@harness-anything/authorization/builtin";
 
 test(
   "device approval delivers a complete success page and readable failures in a hidden browser",

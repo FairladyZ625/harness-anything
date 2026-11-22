@@ -297,7 +297,7 @@ export function TerminalView({
 
   const attach = useCallback(
     (row: AttachRow, afterSeq = 0, placement: Placement = { kind: "group" }) => {
-      if (!row.attachable || row.status !== "running") {
+      if (!row.attachable) {
         setError(t("terminal.view.sessionNotAttachable"));
         return;
       }
@@ -373,7 +373,7 @@ export function TerminalView({
       setActiveGroupId(stored.activeGroupId);
       for (const sessionId of layoutSessionIds(stored)) {
         const row = sessions.data.sessions.find((item) => item.sessionId === sessionId);
-        if (row?.attachable && row.status === "running") attachStream(row, 0);
+        if (row?.attachable) attachStream(row, 0);
       }
       return;
     }

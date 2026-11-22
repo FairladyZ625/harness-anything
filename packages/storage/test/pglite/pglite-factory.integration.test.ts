@@ -7,8 +7,17 @@ import test from "node:test";
 import type { Pool } from "pg";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
+import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { assertWriterEpochFactory } from "../writer-epoch-factory.assertions.ts";
-import { assertCanonicalFactoryLifecycle } from "../canonical-factory.assertions.ts";
+import {
+  assertCanonicalFactoryLifecycle,
+  assertHistoricalDateWindowAndImportParity,
+  buildHistoricalTimestampFixtures,
+  HISTORICAL_TIMESTAMP_CASES,
+} from "../canonical-factory.assertions.ts";
+import { eventAt } from "../store/task-event-store.fixtures.ts";
+import { explainNodes, pgTableRowsVisited, tracedPgReads } from "../postgres/pg-explain.fixture.ts";
+import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
@@ -175,6 +184,214 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
         await store.drain();
       }
     });
+  });
+  test("PGlite readEventWindow handles sub-ms truncation, ±23:59 offsets, equal endpoints, sparse gaps, and readTaskImportedEvent", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      const repoId = "pglite-dm01-dm04";
+      const storage = {
+        backend: "pglite" as const,
+        dataDir: join(rootDir, "database"),
+        materialize: false,
+        scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1 },
+      };
+      const baseEvents = Array.from({ length: HISTORICAL_TIMESTAMP_CASES.length }, (_, idx) => {
+        const ev = eventAt(idx + 1);
+        return { ...ev, eventId: `hist-ts-event-${idx + 1}`, opId: `hist-ts-op-${idx + 1}` };
+      });
+      let store = makeTaskEventStore({ repoId, rootDir, storage });
+      for (const ev of baseEvents) {
+        store.append({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] });
+      }
+      await store.drain();
+      const backend = await createPGliteStorageBackend({ repoId, storage });
+      try {
+        for (const row of buildHistoricalTimestampFixtures(baseEvents)) {
+          await backend.pool.query(
+            "UPDATE ha_events SET occurred_at=$1, event_json=$2, event_digest=$3 WHERE tenant_id=$4 AND project_id=$5 AND repo_id=$6 AND revision=$7",
+            [
+              row.occurredAt,
+              row.eventJson,
+              row.digest,
+              storage.scope.tenantId,
+              storage.scope.projectId,
+              repoId,
+              row.revision,
+            ],
+          );
+        }
+      } finally {
+        await backend.close();
+      }
+      store = makeTaskEventStore({ repoId, rootDir, storage });
+      const projection = makeTaskProjection({ rootDir, eventStore: store, storage });
+      try {
+        projection.rebuild();
+        assertHistoricalDateWindowAndImportParity({
+          store,
+          projection,
+          importedTaskId: "task_pglite_imported_done",
+        });
+      } finally {
+        projection.close();
+        await store.drain();
+      }
+    });
+  });
+
+  test("PGlite readEventWindow sparse pagination (full-day, narrow intra-day, >32-day wide) uses ha_events_occurred_ms_revision with O(matching) rows", async () => {
+    const scenarios = [
+      {
+        name: "full-day",
+        after: "2026-11-05T00:00:00.000Z",
+        before: "2026-11-05T23:59:59.999Z",
+        matchAt: () => "2026-11-05T12:00:00.000Z",
+        gapAt: () => "2026-11-06T12:00:00.000Z",
+      },
+      {
+        name: "narrow-intraday",
+        after: "2026-11-05T10:00:00.000Z",
+        before: "2026-11-05T10:59:59.999Z",
+        matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:00:00.000Z") + idx * 1_000).toISOString(),
+        gapAt: () => "2026-11-05T18:00:00.000Z",
+      },
+      {
+        name: "wide-40-days",
+        after: "2026-09-01T00:00:00.000Z",
+        before: "2026-10-10T23:59:59.999Z",
+        matchAt: (idx: number) =>
+          new Date(
+            Date.parse("2026-09-01T06:00:00.000Z") + Math.floor(idx / 2) * 86_400_000 + (idx % 2) * 1_000,
+          ).toISOString(),
+        gapAt: () => "2026-11-15T12:00:00.000Z",
+      },
+    ] as const;
+
+    const descendingScenario = {
+      name: "descending",
+      after: "2026-11-05T10:00:00.000Z",
+      before: "2026-11-05T10:59:59.999Z",
+      matchAt: (idx: number) => new Date(Date.parse("2026-11-05T10:40:00.000Z") - idx * 1_000).toISOString(),
+      gapAt: () => "2026-11-05T18:00:00.000Z",
+    };
+    const measuredDescending: number[] = [];
+    for (const { scenario, matchingPerSide, gapSize } of [
+      ...scenarios.map((scenario) => ({ scenario, matchingPerSide: 40, gapSize: 1_500 })),
+      ...[40, 160].map((matchingPerSide) => ({ scenario: descendingScenario, matchingPerSide, gapSize: 17 })),
+    ]) {
+      await withTempStoreAsync(async (rootDir) => {
+        const repoId = `pglite-dm03-${scenario.name}`;
+        const storage = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1, readers: [] as const },
+        };
+        const backend = await createPGliteStorageBackend({ repoId, storage });
+        try {
+          const matchingBefore = matchingPerSide;
+          const matchingAfter = matchingPerSide;
+          const total = matchingBefore + gapSize + matchingAfter;
+          const fence = { repoId, holderId: "sparse-writer", epoch: 1 };
+          let matchIdx = 0;
+          for (let offset = 0; offset < total; offset += 100) {
+            const end = Math.min(total, offset + 100);
+            const bundles = [];
+            for (let rev = offset + 1; rev <= end; rev += 1) {
+              const inWindow = rev <= matchingBefore || rev > matchingBefore + gapSize;
+              const ev = {
+                ...eventAt(rev),
+                occurredAt: inWindow ? scenario.matchAt(matchIdx++) : scenario.gapAt(),
+              };
+              bundles.push({ event: ev, plan: taskLifecycleWritePlan(ev), blobs: [] as const });
+            }
+            const terminal = bundles.pop()!;
+            await backend.eventStore.append({ ...terminal, preceding: bundles }, offset, fence);
+          }
+          await backend.pool.query("ANALYZE ha_events");
+
+          const plans: unknown[] = [];
+          const tracedPool = tracedPgReads(backend.pool, plans, (sql) => /FROM ha_events/u.test(sql));
+          const collected: number[] = [];
+          let afterRevision = 0;
+          let maxRevision: number | undefined;
+          let continuation: string | undefined;
+          let pages = 0;
+          for (;;) {
+            const page = await withPostgresTransaction(
+              tracedPool,
+              (client) =>
+                readPgEventWindow(
+                  client,
+                  storage.scope,
+                  {
+                    repoId,
+                    query: {
+                      afterRevision,
+                      ...(maxRevision === undefined ? {} : { maxRevision }),
+                      ...(continuation === undefined ? {} : { continuation }),
+                      after: scenario.after,
+                      before: scenario.before,
+                      limit: 20,
+                    },
+                  },
+                  total,
+                ),
+              storage.scope,
+            );
+            pages += 1;
+            for (const ev of page.events) collected.push(ev.workspaceRevision);
+            maxRevision = page.windowMaxRevision;
+            continuation = page.continuation;
+            if (page.done) break;
+            afterRevision = page.lastScannedRevision;
+          }
+          assert.equal(pages, (matchingBefore + matchingAfter) / 20, scenario.name);
+          assert.deepEqual(
+            collected,
+            Array.from(
+              { length: matchingBefore + matchingAfter },
+              (_, idx) => idx + 1 + (idx >= matchingBefore ? gapSize : 0),
+            ),
+          );
+          if (scenario === descendingScenario) {
+            measuredDescending.push(pgTableRowsVisited(plans, "ha_events"));
+            return;
+          }
+
+          const scans = explainNodes(plans).filter((node) => String(node["Relation Name"] ?? "") === "ha_events");
+          const occurredScans = scans.filter(
+            (node) => String(node["Index Name"] ?? "") === "ha_events_occurred_ms_revision",
+          );
+          assert.ok(
+            occurredScans.length === 1,
+            `${scenario.name}: expected occurred_ms scans, got ${JSON.stringify(scans)}`,
+          );
+          let totalRowsVisited = 0;
+          for (const scan of scans) {
+            const indexName = String(scan["Index Name"] ?? "");
+            assert.ok(
+              indexName === "ha_events_occurred_ms_revision" ||
+                indexName === "ha_events_occurred_ms_pending" ||
+                indexName === "ha_events_pkey",
+              `${scenario.name}: unexpected scan plan ${JSON.stringify(scan)}`,
+            );
+            totalRowsVisited +=
+              (Number(scan["Actual Rows"] ?? 0) + Number(scan["Rows Removed by Filter"] ?? 0)) *
+              Number(scan["Actual Loops"] ?? 1);
+          }
+          assert.ok(
+            totalRowsVisited <= 320,
+            `${scenario.name}: expected <=320 rows visited across 1,500-row gap, got ${totalRowsVisited}`,
+          );
+        } finally {
+          await backend.close();
+        }
+      });
+    }
+    process.stdout.write(
+      `DM03_PGLITE_DESCENDING ${JSON.stringify({ counts: [80, 320], reads: measuredDescending })}\n`,
+    );
+    assert.ok(measuredDescending[1]! <= measuredDescending[0]! * 5, JSON.stringify(measuredDescending));
   });
 });
 

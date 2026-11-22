@@ -26,6 +26,7 @@ import { someQueryEvent } from "@harness-anything/application/internal/queries/r
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
+import { enrichCarriedCloseoutFacts } from "./submit-closeout-facts.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
@@ -279,6 +280,13 @@ export async function runTaskCommandWithDocs(
         : current.snapshot.lease?.executionId
       : undefined;
   let submittedAction = taskAction,
+    effectiveCarriedChanges: readonly DocEventChange[] = carriedChanges,
+    effectiveCarriedBlobs: readonly {
+      readonly sha256: string;
+      readonly size: number;
+      readonly mediaType: string;
+      readonly body: string;
+    }[] = carriedBlobs,
     anchorDriftWarnings: readonly string[] = [];
   if (submittedExecutionId) {
     const derived = await readCloseoutSubmission(
@@ -306,6 +314,36 @@ export async function runTaskCommandWithDocs(
         derived.error,
       );
     }
+    const enrichedCarried = enrichCarriedCloseoutFacts({
+      cell,
+      taskId,
+      opId,
+      docOpId,
+      binding,
+      executionId: intent.executionId,
+      activeLease: intent.executionId === null ? null : lease,
+      ...(unleasedTaskCommandId === undefined ? {} : { unleasedTaskCommandId }),
+      submission: derived.submission,
+      bodyOverrides,
+      changes: effectiveCarriedChanges,
+      blobs: effectiveCarriedBlobs,
+    });
+    if (!enrichedCarried.ok) {
+      recycleClaims(cell.rootDir, intent);
+      return "rejected" in enrichedCarried
+        ? enrichedCarried.rejected
+        : submissionStopped(
+            cell,
+            taskAction,
+            binding,
+            current.snapshot,
+            submittedExecutionId,
+            current.packagePath,
+            enrichedCarried.invalidError,
+          );
+    }
+    effectiveCarriedChanges = enrichedCarried.changes;
+    effectiveCarriedBlobs = enrichedCarried.blobs;
     anchorDriftWarnings = [
       ...derived.warnings,
       ...submissionAnchorDriftWarnings(
@@ -338,8 +376,8 @@ export async function runTaskCommandWithDocs(
   let transition: Awaited<ReturnType<typeof cell.service.executeWithDocuments>>;
   try {
     transition = await cell.service.executeWithDocuments(command, proof, {
-      changes: carriedChanges,
-      blobs: carriedBlobs,
+      changes: effectiveCarriedChanges,
+      blobs: effectiveCarriedBlobs,
     });
   } finally {
     recycleClaims(cell.rootDir, intent);

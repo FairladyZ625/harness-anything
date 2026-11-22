@@ -275,8 +275,14 @@ export function requireCurrentExecutionScope(input: {
   } else requireExecutionActionScope(p, input.action);
   const terminal = ingress?.type === "runtime_session_exited" || ingress?.type === "runtime_session_outcome_observed";
   const livenessObservation = ingress?.type === "runtime_session_liveness_changed";
+  const controlReceiptIngress =
+    input.hostSettlement === true &&
+    (livenessObservation || ingress?.type === "runtime_session_provider_bound") &&
+    isJsonObject(ingress.payload) &&
+    isJsonObject(ingress.payload.controlReceipt) &&
+    ingress.payload.controlRequest === undefined;
   const archiveIngress = ingress?.kind === "archive";
-  const hostSettling = archiveIngress || terminal;
+  const hostSettling = archiveIngress || terminal || controlReceiptIngress;
   // A node may retire its stale reviewer after physical exit. A personal owner may also
   // abandon an unreachable dispatch through cancel's evidence gate. Public terminal ingress
   // uses the runtime executor, so carrying a ruling-shaped payload cannot claim this authority.
@@ -294,7 +300,7 @@ export function requireCurrentExecutionScope(input: {
     (ingress?.type === "runtime_session_outcome_observed" &&
       isJsonObject(ingress.payload) &&
       (ingress.payload.outcome === "failed" || ingress.payload.outcome === "cancelled"));
-  const cancelledSettlingIngress = negativeTerminal || archiveIngress;
+  const cancelledSettlingIngress = negativeTerminal || archiveIngress || controlReceiptIngress;
   const [lifecycle] = readyDispatchLifecycle(
     input.projection.readDispatchLifecycle({ by: "session", runtimeSessionId: p.runtimeSessionId }),
     runtimeSpawnError,
@@ -302,6 +308,17 @@ export function requireCurrentExecutionScope(input: {
   const session = input.projection.readRuntimeSession(p.runtimeSessionId),
     dispatch = input.projection.readRuntimeDispatch(p.runtimeSessionId),
     actor = runtimeExecutionActor(p);
+  if (
+    ingress &&
+    !input.hostSettlement &&
+    dispatch?.payload.executionTarget &&
+    (terminal ||
+      ingress.type === "runtime_session_cancelled" ||
+      (livenessObservation &&
+        isJsonObject(ingress.payload) &&
+        (ingress.payload.stopUnconfirmed === true || ingress.payload.processGroupPid !== undefined)))
+  )
+    throw executionCredentialRejected("scope", { dispatchId: p.dispatchId, role: p.role });
   const postSubmitCandidate =
       (input.action.kind === "task-push" || (input.action.kind === "task-submit" && input.action.amend === true)) &&
       input.action.taskId === p.taskId &&

@@ -243,6 +243,7 @@ test("observeRecordedProcessGroup trusts Windows containment stop proof and othe
     assert.equal(observeRecordedProcessGroup({ pgid: process.pid }, { platform: "win32" }), "running");
     assert.equal(observeRecordedProcessGroup({ pgid: 2_147_483_647 }, { platform: "win32" }), "unknown_unreachable");
     assert.equal(observeRecordedProcessGroup({ pgid: 42 }, scripted([{ signal: 0 }])), "running");
+    assert.equal(observeRecordedProcessGroup({ pgid: 42 }, scripted([{ signal: 0, error: "EPERM" }])), "running");
     assert.equal(observeRecordedProcessGroup(1, scripted([])), "unknown_unreachable");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

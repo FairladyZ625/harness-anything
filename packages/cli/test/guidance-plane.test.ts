@@ -290,6 +290,7 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
         taskId: "task-a",
         packagePath: "tasks/task-a",
         outputShape: "repository-diff",
+        artifactPresetIds: ["audit-report"],
         dryRun: true,
         opId: "op-a",
         canonicalVisible: false,
@@ -303,7 +304,7 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
         guidance,
       }),
       shared = [
-        "contract: repository-diff requires a committable public-repository diff and real CI. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+        "contract: repository-diff requires a committable public-repository diff and real CI. For a task-package-only report or decision, use the task-package-artifact preset audit-report.",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
           "harness/tasks/task-a/task_plan.md; keep the preset's required section headings for task start, but reorder or add sections freely — only machine-managed frontmatter is frozen",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
@@ -334,6 +335,35 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
       "next: ha receipt show op-a",
       ...shared.slice(1),
     ]);
+    // Multi-preset and empty-preset guidance dynamically follow the vertical's actual artifact presets.
+    assert.equal(
+      renderReceiptGuidance({
+        command: "task-create",
+        dryRun: true,
+        outputShape: "repository-diff",
+        proof: { canonicalVisible: false },
+        guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), {
+          ...values,
+          artifactPresetIds: ["audit-brief", "audit-report"],
+        }),
+      })[0],
+      "contract: repository-diff requires a committable public-repository diff and real CI. " +
+        "For a task-package-only report or decision, use a task-package-artifact preset (audit-brief, audit-report).",
+    );
+    assert.equal(
+      renderReceiptGuidance({
+        command: "task-create",
+        dryRun: true,
+        outputShape: "repository-diff",
+        proof: { canonicalVisible: false },
+        guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), {
+          ...values,
+          artifactPresetIds: [],
+        }),
+      })[0],
+      "contract: repository-diff requires a committable public-repository diff and real CI. " +
+        "For a task-package-only report or decision, use a task-package-artifact preset declared by this vertical.",
+    );
   } finally {
     rmSync(physicalRoot, { recursive: true, force: true });
   }

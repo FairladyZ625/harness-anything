@@ -1,5 +1,7 @@
+import type { DaemonRuntimePorts } from "./daemon-host-context.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { enrichCausalContextWithLocalWorktrees } from "./repo-cell-trace-view.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
@@ -11,6 +13,7 @@ import {
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
   consumeKnownError,
   isNativeExecution,
+  repositorySettings,
   type RepositorySettingsV1,
   type RuntimeProviderUnreachable,
   type TaskProjection,
@@ -20,8 +23,21 @@ import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
-import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { countActiveDispatchStreams } from "./dispatch-stream.ts";
+import {
+  advanceDispatchControlCursor,
+  hasPendingSteerReceipts,
+  PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+  pendingSteerReceiptCount,
+  readDispatchControlCursor,
+  readSettledControlOpIdsAboveCursor,
+  recordPendingSteerReceipt,
+  recordSettledControlAboveCursor,
+} from "./dispatch-steer-state.ts";
+import type { RuntimeSteerSelector } from "./runtime-steer-target.ts";
+import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
+import { readFallbackExhaustion } from "./runtime-spawn-fallback.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 import {
@@ -48,9 +64,9 @@ import {
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { runtimeRecoveryError } from "./runtime-recovery-watch.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
-import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
+import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { mergeRepositoryLocalSettings, readLocalState } from "./repo-cell-settings-state.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetEdgeRuntimeArchiveClient,
@@ -62,9 +78,17 @@ import {
   runFleetEdgeTaskCommand,
 } from "./fleet-edge-write.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
-import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
+import {
+  mirroredPlanContract as resolveMirroredPlanContract,
+  resolveReviewPublicationInstanceCandidates,
+} from "./fleet-edge-review-helpers.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
+import { createFleetEdgeRuntimeControlConsumer, type RemoteRuntimeControlEvent } from "./fleet-edge-runtime-control.ts";
+import {
+  createFleetEdgeSteerReceiptPump,
+  forwardFleetEdgeRemoteRuntimeControl,
+} from "./fleet-edge-runtime-control-bridge.ts";
 import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -73,10 +97,10 @@ import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-r
 import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
-import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
+import { readRuntimeDispatchOwnerEvidence } from "./runtime-dispatch-owner-evidence.ts";
 import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
-import { runtimeForwardingContext } from "./fleet/forwarding-port.ts";
+import { currentForwardedRuntimeAuth, runtimeForwardingContext } from "./fleet/forwarding-port.ts";
 import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 import { publishSubmittedCut } from "./submitted-cut-publication.ts";
@@ -102,23 +126,8 @@ export interface FleetEdgeRuntimeRequest {
   };
 }
 type FleetRuntimeLocation = Omit<FleetEdgeRuntimeRequest["payload"], "method" | "action">;
-type RuntimePorts = {
-  readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
-  readonly runtimeProviderHealth?: import("../runtime-engine/runtime-provider-health.ts").RuntimeProviderHealthStore;
-  readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
-  readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
-  readonly prepareCloudRelay: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
-  readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
-  readonly listRuntimeTempSessionIds?: () => readonly string[];
-  readonly reclaimSettledRuntimeTempDirectories: (
-    settledRuntimeSessionIds: readonly string[],
-  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
-  readonly prepareDaemonGitEnvironment: (
-    instanceId: string,
-    provider: "github" | "gitlab",
-    repoId: string,
-  ) => Promise<NodeJS.ProcessEnv | null>;
-};
+type RuntimePorts = Omit<DaemonRuntimePorts, "runtimeProviderHealth" | "listRuntimeTempSessionIds"> &
+  Partial<Pick<DaemonRuntimePorts, "runtimeProviderHealth" | "listRuntimeTempSessionIds">>;
 const runtimeOverviewPageLimit = daemonProtocolFleetPolicy.defaultValue.fleet.overviewPageLimit;
 const localReplicaWaitBackstopMs = daemonProtocolFleetPolicy.defaultValue.fleet.localReplicaWaitBackstopMs;
 
@@ -278,10 +287,15 @@ export function openFleetEdgeRuntime(input: {
   };
   const readSettings = () => {
     const { request } = context();
-    return withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) => ({
-      ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
-      ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
-    }));
+    return withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) =>
+      mergeRepositoryLocalSettings(
+        repositorySettings({
+          ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
+          ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
+        }),
+        readLocalState(request.workspaceRoot).value,
+      ),
+    );
   };
   let replicaOwner: string | undefined;
   const readMirroredDocument = (logicalPath: string): string | null => {
@@ -315,6 +329,7 @@ export function openFleetEdgeRuntime(input: {
   const workQueue = createFleetEdgeRuntimeWorkQueue((error) => {
     console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
     ready = null;
+    adoptedOnce = false;
   });
   const schedule = workQueue.schedule;
   const runScheduleCommand: typeof runFleetScheduleCommandClient = async (options) => {
@@ -743,7 +758,7 @@ export function openFleetEdgeRuntime(input: {
               " run ha daemon fleet edge sync, then retry.",
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
-          { causalContext, riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
+          { riskTier, profileId, riskTierFlowVersion, worktree, reviewerNote } = runtimeContext;
         let plan: string;
         try {
           plan = readLocalAuthoredDocument(`${candidates[0]!}/task_plan.md`) ?? "";
@@ -759,7 +774,13 @@ export function openFleetEdgeRuntime(input: {
           taskId,
         );
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
-        const priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
+        const causalContext = enrichCausalContextWithLocalWorktrees(runtimeContext.causalContext, {
+            workspaceRoot: request.workspaceRoot,
+            plan,
+            taskId,
+            skip: review !== undefined || purpose === "settlement",
+          }),
+          priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
           ownerReturnBody =
             [
               priorIteration === null
@@ -856,8 +877,14 @@ export function openFleetEdgeRuntime(input: {
               intentInstanceId,
               preferredInstanceId: spawnHints?.preferredRuntimeInstanceId,
               agentId: spawnHints?.agentId,
+              readSettings,
               findAgent: (agentId) =>
-                trustedScheduleAgents.get(agentId) ?? findMirroredAgentDeclaration(request, agentId),
+                trustedScheduleAgents.get(agentId) ??
+                findMirroredAgentDeclaration(
+                  request,
+                  agentId,
+                  current.task?.metadata?.verticalId ?? readSettings().defaultVertical,
+                ),
               localInstances: input.ports.runtimeInstances(),
             }),
             prepareDaemonGitEnvironment = input.ports.prepareDaemonGitEnvironment
@@ -890,6 +917,7 @@ export function openFleetEdgeRuntime(input: {
             : {}),
           packageRoot,
           riskTier,
+          verticalId: current.task?.metadata?.verticalId ?? null,
           profileId,
           riskTierFlowVersion,
           taskClass: current.task!.taskClass,
@@ -932,6 +960,16 @@ export function openFleetEdgeRuntime(input: {
         readRuntimeProjection(input.resolveLocation(), (projection) =>
           readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
         ),
+      readFallbackExhaustion: (attempt) => {
+        const request = input.resolveLocation();
+        return readRuntimeProjection(request, (projection) =>
+          readFallbackExhaustion(
+            projection,
+            (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
+            attempt,
+          ),
+        );
+      },
       publish: async (draft) => {
         const { request, centerWriteWaitMs, writePeer } = context();
 
@@ -1023,6 +1061,7 @@ export function openFleetEdgeRuntime(input: {
     runtimeInstances: input.ports.runtimeInstances,
     runtimeInstanceDispatchState: input.ports.runtimeInstanceDispatchState,
     runtimeProviderHealth: input.ports.runtimeProviderHealth,
+    cloudRuntime: input.ports.cloudRuntime,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareCloudRelay: input.ports.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
@@ -1031,11 +1070,14 @@ export function openFleetEdgeRuntime(input: {
       : {}),
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
-    resolveAgent: (agentId) => {
+    resolveAgent: (agentId, verticalId) => {
       const { request } = context();
-      return trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId);
+      return (
+        trustedScheduleAgents.get(agentId) ??
+        mirroredAgentDeclaration(request, agentId, verticalId ?? readSettings().defaultVertical)
+      );
     },
-    resolveSquadDispatch: (squadId, leaderId, workerId, binding) => {
+    resolveSquadDispatch: (squadId, leaderId, workerId, binding, verticalId) => {
       const { request } = context();
       return withEdgeReadModel(
         {
@@ -1051,6 +1093,7 @@ export function openFleetEdgeRuntime(input: {
             ...(squadId ? { squadId } : {}),
             leaderId,
             ...(workerId ? { workerId } : {}),
+            verticalId: verticalId ?? readSettings().defaultVertical,
             entityStore: {
               get: (kind, id) => projection.getEntity(kind, id),
               list: (kind) => projection.listEntities(kind),
@@ -1117,8 +1160,17 @@ export function openFleetEdgeRuntime(input: {
         );
     },
     ...(input.launch ? { launch: input.launch } : {}),
+    onPendingSteerReceipt: () => triggerReceiptFlush(),
     schedule,
   });
+  const receiptPump = createFleetEdgeSteerReceiptPump({
+    hasPending: () => hasPendingSteerReceipts(context().request.workspaceRoot),
+    flushPending: async () => {
+      const { request } = context();
+      await spawner.flushPendingSteerReceipts(await controlBinding(request));
+    },
+  });
+  const triggerReceiptFlush = receiptPump.trigger;
   const squad = makeFleetSquadCoordinator({
     readDispatchLifecycle,
     get request() {
@@ -1140,12 +1192,110 @@ export function openFleetEdgeRuntime(input: {
       return readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref);
     },
   });
+  const remoteControl = createFleetEdgeRuntimeControlConsumer({
+    nodeId: () => input.resolveLocation().nodeId,
+    activeRuntimeSessionIds: () => spawner.activeRuntimeSessionIds(),
+    isRuntimeActive: (runtimeSessionId) => spawner.isRuntimeActive(runtimeSessionId),
+    readDurableCursor: (runtimeSessionId) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      return dispatchId ? readDispatchControlCursor(input.resolveLocation().workspaceRoot, dispatchId) : 0;
+    },
+    advanceDurableCursor: (runtimeSessionId, revision) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      if (dispatchId) advanceDispatchControlCursor(input.resolveLocation().workspaceRoot, dispatchId, revision);
+    },
+    readSettledAboveCursor: (runtimeSessionId) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      return dispatchId ? readSettledControlOpIdsAboveCursor(input.resolveLocation().workspaceRoot, dispatchId) : [];
+    },
+    recordSettledAboveCursor: (runtimeSessionId, opId, revision) => {
+      const dispatchId = spawner.activeDispatchId(runtimeSessionId);
+      if (dispatchId)
+        recordSettledControlAboveCursor(input.resolveLocation().workspaceRoot, dispatchId, opId, revision);
+    },
+    isSteerBackpressured: () =>
+      pendingSteerReceiptCount(input.resolveLocation().workspaceRoot) >= PENDING_STEER_RECEIPT_HIGH_WATERMARK,
+    readControlEventsPage: async (runtimeSessionId, afterRevision, limit) => {
+      const request = input.resolveLocation();
+      return readRuntimeProjection(request, (projection) => {
+        const cut = projection.readCut(),
+          events = projection.readRuntimeSessionEventsByType(
+            runtimeSessionId,
+            ["runtime_session_liveness_changed", "runtime_cancel_requested", "runtime_steer_requested"],
+            { afterRevision, limit, filter: "control_request" },
+          ) as readonly RemoteRuntimeControlEvent[];
+        const maxRev = events.reduce((highest, event) => Math.max(highest, event.workspaceRevision), afterRevision);
+        return {
+          events,
+          scannedToRevision: events.length < limit ? Math.max(maxRev, cut.watermark) : maxRev,
+        };
+      });
+    },
+    readCancelControlEvent: async (runtimeSessionId, afterRevision, limit) => {
+      const request = input.resolveLocation();
+      return readRuntimeProjection(request, (projection) => {
+        const cut = projection.readCut(),
+          events = projection.readRuntimeSessionEventsByType(
+            runtimeSessionId,
+            ["runtime_session_liveness_changed", "runtime_cancel_requested"],
+            { afterRevision, limit, filter: "cancel_control_request" },
+          ) as readonly RemoteRuntimeControlEvent[],
+          event = events[0] ?? null;
+        return {
+          event,
+          scannedToRevision: event ? event.workspaceRevision : cut.watermark,
+        };
+      });
+    },
+    executeCancel: async (controlRequest) => {
+      const { request } = context();
+      await spawner.cancel({ runtimeSessionId: controlRequest.runtimeSessionId }, await controlBinding(request));
+    },
+    executeSteer: async (controlRequest) => {
+      const { request } = context();
+      await spawner.steer(
+        {
+          runtimeSessionId: controlRequest.runtimeSessionId,
+          prompt: controlRequest.prompt,
+          ...(controlRequest.expected ? { expected: controlRequest.expected as unknown as JsonObject } : {}),
+        },
+        await controlBinding(request),
+        {
+          remoteControlRequestId: controlRequest.controlRequestId,
+          remoteControlOpId: controlRequest.opId,
+        },
+      );
+    },
+    reportSteerRejection: (controlRequest, rejection) => {
+      const { request } = context();
+      recordPendingSteerReceipt(
+        request.workspaceRoot,
+        controlRequest.dispatchId,
+        request.repoId,
+        controlRequest.runtimeSessionId,
+        {
+          status: "rejected",
+          controlRequestId: controlRequest.controlRequestId,
+          requestOpId: controlRequest.opId,
+          reasonCode: rejection.code,
+          message: rejection.message,
+        },
+      );
+      // F13: Wake the detached background receipt pump without awaiting any network RPC inside drain().
+      triggerReceiptFlush();
+    },
+    schedule,
+  });
   let ready: Promise<void> | null = null;
+  let adoptedOnce = false;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
         void spawner.adopt().then(
-          () => {
+          (recovered) => {
+            if (!runtimeRecoveryError(recovered)) adoptedOnce = true;
+            void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
+            if (hasPendingSteerReceipts(input.resolveLocation().workspaceRoot)) triggerReceiptFlush();
             schedule(() => squad.reconcile());
           },
           (error: unknown) => console.error("[runtime-recovery]", error),
@@ -1153,26 +1303,62 @@ export function openFleetEdgeRuntime(input: {
       });
       ready = attempt.catch((error: unknown) => {
         ready = null;
+        adoptedOnce = false;
         throw error;
       });
     }
     return ready;
+  };
+  const forwardRemoteRuntimeControl = (
+    kind: "runtime-cancel" | "runtime-steer",
+    action: JsonObject,
+    requestAuth?: DaemonAuthenticationContext,
+  ): Promise<JsonObject> => {
+    const { request, centerWriteWaitMs, writePeer } = context();
+    return forwardFleetEdgeRemoteRuntimeControl({
+      kind,
+      action,
+      ...(requestAuth ? { requestAuth } : {}),
+      centerWriteWaitMs,
+      request,
+      writePeer,
+    });
   };
   return {
     reconcile: async (signal?: AbortSignal) =>
       withExecutionSignal(signal, (connectionSignal) =>
         executionSignalContext.run(connectionSignal, async () => {
           const { request } = context();
-
-          if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+          const hasPendingReceipts = hasPendingSteerReceipts(request.workspaceRoot);
+          const hasActiveHandles = spawner.activeRuntimeCount() > 0;
+          if (!adoptedOnce) {
+            const hasDiskStreams = hasActiveHandles || countActiveDispatchStreams(request.workspaceRoot) > 0;
+            if (!hasDiskStreams && !hasPendingReceipts) {
+              adoptedOnce = true;
+              return;
+            }
+            await ensureReady();
+            const recovered = hasDiskStreams ? await spawner.adopt() : [];
+            const failed = runtimeRecoveryError(recovered);
+            if (!failed) adoptedOnce = true;
+            await remoteControl.drain();
+            if (hasPendingSteerReceipts(request.workspaceRoot)) triggerReceiptFlush();
+            await schedule(async () => {
+              await squad.flushPublications();
+              await pullRuntimeReplica();
+            });
+            if (failed) throw failed;
+            return;
+          }
+          // Steady-state ACK path (F4 & F13): zero readdirSync and zero spawner.adopt();
+          // pending receipt uplinks run asynchronously off the control drain.
+          if (hasPendingReceipts) triggerReceiptFlush();
+          if (!hasActiveHandles) return;
           await ensureReady();
-          const recovered = await spawner.adopt();
+          await remoteControl.drain();
           await schedule(async () => {
             await squad.flushPublications();
-            await pullRuntimeReplica();
           });
-          const failed = runtimeRecoveryError(recovered);
-          if (failed) throw failed;
         }),
       ),
     run: async (
@@ -1180,6 +1366,7 @@ export function openFleetEdgeRuntime(input: {
       action: JsonObject,
       connectionSignal?: AbortSignal,
     ): Promise<JsonObject> => {
+      const requestAuth = currentForwardedRuntimeAuth();
       const { runtimeReadPeer, centerWriteWaitMs, request, writePeer } = context();
 
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
@@ -1223,8 +1410,56 @@ export function openFleetEdgeRuntime(input: {
             }) as unknown as JsonObject,
         );
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
-      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await controlBinding(request));
-      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await controlBinding(request));
+      if (method === "repo.agentRuntime.cancel") {
+        const runtimeSessionId = typeof action.runtimeSessionId === "string" ? action.runtimeSessionId : null;
+        let localTarget =
+          action.escalation === true || (runtimeSessionId !== null && spawner.isRuntimeActive(runtimeSessionId));
+        if (
+          !localTarget &&
+          runtimeSessionId !== null &&
+          readReplicaGeneration(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId)) !== null
+        ) {
+          const dispatch = await readRuntimeProjection(request, (projection) =>
+            projection.readRuntimeDispatch(runtimeSessionId),
+          );
+          localTarget =
+            typeof dispatch?.source === "object" &&
+            dispatch.source !== null &&
+            dispatch.source.kind === "node" &&
+            dispatch.source.nodeId === request.nodeId;
+        }
+        if (localTarget) return spawner.cancel(action, await controlBinding(request));
+        return forwardRemoteRuntimeControl("runtime-cancel", action, requestAuth);
+      }
+      if (method === "repo.agentRuntime.steer") {
+        const selector: RuntimeSteerSelector | null =
+          typeof action.dispatchId === "string"
+            ? { dispatchId: action.dispatchId }
+            : typeof action.runtimeSessionId === "string"
+              ? { runtimeSessionId: action.runtimeSessionId }
+              : null;
+        let localTarget = selector !== null && spawner.activeRuntimeForSelector(selector) !== null;
+        if (
+          !localTarget &&
+          selector !== null &&
+          readReplicaGeneration(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId)) !== null
+        ) {
+          const dispatch = await readRuntimeProjection(request, (projection) =>
+            "dispatchId" in selector
+              ? (projection.readRuntimeDispatchById(selector.dispatchId)?.event ?? null)
+              : (projection.readRuntimeDispatch(selector.runtimeSessionId) ??
+                projection.readLatestRuntimeDispatchBySession?.(selector.runtimeSessionId) ??
+                null),
+          );
+          localTarget =
+            typeof dispatch?.source === "object" &&
+            dispatch.source !== null &&
+            dispatch.source.kind === "node" &&
+            dispatch.source.nodeId === request.nodeId;
+        }
+        if (localTarget) return spawner.steer(action, await controlBinding(request));
+        return forwardRemoteRuntimeControl("runtime-steer", action, requestAuth);
+      }
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
         await prepareRuntimeWorkspace(action.taskId);
@@ -1306,6 +1541,7 @@ export function openFleetEdgeRuntime(input: {
       })) as JsonObject;
     },
     close: () => {
+      receiptPump.close();
       workQueue.close();
       spawner.close();
     },
@@ -1427,7 +1663,7 @@ export function openFleetEdgeRuntime(input: {
       };
     let trustedAgent: RuntimeAgent;
     try {
-      trustedAgent = parseAgentDeclarationV1(receipt.trustedAgent);
+      trustedAgent = readProjectedAgentDeclaration(receipt.trustedAgent);
     } catch {
       throw edgeRuntimeError(
         "schedule_agent_invalid",
@@ -1628,6 +1864,7 @@ function taskRuntimeContext(
 function findMirroredAgentDeclaration(
   request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
+  verticalId?: string,
 ): RuntimeAgent | undefined {
   const logical = `agents/${agentId}.json`;
   if (
@@ -1636,21 +1873,23 @@ function findMirroredAgentDeclaration(
       logical,
     )
   )
-    return parseAgentDeclarationV1(
+    return readProjectedAgentDeclaration(
       JSON.parse(
         new TextDecoder("utf-8", { fatal: true }).decode(
           readAuthoredDocumentBytes(resolveHarnessLayout(request.workspaceRoot).authoredRoot, logical),
         ),
       ),
     );
-  return readBundledAgentDeclaration(agentId) ?? undefined;
+  if (!verticalId) return undefined;
+  return readBundledAgentDeclaration(agentId, verticalId, request.workspaceRoot) ?? undefined;
 }
 
 function mirroredAgentDeclaration(
   request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
+  verticalId?: string,
 ): RuntimeAgent {
-  const declaration = findMirroredAgentDeclaration(request, agentId);
+  const declaration = findMirroredAgentDeclaration(request, agentId, verticalId);
   if (declaration) return declaration;
   throw edgeRuntimeError(
     "agent_not_found",
@@ -1679,77 +1918,8 @@ function scheduleResult(
   };
 }
 
-/**
- * The mirrored task contract carries the plan's readiness contract in its descriptor; packages
- * materialized before descriptors carried it resolve through the bundled catalog their
- * templateRef names. An unresolvable contract fails closed here.
- */
 function mirroredPlanContract(contractBody: string | null, taskId: string) {
-  let contractJson: unknown;
-  try {
-    if (contractBody === null) throw new Error("task contract unavailable");
-    contractJson = JSON.parse(contractBody);
-  } catch {
-    throw edgeRuntimeError(
-      "runtime_task_package_unavailable",
-      `Task ${taskId} has no readable mirrored task contract; run ha daemon fleet edge sync, then retry.`,
-    );
-  }
-  const descriptor =
-      contractJson && typeof contractJson === "object" && !Array.isArray(contractJson)
-        ? (contractJson as { readonly documents?: unknown }).documents
-        : undefined,
-    planDescriptor = Array.isArray(descriptor)
-      ? descriptor.find(
-          (row): row is { readonly slot: string; readonly path: string } =>
-            !!row &&
-            typeof row === "object" &&
-            (row as { readonly slot?: unknown }).slot === "task.plan" &&
-            typeof (row as { readonly path?: unknown }).path === "string",
-        )
-      : undefined,
-    contract = planDescriptor
-      ? transitionDocumentReadinessContract({ contract: contractJson, descriptor: planDescriptor })
-      : null;
-  if (contract === null)
-    throw edgeRuntimeError(
-      "runtime_task_package_unavailable",
-      `Task ${taskId} plan scaffold is not resolvable from the mirrored package; run ha daemon fleet edge sync, then retry.`,
-    );
-  return { planContract: contract };
-}
-
-function resolveReviewPublicationInstanceCandidates(input: {
-  readonly implementationInstanceId: unknown;
-  readonly selectedInstanceId: string | undefined;
-  readonly intentInstanceId: string | undefined;
-  readonly preferredInstanceId: string | undefined;
-  readonly agentId: string | undefined;
-  readonly findAgent: (agentId: string) => RuntimeAgent | undefined;
-  readonly localInstances: readonly RuntimeInstanceSummary[];
-}): readonly string[] {
-  const agent = input.agentId ? input.findAgent(input.agentId) : undefined;
-  const localIds = new Set(input.localInstances.map((instance) => instance.instanceId));
-  const enabledLocal = input.localInstances.filter((instance) => instance.enabled);
-  const configuredLocal = enabledLocal.filter((instance) => instance.hostingCredentialState === "configured");
-  const candidates = [
-    typeof input.implementationInstanceId === "string" ? input.implementationInstanceId : undefined,
-    input.selectedInstanceId,
-    input.intentInstanceId,
-    input.preferredInstanceId,
-    agent?.instance,
-    ...(agent?.preferredInstances ?? []),
-    ...configuredLocal.map((instance) => instance.instanceId),
-    ...enabledLocal.map((instance) => instance.instanceId),
-  ];
-  const ordered: string[] = [];
-  const seen = new Set<string>();
-  for (const id of candidates) {
-    if (typeof id !== "string" || !id || seen.has(id) || !localIds.has(id)) continue;
-    seen.add(id);
-    ordered.push(id);
-  }
-  return ordered;
+  return resolveMirroredPlanContract(contractBody, taskId, edgeRuntimeError);
 }
 
 function edgeRuntimeError(code: string, message: string, retryable?: boolean): Error {

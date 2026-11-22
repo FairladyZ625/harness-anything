@@ -134,7 +134,7 @@ test("runtime instance list scopes its node identity to the selected Fleet edge 
       userRoot,
       createConvenienceLinks: false,
     });
-    writeFleetEdgeConfig(repoRoot, {
+    writeFleetEdgeConfig(userRoot, repoId, {
       repoId,
       host: "center.example.invalid",
       port: 7443,

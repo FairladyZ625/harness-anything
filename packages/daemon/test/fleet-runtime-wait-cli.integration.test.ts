@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
@@ -143,7 +144,6 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       createConvenienceLinks: false,
     });
     const config = {
-      schema: "fleet-edge-config/v1",
       host: "127.0.0.1",
       port: center.port,
       caPath: fixture.certFile,
@@ -153,7 +153,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       viewRoot,
       quotaBytes: replicaQuota,
     };
-    writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+    writeFleetEdgeConfig(edgeUserRoot, repoId, config);
     mkdirSync(path.join(edgeUserRoot, "rbac"), { recursive: true });
     writeFileSync(
       path.join(edgeUserRoot, "rbac", "config.json"),

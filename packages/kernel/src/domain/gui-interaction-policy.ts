@@ -114,22 +114,22 @@ export const identityGuiRejectionPolicy = {
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.base_policy_group_read_only:98a37103a373fd5b52c36eb08d95c2ba",
+        "policy:packages/authorization:packages/authorization/src/keycloak-gui/access-model.ts#createAccessModel.REJECTION_KEYS.base_policy_group_read_only:98a37103a373fd5b52c36eb08d95c2ba",
       route: "base-policy-group-read-only",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_exists:cea53634fefb8e5866134be75cc92586",
+        "policy:packages/authorization:packages/authorization/src/keycloak-gui/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_exists:cea53634fefb8e5866134be75cc92586",
       route: "policy-group-exists",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_unknown:0794a054e454c8b95f12e6d92e0de87d",
+        "policy:packages/authorization:packages/authorization/src/keycloak-gui/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_unknown:0794a054e454c8b95f12e6d92e0de87d",
       route: "policy-group-unknown",
     },
     {
       candidateId:
-        "policy:packages/authorization-keycloak-gui:packages/authorization-keycloak-gui/src/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_in_use:e75fc34ea9acc4e438f402cf12a4677c",
+        "policy:packages/authorization:packages/authorization/src/keycloak-gui/access-model.ts#createAccessModel.REJECTION_KEYS.policy_group_in_use:e75fc34ea9acc4e438f402cf12a4677c",
       route: "policy-group-in-use",
     },
   ],

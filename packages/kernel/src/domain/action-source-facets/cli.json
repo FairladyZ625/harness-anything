@@ -1,0 +1,475 @@
+{
+  "sources": {
+    "access-password-change": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:35554a47723b6fd782f2092ba30afc81",
+        "route": "access-password-change",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:3f8364eb0d1c832a259de25f690e995d",
+        "route": "access-password-change",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:5d54330771f403f20af04aa05132ad1b",
+        "route": "access-password-change",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/password-input.ts#readPasswordInput:ebd8867b14a573374947ff311b54530d",
+        "route": "access-password-change",
+        "role": "support",
+        "order": 2
+      }
+    ],
+    "agent-install": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#evidencePayload:a6ec68cd91a443604a304280d0928f47",
+        "route": "agent-install",
+        "role": "support",
+        "order": 5
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#parseAgentRollbackCommand:0934dff2800ce163743e5f51866b5145",
+        "route": "agent-install",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#parseAgentRollbackCommand:dfe14aa652b7a58e798fecd8b9301f5f",
+        "route": "agent-install",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#parseAgentRollbackCommand:fb83b9a7d2529ac36e047a58c5d39a77",
+        "route": "agent-install",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#versionBodyOf:0eeef6d0e1874f0081ec819d187ea7cb",
+        "route": "agent-install",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-agent-rollback.ts#versionBodyOf:9bda5806f7da07254a8cb2ec8bcda455",
+        "route": "agent-install",
+        "role": "support",
+        "order": 4
+      }
+    ],
+    "cli-local-effects": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-command.ts#runRuntimeFacadeCommand:347bc7ce27b88af3afb49d1fee25c9d6",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 21
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:54dd04aea9ae012f1c8b286638569655",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 22
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-wait.ts#renderRuntimeFrames:5e508f9959402eca0199084c40d61ea5",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 30
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-task-artifact-run.ts#runTaskArtifactCommand.receipt:19ab0cdff3fa7edb69bd374c975eb0ea",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-task-artifact-run.ts#runTaskArtifactCommand.result:3e71dbc82c37dd6ce703fde674491a78",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-browser-broker.ts#relayStream.onValue:51becbd7d45040bffc760bb869783ba1",
+        "route": "cli-local-effects",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write",
+        "order": 31
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#prepareGuiDaemon.onProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 23
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#rebuildGuiBundleFromSource:9cb0945a60743e047aaea4e9ca1cb8cc",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 26
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#rebuildGuiBundleFromSource:ccc55b20ad320c2799263b24e1dbe71c",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 25
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/gui-launch.ts#refreshStaleGuiBundle:0f2b826a2759ccd900bd1b97dd8355ff",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 24
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/timing.ts#finishCliTiming:1a8fefc58d420a5856177da8d8c21fd8",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#repoWarmingProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/control.ts#startDaemonService.started.onProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 27
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#serializeFleetAction:9cc3be954fb1c7d81ba24b2a87ca3723",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-capture.ts#createCapturePort.capture.result:f7c506bab63bd760703f66cf010414ae",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 5
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-control.ts#runDaemonProbeControl:3010f5807cc41efe7c2ef3b76808fd12",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 6
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.files:6cedd73fb9a82ac9f51df5fcca3c43cf",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 9
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.ps:2d6b96b1a89f7498925adaaba1bd49a8",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 7
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readDarwinMetrics.threads:162687e900732eb8a2510f062092d5b0",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 8
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-metrics.ts#readWindowsMetrics.result:cb5d57f0b343b4e05d4e0ff8d3266969",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 10
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-run.ts#appendSafely:fcba9275585dd9a0aaa905c34793e619",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 11
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/top.ts#runDaemonTop:a260be05602ae277057332dc9d7d8b8d",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 12
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 28
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/with-autostart.ts#withAutostart.started.onProgress:efdbc745903dcf40976a2441397af36d:2",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 29
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#cleanupConsumedDocumentDescriptor:d0e2d1278f17393fe7e65f47f7f4951e",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 20
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#runThinCli:347b30a10ee3d19c4af07b719424d1e5",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 13
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#runThinCli:8377b0c7afa25bc0addb8d2e7d15b7f9",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 14
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:164b95ad14b16c0c8c88fd7030800c25",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 17
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:419c5878fe2f76ac26dbdba9fd82950a",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 16
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:6593d20c4f2f1a870cbe8812cae97da8",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 19
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#streamDocumentFile:bf587ac095cf99984c5d6f08bbada5df",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 18
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/index.ts#writeDescriptorVersionWarning:8ee08c037cd32b85afcb4e5c6c3c954b",
+        "route": "cli:ha",
+        "role": "effect",
+        "order": 15
+      }
+    ],
+    "daemon-stop": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/control.ts#requestCooperativeStop:e6615fba2679360e1ce697ab9350ac40",
+        "route": "daemon-stop",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "package-assets-build": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:1442f7a190761fcbfd081eafa9d14e58",
+        "route": "npm:cli:build",
+        "role": "effect",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:cb7dde155c5cf050a5a93e874afab44b",
+        "route": "npm:cli:build",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/scripts/copy-assets.mjs#<module>:f750ac50c954078007f8009c1e95ae1e",
+        "route": "npm:cli:build",
+        "role": "effect",
+        "order": 0
+      }
+    ],
+    "rbac-bootstrap": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:5458daf167da1246ff7c006ebba66bf9",
+        "route": "edge-join",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:5f3db8fae8c00a71f7c602a62be61bbf",
+        "route": "edge-join",
+        "role": "support",
+        "order": 5
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:951b00391802c4dcc810216d6d4b0e85",
+        "route": "edge-join",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:d85bbd853f42837c3c69bd7e37b4e096",
+        "route": "edge-join",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:e643236d16afe0ecbb802a205e375230",
+        "route": "edge-join",
+        "role": "support",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/client.ts#bootstrapParams:fea22b4e3ddff1b9340eb777a9acc74c",
+        "route": "edge-join",
+        "role": "support",
+        "order": 2
+      }
+    ],
+    "repository-read": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#invalid:b52c09437e1988d52bedf9e24aa699f7",
+        "route": "repository-read",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#readCliInputFile:9b632a0bdf159ffd55e85cfe3ac80232",
+        "route": "repository-read",
+        "role": "support",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#readCliInputFile:e1b5321435f60007e7514aa97d7db202",
+        "route": "repository-read",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-input-codec.ts#readCliInputFile:f614b14ef458f6a6b6e19a6f0809ffdc",
+        "route": "repository-read",
+        "role": "support",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/control-status.ts#liveShutdownProcesses:d0417d8084a9b47b0b48bf1ccaa5047b",
+        "route": "repository-read",
+        "role": "support",
+        "order": 5
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#descriptorFor:0c8d1bb1e8f862018319e1dc0ec148c0",
+        "route": "repository-read",
+        "role": "support",
+        "order": 7
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#invalid:b52c09437e1988d52bedf9e24aa699f7",
+        "route": "repository-read",
+        "role": "support",
+        "order": 6
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-payload-serializer.ts#parseJson:44d2f3b9f1129a6daf660c3bf63fd916",
+        "route": "repository-read",
+        "role": "support",
+        "order": 8
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/fleet-status.ts#runDaemonFleetStatus:bf7da2558f03d71d9585cd88ba4ccc4f",
+        "route": "repository-read",
+        "role": "support",
+        "order": 9
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#daemonMetricsArgsError:d5df8cb0552b479ad035827141f22753",
+        "route": "repository-read",
+        "role": "support",
+        "order": 11
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#daemonMetricsArgsError:e08940482f430f4f13edf85d559a8f02",
+        "route": "repository-read",
+        "role": "support",
+        "order": 10
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#readMetricsHistory:184db3f7ff5d405b235d3a187ed2d041",
+        "route": "repository-read",
+        "role": "support",
+        "order": 14
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#readMetricsHistory:dca177d5eace18f264e296d6d85ea144",
+        "route": "repository-read",
+        "role": "support",
+        "order": 13
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/metrics.ts#runDaemonMetrics.retained:cd8e6ef0cb3693185d0bc199ee8f6238",
+        "route": "repository-read",
+        "role": "support",
+        "order": 12
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/probe/probe-run.ts#pingDaemon:2f638c5dc7800592316a4d2847e35de2",
+        "route": "repository-read",
+        "role": "support",
+        "order": 15
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/slo.ts#invalidField:b52c09437e1988d52bedf9e24aa699f7",
+        "route": "repository-read",
+        "role": "support",
+        "order": 16
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/daemon/top.ts#invalidInterval:1cf5a8dcb05d5fbbe0cfa8dcc1714e82",
+        "route": "repository-read",
+        "role": "support",
+        "order": 17
+      }
+    ],
+    "runtime-instance-hosting-credential-set": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:28bda09c4ae031da8b10246a505e4f5a",
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:4d890d24940a3b566e75c02871f8c27b",
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli/runtime-credential-input.ts#runtimeCredentialInput:d1d09200bad69f9e7e5f568957d6efa2",
+        "route": "runtime-instance-hosting-credential-set",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "runtime-run": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-runtime-batch-input.ts#readRuntimeBatchFile:ce638601218c25b3f67e5c1adcc2e38f",
+        "route": "runtime-run",
+        "role": "support",
+        "order": 0
+      }
+    ],
+    "task-artifact-add": [
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-artifact-source.ts#materializeArtifactSource:18503c6489092cde980d537d4f0b965d",
+        "route": "task-artifact-add",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/cli:packages/cli/src/cli-artifact-source.ts#materializeArtifactSource:87cec17695bb493cf1612cd0af09a51b",
+        "route": "task-artifact-add",
+        "role": "support",
+        "order": 1
+      }
+    ]
+  }
+}

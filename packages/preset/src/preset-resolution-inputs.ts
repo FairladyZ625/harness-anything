@@ -70,6 +70,89 @@ export function presetsDeclaringProfile(
     .sort();
 }
 
+/** Whether a candidate's effective availability requires `taskClass="work"` and has all providers satisfied. */
+export function candidateAvailability(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  candidate: Candidate,
+  providers: ReadonlyMap<string, Provider>,
+): PresetAvailability | null {
+  if (!candidate.decoded) return null;
+  const ancestry = presetAncestry(catalog, candidate, verticalId);
+  if (!ancestry.ok) return null;
+  const availability = presetAvailability({
+    catalog,
+    verticalId,
+    ancestry: ancestry.ancestry,
+    providers,
+  });
+  return availability.missingProviderIds.length === 0 ? availability : null;
+}
+
+/** Valid non-work presets of one vertical whose manifest declares `outputShape`, in id order. */
+export function presetsWithOutputShape(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  outputShape: string,
+  providers: ReadonlyMap<string, Provider>,
+): string[] {
+  const prefix = key(verticalId, "");
+  return [...catalog]
+    .filter(([catalogKey, item]) => {
+      if (!catalogKey.startsWith(prefix) || item.decoded?.manifest.outputShape !== outputShape) return false;
+      const availability = candidateAvailability(catalog, verticalId, item, providers);
+      return availability !== null && availability.requiredTaskClass !== "work";
+    })
+    .map(([, item]) => item.id)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+/** Valid presets of one vertical whose resolved capabilities require `taskClass="work"`, in id order. */
+export function workPresetIdsForVertical(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  providers: ReadonlyMap<string, Provider>,
+): string[] {
+  const prefix = key(verticalId, "");
+  return [...catalog]
+    .filter(([catalogKey, item]) => {
+      if (!catalogKey.startsWith(prefix) || !item.decoded) return false;
+      const availability = candidateAvailability(catalog, verticalId, item, providers);
+      return availability?.requiredTaskClass === "work";
+    })
+    .map(([, item]) => item.id)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function defaultPresetPriority(candidate: Candidate): number {
+  const manifest = candidate.decoded!.manifest;
+  const isRegularKind = manifest.kind !== "process-action";
+  const isRepositoryDiff = manifest.outputShape === "repository-diff";
+  if (isRegularKind && isRepositoryDiff) return 0;
+  if (isRegularKind) return 1;
+  if (isRepositoryDiff) return 2;
+  return 3;
+}
+
+/** Valid non-work presets of one vertical selectable as a repository default, ordered by regular task suitability then id. */
+export function defaultPresetCandidatesForVertical(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  providers: ReadonlyMap<string, Provider>,
+): Candidate[] {
+  const prefix = key(verticalId, "");
+  return [...catalog]
+    .filter(([catalogKey, item]) => {
+      if (!catalogKey.startsWith(prefix) || !item.decoded) return false;
+      const availability = candidateAvailability(catalog, verticalId, item, providers);
+      return availability !== null && availability.requiredTaskClass !== "work";
+    })
+    .map(([, item]) => item)
+    .sort(
+      (left, right) => defaultPresetPriority(left) - defaultPresetPriority(right) || left.id.localeCompare(right.id),
+    );
+}
+
 export function profileFor(
   manifest: PresetTaskManifestV3,
   requested?: string,

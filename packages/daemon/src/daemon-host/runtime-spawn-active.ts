@@ -3,9 +3,20 @@ import {
   type SettingsFieldDeclaration,
 } from "@harness-anything/kernel/internal/domain/settings-field-declarations.ts";
 import { randomUUID } from "node:crypto";
-import type { ActiveRuntime, ResumeProcessObservation, RuntimeProcessObservation } from "./runtime-spawn-types.ts";
+import type {
+  ActiveRuntime,
+  ResumeProcessObservation,
+  RuntimeBinding,
+  RuntimeProcessObservation,
+} from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
+import {
+  markSteerReceiptAcked,
+  readPendingSteerReceipts,
+  recordPendingSteerReceipt,
+  steerReceiptOpId,
+} from "./dispatch-steer-state.ts";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, type DispatchLifecycleView } from "@harness-anything/kernel";
 import { dispatchLifecyclePendingError, readDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
@@ -91,6 +102,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
       : lastProgressAtMs;
   return {
     ...base,
+    steerReceiptCapable: base.steerReceiptCapable ?? true,
     releaseAuthorization: base.binding.retainAuthorization?.(),
     stallTimeoutMs,
     fallbackAttempt: base.fallbackAttempt ?? null,
@@ -178,7 +190,7 @@ export async function isRuntimeProcessProvenStopped(
   pid = active.process.pid,
 ): Promise<ProviderGroupSweepVerdict> {
   if (attempt.stopProof === "proven_stopped") return "proven_stopped";
-  if (pid <= 1) return "unknown_unreachable";
+  if (pid === undefined || pid <= 1) return "unknown_unreachable";
   return sweepUntilProvenStopped({ pid, dispatch: { rootDir: context.input.rootDir, dispatchId: active.dispatchId } });
 }
 
@@ -196,6 +208,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
   const liveProcessPids = newlyStalled ? await liveDescendantPids(active) : null;
   active.lossReason = `Dispatch stalled after ${String(active.stallTimeoutMs)} ms without provider or workspace progress.`;
   if (newlyStalled) active.stream.appendStalled?.(stalledAt, stallEvidence(active, stalledAt, liveProcessPids));
+  if (active.process.cloud) return context.publishExit(active, null);
   await context.publishRuntimeEvent(
     "runtime_session_cancelled",
     { runtimeSessionId: active.runtimeSessionId },
@@ -203,7 +216,7 @@ export async function settleStalledRuntime(context: RuntimeSpawnerContext, activ
     active.binding,
   );
   if (active.process.terminateTree) await active.process.terminateTree();
-  else active.process.terminate();
+  else if (!active.process.cloud) active.process.terminate();
   await consumeDurableOutput(context, active);
   await context.publishExit(active, null);
 }
@@ -329,7 +342,7 @@ function retireObservationFault(
   void Promise.resolve()
     .then(async () => {
       if (active.process.terminateTree) await active.process.terminateTree();
-      else active.process.terminate();
+      else if (!active.process.cloud) active.process.terminate();
       context.input.schedule(async () => {
         if (active.exitSettlement || context.exiting.has(active.runtimeSessionId)) return;
         appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
@@ -357,7 +370,7 @@ export function attachActiveRuntime(
     handlers = {
       output: (chunk: string, persisted = false) => {
         if (!active.exitSettlement && !context.closed?.())
-          context.input.schedule(async () => {
+          return context.input.schedule(async () => {
             if (!active.exitSettlement && !context.closed?.()) {
               active.stdoutObserved ||= chunk.length > 0;
               await context.consumeChunk(active, chunk, false, persisted);
@@ -368,7 +381,7 @@ export function attachActiveRuntime(
       },
       error: (chunk: string) => {
         if (!active.exitSettlement && !context.closed?.()) {
-          context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
+          return context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
         }
       },
       exit: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => {
@@ -430,11 +443,95 @@ export function attachActiveRuntime(
     disposeActiveRuntimeObservations(active);
     throw error;
   }
+  active.process.cloud?.onLiveness((live) =>
+    context.input.schedule(async () => {
+      if (active.exitSettlement || context.closed?.()) return;
+      await context.publishRuntimeEvent(
+        "runtime_session_liveness_changed",
+        { runtimeSessionId, liveness: live ? "live" : "unknown" },
+        `runtime-observation-${active.dispatchId}-${randomUUID()}`,
+        active.binding,
+      );
+    }, active.binding),
+  );
   if (resumeObservation) resumeObservation.activate(handlers);
   else {
     active.process.onOutput(handlers.output);
     active.process.onErrorOutput(handlers.error);
     active.process.onExit(handlers.exit);
   }
+  active.process.onSteerOutcome?.((outcome) => {
+    recordPendingSteerReceipt(
+      context.input.rootDir,
+      active.dispatchId,
+      context.input.repoId,
+      runtimeSessionId,
+      outcome,
+    );
+    if (context.closed?.()) return;
+    // F13: Never queue receipt uplink RPCs on the control workQueue; wake the dedicated
+    // non-blocking receipt pump (or detached async flush when standalone).
+    if (context.triggerSteerReceiptFlush) {
+      context.triggerSteerReceiptFlush();
+      return;
+    }
+    void flushPendingSteerReceipts(context, active.dispatchId, runtimeSessionId, active.binding).catch(
+      (error: unknown) => console.error("[runtime-steer-receipts] background flush deferred:", error),
+    );
+  });
   if (active.stalledAt !== null) context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
+}
+
+const permanentSteerReceiptRejectionCodes = new Set([
+  "invalid_control_receipt",
+  "control_receipt_conflict",
+  "control_request_not_found",
+  "execution_scope_mismatch",
+  "execution_credential_rejected",
+]);
+
+/** Durably publish all unacknowledged steer control receipts for a dispatch, clearing each only after Center ACKs. */
+export async function flushPendingSteerReceipts(
+  context: RuntimeSpawnerContext,
+  dispatchId: string,
+  runtimeSessionId: string,
+  binding: RuntimeBinding,
+): Promise<void> {
+  const pending = readPendingSteerReceipts(context.input.rootDir, dispatchId);
+  for (const outcome of pending) {
+    const receiptOpId = steerReceiptOpId(context.input.repoId, runtimeSessionId, outcome.requestOpId);
+    try {
+      await context.publishRuntimeEvent(
+        "runtime_session_liveness_changed",
+        {
+          runtimeSessionId,
+          liveness: "unknown",
+          controlReceipt: {
+            action: "steer",
+            controlRequestId: outcome.controlRequestId,
+            requestOpId: outcome.requestOpId,
+            status: outcome.status,
+            dispatchId,
+            ...(outcome.steerVersion !== undefined ? { steerVersion: outcome.steerVersion } : {}),
+            ...(outcome.reasonCode ? { reasonCode: outcome.reasonCode } : {}),
+            ...(outcome.message ? { message: outcome.message } : {}),
+          },
+        },
+        receiptOpId,
+        binding,
+      );
+      markSteerReceiptAcked(context.input.rootDir, dispatchId, context.input.repoId, runtimeSessionId, receiptOpId);
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+          ? error.code
+          : null;
+      if (code !== null && permanentSteerReceiptRejectionCodes.has(code)) {
+        markSteerReceiptAcked(context.input.rootDir, dispatchId, context.input.repoId, runtimeSessionId, receiptOpId);
+        console.error(`[runtime-steer-receipts] permanently rejected receipt ${receiptOpId} (${code}):`, error);
+        continue;
+      }
+      throw error;
+    }
+  }
 }

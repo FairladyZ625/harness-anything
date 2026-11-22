@@ -1,5 +1,6 @@
 import { createAgentRuntimeEvent } from "./agent-runtime-event.ts";
 import {
+  isRuntimeControlCarrierEvent,
   reduceRuntimeSession,
   validateCurrentAgentRuntimeEvent,
   type AgentRuntimeEventType,
@@ -65,7 +66,12 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("attachable", "boolean"),
     field("taskBinding", "json-object", false),
   ]),
-  runtime_session_provider_bound: Object.freeze([runtimeSessionId, field("providerSessionId"), field("transcriptRef")]),
+  runtime_session_provider_bound: Object.freeze([
+    runtimeSessionId,
+    field("providerSessionId"),
+    field("transcriptRef"),
+    field("controlReceipt", "json-object", false),
+  ]),
   runtime_session_task_bound: Object.freeze([
     runtimeSessionId,
     field("taskId"),
@@ -77,7 +83,10 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     runtimeSessionId,
     field("liveness", "string", true, ["live", "stale", "unknown"]),
     field("processGroupPid", "number", false),
+    field("stopUnconfirmed", "boolean", false),
     field("providerUnreachable", "json-object", false),
+    field("controlRequest", "json-object", false),
+    field("controlReceipt", "json-object", false),
   ]),
   runtime_session_cancelled: Object.freeze([runtimeSessionId]),
   runtime_session_exited: Object.freeze([runtimeSessionId]),
@@ -88,9 +97,11 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("resultRef"),
     field("result", "json-object"),
     field("reasonCode", "string", false),
+    field("orphanRecovery", "json-object", false),
     field("dispatchId", "string", false),
     field("endedAt", "string", false),
     field("runtimeMetrics", "json-object", false),
+    field("cacheWriteTokens", "number", false),
     field("attempt", "json-object", false),
     field("resultBody", "string", false),
   ]),
@@ -250,13 +261,13 @@ function compileRuntimeSessionAction(
   let noChanges = false;
   try {
     const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
-    noChanges =
+    const preSessionTerminal =
       (event.type === "runtime_session_exited" || event.type === "runtime_session_outcome_observed") &&
       current === null &&
       typeof input.action.dispatchId === "string" &&
-      input.action.dispatchId.length > 0
-        ? false
-        : reduceRuntimeSession(current, event) === current;
+      input.action.dispatchId.length > 0;
+    const reduced = preSessionTerminal ? null : reduceRuntimeSession(current, event);
+    noChanges = isRuntimeControlCarrierEvent(event) || preSessionTerminal ? false : reduced === current;
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);

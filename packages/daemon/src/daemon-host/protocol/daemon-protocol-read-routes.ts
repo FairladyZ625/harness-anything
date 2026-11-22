@@ -5,6 +5,7 @@ import {
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   daemonAgendaPayloadShape,
   daemonArtifactsListPayloadShape,
+  daemonCollaboratorScopeFields,
   daemonDecisionListPayloadShape,
   daemonTokenUsagePayloadShape,
   daemonTokenUsageDetailPayloadShape,
@@ -93,7 +94,7 @@ export const daemonReadRoutes = Object.freeze([
     phase: "W2-GUI",
     method: "repo.works.index",
     requiresRepo: true,
-    params: shape({ repo: shape({ repoId: "string" }) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: "json?" }),
     commandClass: "repo-read",
   },
   {
@@ -105,7 +106,7 @@ export const daemonReadRoutes = Object.freeze([
     phase: "W2-GUI",
     method: "repo.works.briefs.read",
     requiresRepo: true,
-    params: shape({ repo: shape({ repoId: "string" }) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: "json?" }),
     commandClass: "repo-read",
   },
   {
@@ -165,7 +166,7 @@ export const daemonReadRoutes = Object.freeze([
     phase: "Governed-Entity-W2-0",
     method: "repo.entity.rows.read",
     requiresRepo: true,
-    params: shape({ repo: shape({ repoId: "string" }) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: "json?" }),
     commandClass: "repo-read",
   },
   {
@@ -224,7 +225,7 @@ export const daemonReadRoutes = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ rootTaskId: "string", limit: "number?", cursor: "string?" }),
+      payload: shape({ ...daemonCollaboratorScopeFields, rootTaskId: "string", limit: "number?", cursor: "string?" }),
     }),
     commandClass: "repo-read",
   },
@@ -330,7 +331,13 @@ export const daemonReadRoutes = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ taskId: "string?", limit: "number?", cursor: "string?" }),
+      payload: shape({
+        taskId: "string?",
+        limit: "number?",
+        cursor: "string?",
+        scopePersonId: "string?",
+        filterNodeId: "string?",
+      }),
     }),
     commandClass: "repo-read",
   },
@@ -341,7 +348,15 @@ export const daemonReadRoutes = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeSessionId: "string?", taskId: "string?", dispatchId: "string?" }),
+      payload: shape({
+        runtimeSessionId: "string?",
+        taskId: "string?",
+        dispatchId: "string?",
+        includeControlReceipts: "boolean?",
+        controlReceiptRequestOpId: "string?",
+        controlReceiptsCursor: "string?",
+        controlReceiptsLimit: "number?",
+      }),
     }),
     commandClass: "repo-read",
   },
@@ -391,6 +406,9 @@ export const daemonReadRoutes = Object.freeze([
       repo: shape({ repoId: "string" }),
       payload: shape({
         taskId: "string?",
+        floor: "string?",
+        runtimeSessionIds: "array?",
+        latestOnly: "boolean?",
         taskIds: "array?",
         limit: "number?",
         cursor: "string?",

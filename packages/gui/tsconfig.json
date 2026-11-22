@@ -33,7 +33,7 @@
   ],
   "references": [
     {
-      "path": "../authorization-gui"
+      "path": "../authorization"
     },
     {
       "path": "../daemon"

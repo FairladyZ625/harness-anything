@@ -303,6 +303,35 @@ export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = 
       "retirement candidates. Its resumable 64-event catch-up preserves canonical bytes; follower cold " +
       "materialization reads only the partial working-set index, including blocked directory retirements.",
   },
+  {
+    kind: "read-conclusion",
+    name: "projection.decision-list-summaries",
+    fields: [
+      "decision.list_options_json",
+      "decision.review_summary_json",
+      "ha_decisions.list_summary",
+      "ha_decisions.review_summary",
+    ],
+    attachRequired: false,
+    conclusion:
+      "SQLite expands and backfills schema 38 to 39 in one projection transaction. " +
+      "PostgreSQL generation 5 adds both columns and backfills up to 64 owners per transaction. " +
+      "Canonical events and content blobs remain byte-identical.",
+  },
+  {
+    kind: "read-conclusion",
+    name: "ledger.occurred-at-epoch-index",
+    fields: ["event.occurred_at_ms_revision", "ha_events.occurred_at_ms", "ha_events_occurred_ms_revision"],
+    attachRequired: false,
+    conclusion:
+      "SQLite writer open installs the deterministic expression index event_occurred_at_ms_revision on UTC epoch " +
+      "milliseconds derived from occurred_at via isoOffsetTimestampMillisecondsSql (Date.parse truncation, ±23:59 offsets); " +
+      "read-only legacy SQLite stores evaluate the same expression without rewriting canonical rows. " +
+      "PostgreSQL installs nullable scalar occurred_at_ms (zero table rewrite), the shared ha_event_occurred_at_ms_sync " +
+      "trigger for previous and current writers, concurrent RLS-aligned indexes via ensurePgProjectionSchema, and bounded " +
+      "64-row backfill in ha_backfill_event_read_indexes with a projection_pending gate. Canonical event_json, occurred_at " +
+      "text, and digests remain byte-identical.",
+  },
 ]);
 
 const registeredRetiredFields = new Set(

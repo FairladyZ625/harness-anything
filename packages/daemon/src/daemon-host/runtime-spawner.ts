@@ -1,3 +1,4 @@
+import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { collectRuntimeWorkspaceProgress, type RuntimeWorkspaceProgress } from "./runtime-continuation-context.ts";
 import {
   currentExecutionArrangement,
@@ -13,10 +14,11 @@ import {
   verifyDispatchSnapshotFence,
 } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
-import { readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
+import { readDispatchLifecycle, readyDispatchLifecycle } from "./runtime-dispatch-admission.ts";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import path from "node:path";
-import { type AgentRuntimeEventV1, type CanonicalEventStore } from "@harness-anything/kernel";
+import type { CanonicalEventStore } from "@harness-anything/kernel";
 import {
   clampPermissionMode,
   resolveScheduledPermissionMode,
@@ -32,11 +34,7 @@ import {
   agentRuntimeModelSpelling,
   agentRuntimeTargetForKind,
 } from "./agent-runtime-contract.ts";
-import {
-  agentRuntimeAmbiguityWarning,
-  selectedRuntimeInstance,
-  createRuntimeInstanceDispatchState,
-} from "./runtime-instance-selection.ts";
+import { selectedRuntimeInstance, createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
 import { resolveDispatchAgent } from "./runtime-spawn-agent.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
@@ -46,6 +44,7 @@ import {
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
+  type TrustedManagedCwdKind,
 } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
@@ -66,6 +65,7 @@ import {
 } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
+  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskExecutionFrozenError,
@@ -111,7 +111,7 @@ import type {
   ResumeProcessObservation,
   RuntimeBinding,
   RuntimeSpawnerInput,
-  RuntimeProcess,
+  RuntimeExecutionHandle,
   TrustedScheduleRuntime,
   TrustedScheduleSpawn,
 } from "./runtime-spawn-types.ts";
@@ -123,6 +123,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeExecutionRoleForLaunch, taskExecutionSurfaces } from "./runtime-execution-scope.ts";
 import {
   assertReviewerTarget,
+  parseTaskReviewTarget,
   reviewerPinnedCommit,
   selectReadOnlyAttachTarget,
   selectReviewTarget,
@@ -131,7 +132,9 @@ import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
 import {
   initialFallbackAttempt,
+  releaseFallbackResources,
   settleFallbackAttempt,
+  settleStartRejectedAttempt,
   scheduleFallbackContinuation,
   requiredRuntimeFast,
 } from "./runtime-spawn-fallback.ts";
@@ -144,9 +147,12 @@ import {
   parseDispatchSnapshotExpectations,
   readOnlyAttachDispatch,
   prepareDispatchWorktree,
+  preflightRuntimeSelection,
   projectedWorktreeBinding,
   resolveDispatchCwd,
+  dispatchDecisionPackageRoot,
   dispatchTaskPackageRoot,
+  managedRootsForTrustedCwd,
 } from "./runtime-resume-admission.ts";
 import {
   materializeDispatchSkillSnapshot,
@@ -156,8 +162,10 @@ import {
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import {
   reclaimReviewWorktree,
+  resolveManagedReviewWorktreePath,
   taskWorktreeCheckoutNote,
   verifyHandoffWorktree,
+  verifyReviewCheckout,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { requireTaskWriterAdmission } from "./runtime-dispatch-admission.ts";
@@ -191,7 +199,7 @@ function releaseFailedTaskClaim<Args extends unknown[]>(
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const dispatchState = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
-  const processes = new Map<string, ActiveRuntime>(),
+  const activeRuntimeHandles = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
@@ -205,45 +213,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
-  const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
-    // A resumed dispatch carries its own model and instance in the recorded stream header; do not
-    // re-resolve it from the current declaration before the resume admission reads that header.
-    if (typeof payload.dispatchId === "string" || typeof payload.providerSessionId === "string") return;
-    const runtimeInstanceId =
-        typeof payload.runtimeInstanceId === "string"
-          ? requiredRuntimeSpawnText(payload.runtimeInstanceId, "runtimeInstanceId")
-          : undefined,
-      agentId =
-        typeof payload.agentId === "string" && payload.squadId === undefined && payload.targetAgentId === undefined
-          ? payload.agentId
-          : undefined,
-      agent = agentId === undefined ? null : (input.resolveAgent?.(agentId) ?? null),
-      requested = runtimeInstanceId ?? agent?.instance;
-    if (requested === undefined) return;
-    const projection = input.remote ? null : requiredRuntimeProjection(input),
-      [sessions, instances, allowedInstanceIds, health] = await resolveRuntimeDispatchResources(
-        input,
-        input.remote,
-        projection,
-      );
-    resolveRuntimeInstanceCandidates({
-      ...(requested === undefined ? {} : { requested }),
-      ...(runtimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
-      ...(typeof payload.providerSessionId === "string" ? { providerSessionId: payload.providerSessionId } : {}),
-      agent,
-      ...(typeof payload.model === "string" ? { model: payload.model } : {}),
-      ...(typeof payload.runtimeKind === "string" ? { runtimeKind: payload.runtimeKind } : {}),
-      instances,
-      allowedInstanceIds,
-      sessions,
-      health,
-      now: input.now(),
-    });
-  };
+  const fallbackAbort = new AbortController();
   const spawnAttempt = releaseFailedTaskClaim(spawnClaimAttempt);
   const extracted: RuntimeSpawnerContext = {
     dispatchState,
     closed: () => fallbackClosed,
+    closeSignal: fallbackAbort.signal,
     input,
     requiredRuntimeStore,
     requiredRuntimeProjection,
@@ -256,7 +231,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     parseProviderFrame,
     bindProvider: (active, identity) => runtimeSpawnerDelegates.bindProvider(extracted, active, identity),
     isStructuredSuccessResult,
-    processes,
+    processes: activeRuntimeHandles,
     ownsModelSlot: (runtimeSessionId) => modelSlotQueue.position(runtimeSessionId) === 0,
     providerErrorLimit,
     publishRuntimeEvent,
@@ -268,14 +243,45 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     publishExit: (active, code, resumePublishedExit) =>
       runtimeSpawnerDelegates.publishExit(extracted, active, code, resumePublishedExit),
     enforceSpendCap: (active) => enforceRuntimeSpendCap(extracted, active),
-    controlReceipt: (opId, runtimeSessionId, detail) =>
-      runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail),
+    controlReceipt: (opId, runtimeSessionId, detail, settlementReceipt) =>
+      runtimeSpawnerDelegates.controlReceipt(extracted, opId, runtimeSessionId, detail, settlementReceipt),
     captureErrorOutput: (active, chunk) => runtimeSpawnerDelegates.captureErrorOutput(extracted, active, chunk),
     prepareDaemonGitEnvironment,
     settleFallback: (active, outcome, terminal) => settleFallbackAttempt(extracted, active, outcome, terminal),
     reconcileFallback: (dispatchId) =>
       scheduleFallbackContinuation({
         context: extracted,
+        ensureFallbackWorktree: async ({
+          role,
+          taskId,
+          executionId,
+          reviewTarget,
+          cwd,
+          dispatchKey,
+          trustedManagedCwd,
+        }) => {
+          if (role !== "reviewer" || !taskId || input.remote) return null;
+          const worktreePayload: JsonObject = {
+              role,
+              taskId,
+              ...(executionId ? { executionId } : {}),
+              ...(reviewTarget ? { reviewTarget } : {}),
+              dispatchKey,
+            },
+            pinnedCommit = reviewerPinnedCommit(
+              worktreePayload,
+              requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot,
+            );
+          if (existsSync(cwd)) {
+            if (
+              typeof pinnedCommit === "string" &&
+              (trustedManagedCwd === "worktree" || resolveManagedReviewWorktreePath(input.rootDir, cwd) !== null)
+            )
+              await verifyReviewCheckout(cwd, pinnedCommit);
+            return null;
+          }
+          return prepareDispatchWorktree(input, worktreePayload, projectedWorktreeBinding(input), pinnedCommit);
+        },
         launch: (
           payload,
           binding,
@@ -285,6 +291,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           publicationOwner,
           onDispatched,
           workspaceProgress,
+          inheritedCwd,
+          preparedWorktree,
+          trustedManagedCwd,
         ) =>
           spawnAttempt(
             payload,
@@ -293,16 +302,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             schedule,
             handoffFromRuntimeSessionId,
             publicationOwner,
-            null,
+            preparedWorktree ?? null,
             undefined,
             undefined,
             onDispatched,
             undefined,
             undefined,
             workspaceProgress,
+            false,
+            inheritedCwd,
+            trustedManagedCwd,
           ),
         dispatchId,
       }),
+    ...(input.onPendingSteerReceipt ? { triggerSteerReceiptFlush: input.onPendingSteerReceipt } : {}),
   };
   async function spawnClaimAttempt(
     claim: RuntimeTaskClaimScope,
@@ -320,6 +333,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null,
     workspaceProgress?: RuntimeWorkspaceProgress,
     recoveryRequested = false,
+    inheritedFallbackCwd?: string,
+    trustedManagedCwd?: TrustedManagedCwdKind,
   ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
@@ -375,6 +390,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       requestedExecutionId =
         payload.executionId === undefined ? undefined : requiredRuntimeSpawnText(payload.executionId, "executionId"),
       decisionReviewTarget = parseDecisionReviewTarget(payload.reviewTarget),
+      taskReviewTarget = parseTaskReviewTarget(payload.reviewTarget),
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
@@ -412,6 +428,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       reviewer: reviewerBinding,
       taskId,
       decisionTarget: decisionReviewTarget,
+      taskTarget: taskReviewTarget,
       executionId: requestedExecutionId,
       remoteExecutionId: remoteTask?.executionId,
       remote: input.remote !== undefined,
@@ -428,12 +445,31 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // enforces the same invariant.
       reviewTarget =
         reviewerBinding && taskId !== null
-          ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
+          ? selectReviewTarget(
+              taskId,
+              requestedExecutionId ?? taskReviewTarget?.executionId,
+              taskSnapshot,
+              input.remote != null,
+              taskReviewTarget?.digest,
+            )
           : null,
       { dispatchId: newDispatchId, runtimeSessionId } = runtimeDispatchIdentity(input.repoId, dispatchKey),
       dispatchOpId = randomUUID(),
       installationOpId = randomUUID(),
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
+    if (remoteTask && reviewerBinding && taskReviewTarget) {
+      const currentDigest = remoteTask.reviewerSubmission ? submissionDigest(remoteTask.reviewerSubmission) : null;
+      if (
+        remoteTask.executionId !== taskReviewTarget.executionId ||
+        ((remoteTask.reviewerSubmission !== undefined || inheritedFallback !== undefined) &&
+          currentDigest !== taskReviewTarget.digest)
+      )
+        throw runtimeSpawnError(
+          "review_cut_superseded",
+          `Submitted cut for task ${taskReviewTarget.taskId} execution ${taskReviewTarget.executionId} was amended or superseded ` +
+            `(expected digest ${taskReviewTarget.digest}, current ${currentDigest ?? "none"}).`,
+        );
+    }
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     const frozenStatus = taskSnapshot?.task?.status,
       frozenTask = frozenStatus === "submitted" || frozenStatus === "in_review",
@@ -447,7 +483,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId !== null && !input.remote && !reviewerBinding && !dryRun && frozenTask
           ? input.resolveAgent !== undefined &&
             agentId !== undefined &&
-            input.resolveAgent(agentId)?.permissionMode === "read-only"
+            input.resolveAgent(agentId, taskSnapshot?.task?.metadata?.verticalId)?.permissionMode === "read-only"
           : false,
       attachTarget = readOnlyAttach ? selectReadOnlyAttachTarget(taskId!, taskSnapshot!) : null,
       arrangement = taskSnapshot ? currentExecutionArrangement(taskSnapshot) : undefined,
@@ -504,29 +540,66 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    // A detached review checkout owns its package boundary. Artifact-only tasks have no checkout,
-    // so their reviewer must retain the canonical task package cwd.
-    const reviewerHasWorktree =
-        reviewerBinding && (remoteTask ? remoteTask.worktree !== null : preparedWorktree !== null),
-      taskPackageRoot = reviewerHasWorktree ? null : dispatchTaskPackageRoot(input, taskId, remoteTask),
+    // A detached review checkout owns its worktree boundary; doc/artifact-only tasks own their
+    // task-package boundary under authoredRoot; trusted Decision reviews are authorized only by
+    // internal review dispatch entries. Ordinary caller-selected cwds (including Task-bound ones)
+    // carry no trustedManagedCwd provenance and re-verify repository realpath containment on every attempt.
+    const effectiveInheritedCwd = inherited?.cwd ?? inheritedFallbackCwd,
+      inheritedTrustedManagedCwd: TrustedManagedCwdKind | undefined =
+        trustedManagedCwd ?? (inherited?.cwd !== undefined ? resumed?.header.trustedManagedCwd : undefined),
+      trustedDecisionReview = inheritedTrustedManagedCwd === "decision-package",
+      fallbackNeedsRemoteReviewWorktree =
+        remoteTask !== null &&
+        remoteTask.worktree !== null &&
+        inheritedFallback !== undefined &&
+        reviewerBinding &&
+        taskId !== null &&
+        effectiveInheritedCwd !== undefined &&
+        !existsSync(effectiveInheritedCwd),
+      requestedDecisionPackageRoot = trustedDecisionReview
+        ? dispatchDecisionPackageRoot(input.rootDir, payload, decisionReviewTarget)
+        : null,
+      inheritedManagedRoots = managedRootsForTrustedCwd(input.rootDir, inheritedTrustedManagedCwd),
+      reviewerHasWorktree =
+        reviewerBinding &&
+        (remoteTask
+          ? remoteTask.worktree !== null
+          : preparedWorktree !== null ||
+            (inheritedFallback !== undefined && inheritedTrustedManagedCwd === "worktree")),
+      taskPackageRoot =
+        requestedDecisionPackageRoot ??
+        (reviewerHasWorktree ? null : dispatchTaskPackageRoot(input, taskId, remoteTask)),
       { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,
-        inherited?.cwd,
+        fallbackNeedsRemoteReviewWorktree ? undefined : effectiveInheritedCwd,
         remoteTask
-          ? await prepareDispatchWorktree(
-              input,
-              { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
-              () => remoteTask.worktree,
-              reviewerBinding
-                ? reviewTarget?.submission !== undefined || remoteTask.reviewerSubmission !== undefined
-                  ? ((reviewTarget?.submission ?? remoteTask.reviewerSubmission)!.commitSha ?? null)
-                  : undefined
-                : undefined,
-            )
+          ? fallbackNeedsRemoteReviewWorktree || (inheritedFallback === undefined && !effectiveInheritedCwd)
+            ? await prepareDispatchWorktree(
+                input,
+                { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
+                () => remoteTask.worktree,
+                reviewerBinding
+                  ? reviewTarget?.submission !== undefined || remoteTask.reviewerSubmission !== undefined
+                    ? ((reviewTarget?.submission ?? remoteTask.reviewerSubmission)!.commitSha ?? null)
+                    : undefined
+                  : undefined,
+              )
+            : null
           : preparedWorktree,
         taskPackageRoot,
-      );
+        inheritedManagedRoots,
+      ),
+      resolvedManagedCwd: TrustedManagedCwdKind | undefined =
+        requestedDecisionPackageRoot !== null
+          ? "decision-package"
+          : taskPackageRoot !== null
+            ? "task-package"
+            : dispatchWorktree !== null
+              ? "worktree"
+              : payload.cwd === undefined && effectiveInheritedCwd !== undefined
+                ? inheritedTrustedManagedCwd
+                : undefined;
     const snapshotExpectations = parseDispatchSnapshotExpectations(payload),
       runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
@@ -537,7 +610,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agent,
         resolvedSkills: rawResolvedSkills,
         preset,
-      } = resolveDispatchAgent(input, binding, cwd, agentId, squadId, targetAgentId);
+      } = resolveDispatchAgent(
+        input,
+        binding,
+        cwd,
+        agentId,
+        squadId,
+        targetAgentId,
+        taskSnapshot?.task?.metadata?.verticalId ?? remoteTask?.verticalId ?? undefined,
+      );
     if (agent) assertAgentDispatchable(agent);
     const agentDeclarationDigest = agent === null ? null : computeAgentDeclarationDigest(agent),
       preparedSkillSnapshot =
@@ -894,7 +975,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               const budgetMicros = selectedModel ? relayBudgetMicrosOf(selectedModel, dispatchUsageLimit) : null;
               try {
                 cloudRelay =
-                  input.prepareCloudRelay && budgetMicros !== null && selectedModel
+                  input.prepareCloudRelay &&
+                  !Object.hasOwn(input.cloudRuntime?.instanceTargets ?? {}, runtimeInstanceId) &&
+                  budgetMicros !== null &&
+                  selectedModel
                     ? await input.prepareCloudRelay({
                         instanceId: runtimeInstanceId,
                         attemptId: runtimeSessionId,
@@ -997,6 +1081,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       launchedMcpPolicy = runtimeSupportsMcpPolicy(declaredKindId)
         ? (effectiveMcpPolicy ?? definition.mcpPolicy ?? "disabled")
         : undefined;
+    const executionTarget = runtimeSpawnerDelegates.runtimeExecutionTarget(input.cloudRuntime, definition.instanceId);
+    const cloudTarget = executionTarget.kind === "cloud" ? executionTarget : undefined;
+    const executionAttempt = fallbackAttempt?.attemptIndex ?? 0;
     const tasklessExecutionRole =
         !taskId && !trustedSchedule && !reviewerBinding && !decisionReviewTarget
           ? runtimeExecutionRoleForLaunch({
@@ -1033,6 +1120,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (taskId || trustedSchedule || reviewerBinding)
         await configureWorkerGitIdentity(cwd, input.rootDir, binding.actor.principal.personId);
       if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
+      if (
+        reviewerBinding &&
+        inheritedFallback !== undefined &&
+        dispatchWorktree === null &&
+        remoteTask?.worktree !== null &&
+        typeof remoteTask?.reviewerSubmission?.commitSha === "string"
+      )
+        await verifyReviewCheckout(cwd, remoteTask.reviewerSubmission.commitSha);
       // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
       // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
       taskLeaseHandoff =
@@ -1076,7 +1171,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw error;
     }
     const streamStartedAt = input.now();
-    let process: RuntimeProcess | undefined;
+    let process: RuntimeExecutionHandle | undefined;
     let launchMayBeRunning = false;
     let active: ActiveRuntime | undefined = undefined;
     let resumeObservation: ResumeProcessObservation | undefined;
@@ -1098,6 +1193,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const openStream = (): DispatchStreamWriter =>
       (stream ??= openDispatchStream(input.rootDir, {
         dispatchId: newDispatchId,
+        ...(cloudTarget ? { executionTarget: cloudTarget, executionAttempt } : {}),
         taskId: taskBinding?.taskId ?? null,
         executionId: taskBinding?.executionId ?? null,
         ...(decisionReviewTarget
@@ -1112,6 +1208,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 },
               }
             : {}),
+        ...(resolvedManagedCwd ? { trustedManagedCwd: resolvedManagedCwd } : {}),
         ...(typeof taskBinding?.leaseVersion === "number" ? { leaseVersion: taskBinding.leaseVersion } : {}),
         ...(trustedSchedule ? { schedule: trustedSchedule } : {}),
         runtimeSessionId,
@@ -1133,6 +1230,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reasoningEffort: definition.reasoningEffort,
         fast: definition.fast ?? false,
         evidenceTrackingVersion: 1,
+        steerReceiptProtocolVersion: 1,
         ...(tokenLimit === null ? {} : { tokenLimit }),
         stallTimeoutMs,
         resumeProviderSessionId: providerSessionId ?? null,
@@ -1171,6 +1269,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             installationId: definition.installationId,
             kindId: installation.kindId,
             dispatchKey,
+            ...(cloudTarget ? { executionTarget: cloudTarget } : {}),
             definitionSnapshotRef,
             definitionSnapshot: definition,
             startedAt: streamStartedAt,
@@ -1214,22 +1313,39 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupCallbackRelay = (): void => {
       if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
-    const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
+    const cleanupFailedLaunch = async (error: unknown): Promise<{ readonly fallbackPending: boolean }> => {
       active?.releaseAuthorization?.();
-      process?.terminate();
+      if (!process?.cloud) process?.terminate();
+      if (process?.cloud && active) activeRuntimeHandles.delete(runtimeSessionId);
+      const cloudStopped = await process?.cloud?.stop();
       process?.release?.();
       releaseModelSlot();
       await cloudRelay?.close();
       cleanupCallbackRelay();
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
       reclaimSessionSkillSnapshot(input.rootDir, runtimeSessionId, cwd);
-      if (role === "reviewer") {
-        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, cwd);
+      const reclaimUnadmittedReviewWorktree = async (): Promise<void> => {
+        if (role !== "reviewer" || inheritedFallback !== undefined) return;
+        const targetPath = resolveManagedReviewWorktreePath(input.rootDir, cwd);
+        if (targetPath === null) return;
+        const inUseBySibling = [...activeRuntimeHandles.values()].some(
+          (entry) =>
+            entry.runtimeSessionId !== runtimeSessionId &&
+            (entry.cwd === cwd ||
+              entry.cwd === targetPath ||
+              resolveManagedReviewWorktreePath(input.rootDir, entry.cwd) === targetPath),
+        );
+        if (inUseBySibling) return;
+        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, targetPath);
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
-      }
-      if (process && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process))) return;
-      if (!process && launchMayBeRunning) return;
+      };
+      if (
+        cloudStopped === false ||
+        (process && !process.cloud && !(await runtimeProcessTreeStopped(input.rootDir, newDispatchId, process)))
+      )
+        return { fallbackPending: false };
+      if (!process && launchMayBeRunning) return { fallbackPending: false };
       dispatchState.deactivate(runtimeSessionId);
       // A lost receipt (including credential issuance after commit) does not undo admission.
       // Center reads must be ready; an unavailable read preserves the stream and claim for recovery.
@@ -1244,16 +1360,50 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           requested || observed || (dispatchRequestSent && !input.remote && input.store!().readEvent(dispatchOpId));
       if (observed?.policy.attemptSettled) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
+        return { fallbackPending: false };
       }
       if (!admitted) {
+        await reclaimUnadmittedReviewWorktree();
         await releaseUnadmittedLease?.();
         await releaseUnadmittedClaim?.();
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-        return;
+        return { fallbackPending: false };
+      }
+      if (!process && !launchMayBeRunning && isRuntimeProcessStartRejected(error)) {
+        return settleStartRejectedAttempt({
+          context: extracted,
+          stream: openStream(),
+          dispatchId: newDispatchId,
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          kindId: declaredKindId,
+          model: definition.model,
+          role: dispatchRole ?? null,
+          cwd,
+          startedAt: streamStartedAt,
+          task: taskBinding,
+          schedule: trustedSchedule ?? null,
+          binding: activeBinding,
+          fallbackAttempt: fallbackAttempt ?? null,
+          resumeProviderSessionId: providerSessionId ?? null,
+          error,
+        });
       }
       await publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, randomUUID(), activeBinding);
-      const body = `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+      const scrubbedError = String(scrubProviderValue(runtimeErrorMessage(error)))
+          .trim()
+          .slice(0, 1024),
+        rawErrorCode = runtimeErrorCode(error),
+        errorCode = typeof rawErrorCode === "string" && rawErrorCode.trim() ? rawErrorCode.trim() : undefined,
+        attemptReason = scrubbedError || errorCode || "Runtime dispatch failed before provider registration.",
+        failureClassification = "provider_fault" as const,
+        fallbackDisposition = inheritedFallback !== undefined ? { fallbackState: "exhausted" as const } : {},
+        attemptOutcome = {
+          classification: failureClassification,
+          reason: attemptReason,
+          ...fallbackDisposition,
+        },
+        body = `Runtime dispatch failed before provider registration: ${attemptReason}`,
         sha256 = sha256Text(body),
         terminal = await publishRuntimeEvent(
           "runtime_session_outcome_observed",
@@ -1264,14 +1414,30 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             exitCode: null,
             resultRef: `artifact:runtime-result/sha256/${sha256}`,
             result: { sha256, size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" },
+            ...(errorCode ? { reasonCode: errorCode } : {}),
             endedAt: input.now(),
+            attempt: attemptOutcome,
           },
           randomUUID(),
           activeBinding,
           body,
         );
       if (terminal.event) input.onRuntimeOutcome?.(terminal.event, trustedSchedule ?? null);
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      const settledRead = await readDispatchLifecycle(extracted, { by: "dispatch", dispatchIds: [newDispatchId] }),
+        settledLifecycle = settledRead.status === "ready" ? settledRead.rows[0] : undefined;
+      if (settledLifecycle?.policy.groupSettled) {
+        await releaseFallbackResources(
+          extracted,
+          settledLifecycle,
+          dispatchRole ?? null,
+          cwd,
+          settledLifecycle.groupDispatchIds.length > 1,
+        );
+        if (settledLifecycle.groupDispatchIds.length <= 1 && stream) removeDispatchStream(input.rootDir, newDispatchId);
+      } else if (settledRead.status === "ready" && settledLifecycle !== undefined) {
+        await reclaimUnadmittedReviewWorktree();
+      }
+      return { fallbackPending: false };
     };
     try {
       await publishRuntimeEvent(
@@ -1280,7 +1446,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           installationId: installation.installationId,
           kindId: installation.kindId,
           protocolFamily,
-          hostRef: "host:local",
+          hostRef: cloudTarget ? `host:cloud:${cloudTarget.hostId}` : "host:local",
           version: installation.version,
           discoverySource: "wrapper",
           capabilities: runtimeKind.declaredCapabilities,
@@ -1294,6 +1460,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw error;
     }
     try {
+      if (cloudTarget && handoff)
+        throw runtimeSpawnError(
+          "runtime_handoff_target_unsupported",
+          "Cloud sandbox targets cannot import native handoff rollouts.",
+        );
       assertRuntimeHandoffLaunch(
         handoffEnabled,
         handoff,
@@ -1323,7 +1494,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     }
-    const launchPreparedProcess = async () => {
+    const launchPreparedProcess = async (): Promise<{
+      process: RuntimeExecutionHandle;
+      resumeObservation?: ResumeProcessObservation;
+    }> => {
       const boundLaunch = await prepareBoundRuntimeLaunch({
         input,
         prepared,
@@ -1373,6 +1547,32 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           HARNESS_WORKER_PERMISSION_MODE: input.readSettings?.().workerPermissions?.mode ?? "full",
         },
       };
+      if (cloudTarget) {
+        dispatchState.activate(runtimeSessionId, definition.instanceId);
+        launchMayBeRunning = true;
+        const executionCredential = boundLaunch.env.HARNESS_EXECUTION_CREDENTIAL;
+        return {
+          process: (process = openCloudRuntime({
+            rootDir: input.rootDir,
+            registration: input.cloudRuntime,
+            target: cloudTarget,
+            attempt: { repoId: input.repoId, dispatchId: newDispatchId, runtimeSessionId, attempt: executionAttempt },
+            now: input.now,
+            launch: {
+              instanceId: definition.instanceId,
+              kindId: declaredKindId,
+              model: definition.model,
+              prompt,
+              ...(providerSessionId ? { providerSessionId } : {}),
+              ...(launchedPermissionMode ? { permissionMode: launchedPermissionMode } : {}),
+              ...(launchedMcpPolicy ? { mcpPolicy: launchedMcpPolicy } : {}),
+              taskId: taskBinding?.taskId ?? null,
+              executionId: taskBinding?.executionId ?? null,
+              ...(executionCredential ? { executionCredential } : {}),
+            },
+          })),
+        };
+      }
       return launchRuntimeProcess(
         (...args) => {
           // Reserve before crossing the launcher port: another repository may dispatch while
@@ -1395,7 +1595,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         providerSessionId,
       );
     };
-    if (providerSessionId && !input.remote && !handoff) {
+    if (providerSessionId && !cloudTarget && !input.remote && !handoff) {
       if (!requestedDispatchId) assertNativeResumeNotExported(input.rootDir, providerSessionId, projection!);
       try {
         openStream();
@@ -1429,16 +1629,39 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
+    const buildSpawnReceipt = (): JsonObject => {
+      if (!requested?.event || (!requested.receipt && !requested.publication))
+        throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
+      return runtimeSpawnerDelegates.decorateSpawnReceipt({
+        receipt:
+          requested.receipt ??
+          runtimeSpawnReceipt(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+        runtimeSessionId,
+        dispatchId: newDispatchId,
+        runtimeSelection,
+        model: definition.model,
+        agent,
+        runtimeInstances,
+        selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
+        githubCredentialNotice: prepared.githubCredentialNotice,
+        readOnlyDispatch,
+        authorizationDecision,
+      });
+    };
     if (!process)
       try {
         openStream();
         ({ process, resumeObservation } = await launchPreparedProcess());
       } catch (error) {
-        await cleanupFailedLaunch(error);
+        const cleaned = await cleanupFailedLaunch(error);
+        if (cleaned.fallbackPending) {
+          const receipt = buildSpawnReceipt();
+          return receipt;
+        }
         throw error;
       }
-    const runtimeProcess = process;
-    const releasedRuntimeProcess: RuntimeProcess = {
+    const runtimeProcess = process!;
+    const releasedRuntimeProcess: RuntimeExecutionHandle = {
       ...runtimeProcess,
       release: () => {
         runtimeProcess.release?.();
@@ -1481,34 +1704,36 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       stallTimeoutMs,
       lastProgressAtMs: Date.parse(streamStartedAt),
       lastRealProgressAtMs: Date.parse(streamStartedAt),
+      steerReceiptCapable: true,
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,
       resumeProviderSessionId: providerSessionId ?? null,
     });
-    processes.set(runtimeSessionId, active);
+    activeRuntimeHandles.set(runtimeSessionId, active);
     input.recordLifecycle?.({
       event: "runtime_spawn",
       runtimeSessionId,
       dispatchId: newDispatchId,
-      pid: runtimeProcess.pid,
+      ...(runtimeProcess.pid === undefined ? {} : { pid: runtimeProcess.pid }),
     });
-    input.schedule(async () => {
-      await publishRuntimeEvent(
-        "runtime_session_liveness_changed",
-        {
-          runtimeSessionId,
-          liveness: "live",
-          ...(runtimeProcess.pid !== globalThis.process.pid &&
-          Number.isSafeInteger(runtimeProcess.pid) &&
-          runtimeProcess.pid > 1
-            ? { processGroupPid: runtimeProcess.pid }
-            : {}),
-        },
-        randomUUID(),
-        binding,
-      );
-    }, activeBinding);
+    if (!runtimeProcess.cloud)
+      input.schedule(async () => {
+        await publishRuntimeEvent(
+          "runtime_session_liveness_changed",
+          {
+            runtimeSessionId,
+            liveness: "live",
+            ...(runtimeProcess.pid !== globalThis.process.pid &&
+            Number.isSafeInteger(runtimeProcess.pid) &&
+            runtimeProcess.pid > 1
+              ? { processGroupPid: runtimeProcess.pid }
+              : {}),
+          },
+          randomUUID(),
+          binding,
+        );
+      }, activeBinding);
     // Attachment can refuse: a present workspace the liveness watcher cannot open is a real fault, not a
     // reason to run unwatched. The process is already launched, so the failed-launch path retires
     // it — terminate, release, and drop the stream — instead of leaving a live worker owned by a
@@ -1519,78 +1744,24 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       await cleanupFailedLaunch(error);
       throw error;
     }
-    if (!requested.event || (!requested.receipt && !requested.publication))
-      throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
-    // operator sees only an id and has to infer why a same-kind sibling was skipped.
-    const selectionFields = {
-        runtimeSelection: {
-          instanceId: runtimeSelection.instanceId,
-          tier: runtimeSelection.tier,
-          selectionStrategy: runtimeSelection.selectionStrategy,
-          basis: runtimeSelection.basis,
-          reason: runtimeSelection.reason,
-          model: definition.model,
-        },
-      },
-      // `ha agent validate` / `ha agent install` warn before dispatch; the dispatch that actually
-      // had to pick is the last moment the author can still be told the choice was unstated, so the
-      // same warning rides this receipt and names the instance it took.
-      ambiguity =
-        agent === null
-          ? null
-          : agentRuntimeAmbiguityWarning({
-              agent,
-              runtimeInstances,
-              selected: runtimeSelection.instanceId,
-              selectionStrategy: input.readSettings?.().runtime.selectionStrategy,
-            }),
-      // A launch without the operator's GitHub login still runs; this is the one place the operator
-      // learns the worker cannot publish before the credential error would arrive at `ha task push`.
-      notices = [ambiguity?.message, prepared.githubCredentialNotice].filter(
-        (notice): notice is string => typeof notice === "string",
-      ),
-      // Merge, never replace: the receipt may already carry operator notices (for example the
-      // hosting-credential warning) that this dispatch must not drop.
-      existingWarnings = Array.isArray(requested.receipt?.warnings)
-        ? (requested.receipt.warnings as readonly unknown[]).filter(
-            (entry): entry is string => typeof entry === "string",
-          )
-        : [],
-      warningFields: { warnings?: readonly string[] } =
-        notices.length === 0 ? {} : { warnings: [...existingWarnings, ...notices] };
-    return requested.receipt
-      ? {
-          ...requested.receipt,
-          runtimeSessionId,
-          dispatchId: newDispatchId,
-          ...selectionFields,
-          ...warningFields,
-          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        }
-      : {
-          ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
-          ...selectionFields,
-          ...warningFields,
-          ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
-          authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-        };
+    return buildSpawnReceipt();
   }
   return {
     /** Host-only snapshot preparation; callers complete this before enqueueing admission. */
     prepareProgress: async (payload: JsonObject, worktree: TaskWorktreeCheckout | null) => {
-      const inherited =
-          typeof payload.dispatchId === "string"
-            ? readDispatchStream(input.rootDir, payload.dispatchId)?.header.cwd
-            : undefined,
-        packageRoot = dispatchTaskPackageRoot(input, typeof payload.taskId === "string" ? payload.taskId : null, null),
-        { cwd } = resolveDispatchCwd(input.rootDir, payload, inherited, worktree, packageRoot);
+      const resumedStream =
+          typeof payload.dispatchId === "string" ? readDispatchStream(input.rootDir, payload.dispatchId) : null,
+        inherited = resumedStream?.header.cwd,
+        taskId = typeof payload.taskId === "string" ? payload.taskId : (resumedStream?.header.taskId ?? null),
+        packageRoot = dispatchTaskPackageRoot(input, taskId, null),
+        inheritedManagedRoots = managedRootsForTrustedCwd(input.rootDir, resumedStream?.header.trustedManagedCwd),
+        { cwd } = resolveDispatchCwd(input.rootDir, payload, inherited, worktree, packageRoot, inheritedManagedRoots);
       return collectRuntimeWorkspaceProgress(cwd);
     },
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
     prepareWorktree: async (payload: JsonObject, reviewedCommit?: string | null) => {
       // Explicit-instance and declared-Agent model failures must surface before checkout/setup
-      await preflightRuntimeSelection(payload);
+      await preflightRuntimeSelection(input, payload);
       const taskId = payload.role === "reviewer" && typeof payload.taskId === "string" ? payload.taskId : null,
         pinnedCommit =
           taskId !== null && !input.remote
@@ -1620,6 +1791,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       worktree: TaskWorktreeCheckout | null = null,
       recoveryRequested = false,
+      options?: { readonly trustedDecisionReview?: boolean },
     ) =>
       spawnAttempt(
         payload,
@@ -1636,6 +1808,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         undefined,
         recoveryRequested,
+        undefined,
+        options?.trustedDecisionReview === true ? "decision-package" : undefined,
       ),
     /** The direct RepoCell runtime.run route owns admission and reuses its task projection read. */
     spawnTask: async (
@@ -1749,10 +1923,57 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       return adoptRuntimes(extracted, onProgress);
     },
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
-    steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
-    isIdle: () => processes.size === 0 && exiting.size === 0,
+    steer: (
+      payload: JsonObject,
+      binding: RuntimeBinding,
+      options?: { readonly remoteControlRequestId?: string; readonly remoteControlOpId?: string },
+    ) => steerRuntime(extracted, payload, binding, options),
+    activeRuntimeSessionIds: (): readonly string[] => [...activeRuntimeHandles.keys()],
+    activeRuntimeCount: (): number => activeRuntimeHandles.size,
+    isRuntimeActive: (runtimeSessionId: string): boolean => {
+      const runtimeHandles = activeRuntimeHandles;
+      return runtimeHandles.has(runtimeSessionId);
+    },
+    activeDispatchId: (runtimeSessionId: string): string | null => {
+      const runtimeHandles = activeRuntimeHandles;
+      return runtimeHandles.get(runtimeSessionId)?.dispatchId ?? null;
+    },
+    activeRuntimeForSelector: (
+      selector: { readonly dispatchId: string } | { readonly runtimeSessionId: string },
+    ): { readonly runtimeSessionId: string; readonly dispatchId: string } | null => {
+      const runtimeHandles = activeRuntimeHandles;
+      if ("runtimeSessionId" in selector) {
+        const active = runtimeHandles.get(selector.runtimeSessionId);
+        return active ? { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId } : null;
+      }
+      for (const active of runtimeHandles.values()) {
+        if (active.dispatchId === selector.dispatchId)
+          return { runtimeSessionId: active.runtimeSessionId, dispatchId: active.dispatchId };
+      }
+      return null;
+    },
+    flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
+      const runtimeHandles = activeRuntimeHandles;
+      const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
+      const { readAllPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
+      const { readDispatchStreamHeader } = await import("./dispatch-stream.ts");
+      const entries = readAllPendingSteerReceipts(input.rootDir);
+      if (entries.length === 0) return;
+      const dispatches = new Map<string, string>();
+      for (const entry of entries) {
+        if (!dispatches.has(entry.dispatchId)) dispatches.set(entry.dispatchId, entry.runtimeSessionId);
+      }
+      for (const [dispatchId, runtimeSessionId] of dispatches) {
+        const active = runtimeHandles.get(runtimeSessionId),
+          binding = active?.binding ?? readDispatchStreamHeader(input.rootDir, dispatchId)?.binding ?? defaultBinding;
+        if (!binding) continue;
+        await flushReceipts(extracted, dispatchId, runtimeSessionId, binding);
+      }
+    },
+    isIdle: () => activeRuntimeHandles.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
+      fallbackAbort.abort(new DOMException("Runtime spawner closed.", "AbortError"));
       if (ownsModelSlotQueue) modelSlotQueue.close();
       closeRuntimes(extracted);
     },
@@ -1771,10 +1992,4 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   }> {
     return publishRuntimeEventImpl<T>(extracted, type, payload, opId, binding, resultBody, dispatchContext);
   }
-  const applied = (
-    event: AgentRuntimeEventV1,
-    publication: ReturnType<CanonicalEventStore["publication"]>,
-    runtimeSessionId: string,
-    dispatchId: string,
-  ) => runtimeSpawnerDelegates.applied(extracted, event, publication, runtimeSessionId, dispatchId);
 }

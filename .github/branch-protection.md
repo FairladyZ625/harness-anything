@@ -76,7 +76,7 @@ the live ruleset has no `merge_queue` rule; this document describes the target
 queue behavior and must not be read as evidence that hosted queue enforcement
 is already active.
 
-The active GitHub ruleset enforcement for `main` requires these status contexts:
+The GitHub ruleset for `main` requires these status contexts:
 
 - package-policy
 - quick-gates
@@ -84,6 +84,8 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - fast-contract (2)
 - fast-contract (3)
 - fast-contract (4)
+- fast-contract (5)
+- fast-contract (6)
 - integration-shard (1)
 - integration-shard (2)
 - integration-shard (3)
@@ -97,6 +99,11 @@ The active GitHub ruleset enforcement for `main` requires these status contexts:
 - gui-build
 - pr-body-lint
 - crlf-checkout
+
+Under dec_88CAA23DE4907261D7ECB107ED/CH1, the CEO adds
+`fast-contract (5)` and `fast-contract (6)` to the hosted `main` ruleset for
+the six-shard workflow. The live ruleset check requires these additions before
+this workflow's PR can report a green verdict.
 
 Integration tests are required through the ten `integration-shard (N)`
 contexts, not through a slower aggregate `integration` context.

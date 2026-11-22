@@ -4,6 +4,7 @@ import type {
   DaemonRepoMode,
   DecisionCapabilityId,
   DecisionCapabilityReason,
+  DecisionProviderVendor,
   MaterializationState,
   ReviewFindingCategory,
   ReviewFindingLabel,
@@ -114,6 +115,20 @@ export const reviewFindingLabelWordsAreExact: [ReviewFindingLabel] extends [(typ
   ? true
   : never = true;
 
+export const decisionProviderVendorWords = Object.freeze([
+  "openrouter",
+  "google",
+  "perplexity",
+  "decisions-http",
+  "openai-compatible",
+  "anthropic",
+] as const satisfies readonly DecisionProviderVendor[]);
+export const decisionProviderVendorWordsAreExact: [DecisionProviderVendor] extends [
+  (typeof decisionProviderVendorWords)[number],
+]
+  ? true
+  : never = true;
+
 export const leasePhaseWords = ["reserving", "held", "orphaned", "released"] as const;
 
 /** Wire copies of the Relation vocabulary; the status-vocabulary ratchet pins them to the kernel authority. */
@@ -192,6 +207,7 @@ export const taskCapabilityIdWords = Object.freeze([
   "submit",
   "review",
   "complete",
+  "archive",
 ] as const satisfies readonly TaskCapabilityId[]);
 
 export const taskCapabilityIdWordsAreExact: [TaskCapabilityId] extends [(typeof taskCapabilityIdWords)[number]]
@@ -398,7 +414,7 @@ function useCaseProjectionSelectorFields(
   facet: UseCaseProjectionFacet,
 ): readonly string[] {
   const base = ["name", "facet"];
-  if (name === "schedule-plane") return base;
+  if (name === "schedule-plane") return [...base, "scopePersonId", "filterPersonId", "filterNodeId"];
   if (name === "schedule-run-history") return [...base, "scheduleId", "limit"];
   if (facet === "members")
     return [

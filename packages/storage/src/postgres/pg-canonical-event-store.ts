@@ -193,6 +193,8 @@ export function makePgCanonicalEventStore(options: PgCanonicalEventStoreOptions)
           },
     readBatch: (cursor, maxItems) =>
       execute({ operation: "batch", cursor, maxItems }) as ReturnType<CanonicalEventStore["readBatch"]>,
+    readEventWindow: (query) =>
+      execute({ operation: "window", query }) as ReturnType<NonNullable<CanonicalEventStore["readEventWindow"]>>,
     readContentBlob,
     readContentBlobRange,
     readContentBlobSize,

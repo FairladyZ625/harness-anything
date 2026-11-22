@@ -32,6 +32,7 @@ export type {
   TaskProjectionFactoryOptions,
   TaskProjectionReaderFactoryOptions,
 } from "./projection/rebuildable-task-projection-factory.ts";
+export { withProjectionSqlHeartbeat } from "./projection/rebuildable-task-projection-sql.ts";
 export { readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
 export {
   legacyRelationManualReason,
@@ -50,6 +51,8 @@ export type { DaemonStorageConfig } from "./storage-daemon-composition.ts";
 export { withStorageWriteRequest, activeStorageWriteRequest } from "./pg/pg-task-query-reader.ts";
 export {
   readDaemonStorageConfig,
+  resolveRequiredStorageBackend,
+  enforceRepoStorageBackend,
   prepareDaemonRepoStorage,
   acquireRepoStorageLock,
   makeDaemonProjectionReader,

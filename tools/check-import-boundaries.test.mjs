@@ -83,6 +83,62 @@ test("Fleet center write frames must use the one center write entry", () => {
   }
 });
 
+test("authorization subpaths preserve the host and UI boundaries", () => {
+  const root = makeFixtureRoot();
+  const write = (file, text) => {
+    const absolute = path.join(root, file);
+    mkdirSync(path.dirname(absolute), { recursive: true });
+    writeFileSync(absolute, text);
+  };
+  try {
+    write(
+      "packages/authorization/package.json",
+      JSON.stringify({
+        name: "@harness-anything/authorization",
+        exports: {
+          "./builtin": "./src/builtin/index.ts",
+          "./gui": "./src/gui/index.ts",
+          "./keycloak-gui": "./src/keycloak-gui/index.ts",
+          "./keycloak/managed-rbac-service": "./src/keycloak/managed-rbac-service.ts",
+        },
+      }),
+    );
+    write("packages/authorization/src/builtin/index.ts", "export {};\n");
+    write("packages/authorization/src/gui/index.ts", "export {};\n");
+    write("packages/authorization/src/keycloak-gui/index.ts", 'import "../gui/index.ts";\n');
+    write("packages/authorization/src/keycloak/managed-rbac-service.ts", "export {};\n");
+    write("packages/daemon/src/daemon-host/index.ts", 'import "@harness-anything/authorization/builtin";\n');
+    write("packages/gui/src/renderer/index.ts", 'import "@harness-anything/authorization/keycloak-gui";\n');
+    const allowed = runChecker(root);
+    assert.equal(allowed.status, 0, allowed.stderr);
+
+    write("packages/daemon/src/daemon-host/index.ts", 'import "@harness-anything/authorization/gui";\n');
+    write("packages/cli/src/index.ts", 'import("@harness-anything/authorization/keycloak-gui");\n');
+    write(
+      "packages/gui/src/renderer/index.ts",
+      'export * from "@harness-anything/authorization/keycloak/managed-rbac-service";\n',
+    );
+    write("packages/authorization/src/keycloak-gui/index.ts", 'import "../keycloak/managed-rbac-service.ts";\n');
+    write("packages/authorization/src/builtin/index.ts", 'import "react/jsx-runtime";\n');
+    const blocked = runChecker(root);
+    assert.equal(blocked.status, 1, blocked.stderr);
+    for (const file of [
+      "packages/daemon/src/daemon-host/index.ts",
+      "packages/cli/src/index.ts",
+      "packages/gui/src/renderer/index.ts",
+      "packages/authorization/src/keycloak-gui/index.ts",
+      "packages/authorization/src/builtin/index.ts",
+    ]) {
+      assert.ok(
+        blocked.stderr.split("\n").some((line) => line.includes(file) && /authorization.*must not import/u.test(line)),
+        file,
+      );
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check rejects application imports from adapters", () => {
   const root = makeFixtureRoot();
   try {
@@ -1062,12 +1118,12 @@ test("import boundary rejects application runtime/storage/keycloak and commands-
   try {
     mkdirSync(path.join(root, "packages/application/src/commands"), { recursive: true });
     mkdirSync(path.join(root, "packages/application/src/queries"), { recursive: true });
-    mkdirSync(path.join(root, "packages/authorization-keycloak/src"), { recursive: true });
+    mkdirSync(path.join(root, "packages/authorization/src/keycloak"), { recursive: true });
     writeFileSync(
-      path.join(root, "packages/authorization-keycloak/package.json"),
-      JSON.stringify({ name: "@harness-anything/authorization-keycloak", exports: { ".": "./src/index.ts" } }),
+      path.join(root, "packages/authorization/package.json"),
+      JSON.stringify({ name: "@harness-anything/authorization", exports: { "./keycloak": "./src/keycloak/index.ts" } }),
     );
-    writeFileSync(path.join(root, "packages/authorization-keycloak/src/index.ts"), "export const k = 1;\n");
+    writeFileSync(path.join(root, "packages/authorization/src/keycloak/index.ts"), "export const k = 1;\n");
     writeFileSync(path.join(root, "packages/application/src/queries/q.ts"), "export const q = 1;\n");
     writeFileSync(
       path.join(root, "packages/application/src/commands/c.ts"),
@@ -1088,7 +1144,7 @@ test("import boundary rejects application runtime/storage/keycloak and commands-
     for (const badImport of [
       'import "@harness-anything/daemon";\n',
       'import "@harness-anything/storage";\n',
-      'import "@harness-anything/authorization-keycloak";\n',
+      'import "@harness-anything/authorization/keycloak";\n',
       'import { spawn } from "node:child_process"; void spawn;\n',
       'import { Worker } from "node:worker_threads"; void Worker;\n',
       'import http from "node:http"; void http;\n',

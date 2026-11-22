@@ -10,7 +10,7 @@ import test from "node:test";
 import {
   managedRbacVersions,
   type ManagedPostgresBinaries,
-} from "@harness-anything/authorization-keycloak/managed-rbac-service";
+} from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 
 async function freeLoopbackPort(): Promise<number> {

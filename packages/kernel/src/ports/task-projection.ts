@@ -56,7 +56,7 @@ import type {
   TaskRelationQuery,
   VersionedRelationProjectionRow,
 } from "./projection-contracts.ts";
-import type { DecisionListFilters, DecisionPageQuery } from "./decision-projection-model.ts";
+import type { DecisionListFilters, DecisionListSummaryRow, DecisionPageQuery } from "./decision-projection-model.ts";
 import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../domain/entity-freshness.ts";
 
 export interface RuntimeSessionReadQuery {
@@ -288,9 +288,15 @@ export interface TaskProjection {
   ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
   readonly readRuntimeDispatchPage: (query: {
     /** Task-scoped history pages seek each task time index, never materialize its history.
-     * Pages order by the UTC millisecond key of startedAt ?? occurredAt, then by dispatch ID. */
+     * Pages order by the UTC millisecond key of startedAt ?? occurredAt (asc or desc), then by dispatch ID asc. */
     readonly taskIds?: readonly string[];
+    readonly agentId?: string;
+    readonly squadId?: string;
+    readonly personId?: string;
     readonly startedAtGte: string;
+    readonly startedAtLte?: string;
+    readonly order?: "asc" | "desc";
+    readonly maxRevision?: number;
     readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
     readonly limit: number;
   }) => RuntimeDispatchPage;
@@ -307,12 +313,21 @@ export interface TaskProjection {
     limit: number,
   ) => readonly AgentRuntimeEventV1[];
   /**
-   * One session's events narrowed to the requested types, revision ascending. Callers that need
-   * the newest outcome or liveness event read only the matching rows, never the whole session.
+   * One session's events narrowed to the requested types, revision ordered (default asc). Callers
+   * that need a bounded or watermark-pinned lookup pass maxRevision/limit/order so late events
+   * past maxRevision are never materialized.
    */
   readonly readRuntimeSessionEventsByType: (
     runtimeSessionIdValue: string,
     types: readonly AgentRuntimeEventType[],
+    options?: {
+      readonly maxRevision?: number;
+      readonly afterRevision?: number;
+      readonly limit?: number;
+      readonly order?: "asc" | "desc";
+      readonly filter?: "control_request" | "cancel_control_request" | "control_receipt" | "applied_steer_receipt";
+      readonly requestOpId?: string;
+    },
   ) => readonly AgentRuntimeEventV1[];
   readonly readArtifactEntityState: (kind: string, id: string) => ArtifactEntityState | null;
   readonly readEventList: (query: EventListQuery) => EventListPage;
@@ -328,6 +343,10 @@ export interface TaskProjection {
           readonly nodeId?: string;
         }
       | { readonly fleetNodeIds: readonly string[] },
+    /** Exclusive upper revision bound for bounded window paging. */
+    beforeRevision?: number,
+    /** Revision scan order within (afterRevision, beforeRevision); defaults to asc without beforeRevision, desc with beforeRevision. */
+    order?: "asc" | "desc",
   ) => {
     readonly status: ReadSet.ReadSetProjectionCut["status"];
     readonly events: readonly import("../domain/canonical-event-summary.ts").CanonicalEventSummary[];
@@ -390,6 +409,10 @@ export interface TaskProjection {
   }) => readonly CanonicalEventV1[];
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   readonly readSettingsEvent: () => SettingsEventV1 | null;
+  /** Canonical migration-import-event/v1 (entity.kind="task") that imported a historical v0 task, if any. */
+  readonly readTaskImportedEvent?: (
+    taskId: string,
+  ) => import("../domain/migration-import-event.ts").MigrationImportEventV1 | null;
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   /** The single dispatch lifecycle read port (dec_AEB05951C69E47FCE53E53C341 CH2). */
@@ -408,7 +431,10 @@ export interface TaskProjection {
   readonly admitDecision: (event: DecisionEventV1) => void;
   readonly readDecision: (decisionId: string, withBody?: boolean) => DecisionProjectionRead;
   readonly readDecisions: (decisionIds: readonly string[], withBody?: boolean) => DecisionProjectionListRead;
-  readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead;
+  readonly listDecisions: {
+    (filters: DecisionListFilters, selection: "summary"): DecisionProjectionListRead<DecisionListSummaryRow>;
+    (filters: DecisionListFilters, selection?: "review"): DecisionProjectionListRead;
+  };
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead;
   readonly readDecisionGraph: () => DecisionGraphProjectionRead;
   readonly readDecisionIncomingRelations: (decisionId: string) => DecisionGraphProjectionRead["edges"];

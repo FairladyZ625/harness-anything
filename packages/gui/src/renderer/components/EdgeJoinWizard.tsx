@@ -6,7 +6,7 @@ import type {
   EdgeJoinJoined,
   EdgeJoinProgress,
   EdgeJoinRejection,
-} from "@harness-anything/authorization-gui/edge-join-entry-contract";
+} from "@harness-anything/authorization/gui/edge-join-entry-contract";
 import { beginEdgeJoin, openEdgeJoinLogin, pollEdgeJoinLogin, readEdgeJoinProgress } from "../edge-join-client.ts";
 import { explainEdgeJoinFailure, type EdgeJoinFailureView } from "../edge-join-errors.ts";
 import { CopyContextButton } from "./CopyContextButton.tsx";

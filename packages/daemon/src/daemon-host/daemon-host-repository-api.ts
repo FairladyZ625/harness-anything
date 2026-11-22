@@ -3,7 +3,6 @@ import { forward } from "./fleet/forwarding-port.ts";
 import { forwardingIntentForAction } from "./fleet/forwarding-intent.ts";
 import { materializeFleetEdgeDocuments, reconcileFleetNodeMaterialization } from "./fleet-edge-materialization.ts";
 import { runFleetEdgeRepositoryRead } from "./fleet-edge-task.ts";
-import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -19,7 +18,13 @@ import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { centerMovedError, readCenterMigrating, registerDaemonRepo } from "@harness-anything/storage";
+import {
+  centerMovedError,
+  enforceRepoStorageBackend,
+  readCenterMigrating,
+  registerDaemonRepo,
+  resolveRequiredStorageBackend,
+} from "@harness-anything/storage";
 import { extractCenterMoved } from "./daemon-host-errors.ts";
 import {
   readDaemonRegistry,
@@ -46,12 +51,18 @@ import {
   type DaemonGuiReadResultMap,
   type DaemonGuiRpcReadMethod,
 } from "./protocol/daemon-protocol.contract.ts";
+import { hostCodedError } from "./daemon-host-errors.ts";
 import { parseDaemonReadResult } from "./protocol/daemon-result-validation.ts";
 import { withLocalDispatchStreamEvidence } from "./dispatch-activity-read.ts";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
-import { type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell-types.ts";
+import {
+  type RepoCell,
+  type RepoCellBinding,
+  type RepoCellReadMethod,
+  type RepoTaskAction,
+} from "./repo-cell-types.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
@@ -67,9 +78,9 @@ import {
   validateBackupDestination,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
-import { removeFileDurably } from "../../../storage/src/durable-file.ts";
+import { removeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readPolicyMetadata } from "@harness-anything/application/queries";
-import { renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
+import { renderReplicaConfirmFailure, renderStuckRuntimeRecoveries } from "./runtime-recovery-watch.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -87,14 +98,57 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
   );
 }
 
-async function bindAgendaTeams(binding: import("./repo-cell-types.ts").RepoCellBinding) {
-  if (binding.taskClaimant?.teamIds !== undefined) return binding;
+async function personTeamsForBinding(binding: RepoCellBinding, personId: string): Promise<readonly string[] | null> {
   const credential = binding.keycloakAuthorization;
-  if (!credential?.center) return binding;
-  const center = await credential.center(),
-    adapter = center.provider,
-    teamIds = await adapter.readPersonTeams(center.accessToken, binding.actor.principal.personId),
-    nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+  if (!credential?.center) return null;
+  const center = await credential.center();
+  return center.provider.readPersonTeams(center.accessToken, personId);
+}
+
+async function bindPersonalRead(
+  binding: import("./repo-cell-types.ts").RepoCellBinding,
+  repoId: string,
+  method: DaemonGuiRpcReadMethod,
+  payload: Readonly<Record<string, unknown>>,
+  operatorBinding?: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>,
+) {
+  if (
+    method !== "repo.agenda.read" &&
+    method !== "repo.works.briefs.read" &&
+    method !== "repo.workspace.scope.read" &&
+    method !== "repo.decisions.list" &&
+    !(method === "repo.tasks.list" && payload.attestationOnly === true)
+  )
+    return binding;
+  const scope = payload.scopePersonId ?? (method === "repo.agenda.read" ? undefined : payload.filterPersonId);
+  if (typeof scope === "string" && scope !== binding.actor.principal.personId) {
+    const operator = operatorBinding === undefined ? binding : await operatorBinding();
+    if (
+      binding.executionPrincipal !== undefined ||
+      operator.executionPrincipal !== undefined ||
+      binding.fleetReplicaPrincipal !== undefined ||
+      operator.fleetReplicaPrincipal !== undefined ||
+      operator.actor.principal.personId !== binding.actor.principal.personId
+    )
+      throw hostCodedError(
+        "authorization_denied",
+        "Cross-member personal reads require a repository administrator session.",
+      );
+    await requireAuthorizedHostAction({
+      kind: "access-manage",
+      repoId,
+      binding: operator,
+      actionId: `personal-read:${method}:${repoId}`,
+      evaluatedAtCut: `repository:${repoId}:current`,
+    });
+    const teamIds = (await personTeamsForBinding(operator, scope)) ?? [];
+    return { ...binding, personalReadScope: { personId: scope, teamIds } };
+  }
+  if (method !== "repo.agenda.read") return binding;
+  if (binding.taskClaimant?.teamIds !== undefined) return binding;
+  const teamIds = await personTeamsForBinding(binding, binding.actor.principal.personId);
+  if (teamIds === null) return binding;
+  const nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
   return { ...binding, taskClaimant: { personId: binding.actor.principal.personId, nodeId, teamIds } };
 }
 
@@ -141,7 +195,10 @@ export function createDaemonHostRepositoryApi(
         );
       if (!cell.readNodeAutoDispatchCandidates)
         throw context.hostCodedError("repo_unavailable", `Repository ${repoId} cannot read node dispatch candidates.`);
-      const candidates = await cell.readNodeAutoDispatchCandidates(nodeId!, auth.connectionSignal);
+      const candidates = await cell.readNodeAutoDispatchCandidates(
+        { kind: "node", nodeId: nodeId! },
+        auth.connectionSignal,
+      );
       return { schema: "node-auto-dispatch-candidates/v1", candidates };
     },
     readNodeAutoClaimCandidates: async (repoId, auth) => {
@@ -252,10 +309,7 @@ export function createDaemonHostRepositoryApi(
       const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
         bootstrap = {
           ...prepared,
-          settingsBootstrap: [
-            initialRuntimeInstanceSettings(bootstrapSettings, context.runtimePorts.runtimeInstances()),
-            bootstrapDocumentBody,
-          ] as const,
+          settingsBootstrap: [bootstrapSettings, bootstrapDocumentBody] as const,
         };
       const claimedRegistration = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
         (repo) => repo.repoId === bootstrap.repoId,
@@ -265,6 +319,14 @@ export function createDaemonHostRepositoryApi(
           "repository_already_registered",
           `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
         );
+      const bootstrapStorage = context.input.storage?.[bootstrap.repoId];
+      enforceRepoStorageBackend({
+        requiredBackend: resolveRequiredStorageBackend(context.input.requiredStorageBackend),
+        repoId: bootstrap.repoId,
+        mode: "local",
+        storage: bootstrapStorage,
+        hostCodedError: context.hostCodedError,
+      });
       if (!request.configureOnly) {
         if (context.oidc.centerConfigured()) {
           const center = await context.keycloakCenter();
@@ -297,6 +359,7 @@ export function createDaemonHostRepositoryApi(
             rootDir: bootstrap.rootDir,
             mode: "local",
             ownerId: context.input.daemonId,
+            storage: bootstrapStorage,
             defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
@@ -304,6 +367,18 @@ export function createDaemonHostRepositoryApi(
             bootstrap,
             onBootstrap: (receipt) => {
               published = receipt;
+            },
+            ...(context.publishRepoStatus
+              ? {
+                  onMetricsStatus: (status) => {
+                    context.publishRepoStatus!(prepared.repoId, status);
+                  },
+                }
+              : {}),
+            onStatus: (status) => {
+              if (context.warming.has(prepared.repoId)) context.warming.set(prepared.repoId, status);
+              else context.publishRepoStatus?.(prepared.repoId, status);
+              context.input.onRepoStatusChange?.();
             },
             ...context.runtimePorts,
             ...(context.input.runtimeLaunch ? { runtimeLaunch: context.input.runtimeLaunch } : {}),
@@ -570,6 +645,17 @@ export function createDaemonHostRepositoryApi(
           requestedRoot !== oldRoot
         )
           await context.migrateEdgeWorkspace(request.repoId, oldRoot, requestedRoot);
+        const effectiveMode = request.mode ?? existing?.mode ?? "local",
+          effectiveState = request.state ?? existing?.state ?? "enabled";
+        if (effectiveState === "enabled" && effectiveMode !== "remote-proxy") {
+          enforceRepoStorageBackend({
+            requiredBackend: resolveRequiredStorageBackend(context.input.requiredStorageBackend),
+            repoId: request.repoId,
+            mode: effectiveMode,
+            storage: context.input.storage?.[request.repoId],
+            hostCodedError: context.hostCodedError,
+          });
+        }
         const result = updateDaemonRepo({
           ...request,
           ...(request.rootDir === undefined ? {} : { canonicalRoot: request.rootDir }),
@@ -723,10 +809,7 @@ export function createDaemonHostRepositoryApi(
         userRoot: context.input.userRoot,
         createConvenienceLinks: false,
       });
-      if (rootDir) {
-        const fleetEdgeFile = path.join(rootDir, "fleet-edge.json");
-        if (existsSync(fleetEdgeFile)) removeFileDurably(fleetEdgeFile);
-      }
+      removeFleetEdgeConfig(context.input.userRoot, request.repoId);
       const repo = context.publicRegistryRepo(result.repo);
       if (purging) {
         const removed = purgingAll ? removeRepoHarnessData(rootDir!) : purgeRepoCache(rootDir!);
@@ -808,6 +891,17 @@ export function createDaemonHostRepositoryApi(
               ["applied", "no_changes", "pending"].includes(String(forwarded.outcome))
             )
               context.onAutoClaimTrigger?.(`forwarded:${action.kind}`);
+            if (
+              ["applied", "no_changes", "pending"].includes(String(forwarded.outcome)) &&
+              (action.kind === "task-submit" ||
+                action.kind === "task-settle" ||
+                action.kind === "task-dispatch-review" ||
+                (action.kind === "task-amend" &&
+                  auth.transportKind === "fleet-tls" &&
+                  Array.isArray(action.patches) &&
+                  action.patches.some((patch) => patch?.field === "reviewDispatchFailure")))
+            )
+              context.triggerCenterReviewFallback?.(`forwarded:${action.kind}`);
             return forwarded as WriteReceiptDraft | SquadControlResult;
           }
         } catch (error) {
@@ -828,7 +922,7 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
         );
         if (edge?.canonicalRoot) {
-          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId);
+          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId, undefined, context.input.userRoot);
           return {
             ...receipt,
             checks: [
@@ -900,6 +994,7 @@ export function createDaemonHostRepositoryApi(
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction);
         if (cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize")
           return await materializeFleetEdgeDocuments({
+            userRoot: context.input.userRoot,
             rootDir: cell.status().rootDir,
             repoId,
             binding: serverBinding,
@@ -908,7 +1003,12 @@ export function createDaemonHostRepositoryApi(
           });
         let receipt = edgeRead
           ? ((await runFleetEdgeRepositoryRead(
-              { rootDir: cell.status().rootDir, repoId, action: resolvedAction as never },
+              {
+                userRoot: context.input.userRoot,
+                rootDir: cell.status().rootDir,
+                repoId,
+                action: resolvedAction as never,
+              },
               async () =>
                 (await cell.run(resolvedAction, serverBinding, auth.connectionSignal)) as Record<string, unknown>,
             )) as Awaited<ReturnType<typeof cell.run>>)
@@ -920,6 +1020,7 @@ export function createDaemonHostRepositoryApi(
           (receipt.outcome === "applied" || receipt.outcome === "no_changes")
         )
           receipt = reconcileFleetNodeMaterialization({
+            userRoot: context.input.userRoot,
             rootDir: cell.status().rootDir,
             repoId,
             binding: serverBinding,
@@ -932,6 +1033,17 @@ export function createDaemonHostRepositoryApi(
           action.kind === "task-submit"
         )
           void context.scheduleScheduler.refresh();
+        if (
+          ["applied", "no_changes", "pending"].includes(receipt.outcome) &&
+          (action.kind === "task-submit" ||
+            action.kind === "task-settle" ||
+            action.kind === "task-dispatch-review" ||
+            (action.kind === "task-amend" &&
+              auth.transportKind === "fleet-tls" &&
+              Array.isArray(action.patches) &&
+              action.patches.some((patch) => patch?.field === "reviewDispatchFailure")))
+        )
+          context.triggerCenterReviewFallback?.(action.kind);
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
           const settings = (await cell.read("repo.settings.read", {}, undefined, auth.connectionSignal)).settings;
@@ -961,6 +1073,7 @@ export function createDaemonHostRepositoryApi(
           context.daemonErrorMessage(error),
           context.diagnosticForError(error),
           extractCenterMoved(error),
+          auth.nodePrincipal ? { kind: "node", nodeId: auth.nodePrincipal.nodeId } : "local",
         );
       }
     },
@@ -1041,14 +1154,20 @@ export function createDaemonHostRepositoryApi(
           (repo) => repo.repoId === repoId && repo.state === "enabled" && repo.mode === "remote-edge",
         );
       if (edge && edge.canonicalRoot) {
-        // Advisory annotations live only at the center. GUI and CLI share this read route.
+        // These reads need the center's live state. GUI and CLI share the transport route.
         if (
+          method === "repo.events.read" ||
           method === "repo.task.dispatches" ||
           method === "repo.fleet.overview.read" ||
           method === "repo.policy.metadata.read"
         ) {
           if (method === "repo.fleet.overview.read") {
-            const failure = edgeReplicaDoctor(edge.canonicalRoot, repoId).failureCode;
+            const failure = edgeReplicaDoctor(
+              edge.canonicalRoot,
+              repoId,
+              undefined,
+              context.input.userRoot,
+            ).failureCode;
             if (failure?.toUpperCase() === "CENTER_MOVED")
               throw context.hostCodedError(
                 "CENTER_MOVED",
@@ -1091,11 +1210,9 @@ export function createDaemonHostRepositoryApi(
             throw error;
           }
         }
-        const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true),
-          readBinding =
-            method === "repo.agenda.read" || method === "repo.works.briefs.read"
-              ? await bindAgendaTeams(binding)
-              : binding;
+        const rootDir = edge.canonicalRoot,
+          binding = await context.binding(rootDir, auth, undefined, undefined, true),
+          readBinding = await bindPersonalRead(binding, repoId, method, payload, () => context.binding(rootDir, auth));
         const cell = context.cells.get(repoId);
         if (cell && (method === "repo.gui.catalog.snapshot" || method === "repo.gui.catalog.preset.read")) {
           // Installed presets/adapters/files are node-local; defaults come from one authorized replica cut.
@@ -1132,12 +1249,17 @@ export function createDaemonHostRepositoryApi(
           throw context.hostCodedError("replica_unavailable", `${method} has no edge replica query.`);
         const read = await cell.read(method, payload, readBinding, signal),
           at = context.now(),
-          stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [];
-        // Runtime recovery is this node's own work, so its stuck runtimes join the agenda here.
+          confirmFailure = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.confirmFailure(repoId) : null,
+          stuck = method === "repo.agenda.read" ? context.runtimeRecoveryWatch.stuck(repoId, at) : [],
+          localAlerts = [
+            ...(confirmFailure ? [renderReplicaConfirmFailure(confirmFailure, at)] : []),
+            ...(stuck.length ? [renderStuckRuntimeRecoveries(stuck, at)] : []),
+          ];
+        // Replica confirmation blocks and stuck runtime recoveries are this node's own work, so they join the agenda here.
         return parseDaemonReadResult(
           method,
-          stuck.length && "summary" in read
-            ? { ...read, summary: `${renderStuckRuntimeRecoveries(stuck, at)}\n\n${String(read.summary)}` }
+          localAlerts.length && "summary" in read
+            ? { ...read, summary: `${localAlerts.join("\n\n")}\n\n${String(read.summary)}` }
             : read,
         );
       }
@@ -1155,11 +1277,7 @@ export function createDaemonHostRepositoryApi(
             ? context.warmingMessage(repoId)
             : (context.unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
         );
-      const binding = await context.binding(cell.status().rootDir, auth),
-        readBinding =
-          method === "repo.agenda.read" || method === "repo.works.briefs.read"
-            ? await bindAgendaTeams(binding)
-            : binding;
+      const binding = await context.binding(cell.status().rootDir, auth);
       if (repositoryRead)
         await requireAuthorizedHostAction({
           kind: method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read",
@@ -1168,6 +1286,7 @@ export function createDaemonHostRepositoryApi(
           actionId: `${method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read"}:${repoId}`,
           evaluatedAtCut: `repository:${repoId}:current`,
         });
+      const readBinding = await bindPersonalRead(binding, repoId, method, payload);
       let result: unknown;
       if (method === "repo.policy.metadata.read") result = await readPolicyMetadata(await context.keycloakCenter());
       else if (method === "repo.tasks.claimable")

@@ -6,9 +6,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { parse } from "yaml";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-gate-surface.mjs");
+
+test("every fast-contract matrix job is declared in branch protection", () => {
+  const { jobs } = parse(readWorkflow(".github/workflows/rewrite-ci.yml"));
+  const job = jobs["fast-contract"];
+  const emitted = job.strategy.matrix.partition.map((index) => job.name.replace("${{ matrix.partition }}", index));
+  const documented = [...readWorkflow(".github/branch-protection.md").matchAll(/^- (fast-contract \(\d+\))$/gmu)].map(
+    ([, context]) => context,
+  );
+  assert.equal(emitted.length, 6);
+  assert.deepEqual(documented, emitted);
+});
 
 // The crlf-checkout lane checks the tree out with core.autocrlf=true, so a workflow read must
 // normalize before newline-anchored assertions; an LF checkout passes through unchanged.

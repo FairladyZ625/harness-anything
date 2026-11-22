@@ -21,6 +21,24 @@ test("binding health carries the same workspace target as login", () => {
   }
 });
 
+test("runtime cancel carries the administrator reason independently of the unreachable ruling", () => {
+  const reason = "Original principal was removed",
+    ruling = "The execution node is unreachable",
+    parsed = parseThinCommand(["runtime", "cancel", "runtime-1", "--reason", reason, "--ruling", ruling]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    assert.deepEqual(parsed.command.action, { kind: "runtime-cancel", runtimeSessionId: "runtime-1", reason, ruling });
+  }
+  const rpc = (value: string) =>
+    parseDaemonRpcParams("repo.agentRuntime.cancel", {
+      repo: { repoId: "repo" },
+      payload: { runtimeSessionId: "runtime-1", reason: value, ruling },
+    });
+  assert.equal(rpc(reason).ok, true);
+  assert.equal(rpc("  ").ok, false);
+  assert.equal(parseThinCommand(["runtime", "cancel", "runtime-1"]).ok, true);
+});
+
 test("task release accepts owner force-takeover only with an audit reason", () => {
   const reason = "The dispatched worker session ended.";
   const release = parseThinCommand(["task", "release", "task-1", "--force-takeover", "--reason", reason]),

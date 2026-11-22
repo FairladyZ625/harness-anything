@@ -3,11 +3,19 @@ import type { WorkBriefsRead } from "../../../api/renderer-dto.ts";
 import { harnessClient } from "../../api-client.ts";
 import { taskQueryKeys } from "../../task-data.ts";
 
-export function useOverviewBriefsQuery(repoId: string | null): UseQueryResult<WorkBriefsRead, Error> {
+export function useOverviewBriefsQuery(
+  repoId: string | null,
+  scopePersonId: string | null = null,
+  viewerPersonId: string | null = null,
+): UseQueryResult<WorkBriefsRead, Error> {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
-    queryKey: taskQueryKeys.briefs(selectedRepoId),
-    queryFn: () => harnessClient.getWorkBriefs({ repoId: selectedRepoId }),
+    queryKey: [...taskQueryKeys.briefs(selectedRepoId), scopePersonId, viewerPersonId],
+    queryFn: () =>
+      harnessClient.getWorkBriefs({
+        repoId: selectedRepoId,
+        ...(scopePersonId === null ? {} : { scopePersonId }),
+      }),
     enabled: repoId !== null,
     staleTime: 10_000,
   });

@@ -14,7 +14,7 @@ export function decisionReviewSummaryRow(row: DecisionProjectionRow) {
   return { decisionId, title, state, riskTier, urgency, proposedAt };
 }
 
-/** Full list rows use one body-bearing projection read; authored bodies stay on the server. */
+/** Full list rows include the review cut prepared by the projection writer. */
 export function decisionFullListRows(input: {
   readonly rootDir: string;
   readonly projection: TaskProjection;
@@ -23,13 +23,16 @@ export function decisionFullListRows(input: {
   readonly requirement: DecisionReviewRequirement;
 }): readonly DecisionFullListRow[] {
   const dispatches = decisionReviewDispatches(input.projection, input.decisions);
-  return input.decisions.map((decision, index) => ({
-    ...decision,
-    body: null,
-    ...decisionReviewState(decision, input.requirement),
-    readiness: input.readiness[index]!,
-    reviewDispatches: dispatches.get(decision.decisionId) ?? [],
-  }));
+  return input.decisions.map((decision, index) => {
+    const { listReview: _listReview, ...row } = decision;
+    return {
+      ...row,
+      body: null,
+      ...decisionReviewState(decision, input.requirement),
+      readiness: input.readiness[index]!,
+      reviewDispatches: dispatches.get(decision.decisionId) ?? [],
+    };
+  });
 }
 
 export function readDecisionReviewDispatches(input: {

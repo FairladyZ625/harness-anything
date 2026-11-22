@@ -30,9 +30,9 @@
         "reason": "Legacy provider-specific rbac-bootstrap flags (--realm, --client-id, --client-secret-stdin) that move with the daemon.rbac.manage schema; device-login copy is already provider-neutral."
       },
       {
-        "scope": "packages/authorization-builtin/src/** (16 authority/plugin source lines)",
+        "scope": "packages/authorization/src/builtin/** (16 authority/plugin source lines)",
         "paths": [
-          "packages/authorization-builtin/src/**"
+          "packages/authorization/src/builtin/**"
         ],
         "remediationTask": "task_273e5317cfe2d8740fadaee7e7",
         "expiresOn": "2026-12-07",

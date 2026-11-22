@@ -301,6 +301,7 @@ const closeoutAssessmentFieldNames = Object.keys({
   readiness: true,
   executionId: true,
   blocker: true,
+  consentReviewId: true,
   gates: true,
 } satisfies Record<keyof CloseoutAssessment, true>);
 
@@ -310,6 +311,8 @@ export function closeoutAssessment(value: unknown): boolean {
     Object.keys(value).some((key) => !closeoutAssessmentFieldNames.includes(key)) ||
     !["not_required", "missing", "incomplete", "ready", "passed", "failed"].includes(String(value.readiness)) ||
     (value.executionId !== undefined && !nonEmpty(value.executionId)) ||
+    (value.consentReviewId !== undefined &&
+      (value.blocker !== "consent" || !nonEmpty(value.consentReviewId) || !nonEmpty(value.executionId))) ||
     (value.blocker !== undefined &&
       !["execution", "review_pending", "review_rejected", "consent", "gate", "lineage", "projection_unknown"].includes(
         String(value.blocker),
@@ -320,7 +323,7 @@ export function closeoutAssessment(value: unknown): boolean {
   return value.gates.every(
     (gate) =>
       recordWith(gate, ["gateId", "status"]) &&
-      Object.keys(gate).every((key) => ["gateId", "status", "ok", "detail"].includes(key)) &&
+      Object.keys(gate).every((key) => ["gateId", "status", "ok", "detail", "attestation"].includes(key)) &&
       Object.hasOwn(gate, "ok") &&
       nonEmpty(gate.gateId) &&
       ["passed", "waived", "failed", "missing", "signoff_missing", "unknown", "not_applicable"].includes(
@@ -330,7 +333,13 @@ export function closeoutAssessment(value: unknown): boolean {
       (gate.status === "unknown" || gate.status === "not_applicable"
         ? gate.ok === null
         : gate.ok === (gate.status === "passed" || gate.status === "waived")) &&
-      (gate.detail === undefined || nonEmpty(gate.detail)),
+      (gate.detail === undefined || nonEmpty(gate.detail)) &&
+      (gate.attestation === undefined ||
+        (exactRecord(gate.attestation, ["mode", "adapterId", "executionId"]) &&
+          nonEmpty(gate.attestation.adapterId) &&
+          nonEmpty(gate.attestation.executionId) &&
+          ((gate.attestation.mode === "approve" && (gate.status === "missing" || gate.status === "signoff_missing")) ||
+            (gate.attestation.mode === "override" && (gate.status === "missing" || gate.status === "failed"))))),
   );
 }
 

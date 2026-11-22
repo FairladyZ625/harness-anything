@@ -13,7 +13,7 @@ import type { GovernedEntityRow } from "./graph/governedEntities.ts";
 export function useSearchIndex(
   repoId: string | null,
   paletteOpen: boolean,
-  tasks: ReadonlyArray<{ taskId: string; title: string; coordinationStatus?: string }>,
+  tasks: Parameters<typeof buildPaletteIndex>[0],
   decisions: ReadonlyArray<{ decisionId: string; title: string; state?: string }>,
   governedEntities: ReadonlyArray<GovernedEntityRow>,
 ) {

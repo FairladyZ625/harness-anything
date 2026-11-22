@@ -1,3 +1,7 @@
+import {
+  isRetryableSandboxFailure,
+  waitForSandboxReply,
+} from "@harness-anything/application/internal/commands/runtime-execution-target.ts";
 import { connectRepoWriterHost } from "./repo-writer-host.ts";
 import {
   daemonWriterSupportsCommitPhase,
@@ -97,6 +101,7 @@ export async function openWriterSupervisor(
     readonly onWarning?: (warning: { event: string; repoId: string; opId: string; code?: string }) => void;
     readonly onAttachStatus?: (status: RepoCellStatus) => void;
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
+    readonly onMetricsStatus?: (status: RepoCellStatus) => void;
   } = {},
 ): Promise<WriterSupervisor> {
   const instanceScheduling = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
@@ -151,6 +156,14 @@ export async function openWriterSupervisor(
       { readonly publish: (message: RepoWriterFleetBaseBackupTraceV1) => void; span?: { repoId: string | null } }
     >();
 
+  const publishMetricsStatus = (): void => {
+    if (!options.onMetricsStatus) return;
+    options.onMetricsStatus({
+      ...status,
+      queueDepth: Math.max(status.queueDepth ?? 0, writes.depth()),
+    });
+  };
+
   const writes = createWriterRequestQueue({
     repoId: input.repoId,
     abortInFlightOnClose: options.canonicalStore !== undefined || daemonWriterSupportsCommitPhase(input.storage),
@@ -158,6 +171,7 @@ export async function openWriterSupervisor(
     syncRepDrainGraceMs: options.syncRepDrainGraceMs,
     requestTimeoutMs: options.requestTimeoutMs,
     warn: options.onWarning,
+    ...(options.onMetricsStatus ? { onDepthChange: publishMetricsStatus } : {}),
     terminateAborted: async (error) => {
       const active = worker;
       worker = null;
@@ -224,6 +238,7 @@ export async function openWriterSupervisor(
             : {}),
         };
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
+      publishMetricsStatus();
       return await new Promise<T>((resolve, reject) => {
         const cancel = () => {
             storeAbort?.abort(signal?.reason);
@@ -262,6 +277,7 @@ export async function openWriterSupervisor(
           closeFleetBackupTrace(requestId);
           cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
+          publishMetricsStatus();
           reject(error instanceof Error ? error : new Error(String(error)));
         }
       });
@@ -350,6 +366,7 @@ export async function openWriterSupervisor(
       if (active) await active.terminate();
       failActive(new Error("RepoWriterCell closed"));
       status = { ...status, state: "closed", queueDepth: 0 };
+      publishMetricsStatus();
     }
   }
 
@@ -359,6 +376,9 @@ export async function openWriterSupervisor(
     return new Promise((resolve, reject) => {
       writerGeneration = Math.max(writerGeneration + 1, Date.now() * 1_000 + (process.pid % 1_000));
       const watchdogMs = resolveWriterReadyWatchdogMs(),
+        readyWatchdogState = new SharedArrayBuffer(BigInt64Array.BYTES_PER_ELEMENT),
+        readyProgress = new BigInt64Array(readyWatchdogState),
+        watchdogNs = BigInt(watchdogMs) * 1_000_000n,
         context = prepareStorageWorkerContext(input.storage, input.repoId),
         workerOptions = {
           name: "repo-writer",
@@ -379,6 +399,7 @@ export async function openWriterSupervisor(
                 : input,
               options.canonicalStore !== undefined,
               writerGeneration,
+              readyWatchdogState,
             ),
             storageContext: context.context,
           },
@@ -400,9 +421,18 @@ export async function openWriterSupervisor(
       candidate.once("exit", context.close);
       let settled = false,
         lastAttachProgress: RepoCellAttachProgress | null = null;
-      let readyWatchdog: ReturnType<typeof setTimeout>;
+      let readyWatchdog: ReturnType<typeof setTimeout>,
+        lastReadyMessage = process.hrtime.bigint();
       const readyInactive = () => {
         if (settled) return;
+        const currentReadyProgress = Atomics.load(readyProgress, 0);
+        if (currentReadyProgress > lastReadyMessage) {
+          const remaining = watchdogNs - (process.hrtime.bigint() - currentReadyProgress);
+          if (remaining > 0n) {
+            scheduleReadyWatchdog(Number((remaining + 999_999n) / 1_000_000n));
+            return;
+          }
+        }
         settled = true;
         const error = new Error(`RepoWriterCell did not publish ready after ${watchdogMs}ms without progress`);
         if (!opened) closed = true;
@@ -410,10 +440,14 @@ export async function openWriterSupervisor(
         failActive(error);
         void candidate.terminate();
       };
-      const armReadyWatchdog = () => {
+      const scheduleReadyWatchdog = (delayMs: number) => {
         clearTimeout(readyWatchdog);
-        readyWatchdog = setTimeout(readyInactive, watchdogMs);
+        readyWatchdog = setTimeout(readyInactive, delayMs);
         readyWatchdog.unref?.();
+      };
+      const armReadyWatchdog = () => {
+        lastReadyMessage = process.hrtime.bigint();
+        scheduleReadyWatchdog(watchdogMs);
       };
       armReadyWatchdog();
       worker = candidate;
@@ -450,6 +484,7 @@ export async function openWriterSupervisor(
             );
           if (message.queueHead !== undefined) operation.operation?.noteQueueHead(message.queueHead);
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
+          publishMetricsStatus();
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));
           armIdle();
@@ -465,6 +500,7 @@ export async function openWriterSupervisor(
               statusObservedAt = Date.now();
             }
             options.onPublishedStatus?.(status);
+            publishMetricsStatus();
             if (!settled && attaching && !resuming) options.onAttachStatus?.(published);
             if (
               !settled &&
@@ -545,6 +581,7 @@ export async function openWriterSupervisor(
             lastError: error.message,
             causeClass: "infrastructure",
           };
+          publishMetricsStatus();
           const delay = Math.min(1_000, 25 * 2 ** restartAttempt++);
           ready = new Promise((restartResolve, restartReject) => {
             const timer = setTimeout(() => {
@@ -758,6 +795,17 @@ export async function openWriterSupervisor(
         );
         return credential;
       }
+      case "cloudRuntimeRequest": {
+        const [hostId, method, params] = call.payload as Parameters<
+          NonNullable<RepoCellOpenInput["cloudRuntime"]>["request"]
+        >;
+        const signal = AbortSignal.timeout(Math.max(1, params.deadline - Date.now()));
+        try {
+          return await waitForSandboxReply(input.cloudRuntime!.request(hostId, method, params, signal), signal);
+        } catch (error) {
+          throw new CloudSandboxTransportFailure(signal.aborted || isRetryableSandboxFailure(error));
+        }
+      }
       case "prepareRuntimeLaunch": {
         const payload = call.payload as {
           instanceId: string;
@@ -876,10 +924,12 @@ function bootstrapMessage(
   input: RepoCellOpenInput,
   canonicalStore: boolean,
   writerGeneration: number,
+  readyWatchdogState: SharedArrayBuffer,
 ): RepoWriterBootstrapV1 {
   return {
     schema: "harness-repo-writer-bootstrap/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+    readyWatchdogState,
     config: {
       ...(input.storage ? { storage: input.storage } : {}),
       repoId: input.repoId,
@@ -889,6 +939,7 @@ function bootstrapMessage(
       ...(input.mode ? { mode: input.mode } : {}),
       ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
       ...(input.runtimeDaemonRoute ? { runtimeDaemonRoute: input.runtimeDaemonRoute } : {}),
+      ...(input.cloudRuntime ? { cloudRuntimeTargets: input.cloudRuntime.instanceTargets } : {}),
       ...(input.runtimeInstanceCapacities ? { runtimeInstanceCapacities: input.runtimeInstanceCapacities } : {}),
       ...(input.bootstrap
         ? {
@@ -934,6 +985,14 @@ function writerWorkerUrl(moduleUrl: string | URL = import.meta.url, storage?: Da
   const currentModuleUrl = new URL(moduleUrl),
     extension = path.extname(fileURLToPath(currentModuleUrl));
   return new URL(`../writer-cell/${daemonWriterEntryName(storage)}${extension}`, currentModuleUrl);
+}
+
+class CloudSandboxTransportFailure extends Error {
+  readonly data: { readonly retryable: boolean };
+  constructor(retryable: boolean) {
+    super("Cloud sandbox transport request failed.");
+    this.data = { retryable };
+  }
 }
 
 function respondCapability(

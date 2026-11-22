@@ -42,6 +42,7 @@ export const storageReadPolicy = {
   reason: "Keep one definition of the existing read window and I/O budgets across storage implementations.",
   fixtures: ["packages/kernel/test/contracts/storage-read-policy.test.ts"],
   sources: [
+    "policy:packages/kernel:packages/kernel/src/ports/canonical-event-page.ts#canonicalEventReadRequest:44eb4a7107cf9942638ce61f0bf73c99",
     "policy:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#storageReadPolicy.defaultValue.deadlines:9cc282e7e1557b13746f94046f6d8471",
     "policy:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#storageReadPolicy.defaultValue.backoff:363471a61222366e81d60c1609b28ffc",
     "policy:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#canTruncateRelationNeighborhood:71e7fc70dba7394fc8c33ece3b96825c",
@@ -76,8 +77,14 @@ export function validateStorageReadWindow(
   limit: number,
   maximum: number = Number.MAX_SAFE_INTEGER,
   afterRevision: number = storageReadPolicy.defaultValue.minimumRevision,
+  beforeRevision?: number,
 ): boolean {
-  if (!Number.isSafeInteger(afterRevision) || afterRevision < storageReadPolicy.defaultValue.minimumRevision)
+  if (
+    !Number.isSafeInteger(afterRevision) ||
+    afterRevision < storageReadPolicy.defaultValue.minimumRevision ||
+    (beforeRevision !== undefined &&
+      (!Number.isSafeInteger(beforeRevision) || beforeRevision < storageReadPolicy.defaultValue.minimumRevision))
+  )
     return false;
   return Number.isSafeInteger(limit) && limit >= storageReadPolicy.defaultValue.minimumRows && limit <= maximum;
 }
@@ -85,7 +92,7 @@ export function validateStorageReadWindow(
 export const storageReadJudgment = {
   id: "storage-read-window",
   symbol: "packages/kernel/src/domain/storage-read-policy.ts#validateStorageReadWindow",
-  inputs: ["limit", "endpoint ceiling", "afterRevision"],
+  inputs: ["limit", "endpoint ceiling", "afterRevision", "beforeRevision"],
   output: "boolean",
   failureCodes: [],
   explain: "A read window uses safe integer rows and revisions within the endpoint ceiling.",
@@ -102,7 +109,7 @@ export const storageReadJudgment = {
   sources: [
     {
       candidateId:
-        "judgment:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#validateStorageReadWindow:6a8cdc60e632c4f815a114b3c3bede91",
+        "judgment:packages/kernel:packages/kernel/src/domain/storage-read-policy.ts#validateStorageReadWindow:20c776f3d1b13858a154104ccb706047",
       route: "storage bounded read validation",
     },
   ],

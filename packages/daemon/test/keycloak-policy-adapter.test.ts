@@ -14,7 +14,7 @@ import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
 import { artifactActionPolicyActionsForDefinition } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { artifactEntityActionCatalog } from "@harness-anything/kernel/internal/domain/artifact-entity-actions.ts";
 import { registerArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import {
   authorizeRepoCellAction,
   evaluateRepoCellAction,
@@ -1299,8 +1299,8 @@ test("a process that did not compile the registry syncs canonical Artifact scope
 // its message prefix. Callers may only branch on the adapter's named code, never on message text.
 const messageClassification = /\bmessage\.(?:startsWith|includes)\s*\(/u;
 
-test("authorization-keycloak production code never classifies errors by message text", () => {
-  const sourceRoot = new URL("../../authorization-keycloak/src/", import.meta.url),
+test("Keycloak provider production code never classifies errors by message text", () => {
+  const sourceRoot = new URL("../../authorization/src/keycloak/", import.meta.url),
     violations = readdirSync(sourceRoot, { recursive: true })
       .map(String)
       .filter((file) => file.endsWith(".ts"))

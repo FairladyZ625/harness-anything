@@ -31,6 +31,7 @@ export interface DaemonPoint extends JsonObject {
 }
 
 export interface DaemonRuntimePorts {
+  readonly cloudRuntime?: DaemonHostOpenInput["cloudRuntime"];
   readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth: RuntimeProviderHealthStore;
@@ -94,6 +95,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly runtimePorts: DaemonRuntimePorts;
   readonly decisionPointExecutorFor: (repoId: string, rootDir: string) => ReturnType<typeof openDecisionPointExecutor>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-types.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
@@ -118,6 +120,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
     readonly canonicalRoot: string;
     readonly mode: DaemonRepoMode;
   }) => RepoCellStatus;
+  readonly publishRepoStatus?: (repoId: string, status: RepoCellStatus) => void;
   readonly openRegistered: (repo: RegisteredRepoInput, progress?: AttachProgress) => Promise<void>;
   readonly unavailableStatus: (repoId: string, rootDir: string, mode: DaemonRepoMode, error: unknown) => RepoCellStatus;
   readonly waitForWarming: (repoId: string) => Promise<void>;
@@ -179,6 +182,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly recoverableRunId: typeof import("./daemon-host-errors.ts").recoverableRunId;
   readonly requireHostMode: (repoId: string, command: CommandTopology, auth: DaemonAuthenticationContext) => void;
   fleetCenter: FleetTlsCenter | null;
+  readonly triggerCenterReviewFallback?: (reason: string) => void;
   readonly edgeRuntimeOwners: Map<string, ReturnType<typeof import("./fleet-edge-runtime.ts").openFleetEdgeRuntime>>;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
@@ -199,12 +203,24 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   >;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */
   readonly startReplicaSyncs: () => void;
+  readonly startReplicaSyncsFor: (repoId: string) => void;
+  readonly withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>;
   readonly fleetVersionWarnings: Map<string, FleetVersionWarning>;
   /** This node's runtimes whose recovery keeps failing; the edge agenda shows them to the owner. */
   readonly runtimeRecoveryWatch: import("./runtime-recovery-watch.ts").RuntimeRecoveryWatch;
   readonly settleControl: (pending: DaemonControlReceipt, ok: boolean, error?: unknown) => void;
   readonly buildObserver: DaemonBuildObserver;
   readonly startInitialAttachments: () => Promise<void>;
+  readonly initialAttachmentsSettled?: () => boolean;
+  readonly fleetCenterRestoreFailed?: () => boolean;
+  readonly sortedRepoIds?: () => readonly string[];
+  readonly publishRepoStatus?: (repoId: string, status: RepoCellStatus) => void;
+  readonly identityReadiness?: () =>
+    | "ready"
+    | "identity_not_configured"
+    | "identity_verifying"
+    | "identity_authority_sync_pending"
+    | "identity_unavailable";
   readonly waitForWarming: (repoId: string) => Promise<void>;
   closing: boolean;
   initialAttachments: Promise<void> | null;

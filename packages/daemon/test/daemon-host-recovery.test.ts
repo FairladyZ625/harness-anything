@@ -477,32 +477,33 @@ test("cache purge removes only derived local state and unbinds the repository", 
   }
 });
 
-test("unbinding a remote-edge repository removes its fleet-edge.json marker", async () => {
+test("unbinding a remote-edge repository removes its node fleet-edge.json and CA", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-unbind-edge-config-")),
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "host-unbind-edge-config";
   rosterRepo(rootDir, repoId);
-  writeFileSync(
-    path.join(rootDir, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId,
-      host: "center",
-      port: 7443,
-      caPath: "/tmp/center-ca.pem",
-      nodeId: "edge-node",
-      credential: "machine-credential",
-      viewRoot: "/tmp/view",
-      quotaBytes: 100,
-    }),
+  const { fleetEdgeCaPath, fleetEdgeConfigPath, writeFleetEdgeConfig } = await import(
+    "../src/daemon-host/client/fleet-edge-config.ts"
   );
+  writeFleetEdgeConfig(userRoot, repoId, {
+    repoId,
+    host: "center",
+    port: 7443,
+    caPath: fleetEdgeCaPath(userRoot, repoId),
+    nodeId: "edge-node",
+    credential: "machine-credential",
+    viewRoot: "/tmp/view",
+    quotaBytes: 100,
+  });
+  writeFileSync(fleetEdgeCaPath(userRoot, repoId), "-----BEGIN CERTIFICATE-----\n");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, mode: "remote-edge", createConvenienceLinks: false });
   const host = await openSignedInHost({ daemonId: repoId, userRoot });
   try {
     const receipt = await host.admin({ kind: "unbind", repoId }, auth);
     assert.equal(receipt.outcome, "applied");
-    assert.equal(existsSync(path.join(rootDir, "fleet-edge.json")), false);
+    assert.equal(existsSync(fleetEdgeConfigPath(userRoot, repoId)), false);
+    assert.equal(existsSync(fleetEdgeCaPath(userRoot, repoId)), false);
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });

@@ -21,9 +21,16 @@ import {
   type ReplicaSyncOptions,
 } from "../src/daemon-host/fleet/replica-sync.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { edgeReplicaDoctor } from "../src/daemon-host/edge-replica-doctor.ts";
+import { FleetEdgeGitPreflightError } from "../src/daemon-host/fleet-edge-git-preflight.ts";
+import { openRuntimeRecoveryWatch, runReplicaConfirmedRound } from "../src/daemon-host/runtime-recovery-watch.ts";
 import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
 import { REPLICATION_CHUNK_BYTES, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import {
   fleetReplicationFixture,
   replicationRepoId,
@@ -254,13 +261,14 @@ test("a failing confirmation is reported and never fails the replication stream"
     "initial convergence",
     60_000,
   );
+  // The receiver can reach the center position while confirmation is still retrying.
+  await waitForState(() => confirmFailures.length >= 1, "confirmation reports its failure after retries", 60_000);
   await pressure(fixture, 3);
   await waitForState(
     () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
     "convergence across failing confirmations",
     60_000,
   );
-  assert.ok(confirmFailures.length >= 1, "the confirmation failure was reported");
   assert.deepEqual(stream.failures, [], "confirmation failures are not stream failures");
   assert.deepEqual(
     confirmedPaths.filter((paths) => paths !== undefined),
@@ -572,26 +580,27 @@ test(
     assert.equal(typeof row.ackedAt, "string");
 
     // Edge doctor: a confirming stream is healthy; a stream silent past three keepalives is not.
-    const workspace = mkdtempSync(path.join(tmpdir(), "ha-harden-workspace-"));
-    writeFileSync(
-      path.join(workspace, "fleet-edge.json"),
-      JSON.stringify({
-        schema: "fleet-edge-config/v1",
-        repoId: replicationRepoId,
-        host: "127.0.0.1",
-        port: fixture.centerPort(),
-        caPath: "ca.pem",
-        nodeId: "edge-one",
-        credential: "secret-edge-one",
-        viewRoot,
-        quotaBytes: 64 * 1024 * 1024,
-      }),
-    );
-    const fresh = edgeReplicaDoctor(workspace, replicationRepoId);
+    const workspace = mkdtempSync(path.join(tmpdir(), "ha-harden-workspace-")),
+      doctorUserRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-user-"));
+    t.after(() => {
+      rmSync(workspace, { recursive: true, force: true });
+      rmSync(doctorUserRoot, { recursive: true, force: true });
+    });
+    writeFleetEdgeConfig(doctorUserRoot, replicationRepoId, {
+      repoId: replicationRepoId,
+      host: "127.0.0.1",
+      port: fixture.centerPort(),
+      caPath: "ca.pem",
+      nodeId: "edge-one",
+      credential: "secret-edge-one",
+      viewRoot,
+      quotaBytes: 64 * 1024 * 1024,
+    });
+    const fresh = edgeReplicaDoctor(workspace, replicationRepoId, undefined, doctorUserRoot);
     assert.equal(fresh.failureCode, null, JSON.stringify(fresh));
     assert.equal(fresh.lag, 0);
     assert.equal(typeof fresh.lastSuccessAt, "string");
-    const silent = edgeReplicaDoctor(workspace, replicationRepoId, () => Date.now() + 10 * 60_000);
+    const silent = edgeReplicaDoctor(workspace, replicationRepoId, () => Date.now() + 10 * 60_000, doctorUserRoot);
     assert.equal(silent.failureCode, "replica_stream_silent", JSON.stringify(silent));
     assert.equal(silent.lag, null);
 
@@ -793,5 +802,256 @@ test(
     await pressure(fixture);
     await waitForState(() => dropSecondConfirmed, "later revision confirmation after reconnect", 30_000);
     assert.ok(dropCalls >= 2, `expected later revision after reconnect to trigger onConfirmed, got ${dropCalls}`);
+  },
+);
+
+test(
+  "deterministic edge mirror conflict logs replica_confirm_failed once, keeps auto-claim/dispatch running, surfaces in ha agenda, and clears on resolution",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t);
+    let autoDispatchTriggers = 0,
+      autoClaimTriggers = 0;
+    const originalDispatchRead = f.host.readNodeAutoDispatchCandidates.bind(f.host),
+      originalClaimRead = f.host.readNodeAutoClaimCandidates.bind(f.host);
+    f.host.readNodeAutoDispatchCandidates = async (...args) => {
+      autoDispatchTriggers += 1;
+      return originalDispatchRead(...args);
+    };
+    f.host.readNodeAutoClaimCandidates = async (...args) => {
+      autoClaimTriggers += 1;
+      return originalClaimRead(...args);
+    };
+
+    const taskId = "task_confirmconflict0000000001";
+    const created = await f.host.run(
+      "lease-repo",
+      { kind: "task-create", taskId, title: "Edge confirm conflict isolation" },
+      localAuthFixture(),
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const shown = await f.host.run("lease-repo", { kind: "task-show", taskId }, localAuthFixture()),
+      packagePath = String(JSON.parse(String(shown.evidence)).packagePath),
+      planLogical = `${packagePath}/task_plan.md`,
+      centerPlanPath = path.join(f.repo, "harness", ...planLogical.split("/"));
+    mkdirSync(path.dirname(centerPlanPath), { recursive: true });
+    writeFileSync(centerPlanPath, realizedTaskPlan(taskId));
+    const seededPlan = await f.host.run("lease-repo", { kind: "doc-submit", paths: [planLogical] }, localAuthFixture());
+    assert.equal(seededPlan.outcome, "applied", JSON.stringify(seededPlan));
+
+    const lifecycleEvents: { readonly event: string; readonly code?: string; readonly error?: string }[] = [],
+      edge = await fleetEdgeHostFixture(t, f, {
+        recordLifecycle: (entry) => lifecycleEvents.push(entry),
+      });
+    const edgePlanPath = path.join(resolveHarnessLayout(edge.edgeRoot).authoredRoot, ...planLogical.split("/")),
+      edgeViewDir = path.join(edge.viewRoot, "repos", "lease-repo", "views", "node-one");
+    await waitForState(() => existsSync(edgePlanPath), "initial mirror materialization on edge", 60_000);
+    await edge.host.configureNodeAutoClaim(
+      {
+        schema: "node-auto-claim/v1",
+        enabled: true,
+        allowedSources: { personIds: [], teamIds: [] },
+        allowedAgentIds: ["worker-one"],
+        maxConcurrent: 1,
+      },
+      localAuthFixture(),
+    );
+
+    // Inject a genuine modify/modify workspace conflict: local edits task_plan.md while center advances it + 2 more cuts.
+    const conflictingLocalText = `${readFileSync(edgePlanPath, "utf8")}\nLocal conflicting edit\n`,
+      updatedCenterText = `${realizedTaskPlan(taskId)}\nCanonical center amendment\n`;
+    writeFileSync(edgePlanPath, conflictingLocalText);
+    autoDispatchTriggers = 0;
+    autoClaimTriggers = 0;
+
+    writeFileSync(centerPlanPath, updatedCenterText);
+    assert.equal(
+      (await f.host.run("lease-repo", { kind: "doc-submit", paths: [planLogical] }, localAuthFixture())).outcome,
+      "applied",
+    );
+    for (const index of [1, 2]) {
+      const extra = await f.host.run(
+        "lease-repo",
+        {
+          kind: "task-create",
+          taskId: `task_confirmpressure000000000${index}`,
+          title: `Confirm pressure ${index}`,
+        },
+        localAuthFixture(),
+      );
+      assert.equal(extra.outcome, "applied", JSON.stringify(extra));
+    }
+    const centerRevisionAfterPressure = f.eventCount();
+    await waitForState(
+      () =>
+        readReplicaGeneration(edgeViewDir)?.metadata.position.revision === centerRevisionAfterPressure &&
+        autoDispatchTriggers >= 1 &&
+        autoClaimTriggers >= 1,
+      "edge stream convergence and unblocked auto-claim/dispatch across 3 conflicting cuts",
+      60_000,
+    );
+
+    const confirmFailureEvents = () => lifecycleEvents.filter((entry) => entry.event === "replica_confirm_failed");
+    await waitForState(() => confirmFailureEvents().length >= 1, "single replica_confirm_failed record", 15_000);
+    assert.equal(
+      confirmFailureEvents().length,
+      1,
+      `deterministic confirmation conflict must log once across repeated cuts: ${JSON.stringify(confirmFailureEvents())}`,
+    );
+    assert.ok(autoDispatchTriggers >= 1, "autoDispatchLoop must run even when applyFleetMirrorCut is pull_blocked");
+    assert.ok(autoClaimTriggers >= 1, "autoClaimLoop must run even when applyFleetMirrorCut is pull_blocked");
+
+    const edgeAgendaBlocked = await edge.host.read(
+      "lease-repo",
+      "repo.agenda.read",
+      {},
+      { transportKind: "unix-socket" },
+    );
+    assert.match(
+      edgeAgendaBlocked.summary,
+      /本节点副本确认待处理 \[阻塞\][\s\S]*\[pull_blocked\][\s\S]*task_plan\.md/u,
+      `edge agenda must immediately surface the deterministic confirmation block: ${edgeAgendaBlocked.summary}`,
+    );
+    const centerAgenda = await f.host.read("lease-repo", "repo.agenda.read", {}, localAuthFixture());
+    assert.doesNotMatch(
+      centerAgenda.summary,
+      /本节点副本确认待处理/u,
+      "node-local mirror conflicts must never pollute the canonical center agenda",
+    );
+
+    // Operator resolves the local workspace conflict; the next confirmed cut clears agenda and keeps log count at 1.
+    writeFileSync(edgePlanPath, updatedCenterText);
+    assert.equal(
+      (
+        await f.host.run(
+          "lease-repo",
+          { kind: "task-create", taskId: "task_confirmrecover0000000001", title: "Recovery cut" },
+          localAuthFixture(),
+        )
+      ).outcome,
+      "applied",
+    );
+    await waitForState(
+      async () => {
+        const agenda = await edge.host.read("lease-repo", "repo.agenda.read", {}, { transportKind: "unix-socket" });
+        return !agenda.summary.includes("本节点副本确认待处理");
+      },
+      "edge agenda confirmation block to clear automatically after conflict resolution",
+      60_000,
+    );
+    assert.equal(confirmFailureEvents().length, 1, "recovery must not emit extra failure logs");
+  },
+);
+
+test(
+  "deterministic branch divergence coalesces heartbeat scans without blocking downstream rounds, while transient errors recover via backoff",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t, { replicationKeepaliveMs: 150 });
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+
+    // Positive control 1: deterministic divergence across commits + keepalive heartbeats.
+    const viewRootDet = mkdtempSync(path.join(tmpdir(), "ha-harden-det-divergence-"));
+    t.after(() => rmSync(viewRootDet, { recursive: true, force: true }));
+    const watch = openRuntimeRecoveryWatch(),
+      confirmFailureEvents: unknown[] = [];
+    let diverged = true,
+      fullMirrorScans = 0,
+      heartbeatSkips = 0,
+      autoDispatchTriggers = 0,
+      recoveredRounds = 0;
+
+    const detStream = startHardeningStream(t, fixture, viewRootDet, {
+      onConfirmed: async (changedPaths) => {
+        await runReplicaConfirmedRound({
+          materialize: () => {
+            if (diverged && changedPaths !== undefined && changedPaths.length === 0) {
+              heartbeatSkips += 1;
+              throw new FleetEdgeGitPreflightError(
+                "edge_default_branch_diverged",
+                "edge main diverges from center main",
+              );
+            }
+            fullMirrorScans += 1;
+            if (diverged)
+              throw new FleetEdgeGitPreflightError(
+                "edge_default_branch_diverged",
+                "edge main diverges from center main",
+              );
+          },
+          observeConfirm: (failure) =>
+            failure === null || failure === "unchanged"
+              ? failure === null
+                ? (recoveredRounds += 1)
+                : undefined
+              : watch.observe("lease-repo", [], new Date().toISOString()),
+          reconcile: async () => undefined,
+          observeRecovery: () => undefined,
+          triggers: [
+            async () => {
+              autoDispatchTriggers += 1;
+            },
+          ],
+        });
+      },
+      onConfirmedFailure: (error) => confirmFailureEvents.push(error),
+    });
+
+    await waitForState(
+      () => confirmFailureEvents.length >= 1 && autoDispatchTriggers >= 1,
+      "first diverged round",
+      30_000,
+    );
+    await pressure(fixture, 2);
+    await waitForState(
+      () => fullMirrorScans >= 2 && heartbeatSkips >= 2 && autoDispatchTriggers >= 4,
+      "commits and keepalive heartbeats while diverged",
+      30_000,
+    );
+    const scansBeforeIdleHeartbeats = fullMirrorScans;
+    const skipsBeforeIdleHeartbeats = heartbeatSkips;
+    await waitForState(
+      () => heartbeatSkips >= skipsBeforeIdleHeartbeats + 2,
+      "two additional idle keepalive heartbeats",
+      15_000,
+    );
+    assert.equal(
+      fullMirrorScans,
+      scansBeforeIdleHeartbeats,
+      "empty keepalive ACKs must not trigger full-cut mirror scans while deterministic divergence is unchanged",
+    );
+    assert.equal(confirmFailureEvents.length, 1, "identical deterministic failure must emit onConfirmedFailure once");
+
+    diverged = false;
+    await pressure(fixture, 1);
+    await waitForState(() => recoveredRounds >= 1, "confirmation recovery after branch divergence resolved", 30_000);
+    assert.equal(confirmFailureEvents.length, 1);
+    await detStream.stop();
+
+    // Positive control 2: transient confirmation error recovers automatically via single retry backoff port.
+    const viewRootTransient = mkdtempSync(path.join(tmpdir(), "ha-harden-transient-confirm-"));
+    t.after(() => rmSync(viewRootTransient, { recursive: true, force: true }));
+    const transientFailureEvents: unknown[] = [];
+    let transientCalls = 0,
+      callsAtFirstRecovery = 0,
+      transientRecovered = false;
+    const transientStream = startHardeningStream(t, fixture, viewRootTransient, {
+      onConfirmed: async () => {
+        const call = ++transientCalls;
+        if (call <= 2) throw Object.assign(new Error("temporary center reset"), { code: "ECONNRESET" });
+        if (callsAtFirstRecovery === 0) callsAtFirstRecovery = call;
+        transientRecovered = true;
+      },
+      onConfirmedFailure: (error) => transientFailureEvents.push(error),
+    });
+    await waitForState(
+      () => transientRecovered,
+      "transient confirmation error to self-heal via backoff without new commits",
+      30_000,
+    );
+    assert.equal(callsAtFirstRecovery, 3, "transient failure retried twice and succeeded on the third run");
+    assert.deepEqual(transientFailureEvents, [], "a transient failure that heals within retry budget does not latch");
+    await transientStream.stop();
   },
 );

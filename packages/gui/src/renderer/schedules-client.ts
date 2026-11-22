@@ -1,5 +1,6 @@
 import type {
   ScheduleGuiHealthDto,
+  DaemonGuiReadPayloadMap,
   ScheduleGuiListRowDto,
   ScheduleGuiRowDto,
   SchedulesListResult,
@@ -112,8 +113,11 @@ export interface ScheduleBuiltinEditInput {
 }
 
 export const schedulesClient = {
-  list: async (repoId: string): Promise<SchedulesListResult> => {
-    const value = await readUseCaseProjection({ repoId, name: "schedule-plane" });
+  list: async (
+    repoId: string,
+    scope: DaemonGuiReadPayloadMap["repo.works.index"] = {},
+  ): Promise<SchedulesListResult> => {
+    const value = await readUseCaseProjection({ repoId, name: "schedule-plane", ...scope });
     if (
       !isRendererRecord(value) ||
       value.ok !== true ||

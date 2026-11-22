@@ -203,7 +203,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         "outputShape: repository-diff",
         "completionGates: []",
         "contract: repository-diff requires a committable public-repository diff and real CI. " +
-          "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+          "For a task-package-only report or decision, use a task-package-artifact preset (architecture-rot-audit, code-impact-analysis, docs-task, lifecycle-blackbox-acceptance, subtask-expansion).",
         "next: remove --dry-run to publish this exact resolved scaffold",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
           "harness/tasks/task-alpha-alpha/task_plan.md; keep the preset's required section headings for task start, but reorder or add sections freely — only machine-managed frontmatter is frozen",
@@ -1003,8 +1003,7 @@ test("existing c606 pair upgrades additively and explicit name is the only confi
   try {
     const configPath = path.join(fixture.alpha, "harness/harness.yaml"),
       peoplePath = path.join(fixture.alpha, "harness/people.yaml"),
-      // F-1D3A0A64: init adds the exact project runtime setting to the existing layout.
-      originalConfig = `${readFileSync(configPath, "utf8")}settings:\n  runtime:\n    allowedInstances:\n      []\n`,
+      originalConfig = readFileSync(configPath, "utf8"),
       originalPeople = readFileSync(peoplePath, "utf8");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     const additive = run(fixture.alpha, fixture.userRoot, [
@@ -1090,7 +1089,7 @@ test("an existing config without a legacy people file initializes through Keyclo
       "Owner",
     ]);
     assert.equal(initialized.ok, true);
-    assert.equal(readFileSync(configPath, "utf8"), `${config}settings:\n  runtime:\n    allowedInstances:\n      []\n`);
+    assert.equal(readFileSync(configPath, "utf8"), config);
     assert.equal(existsSync(path.join(fixture.repo, "harness/people.yaml")), false);
     assert.equal(existsSync(path.join(fixture.repo, "harness/context")), true);
   } finally {
@@ -1177,10 +1176,7 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
         "Owner",
       ]);
     assert.equal(initialized.outcome, "applied");
-    assert.equal(
-      readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
-      `${config}  runtime:\n    allowedInstances:\n      []\n`,
-    );
+    assert.equal(readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"), config);
     assert.equal(readFileSync(path.join(fixture.alpha, "harness/people.yaml"), "utf8"), people);
     assert.equal(readFileSync(path.join(fixture.alpha, "harness/context/README.md"), "utf8"), custom);
     assert.equal(readFileSync(path.join(fixture.alpha, "AGENTS.md"), "utf8"), customAgents);

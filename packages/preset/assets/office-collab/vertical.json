@@ -1,0 +1,380 @@
+{
+  "schema": "vertical-definition/v1",
+  "id": "office/collab",
+  "title": "Office Collaboration",
+  "version": "1.0.0",
+  "entityFieldExtensions": [
+    {
+      "extends": "task",
+      "field": "taskClass",
+      "kind": "enum-facet",
+      "values": ["work"],
+      "default": null,
+      "mutability": "amendable",
+      "projection": { "column": "task_class", "queryable": true },
+      "reason": "Office collaboration planning declares a work root: the task whose subtree represents one coordinated initiative."
+    }
+  ],
+  "entityKinds": [
+    {
+      "id": "task",
+      "entityType": "lifecycle",
+      "packageKind": "task-package/v2",
+      "contractEntity": true
+    },
+    {
+      "id": "decision",
+      "entityType": "lifecycle",
+      "packageKind": "decision-event/v1",
+      "contractEntity": true
+    },
+    {
+      "id": "fact",
+      "entityType": "schema",
+      "schemaRef": "schema://fact-event",
+      "contractEntity": true
+    },
+    {
+      "kindId": "KND-7a1c4e9b2d6f8a0c3e5b1d7f9a2c4e61",
+      "id": "project-brief",
+      "entityType": "artifact",
+      "schemaVersions": [
+        {
+          "version": 1,
+          "attributes": {
+            "owner": { "type": "string", "required": true },
+            "scopeSummary": { "type": "string", "required": true },
+            "targetDate": { "type": "string" }
+          }
+        }
+      ],
+      "idPrefix": "BRIEF",
+      "display": {
+        "singular": "Project Brief",
+        "plural": "Project Briefs"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/project-briefs/{id}.json"
+      },
+      "locatorKinds": ["repository-path", "url"],
+      "maturityVocabulary": ["draft", "aligned", "active", "archived"]
+    },
+    {
+      "kindId": "KND-8b2d5f0c3e7a9b1d4f6c2e8a0b3d5f72",
+      "id": "deliverable",
+      "entityType": "artifact",
+      "schemaVersions": [
+        {
+          "version": 1,
+          "attributes": {
+            "deliverableKind": {
+              "type": "string",
+              "enum": ["proposal", "report", "specification", "briefing", "checklist", "other"],
+              "required": true
+            },
+            "owner": { "type": "string", "required": true },
+            "audience": { "type": "string" },
+            "upstreamDigest": { "type": "string" }
+          }
+        }
+      ],
+      "idPrefix": "DELIV",
+      "display": {
+        "singular": "Deliverable",
+        "plural": "Deliverables"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/deliverables/{id}.json"
+      },
+      "locatorKinds": ["repository-path", "url", "external-key"],
+      "maturityVocabulary": ["draft", "in_review", "approved", "superseded"]
+    },
+    {
+      "kindId": "KND-9c3e6a1d4f8b0c2e5a7d3f9b1c4e6a83",
+      "id": "handoff",
+      "entityType": "artifact",
+      "schemaVersions": [
+        {
+          "version": 1,
+          "attributes": {
+            "fromOwner": { "type": "string", "required": true },
+            "toOwner": { "type": "string", "required": true },
+            "effectiveDate": { "type": "string" }
+          }
+        }
+      ],
+      "idPrefix": "HANDOFF",
+      "display": {
+        "singular": "Handoff Package",
+        "plural": "Handoff Packages"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/handoffs/{id}.json"
+      },
+      "locatorKinds": ["repository-path", "url"],
+      "maturityVocabulary": ["prepared", "accepted", "completed"]
+    },
+    {
+      "kindId": "KND-0d4f7b2e5a9c1d3f6b8e4a0c2d5f7b94",
+      "id": "minutes",
+      "entityType": "artifact",
+      "schemaVersions": [
+        {
+          "version": 1,
+          "attributes": {
+            "meetingDate": { "type": "string", "required": true },
+            "facilitator": { "type": "string", "required": true },
+            "actionItemCount": { "type": "integer" }
+          }
+        }
+      ],
+      "idPrefix": "MIN",
+      "display": {
+        "singular": "Meeting Minutes",
+        "plural": "Meeting Minutes"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/minutes/{id}.json"
+      },
+      "locatorKinds": ["repository-path", "url"],
+      "maturityVocabulary": ["draft", "circulated", "confirmed"]
+    },
+    {
+      "kindId": "KND-1e5a8c3f6b0d2e4a7c9f5b1d3e6a8c05",
+      "id": "memory-item",
+      "entityType": "artifact",
+      "schemaVersions": [
+        {
+          "version": 1,
+          "attributes": {
+            "category": {
+              "type": "string",
+              "enum": ["decision-context", "process-norm", "stakeholder-note", "lesson-learned", "reference"],
+              "required": true
+            },
+            "owner": { "type": "string" }
+          }
+        }
+      ],
+      "idPrefix": "MEM",
+      "display": {
+        "singular": "Memory Item",
+        "plural": "Memory Items"
+      },
+      "descriptorSchemaRef": "schema://artifact-descriptor",
+      "store": {
+        "pathTemplate": "entities/memory-items/{id}.json"
+      },
+      "locatorKinds": ["repository-path", "url", "external-key"],
+      "maturityVocabulary": ["candidate", "verified", "retired"]
+    }
+  ],
+  "contractEntityKinds": ["task", "decision", "fact"],
+  "packageScaffolds": [
+    {
+      "entityKind": "task",
+      "templateSelections": [
+        {
+          "slot": "task.plan",
+          "templateRef": "template://office/task-plan@1",
+          "materializeAs": "task_plan.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.closeout",
+          "templateRef": "template://office/closeout@1",
+          "materializeAs": "closeout.md",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        },
+        {
+          "slot": "task.artifacts.keep",
+          "templateRef": "template://office/keep-file@1",
+          "materializeAs": "artifacts/.gitkeep",
+          "localePolicy": { "prefer": "project", "fallback": "en-US" }
+        }
+      ]
+    },
+    { "entityKind": "decision", "templateSelections": [] }
+  ],
+  "repositoryScaffold": {
+    "entityRoots": [
+      { "entityKind": "task", "path": "{{paths.tasksRoot}}", "create": "init" },
+      { "entityKind": "decision", "path": "{{paths.decisionsRoot}}", "create": "lazy" }
+    ],
+    "dirs": [
+      { "path": "{{paths.standardsRoot}}", "create": "init" },
+      { "path": "{{paths.contextRoot}}", "create": "init" },
+      { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
+    ],
+    "seededDocs": [
+      {
+        "slot": "repository.context.index",
+        "templateRef": "template://office/context-index@1",
+        "materializeAs": "{{paths.contextRoot}}/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.index",
+        "templateRef": "template://office/standards-index@1",
+        "materializeAs": "{{paths.standardsRoot}}/README.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.governance",
+        "templateRef": "template://office/repository-governance@1",
+        "materializeAs": "{{paths.standardsRoot}}/repository-governance.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.standard.decision-writing",
+        "templateRef": "template://office/decision-writing@1",
+        "materializeAs": "{{paths.standardsRoot}}/decision-writing.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.gitattributes",
+        "templateRef": "template://office/gitattributes@1",
+        "materializeAs": "{{paths.authoredRoot}}/.gitattributes",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      },
+      {
+        "slot": "repository.claude.entry",
+        "templateRef": "template://office/claude-entry@1",
+        "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
+        "localePolicy": { "prefer": "project", "fallback": "en-US" }
+      }
+    ],
+    "agentsEntry": {
+      "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+      "localePolicy": { "prefer": "project", "fallback": "en-US" },
+      "baseRef": "template://office/agent-base@1",
+      "overlayRef": "template://office/agent-overlay@1",
+      "repoSpecificsAnchor": "## Repository Specifics"
+    }
+  },
+  "scripts": [],
+  "templateSelections": [],
+  "completion": {
+    "sources": {
+      "manual-attest": {
+        "kind": "manual",
+        "predicateType": "harness/attestation/v1",
+        "resultSchema": { "type": "object", "additionalProperties": false }
+      },
+      "office-collab/deliverable-contract": {
+        "kind": "command",
+        "entrypoint": "deliverable-task/verify-deliverable",
+        "predicateType": "office-collab/deliverable-contract/v1",
+        "resultSchema": {
+          "type": "object",
+          "required": ["schema", "deliverableKind", "owner", "documentPath", "documentSha256", "verifiedSectionCount"],
+          "additionalProperties": false,
+          "properties": {
+            "schema": { "type": "string", "const": "office-collab/deliverable-manifest/v1" },
+            "deliverableKind": {
+              "type": "string",
+              "enum": ["proposal", "report", "specification", "briefing", "checklist", "other"]
+            },
+            "owner": { "type": "string", "minLength": 1 },
+            "documentPath": { "type": "string", "minLength": 1 },
+            "documentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "verifiedSectionCount": { "type": "integer", "minimum": 1 }
+          }
+        }
+      },
+      "office-collab/upstream-fresh": {
+        "kind": "command",
+        "entrypoint": "deliverable-task/verify-upstream-fresh",
+        "predicateType": "office-collab/upstream-fresh/v1",
+        "resultSchema": {
+          "type": "object",
+          "required": ["schema", "checkedAt", "baselineCount", "driftedCount", "allFresh", "anchorsDigest"],
+          "additionalProperties": false,
+          "properties": {
+            "schema": { "type": "string", "const": "office-collab/upstream-freshness/v1" },
+            "checkedAt": { "type": "string", "minLength": 1 },
+            "baselineCount": { "type": "integer", "minimum": 1 },
+            "driftedCount": { "type": "integer", "const": 0 },
+            "allFresh": { "type": "boolean", "const": true },
+            "anchorsDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
+      },
+      "office-collab/handoff-completeness": {
+        "kind": "command",
+        "entrypoint": "handoff-task/verify-handoff",
+        "predicateType": "office-collab/handoff-completeness/v1",
+        "resultSchema": {
+          "type": "object",
+          "required": [
+            "schema",
+            "from",
+            "to",
+            "deliverableCount",
+            "openItemCount",
+            "acceptanceCriteriaCount",
+            "allElementsPresent"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "schema": { "type": "string", "const": "office-collab/handoff/v1" },
+            "from": { "type": "string", "minLength": 1 },
+            "to": { "type": "string", "minLength": 1 },
+            "deliverableCount": { "type": "integer", "minimum": 1 },
+            "openItemCount": { "type": "integer", "minimum": 0 },
+            "acceptanceCriteriaCount": { "type": "integer", "minimum": 1 },
+            "allElementsPresent": { "type": "boolean", "const": true }
+          }
+        }
+      }
+    },
+    "gates": {
+      "deliverable-contract": {
+        "source": "office-collab/deliverable-contract",
+        "appliesTo": "artifacts",
+        "subjects": ["artifacts/deliverable-manifest.json"],
+        "bindings": {
+          "schema": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/schema" },
+          "deliverableKind": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/deliverableKind" },
+          "owner": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/owner" },
+          "documentPath": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/documentPath" },
+          "documentSha256": { "artifact": "artifacts/deliverable-manifest.json", "pointer": "/documentSha256" }
+        }
+      },
+      "upstream-fresh": {
+        "source": "office-collab/upstream-fresh",
+        "appliesTo": "artifacts",
+        "subjects": ["artifacts/upstream-freshness.json"],
+        "bindings": {
+          "schema": { "artifact": "artifacts/upstream-freshness.json", "pointer": "/schema" },
+          "checkedAt": { "artifact": "artifacts/upstream-freshness.json", "pointer": "/checkedAt" }
+        }
+      },
+      "handoff-completeness": {
+        "source": "office-collab/handoff-completeness",
+        "appliesTo": "artifacts",
+        "subjects": ["artifacts/handoff.json"],
+        "bindings": {
+          "schema": { "artifact": "artifacts/handoff.json", "pointer": "/schema" },
+          "from": { "artifact": "artifacts/handoff.json", "pointer": "/ownerTransfer/from" },
+          "to": { "artifact": "artifacts/handoff.json", "pointer": "/ownerTransfer/to" }
+        }
+      }
+    },
+    "closeoutDefaults": {
+      "review": false,
+      "consent": false,
+      "factDisposition": false
+    }
+  },
+  "projectionSchemas": [
+    { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },
+    { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
+    { "id": "fact-event", "schemaRef": "schema://fact-event" },
+    { "id": "artifact-descriptor", "schemaRef": "schema://artifact-descriptor" }
+  ]
+}

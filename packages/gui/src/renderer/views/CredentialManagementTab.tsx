@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { AccessAdminApi, AccessGrantsReply } from "@harness-anything/authorization-gui/access-admin-contract";
+import type { AccessAdminApi, AccessGrantsReply } from "@harness-anything/authorization/gui/access-admin-contract";
 import { Button } from "../components/primitives/Button.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { TextInput } from "../components/primitives/TextInput.tsx";

@@ -1,3 +1,4 @@
+import { CANONICAL_EVENT_WAIT_MAX_MS } from "@harness-anything/kernel/internal/ports/canonical-event-page.ts";
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { uploadFleetChange } from "./upload-client.ts";
@@ -37,6 +38,7 @@ import type { DaemonTaskDispatchesResult } from "../protocol/daemon-protocol.con
 import {
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
+  FLEET_SESSION_CAPABILITY,
   parseFleetFrame,
   serializeFleetFrame,
   type FleetDeviceLoginNotice,
@@ -58,6 +60,7 @@ export interface FleetEdgeChange {
 }
 export interface FleetPeerOptions {
   readonly readAccessToken?: () => Promise<string | undefined>;
+  readonly sessionCapabilities?: readonly string[];
   readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
@@ -529,7 +532,12 @@ export async function readFleetRepositoryMetadataClient(
   let repointToken: string | undefined;
   const session = await openPeer({
     ...options,
-    ...(options.readRepointToken ? { readAccessToken: async () => repointToken } : {}),
+    ...(options.readRepointToken
+      ? {
+          readAccessToken: async () => repointToken,
+          sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
+        }
+      : {}),
   });
   try {
     if (options.readRepointToken) repointToken = await options.readRepointToken(session.loginAuthority);
@@ -665,8 +673,13 @@ export async function readFleetOperationalClient(
   signal?.addEventListener("abort", close, { once: true });
   try {
     signal?.throwIfAborted();
-    // Only the parked await has no response deadline. Authentication and ordinary reads
-    // keep their existing bounds; disconnecting its caller closes the peer.
+    // The idle subscription budget is separate from the time allowed for I/O.
+    const waitMs = options.method === "repo.events.read" ? options.payload.waitMs : undefined;
+    const responseTimeoutMs =
+      (options.timeoutMs ?? 5_000) +
+      (typeof waitMs === "number" && Number.isSafeInteger(waitMs)
+        ? Math.max(0, Math.min(waitMs, CANONICAL_EVENT_WAIT_MAX_MS))
+        : 0);
     const response = await session.request(
       {
         schema: "fleet.operational.read/v1",
@@ -675,7 +688,7 @@ export async function readFleetOperationalClient(
         method: options.method,
         payload: options.payload,
       },
-      options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
+      options.method === "repo.agentRuntime.sessions.await" ? null : responseTimeoutMs,
     );
     if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
     // The previous edge's closed dispatch decoder cannot accept nested extensions. Fleet keeps
@@ -956,6 +969,7 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       nodeId: options.nodeId,
       credential: options.credential,
       buildCommit: options.buildCommit === undefined ? daemonBuildStamp().commit : options.buildCommit,
+      ...(options.sessionCapabilities?.length ? { capabilities: options.sessionCapabilities } : {}),
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
     return {

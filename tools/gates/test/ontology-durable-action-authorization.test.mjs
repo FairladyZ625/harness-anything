@@ -27,20 +27,27 @@ import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { sourceWitness } from "./authorization-source-fixture.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
-const tracedPackages = ["daemon", "authorization-keycloak", "application"];
+const tracedPackages = ["daemon", "authorization", "application"];
 const inputs = await baselineAuthorizationInputs();
 
 const partitionValue = process.env.HARNESS_TEST_PARTITION;
 let partitionTestOrdinal = 0;
-// Explicit partitions spread the mutation cases across four workers. New cases must
-// update this map; their measured durations are recorded by the test runner.
-const authorizationTestPartitionAssignments = [
-  4, 2, 4, 3, 1, 2, 4, 1, 2, 2, 3, 4, 1, 3, 1, 4, 3, 4, 3, 3, 4, 1, 1, 2, 3, 4, 1, 4, 3, 2, 4, 2, 1, 3, 1, 4, 1, 3, 4,
-  4, 4, 2, 3,
-];
+// Four partitions are still used by CRLF and isolated tests. The six-partition assignment
+// balances the 47 measured mutation cases from GitHub Actions run 44962932008.
+const assignmentsByCount = {
+  4: [
+    2, 1, 2, 4, 4, 1, 4, 4, 1, 2, 4, 2, 2, 1, 4, 1, 4, 1, 3, 3, 3, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 3, 2, 1, 2, 1, 4, 2,
+    4, 3, 3, 3, 2, 3, 3, 2,
+  ],
+  6: [
+    4, 3, 5, 6, 3, 5, 2, 1, 3, 2, 3, 4, 1, 1, 2, 4, 5, 6, 4, 3, 5, 5, 6, 4, 4, 4, 5, 5, 4, 4, 4, 6, 4, 1, 4, 1, 2, 3, 3,
+    1, 5, 6, 4, 6, 4, 2, 5,
+  ],
+};
+const partitionAssignments = assignmentsByCount[partitionValue?.split("/")[1]];
 function partitionedTest(name, testFn) {
   const ordinal = partitionTestOrdinal++;
-  if (!testOrdinalInPartition(ordinal, partitionValue, authorizationTestPartitionAssignments)) return;
+  if (!testOrdinalInPartition(ordinal, partitionValue, partitionAssignments)) return;
   test(name, testFn);
 }
 
@@ -76,6 +83,7 @@ function worktreeCopy(t) {
     kernel = path.join(dir, "packages", "kernel");
   unlinkSync(kernel);
   cpSync(path.join(repoRoot, "packages/kernel/src"), path.join(kernel, "src"), { recursive: true });
+  cpSync(path.join(repoRoot, "packages/kernel/schemas"), path.join(kernel, "schemas"), { recursive: true });
   cpSync(path.join(repoRoot, "packages/kernel/package.json"), path.join(kernel, "package.json"));
   writeFileSync(
     path.join(dir, "package.json"),
@@ -199,8 +207,8 @@ partitionedTest("a declared local-transport route is red once its transport exit
     edit(
       dir,
       "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts",
-      "        context.localOnly(auth);\n        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),",
-      "        const persistedConfig = readFleetEdgeConfig(request.workspaceRoot),",
+      '            repoint\n              ? "Fleet edge repoint requires the matching enabled remote-edge registration."\n              : "Fleet edge sync requires the matching enabled remote-edge registration.",\n          );\n        context.localOnly(auth);',
+      '            repoint\n              ? "Fleet edge repoint requires the matching enabled remote-edge registration."\n              : "Fleet edge sync requires the matching enabled remote-edge registration.",\n          );',
     ),
   );
   threeStage(t, ["repo-bootstrap"], (dir) =>
@@ -496,7 +504,7 @@ partitionedTest("a branch skips authorization only when the authorization port i
     (dir) =>
       edit(
         dir,
-        "packages/authorization-keycloak/src/oidc-session-service.ts",
+        "packages/authorization/src/keycloak/oidc-session-service.ts",
         "!(await this.#bootstrapRequired(await this.#centerToken()))",
         "loginTarget !== undefined",
       ),
@@ -515,7 +523,7 @@ partitionedTest("a worktree root anchors on its own kernel sources instead of th
   assert.equal(realpathSync(members.get("authorize").getSourceFile().fileName), realpathSync(path.join(dir, file)));
 });
 
-test("effect sources name their owner descriptor or a declared native entry", () => {
+partitionedTest("effect sources name their owner descriptor or a declared native entry", () => {
   const nativeEntryRoutes = new Set(
     inputs.constants.actionDeclarations.flatMap((action) =>
       action.ontology?.authority ? Object.keys(action.ontology.entries ?? {}) : [],
@@ -532,7 +540,7 @@ test("effect sources name their owner descriptor or a declared native entry", ()
   }
 });
 
-test("an undeclared native effect route cannot bypass descriptor ownership", async (t) => {
+partitionedTest("an undeclared native effect route cannot bypass descriptor ownership", async (t) => {
   const { writeRepoFile } = await import("./helpers.mjs");
   const root = mkdtempSync(path.join(tmpdir(), "native-route-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -554,7 +562,7 @@ test("an undeclared native effect route cannot bypass descriptor ownership", asy
   await assert.rejects(loadAuthorizationInputs(root), /does not resolve to its owning authorization descriptor/u);
 });
 
-test("a source cannot borrow another action's authorization route", async (t) => {
+partitionedTest("a source cannot borrow another action's authorization route", async (t) => {
   const { writeRepoFile } = await import("./helpers.mjs");
   const root = mkdtempSync(path.join(tmpdir(), "source-route-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -1366,3 +1374,35 @@ partitionedTest("descriptor rows reject a source service whose allowed-decision 
     ),
   );
 });
+
+partitionedTest("authorization rejects a foreign route in a package action shard", async (t) => {
+  const root = worktreeCopy(t);
+  const file = path.join(root, "packages/kernel/src/domain/action-source-facets/gui.json");
+  const shard = JSON.parse(readFileSync(file, "utf8"));
+  const [source] = shard.sources["task-submit"];
+  const baseline = inputs.constants.actionDeclarations.find(({ kind }) => kind === "task-submit");
+  assert.equal(
+    baseline.ontology.sources.find(({ candidateId }) => candidateId === source.candidateId).route,
+    source.route,
+  );
+
+  source.route = "task-start";
+  writeFileSync(file, JSON.stringify(shard));
+  await assert.rejects(loadAuthorizationInputs(root), (error) => {
+    assert.equal(
+      error.message,
+      "task-submit: ontology source route task-start does not resolve to its owning authorization descriptor",
+    );
+    t.diagnostic(error.message);
+    return true;
+  });
+});
+
+for (const [count, assignments] of Object.entries(assignmentsByCount)) {
+  assert.equal(partitionTestOrdinal, assignments.length, `every durable case has one of ${count} CI partitions`);
+  assert.deepEqual(
+    [...new Set(assignments)].sort((left, right) => left - right),
+    Array.from({ length: Number(count) }, (_, index) => index + 1),
+    "each CI partition runs durable cases",
+  );
+}

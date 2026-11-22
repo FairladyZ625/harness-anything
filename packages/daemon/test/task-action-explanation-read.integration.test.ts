@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import {
   canonicalRoot,
@@ -173,27 +173,33 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     assert.equal(git(rootDir, "status", "--porcelain=v1"), beforeWorktree);
     observerProjection.close();
 
-    await materializeCellReplica(rootDir, repoId, actor.principal.personId);
-    await cell.close();
-    cell = await openRepoCell({
-      repoId,
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "action-explain-edge",
-      mode: "remote-edge",
-      now: () => fixedNow,
-    });
-    const edgeFirst = await cell.read(
-        method,
-        { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
-        binding,
-      ),
-      edgeSecond = await cell.read(
-        method,
-        { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
-        binding,
-      );
-    assert.equal(edgeFirst.subjects[0]!.actions[0]!.available, edgeSecond.subjects[0]!.actions[0]!.available);
-    assert.equal(edgeFirst.evaluatedAtCut, edgeSecond.evaluatedAtCut);
+    const edgeUserRoot = mkdtempSync(path.join(tmpdir(), "ha-action-explain-user-"));
+    try {
+      await materializeCellReplica(rootDir, repoId, actor.principal.personId, edgeUserRoot);
+      await cell.close();
+      cell = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(rootDir),
+        userRoot: edgeUserRoot,
+        ownerId: "action-explain-edge",
+        mode: "remote-edge",
+        now: () => fixedNow,
+      });
+      const edgeFirst = await cell.read(
+          method,
+          { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
+          binding,
+        ),
+        edgeSecond = await cell.read(
+          method,
+          { schema: requestSchema, mode: "object", entityKind: null, refs: ["task/task-explain"] },
+          binding,
+        );
+      assert.equal(edgeFirst.subjects[0]!.actions[0]!.available, edgeSecond.subjects[0]!.actions[0]!.available);
+      assert.equal(edgeFirst.evaluatedAtCut, edgeSecond.evaluatedAtCut);
+    } finally {
+      rmSync(edgeUserRoot, { recursive: true, force: true });
+    }
   } finally {
     await cell?.close();
     await realm.close();

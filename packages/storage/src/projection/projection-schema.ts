@@ -27,4 +27,5 @@
 // against a 30 s attach ready-watchdog — while stripping the retired key in place takes 0.75 s and
 // serving the scrubbed rows through a read-boundary strip takes 37 ms. A version bump here would
 // therefore turn "some rows are hidden" into "the repository cannot attach".
-export const taskProjectionSchemaVersion = 38;
+// Version 39 fills Decision list columns from the previous SQLite projection in place.
+export const taskProjectionSchemaVersion = 39;

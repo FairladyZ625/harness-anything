@@ -1,4 +1,5 @@
 import { documentNodeKind } from "../document-node-kind.ts";
+import { readSqliteEventWindow, SQLITE_OCCURRED_AT_MS_SQL } from "./sqlite-event-window.ts";
 import {
   SQLITE_DECLARATION_INDEX_DDL,
   applySqliteDeclarationIndex,
@@ -671,6 +672,21 @@ function openSqliteEventStoreInternal(
           );
       }),
     queryEvents: (input) => queryEvents(query, input),
+    readEventWindow: (input) =>
+      transaction(
+        () =>
+          readSqliteEventWindow(
+            path.resolve(databasePath),
+            readRevision(db),
+            query,
+            (sql, values) =>
+              /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ db
+                .prepare(sql)
+                .iterate(...values),
+            input,
+          ),
+        true,
+      ),
     readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     gitOutboxState: () => {
       if (!hasOutbox)
@@ -790,6 +806,8 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
     CREATE INDEX IF NOT EXISTS event_actor_executor
       ON event(json_extract(event_json, '$.actor.executor.id'), revision DESC);
     CREATE INDEX IF NOT EXISTS event_occurred_at ON event(occurred_at, revision DESC);
+    CREATE INDEX IF NOT EXISTS event_occurred_at_ms_revision
+      ON event(${SQLITE_OCCURRED_AT_MS_SQL}, revision ASC);
     CREATE TABLE IF NOT EXISTS event_query_entity (
       revision INTEGER NOT NULL REFERENCES event(revision), ref TEXT NOT NULL, entity_id TEXT NOT NULL,
       PRIMARY KEY(revision, ref)

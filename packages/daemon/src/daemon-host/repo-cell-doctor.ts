@@ -1,5 +1,5 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
-import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
+import { edgeConfigResidueDoctorCheck, edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
   DISPATCH_LIFECYCLE_PAGE_LIMIT,
@@ -42,7 +42,13 @@ export async function doctorHealth(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  if (cell.mode === "remote-edge") return edgeReplicaDoctor(cell.rootDir, cell.input.repoId) as WriteReceipt;
+  if (cell.mode === "remote-edge")
+    return edgeReplicaDoctor(
+      cell.rootDir,
+      cell.input.repoId,
+      undefined,
+      cell.input.runtimeDaemonRoute?.userRoot,
+    ) as WriteReceipt;
   const ledger = resolveLedgerGitLayout(cell.rootDir),
     gitRoots = [...new Set([cell.rootDir, ledger.rootDir])],
     tips: Record<string, BaseTip | null> = {};
@@ -54,6 +60,7 @@ export async function doctorHealth(
       orphanLeaseCheck(cell),
       wipPressureCheck(cell),
       doctorLocalRootResidue(cell.rootDir),
+      edgeConfigResidueDoctorCheck(cell.rootDir, cell.input.repoId, cell.input.runtimeDaemonRoute?.userRoot),
       await docDebtCheck(cell, binding),
       relationCyclesCheck(cell),
       exitedUnsettledRuntimeCheck(cell),

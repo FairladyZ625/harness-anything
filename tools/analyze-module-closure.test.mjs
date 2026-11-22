@@ -321,16 +321,16 @@ test("forbidden target rules cover runtime-spawn, fleet, and authorization packa
     "entry.ts": [
       'import "./runtime-spawn-child.ts";',
       'import "./fleet/peer.ts";',
-      'import "@harness-anything/authorization-keycloak";',
+      'import "@harness-anything/authorization/keycloak";',
       "",
     ].join("\n"),
     "runtime-spawn-child.ts": "export const process = true;\n",
     "fleet/peer.ts": "export const peer = true;\n",
-    "node_modules/@harness-anything/authorization-keycloak/package.json": JSON.stringify({
-      name: "@harness-anything/authorization-keycloak",
-      exports: { ".": { import: "./src/index.ts" } },
+    "node_modules/@harness-anything/authorization/package.json": JSON.stringify({
+      name: "@harness-anything/authorization",
+      exports: { "./keycloak": { import: "./src/keycloak/index.ts" } },
     }),
-    "node_modules/@harness-anything/authorization-keycloak/src/index.ts": "export const provider = true;\n",
+    "node_modules/@harness-anything/authorization/src/keycloak/index.ts": "export const provider = true;\n",
   });
 
   const result = analyzeModuleClosure({ root, entry: "entry.ts" });

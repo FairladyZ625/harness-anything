@@ -1,4 +1,9 @@
 import {
+  readCollaboratorActiveDispatches,
+  readCollaboratorEndedDispatches,
+} from "@harness-anything/application/internal/queries/collaborator-reads.ts";
+import { TASK_DELIVERY_DONE_WINDOW_MS } from "./task-delivery-stage.ts";
+import {
   consumeKnownError,
   documentWorkspacePath,
   dispatchLifecycleSummary,
@@ -55,7 +60,7 @@ export async function readAllTaskDispatchPages(
     sourceRevision = 0;
   while (true) {
     const result = await readPage(cursor === undefined ? {} : { cursor });
-    if (!("page" in result)) throw new Error("Task dispatch batch read returned no page receipt.");
+    if (!("taskIds" in result)) throw new Error("Task dispatch batch read returned no page receipt.");
     for (const row of result.dispatches) rows.set(row.dispatchId, row);
     for (const taskId of result.taskIds) taskIds.add(taskId);
     for (const taskId of result.unavailableTaskIds) unavailable.add(taskId);
@@ -100,9 +105,14 @@ type DispatchQueries = Pick<
 
 /** Repository dispatch reads consume only canonical queries; local activity has its separate reader above. */
 export function readTaskDispatches(
-  input: { readonly projection: TaskProjectionQueries; readonly rootDir?: string } & DaemonTaskDispatchesPayload,
+  input: {
+    readonly projection: TaskProjectionQueries;
+    readonly rootDir?: string;
+    readonly now?: () => string;
+  } & DaemonTaskDispatchesPayload,
 ): DaemonTaskDispatchesResult {
   const { projection, rootDir } = input;
+  if (input.floor !== undefined) return withWorkspacePathPrefix(readFloorDispatches(input), rootDir);
   if (input.agentId !== undefined || input.squadId !== undefined)
     return withWorkspacePathPrefix(readMemberTaskDispatches(input), rootDir);
   if (input.latestOnly === true && input.taskIds !== undefined)
@@ -145,6 +155,52 @@ export function readTaskDispatches(
     sourceRevision: cut.sourceRevision,
     ...(rootDir === undefined ? {} : { workspacePathPrefix: documentWorkspacePath(rootDir, "") }),
     taskId: singleTaskId,
+  };
+}
+
+function readFloorDispatches(
+  input: {
+    readonly projection: TaskProjectionQueries;
+    readonly rootDir?: string;
+    readonly now?: () => string;
+  } & Extract<DaemonTaskDispatchesPayload, { readonly floor: "active" | "ended" }>,
+): DaemonTaskDispatchesResult {
+  const { projection, floor, limit, rootDir } = input,
+    scope = { filterPersonId: input.personId, filterNodeId: input.nodeId },
+    active = floor === "active" ? readCollaboratorActiveDispatches(projection, scope, input.runtimeSessionIds) : null,
+    ended =
+      floor === "ended"
+        ? readCollaboratorEndedDispatches(
+            projection,
+            scope,
+            new Date(
+              Date.parse(input.now?.() ?? new Date().toISOString()) - TASK_DELIVERY_DONE_WINDOW_MS,
+            ).toISOString(),
+            limit,
+          )
+        : null,
+    dispatches =
+      active?.map(({ dispatch, session }) => canonicalDispatchRow(projection, dispatch, session, rootDir, [], null)) ??
+      ended!.rows.map(({ dispatch, outcome, endedAt }) => ({
+        ...canonicalDispatchRow(
+          projection,
+          dispatch,
+          projection.readRuntimeSession(dispatch.payload.runtimeSessionId) ?? undefined,
+          rootDir,
+          [],
+          outcome,
+        ),
+        endedAt,
+        outcome: outcome.payload.outcome,
+      }));
+  return {
+    ok: true,
+    ...projection.readCut(),
+    floor,
+    dispatches,
+    truncated: ended?.truncated ?? false,
+    ...taskDispatchesOutcome(dispatches),
+    page: { limit, cursor: null, nextCursor: null },
   };
 }
 
@@ -740,6 +796,7 @@ function canonicalDispatchRow(
   session: RuntimeSession | undefined,
   rootDir?: string,
   annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
+  selectedOutcome?: Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> | null,
 ): TaskDispatchRow {
   const payload = event.payload,
     taskRead = payload.taskId ? projection.readTaskIndex({ taskIds: [payload.taskId] }).rows[0] : null,
@@ -752,13 +809,19 @@ function canonicalDispatchRow(
     archive = document ? parseArchive(document.body) : null,
     squadRunId = payload.squadRun?.squadRunId,
     squadChildTaskIds = squadOwnerChildTaskIds(projection, payload),
-    outcomeEvent = projection
-      .readRuntimeSessionEventsByType(payload.runtimeSessionId, ["runtime_session_outcome_observed"])
-      .findLast(
-        (entry): entry is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
-          entry.schema === "agent-runtime-event/v1" && entry.type === "runtime_session_outcome_observed",
-      ),
+    outcomeEvent =
+      selectedOutcome !== undefined
+        ? selectedOutcome
+        : projection
+            .readRuntimeSessionEventsByType(payload.runtimeSessionId, ["runtime_session_outcome_observed"])
+            .findLast(
+              (entry): entry is Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> =>
+                entry.schema === "agent-runtime-event/v1" && entry.type === "runtime_session_outcome_observed",
+            ),
     metrics = outcomeEvent?.payload.runtimeMetrics,
+    dispatchMetrics = metrics
+      ? (({ cacheWriteTokens: _cacheWriteTokens, ...rest }) => ({ ...rest, compacted: null }))(metrics)
+      : undefined,
     groupId = payload.attemptGroupId ?? payload.dispatchId,
     lifecycle = dispatchLifecycleSummary(
       projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [payload.dispatchId] }),
@@ -875,7 +938,7 @@ function canonicalDispatchRow(
     lifecycle,
     ...rowPermissionEvidence(lifecycle, payload),
     nextDispatchId: lifecycle.nextDispatchId,
-    ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
+    ...(dispatchMetrics ? { metrics: dispatchMetrics } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
     ...(squadRunId === undefined ? {} : { squadRunId }),

@@ -343,6 +343,23 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "sourceRevision",
         ...workspacePathFields,
       ]),
+    floor =
+      (value.floor === "active" || value.floor === "ended") &&
+      typeof value.truncated === "boolean" &&
+      queryPageRow(value.page) &&
+      exactRecord(value, [
+        "ok",
+        "status",
+        "floor",
+        "dispatches",
+        "outcome",
+        "exitCode",
+        "page",
+        "truncated",
+        "watermark",
+        "sourceRevision",
+        ...workspacePathFields,
+      ]),
     member =
       nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&
       Array.isArray(value.groups) &&
@@ -370,7 +387,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
         "sourceRevision",
         ...workspacePathFields,
       ]);
-  if (!single && !batch && !member)
+  if (!single && !batch && !member && !floor)
     return [
       validationError(
         validationEntityId(value, ["taskId"], validationEntityId({ taskId: taskIds[0] }, ["taskId"], entityId)),
@@ -697,6 +714,9 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
       ...guiReceiptExtensions,
       ...taskFields,
       ...(value.command === "runtime-spawn" ? ["steerSupported"] : []),
+      ...(value.command === "runtime-cancel" || value.command === "runtime-steer"
+        ? ["controlRequestId", "targetNodeId"]
+        : []),
     ],
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
@@ -762,6 +782,10 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
     errors.push(validationError(entityId, "handoffResumed", value.handoffResumed, "must be a boolean"));
   if (Object.hasOwn(value, "steerSupported") && typeof value.steerSupported !== "boolean")
     errors.push(validationError(entityId, "steerSupported", value.steerSupported, "must be a boolean"));
+  if (Object.hasOwn(value, "controlRequestId") && !nonEmpty(value.controlRequestId))
+    errors.push(validationError(entityId, "controlRequestId", value.controlRequestId, "must be a non-empty string"));
+  if (Object.hasOwn(value, "targetNodeId") && !nonEmpty(value.targetNodeId))
+    errors.push(validationError(entityId, "targetNodeId", value.targetNodeId, "must be a non-empty string"));
   return errors;
 }
 

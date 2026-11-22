@@ -479,9 +479,10 @@ describe("协作页舰队拓扑契约", () => {
     expect(details.querySelector('[data-reason="sync-failure:replica_sync_failed"]')).not.toBeNull();
   });
 
-  it("本地仓显示中心提示条;读失败显示失败横幅而非空拓扑", () => {
-    const local = renderView({ mode: "local" });
+  it("本地接入的中心仓显示中心徽标和提示条，读失败显示失败横幅", () => {
+    const local = renderView({ mode: "local", data: { ...overview(), effectiveMode: "center" } });
     expect(local.host.querySelector('[data-testid="collaboration-center-notice"]')).not.toBeNull();
+    expect(local.host.querySelector('[data-testid="repo-mode-badge-remote-center"]')).not.toBeNull();
     const failed = renderView({ error: "repo_unavailable" });
     expect(failed.host.querySelector('[data-testid="collaboration-read-error"]')!.textContent).toContain(
       "repo_unavailable",

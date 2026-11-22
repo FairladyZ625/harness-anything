@@ -1,23 +1,50 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import path from "node:path";
-import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
+import { ensureRuntimeMemberIndex, ensureRuntimeMemberIndexColumns } from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
   localEventFileSystem,
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import { createDecisionProjectionTables } from "./decision-event-projection.ts";
-import { backfillEventSummaryReadIndex, ensureEventSummaryReadIndexColumns } from "./event-summary-read-index.ts";
-import { ARTIFACT_TIMELINE_TABLES_SQL, ensureArtifactTimelineBackfill } from "./artifact-timeline-projection.ts";
-import { createFactProjectionTables } from "./fact-event-projection.ts";
+import { beginBulkRebuild, endBulkRebuild, flushBulkRebuildDerivedTables } from "./bulk-rebuild-state.ts";
+import {
+  createDecisionProjectionTables,
+  DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL,
+} from "./decision-event-projection.ts";
+import { refreshDecisionListReview } from "./decision-projection-reducer.ts";
+import {
+  backfillEventSummaryReadIndex,
+  ensureEventSummaryReadIndexColumns,
+  EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL,
+} from "./event-summary-read-index.ts";
+import {
+  ARTIFACT_TIMELINE_BASE_TABLES_SQL,
+  ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL,
+  ARTIFACT_TIMELINE_TABLES_SQL,
+  ensureArtifactTimelineBackfill,
+} from "./artifact-timeline-projection.ts";
+import { createFactProjectionTables, FACT_DEFERRED_INDEXES } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
-import { createRelationFreshnessMaintenance } from "./relation-freshness-maintenance.ts";
+import {
+  createRelationFreshnessMaintenance,
+  ensureRelationFreshnessColumns,
+  recomputeAllRelationFreshness,
+} from "./relation-freshness-maintenance.ts";
 import { ensureRelationCycleAudit } from "./relation-cycle-audit-projection.ts";
 import { initializeTerminalMaterialization } from "./rebuildable-task-projection-write-model.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
-import { ensureLeaseTaskActiveColumn, REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
+import {
+  EXECUTION_SUBMISSION_COMMIT_SQL,
+  ensureLeaseTaskActiveColumn,
+  REPOSITORY_READ_BASE_TABLES_SQL,
+  REPOSITORY_READ_DEFERRED_INDEXES,
+  REPOSITORY_READ_TABLES_SQL,
+  TASK_INDEX_BASE_TABLES_SQL,
+  TASK_INDEX_DEFERRED_INDEXES,
+  TASK_INDEX_TABLES_SQL,
+} from "./projection-tables.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
@@ -34,6 +61,7 @@ export type { TaskProjection } from "@harness-anything/kernel";
 // Projection database ownership, lifetime, initialization, and schema checks.
 interface ProjectionDatabaseOwner {
   readonly use: <A>(operation: (db: DatabaseSync) => A, onValidationProgress?: ProjectionProgress) => A;
+  readonly adopt: (db: DatabaseSync) => void;
   readonly close: () => void;
 }
 
@@ -336,14 +364,22 @@ function projectionDatabaseOwner(
     fingerprint = projectionFileFingerprint(projectionPath);
   };
   const initialize = (onValidationProgress?: ProjectionProgress) => {
-    open();
-    const observed = projectionSchemaVersion(db!);
-    if (observed !== null && observed !== taskProjectionSchemaVersion) {
+    try {
+      open();
+      const observed = projectionSchemaVersion(db!);
+      if (
+        observed !== null &&
+        observed !== taskProjectionSchemaVersion &&
+        !(observed === 38 && expandDecisionListColumns(db!, readHead()))
+      ) {
+        throw new ProjectionSchemaMismatchError(observed, projectionPath);
+      }
+      if (!schemaChecked || observed === null) createTables(db!, onValidationProgress);
+      schemaChecked = true;
+    } catch (error) {
       close();
-      throw new ProjectionSchemaMismatchError(observed, projectionPath);
+      throw error;
     }
-    if (!schemaChecked || observed === null) createTables(db!, onValidationProgress);
-    schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A, onValidationProgress?: ProjectionProgress): A => {
     // A query operation can call back into this same owner while its own `operation` is still
@@ -368,9 +404,39 @@ function projectionDatabaseOwner(
       if (!succeeded && useDepth === 0) close();
     }
   };
-  const owner = { use, close };
+  const adopt = (database: DatabaseSync) => {
+    close();
+    register();
+    db = database;
+    fingerprint = projectionFileFingerprint(projectionPath);
+    schemaChecked = true;
+  };
+  const owner = { use, adopt, close };
   owners.set(projectionPath, owner);
   return owner;
+}
+
+/** Upgrade the previous cache at its existing cut. A full replay does work proportional to the ledger. */
+function expandDecisionListColumns(db: DatabaseSync, head: ReturnType<EventStreamPort["readHead"]>): boolean {
+  return transaction(db, () => {
+    if (projectionSchemaVersion(db) === taskProjectionSchemaVersion) return true;
+    const columns = new Set(queryRows<{ name: string }>(db, "PRAGMA table_info(decision)").map(({ name }) => name));
+    if (!columns.has("decision_sort_key")) return false;
+    assertLedgerIdentity(db, head);
+    if (!columns.has("list_options_json"))
+      runSql(
+        db,
+        `ALTER TABLE decision ADD COLUMN list_options_json TEXT NOT NULL DEFAULT '{"chosen":[],"rejected":[]}'`,
+      );
+    if (!columns.has("review_summary_json")) runSql(db, "ALTER TABLE decision ADD COLUMN review_summary_json TEXT");
+    for (const { decision_id: id } of queryRows<{ readonly decision_id: string }>(
+      db,
+      "SELECT decision_id FROM decision",
+    ))
+      refreshDecisionListReview(db, id);
+    runSql(db, "UPDATE projection_meta SET schema_version=? WHERE singleton=1", taskProjectionSchemaVersion);
+    return true;
+  });
 }
 function canonicalProjectionPath(inputPath: string): string {
   const resolved = path.resolve(inputPath),
@@ -489,12 +555,20 @@ function configureDatabase(db: DatabaseSync): void {
   db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON`);
 }
 
-function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
-  ensureRuntimeSessionExecutionNodeColumn(db);
-  ensureEventSummaryReadIndexColumns(db);
-  ensureLeaseTaskActiveColumn(db);
-  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
-  db.exec(`
+const CORE_DEFERRED_INDEXES: readonly string[] = [
+  "CREATE INDEX IF NOT EXISTS document_revision ON document(workspace_revision,path)",
+  "CREATE INDEX IF NOT EXISTS document_history_revision ON document_history(workspace_revision,path)",
+  // Cover document lists and base lookups with metadata only. JSON extraction runs once at write,
+  // never when listing or updating a repository that contains a large inline historical body.
+  "CREATE INDEX IF NOT EXISTS document_metadata ON document (path, workspace_revision, json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'), json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId'))",
+  "CREATE INDEX IF NOT EXISTS document_history_metadata ON document_history (path, workspace_revision, json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'), json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId'))",
+  "CREATE INDEX IF NOT EXISTS entity_projection_task ON entity_projection(entity_kind, task_id, workspace_revision, entity_id)",
+  `CREATE INDEX IF NOT EXISTS entity_projection_execution_commit ON entity_projection(${EXECUTION_SUBMISSION_COMMIT_SQL}, task_id, entity_kind) WHERE entity_kind = 'execution'`,
+  "CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id)",
+];
+
+function coreTablesSql(deferred: boolean): string {
+  return `
     /* @gate-identity state-store/task.projection.archived_entity */ CREATE TABLE IF NOT EXISTS archived_entity (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,
@@ -513,7 +587,7 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
     );
     INSERT OR IGNORE INTO projection_meta(
       singleton, schema_version, watermark, scan_cursor, scanned_revision, head_digest, state_digest
-    ) VALUES (1, ${taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
+    ) VALUES (1, ${deferred ? 0 : taskProjectionSchemaVersion}, 0, NULL, 0, NULL, NULL);
     /* @gate-identity state-store/task.projection.event_source */ CREATE TABLE IF NOT EXISTS event_source (
       workspace_revision INTEGER PRIMARY KEY,
       op_id TEXT NOT NULL UNIQUE,
@@ -529,22 +603,13 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS document_revision ON document(workspace_revision,path);
-    CREATE INDEX IF NOT EXISTS document_history_revision ON document_history(workspace_revision,path);
-    -- Cover document lists with metadata only. JSON extraction runs once at projection write,
-    -- never when listing a repository that contains a large inline historical body.
-    CREATE INDEX IF NOT EXISTS document_metadata ON document (
-      path, workspace_revision,
-      json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'),
-      json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId')
-    );
     /* @gate-identity state-store/task.projection.preset_snapshot */ CREATE TABLE IF NOT EXISTS preset_snapshot (
       digest TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
-${TASK_INDEX_TABLES_SQL}
-${REPOSITORY_READ_TABLES_SQL}
+${deferred ? TASK_INDEX_BASE_TABLES_SQL : TASK_INDEX_TABLES_SQL}
+${deferred ? REPOSITORY_READ_BASE_TABLES_SQL : REPOSITORY_READ_TABLES_SQL}
     /* @gate-identity state-store/task.projection.task_generation */ CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))
@@ -566,8 +631,6 @@ ${REPOSITORY_READ_TABLES_SQL}
       value_json TEXT NOT NULL,
       PRIMARY KEY(entity_kind, task_id, entity_id)
     );
-    CREATE INDEX IF NOT EXISTS entity_projection_task
-      ON entity_projection(entity_kind, task_id, workspace_revision, entity_id);
     /* @gate-identity state-store/task.projection.edge */ CREATE TABLE IF NOT EXISTS edge (
       task_id TEXT NOT NULL,
       edge_id TEXT NOT NULL,
@@ -580,13 +643,122 @@ ${REPOSITORY_READ_TABLES_SQL}
       task_id TEXT PRIMARY KEY, lease_json TEXT NOT NULL,
       execution_id TEXT GENERATED ALWAYS AS (json_extract(lease_json, '$.executionId')) STORED
     );
-    CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id);
     /* @gate-identity state-store/task.projection.projection_maintenance */ CREATE TABLE IF NOT EXISTS projection_maintenance (
       key TEXT PRIMARY KEY,
       completed_at TEXT NOT NULL
     );
-${ARTIFACT_TIMELINE_TABLES_SQL}
-  `);
+${deferred ? ARTIFACT_TIMELINE_BASE_TABLES_SQL : ARTIFACT_TIMELINE_TABLES_SQL}
+${deferred ? "" : `${CORE_DEFERRED_INDEXES.join(";\n")};`}
+  `;
+}
+
+/**
+ * Run a full cold rebuild on one dedicated connection: bulk PRAGMAs and deferred read-path
+ * secondary indexes/triggers during replay, then one sorted flush, single-pass freshness & cycle
+ * audit, bulk index build with progress heartbeats, full trigger restoration, and WAL restore.
+ */
+export function withRebuildDatabase<A>(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+  replay: (db: DatabaseSync) => void,
+  verify: (db: DatabaseSync) => A,
+  onValidationProgress?: ProjectionProgress,
+): A {
+  localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath));
+  const db = openDatabase(projectionPath);
+  let adopted = false;
+  try {
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec(
+      `PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA foreign_keys = ON; ` +
+        "PRAGMA journal_mode = MEMORY; PRAGMA synchronous = OFF; PRAGMA cache_size = -65536; PRAGMA temp_store = MEMORY",
+    );
+    createRebuildBaseTables(db);
+    const bulkContext = beginBulkRebuild(db);
+    replay(db);
+    finalizeRebuildDatabase(db, bulkContext, onValidationProgress);
+    const result = verify(db);
+    projectionDatabaseOwner(projectionPath, readHead).adopt(db);
+    adopted = true;
+    return result;
+  } finally {
+    endBulkRebuild(db);
+    if (!adopted) closeProjectionConnection(db);
+  }
+}
+
+function createRebuildBaseTables(db: DatabaseSync): void {
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(coreTablesSql(true));
+  ensureRuntimeMemberIndexColumns(db);
+  backfillRuntimeSessionExecutionNode(db);
+  catchUpDispatchLifecycle(db);
+  backfillRuntimeSessionBindings(db);
+  createTaskRelationProjectionTable(db);
+  createRelationGraphProjectionTables(db);
+  createFactProjectionTables(db, { deferIndexes: true });
+  createDecisionProjectionTables(db, { deferIndexes: true });
+  ensureRelationFreshnessColumns(db);
+  transaction(db, () => initializeTerminalMaterialization(db));
+}
+
+function finalizeRebuildDatabase(
+  db: DatabaseSync,
+  bulkContext: ReturnType<typeof beginBulkRebuild>,
+  onValidationProgress?: ProjectionProgress,
+): void {
+  flushBulkRebuildDerivedTables(db, bulkContext);
+  endBulkRebuild(db);
+  const deferredIndexes = [
+    ...CORE_DEFERRED_INDEXES,
+    ...TASK_INDEX_DEFERRED_INDEXES,
+    ...REPOSITORY_READ_DEFERRED_INDEXES,
+    ...FACT_DEFERRED_INDEXES,
+  ];
+  const totalSteps = deferredIndexes.length + 6;
+  let completedSteps = 0;
+  const reportStep = () => {
+    completedSteps += 1;
+    onValidationProgress?.({ applied: completedSteps, total: totalSteps });
+  };
+  recomputeAllRelationFreshness(db);
+  createRelationFreshnessMaintenance(db);
+  reportStep();
+  ensureRelationCycleAudit(db);
+  reportStep();
+  ensureWorkspaceTaskCensus(db);
+  reportStep();
+  ensureArtifactTimelineBackfill(db);
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(ARTIFACT_TIMELINE_INDEX_AND_TRIGGERS_SQL);
+  reportStep();
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL);
+  reportStep();
+  for (const statement of deferredIndexes) {
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+    db.exec(statement);
+    reportStep();
+  }
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(EVENT_SUMMARY_READ_INDEX_TRIGGERS_SQL);
+  ensureRuntimeMemberIndex(db, onValidationProgress);
+  // Stamp schema_version only after every deferred index and trigger is installed so an
+  // interrupted rebuild (including SIGKILL) is rejected as schema 0 on next open.
+  runSql(db, "UPDATE projection_meta SET schema_version = ? WHERE singleton = 1", taskProjectionSchemaVersion);
+  reportStep();
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(
+    "PRAGMA temp_store = DEFAULT; PRAGMA cache_size = -2000; PRAGMA synchronous = FULL; PRAGMA journal_mode = WAL",
+  );
+}
+
+function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
+  ensureRuntimeSessionExecutionNodeColumn(db);
+  ensureEventSummaryReadIndexColumns(db);
+  ensureLeaseTaskActiveColumn(db);
+  /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
+  db.exec(coreTablesSql(false));
   // The ordinary projection mount inlines the shared table DDL above, so it must also install
   // the derived census that createProjectionTables() installs for standalone readers. Without
   // this call, fresh G38/integration projections can reach the summary reader before the table

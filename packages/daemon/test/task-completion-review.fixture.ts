@@ -5,7 +5,7 @@ import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
@@ -26,6 +26,7 @@ import type { Snapshot } from "../src/daemon-host/repo-cell-types.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
+  setFixtureAgentBinding,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { policyTestRealm, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -138,9 +139,18 @@ function getReviewRepoTemplate(): string {
 
 function boundWorktree(root: string): string {
   const entries = git(root, "worktree", "list", "--porcelain").split("\n\n");
-  const pathLine = entries
-    .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
-    .find((line) => line !== undefined && path.resolve(line.slice("worktree ".length)) !== path.resolve(root));
+  const entry =
+    entries.find((candidate) => candidate.split("\n").includes(`branch refs/heads/${taskId}`)) ??
+    entries.find((candidate) => {
+      const lines = candidate.split("\n"),
+        worktreeLine = lines.find((line) => line.startsWith("worktree "));
+      return (
+        worktreeLine !== undefined &&
+        path.resolve(worktreeLine.slice("worktree ".length)) !== path.resolve(root) &&
+        !lines.includes("detached")
+      );
+    });
+  const pathLine = entry?.split("\n").find((line) => line.startsWith("worktree "));
   assert.ok(pathLine, `expected a task worktree for ${root}`);
   return path.resolve(pathLine.slice("worktree ".length));
 }
@@ -159,7 +169,12 @@ export async function fixture(
     readonly beforeRuntimeStop?: (launchIndex: number) => Promise<void>;
     readonly submitCommit?: boolean;
     readonly guiDelivery?: boolean;
+    readonly providerMaxRetries?: number;
     readonly providerRoundBackoffBaseSeconds?: number;
+    readonly symlinkAuthoredRoot?: string;
+    readonly now?: () => string;
+    readonly reviewInstanceIds?: readonly string[];
+    readonly rejectLaunch?: (instanceId: string, attempt: number) => Error | null | undefined;
     readonly stallTimeoutMs?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
@@ -167,6 +182,7 @@ export async function fixture(
     readonly failProviderResume?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
     readonly keycloakSession?: Parameters<typeof openRepoCell>[0]["keycloakSession"];
+    readonly keycloakCenter?: Parameters<typeof openRepoCell>[0]["keycloakCenter"];
     readonly create?: Readonly<Record<string, unknown>>;
     /** Override reviewer catalog and declaration model spellings for runtime-resolution tests. */
     readonly catalogModel?: string;
@@ -225,13 +241,16 @@ export async function fixture(
     remainingProviderFailures =
       typeof failProvider === "number" ? failProvider : failProvider ? Number.POSITIVE_INFINITY : 0,
     failProviderResume = options.failProviderResume === true,
-    providerSessionStarted = false;
+    providerSessionStarted = false,
+    launchAttempts = 0;
   const open = () =>
     (options.openCell ?? openRepoCell)({
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: "completion-review",
+      ...(options.now ? { now: options.now } : {}),
       ...(options.keycloakSession ? { keycloakSession: options.keycloakSession } : {}),
+      ...(options.keycloakCenter ? { keycloakCenter: options.keycloakCenter } : {}),
       runtimeDaemonRoute: {
         userRoot: path.join(root, "user"),
         daemonId: "fixture",
@@ -251,7 +270,7 @@ export async function fixture(
               ...extraInstances,
               { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
               ...(instancesAvailable
-                ? ["review-first", "review-second"].map((instanceId) => ({
+                ? (options.reviewInstanceIds ?? ["review-first", "review-second"]).map((instanceId) => ({
                     ...instance(instanceId),
                     models: [...new Set([catalogModel, ...(options.additionalModels ?? [])])],
                     defaultModel: catalogModel,
@@ -289,6 +308,9 @@ export async function fixture(
         };
       },
       runtimeLaunch: (prepared, persistence): RuntimeProcess => {
+        const rejection = options.rejectLaunch?.(prepared.definition.instanceId, launchAttempts);
+        launchAttempts += 1;
+        if (rejection) throw new RuntimeProcessStartRejected(rejection);
         if (options.providerInputLimit !== undefined && prepared.prompt.length > options.providerInputLimit)
           // CH3 (dec_DA1602487428A58E8B446ECE38): this rejection creates no OS process.
           throw new RuntimeProcessStartRejected(
@@ -374,16 +396,26 @@ export async function fixture(
         };
       },
     });
-  mkdirSync(path.join(root, "harness"), { recursive: true });
+  if (options.symlinkAuthoredRoot) {
+    mkdirSync(options.symlinkAuthoredRoot, { recursive: true });
+    git(options.symlinkAuthoredRoot, "init", "-q", "-b", "main");
+    git(options.symlinkAuthoredRoot, "config", "user.name", "Test");
+    git(options.symlinkAuthoredRoot, "config", "user.email", "test@example.com");
+    git(options.symlinkAuthoredRoot, "commit", "--allow-empty", "-qm", "init ledger");
+    symlinkSync(options.symlinkAuthoredRoot, path.join(root, "harness"), "dir");
+  } else {
+    mkdirSync(path.join(root, "harness"), { recursive: true });
+  }
   const harnessConfig = (worktreeSetup?: readonly string[]) =>
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
     "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
     `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
-    (options.providerRoundBackoffBaseSeconds === undefined &&
+    (options.providerMaxRetries === undefined &&
+    options.providerRoundBackoffBaseSeconds === undefined &&
     options.stallTimeoutMs === undefined &&
     options.commandInterceptions === undefined
       ? ""
-      : `  runtime:\n${options.commandInterceptions === undefined ? "" : `    commandInterceptions: ${JSON.stringify(options.commandInterceptions)}\n`}${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
+      : `  runtime:\n${options.commandInterceptions === undefined ? "" : `    commandInterceptions: ${JSON.stringify(options.commandInterceptions)}\n`}${options.providerMaxRetries === undefined ? "" : `    providerMaxRetries: ${String(options.providerMaxRetries)}\n`}${options.providerRoundBackoffBaseSeconds === undefined ? "" : `    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`}${options.stallTimeoutMs === undefined ? "" : `    stallTimeoutMs: ${String(options.stallTimeoutMs)}\n`}`) +
     (worktreeSetup?.length
       ? `  worktree:\n    setup:\n${worktreeSetup.map((step) => `      - ${JSON.stringify(step)}\n`).join("")}`
       : "");
@@ -391,46 +423,50 @@ export async function fixture(
   if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
-  const createOptions =
-    options.create?.taskClass === "work" && options.create.decisionRef === undefined
-      ? { ...options.create, decisionRef: await acceptedWorkDecision(cell, owner, taskId) }
-      : options.create;
-  const created = await run({
-    kind: "task-create",
-    taskId,
-    title: "Completion Review",
-    presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
-    ...createOptions,
-  });
-  assert.equal(created.outcome, "applied", JSON.stringify(created));
-  await waitForFixturePublication(cell, created.opId, owner);
-  const packagePath = String((created as Record<string, unknown>).packagePath);
-  await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
-  assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
-  if (options.guiDelivery) {
-    await cell.settlePendingMaterialization("GUI fixture delivery");
-    const checkout = boundWorktree(root),
-      guiPath = "packages/gui/src/App.tsx";
-    mkdirSync(path.dirname(path.join(checkout, guiPath)), { recursive: true });
-    writeFileSync(path.join(checkout, guiPath), "export const App = () => null;\n");
-    git(checkout, "add", guiPath);
-    git(checkout, "commit", "-qm", "feat: fixture GUI delivery");
-  }
-  assert.equal(
-    (
-      await run({
-        kind: "fact-record",
-        taskId,
-        statement: "README contains the reviewed delivery.",
-        evidenceSource: "README.md",
-        confidence: "high",
-        memoryClass: "episodic",
-        memoryTags: [],
-      })
-    ).outcome,
-    "applied",
-  );
+  let packagePath = "";
   let delivery = git(root, "rev-parse", "HEAD");
+  if (!options.symlinkAuthoredRoot) {
+    const createOptions =
+      options.create?.taskClass === "work" && options.create.decisionRef === undefined
+        ? { ...options.create, decisionRef: await acceptedWorkDecision(cell, owner, taskId) }
+        : options.create;
+    const created = await run({
+      kind: "task-create",
+      taskId,
+      title: "Completion Review",
+      presetId: artifactDelivery || hybridDelivery ? "standard-task" : "docs-task",
+      ...createOptions,
+    });
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, owner);
+    packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
+    assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
+    if (options.guiDelivery) {
+      await cell.settlePendingMaterialization("GUI fixture delivery");
+      const checkout = boundWorktree(root),
+        guiPath = "packages/gui/src/App.tsx";
+      mkdirSync(path.dirname(path.join(checkout, guiPath)), { recursive: true });
+      writeFileSync(path.join(checkout, guiPath), "export const App = () => null;\n");
+      git(checkout, "add", guiPath);
+      git(checkout, "commit", "-qm", "feat: fixture GUI delivery");
+    }
+    assert.equal(
+      (
+        await run({
+          kind: "fact-record",
+          taskId,
+          statement: "README contains the reviewed delivery.",
+          evidenceSource: "README.md",
+          confidence: "high",
+          memoryClass: "episodic",
+          memoryTags: [],
+        })
+      ).outcome,
+      "applied",
+    );
+    delivery = git(root, "rev-parse", "HEAD");
+  }
   if (artifactDelivery) {
     const report = `${packagePath}/artifacts/delivery.md`;
     mkdirSync(path.dirname(path.join(root, "harness", report)), { recursive: true });
@@ -516,6 +552,36 @@ export async function fixture(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
+  const amendSubmit = async (
+    note = "Amended delivery",
+    roundExecutionId = executionId,
+    binding: typeof owner = owner,
+  ) => {
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\n${note} ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
+    );
+    const commitSha = options.submitCommit
+      ? (() => {
+          const checkout = boundWorktree(root);
+          execFileSync("git", ["-C", checkout, "commit", "--allow-empty", "-qm", `test: ${note}`]);
+          return git(checkout, "rev-parse", "HEAD");
+        })()
+      : undefined;
+    const receipt = await cell.run(
+      {
+        kind: "task-submit",
+        taskId,
+        executionId: roundExecutionId,
+        amend: true,
+        ...(commitSha ? { commitSha } : {}),
+      },
+      binding,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    return receipt;
+  };
   const consent = (reviewId: string) => run({ kind: "task-review-consent", taskId, executionId, reviewId });
   // Submit lands a review-required cut in in_review and the reviewer dispatch rides the same
   // write; review-lifted cuts complete straight off submitted (dec_E369B861 CH3).
@@ -566,9 +632,11 @@ export async function fixture(
     awaitRuntimeLiveness,
     cell: () => cell,
     submit,
+    amendSubmit,
     consent,
     complete: () => run({ kind: "task-complete", taskId, executionId }),
     install: async (instanceId: string | null = "review-first") => {
+      setFixtureAgentBinding(root, "closeout-reviewer", instanceId);
       const installed = await run({
         kind: "agent-install",
         declaration: {
@@ -577,7 +645,6 @@ export async function fixture(
           name: "Independent reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: agentModel }],
-          ...(instanceId === null ? {} : { instance: instanceId }),
           role: "worker",
         },
       });
@@ -715,19 +782,23 @@ export async function fixture(
       runtimeSessionId: string,
       dispatchId: string,
       reviewedExecutionId: string = executionId,
+      verdict: "approved" | "dismissed" = "approved",
     ) => {
       const report = `${packagePath}/artifacts/reports/${dispatchId}.md`,
         packet = `${packagePath}/artifacts/reports/${dispatchId}.json`;
       mkdirSync(path.dirname(path.join(root, "harness", packet)), { recursive: true });
       writeFileSync(
         path.join(root, "harness", report),
-        "# Closeout review\n\nApproved from the dispatched reviewer.\n",
+        `# Closeout review\n\n${verdict === "dismissed" ? "Dismissed from the dispatched reviewer." : "Approved from the dispatched reviewer."}\n`,
       );
       writeFileSync(
         path.join(root, "harness", packet),
         JSON.stringify({
-          verdict: "approved",
-          reason: "Inspected the submitted execution and its declared evidence.",
+          verdict,
+          reason:
+            verdict === "dismissed"
+              ? "Dismissed prior review before re-dispatching."
+              : "Inspected the submitted execution and its declared evidence.",
           evidenceChecked: ["submitted execution", "task contract"],
           findings: [],
           resolutions: [],
@@ -758,6 +829,10 @@ export async function fixture(
       path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`),
     cancel: (runtimeSessionId: string) => cell.cancelRuntime({ runtimeSessionId }, owner),
     awaitOutcome,
+    endPending: () => {
+      const pending = pendingProviders.at(-1)!;
+      pending.exit?.(1);
+    },
     failPending: () => {
       const pending = pendingProviders.at(-1)!;
       pending.output?.(

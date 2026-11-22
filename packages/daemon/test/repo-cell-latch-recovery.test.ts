@@ -1,13 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
+import {
+  commitRuntimeSessionBundle,
+  type RuntimeSessionBundle,
+} from "@harness-anything/application/internal/commands/entity-action-runtime-session.ts";
 import {
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,
@@ -18,6 +22,9 @@ import {
   bindWriterGenerationToken,
   serializePersistedCanonicalEvent,
   sha256Text,
+  type AuthorizationDecision,
+  type CanonicalEventStore,
+  type TaskProjection,
   type WriteReceipt,
 } from "@harness-anything/kernel";
 import {
@@ -31,6 +38,7 @@ import {
   fixtureFence,
   openBootstrappedRepoCell as openRepoCell,
   settleSettingsEvent,
+  waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { openWriterSupervisor, type WriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import type { RepoWriterStatusV1 } from "../src/daemon-host/repo-writer-protocol.ts";
@@ -40,8 +48,29 @@ import { cellCodedError } from "../src/daemon-host/repo-cell-errors.ts";
 import { recoveryCommandPolicy } from "../src/daemon-host/recovery-state.ts";
 import { enqueueRuntimePublication } from "../src/daemon-host/runtime-publication-queue.ts";
 import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
+import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
+import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
+import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 
 const actor = { principal: { personId: "person-latch" }, executor: null } as const;
+
+test("runtime session commits reject denied authorization before touching the store", () => {
+  let appends = 0;
+  assert.throws(
+    () =>
+      commitRuntimeSessionBundle(
+        { append: () => appends++ } as unknown as CanonicalEventStore,
+        {} as TaskProjection,
+        {} as RuntimeSessionBundle,
+        { outcome: "denied" } as unknown as AuthorizationDecision,
+        () => {},
+      ),
+    (error: unknown) =>
+      typeof error === "object" && error !== null && "code" in error && error.code === "actor_unauthorized",
+  );
+  assert.equal(appends, 0);
+});
 
 test("task identity lookup serves the projection's rows when it is caught up", () => {
   const reads = { count: 0 },
@@ -578,6 +607,398 @@ test("a queued write rechecks Cell state after close begins", async () => {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test(
+  "squad coordinator routes reads, spawns, and schedule settlements to replacement handles after in-place latch recovery",
+  { timeout: 90_000 },
+  async (t) => {
+    type StubProvider = {
+      readonly dispatchId: string;
+      readonly sessionId: string;
+      readonly process: ReturnType<typeof spawn>;
+      output?: (chunk: string) => void;
+      exit?: (code: number | null) => void;
+    };
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-cell-squad-latch-recovery-")),
+      rootDir = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      bare = path.join(parent, "remote.git"),
+      repoId = workspaceId("cell-squad-latch-recovery"),
+      taskId = "task_squad_after_latch",
+      scheduleId = "schedule-squad-after-latch",
+      binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
+      providers: StubProvider[] = [],
+      activityWaiters = new Set<() => void>(),
+      wakeActivity = () => {
+        for (const wake of activityWaiters) wake();
+      },
+      onActivity = (arrive: () => void) => {
+        activityWaiters.add(arrive);
+        return () => activityWaiters.delete(arrive);
+      },
+      stopStubProcess = async (child: ReturnType<typeof spawn>): Promise<void> => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+        if (child.pid && process.platform !== "win32") {
+          try {
+            process.kill(-child.pid, "SIGKILL");
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+          }
+        } else {
+          child.kill("SIGKILL");
+        }
+        await closed;
+      };
+    let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | undefined,
+      failAfterCommit = false;
+    try {
+      mkdirSync(rootDir);
+      git(rootDir, "init", "-q", "-b", "main");
+      git(rootDir, "config", "user.name", "Latch Recovery Test");
+      git(rootDir, "config", "user.email", "latch-recovery@example.invalid");
+      git(rootDir, "commit", "--allow-empty", "-qm", "base");
+      git(parent, "init", "--bare", bare);
+      git(rootDir, "remote", "add", "origin", bare);
+      mkdirSync(path.join(rootDir, "harness"));
+      writeFileSync(
+        path.join(rootDir, "harness/harness.yaml"),
+        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n",
+      );
+      writeFileSync(path.join(rootDir, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
+      git(rootDir, "add", ".gitignore");
+      git(rootDir, "commit", "-qm", "test: fixture gitignore");
+
+      provisionPolicyTestRepository(repoId);
+      const runtimeInstances = () => [
+          {
+            schemaVersion: 2 as const,
+            instanceId: "stub",
+            name: "Stub",
+            kindId: "codex" as const,
+            installationId: "installation-stub",
+            providerId: "openai" as const,
+            models: ["stub-model"],
+            defaultModel: "stub-model",
+            enabled: true,
+            permissionMode: "workspace-write" as const,
+            codex: {},
+            authMode: "subscription" as const,
+            authState: "configured" as const,
+            authReadiness: { status: "ready" as const, code: null, hint: null },
+            isolationState: "enforced" as const,
+          },
+        ],
+        fence = fixtureFence(repoId, rootDir, path.join(rootDir, ".harness/fixture-writer-epochs"));
+      await settleSettingsEvent({ repoId, rootDir, writerEpochFence: fence, runtimeInstances: runtimeInstances() });
+
+      const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
+        const child = spawn("git", ["hash-object", "--stdin"], {
+          detached: true,
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+        if (!child.pid) throw new Error("stub runtime child did not expose a pid");
+        child.unref();
+        const provider: StubProvider = {
+          dispatchId: persistence.dispatchId,
+          sessionId: prepared.args[0] ?? `provider-${persistence.dispatchId}`,
+          process: child,
+        };
+        providers.push(provider);
+        queueMicrotask(wakeActivity);
+        return {
+          pid: child.pid,
+          onOutput: (listener) => {
+            provider.output = listener;
+            queueMicrotask(() =>
+              listener(JSON.stringify({ type: "thread.started", thread_id: provider.sessionId }) + "\n"),
+            );
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            provider.exit = listener;
+          },
+          terminate: () => {
+            void stopStubProcess(child);
+          },
+          terminateTree: () => stopStubProcess(child),
+        };
+      };
+
+      cell = await openRepoWriterCell(
+        {
+          repoId,
+          rootDir: canonicalRoot(rootDir),
+          ownerId: "cell-squad-latch-recovery",
+          keycloakSession: async () => binding.keycloakAuthorization.session,
+          keycloakCenter: policyTestCenter,
+          defaultWriterEpochFence: fence,
+          runtimeDaemonRoute: {
+            userRoot,
+            daemonId: "test",
+            endpoint: path.join(parent, "socket"),
+          },
+          runtimeInstances,
+          prepareRuntimeLaunch: async (instanceId, request) => ({
+            definition: {
+              schema: "agent-definition-snapshot/v1",
+              configVersion: 1,
+              instanceId,
+              installationId: "installation-stub",
+              kindId: "codex",
+              providerId: "openai",
+              model: "stub-model",
+              reasoningEffort: null,
+              endpointKind: "official",
+              baseUrlHash: null,
+              authMode: "subscription",
+            },
+            installation: {
+              installationId: "installation-stub",
+              kindId: "codex",
+              executablePath: "/fixture/stub",
+              version: "1.0.0",
+              observedAt: "2026-11-20T00:00:00.000Z",
+            },
+            executablePath: "/fixture/stub",
+            args: request.providerSessionId ? [request.providerSessionId] : [],
+            env: process.env,
+            cwd: request.cwd,
+            prompt: request.prompt,
+          }),
+          runtimeLaunch,
+          onRuntimeOutcome: () => {
+            wakeActivity();
+          },
+          killpoint: (point: string) => {
+            if (point === "after_store_commit" && failAfterCommit) {
+              failAfterCommit = false;
+              throw new Error("lose response after SQLite acceptance");
+            }
+          },
+        },
+        { close: async () => undefined } as never,
+      );
+
+      const finishProvider = async (dispatchId: string, text: string) => {
+        const provider = await waitForArrival(
+          () => providers.find((entry) => entry.dispatchId === dispatchId && entry.output && entry.exit) ?? null,
+          onActivity,
+        );
+        const events = [
+          { type: "item.completed", item: { id: "result", type: "agent_message", text } },
+          { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
+        ];
+        provider.output!(events.map((event) => JSON.stringify(event) + "\n").join(""));
+        await stopStubProcess(provider.process);
+        appendRuntimeWorkerRecord(rootDir, dispatchId, {
+          kind: "process_exit",
+          occurredAt: new Date().toISOString(),
+          exitCode: 0,
+          signal: null,
+        });
+        provider.exit!(0);
+      };
+      const until = <T>(read: () => T | null | Promise<T | null>, label: string): Promise<T> =>
+        waitForArrival(async () => {
+          await cell!.settlePendingMaterialization(label);
+          return read();
+        }, onActivity);
+
+      for (const [id, role] of [
+        ["leader", "commander"],
+        ["one", "worker"],
+      ] as const) {
+        const receipt = await cell.run(
+          {
+            kind: "agent-install",
+            declaration: {
+              schema: "agent-declaration/v1",
+              id,
+              name: id,
+              role,
+              instructions: "Perform the assigned role.",
+              runtimes: [{ type: "codex" }],
+            },
+          },
+          binding,
+        );
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      }
+      const squadInstalled = await cell.run(
+        {
+          kind: "squad-install",
+          declaration: {
+            schema: "squad-declaration/v1",
+            id: "squad",
+            name: "Squad",
+            leader: "leader",
+            workers: ["one"],
+            leaderTurnBudget: 4,
+            roster: "Leader coordinates worker one and writes artifacts/reports/{squadRunId}.md.",
+          },
+        },
+        binding,
+      );
+      assert.equal(squadInstalled.outcome, "applied", JSON.stringify(squadInstalled));
+
+      // Start a scheduled Squad occurrence before the latch so its post-recovery terminal
+      // settlement must execute against the replacement entityActionExecutor/store/projection.
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "schedule-create",
+              scheduleId,
+              name: "Scheduled Squad Before Latch",
+              mode: "detect",
+              everyMs: 300_000,
+              squadId: "squad",
+              mission: "Verify schedule settlement after in-place latch recovery.",
+              idempotencyKey: "create-schedule-before-latch",
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+      const scheduled = await cell.run(
+        { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-schedule-before-latch" },
+        binding,
+      );
+      assert.equal(scheduled.outcome, "applied", JSON.stringify(scheduled));
+      const scheduledDispatchId = providers.at(-1)?.dispatchId;
+      assert.ok(
+        scheduledDispatchId,
+        `the schedule launched a durable leader runtime: ${JSON.stringify({ scheduled, dispatchIds: providers.map(({ dispatchId }) => dispatchId) })}`,
+      );
+
+      const createdTask = await cell.run(
+        { kind: "task-create", taskId, title: "Squad run after latch recovery", presetId: "docs-task" },
+        binding,
+      );
+      assert.equal(createdTask.outcome, "applied", JSON.stringify(createdTask));
+      await waitForFixturePublication(cell as unknown as RepoCell, createdTask.opId, binding);
+      await realizeTaskPlanFixture(rootDir, String((createdTask as Record<string, unknown>).packagePath), (planPath) =>
+        cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
+
+      const originalReplica = cell.replica;
+      failAfterCommit = true;
+      const lost = await cell.run(
+        { kind: "task-create", taskId: "task_latch_before_squad", title: "Triggers in-place latch" },
+        binding,
+      );
+      assert.equal(lost.code, "publication_indeterminate", JSON.stringify(lost));
+      assert.equal(cell.status().state, "unavailable");
+
+      // Directly invoke squad-run on the latched cell: attemptRecovery closes the initial SQLite
+      // handles in place and rebinds the replacement core before SquadCoordinator starts.
+      const started = await cell.run(
+        {
+          kind: "squad-run",
+          squadId: "squad",
+          taskId,
+          runtimeInstanceId: "stub",
+          cwd: { scope: "repo-root" },
+        },
+        binding,
+      );
+      assert.equal(cell.status().state, "attached");
+      assert.notEqual(cell.replica, originalReplica, "in-place recovery replaced the initial ledger core");
+      assert.equal(started.outcome, "completed", JSON.stringify(started));
+      const squadRunId = String((started as { readonly squadRunId?: string }).squadRunId);
+      assert.match(squadRunId, /^squad_[a-f0-9]{24}$/u);
+
+      // Settle the pre-latch scheduled Squad occurrence through the replacement entityActionExecutor.
+      await finishProvider(
+        scheduledDispatchId,
+        JSON.stringify({
+          schema: "squad-decision/v1",
+          action: "converged",
+          report: "# Scheduled Squad\nSettled after recovery.",
+        }),
+      );
+      const settledSchedule = await until(async () => {
+        const shown = (await cell!.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
+          readonly schedule?: {
+            readonly status: {
+              readonly activeRun: unknown;
+              readonly lastRun?: { readonly outcome: string } | null;
+            };
+          };
+        };
+        return shown.schedule?.status.activeRun === null ? shown.schedule.status : null;
+      }, "scheduled squad occurrence settlement");
+      assert.equal(settledSchedule.lastRun?.outcome, "succeeded");
+
+      // Drive the post-recovery task Squad run through worker fan-out, ownership check, and convergence.
+      type SquadStatusView = {
+        readonly status: string;
+        readonly error: string | null;
+        readonly leaderTurns: readonly { readonly dispatchId: string }[];
+        readonly workerAttempts: readonly { readonly dispatchId: string | null; readonly taskId: string | null }[];
+      };
+      const readSquadStatus = async (): Promise<SquadStatusView> => {
+        const receipt = await cell!.run({ kind: "squad-status", squadRunId }, binding);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        return JSON.parse(String(receipt.evidence)) as SquadStatusView;
+      };
+
+      const initialStatus = await readSquadStatus();
+      assert.equal(initialStatus.leaderTurns.length, 1);
+      await finishProvider(
+        initialStatus.leaderTurns[0]!.dispatchId,
+        JSON.stringify({
+          schema: "runtime-batch/v1",
+          dispatches: [
+            {
+              to: "one",
+              prompt: realizedTaskPlan("Worker mission on replacement handles"),
+              ownedPaths: ["recovered.txt"],
+            },
+          ],
+        }),
+      );
+
+      const fannedOut = await until(async () => {
+        const current = await readSquadStatus();
+        if (current.status === "failed") throw new Error(JSON.stringify(current));
+        return current.workerAttempts[0]?.dispatchId ? current : null;
+      }, "squad worker fan-out after recovery");
+      await finishProvider(fannedOut.workerAttempts[0]!.dispatchId!, "Worker completed on replacement handles.");
+
+      const callbackTurn = await until(async () => {
+        const current = await readSquadStatus();
+        if (current.status === "failed") throw new Error(JSON.stringify(current));
+        return current.leaderTurns.length === 2 ? current : null;
+      }, "squad leader callback after recovery");
+      await finishProvider(
+        callbackTurn.leaderTurns[1]!.dispatchId,
+        JSON.stringify({
+          schema: "squad-decision/v1",
+          action: "converged",
+          report: "# Recovered Squad Synthesis\nAll handles routed to live core.",
+        }),
+      );
+
+      const converged = await until(async () => {
+        const current = await readSquadStatus();
+        if (current.status === "failed") throw new Error(JSON.stringify(current));
+        return current.status === "converged" ? current : null;
+      }, "squad convergence after recovery");
+      assert.equal(converged.error, null);
+
+      const canonicalRun = await cell.read("repo.squad.run.read", { squadRunId }, binding);
+      assert.equal(canonicalRun.run.phase, "converged");
+      t.diagnostic(JSON.stringify({ squadRunId, settledSchedule, phase: canonicalRun.run.phase }));
+    } finally {
+      await Promise.all(providers.map((provider) => stopStubProcess(provider.process)));
+      await cell?.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "-q");

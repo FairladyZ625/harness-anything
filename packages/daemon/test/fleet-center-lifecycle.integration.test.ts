@@ -19,7 +19,7 @@ import path from "node:path";
 import { connect, Server as TlsServer } from "node:tls";
 import test, { type TestContext } from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentityManagement, createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host/daemon-host-types.ts";

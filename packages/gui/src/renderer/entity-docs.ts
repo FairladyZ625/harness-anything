@@ -187,6 +187,17 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [],
     actions: ["import", "pin", "unpin"],
   },
+  "peer-request": {
+    schemaId: "PeerRequest/v1",
+    refTemplate: "peer-request/{id}",
+    statuses: [
+      {
+        field: "state",
+        words: ["OPEN", "CLAIMED", "ANSWERED", "DONE", "REJECTED", "PROMOTED"],
+      },
+    ],
+    actions: [],
+  },
   person: {
     schemaId: "person/v1",
     refTemplate: "person/{id}",
@@ -843,6 +854,36 @@ const scheduleDoc: EntityKindDoc = {
   liveCount: "schedules",
 };
 
+const peerRequestDoc: EntityKindDoc = {
+  kind: "peer-request",
+  ...kernelContract("peer-request"),
+  storage: "peer-request.events canonical event stream",
+  definition:
+    "跨主理人协作请求:记录发起人、接收人、问题与只读附件;接收方通过有租约的 claim 作答、完成、拒绝或升级为任务。",
+  fields: [
+    field("requestId", true, "string", "PeerRequest 稳定 ID。"),
+    field("from", true, "object", "发起人身份与来源节点,可带会话提示。"),
+    field("to", true, "object", "接收人,可限定 work 与 lane。"),
+    field("kind", true, "enum", "question / ops-request / merge-request / handoff。"),
+    field("anchorRef", false, "string", "相关任务、决策或代码位置引用。"),
+    field("summary", true, "string", "不超过 240 字符的一行摘要。"),
+    field("structuredBody", true, "object", "claim、requestedAction 与可选根因和验证信息。"),
+    field("attachments", true, "array", "按 SHA-256 寻址的只读内容附件。"),
+    field("schema", true, "const", "固定为 peer-request/v1。"),
+    field("state", true, "enum", "PeerRequest 生命周期状态。"),
+    field("revision", true, "integer", "事件折叠后的连续修订号。"),
+    field("lastEventId", true, "string", "最近折叠事件的稳定 ID。"),
+    field("claim", true, "object | null", "当前认领租约;租约过期后可重领。"),
+    field("reply", true, "object | null", "接收方回复与所需的最小 revision。"),
+    field("rejectionReason", true, "string | null", "拒绝请求时记录的原因。"),
+    field("promotedTaskId", true, "string | null", "仅 PROMOTED 状态携带的任务 ID。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: null,
+  liveCount: null,
+};
+
 const presetDoc: EntityKindDoc = {
   kind: "preset",
   schemaId: null,
@@ -1061,7 +1102,17 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "runtime",
     title: "执行与运行时",
     summary: "工作怎么被执行、复核、会话化与编排。",
-    docs: [executionDoc, reviewDoc, runtimeSessionDoc, runtimeInstanceDoc, agentDoc, squadDoc, scheduleDoc, hostDoc],
+    docs: [
+      executionDoc,
+      reviewDoc,
+      runtimeSessionDoc,
+      runtimeInstanceDoc,
+      agentDoc,
+      squadDoc,
+      scheduleDoc,
+      peerRequestDoc,
+      hostDoc,
+    ],
   },
   {
     id: "catalog",

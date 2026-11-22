@@ -26,6 +26,8 @@
         "fast-contract (2)",
         "fast-contract (3)",
         "fast-contract (4)",
+        "fast-contract (5)",
+        "fast-contract (6)",
         "integration-shard (1)",
         "integration-shard (2)",
         "integration-shard (3)",
@@ -75,6 +77,7 @@
         "check-cli-path-contract",
         "check-error-classification",
         "check-entity-doc-contract",
+        "check-ontology-facets",
         "check-format",
         "check-import-boundaries",
         "check-c4-architecture",
@@ -132,6 +135,7 @@
         "check-cli-path-contract",
         "check-error-classification",
         "check-entity-doc-contract",
+        "check-ontology-facets",
         "check-format",
         "check-import-boundaries",
         "check-c4-architecture",
@@ -172,15 +176,18 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 45
+      "harnessLeafGateCount": 46
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
         "quick-gates",
+        "authorization-shard",
+        "authorization-summary",
         "fast-contract",
         "crlf-checkout",
         "integration-shard",
         "pglite-node26",
+        "linux-arm64-smoke",
         "package-policy",
         "gui-build",
         "cost-budget-reads",
@@ -198,10 +205,13 @@
         "fast-contract",
         "integration-shard",
         "pglite-node26",
+        "linux-arm64-smoke",
         "ontology-advisory",
         "package-policy",
         "gui-build",
         "quick-gates",
+        "authorization-shard",
+        "authorization-summary",
         "clean-build",
         "platform-smoke-windows",
         "windows-first-run-windows",
@@ -223,6 +233,8 @@
         "fast-contract (2)",
         "fast-contract (3)",
         "fast-contract (4)",
+        "fast-contract (5)",
+        "fast-contract (6)",
         "integration-shard (1)",
         "integration-shard (2)",
         "integration-shard (3)",
@@ -373,9 +385,9 @@
         "tools/gates/test/authorization-provider-boundary.test.mjs",
         "tools/gate-allowlists/authorization-provider-boundary.json"
       ],
-      "authoritySource": ["task_db161f5e92d9a6d2d414b462e4"],
+      "authoritySource": ["task_db161f5e92d9a6d2d414b462e4", "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1"],
       "consumerScope": [
-        "new Keycloak symbols, REST paths, errors, and realm-specific fields outside authorization-keycloak provider packages"
+        "new Keycloak symbols, REST paths, errors, and realm-specific fields outside the Keycloak provider subdomains"
       ],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
@@ -478,6 +490,65 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/generate-entity-doc-contract.test.mjs"]
+      }
+    },
+    {
+      "id": "check-ontology-facets",
+      "command": "npm run harness:check-ontology-facets",
+      "failureHint": "Run `node tools/refresh-ontology-facets.mjs --write` to normalize ontology facet shards.",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/kernel/src/domain/action-source-facets/**",
+        "packages/kernel/src/domain/source-contract-facets/**",
+        "tools/refresh-ontology-facets.mjs"
+      ],
+      "authoritySource": ["tools/refresh-ontology-facets.mjs", "task_35d9fccab69d8a765993bdc8ad"],
+      "consumerScope": [
+        "canonical key order, formatting, and package ownership of ontology facet JSON shards under packages/kernel/src/domain/{action-source-facets,source-contract-facets}"
+      ],
+      "githubContext": {
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Ontology facet shard canonical formatting has no exemptions; rerun tools/refresh-ontology-facets.mjs --write."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/refresh-ontology-facets.mjs",
+          "package.json:scripts.harness:check-ontology-facets",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-ontology-facets"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["quick-gates"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["quick-gates"]
+        },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/ontology-facet-shards.test.mjs"]
       }
     },
     {
@@ -1089,7 +1160,14 @@
       "authoritySource": ["tools/test-tier-manifest.mjs", "tools/run-node-tests.mjs", "package.json:scripts.test:fast"],
       "consumerScope": ["node:test suites classified as fast"],
       "githubContext": {
-        "requiredContexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"],
+        "requiredContexts": [
+          "fast-contract (1)",
+          "fast-contract (2)",
+          "fast-contract (3)",
+          "fast-contract (4)",
+          "fast-contract (5)",
+          "fast-contract (6)"
+        ],
         "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
         "nodeVersions": [24, 26]
       },
@@ -1122,7 +1200,14 @@
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"]
+          "contexts": [
+            "fast-contract (1)",
+            "fast-contract (2)",
+            "fast-contract (3)",
+            "fast-contract (4)",
+            "fast-contract (5)",
+            "fast-contract (6)"
+          ]
         },
         "classes": ["local", "pr"]
       },
@@ -1154,7 +1239,14 @@
         "GUI bridge static lock: API registry shipped/deferred methods, preload allowlist, and registered IPC channels stay aligned"
       ],
       "githubContext": {
-        "requiredContexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"],
+        "requiredContexts": [
+          "fast-contract (1)",
+          "fast-contract (2)",
+          "fast-contract (3)",
+          "fast-contract (4)",
+          "fast-contract (5)",
+          "fast-contract (6)"
+        ],
         "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
         "nodeVersions": [24, 26]
       },
@@ -1186,7 +1278,14 @@
         },
         "branchProtection": {
           "required": true,
-          "contexts": ["fast-contract (1)", "fast-contract (2)", "fast-contract (3)", "fast-contract (4)"]
+          "contexts": [
+            "fast-contract (1)",
+            "fast-contract (2)",
+            "fast-contract (3)",
+            "fast-contract (4)",
+            "fast-contract (5)",
+            "fast-contract (6)"
+          ]
         },
         "classes": ["local", "pr"]
       },
@@ -1201,7 +1300,7 @@
       "command": "node tools/run-node-tests.mjs --prefix packages/storage/test/pglite --concurrency 2 && node tools/run-node-tests.mjs --file packages/daemon/test/pglite-repo-cell.integration.test.ts --concurrency 2",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "The PGlite database arm runs on every PR and push under Node 26; existing Node 24 shards verify factory refusal. A new lane is not promoted to branch protection in this change.",
+      "tierReason": "The PGlite database arm runs on storage-related PRs, pushes and the nightly schedule under Node 26. Existing Node 24 shards verify factory refusal.",
       "authoritySource": [
         "decision/dec_09C1CE4481EEF4096867FA034E/CH1",
         "decision/dec_04A9211B073F29F0FC1E1CA573#CH2",
@@ -1972,6 +2071,7 @@
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
         "decision/dec_D90F19C8AAAF39747F8F0D6698#CH8",
+        "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1",
         "package.json:workspaces",
         "packages/*/package.json"
       ],
@@ -1979,6 +2079,7 @@
         "cross-package import statements under packages/**",
         "runtime import file graph under packages/** and tools/** (value imports, value re-exports, side-effect/dynamic imports)",
         "workspace package dependency graph and delivery-package direction",
+        "authorization provider and desktop subpath boundaries",
         "SQL statements, database drivers, and storage backend branches outside packages/storage"
       ],
       "githubContext": {
@@ -2039,10 +2140,11 @@
       "authoritySource": [
         "decision/dec_04A9211B073F29F0FC1E1CA573#CH1",
         "decision/dec_04A9211B073F29F0FC1E1CA573#CH3",
-        "decision/dec_7C93DEBCFB2D1A94C6FA07AAAD#CH2"
+        "decision/dec_7C93DEBCFB2D1A94C6FA07AAAD#CH2",
+        "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1"
       ],
       "consumerScope": [
-        "closed-world 12 workspace packages under packages/*/package.json",
+        "closed-world nine workspace packages under packages/*/package.json",
         "four-way reconciliation of C4 relations, package manifests, source AST imports, and model.c4 plus all four daemon planes; dec_04A9211B073F29F0FC1E1CA573 CH3"
       ],
       "githubContext": {
@@ -3588,7 +3690,7 @@
       "category": "release-policy",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": ["decision/dec_22C3C58447E7520DA3E6FACD5E#CH1"],
+      "authoritySource": ["decision/dec_22C3C58447E7520DA3E6FACD5E#CH1", "decision/dec_5B243AC66763BD6D25B0DE2E86#CH1"],
       "consumerScope": ["published workspace package exports and executable targets"],
       "githubContext": {
         "requiredContexts": ["package-policy"],
@@ -3599,7 +3701,7 @@
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "Every declared target must be present in the generated npm tarball."
+        "notes": "Packed exports must match publishConfig.exports when declared, and every packed export and bin target must exist."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -4427,9 +4529,7 @@
         "packages/cli/src/**",
         "packages/storage/src/**",
         "packages/preset/src/**",
-        "packages/authorization-builtin/src/**",
-        "packages/authorization-keycloak/src/**",
-        "packages/authorization-gui/src/**",
+        "packages/authorization/src/**",
         "tools/check-status-vocabulary.mjs",
         "tools/generate-daemon-status-vocabulary.mjs",
         "tools/check-status-vocabulary.test.mjs",
@@ -4815,6 +4915,7 @@
       "tierReason": null,
       "authoritySource": [
         "task_6afb9b18781322b945d268d8f2",
+        "dec_88CAA23DE4907261D7ECB107ED/CH1",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f3-actor-role-policy-是真实切片但不是单一授权模型"
       ],
       "consumerScope": [
@@ -4824,7 +4925,7 @@
       ],
       "githubContext": {
         "requiredContexts": ["quick-gates"],
-        "workflowJobs": ["quick-gates"],
+        "workflowJobs": ["authorization-shard", "authorization-summary"],
         "nodeVersions": [24]
       },
       "allowlistPolicy": {
@@ -4838,7 +4939,9 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           "tools/gates/ontology-durable-action-authorization.mjs",
+          "tools/gates/authorization-ci-shards.mjs",
           "tools/gates/test/ontology-durable-action-authorization.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-incremental.test.mjs",
           "tools/gate-manifest.json"
         ]
       },
@@ -4850,8 +4953,8 @@
           "script": null
         },
         "rewriteCi": {
-          "pullRequestJobs": ["quick-gates"],
-          "nonPullRequestJobs": ["quick-gates"]
+          "pullRequestJobs": ["authorization-shard", "authorization-summary"],
+          "nonPullRequestJobs": ["authorization-shard", "authorization-summary"]
         },
         "branchProtection": {
           "required": true,
@@ -4862,7 +4965,10 @@
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": ["tools/gates/test/ontology-durable-action-authorization.test.mjs"]
+        "evidence": [
+          "tools/gates/test/ontology-durable-action-authorization.test.mjs",
+          "tools/gates/test/ontology-durable-action-authorization-incremental.test.mjs"
+        ]
       }
     },
     {
@@ -5301,7 +5407,7 @@
       "command": "node tools/gates/cost-budget.mjs",
       "category": "local-consistency",
       "tier": "pr-advisory",
-      "tierReason": "G38 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml cost-budget job (merged from the retired rebuild-gates.yml), and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "tierReason": "The legacy G38 checks run in quick-gates. Both Node 26 read backends run on storage-related PRs, main pushes and the nightly schedule, with their verdicts verified by cost-budget-read-summary.",
       "localPathGlobs": [
         "packages/kernel/**",
         "packages/daemon/**",
@@ -5611,6 +5717,65 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/gates/test/clean-build.test.mjs"]
+      }
+    },
+    {
+      "id": "linux-arm64-smoke",
+      "command": "node tools/gates/linux-arm64-smoke.mjs --require-linux-arm64",
+      "category": "smoke",
+      "tier": "pr-advisory",
+      "tierReason": "G6 / HA-06 native linux-arm64 build, native addon (node-pty/node:sqlite), CLI/daemon tarball verification + isolated install, external OIDC, and center daemon + Fleet edge smoke runs on ubuntu-24.04-arm within a single 180s budget for pull requests and pushes; promotion to a branch-protection required context remains a separate CEO/owner ruleset decision.",
+      "authoritySource": [
+        "decision/dec_DBEC28020550D3F11A21C15FB4#CH2",
+        "task_e63a0b595cc9db6de1e472bc9c",
+        "tools/gates/linux-arm64-smoke.mjs",
+        ".github/workflows/rewrite-ci.yml:jobs.linux-arm64-smoke"
+      ],
+      "consumerScope": [
+        "Native linux-arm64 (Node 24) build, node-pty and node:sqlite loading, CLI/daemon tarball verification + isolated consumer install, external OIDC + center daemon + Fleet edge smoke, and ARM64 platform contract tests on ubuntu-24.04-arm within 180s"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["linux-arm64-smoke"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Native linux-arm64 build and smoke path has no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gates/linux-arm64-smoke.mjs",
+          "tools/gates/test/linux-arm64-smoke.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["linux-arm64-smoke"],
+          "nonPullRequestJobs": ["linux-arm64-smoke"]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": ["pr", "main"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/linux-arm64-smoke.test.mjs"]
       }
     }
   ]

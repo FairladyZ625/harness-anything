@@ -1,0 +1,162 @@
+# Generic production values for Harness Anything Center.
+# Designed for external PostgreSQL + external OIDC/Keycloak with no customer-specific coupling.
+
+# Select "Deployment" (with persistence.enabled: true whenever fleet.enabled=true or storage.backend=sqlite;
+# persistence.enabled: false is only permitted for purely stateless PostgreSQL centers with fleet.enabled=false
+# and complete declarative external identity config: issuerUrl, realm, clientId, existingClientSecret, clientSecretKey)
+# or "StatefulSet" when per-pod volumeClaimTemplates are preferred.
+# Single-authority writer topology requires replicaCount: 1.
+workloadKind: Deployment
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/fairladyz625/harness-anything-center
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+daemon:
+  id: center
+  userRoot: /var/lib/ha/user
+  entrypoint: /opt/ha/current/packages/daemon/dist/index.js
+  cliEntrypoint: /opt/ha/current/packages/cli/dist/cli/src/index.js
+  extraEnv: []
+
+# External PostgreSQL configuration mounted as a Kubernetes Secret at <userRoot>/daemon-storage.json.
+# Runtime and authority connection strings must live only in the referenced Secret, never in values.yaml.
+# Required when storage.backend=postgres so the daemon never silently falls back to local SQLite.
+storage:
+  backend: postgres
+  existingSecret: "harness-center-storage"
+  secretKey: daemon-storage.json
+
+# External OIDC / Keycloak identity authority.
+# When mode=external and both issuerUrl and existingClientSecret are set, start-center.sh
+# invokes `ha bootstrap --mode external --client-secret-stdin` against the local daemon socket.
+identity:
+  mode: external
+  issuerUrl: ""
+  realm: fleet
+  clientId: harness-center
+  existingClientSecret: ""
+  clientSecretKey: client-secret
+  extraCaCertConfigMap: ""
+  extraCaCertKey: ca.pem
+
+# Fleet TLS center listener.
+# When enabled=true and both authorityRepoId and tlsExistingSecret are set, start-center.sh
+# seeds daemon-registry/v2 and fleet-center-config/v1 before daemon boot so openDaemonHost
+# starts the Fleet TLS listener automatically.
+fleet:
+  enabled: true
+  bind: "0.0.0.0"
+  port: 7545
+  externalUrl: ""
+  authorityRepoId: ""
+  authorityRepoRoot: /var/lib/ha/repos/center
+  quotaBytes: 1073741824
+  tlsExistingSecret: ""
+  tlsCertKey: tls.crt
+  tlsKeyKey: tls.key
+
+metrics:
+  enabled: true
+  bind: "0.0.0.0"
+  port: 9090
+  path: /metrics
+  bearerTokenExistingSecret: ""
+  bearerTokenSecretKey: token
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 10s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+    writeQueueDepthThreshold: 32
+    projectionLagThreshold: 500
+    rpcErrorRatioThreshold: 0.05
+
+service:
+  type: ClusterIP
+  annotations: {}
+  fleetPort: 7545
+  metricsPort: 9090
+  # Optional explicit RFC 1035 name for the StatefulSet governing headless Service (spec.serviceName),
+  # allowing in-place upgrades of earlier long-name StatefulSets whose spec.serviceName is immutable.
+  headlessNameOverride: ""
+
+probes:
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 24
+
+# Persistent volume for <userRoot> (registry.json, rbac/, fleet/state.json) and <authorityRepoRoot> (subPath: authority-repo).
+# Required whenever fleet.enabled=true or storage.backend=sqlite so Pod replacement never loses local Fleet upload/claim state or SQLite ledgers.
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+networkPolicy:
+  enabled: false
+  ingressFromNamespaces: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

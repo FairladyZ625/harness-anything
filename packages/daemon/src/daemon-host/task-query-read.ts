@@ -1,6 +1,13 @@
-import { readTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
-import { describeSubmittedCloseoutAttention } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
-import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
+import { readTodos, readViewerTodos } from "@harness-anything/application/internal/queries/todo-read.ts";
+import {
+  describeSubmittedCloseoutAttention,
+  projectTaskCloseoutActions,
+  readCollaboratorAgenda,
+  readCollaboratorTaskPage,
+  readAttestationPool,
+  type CollaboratorTaskScope,
+} from "@harness-anything/application/internal/queries/collaborator-reads.ts";
+import { cutReviewTargetKey, readCutReviewDispatchStates } from "@harness-anything/application/queries";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
@@ -8,6 +15,7 @@ import {
   blockingOf,
   todoIsOpen,
   closeoutReadiness,
+  currentSubmittedExecutions,
   deriveRelationId,
   freshnessReasonOf,
   isTerminalDecisionState,
@@ -27,7 +35,8 @@ import {
   taskVisibility,
   workspaceTaskStatus,
   resolveHarnessLayout,
-  reviewsForExecution,
+  reviewDispatchCommand,
+  hasEffectiveReviewForExecution,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -113,13 +122,20 @@ export interface TaskQueryReadModel {
   readonly relationGraphNeighborhood: (query: TaskRelationNeighborhoodQuery) => DaemonRelationGraphFullResult;
   readonly relationGraphFacet: (query: DaemonRelationGraphFacetPayload) => DaemonRelationGraphFacetResult;
   readonly relationGraphPage: (query: TaskRelationQuery) => DaemonRelationGraphFullResult;
-  readonly guiTasks: (query?: TaskProjectionListQuery) => DaemonTaskSnapshotListResult;
+  readonly guiTasks: (
+    query?: TaskProjectionListQuery,
+    scope?: CollaboratorTaskScope,
+    attestationOnly?: boolean,
+  ) => DaemonTaskSnapshotListResult;
 }
 /** `principalId` is the reader's person; the daemon fills it from the read binding, never from the payload. */
 export interface AgendaQuery {
   readonly limit?: number;
   readonly cursor?: string;
   readonly principalId?: string;
+  readonly pinPersonId?: string;
+  readonly scopePersonId?: string;
+  readonly filterNodeId?: string;
   readonly nodeId?: string;
   readonly teamIds?: readonly string[];
   readonly ownerPersonId?: string;
@@ -281,7 +297,10 @@ export function makeTaskQueryReadModel(input: {
    * incoming relations; that made a one-row GUI read pay for unrelated history.  The index
    * owns filtering and the cursor, while the second read is an explicit point set.
    */
-  function boundedTaskList(query: TaskProjectionListQuery): ReturnType<TaskProjection["list"]> {
+  function boundedTaskList(
+    query: TaskProjectionListQuery,
+    scope?: CollaboratorTaskScope,
+  ): ReturnType<TaskProjection["list"]> {
     // The index contract is task-id ordered. Pinned agenda pages use the list contract's
     // two-part (pinned, taskId) cursor, so keep that bounded SQL path instead of silently
     // changing the consumer's ordering and cursor shape.
@@ -291,10 +310,11 @@ export function makeTaskQueryReadModel(input: {
         presentationStatus: query.presentationStatus !== false,
         decisionRelationsOnly: query.decisionRelationsOnly === true,
       });
-    const index = projection.readTaskIndex({
-        ...query,
-        presentationStatus: query.presentationStatus !== false,
-      }),
+    const indexQuery = { ...query, presentationStatus: query.presentationStatus !== false },
+      index =
+        scope === undefined
+          ? projection.readTaskIndex(indexQuery)
+          : readCollaboratorTaskPage(projection, indexQuery, scope),
       taskIds = index.rows.map(({ taskId }) => taskId),
       hydrated = projection.list({
         taskIds,
@@ -314,12 +334,16 @@ export function makeTaskQueryReadModel(input: {
       warnings: [...index.warnings, ...hydrated.warnings],
     };
   }
-  function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
+  function guiTasks(
+    query: TaskProjectionListQuery = {},
+    scope?: CollaboratorTaskScope,
+    attestationOnly = false,
+  ): DaemonTaskSnapshotListResult {
     // Aggregate readers that ask for the raw lifecycle status skip the presentation-status
     // derivation: that CASE walks each task's subtree, so filtering on it cannot be index-bounded
     // and would make a small page linear in the repository's task history.
     const lifecycleQuery = { ...query, limit: query.limit ?? 500, decisionRelationsOnly: true },
-      lifecycle = boundedTaskList(lifecycleQuery),
+      lifecycle = boundedTaskList(lifecycleQuery, scope),
       readPresetSnapshot = presetSnapshotReader(projection),
       { authoredRoot } = resolveHarnessLayout(rootDir),
       { dependencies, downstream, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
@@ -423,7 +447,11 @@ export function makeTaskQueryReadModel(input: {
           coordinationStatus = task
             ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
             : ("unknown" as const),
-          closeoutAssessment = closeout(snapshot, snapshotAvailability, undefined, undefined, rootDir),
+          closeoutAssessment = projectTaskCloseoutActions(
+            snapshot,
+            snapshotAvailability,
+            closeout(snapshot, snapshotAvailability, undefined, undefined, rootDir),
+          ),
           deliveryStage = taskDeliveryStage({
             status: coordinationStatus,
             snapshot,
@@ -463,7 +491,8 @@ export function makeTaskQueryReadModel(input: {
       }),
       ...cut,
     };
-    return { ...result, ...isolateDaemonTaskSnapshotRows(result.rows) };
+    const selected = attestationOnly ? readAttestationPool(result) : result;
+    return { ...selected, ...isolateDaemonTaskSnapshotRows(selected.rows) };
   }
   /**
    * Narrow agenda page read: the lifecycle page plus only the blocking
@@ -547,10 +576,36 @@ export function makeTaskQueryReadModel(input: {
   }
   function agenda(query: AgendaQuery = {}): DaemonAgendaResult {
     const attentionOnly = query.attentionOnly === true,
-      todos = attentionOnly ? [] : readTodos(projection).filter(todoIsOpen),
+      scopedViewer = query.scopePersonId ?? (query.filterNodeId === undefined ? undefined : query.pinPersonId),
+      personal =
+        scopedViewer === undefined
+          ? null
+          : readCollaboratorAgenda(projection, {
+              viewerPersonId: scopedViewer,
+              ...(query.filterNodeId === undefined ? {} : { filterNodeId: query.filterNodeId }),
+            }),
+      todos = attentionOnly
+        ? []
+        : (personal?.todos ??
+          (query.pinPersonId === undefined
+            ? readTodos(projection)
+            : readViewerTodos(projection, { viewerPersonId: query.pinPersonId })
+          ).filter(todoIsOpen)),
       sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
-      scope = agendaWorkScope(query.work),
+      workScope = agendaWorkScope(query.work),
+      scope =
+        personal === null
+          ? workScope
+          : {
+              ...workScope,
+              members: new Set(
+                personal.tasks.flatMap(({ taskId }) =>
+                  workScope.members === null || workScope.members.has(taskId) ? [taskId] : [],
+                ),
+              ),
+            },
+      scopedDecisionIds = personal === null ? null : new Set(personal.decisions.map(({ decisionId }) => decisionId)),
       readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
         cursor?.[key] === null || (attentionOnly && (status === "blocked" || status === "planned"))
           ? null
@@ -865,33 +920,58 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
       // The durable cut is the blocker: a missing/failed dispatch needs no separate mutable flag.
-      // Reuse dispatch admission's definition of an active review so recovery removes this attention row.
+      // Reuse the application batch read so active detection and failure selection share one lifecycle lookup.
       undispatchedReviews = attentionOnly
         ? []
-        : underReview.flatMap((row) => {
-            const snapshot = projection.read(row.taskId).snapshot,
-              execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
-            if (
-              !execution?.submission ||
-              reviewsForExecution(snapshot.reviews, execution).length > 0 ||
-              activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
-            )
-              return [];
-            const failure =
-              snapshot.task?.reviewDispatchFailure?.executionId === row.executionId
-                ? snapshot.task.reviewDispatchFailure
-                : undefined;
-            return [
-              {
-                taskId: row.taskId,
-                since: row.submittedAt,
-                title:
-                  `${row.title} — CEO: required review has no active dispatch` +
-                  (failure ? `; ${reviewDispatchFailureWarning(failure)}` : "") +
-                  `; run ha task dispatch-review ${row.taskId}.`,
-              },
-            ];
-          }),
+        : (() => {
+            const targets = new Map(
+                (inReview?.rows ?? []).flatMap(({ taskId, snapshot }) => {
+                  const cuts = currentSubmittedExecutions(snapshot);
+                  return cuts
+                    .filter(
+                      (execution) =>
+                        !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
+                    )
+                    .map((execution) => {
+                      const recordedFailure = snapshot.task?.reviewDispatchFailure;
+                      return [
+                        cutReviewTargetKey(taskId, execution.executionId),
+                        {
+                          taskId,
+                          execution,
+                          ...(recordedFailure ? { recordedFailure } : {}),
+                          command: reviewDispatchCommand(taskId, cuts.length > 1 ? execution.executionId : undefined),
+                        },
+                      ] as const;
+                    });
+                }),
+              ),
+              unreviewedCandidates = underReview.flatMap((row) => {
+                const target = targets.get(cutReviewTargetKey(row.taskId, row.executionId));
+                return target ? [{ row, target }] : [];
+              }),
+              cutStates = readCutReviewDispatchStates(
+                projection,
+                unreviewedCandidates.map(({ target }) => target),
+              );
+            return unreviewedCandidates.flatMap(({ row, target }) => {
+              const state = cutStates.get(cutReviewTargetKey(row.taskId, row.executionId));
+              if (state && state.activeDispatches.length > 0) return [];
+              const failure = state?.latestFailure ?? null;
+              return [
+                {
+                  taskId: row.taskId,
+                  since: row.submittedAt,
+                  title:
+                    `${row.title} — CEO: required review has no active dispatch` +
+                    (failure
+                      ? `; ${reviewDispatchFailureWarning({ code: failure.code ?? "review_dispatch_failed", message: failure.reason })}`
+                      : "") +
+                    `; run ${target.command}.`,
+                },
+              ];
+            });
+          })(),
       // 形状信号:同一任务第二次 escalation 起,默认视为同一族问题(实测问句文本相似度分不出族:
       // task_9e275cf8 八次同族两两 0.02–0.20,别的任务不同族可达 0.42),由 CEO 的前提复核判定;
       // 晚于最近一次 escalation 的 continue/narrow 复核使其出列。
@@ -929,32 +1009,35 @@ export function makeTaskQueryReadModel(input: {
                 },
               ];
             }),
-      decisionSignals = (decisions?.decisions ?? []).map((decision) => {
-        if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
-        const full = projection.readDecision(decision.decisionId).decision;
-        if (!full) return { decision, signal: "ready" as const };
-        const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
-        if (!readiness) return { decision, signal: "ready" as const };
-        if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
-          return { decision, signal: "awaitingOwner" as const };
-        const running = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
-          ({ reviewContentDigest, status }) => reviewContentDigest === readiness.currentDigest && status === "running",
-        );
-        if (running.length > 0)
+      decisionSignals = (decisions?.decisions ?? [])
+        .filter(({ decisionId }) => scopedDecisionIds === null || scopedDecisionIds.has(decisionId))
+        .map((decision) => {
+          if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
+          const full = projection.readDecision(decision.decisionId).decision;
+          if (!full) return { decision, signal: "ready" as const };
+          const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
+          if (!readiness) return { decision, signal: "ready" as const };
+          if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
+            return { decision, signal: "awaitingOwner" as const };
+          const running = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
+            ({ reviewContentDigest, status }) =>
+              reviewContentDigest === readiness.currentDigest && status === "running",
+          );
+          if (running.length > 0)
+            return {
+              decision,
+              signal: "inProgress" as const,
+              reviewers: running.map(({ dispatchId, reviewer, findingCount }) => ({
+                dispatchId,
+                reviewer,
+                findingCount,
+              })),
+            };
           return {
             decision,
-            signal: "inProgress" as const,
-            reviewers: running.map(({ dispatchId, reviewer, findingCount }) => ({
-              dispatchId,
-              reviewer,
-              findingCount,
-            })),
+            signal: readiness.next.action === "dispatch-review" ? ("needsReview" as const) : ("ready" as const),
           };
-        return {
-          decision,
-          signal: readiness.next.action === "dispatch-review" ? ("needsReview" as const) : ("ready" as const),
-        };
-      }),
+        }),
       decisionRow = ({ decision }: (typeof decisionSignals)[number]): AgendaDecisionRow => ({
         decisionId: decision.decisionId,
         title: decision.title,
@@ -983,6 +1066,12 @@ export function makeTaskQueryReadModel(input: {
         // 终态源的提问已随源实体收口(任务做完/取消、决策已裁决),不再等读者处理。
         if (request === null || relation === null || sourceIsTerminal(edge.sourceRef)) return [];
         const source = resolveEntitySummary(edge.sourceRef);
+        // A fresh continuation is offered for the implementation phase. Resume
+        // targets come from the separate dispatch projection on the selected row.
+        const wakeTaskId =
+          source.kind === "task" && ["planned", "active", "blocked"].includes(source.status)
+            ? edge.sourceRef.slice("task/".length)
+            : undefined;
         return [
           {
             relationId: edge.relationId,
@@ -990,6 +1079,7 @@ export function makeTaskQueryReadModel(input: {
             sourceRef: edge.sourceRef,
             title: source.title,
             status: source.status,
+            ...(wakeTaskId ? { wakeTaskId } : {}),
             personId: edge.targetRef.slice("person/".length),
             ...request,
             askedAt: relation.entity.createdAt,
@@ -1030,7 +1120,9 @@ export function makeTaskQueryReadModel(input: {
         ];
       }),
       reckoning = attentionOnly ? { items: [], reads: [] } : readReckoningAgenda({ projection, store: input.store }),
-      allPinnedEntities = attentionOnly ? [] : readPinnedEntities().map(resolvePinnedEntity),
+      allPinnedEntities = attentionOnly
+        ? []
+        : (personal?.pinnedEntities ?? readPinnedEntities(query.pinPersonId)).map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
       nextState: AgendaCursor = {

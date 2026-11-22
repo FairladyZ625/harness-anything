@@ -7,11 +7,11 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
+import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
-import { MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/authorization-keycloak/managed-rbac-relocation";
+import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 
 async function freeLoopbackPort(): Promise<number> {
   const server = createServer();
@@ -133,7 +133,7 @@ test(
       user = { id: "person-relocation", username: "relocation-human", password: "Relocation-test-password-2026" },
       node = { id: "edge-relocation", credential: "Relocation-edge-credential-2026" },
       journal = {
-        schema: MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
+        schema: IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA,
         entries: [JSON.stringify({ nodeId: node.id, admission: "accepted" })],
       };
     mkdirSync(sourceRoot, { recursive: true });

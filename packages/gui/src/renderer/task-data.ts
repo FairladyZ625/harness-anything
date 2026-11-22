@@ -51,11 +51,15 @@ export function useTaskWipQuery(repoId: string | null, enabled: boolean) {
 }
 
 /** 工作索引(daemon `repo.works.index`):工作根与任务所属工作,随台账切面换代(invalidateLedgerDependents)。 */
-export function useWorkIndexQuery(repoId: string | null): UseQueryResult<WorkIndexRead, Error> {
+export function useWorkIndexQuery(
+  repoId: string | null,
+  scopePersonId: string | null = null,
+): UseQueryResult<WorkIndexRead, Error> {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
-    queryKey: taskQueryKeys.works(selectedRepoId),
-    queryFn: () => harnessClient.getWorkIndex({ repoId: selectedRepoId }),
+    queryKey: [...taskQueryKeys.works(selectedRepoId), ...(scopePersonId === null ? [] : [scopePersonId])],
+    queryFn: () =>
+      harnessClient.getWorkIndex({ repoId: selectedRepoId, ...(scopePersonId === null ? {} : { scopePersonId }) }),
     enabled: repoId !== null,
     staleTime: 10_000,
   });
@@ -109,30 +113,37 @@ export function taskListQuery(repoId: string) {
  * 未读完的切面 `status` 一律是 `pending`,每行 freshness 落成 `stale-but-usable`
  * (task-adapter),所以"还没读完"在界面上是显形的。
  */
-export async function readTaskList(repoId: string, previous?: TaskListSuccess): Promise<TaskListSuccess> {
+export async function readTaskList(
+  repoId: string,
+  previous?: TaskListSuccess,
+  scope: Pick<
+    TaskQueryFacets,
+    "scopePersonId" | "filterPersonId" | "filterNodeId" | "involvement" | "attestationOnly"
+  > = {},
+): Promise<TaskListSuccess> {
   const resumeCursor = previous?.page?.nextCursor ?? null;
   let cut: TaskListSuccess;
   if (previous && resumeCursor !== null) {
-    cut = joinLedgerCut(previous, await readTaskPage(repoId, { cursor: resumeCursor }), "resume");
+    cut = joinLedgerCut(previous, await readTaskPage(repoId, { ...scope, cursor: resumeCursor }), "resume");
   } else if (!previous) {
-    cut = joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart");
+    cut = joinLedgerCut(undefined, await readTaskPage(repoId, scope), "restart");
   } else {
-    const delta = await readTaskPage(repoId, { changedAfterRevision: previous.watermark });
+    const delta = await readTaskPage(repoId, { ...scope, changedAfterRevision: previous.watermark });
     const regressed = delta.watermark < previous.watermark || delta.sourceRevision < previous.sourceRevision;
     cut = regressed
-      ? joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart")
+      ? joinLedgerCut(undefined, await readTaskPage(repoId, scope), "restart")
       : joinLedgerCut(previous, delta, "delta");
   }
   // 受控快读水化:沿游标顺序补完剩余页。终止条件:预算耗尽(pages 每轮严格 +1,
   // 上界 HYDRATION_PAGE_BUDGET)或读完成(nextCursor 为空);任何一页出错整个
   // 刷新失败,无内部重试,交回 react-query 的重试与下一探针节拍。
   for (let pages = 1; cut.page?.nextCursor != null && pages < HYDRATION_PAGE_BUDGET; pages += 1) {
-    cut = joinLedgerCut(cut, await readTaskPage(repoId, { cursor: cut.page.nextCursor }), "resume");
+    cut = joinLedgerCut(cut, await readTaskPage(repoId, { ...scope, cursor: cut.page.nextCursor }), "resume");
   }
   return cut;
 }
 
-type LedgerReadFacets = Pick<TaskQueryFacets, "changedAfterRevision" | "cursor">;
+type LedgerReadFacets = Omit<TaskQueryFacets, "limit">;
 
 async function readTaskPage(repoId: string, facets: LedgerReadFacets): Promise<TaskListSuccess> {
   return harnessClient.getTasks({ repoId, ...facets, limit: TASK_LIST_PAGE_LIMIT });
@@ -280,6 +291,45 @@ export function useActiveTasksQuery(
   hydrationPending: boolean,
 ): UseQueryResult<TaskListSuccess["rows"], Error> {
   return useQuery(activeTasksQuery(repoId ?? "unselected", repoId !== null && hydrationPending));
+}
+
+/** One recent page per terminal board column while the complete cut hydrates. */
+export function useRecentTerminalTasksQuery(repoId: string | null, hydrationPending: boolean) {
+  return useQuery({
+    queryKey: [...taskQueryKeys.all(repoId ?? "unselected"), "recent-terminal"],
+    queryFn: () => readRecentTerminalTasks(repoId!),
+    enabled: repoId !== null && hydrationPending,
+    staleTime: 0,
+  });
+}
+
+export async function readRecentTerminalTasks(repoId: string, now = Date.now()): Promise<TaskListSuccess["rows"]> {
+  const updatedAfter = new Date(now - 7 * 86_400_000).toISOString();
+  const pages = await Promise.all(
+    (["done", "cancelled"] as const).map((status) =>
+      harnessClient.getTasks({ repoId, status, statusSource: "raw", updatedAfter, limit: TASK_LIST_PAGE_LIMIT }),
+    ),
+  );
+  return pages.flatMap(({ rows }) => rows);
+}
+
+export function useCollaboratorTaskList(
+  repoId: string | null,
+  scope: Pick<TaskQueryFacets, "scopePersonId" | "filterPersonId" | "filterNodeId" | "involvement" | "attestationOnly">,
+) {
+  const queryClient = useQueryClient(),
+    queryKey = [...taskQueryKeys.all(repoId ?? "unselected"), "collaborator", scope];
+  return useQuery({
+    queryKey,
+    queryFn: () => {
+      const previous = queryClient.getQueryData<TaskListSuccess>(queryKey);
+      // A later full refresh must be able to remove tasks whose attribution or attestation changed.
+      return readTaskList(repoId!, previous?.page?.nextCursor == null ? undefined : previous, scope);
+    },
+    refetchInterval: (query) => (query.state.data?.page?.nextCursor == null ? false : QUERY_PACING_MS.ledgerProbe),
+    enabled: repoId !== null && Object.keys(scope).length > 0,
+    staleTime: 4_000,
+  });
 }
 
 /**

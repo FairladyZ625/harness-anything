@@ -3,24 +3,16 @@ import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import nodeTest from "node:test";
-import { testOrdinalInPartition } from "../../node-test-runner-lib.mjs";
-import { auditDurableActionAuthorization, loadAuthorizationInputs } from "../ontology-durable-action-authorization.mjs";
+import test from "node:test";
+import { auditDurableActionAuthorization } from "../ontology-durable-action-authorization.mjs";
+import { auditWithBaseline, baselineAuthorizationInputs } from "./authorization-baseline.mjs";
 import { replaceSourceOnce, runGit } from "./helpers.mjs";
 import { scanOntologyText } from "../ontology-closure-scan.mjs";
 import { buildFlowGraph } from "../authorization-flow-graph.mjs";
 import { sourceWitnesses, technicalPortEvidence } from "../authorization-source-proof.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
-const inputs = await loadAuthorizationInputs(repoRoot);
-
-// Whole-file execution exceeded the isolated runner's time budget. Preserve every case
-// and use the same bounded partitions as the other real-source authorization consumers.
-let testOrdinal = 0;
-function partitionedTest(name, fn) {
-  if (testOrdinalInPartition(testOrdinal++, process.env.HARNESS_TEST_PARTITION)) nodeTest(name, fn);
-}
-const test = partitionedTest;
+const inputs = await baselineAuthorizationInputs();
 
 function sourceCopy(t) {
   const dir = mkdtempSync(path.join(tmpdir(), "daemon-source-authority-"));
@@ -28,7 +20,7 @@ function sourceCopy(t) {
   mkdirSync(path.join(dir, "packages"));
   for (const entry of readdirSync(path.join(repoRoot, "packages"))) {
     const target = path.join(dir, "packages", entry);
-    if (["daemon", "authorization-keycloak", "application"].includes(entry)) {
+    if (["daemon", "authorization", "application"].includes(entry)) {
       cpSync(path.join(repoRoot, "packages", entry, "src"), path.join(target, "src"), { recursive: true });
       cpSync(path.join(repoRoot, "packages", entry, "package.json"), path.join(target, "package.json"));
     } else symlinkSync(path.join(repoRoot, "packages", entry), target, "dir");
@@ -49,7 +41,7 @@ function sourceCopy(t) {
 }
 
 function audit(sourceRoot = repoRoot) {
-  return auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot, only: ["todo-add"] });
+  return auditWithBaseline(repoRoot, inputs, { sourceRoot, only: ["todo-add"] });
 }
 
 const todoSource = inputs.constants.actionDeclarations
@@ -151,7 +143,7 @@ test("a missing queued owner decision leaves its declared effect unproven", (t) 
 test("local maintenance sources require exact technical ports and cannot claim a canonical owner", () => {
   const local = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
   const run = (action, binding) =>
-    auditDurableActionAuthorization(
+    auditWithBaseline(
       repoRoot,
       {
         ...inputs,
@@ -183,12 +175,12 @@ test("local maintenance sources require exact technical ports and cannot claim a
   }
 });
 
-// CH1: OS credential lookup is a local typed driver; the RuntimeSession event still needs
-// the runtime-run owner's canonical decision, including re-entry with an internal action frame.
-test("local credential lookup cannot authorize the RuntimeSession append", () => {
+// The app append is a guarded storage port, not a protocol owner. Runtime ingress owns the
+// durable action; local credential lookup cannot be borrowed as authority for either write.
+test("local credential lookup and runtime append remain typed ports, not action authority", () => {
   const kinds = ["runtime-run", "daemon-local-state"],
-    sessionSource = inputs.constants.actionDeclarations
-      .find((action) => action.kind === "runtime-run")
+    runtimeAppendSource = inputs.constants.actionDeclarations
+      .find((action) => action.kind === "daemon-local-state")
       .ontology.sources.find((source) =>
         source.candidateId.includes("entity-action-runtime-session.ts#commitRuntimeSessionBundle.appended:"),
       ),
@@ -197,15 +189,18 @@ test("local credential lookup cannot authorize the RuntimeSession append", () =>
       .ontology.sources.find((source) =>
         source.candidateId.includes("agent-runtime-credential-port.ts#credentialPort.resolve:"),
       );
-  assert.equal(sessionSource.role, "effect");
+  assert.equal(runtimeAppendSource.route, "daemon-local-state");
+  assert.equal(runtimeAppendSource.role, "technical-port");
+  assert.equal(runtimeAppendSource.port, "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append");
   assert.equal(lookupSource.role, "technical-port");
-  const accepted = auditDurableActionAuthorization(repoRoot, inputs, { only: kinds });
+  const accepted = auditWithBaseline(repoRoot, inputs, { only: kinds });
   assert.deepEqual(accepted.findings, []);
-  assert.equal(accepted.sourceRows.find((row) => row.id === sessionSource.candidateId)?.ok, true);
+  assert.equal(accepted.rows.find((row) => row.id === "runtime-run")?.ok, true);
+  assert.equal(accepted.sourceRows.find((row) => row.id === runtimeAppendSource.candidateId)?.ok, true);
   assert.equal(accepted.sourceRows.find((row) => row.id === lookupSource.candidateId)?.authority, "technical-port");
   // A lookup certificate must not transfer to a different physical call, even when
   // both source identities are registered and the real runtime owner is authorized.
-  const borrowed = auditDurableActionAuthorization(
+  const borrowed = auditWithBaseline(
     repoRoot,
     {
       ...inputs,
@@ -217,7 +212,7 @@ test("local credential lookup cannot authorize the RuntimeSession append", () =>
                 ...action,
                 ontology: {
                   ...action.ontology,
-                  sources: [lookupSource, { ...lookupSource, candidateId: sessionSource.candidateId }],
+                  sources: [lookupSource, { ...lookupSource, candidateId: runtimeAppendSource.candidateId }],
                 },
               }
             : action,
@@ -226,7 +221,7 @@ test("local credential lookup cannot authorize the RuntimeSession append", () =>
     },
     { only: ["daemon-local-state"] },
   );
-  assert.equal(borrowed.sourceRows.find((row) => row.id === sessionSource.candidateId)?.ok, false);
+  assert.equal(borrowed.sourceRows.find((row) => row.id === runtimeAppendSource.candidateId)?.ok, false);
   assert.equal(borrowed.sourceRows.find((row) => row.id === lookupSource.candidateId)?.ok, true);
 });
 
@@ -260,7 +255,7 @@ test("daemon source declarations preserve actual driver and business owners", ()
       "packages/daemon/src/daemon-host/squad-run-state.ts#SquadOrphanCancellation.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#dispatchDecisionReview.spawned:924e97bd48641448595ff43500f7824d",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#dispatchDecisionReview.spawned:5ebd47e4ea03bc9beb63e82ad5fd4a5e",
       "decision-dispatch-review",
       "decision-dispatch-review",
       "effect",
@@ -408,7 +403,7 @@ const witnessSource = inputs.constants.actionDeclarations
   .find((action) => action.kind === "task-witness-rerun")
   .ontology.sources.find((source) => source.role === "effect").candidateId;
 test("the witness collector supplied port preserves its registered queued authority", () => {
-  const result = auditDurableActionAuthorization(repoRoot, inputs, { only: ["task-witness-rerun"] });
+  const result = auditWithBaseline(repoRoot, inputs, { only: ["task-witness-rerun"] });
   assert.deepEqual(result.findings, [], JSON.stringify(result.sourceRows));
   assert.equal(result.sourceRows.find((source) => source.id === witnessSource)?.ok, true);
 });
@@ -426,14 +421,14 @@ test("a detached witness catalog callback cannot borrow the collector publisher"
       file,
     ),
   );
-  const result = auditDurableActionAuthorization(repoRoot, inputs, { sourceRoot: dir, only: ["task-witness-rerun"] });
+  const result = auditWithBaseline(repoRoot, inputs, { sourceRoot: dir, only: ["task-witness-rerun"] });
   assert.equal(result.rows.find((row) => row.id === "task-witness-rerun")?.ok, true);
   assert.equal(result.sourceRows.find((source) => source.id === witnessSource)?.ok, false);
   assert.ok(result.findings.some((finding) => finding.includes(witnessSource)));
 });
 
 test("manual task review reaches the authorized launch after preparing outside the writer", () => {
-  const result = auditDurableActionAuthorization(repoRoot, inputs, { only: ["task-dispatch-review"] });
+  const result = auditWithBaseline(repoRoot, inputs, { only: ["task-dispatch-review"] });
   assert.deepEqual(result.findings, []);
   assert.equal(result.rows.find(({ id }) => id === "task-dispatch-review")?.ok, true);
   assert.equal(result.sourceRows.find(({ kind }) => kind === "task-dispatch-review")?.ok, true);

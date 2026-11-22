@@ -35,7 +35,7 @@ export function workspaceRelativePath(roots: WorkspaceLayoutRoots, ledgerPath: s
 
 export function taskCreateGuidance(
   roots: WorkspaceLayoutRoots,
-  values: Readonly<Record<string, string | number | boolean>>,
+  values: Readonly<Record<string, string | number | boolean | readonly string[]>>,
 ) {
   const action = getExecutableEntityAction("task-create");
   if (!action) throw new Error("task.create has no declared return contract.");
@@ -47,7 +47,16 @@ export function taskCreateGuidance(
           ledgerPackagePath: values.packagePath,
         }
       : values;
-  return actionReceiptGuidance(action, scopedValues);
+  const entries = actionReceiptGuidance(action, scopedValues),
+    artifactPresets = Array.isArray(values.artifactPresetIds) ? values.artifactPresetIds : undefined;
+  if (!artifactPresets) return entries;
+  return Object.freeze(
+    entries.map((entry) =>
+      entry.kind === "repository-diff-contract"
+        ? Object.freeze({ ...entry, args: Object.freeze({ ...entry.args, artifactPresets }) })
+        : entry,
+    ),
+  );
 }
 
 export function diagnosticForError(error: unknown): ReceiptDiagnostic | undefined {

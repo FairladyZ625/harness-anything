@@ -18,6 +18,7 @@ export type StatusEntity =
   | "WriteReceipt"
   | "AuthorizationDecision"
   | "Artifact"
+  | "PeerRequest"
   | "EntityActionCriterion"
   | "Recovery"
   | "Materialization"
@@ -95,6 +96,7 @@ import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
 import { statusWordRegister } from "./status-word-register.ts";
 import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
+import { peerRequestStates } from "./peer-collaboration.ts";
 import {
   dispatchAttemptPhases,
   dispatchCapacityDispositions,
@@ -451,6 +453,16 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     ownerStore: "relation.events",
   },
   {
+    id: "peer-request.state",
+    entity: "PeerRequest",
+    field: "state",
+    module: "packages/kernel/src/domain/peer-collaboration.ts",
+    anchor: "peerRequestStates",
+    words: peerRequestStates,
+    ownerStore: "peer-request.events",
+    note: "Canonical lifecycle of a cross-principal peer request.",
+  },
+  {
     id: "task-blocking.assessment",
     entity: "Task",
     field: "blocking state",
@@ -606,6 +618,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/agent-runtime.ts",
     anchor: "#outcome",
     words: ["succeeded", "failed", "unknown", "cancelled", "stopped"],
+  },
+  {
+    id: "runtime.control-receipt-status",
+    entity: "RuntimeSession",
+    field: "controlReceipt.status",
+    module: "packages/kernel/src/domain/agent-runtime.ts",
+    anchor: "runtimeControlReceiptStatuses",
+    words: ["applied", "rejected"],
   },
   {
     id: "runtime.installation-state",

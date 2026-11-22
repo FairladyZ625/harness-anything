@@ -1,6 +1,50 @@
 import type { DatabaseSync } from "node:sqlite";
 
-export function createDecisionProjectionTables(db: DatabaseSync): void {
+/** `appliesTo.modules` entry → repository-relative prefix: `\` to `/`, one leading `./`, no trailing `/`. */
+const moduleExpression = (value: string) => {
+  const slashed = `replace(trim(${value}), char(92), '/')`;
+  return `rtrim(CASE WHEN substr(${slashed}, 1, 2) = './' THEN substr(${slashed}, 3) ELSE ${slashed} END, '/')`;
+};
+const appliesModulesJson = (column: string) => `CASE WHEN json_valid(${column}) THEN ${column} ELSE '{}' END`;
+const appliesModuleRows = (owner: string, from: string) =>
+  `SELECT module_prefix, decision_id FROM (SELECT ${moduleExpression("module.value")} AS module_prefix, ${owner} AS decision_id` +
+  ` FROM ${from} WHERE module.type = 'text') WHERE module_prefix <> ''`;
+const refillAppliesModules = `
+    DELETE FROM decision_applies_module WHERE decision_id = NEW.decision_id;
+    INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
+      ${appliesModuleRows("NEW.decision_id", `json_each(${appliesModulesJson("NEW.applies_json")}, '$.modules') AS module`)};`;
+/**
+ * dec_9979850C7CE87C17271D78E4D1 CH2: path → governing decision lookups probe this prefix table
+ * instead of decoding every decision's applies JSON. Triggers own the derivation for every writer;
+ * a projection that predates the triggers is filled once before creating them inside the DDL batch.
+ */
+const DECISION_APPLIES_MODULE_TABLE_SQL = `
+    /* @gate-identity state-store/task.projection.decision_applies_module */ CREATE TABLE IF NOT EXISTS decision_applies_module (
+      module_prefix TEXT NOT NULL,
+      decision_id TEXT NOT NULL,
+      PRIMARY KEY(module_prefix, decision_id)
+    ) WITHOUT ROWID;`;
+const DECISION_APPLIES_MODULE_TRIGGER_SQL = `
+    CREATE TRIGGER IF NOT EXISTS decision_applies_module_insert AFTER INSERT ON decision
+    BEGIN${refillAppliesModules}
+    END;
+    CREATE TRIGGER IF NOT EXISTS decision_applies_module_update AFTER UPDATE OF applies_json ON decision
+    BEGIN${refillAppliesModules}
+    END;
+    CREATE TRIGGER IF NOT EXISTS decision_applies_module_delete AFTER DELETE ON decision
+    BEGIN
+      DELETE FROM decision_applies_module WHERE decision_id = OLD.decision_id;
+    END;`;
+export const DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL = `
+    INSERT OR IGNORE INTO decision_applies_module(module_prefix, decision_id)
+      ${appliesModuleRows(
+        "decision.decision_id",
+        `decision, json_each(${appliesModulesJson("decision.applies_json")}, '$.modules') AS module`,
+      )} AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'decision_applies_module_insert');
+    CREATE INDEX IF NOT EXISTS decision_applies_module_owner ON decision_applies_module(decision_id);
+    ${DECISION_APPLIES_MODULE_TRIGGER_SQL}`;
+
+export function createDecisionProjectionTables(db: DatabaseSync, options?: { readonly deferIndexes?: boolean }): void {
   /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-schema.sqlite-database */ db.exec(`
     /* @gate-identity state-store/task.projection.decision */ CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
@@ -20,7 +64,9 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       proposed_at TEXT NOT NULL,
       decided_at TEXT,
       provenance_json TEXT NOT NULL DEFAULT '[]',
-      workspace_revision INTEGER NOT NULL
+      workspace_revision INTEGER NOT NULL,
+      list_options_json TEXT NOT NULL DEFAULT '{"chosen":[],"rejected":[]}',
+      review_summary_json TEXT
     );
     /* @gate-identity state-store/task.projection.decision_option */ CREATE TABLE IF NOT EXISTS decision_option (
       decision_id TEXT NOT NULL,
@@ -93,5 +139,7 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS decision_content_pin_owner ON decision_content_pin(decision_id, workspace_revision);
     CREATE INDEX IF NOT EXISTS decision_review_event_owner
       ON decision_review_event(decision_id, workspace_revision);
+    ${DECISION_APPLIES_MODULE_TABLE_SQL}
+    ${options?.deferIndexes ? "" : DECISION_APPLIES_MODULE_BACKFILL_AND_TRIGGERS_SQL}
   `);
 }

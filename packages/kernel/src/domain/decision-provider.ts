@@ -1,4 +1,14 @@
 /** Configuration for the Decisions API plane. It has no runtime or dispatch identity. */
+export const decisionProviderVendors = [
+  "openrouter",
+  "google",
+  "perplexity",
+  "decisions-http",
+  "openai-compatible",
+  "anthropic",
+] as const;
+export type DecisionProviderVendor = (typeof decisionProviderVendors)[number];
+
 export type DecisionProviderProbe =
   | { readonly state: "unknown" }
   | { readonly state: "ready"; readonly checkedAt: string }
@@ -9,7 +19,7 @@ export type DecisionProviderRecord = {
   readonly providerId: string;
   readonly name: string;
   readonly providerType: "decisions";
-  readonly vendor: "openrouter";
+  readonly vendor: DecisionProviderVendor;
   readonly model: string;
   readonly baseUrl: string | null;
   readonly auth: { readonly mode: "api-key"; readonly credentialRef: string };
@@ -51,7 +61,7 @@ export type DecisionRequest = {
 
 export type DecisionProviderMetadata = {
   readonly providerId: string;
-  readonly vendor: "openrouter";
+  readonly vendor: DecisionProviderVendor;
   readonly requestedModel: string;
   readonly resolvedModel: string;
   readonly modelVersion: null;

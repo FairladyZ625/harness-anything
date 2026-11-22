@@ -1,5 +1,10 @@
+import type {
+  CloudRuntimeRegistration,
+  CloudSandboxSteer,
+} from "@harness-anything/application/internal/commands/runtime-execution-target.ts";
+import type { OrphanRuntimeRecoveryAudit } from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
 import type { SquadDispatchSelection } from "./agent-entities.ts";
-import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "@harness-anything/kernel";
+import type { DispatchLifecycleQuery, DispatchLifecycleRead, DispatchLifecycleView } from "@harness-anything/kernel";
 import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
@@ -12,6 +17,7 @@ import type {
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
+  RuntimeControlReceiptStatus,
   RuntimeProviderUnreachable,
   RuntimeSession,
   RuntimeSessionReadQuery,
@@ -35,7 +41,7 @@ import type {
   RuntimeLaunchRequest,
 } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
-import { type DispatchStreamWriter } from "./dispatch-stream.ts";
+import { type DispatchStreamWriter, type DispatchTerminalOutcome } from "./dispatch-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RuntimeMcpPolicy, type RuntimePermissionMode } from "../runtime-engine/runtime-permissions.ts";
@@ -45,22 +51,52 @@ import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts"
 import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
-export interface RuntimeProcess {
-  readonly pid: number;
-  readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
-  readonly onErrorOutput: (listener: (chunk: string) => void) => void;
+export interface RuntimeSteerOutcome {
+  readonly status: RuntimeControlReceiptStatus;
+  readonly controlRequestId: string;
+  readonly requestOpId: string;
+  readonly steerVersion?: number;
+  readonly reasonCode?: string;
+  readonly message?: string;
+}
+
+interface RuntimeExecutionObserver {
+  readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void | Promise<void>) => void;
+  readonly onErrorOutput: (listener: (chunk: string) => void | Promise<void>) => void;
   /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
   readonly onExit: (
     listener: (code: number | null, lossReason?: string, processObservation?: RuntimeProcessObservation) => void,
   ) => void;
+  /** Fires when the worker host appends a correlated remote steer outcome (`steer_resumed` / `steer_dropped`). */
+  readonly onSteerOutcome?: (listener: (outcome: RuntimeSteerOutcome) => void) => void;
+  readonly release?: () => void;
+}
+
+export interface RuntimeProcess extends RuntimeExecutionObserver {
+  readonly pid: number;
+  readonly cloud?: never;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
   /** Live descendants of this runtime's root process, excluding the root itself. The probe
    *  reports unavailability as a failure result rather than an empty list: the watchdog must
    *  keep its historical deadline when the process table cannot be read. */
   readonly liveDescendantPids?: () => Promise<LiveDescendantProbeResult>;
-  readonly release?: () => void;
 }
+
+export interface CloudRuntimeProcess extends RuntimeExecutionObserver {
+  readonly pid?: never;
+  readonly terminate?: never;
+  readonly terminateTree?: never;
+  readonly liveDescendantPids?: never;
+  readonly cloud: {
+    readonly stop: () => Promise<boolean>;
+    readonly hasStopProof: () => boolean;
+    readonly onLiveness: (listener: (live: boolean) => void | Promise<void>) => void;
+    readonly steer: (request: CloudSandboxSteer) => void;
+  };
+}
+
+export type RuntimeExecutionHandle = RuntimeProcess | CloudRuntimeProcess;
 
 export type RuntimeProcessObservation = Extract<
   AgentRuntimeEventV1,
@@ -92,6 +128,10 @@ export interface RuntimeCallbackRelay {
 }
 
 export type RuntimeBinding = {
+  /** Center-local proof from the current writer turn. Never carried by dispatch or RPC. */
+  readonly orphanRecovery?: { readonly dispatchId: string; readonly audit: OrphanRuntimeRecoveryAudit };
+  /** Center-local proof that a remote control request originated from the authorized Center control path. */
+  readonly trustedRemoteControl?: true;
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;
@@ -191,7 +231,7 @@ export type RuntimeAgent = {
 };
 
 export type ActiveRuntime = {
-  readonly process: RuntimeProcess;
+  readonly process: RuntimeExecutionHandle;
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
   readonly dispatchOpId: string;
@@ -238,6 +278,8 @@ export type ActiveRuntime = {
   stalledAt: string | null;
   recordProviderProgress: (() => void) | null;
   recordWorkspaceProgress: ((observedAtMs?: number) => void | Promise<void>) | null;
+  /** Whether the underlying worker host emits correlated remote steer outcome records (F17). */
+  readonly steerReceiptCapable?: boolean;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;
@@ -397,6 +439,8 @@ export interface RemoteRuntimePersistence {
     readonly riskTier: TaskMetadataV1["riskTier"];
     /** Null for historical tasks using their creation-time profile mission rule. */
     readonly riskTierFlowVersion: TaskMetadataV1["riskTierFlowVersion"] | null;
+    /** The task's frozen vertical id from the center's serving cut; null when absent on legacy tasks. */
+    readonly verticalId?: string | null;
     /** The task's frozen profile id from the center's serving cut; it identifies preset materialization. */
     readonly profileId: string | null;
     readonly taskClass: string;
@@ -421,6 +465,9 @@ export interface RemoteRuntimePersistence {
   readonly readDispatchLifecycle: (query: DispatchLifecycleQuery) => Promise<DispatchLifecycleRead>;
   /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
   readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
+  readonly readFallbackExhaustion: (
+    attempt: DispatchLifecycleView["attempt"],
+  ) => Promise<Pick<DispatchTerminalOutcome, "payload" | "body">>;
   readonly publish: (draft: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: Readonly<Record<string, unknown>>;
@@ -497,6 +544,7 @@ export interface RuntimeSpawnerInput {
     readonly token: string;
     readonly close: () => Promise<void>;
   } | null>;
+  readonly cloudRuntime?: CloudRuntimeRegistration;
   readonly prepareLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   /** Reclaims one runtime session's per-run temp directory under its instance state root;
    *  a no-op for instances without enforced isolation. Returns the filesystem failure (if
@@ -518,15 +566,16 @@ export interface RuntimeSpawnerInput {
     provider: "github" | "gitlab",
     repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
-  readonly resolveAgent?: (agentId: string) => RuntimeAgent;
+  readonly resolveAgent?: (agentId: string, verticalId?: string) => RuntimeAgent;
   readonly resolveSquadDispatch?: (
     squadId: string | undefined,
     leaderId: string,
     workerId: string | undefined,
     binding: RuntimeBinding,
+    verticalId?: string,
   ) => SquadDispatchSelection;
   readonly launch?: RuntimeLauncher;
-  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void;
+  readonly schedule: (work: () => void | Promise<void>, binding?: RuntimeBinding) => void | Promise<void>;
   readonly onRuntimeOutcome?: (
     event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>,
     schedule: TrustedScheduleRuntime | null,
@@ -563,5 +612,7 @@ export interface RuntimeSpawnerInput {
    * settlement. The callback owns authorization and the single-writer queue; settlement only
    * supplies bytes read from the dispatch's worktree and rechecks the resulting projection. */
   readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
+  /** Notifies an external non-blocking receipt pump when a durable pending steer receipt is recorded (F13). */
+  readonly onPendingSteerReceipt?: () => void;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

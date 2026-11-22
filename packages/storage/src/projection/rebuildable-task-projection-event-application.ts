@@ -87,6 +87,7 @@ import {
 import { lifecycleDocumentPaths } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "@harness-anything/kernel/internal/layout/index.ts";
 import { refreshDecisionDocumentSearch } from "./decision-event-projection.ts";
+import { refreshDecisionListReviews } from "./decision-projection-reducer.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type {
   EventContentPrefetch,
@@ -129,20 +130,27 @@ import {
 } from "./rebuildable-task-projection-sql.ts";
 import { applyEmbeddedRelationProjectionEvents, applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 import { refreshDirtyRelationFreshness } from "./relation-freshness-maintenance.ts";
+import {
+  bulkRebuildContext,
+  insertEventIndexRow,
+  readDocumentBaseMetadata,
+  recordDocumentDelete,
+  recordDocumentHistoryDelete,
+  recordDocumentUpsert,
+  recordRuntimeSessionExecutionNode,
+} from "./bulk-rebuild-state.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
 
-const DOCUMENT_BASE_SQL = [
-  "SELECT json_extract(value_json, '$.blobSha256') AS blobSha256,",
-  "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS mediaType,",
-  "json_extract(value_json, '$.policyId') AS policyId FROM " +
-    "(SELECT path,value_json FROM document UNION ALL SELECT path,value_json FROM document_history) WHERE path = ? LIMIT 1",
-].join(" ");
 const UPSERT_DOCUMENT_SQL = [
   "INSERT INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)",
   "ON CONFLICT(path) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
   "value_json=excluded.value_json",
 ].join(" ");
+function upsertDocument(db: DatabaseSync, document: DocumentState): void {
+  runSql(db, UPSERT_DOCUMENT_SQL, document.path, document.workspaceRevision, canonicalJson(document));
+  recordDocumentUpsert(db, document.path, document);
+}
 const UPSERT_RUNTIME_INSTALLATION_SQL = [
   "INSERT INTO runtime_installation(installation_id, workspace_revision, value_json) VALUES (?, ?, ?)",
   "ON CONFLICT(installation_id) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
@@ -185,7 +193,8 @@ export function applyEvent(
 ): void {
   applyEventProjection(db, event, eventJson, readBlob);
   settleTerminalMaterializationForEvent(db, event);
-  refreshDirtyRelationFreshness(db);
+  refreshDecisionListReviews(db, event);
+  if (bulkRebuildContext(db) === undefined) refreshDirtyRelationFreshness(db);
 }
 
 function applyEventProjection(
@@ -202,13 +211,7 @@ function applyEventProjection(
   projectDispatchLifecycleEvent(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     if (!event.actor.principal.personId) return;
     if (event.type === "entity_pinned")
       runSql(
@@ -230,13 +233,7 @@ function applyEventProjection(
     return;
   }
   if (isLedgerLayoutMigrationEvent(event) || isEventShapeMigrationEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     return;
   }
   if (isMigrationImportEvent(event)) {
@@ -255,28 +252,18 @@ function applyEventProjection(
     return;
   }
   if (isRelationEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     applyRelationProjectionEvent(db, event);
     projectRelationDocuments(db, event, readBlob);
     return;
   }
   if (isEntityEvent(event)) {
-    for (const retirement of canonicalDocumentRetirements(event))
+    for (const retirement of canonicalDocumentRetirements(event)) {
       runSql(db, "DELETE FROM document WHERE path = ?", retirement.path);
+      recordDocumentDelete(db, retirement.path);
+    }
     if (!isEntityDeclarationEvent(event)) {
-      runSql(
-        db,
-        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-        event.opId,
-        event.workspaceRevision,
-        eventJson,
-      );
+      insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
       if (event.type === "entity_deleted") {
         deleteEntityProjectionRow(db, event.payload.entityKind, event.payload.entityId);
       } else if (event.type === "agent_retired") {
@@ -301,13 +288,7 @@ function applyEventProjection(
         contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
       if (contractErrors.length) throw new Error(contractErrors.join("; "));
       if (entity.id !== event.payload.entityId) throw new Error("entity reference identity mismatch");
-      runSql(
-        db,
-        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-        event.opId,
-        event.workspaceRevision,
-        eventJson,
-      );
+      insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
       projectInterpretedEntityValue(
         db,
         contract,
@@ -355,7 +336,7 @@ function applyEventProjection(
         policyId: owned.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      runSql(db, UPSERT_DOCUMENT_SQL, owned.path, event.workspaceRevision, canonicalJson(document));
+      upsertDocument(db, document);
       if (owned.policyId === DECISION_DOCUMENT_POLICY_ID) refreshDecisionDocumentSearch(db, document);
     }
     const document: DocumentState = {
@@ -370,25 +351,13 @@ function applyEventProjection(
     const contract = contractForDeclarationEvent(event);
     const entity = interpretReplayDeclaration(contract, value, event.payload.entityId);
     if (entity === null) {
-      runSql(
-        db,
-        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-        event.opId,
-        event.workspaceRevision,
-        eventJson,
-      );
-      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+      insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
+      upsertDocument(db, document);
       markEntityProjectionUninterpretable(db, contract.kind, event.payload.entityId, event.workspaceRevision, value);
       return;
     }
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
+    upsertDocument(db, document);
     projectInterpretedEntityValue(
       db,
       contract,
@@ -403,13 +372,7 @@ function applyEventProjection(
     return;
   }
   if (isScheduleEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     if ("declarationDocumentClaim" in event.payload) {
       const claim = event.payload.declarationDocumentClaim,
         bytes = readBlob(claim.sha256);
@@ -442,10 +405,11 @@ function applyEventProjection(
         policyId: claim.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+      upsertDocument(db, document);
     }
     if ("declarationDocumentRetirement" in event.payload) {
       runSql(db, "DELETE FROM document WHERE path = ?", event.payload.declarationDocumentRetirement.path);
+      recordDocumentDelete(db, event.payload.declarationDocumentRetirement.path);
       deleteEntityProjectionRow(db, "schedule", event.entity.id);
       runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", `schedule/${event.entity.id}`);
       return;
@@ -473,14 +437,8 @@ function applyEventProjection(
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
+    upsertDocument(db, document);
     projectEmbeddedCanonicalEntities(db, event);
     return;
   }
@@ -499,14 +457,8 @@ function applyEventProjection(
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
+    upsertDocument(db, document);
     return;
   }
   if (isRetiredPeopleEvent(event)) {
@@ -535,14 +487,8 @@ function applyEventProjection(
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
+    upsertDocument(db, document);
     return;
   }
   if (isFactEvent(event)) {
@@ -556,15 +502,15 @@ function applyEventProjection(
   if (isAgentRuntimeEvent(event)) {
     projectSquadRunEvent(db, event);
     const taskId = runtimeExecutionLinkForEvent(event)?.taskId ?? null;
-    runSql(
+    insertEventIndexRow(
       db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
       event.opId,
       event.workspaceRevision,
       taskId,
       event.type === "runtime_dispatch_requested" && event.payload.dispatchKey !== sourceDispatchKey
         ? canonicalJson(event)
         : eventJson,
+      event,
     );
     const installation = reduceRuntimeInstallation(
       event.type === "runtime_installation_observed" ? readRuntimeInstallation(db, event.payload.installationId) : null,
@@ -586,14 +532,16 @@ function applyEventProjection(
         storageReplayPolicy.defaultValue.runtime,
       );
       if (session !== null) {
+        const executionNodeId = runtimeSessionExecutionNodeId(event);
         runSql(
           db,
           UPSERT_RUNTIME_SESSION_SQL,
           session.runtimeSessionId,
           event.workspaceRevision,
           canonicalJson(session),
-          runtimeSessionExecutionNodeId(event),
+          executionNodeId,
         );
+        recordRuntimeSessionExecutionNode(db, session.runtimeSessionId, executionNodeId);
         refreshRuntimeSessionAssociations(db, session);
         projectRuntimeSessionCanonicalEntity(db, session, event.workspaceRevision, `event:${event.opId}`);
       }
@@ -602,19 +550,9 @@ function applyEventProjection(
     return;
   }
   if (isDocEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     for (const change of event.payload.changes) {
-      const base = prepareQuery(db, DOCUMENT_BASE_SQL, (sql) =>
-        /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-event-application.sqlite-database */ db.prepare(
-          sql,
-        ),
-      ).get(change.path) as Pick<DocumentState, "blobSha256" | "size" | "mediaType" | "policyId"> | undefined;
+      const base = readDocumentBaseMetadata(db, change.path);
       if (change.candidate === null) {
         if (
           event.payload.retirementReason === undefined ||
@@ -623,6 +561,8 @@ function applyEventProjection(
           throw new Error(`document retirement mismatch for ${change.path}`);
         runSql(db, "DELETE FROM document WHERE path = ?", change.path);
         runSql(db, "DELETE FROM document_history WHERE path = ?", change.path);
+        recordDocumentDelete(db, change.path);
+        recordDocumentHistoryDelete(db, change.path);
         continue;
       }
       if (change.baseBlobSha256 !== (base?.blobSha256 ?? null)) {
@@ -664,7 +604,8 @@ function applyEventProjection(
         workspaceRevision: event.workspaceRevision,
       };
       runSql(db, "DELETE FROM document_history WHERE path = ?", change.path);
-      runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
+      recordDocumentHistoryDelete(db, change.path);
+      upsertDocument(db, document);
       refreshDecisionDocumentSearch(db, document);
     }
     return;
@@ -747,14 +688,7 @@ function applyEventProjection(
         policyId: contract.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-      event.opId,
-      event.workspaceRevision,
-      event.taskId,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, event.taskId, eventJson, event);
     runSql(
       db,
       UPSERT_TASK_SNAPSHOT_SQL,
@@ -776,7 +710,7 @@ function applyEventProjection(
       event.workspaceRevision,
       canonicalJson(snapshot),
     );
-    runSql(db, UPSERT_DOCUMENT_SQL, contract.path, event.workspaceRevision, canonicalJson(document));
+    upsertDocument(db, document);
     return;
   }
   if (isTaskBootstrapEvent(event)) {
@@ -785,14 +719,7 @@ function applyEventProjection(
       throw new Error(`preset snapshot blob ${event.payload.presetSnapshotClaim.sha256} is unavailable`);
     const snapshotBody = new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes),
       snapshot = normalizeHistoricalPresetSnapshot(JSON.parse(snapshotBody));
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-      event.opId,
-      event.workspaceRevision,
-      event.taskId,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, event.taskId, eventJson, event);
     runSql(
       db,
       INSERT_TASK_SNAPSHOT_SQL,
@@ -845,6 +772,7 @@ function applyEventProjection(
         event.workspaceRevision,
         canonicalJson(document),
       );
+      recordDocumentUpsert(db, claim.path, document);
     }
     return;
   }
@@ -860,14 +788,7 @@ export function applyTaskEvent(
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
   const snapshot = reduceTaskEvent(readSnapshotForTaskEventReduction(db, event.taskId), event);
-  runSql(
-    db,
-    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-    event.opId,
-    event.workspaceRevision,
-    event.taskId,
-    eventJson,
-  );
+  insertEventIndexRow(db, event.opId, event.workspaceRevision, event.taskId, eventJson, event);
   runSql(
     db,
     UPSERT_TASK_SNAPSHOT_SQL,
@@ -944,14 +865,14 @@ export function applyTaskEvent(
         policyId: claim.policyId,
         workspaceRevision: event.workspaceRevision,
       };
-      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
+      upsertDocument(db, document);
     }
   }
   // Class-A task commands carry replaceable prose on the same canonical event
   // as the lifecycle transition. Replaying this event after a process crash
   // therefore restores both the task snapshot and its carried documents.
   for (const change of event.payload.carriedDocumentClaims ?? []) {
-    const base = queryRows<Pick<DocumentState, "blobSha256">>(db, DOCUMENT_BASE_SQL, change.path)[0],
+    const base = readDocumentBaseMetadata(db, change.path),
       bytes = readBlob(change.candidate.sha256);
     if (!bytes || bytes.byteLength !== change.candidate.size)
       throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
@@ -972,7 +893,7 @@ export function applyTaskEvent(
       policyId: change.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(document));
+    upsertDocument(db, document);
     refreshDecisionDocumentSearch(db, document);
   }
   projectEmbeddedCanonicalEntities(db, event);
@@ -1132,7 +1053,7 @@ export function catchUpRound(
           head?.eventDigest ?? null,
         );
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
-      refreshRelationCycleAudit(db);
+      if (bulkRebuildContext(db) === undefined) refreshRelationCycleAudit(db);
       return batch.events.length;
     }
     if (batch !== null) {
@@ -1147,7 +1068,7 @@ export function catchUpRound(
       else runSql(db, "UPDATE projection_meta SET scan_cursor = ? WHERE singleton = 1", batch.cursor);
     }
     const reduced = drainDeferred(db, limit, (sha256) => prefetchedContent.get(sha256) ?? null, allowRevisionGaps);
-    refreshRelationCycleAudit(db);
+    if (bulkRebuildContext(db) === undefined) refreshRelationCycleAudit(db);
     return reduced;
   });
   if (watermark(db) === sourceRevision) replayStarts.set(db, sourceRevision);
@@ -1224,14 +1145,7 @@ function applyTitleOnlyTaskAmendmentBatch(db: DatabaseSync, events: readonly Pre
   for (const { event, eventJson, normalizedEvent } of events) {
     snapshot = reduceTaskEvent(snapshot, normalizedEvent);
     projectEventSummary(db, normalizedEvent);
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
-      event.opId,
-      event.workspaceRevision,
-      normalizedEvent.taskId,
-      eventJson,
-    );
+    insertEventIndexRow(db, event.opId, event.workspaceRevision, normalizedEvent.taskId, eventJson, normalizedEvent);
   }
   const last = events.at(-1)!.normalizedEvent;
   runSql(
@@ -1268,7 +1182,7 @@ function applyTitleOnlyTaskAmendmentBatch(db: DatabaseSync, events: readonly Pre
     last.occurredAt,
     packagePath === undefined ? null : String(packagePath),
   );
-  refreshDirtyRelationFreshness(db);
+  if (bulkRebuildContext(db) === undefined) refreshDirtyRelationFreshness(db);
 }
 
 function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {

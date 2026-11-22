@@ -66,6 +66,7 @@ import { deriveInputDirectory } from "./thin-command-inputs.ts";
 import { parseRouted, parseStorageRoute } from "./thin-command-router.ts";
 import { parseResumeDispatch } from "./thin-command-runtime.ts";
 import { parseTask } from "./thin-command-task.ts";
+import { tasksOnlyInput } from "./task-list-presentation.ts";
 import { preferTaskActionHelp } from "./task-action-help.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
 
@@ -173,7 +174,7 @@ export function renderThinHelp(
   all = false,
 ): string {
   const rows = [
-      ...thinCliCommands.map(({ usage, summary, help, path, helpTier }) => {
+      ...thinCliCommands.map(({ id, usage, summary, help, path, helpTier }) => {
         const preferred = preferTaskActionHelp({ usage, summary, help });
         const detailed = usage.startsWith("ha task create ")
           ? {
@@ -191,7 +192,13 @@ export function renderThinHelp(
                 .filter(Boolean)
                 .join("\n"),
             }
-          : preferred;
+          : id === "task-list"
+            ? {
+                ...preferred,
+                usage: `${preferred.usage} [${tasksOnlyInput.name}]`,
+                help: `${preferred.help}\n    ${tasksOnlyInput.name} — ${tasksOnlyInput.description}`,
+              }
+            : preferred;
         // The tier is read off the command declaration; help and capabilities share that one list.
         return { ...detailed, route: path.join(" "), tier: helpTier };
       }),

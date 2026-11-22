@@ -6,6 +6,7 @@ import * as storage from "@harness-anything/storage";
 import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { proposal } from "../store/relation-graph-projection.fixtures.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
+import { listPgDecisionRows } from "../../src/pg/pg-decision-list.ts";
 
 test(
   "Decision readiness distinguishes pristine scopes from unknown backfill without read-side writes",
@@ -169,6 +170,16 @@ test("public management backfill completes a previous-writer Decision search exp
         .rows[0]!;
     assert.deepEqual(await count(), { scalar_pending: "0", search_pending: "0" });
     assert.equal((await source.listDecisions({ search: "needle", limit: 1 })).decisions.length, 1);
+    // An expanded database serving the previous writer already has a ready search index.
+    await manage((client) =>
+      client.query("UPDATE ha_decisions SET list_summary=NULL,review_summary=NULL WHERE decision_id='dec_1'"),
+    );
+    assert.deepEqual(await count(), { scalar_pending: "0", search_pending: "0" });
+    assert.equal((await source.listDecisions({})).decisions.length, 130);
+    await assert.rejects(() => source.listDecisions({}, "summary"), { code: "projection_pending" });
+    assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 1, done: false });
+    assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 0, done: true });
+    assert.equal((await source.listDecisions({}, "summary")).decisions.length, 130);
     await manage((client) => client.query("UPDATE ha_decisions SET value=value WHERE decision_id='dec_1'"));
     assert.deepEqual(await count(), { scalar_pending: "0", search_pending: "1" });
     await assert.rejects(
@@ -303,6 +314,60 @@ test("public management backfill completes a previous-writer Decision search exp
     );
     assert.equal(isolated.rowCount, 0);
     assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 0, done: true });
+  } finally {
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});
+
+test("PostgreSQL Decision summaries select one page without fetching big authored documents", async (t) => {
+  const fixture = await pgRuntimeFixture(),
+    scope = { tenantId: "decision-summary-scale", projectId: "decision-summary-scale", policyEpoch: 1 },
+    keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
+    state = reduceDecisionDocument(null, proposal(1, "dec_TEMPLATE"));
+  try {
+    await storage.withPostgresTransaction(
+      fixture.adminPool,
+      async (client) => {
+        await client.query(
+          `INSERT INTO ha_decisions(tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
+           SELECT $1,$2,$3,'dec_'||lpad(n::text,4,'0'),1,$4::jsonb FROM generate_series(1,1000)n`,
+          [...keys, JSON.stringify(state)],
+        );
+        await client.query(
+          `INSERT INTO ha_projection_values(tenant_id,project_id,policy_epoch,model,entity_id,workspace_revision,value)
+           SELECT $1,$2,$3,'document','decisions/decision-dec_'||lpad(n::text,4,'0')||'/decision.md',
+           1,json_build_object('body', repeat('authored body ',4096))::text FROM generate_series(1,1000)n`,
+          keys,
+        );
+        await client.query("UPDATE ha_decision_read_status SET scalar_pending=0");
+      },
+      scope,
+    );
+    await storage.withPostgresTransaction(
+      fixture.pool,
+      async (client) => {
+        const queries: string[] = [],
+          counted = new Proxy(client, {
+            get(target, key) {
+              if (key !== "query") return Reflect.get(target, key);
+              return (...args: unknown[]) => {
+                queries.push(String(args[0]));
+                return Reflect.apply(target.query, target, args);
+              };
+            },
+          }),
+          start = performance.now(),
+          result = await listPgDecisionRows(counted, scope, "decision-summary-scale", {}, "summary");
+        t.diagnostic(JSON.stringify({ rows: result.decisions.length, elapsedMs: performance.now() - start, queries }));
+        assert.equal(result.decisions.length, 1000);
+        assert.deepEqual(result.decisions[0]?.chosen, [{ id: "CH1", text: "Use events" }]);
+        assert.equal(queries.length, 1, "readiness and the page share one query");
+        assert.match(queries[0]!, /SELECT decision_id,workspace_revision,list_summary AS value/u);
+        assert.ok(queries.every((sql) => !/ha_(projection_values|relations|content_blobs)/u.test(sql)));
+      },
+      scope,
+    );
   } finally {
     await fixture.pool.end();
     await fixture.close();

@@ -122,7 +122,9 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
       <DenseRow
         tag={
           hit.entity ? (
-            <span className="w-14 truncate text-left font-mono ui-micro uppercase text-text-faint">{hit.entity}</span>
+            <span className="w-14 truncate text-left font-mono ui-micro uppercase text-text-faint">
+              {hit.entityLabel ?? hit.entity}
+            </span>
           ) : undefined
         }
         title={hit.label}

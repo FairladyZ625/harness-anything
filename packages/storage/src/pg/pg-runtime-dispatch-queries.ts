@@ -77,14 +77,21 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     );
     return result.rows.map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as Dispatch));
   };
-  const projected = async (client: PoolClient, event: Dispatch): Promise<RuntimeDispatchProjectionRow> => {
+  const projected = async (
+    client: PoolClient,
+    event: Dispatch,
+    maxRevision?: number,
+  ): Promise<RuntimeDispatchProjectionRow> => {
     const result = await client.query<{ event_json: string }>(
       `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
        AND (cardinality($5::text[])=0 OR readers && $5::text[]) AND event_type='runtime_session_outcome_observed'
        AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+       ${maxRevision === undefined ? "" : "AND revision <= $7::bigint"}
        AND event_schema='agent-runtime-event/v1' AND dispatch_id=$6
        ORDER BY ha_events.revision DESC LIMIT 1`,
-      [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, event.payload.dispatchId],
+      maxRevision === undefined
+        ? [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, event.payload.dispatchId]
+        : [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, event.payload.dispatchId, maxRevision],
     );
     const outcome = result.rows[0]
       ? (JSON.parse(result.rows[0].event_json) as Extract<
@@ -92,9 +99,13 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           { readonly type: "runtime_session_outcome_observed" }
         >)
       : null;
+    const rawMetrics = outcome?.payload.runtimeMetrics ?? null,
+      cacheWriteTokens = outcome?.payload.cacheWriteTokens ?? rawMetrics?.cacheWriteTokens,
+      metrics =
+        rawMetrics === null || cacheWriteTokens === undefined ? rawMetrics : { ...rawMetrics, cacheWriteTokens };
     return {
       event: publicRuntimeDispatch(event),
-      metrics: outcome?.payload.runtimeMetrics ?? null,
+      metrics,
       endedAt: outcome?.payload.endedAt ?? null,
       outcome: outcome?.payload.outcome ?? null,
     };
@@ -334,26 +345,90 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           }),
         };
       }),
-    readRuntimeDispatchPage: ({ taskIds, startedAtGte, cursor, limit }) =>
+    readRuntimeDispatchPage: ({
+      taskIds,
+      agentId,
+      squadId,
+      personId,
+      startedAtGte,
+      startedAtLte,
+      order = "asc",
+      maxRevision,
+      cursor,
+      limit,
+    }) =>
       transaction(async (client) => {
         if (!validateStorageReadWindow(limit, storageReadPolicy.defaultValue.pageSizes.standard))
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
+        if (order !== "asc" && order !== "desc") throw new Error("runtime dispatch page order must be asc or desc");
+        if (agentId !== undefined && squadId !== undefined)
+          throw new Error("runtime dispatch page cannot filter by both agentId and squadId");
+        if (agentId !== undefined && agentId.length === 0)
+          throw new Error("runtime dispatch page agentId must be non-empty");
+        if (squadId !== undefined && squadId.length === 0)
+          throw new Error("runtime dispatch page squadId must be non-empty");
+        if (personId !== undefined && personId.length === 0)
+          throw new Error("runtime dispatch page personId must be non-empty");
+        if (maxRevision !== undefined && (!Number.isSafeInteger(maxRevision) || maxRevision < 0))
+          throw new Error("runtime dispatch page maxRevision must be a non-negative safe integer");
         await pgDispatchPageTimeGate(client, scope, repoId);
-        const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? ""),
-          window = `${pgDispatchPageTimeKey}>=$6::bigint AND (${pgDispatchPageTimeKey},dispatch_id)>($7::bigint,$8::text COLLATE "C")`,
-          order = `${pgDispatchPageTimeKey},dispatch_id`,
-          values = [Math.max(runtimeDispatchPageTimeKey(startedAtGte), after), after, cursor?.dispatchId ?? ""],
+        const minMs = runtimeDispatchPageTimeKey(startedAtGte);
+        if (startedAtLte !== undefined && startedAtLte === "") throw new Error("Invalid dispatch page timestamp");
+        const maxMs = startedAtLte === undefined ? null : runtimeDispatchPageTimeKey(startedAtLte);
+        const clauses: string[] = [],
+          values: unknown[] = [],
+          bind = (value: unknown) => {
+            values.push(value);
+            return `$${5 + values.length}`;
+          };
+        if (agentId !== undefined) clauses.push(`agent_id=${bind(agentId)}`);
+        if (squadId !== undefined) clauses.push(`squad_id=${bind(squadId)}`);
+        if (personId !== undefined) clauses.push(`actor_person_id=${bind(personId)}`);
+        if (maxRevision !== undefined) clauses.push(`revision<=${bind(maxRevision)}::bigint`);
+        let orderSql: string;
+        if (order === "asc") {
+          const after = runtimeDispatchPageTimeKey(cursor?.startedAt ?? "");
+          clauses.push(`${pgDispatchPageTimeKey}>=${bind(Math.max(minMs, after))}::bigint`);
+          if (maxMs !== null) clauses.push(`${pgDispatchPageTimeKey}<=${bind(maxMs)}::bigint`);
+          const afterParam = bind(after),
+            idParam = bind(cursor?.dispatchId ?? "");
+          clauses.push(`(${pgDispatchPageTimeKey},dispatch_id)>(${afterParam}::bigint,${idParam}::text COLLATE "C")`);
+          orderSql = `${pgDispatchPageTimeKey} ASC,dispatch_id ASC`;
+        } else {
+          clauses.push(`${pgDispatchPageTimeKey}>=${bind(minMs)}::bigint`);
+          if (cursor !== undefined) {
+            if (cursor.startedAt === "") throw new Error("Invalid dispatch page timestamp");
+            const cursorMs = runtimeDispatchPageTimeKey(cursor.startedAt),
+              effectiveMax = maxMs === null ? cursorMs : Math.min(maxMs, cursorMs);
+            clauses.push(`${pgDispatchPageTimeKey}<=${bind(effectiveMax)}::bigint`);
+            const cursorMsParam = bind(cursorMs),
+              cursorIdParam = bind(cursor.dispatchId);
+            clauses.push(
+              `(${pgDispatchPageTimeKey}<${cursorMsParam}::bigint OR (${pgDispatchPageTimeKey}=${cursorMsParam}::bigint AND dispatch_id>${cursorIdParam}::text COLLATE "C"))`,
+            );
+          } else if (maxMs !== null) {
+            clauses.push(`${pgDispatchPageTimeKey}<=${bind(maxMs)}::bigint`);
+          }
+          orderSql = `${pgDispatchPageTimeKey} DESC,dispatch_id ASC`;
+        }
+        const window = clauses.join(" AND "),
+          compareKeys =
+            order === "asc"
+              ? compareRuntimeDispatchPageKeys
+              : (left: ReturnType<typeof runtimeDispatchPageKey>, right: ReturnType<typeof runtimeDispatchPageKey>) =>
+                  runtimeDispatchPageTimeKey(right.startedAt) - runtimeDispatchPageTimeKey(left.startedAt) ||
+                  Buffer.compare(Buffer.from(left.dispatchId), Buffer.from(right.dispatchId)),
           rows =
             taskIds === undefined
-              ? await readDispatchRows(client, window, values, order, limit + 1)
+              ? await readDispatchRows(client, window, values, orderSql, limit + 1)
               : (
                   await Promise.all(
                     taskIds.map((taskId) =>
                       readDispatchRows(
                         client,
-                        `${window} AND payload_task_id=$9`,
+                        `${window} AND payload_task_id=$${6 + values.length}`,
                         [...values, taskId],
-                        order,
+                        orderSql,
                         limit + 1,
                       ),
                     ),
@@ -361,14 +436,14 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
                 )
                   .flat()
                   .map((event) => ({ event, key: runtimeDispatchPageKey(event) }))
-                  .sort((left, right) => compareRuntimeDispatchPageKeys(left.key, right.key))
+                  .sort((left, right) => compareKeys(left.key, right.key))
                   .slice(0, limit + 1)
                   .map(({ event }) => event);
         const selected = rows.slice(0, limit),
           last = selected.at(-1),
           done = rows.length <= limit;
         return {
-          rows: await Promise.all(selected.map((event) => projected(client, event))),
+          rows: await Promise.all(selected.map((event) => projected(client, event, maxRevision))),
           done,
           nextCursor: !done && last ? runtimeDispatchPageKey(last) : null,
         };

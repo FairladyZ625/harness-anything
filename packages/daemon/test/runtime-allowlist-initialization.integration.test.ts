@@ -13,28 +13,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
 
-test("runtime dispatch does not initialize a missing repository allowlist", () => {
-  assert.throws(
-    () =>
-      resolveRuntimeInstanceCandidates({
-        requested: "codex-api",
-        agent: null,
-        instances: [
-          {
-            instanceId: "codex-api",
-            kindId: "codex",
-            providerId: "openai",
-            models: ["test-model"],
-            enabled: true,
-            authReadiness: { status: "ready", code: null, hint: null },
-          } as never,
-        ],
-        sessions: [],
-      }),
-    (error: unknown) =>
-      error instanceof Error &&
-      (error as Error & { code?: string }).code === "runtime_instance_allowlist_uninitialized" &&
-      /ha init|repository settings/u.test(error.message),
+test("runtime dispatch matches a custom node provider without a repository allowlist", () => {
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({
+      agent: { id: "worker", name: "worker", instructions: "work", runtimes: [{ type: "codex", model: "test-model" }] },
+      instances: [
+        {
+          instanceId: "codex-api",
+          kindId: "codex",
+          providerId: "openai",
+          models: ["test-model"],
+          defaultModel: "test-model",
+          enabled: true,
+          authReadiness: { status: "ready", code: null, hint: null },
+        } as never,
+      ],
+      sessions: [],
+    }),
+    ["codex-api"],
   );
 });
 
@@ -83,6 +79,17 @@ test("project A admits codex-api while project B refuses it without changing eit
         (repoId === "project-b" ? "settings:\n  runtime:\n    allowedInstances: []\n" : ""),
     );
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    if (repoId === "project-b") {
+      mkdirSync(path.join(rootDir, ".harness"), { recursive: true });
+      writeFileSync(
+        path.join(rootDir, ".harness/settings.local.json"),
+        JSON.stringify({
+          schema: "settings-local/v1",
+          locale: "en-US",
+          runtime: { allowedInstances: [] },
+        }),
+      );
+    }
   }
   let launches = 0;
   const host = await openDaemonHost({
@@ -129,7 +136,7 @@ test("project A admits codex-api while project B refuses it without changing eit
     assert.equal(launches, 1);
     assert.deepEqual((await read("project-a")).lastChanged, beforeA.lastChanged);
     assert.deepEqual((await read("project-b")).lastChanged, beforeB.lastChanged);
-    assert.deepEqual(beforeA.settings.runtime?.allowedInstances, ["codex-api"]);
+    assert.equal(beforeA.settings.runtime?.allowedInstances, undefined);
     assert.deepEqual(beforeB.settings.runtime?.allowedInstances, []);
     t.diagnostic(`project-b-rejection ${JSON.stringify(rejected)}`);
   } finally {

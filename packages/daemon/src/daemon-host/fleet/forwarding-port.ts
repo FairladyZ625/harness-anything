@@ -7,6 +7,7 @@ import { assertFleetEdgeRepositoryGit } from "../fleet-edge-git-preflight.ts";
 import { parseNodeAutoDispatchSnapshot } from "../node-auto-dispatch.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "../../runtime-engine/runtime-spawn-errors.ts";
 import { getExecutableEntityAction, readDaemonRegistry, type IdentitySessionPort } from "@harness-anything/kernel";
+import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import type { FleetPeerOptions } from "./peer.ts";
@@ -14,7 +15,8 @@ import { unregisterFleetNodeClient } from "./peer.ts";
 import { text } from "../access-admin-utils.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { fleetEdgeConfigDir, readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
+import { daemonUserRoot } from "../client/local-daemon-target.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { RepoTaskAction } from "../repo-cell-types.ts";
@@ -22,6 +24,13 @@ import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
 import { FleetEdgeTaskError, runFleetEdgeTask } from "../fleet-edge-task.ts";
 import { readFleetOperationalClient, readFleetRepositoryMetadataClient, raceLifetime } from "../fleet-edge-write.ts";
 import { forwardingIntentIssue, type ForwardingIntent } from "./forwarding-intent.ts";
+
+const forwardedRuntimeAuthContext = new AsyncLocalStorage<DaemonAuthenticationContext>();
+
+/** Returns the caller authentication context active for the current forwarded runtime call. */
+export function currentForwardedRuntimeAuth(): DaemonAuthenticationContext | undefined {
+  return forwardedRuntimeAuthContext.getStore();
+}
 
 export type RuntimeForwardingRequest = {
   readonly repoId: string;
@@ -104,8 +113,11 @@ export async function forward(input: {
   }
   if (input.intent.kind === "runtime") {
     const payload = { ...config, method: input.intent.method, action: input.intent.inputs.action },
+      operation = input.intent.inputs.operation,
       receipt = (await raceLifetime(
-        input.runRuntime(payload as unknown as JsonObject, runtimeAuth, input.intent.inputs.operation),
+        forwardedRuntimeAuthContext.run(runtimeAuth, () =>
+          input.runRuntime(payload as unknown as JsonObject, runtimeAuth, operation),
+        ),
         signal,
       )) as JsonObject;
     return receipt;
@@ -215,7 +227,9 @@ function runtimeLocation(
   return {
     ...config,
     workspaceRoot,
-    caPath: path.resolve(workspaceRoot, config.caPath),
+    caPath: path.isAbsolute(config.caPath)
+      ? config.caPath
+      : path.resolve(fleetEdgeConfigDir(edge.userRoot, repoId), config.caPath),
     viewRoot: path.resolve(workspaceRoot, config.viewRoot),
   };
 }
@@ -234,6 +248,7 @@ export function runtimeForwardingContext(
       port: request.port,
       ca: readFileSync(request.caPath, "utf8"),
       servername: request.servername,
+      ...(request.spkiSha256 ? { spkiSha256: request.spkiSha256 } : {}),
       nodeId: request.nodeId,
       credential: request.credential,
       repoId: request.repoId,
@@ -248,11 +263,16 @@ export function runtimeForwardingContext(
 }
 
 function registeredRemoteEdge(userRoot: string | undefined, repoId: string) {
-  const repo = readDaemonRegistry({ userRoot }).repos.find(
-    (candidate) => candidate.repoId === repoId && candidate.state === "enabled" && candidate.mode === "remote-edge",
-  );
+  const effectiveUserRoot = userRoot ?? daemonUserRoot(),
+    repo = readDaemonRegistry({ userRoot: effectiveUserRoot }).repos.find(
+      (candidate) => candidate.repoId === repoId && candidate.state === "enabled" && candidate.mode === "remote-edge",
+    );
   return repo?.canonicalRoot
-    ? { workspaceRoot: repo.canonicalRoot, config: readFleetEdgeConfig(repo.canonicalRoot) }
+    ? {
+        userRoot: effectiveUserRoot,
+        workspaceRoot: repo.canonicalRoot,
+        config: readFleetEdgeConfig(effectiveUserRoot, repoId),
+      }
     : null;
 }
 

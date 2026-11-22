@@ -129,19 +129,21 @@ export function agendaDecisionReviewRow(value: unknown): boolean {
 }
 
 export function agendaAwaitsRow(value: unknown): boolean {
+  const required = [
+    "relationId",
+    "relationRevision",
+    "sourceRef",
+    "title",
+    "status",
+    "personId",
+    "askKind",
+    "question",
+    "askedAt",
+    "askedBy",
+  ];
   return (
-    exactRecord(value, [
-      "relationId",
-      "relationRevision",
-      "sourceRef",
-      "title",
-      "status",
-      "personId",
-      "askKind",
-      "question",
-      "askedAt",
-      "askedBy",
-    ]) &&
+    recordWith(value, required) &&
+    Object.keys(value).every((key) => required.includes(key) || key === "wakeTaskId") &&
     [
       value.relationId,
       value.sourceRef,
@@ -154,6 +156,8 @@ export function agendaAwaitsRow(value: unknown): boolean {
     ].every(nonEmpty) &&
     integer(value.relationRevision) &&
     /^(?:task|decision)\//u.test(String(value.sourceRef)) &&
+    (value.wakeTaskId === undefined ||
+      (nonEmpty(value.wakeTaskId) && value.sourceRef === `task/${value.wakeTaskId}`)) &&
     statusWord(awaitsAskKindWords, value.askKind)
   );
 }

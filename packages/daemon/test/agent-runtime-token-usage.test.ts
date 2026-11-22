@@ -1,7 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import { tokenUsageProjection } from "./token-usage-lifecycle.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, rmSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -149,49 +151,16 @@ test("archived settlements retain usage without a projected outcome", () => {
     seedToday(rootDir);
     const ids = ["dispatch_00000000000000000000aa01", "dispatch_00000000000000000000aa03"];
     for (const id of ids) archiveDispatchStream(rootDir, id);
-    const rows: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"] = ids.map((dispatchId, index) => ({
-      event: {
-        schema: "agent-runtime-event/v1",
-        eventId: dispatchId,
-        workspaceRevision: index + 1,
-        opId: dispatchId,
-        actor: { principal: { personId: "fixture" }, executor: null },
-        source: "local",
-        occurredAt: NOW,
-        type: "runtime_dispatch_requested",
-        payload: {
-          dispatchId,
-          runtimeSessionId: index === 0 ? "runtime-terra" : "runtime-sol",
-          instanceId: "instance-codex",
-          installationId: "installation-test",
-          kindId: "codex",
-          dispatchKey: dispatchId,
-          definitionSnapshotRef: "artifact:runtime-definition/test",
-          startedAt: NOW,
-          agentId: index === 0 ? "terra" : "sol",
-          squadId: "core-squad",
-          definitionSnapshot: {
-            schema: "agent-definition-snapshot/v1",
-            configVersion: 1,
-            instanceId: "instance-codex",
-            installationId: "installation-test",
-            kindId: "codex",
-            providerId: "openai",
-            model: "gpt-test",
-            reasoningEffort: null,
-            endpointKind: "official",
-            baseUrlHash: null,
-            authMode: "subscription",
-          },
-        },
-      },
-      metrics: null,
-      endedAt: null,
-      outcome: null,
-    }));
+    const base = tokenUsageProjection(rootDir);
     const projection = {
-      ...tokenUsageProjection(rootDir),
-      readRuntimeDispatchPage: () => ({ rows, done: true, nextCursor: null }),
+      ...base,
+      readRuntimeDispatchPage: (query: Parameters<TaskProjection["readRuntimeDispatchPage"]>[0]) => {
+        const page = base.readRuntimeDispatchPage(query);
+        return {
+          ...page,
+          rows: page.rows.map((row) => ({ ...row, metrics: null, endedAt: null, outcome: null })),
+        };
+      },
     };
     const input = {
       rootDir,
@@ -640,7 +609,9 @@ test("runtime token usage queries use the canonical repository-scoped read descr
       method: "repo.agentRuntime.tokenUsageDetail",
       params: { repo: { repoId: "canonical" }, payload: { member: "terra" } },
     }),
-    ['params.payload contains an unknown field "member"; allowed fields: "range", "agentId", "squadId".'],
+    [
+      'params.payload contains an unknown field "member"; allowed fields: "range", "agentId", "squadId", "limit", "cursor".',
+    ],
   );
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-rpc-"));
   try {
@@ -1358,6 +1329,422 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
 
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
     assert.deepEqual(detail.sessions.map(({ outcome }) => outcome).sort(), ["cancelled", "succeeded"]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("edge-settled dispatches without center-local streams consume canonical outcome metrics and endedAt", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-edge-canonical-"));
+  try {
+    const reportedId = "dispatch_00000000000000000000ee01",
+      unavailableId = "dispatch_00000000000000000000ee02",
+      startedAt = "2026-09-14T11:50:00.000Z",
+      endedAt = "2026-09-14T11:55:00.000Z";
+    const makeRow = (
+      dispatchId: string,
+      runtimeSessionId: string,
+      agentId: string,
+      rowMetrics: NonNullable<ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number]["metrics"]>,
+      rowEndedAt: string,
+    ): ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number] => ({
+      event: {
+        schema: "agent-runtime-event/v1",
+        eventId: dispatchId,
+        workspaceRevision: 1,
+        opId: dispatchId,
+        actor: { principal: { personId: "person-edge" }, executor: null },
+        source: { kind: "node", nodeId: "edge-1" },
+        occurredAt: startedAt,
+        type: "runtime_dispatch_requested",
+        payload: {
+          dispatchId,
+          runtimeSessionId,
+          instanceId: "instance-edge",
+          installationId: "install-edge",
+          kindId: "codex",
+          dispatchKey: dispatchId,
+          definitionSnapshotRef: "artifact:runtime-definition/edge",
+          startedAt,
+          taskId: "task-a",
+          executionId: "exe-edge",
+          agentId,
+          agentName: agentId,
+          definitionSnapshot: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId: "instance-edge",
+            installationId: "install-edge",
+            kindId: "codex",
+            providerId: "openai",
+            model: "gpt-test",
+            reasoningEffort: null,
+            endpointKind: "official",
+            baseUrlHash: null,
+            authMode: "subscription",
+          },
+        },
+      },
+      metrics: rowMetrics,
+      endedAt: rowEndedAt,
+      outcome: "succeeded",
+    });
+    const rows = [
+      makeRow(
+        reportedId,
+        "runtime-edge-reported",
+        "edge-worker",
+        {
+          inputTokens: 1_200,
+          cacheReadTokens: 300,
+          outputTokens: 500,
+          totalTokens: 2_000,
+          toolCallCount: 6,
+          usageUnavailable: false,
+        },
+        endedAt,
+      ),
+      makeRow(
+        unavailableId,
+        "runtime-edge-unavailable",
+        "edge-worker",
+        {
+          inputTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          toolCallCount: 2,
+          usageUnavailable: true,
+        },
+        endedAt,
+      ),
+    ];
+    const projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle"> = {
+      readRuntimeDispatchPage: () => ({ rows, done: true, nextCursor: null }),
+      readDispatchLifecycle: lifecycleReadForSync([
+        {
+          dispatchId: reportedId,
+          runtimeSessionId: "runtime-edge-reported",
+          attemptSettled: true,
+          process: "exited",
+          outcome: "succeeded",
+        },
+        {
+          dispatchId: unavailableId,
+          runtimeSessionId: "runtime-edge-unavailable",
+          attemptSettled: true,
+          process: "exited",
+          outcome: "succeeded",
+        },
+      ]),
+    };
+    const aggregate = readAgentRuntimeTokenUsage({
+      rootDir,
+      now: NOW,
+      range: "today",
+      entityLabel: () => null,
+      taskOf: (taskId) => TASKS.get(taskId),
+      cut: CUT,
+      projection,
+    });
+    assert.deepEqual(validateAgentRuntimeTokenUsage(aggregate), []);
+    assert.equal(aggregate.totals.totalTokens, 2_000);
+    assert.equal(aggregate.totals.toolCallCount, 8);
+    assert.equal(aggregate.totals.usageReportedDispatches, 1);
+    assert.equal(aggregate.totals.usageUnavailableDispatches, 1);
+    const detail = readAgentRuntimeTokenUsageDetail({
+      rootDir,
+      now: NOW,
+      range: "today",
+      member: { kind: "agent", agentId: "edge-worker" },
+      entityLabel: () => null,
+      cut: CUT,
+      projection,
+    });
+    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
+    assert.equal(detail.totals.totalTokens, 2_000);
+    assert.equal(detail.totals.usageReportedDispatches, 1);
+    assert.equal(detail.totals.usageUnavailableDispatches, 1);
+    const reportedRow = detail.sessions.find((row) => row.dispatchId === reportedId)!;
+    const unavailableRow = detail.sessions.find((row) => row.dispatchId === unavailableId)!;
+    assert.equal(reportedRow.usage, "reported");
+    assert.equal(reportedRow.totalTokens, 2_000);
+    assert.equal(reportedRow.endedAt, endedAt);
+    assert.equal(reportedRow.durationMs, 300_000);
+    assert.equal(unavailableRow.usage, "unavailable");
+    assert.equal(unavailableRow.toolCallCount, 2);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("out-of-window unarchived dispatch streams do not grow per-read filesystem I/O (G38)", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-g38-bounded-"));
+  const originalOpenSync = fs.openSync;
+  const originalReaddirSync = fs.readdirSync;
+  try {
+    const inWindowId = "dispatch_00000000000000000000ff01";
+    openDispatchStream(rootDir, {
+      dispatchId: inWindowId,
+      taskId: "task-a",
+      executionId: "execution-1",
+      runtimeSessionId: "runtime-in-window",
+      instanceId: "instance-codex",
+      startedAt: NOW,
+      agentId: "terra",
+      agentName: "Terra",
+      model: "gpt-test",
+    });
+    appendRuntimeWorkerRecord(rootDir, inWindowId, metrics(100, 20, 30, 2));
+    const seedOutOfWindow = (start: number, count: number) => {
+      for (let i = start; i < start + count; i += 1) {
+        const dispatchId = `dispatch_${(0x1000 + i).toString(16).padStart(24, "0")}`;
+        openDispatchStream(rootDir, {
+          dispatchId,
+          taskId: "task-a",
+          executionId: "execution-old",
+          runtimeSessionId: `runtime-old-${i}`,
+          instanceId: "instance-codex",
+          startedAt: "2026-07-01T00:00:00.000Z",
+          agentId: "terra",
+          agentName: "Terra",
+          model: "gpt-test",
+        });
+      }
+    };
+    const inWindowRow: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number] = {
+      event: {
+        schema: "agent-runtime-event/v1",
+        eventId: inWindowId,
+        workspaceRevision: 1,
+        opId: inWindowId,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: NOW,
+        type: "runtime_dispatch_requested",
+        payload: {
+          dispatchId: inWindowId,
+          runtimeSessionId: "runtime-in-window",
+          instanceId: "instance-codex",
+          installationId: "install-test",
+          kindId: "codex",
+          dispatchKey: inWindowId,
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          startedAt: NOW,
+          taskId: "task-a",
+          executionId: "execution-1",
+          agentId: "terra",
+          agentName: "Terra",
+          definitionSnapshot: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId: "instance-codex",
+            installationId: "install-test",
+            kindId: "codex",
+            providerId: "openai",
+            model: "gpt-test",
+            reasoningEffort: null,
+            endpointKind: "official",
+            baseUrlHash: null,
+            authMode: "subscription",
+          },
+        },
+      },
+      metrics: null,
+      endedAt: null,
+      outcome: null,
+    };
+    const projection: Pick<TaskProjection, "readRuntimeDispatchPage" | "readDispatchLifecycle"> = {
+      readRuntimeDispatchPage: () => ({ rows: [inWindowRow], done: true, nextCursor: null }),
+      readDispatchLifecycle: lifecycleReadForSync([
+        {
+          dispatchId: inWindowId,
+          runtimeSessionId: "runtime-in-window",
+          attemptSettled: false,
+          process: "alive",
+          outcome: null,
+        },
+      ]),
+    };
+    const measureIo = () => {
+      let readdirCalls = 0;
+      const openedPaths: string[] = [];
+      fs.readdirSync = ((...args: Parameters<typeof fs.readdirSync>) => {
+        readdirCalls += 1;
+        return originalReaddirSync(...args);
+      }) as typeof fs.readdirSync;
+      fs.openSync = ((...args: Parameters<typeof fs.openSync>) => {
+        openedPaths.push(String(args[0]));
+        return originalOpenSync(...args);
+      }) as typeof fs.openSync;
+      syncBuiltinESMExports();
+      try {
+        const agg = readAgentRuntimeTokenUsage({
+          rootDir,
+          now: NOW,
+          range: "today",
+          entityLabel: () => null,
+          taskOf: (taskId) => TASKS.get(taskId),
+          cut: CUT,
+          projection,
+        });
+        const det = readAgentRuntimeTokenUsageDetail({
+          rootDir,
+          now: NOW,
+          range: "today",
+          member: { kind: "agent", agentId: "terra" },
+          entityLabel: () => null,
+          cut: CUT,
+          projection,
+        });
+        assert.equal(agg.totals.totalTokens, 150);
+        assert.equal(det.totals.totalTokens, 150);
+      } finally {
+        fs.openSync = originalOpenSync;
+        fs.readdirSync = originalReaddirSync;
+        syncBuiltinESMExports();
+      }
+      return { readdirCalls, openedPaths };
+    };
+    seedOutOfWindow(0, 10);
+    const small = measureIo();
+    seedOutOfWindow(10, 200);
+    const large = measureIo();
+    assert.equal(small.readdirCalls, 0, "tokenUsage must never scan the dispatches directory");
+    assert.equal(large.readdirCalls, 0, "growing out-of-window streams must never trigger directory scans");
+    assert.equal(
+      large.openedPaths.length,
+      small.openedPaths.length,
+      `per-read file opens must stay constant as out-of-window streams grow (${small.openedPaths.length} vs ${large.openedPaths.length})`,
+    );
+    assert.ok(
+      large.openedPaths.every((opened) => opened.includes(inWindowId)),
+      `must only open in-window streams: ${JSON.stringify(large.openedPaths)}`,
+    );
+  } finally {
+    fs.openSync = originalOpenSync;
+    fs.readdirSync = originalReaddirSync;
+    syncBuiltinESMExports();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + cursor and matches window totals (F9)", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-detail-page-"));
+  try {
+    // Seed 7 dispatches for terra across multiple timestamps plus an exact timestamp tie to verify
+    // deterministic (startedAt DESC, dispatchId ASC) ordering across pages.
+    const timestamps = [
+      "2026-09-14T08:00:00.000Z",
+      "2026-09-14T09:00:00.000Z",
+      "2026-09-14T09:00:00.000Z",
+      "2026-09-14T10:00:00.000Z",
+      "2026-09-14T10:00:00.000Z",
+      "2026-09-14T11:00:00.000Z",
+      "2026-09-14T12:00:00.000Z",
+    ];
+    for (let i = 0; i < timestamps.length; i += 1) {
+      seedDispatch(rootDir, i + 1, {
+        startedAt: timestamps[i]!,
+        session: `runtime-paged-${i}`,
+        agentId: "terra",
+        agentName: "Terra",
+        model: "claude-haiku-4-5",
+        tokens: [1_000 + i * 100, 200 + i * 50, i + 1],
+      });
+    }
+    const projection = tokenUsageProjection(rootDir);
+    const full = readAgentRuntimeTokenUsageDetail({
+      rootDir,
+      now: NOW,
+      range: "today",
+      member: { kind: "agent", agentId: "terra" },
+      entityLabel: () => null,
+      cut: CUT,
+      projection,
+    });
+    assert.equal(full.sessions.length, 7);
+    assert.equal(Object.hasOwn(full, "page"), false, "unpaginated detail call must keep exact 12-key shape (F10)");
+    assert.equal(Object.keys(full).length, 12);
+    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(full), []);
+    assert.deepEqual(
+      validateAgentRuntimeTokenUsageDetail({ ...full, page: { limit: 0, cursor: null, nextCursor: null } }),
+      ["agent runtime token usage detail is invalid"],
+    );
+
+    const cursorSecret = "test-token-usage-detail-secret-32";
+    const collected: (typeof full.sessions)[number][] = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    for (;;) {
+      const page = readAgentRuntimeTokenUsageDetail({
+        rootDir,
+        now: NOW,
+        range: "today",
+        member: { kind: "agent", agentId: "terra" },
+        limit: 2,
+        cursorSecret,
+        ...(cursor ? { cursor } : {}),
+        entityLabel: () => null,
+        cut: CUT,
+        projection,
+      });
+      pages += 1;
+      assert.deepEqual(validateAgentRuntimeTokenUsageDetail(page), []);
+      assert.deepEqual(page.totals, full.totals, "window totals must stay identical on every page");
+      assert.deepEqual(page.buckets, full.buckets, "window buckets must stay identical on every page");
+      assert.equal(page.page?.limit, 2);
+      assert.equal(page.page?.cursor, cursor ?? null);
+      assert.ok(page.sessions.length <= 2);
+      collected.push(...page.sessions);
+      if (!page.page?.nextCursor) break;
+      assert.notEqual(page.page.nextCursor, cursor);
+      cursor = page.page.nextCursor;
+    }
+    assert.equal(pages, 4);
+    assert.deepEqual(
+      collected.map((row) => row.dispatchId),
+      full.sessions.map((row) => row.dispatchId),
+      "paginated accumulation must preserve exact deterministic order with zero duplicates or gaps",
+    );
+    assert.equal(
+      collected.reduce((acc, row) => acc + row.totalTokens, 0),
+      full.totals.totalTokens,
+    );
+    assert.equal(
+      collected.reduce((acc, row) => acc + row.toolCallCount, 0),
+      full.totals.toolCallCount,
+    );
+    assert.throws(
+      () =>
+        readAgentRuntimeTokenUsageDetail({
+          rootDir,
+          now: NOW,
+          range: "today",
+          member: { kind: "agent", agentId: "terra" },
+          limit: 501,
+          cursorSecret,
+          entityLabel: () => null,
+          cut: CUT,
+          projection,
+        }),
+      (error: unknown) => (error as { code?: string })?.code === "invalid_command",
+    );
+    assert.throws(
+      () =>
+        readAgentRuntimeTokenUsageDetail({
+          rootDir,
+          now: NOW,
+          range: "today",
+          member: { kind: "agent", agentId: "terra" },
+          cursor: "not-a-valid-cursor!!!",
+          cursorSecret,
+          entityLabel: () => null,
+          cut: CUT,
+          projection,
+        }),
+      (error: unknown) => (error as { code?: string })?.code === "invalid_cursor",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

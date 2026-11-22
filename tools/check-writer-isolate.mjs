@@ -9,7 +9,7 @@ export const writerEntries = [
 ];
 const forbiddenPackages = /(?:^|\/)node_modules\/(?:node-pty|ws|undici|fast-check|pure-rand)(?:\/|$)/u;
 const forbiddenWorkspace =
-  /(?:^|\/)packages\/(?:cli|gui|authorization-keycloak)\/|packages\/application\/src\/queries\/|local-version-control-system|packages\/daemon\/src\/(?:runtime-engine|fleet-sync|daemon-host)\//u;
+  /(?:^|\/)packages\/(?:cli|gui|authorization\/src\/keycloak)\/|packages\/application\/src\/queries\/|local-version-control-system|packages\/daemon\/src\/(?:runtime-engine|fleet-sync|daemon-host)\//u;
 const forbiddenBuiltin = new Set([
   "node:child_process",
   "node:http",

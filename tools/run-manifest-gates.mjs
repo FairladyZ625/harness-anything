@@ -373,11 +373,15 @@ function readChangedPaths(revision) {
 }
 
 function supportsAuthorizationScope(options) {
-  return options.workflowJob === "quick-gates" && ["pull_request", "merge_group"].includes(options.eventName);
+  return Boolean(options.workflowJob) && ["pull_request", "merge_group"].includes(options.eventName);
 }
 
-function readAuthorizationChangedPaths(options) {
-  if (!supportsAuthorizationScope(options)) return null;
+function readAuthorizationChangedPaths(manifest, options) {
+  if (
+    !supportsAuthorizationScope(options) ||
+    !selectManifestGateIds(manifest, options).includes("ontology-durable-action-authorization")
+  )
+    return null;
   const revision = options.changedBase;
   const base = spawnSync("git", ["rev-parse", "--verify", "--quiet", `${revision}^{commit}`], {
     cwd: repoRoot,
@@ -553,8 +557,9 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
 /**
  * Run a workflow job's gates with a bounded worker pool, then report every failure.
  *
- * The first submitted gate starts immediately; a worker takes the next gate when its current one
- * finishes. Results stay in plan order so a caller's failure list is stable across concurrency.
+ * The authorization proof starts after the pool drains so its own workers get the runner's CPU
+ * budget even when an incremental request falls back to full scope. Results stay in plan order
+ * so a caller's failure list is stable across concurrency.
  * Independent gates only: callers keep gates that write the same tree (typecheck) out of the pool.
  *
  * @param {any[]} plan
@@ -562,15 +567,20 @@ export function runManifestGatePlan(plan, { execute, stopOnFailure = false, gith
  */
 export async function runManifestGatePlanParallel(plan, { execute, concurrency = 1, githubGroups = false } = {}) {
   const run = execute ?? ((entry) => runManifestGateAsync(entry, githubGroups));
+  const ordinaryIndices = [];
+  const authorizationIndices = [];
+  for (const [index, entry] of plan.entries()) {
+    const indices = entry.id === "ontology-durable-action-authorization" ? authorizationIndices : ordinaryIndices;
+    indices.push(index);
+  }
+  const order = [...ordinaryIndices, ...authorizationIndices];
+  const workerCount = Math.min(Math.max(1, concurrency), ordinaryIndices.length);
   const results = new Array(plan.length);
   let nextIndex = 0;
-  const workerCount = Math.min(Math.max(1, concurrency), plan.length);
 
-  async function worker() {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= plan.length) return;
+  async function worker(endIndex) {
+    while (nextIndex < endIndex) {
+      const index = order[nextIndex++];
       const entry = plan[index];
       try {
         results[index] = { id: entry.id, ...(await run(entry)) };
@@ -581,7 +591,8 @@ export async function runManifestGatePlanParallel(plan, { execute, concurrency =
     }
   }
 
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(Array.from({ length: workerCount }, () => worker(ordinaryIndices.length)));
+  await worker(order.length);
   const completed = results.filter(Boolean);
   return {
     results: completed,
@@ -591,9 +602,10 @@ export async function runManifestGatePlanParallel(plan, { execute, concurrency =
 
 async function main(argv) {
   const options = parseManifestGateArgs(argv);
+  const manifest = readManifest();
   options.eventName = process.env.GITHUB_EVENT_NAME ?? null;
   if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
-  options.authorizationChangedPaths = readAuthorizationChangedPaths(options);
+  options.authorizationChangedPaths = readAuthorizationChangedPaths(manifest, options);
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";
   if (options.shard !== null) process.env.HARNESS_TEST_SHARD = String(options.shard);
@@ -601,7 +613,6 @@ async function main(argv) {
     process.env.HARNESS_TEST_TIER = "integration";
   else if (options.workflowJob === "gui-build") process.env.HARNESS_TEST_TIER = "gui";
   else if (options.workflowJob) process.env.HARNESS_TEST_TIER ||= "contract";
-  const manifest = readManifest();
   const plan = buildManifestGatePlan(manifest, options);
   const hints = new Map(manifest.gates.map((gate) => [gate.id, gate.failureHint]));
   const planWithHints = plan.map((entry) =>

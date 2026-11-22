@@ -228,7 +228,7 @@ export function taskShowFromProjection(
           rootSetting.threshold,
         )
       : null,
-    completion = readTaskCompletion(projection, taskId, rootDir, actor),
+    { completion, reviewDispatchFailures } = readTaskCompletion(projection, taskId, rootDir, actor),
     materializationState =
       task === null ||
       (read.packagePath !== null && existsSync(path.join(layout.authoredRoot, read.packagePath, "task_plan.md")))
@@ -299,6 +299,7 @@ export function taskShowFromProjection(
       reviewReverify: completion.reviewReverify ?? null,
       completionNext: completion.completionNext,
       completionBlocker: completion.completionBlocker,
+      reviewDispatchFailures,
       progress: progress.rows,
     },
     receipt = {

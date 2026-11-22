@@ -8,8 +8,8 @@ import {
   BuiltinIdentitySession,
   BuiltinIdentityManagement,
   userRootFromBuiltinUrl,
-} from "@harness-anything/authorization-builtin";
-import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+} from "@harness-anything/authorization/builtin";
+import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
 import {
   createAuthorizationProvider,
@@ -429,7 +429,17 @@ test("builtin sessions reject remote edge targets at the identity boundary", asy
     rmSync(root, { recursive: true, force: true });
     rmSync(edgeRoot, { recursive: true, force: true });
   });
-  writeFileSync(path.join(edgeRoot, "fleet-edge.json"), "{}\n");
+  const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
+  mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: root,
+    canonicalRoot: edgeRoot,
+    repoId: "edge-target",
+    mode: "remote-edge",
+    authoredBranch: "main",
+    createConvenienceLinks: false,
+  });
   const session = new BuiltinIdentitySession(root),
     pluginRequired = (error: unknown) => (error as { code?: string }).code === "identity_plugin_required";
   await assert.rejects(session.beginDevice(edgeRoot), pluginRequired);
@@ -459,20 +469,28 @@ test("legacy Keycloak edges keep their session port until an explicit selector i
     rmSync(root, { recursive: true, force: true });
     rmSync(edgeRoot, { recursive: true, force: true });
   });
-  writeFileSync(
-    path.join(edgeRoot, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId: "legacy-repo",
-      host: "127.0.0.1",
-      port: 7443,
-      caPath: "/tmp/ca.pem",
-      nodeId: "edge-old",
-      credential: "edge-credential",
-      viewRoot: "/tmp/view",
-      quotaBytes: 1024,
-    }),
-  );
+  const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
+  const { writeFleetEdgeConfig } = await import("../src/daemon-host/client/fleet-edge-config.ts");
+  mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: root,
+    canonicalRoot: edgeRoot,
+    repoId: "legacy-repo",
+    mode: "remote-edge",
+    authoredBranch: "main",
+    createConvenienceLinks: false,
+  });
+  writeFleetEdgeConfig(root, "legacy-repo", {
+    repoId: "legacy-repo",
+    host: "127.0.0.1",
+    port: 7443,
+    caPath: "/tmp/ca.pem",
+    nodeId: "edge-old",
+    credential: "edge-credential",
+    viewRoot: "/tmp/view",
+    quotaBytes: 1024,
+  });
   const service = createIdentitySession(root, {
     loginAuthority: async () => ({ url: "https://identity.example.invalid", realm: "fleet", clientId: "harness-gui" }),
     fetch: (async (input) => {
@@ -489,20 +507,28 @@ test("legacy edge roots reopen through Keycloak without a selector and preserve 
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-reopen-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "rbac"), { recursive: true });
-  writeFileSync(
-    path.join(root, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId: "legacy-repo",
-      host: "127.0.0.1",
-      port: 7443,
-      caPath: "/tmp/ca.pem",
-      nodeId: "edge-old",
-      credential: "edge-credential",
-      viewRoot: "/tmp/view",
-      quotaBytes: 1024,
-    }),
-  );
+  const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
+  const { writeFleetEdgeConfig } = await import("../src/daemon-host/client/fleet-edge-config.ts");
+  mkdirSync(path.join(root, "harness"), { recursive: true });
+  writeFileSync(path.join(root, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: root,
+    canonicalRoot: root,
+    repoId: "legacy-repo",
+    mode: "remote-edge",
+    authoredBranch: "main",
+    createConvenienceLinks: false,
+  });
+  writeFleetEdgeConfig(root, "legacy-repo", {
+    repoId: "legacy-repo",
+    host: "127.0.0.1",
+    port: 7443,
+    caPath: "/tmp/ca.pem",
+    nodeId: "edge-old",
+    credential: "edge-credential",
+    viewRoot: "/tmp/view",
+    quotaBytes: 1024,
+  });
   const legacySession = JSON.stringify({ schema: "harness-oidc-session/v2", accessToken: "legacy-token" });
   writeFileSync(path.join(root, "rbac", "oidc-session.json"), legacySession);
   const service = createIdentitySession(root, {
@@ -726,23 +752,31 @@ test("builtin root routes edge browser complete and device poll to external OIDC
       clientId: "harness-center",
     }),
   );
-  writeFileSync(
-    path.join(edgeRoot, "fleet-edge.json"),
-    JSON.stringify({
-      schema: "fleet-edge-config/v1",
-      repoId: "edge-repo",
-      host: "10.211.55.2",
-      port: 7545,
-      caPath: path.join(edgeRoot, "ca.pem"),
-      loginUrl: "https://edge-center.example.invalid",
-      loginBrowserUrl: "https://edge-center.example.invalid",
-      loginRealm: "harness",
-      nodeId: "edge-node-1",
-      credential: "edge-credential",
-      viewRoot: edgeRoot,
-      quotaBytes: 1024,
-    }),
-  );
+  const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
+  const { writeFleetEdgeConfig } = await import("../src/daemon-host/client/fleet-edge-config.ts");
+  mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: root,
+    canonicalRoot: edgeRoot,
+    repoId: "edge-repo",
+    mode: "remote-edge",
+    authoredBranch: "main",
+    createConvenienceLinks: false,
+  });
+  writeFleetEdgeConfig(root, "edge-repo", {
+    repoId: "edge-repo",
+    host: "10.211.55.2",
+    port: 7545,
+    caPath: path.join(edgeRoot, "ca.pem"),
+    loginUrl: "https://edge-center.example.invalid",
+    loginBrowserUrl: "https://edge-center.example.invalid",
+    loginRealm: "harness",
+    nodeId: "edge-node-1",
+    credential: "edge-credential",
+    viewRoot: edgeRoot,
+    quotaBytes: 1024,
+  });
 
   const issuer = "https://edge-center.example.invalid/realms/harness";
   let devicePollCount = 0;

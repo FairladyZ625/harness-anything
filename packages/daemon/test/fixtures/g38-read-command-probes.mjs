@@ -5,7 +5,7 @@ import {
   allDaemonProtocolMethods,
   actionForDaemonMethod,
 } from "../../src/daemon-host/protocol/daemon-protocol-commands.ts";
-import { READ_DOCUMENT, READ_TASK_ID } from "./g38-read-ledger.mjs";
+import { READ_DOCUMENT, READ_DONE_TASK_ID, READ_TASK_ID } from "./g38-read-ledger.mjs";
 
 const agentVersion = ({ projection }) => ({
   agentId: "g38-agent",
@@ -21,6 +21,7 @@ const selectors = {
   "relation-list": { source: `task/${READ_TASK_ID}`, limit: 1 },
   "relation-triples": {},
   graph: { ref: `task/${READ_TASK_ID}` },
+  trace: { path: READ_DOCUMENT },
   "doctor-health": {},
   "todo-list": {},
   "todo-show": { todoId: "todo_222222222222222222222222" },
@@ -38,6 +39,7 @@ const selectors = {
   "receipt-show": { opId: "read-agent" },
   "vertical-kind-list": {},
   "vertical-kind-show": { kindId: "research" },
+  "vertical-list": {},
   "entity-list": { entityKind: "agent" },
   "agent-list": {},
   "squad-list": {},
@@ -57,6 +59,8 @@ const selectors = {
   "schedule-runs": { scheduleId: "g38-schedule", limit: 1 },
   "event-list": { limit: 1, entity: `task/${READ_TASK_ID}` },
   "event-show": { opId: "read-vertical" },
+  "ledger-audit-export": { fromRevision: 1, toRevision: 1, limit: 1 },
+  "task-delivery-certificate": { taskId: READ_DONE_TASK_ID },
 };
 const binding = { actor: { principal: { personId: "person-g38" }, executor: null }, source: "local" };
 function resultSize(value) {
@@ -93,7 +97,7 @@ export const COMMAND_READ_PROBES = Object.fromEntries(
     .map((command) => [
       `cli-${command.id}`,
       {
-        reads: [`command:${command.id}`],
+        reads: [`command:${command.id}`, ...(command.method === "repo.trace.read" ? [`method:${command.method}`] : [])],
         run: (fixture) =>
           fixture.runtime.run(
             {

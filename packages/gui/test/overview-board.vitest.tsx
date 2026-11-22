@@ -341,10 +341,23 @@ describe("总览:右下「等你处理的事」含任务侧人签", () => {
       taskId: "task_gate",
       title: "待签门的任务",
       iteration: 0,
-      gates: [{ name: "ux-signoff", ok: null, status: "missing", detail: "no witness" }],
+      gates: [
+        {
+          name: "ux-signoff",
+          ok: null,
+          status: "missing",
+          detail: "no witness",
+          attestation: { mode: "approve", adapterId: "manual-attest", executionId: "execution-task_gate" },
+        },
+      ],
       executions: [submittedExecution("task_gate", "ux-signoff")],
     });
-    const consentTask = signoffTask({ taskId: "task_consent", title: "待同意收口的任务", closeoutBlocker: "consent" });
+    const consentTask = signoffTask({
+      taskId: "task_consent",
+      title: "待同意收口的任务",
+      closeoutBlocker: "consent",
+      consentTarget: { reviewId: "review-consent", executionId: "execution-current-cut" },
+    });
     const onOpenTask = vi.fn();
     const onOpenSignoffs = vi.fn();
     const container = mount({
@@ -925,7 +938,7 @@ describe("总览:系统状态弱化与异常提升", () => {
             })
           : Promise.reject(new Error("no bridge in test")),
     });
-    const container = mount();
+    const container = mount({ activeTaskCount: 2 });
     await flushUntil(
       () => container.querySelector('[data-testid="overview-topbar"]')?.textContent?.includes("daemon 正常") === true,
     );

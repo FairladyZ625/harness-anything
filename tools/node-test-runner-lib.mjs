@@ -55,11 +55,40 @@ export function testOrdinalInPartition(ordinal, partitionValue, partitionAssignm
 }
 
 /** Select one deterministic CI partition from a tier's discovered files. */
-export function partitionTestFiles(files, partitionValue, sharedFiles = []) {
+export function partitionTestFiles(
+  files,
+  partitionValue,
+  sharedFiles = [],
+  { strategy = "ordinal", weightOverrides = {}, defaultWeightMs = 10_000 } = {},
+) {
   const partition = parseTestPartition(partitionValue);
   if (partition === null) return [...files];
   const shared = new Set(sharedFiles);
-  return files.filter((file, fileIndex) => shared.has(file) || fileIndex % partition.count === partition.index - 1);
+  if (strategy === "ordinal") {
+    return files.filter((file, fileIndex) => shared.has(file) || fileIndex % partition.count === partition.index - 1);
+  }
+  if (strategy !== "measured") throw new Error(`unknown test partition strategy: ${strategy}`);
+
+  const partitions = Array.from({ length: partition.count }, (_, index) => ({ index, files: [], weightMs: 0 }));
+  const weightedFiles = files
+    .filter((file) => !shared.has(file))
+    .map((file) => {
+      const weightMs = weightOverrides[file] ?? defaultWeightMs;
+      if (!Number.isFinite(weightMs) || weightMs <= 0) throw new Error(`invalid test file weight: ${file}`);
+      return { file, weightMs };
+    })
+    .sort((left, right) => right.weightMs - left.weightMs || left.file.localeCompare(right.file));
+
+  for (const entry of weightedFiles) {
+    const lightest = [...partitions].sort(
+      (left, right) => left.weightMs - right.weightMs || left.index - right.index,
+    )[0];
+    lightest.files.push(entry.file);
+    lightest.weightMs += entry.weightMs;
+  }
+
+  // A shared file owns its scenario selection and needs to start even if other files fill the pool.
+  return [...files.filter((file) => shared.has(file)), ...partitions[partition.index - 1].files];
 }
 
 export function coverageReporterArgs(coveragePath) {

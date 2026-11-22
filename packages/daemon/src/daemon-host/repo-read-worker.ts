@@ -22,6 +22,7 @@ export async function executeRepoReadRequest(request: RepoWriterRequestV1): Prom
     runtime = makeRepoReadRuntime({
       ...frame.config,
       now: () => frame.now ?? new Date().toISOString(),
+      fleetCursorSecret: () => frame.cursorSecret,
       runtimeInstances: () => frame.runtimeInstances ?? [],
       edgeConfig: () => frame.edge?.config ?? null,
     });
@@ -57,7 +58,7 @@ function executeRead(request: RepoWriterRequestV1): unknown {
       value = reader.readNodeAutoClaimAssignments(binding);
       break;
     case "readNodeAutoDispatchCandidates":
-      value = reader.readNodeAutoDispatchCandidates(String(args[0]));
+      value = reader.readNodeAutoDispatchCandidates(args[0] as import("./node-auto-dispatch.ts").NodeAutoDispatchQuery);
       break;
     case "observeTail":
       value = reader.observeTail(args[0] as never, args[1] as never, binding);

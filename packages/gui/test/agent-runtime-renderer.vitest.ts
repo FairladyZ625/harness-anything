@@ -385,12 +385,18 @@ describe("agent runtime renderer", () => {
     expect(detailView({ result: "Provider final report text." })).toContain("Provider final report text.");
     expect(detailView()).not.toContain("Output / result");
   });
-  it("shows the cancel control only while a session is live", () => {
+  it("shows the cancel control only when the projected policy observes a live process", () => {
     expect(detailView({ session: { ...session, liveness: "unknown", lifecycle: lifecycleFixture() } })).toContain(
       'data-testid="agent-runtime-cancel"',
     );
     expect(
       detailView({ session: { ...session, liveness: "live", lifecycle: lifecycleFixture("stopped") } }),
+    ).not.toContain('data-testid="agent-runtime-cancel"');
+    const lifecycle = lifecycleFixture();
+    expect(
+      detailView({
+        session: { ...session, lifecycle: { ...lifecycle, policy: { ...lifecycle.policy!, processAlive: false } } },
+      }),
     ).not.toContain('data-testid="agent-runtime-cancel"');
   });
   it("contains no renderer repo read, private WebSocket, or polling path", async () => {
@@ -729,8 +735,8 @@ describe("agent runtime renderer", () => {
     expect(agent).toContain('data-testid="agent-host-access-operator"');
     expect(agent).toContain('data-testid="agent-host-access-bypass"');
     expect(agent).toMatch(/data-testid="agent-host-access-isolated"[^>]*aria-pressed="true"/u);
-    expect(agent).toContain('data-testid="agent-instance-select"');
-    expect(agent).toContain("Claude One · gpt-5.6-sol");
+    expect(agent).not.toContain('data-testid="agent-instance-select"');
+    expect(agent).toContain('data-testid="agent-runtime-model-claude"');
     expect(agent).toContain("provider/claude-one");
     const squad = renderToStaticMarkup(
       createElement(SquadCard, {
@@ -765,12 +771,13 @@ describe("agent runtime renderer", () => {
         onSelectRuntime: noop,
       }),
     );
-    expect(agentDeclarationFrom(agentDetail.id, agentDraftFrom(agentDetail))).toMatchObject({
+    const declaration = agentDeclarationFrom(agentDetail.id, agentDraftFrom(agentDetail));
+    expect(declaration).toMatchObject({
       skills: agentDetail.skills,
-      instance: agentDetail.instance,
       permissionMode: agentDetail.permissionMode,
       hostAccess: agentDetail.hostAccess,
     });
+    expect(declaration).not.toHaveProperty("instance");
     const declaredEffort = {
       ...agentDetail,
       runtimes: [{ type: "claude", effort: "xhigh" as const }],

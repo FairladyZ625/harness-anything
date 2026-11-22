@@ -24,6 +24,7 @@ import { TaskReworkPanel } from "../components/taskDetail/TaskReworkPanel.tsx";
 import { PageRegions, RegionDragHandle } from "../components/primitives/page-regions.tsx";
 import type { TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
+import { isWorkContainer } from "../model/work-collections.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import {
   TASK_EXPLAINER_DOC,
@@ -273,6 +274,7 @@ export function TaskDetailView({
             <TitleText title={task.title} />
           </h1>
           <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+            {isWorkContainer(task) && <StatusTag label="[work]" mono />}
             <StatusTag status={task.coordinationStatus} />
             {!external && <TaskMaterializationControl repoId={task.projectId} taskId={task.taskId} />}
             <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />

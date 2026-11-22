@@ -3,7 +3,7 @@ import type { JsonObject } from "@harness-anything/daemon";
 import {
   EDGE_JOIN_ENTRY_CHANNEL,
   type EdgeJoinEntryRequest,
-} from "@harness-anything/authorization-gui/edge-join-entry-contract";
+} from "@harness-anything/authorization/gui/edge-join-entry-contract";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 

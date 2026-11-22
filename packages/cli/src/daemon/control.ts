@@ -362,13 +362,7 @@ async function dispatchFleetControl(
   daemonId: string,
   finish: ControlFinisher,
 ): Promise<number> {
-  if (
-    (argv[at] === "fleet" && argv[at + 1] === "center") ||
-    (argv[at] === "daemon" &&
-      argv[at + 1] === "fleet" &&
-      argv[at + 2] === "center" &&
-      argv[at + 3] === "promote-from-edge")
-  ) {
+  if (argv[at] === "fleet" && argv[at + 1] === "center") {
     const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
     return await runFleetCenterRelocationControl(argv, userRoot, finish);
   }
@@ -414,7 +408,7 @@ async function fleetControl(
         daemonId,
       })
     : null;
-  const edgeConfig = edgeTarget && readFleetEdgeConfig(edgeTarget.canonicalRoot);
+  const edgeConfig = edge ? readFleetEdgeConfig(userRoot, edgeTarget!.repoId) : null;
   const edgeFlags = {
     host: "--host",
     port: "--port",
@@ -426,17 +420,17 @@ async function fleetControl(
   const edgeValue = (name: keyof typeof edgeFlags): string | number | undefined =>
     flag(edgeFlags[name]) ?? edgeConfig?.[name];
   if (edge && Object.keys(edgeFlags).some((name) => edgeValue(name as keyof typeof edgeFlags) === undefined))
-    return reject("missing_field", "Add edge connection fields or populate fleet-edge.json in the workspace.");
+    return reject("missing_field", "Add edge connection fields or populate the node fleet-edge.json.");
   if (!fleetNumber.port.test(String(edgeValue("port"))) || !fleetNumber.quota.test(String(edgeValue("quotaBytes"))))
     return reject(
       "invalid_field",
       "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
     );
   // The machine credential the center issued at node registration: named on the command line, or kept
-  // off it in the workspace's fleet-edge.json.
+  // off it in the node's fleet-edge.json.
   const credential = flag("--credential") ?? edgeConfig?.credential;
   if (edge && credential === undefined)
-    return reject("missing_field", "Add --credential, or set credential in the workspace fleet-edge.json.");
+    return reject("missing_field", "Add --credential, or set credential in the node fleet-edge.json.");
   const edgePayload = () => ({
     host: edgeValue("host"),
     port: Number(edgeValue("port")),

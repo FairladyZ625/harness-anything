@@ -50,7 +50,7 @@
       "path": "../daemon"
     },
     {
-      "path": "../authorization-keycloak-gui"
+      "path": "../authorization"
     }
   ]
 }

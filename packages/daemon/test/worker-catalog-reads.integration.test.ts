@@ -93,7 +93,7 @@ test(
         const { kind: _kind, ...payload } = action;
         return rpc(method, {
           repo: { repoId },
-          payload: method === "repo.task.run" || method === "repo.task.read" ? { action } : payload,
+          payload: ["repo.task.run", "repo.task.read", "repo.trace.read"].includes(method) ? { action } : payload,
         });
       };
     await opened.promise;

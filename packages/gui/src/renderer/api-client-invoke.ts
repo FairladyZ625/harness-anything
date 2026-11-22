@@ -2,6 +2,7 @@ import {
   daemonReadRoutes,
   scopedRpcParams,
   type InteractiveRpcDescriptor,
+  type DaemonGuiRpcReadMethod,
   type DaemonRpcMethodMap,
   type DaemonRpcResult,
 } from "@harness-anything/daemon/protocol";
@@ -44,3 +45,9 @@ export async function invoke<Method extends keyof DaemonRpcMethodMap>(
   }
   return result;
 }
+
+/** Read-only widgets cannot call mutations through this transport entry. */
+export const requestGuiRead: <Method extends DaemonGuiRpcReadMethod & GuiRpcMethod>(
+  method: Method,
+  params: ClientInput<DaemonRpcMethodMap[Method]["params"]>,
+) => Promise<DaemonRpcResult<Method>> = invoke;

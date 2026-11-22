@@ -20,7 +20,7 @@ parentPort.on("message", (message) => {
     modules: modules.size,
     deliveryModules: [...modules].filter((url) => /\/packages\/(?:cli|gui)\//u.test(url)),
     forbiddenModules: [...modules].filter((url) =>
-      /\/packages\/(?:cli|gui|authorization-keycloak)\/|\/application\/src\/queries\/|\/daemon\/src\/(?:daemon-host|runtime-engine|fleet-sync)\/|local-version-control-system|\/node_modules\/(?:node-pty|ws|undici|fast-check|pure-rand|pg(?:-[^/]+)?|@electric-sql\/pglite)\//u.test(
+      /\/packages\/(?:cli|gui|authorization\/src\/keycloak)\/|\/application\/src\/queries\/|\/daemon\/src\/(?:daemon-host|runtime-engine|fleet-sync)\/|local-version-control-system|\/node_modules\/(?:node-pty|ws|undici|fast-check|pure-rand|pg(?:-[^/]+)?|@electric-sql\/pglite)\//u.test(
         url,
       ),
     ),

@@ -178,6 +178,10 @@ function isAgendaAwaitsRow(value: unknown): value is AgendaAwaitsRow {
     typeof value.relationId === "string" &&
     Number.isSafeInteger(value.relationRevision) &&
     typeof value.sourceRef === "string" &&
+    (value.wakeTaskId === undefined ||
+      (typeof value.wakeTaskId === "string" &&
+        value.wakeTaskId.length > 0 &&
+        value.sourceRef === `task/${value.wakeTaskId}`)) &&
     typeof value.title === "string" &&
     typeof value.status === "string" &&
     typeof value.personId === "string" &&

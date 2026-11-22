@@ -134,6 +134,84 @@ test("Decisions provider CLI accepts only the approved provider type and credent
       baseUrl: "",
       enabled: false,
     });
+  for (const vendor of [
+    "openrouter",
+    "google",
+    "perplexity",
+    "decisions-http",
+    "openai-compatible",
+    "anthropic",
+  ] as const) {
+    const createVendor = parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "decisions",
+      "--vendor",
+      vendor,
+      "--id",
+      `dp-${vendor}`,
+      "--name",
+      `Provider ${vendor}`,
+      "--model",
+      "test-model",
+      "--credential-ref",
+      "credential:v1:test-key",
+      "--base-url",
+      "https://gateway.internal.example/v1",
+    ]);
+    assert.equal(createVendor.ok, true, `provider create --vendor ${vendor} should parse`);
+    if (createVendor.ok) {
+      assert.equal(createVendor.command.method, "daemon.provider.create");
+      assert.deepEqual(createVendor.command.action, {
+        kind: "provider-create",
+        type: "decisions",
+        vendor,
+        providerId: `dp-${vendor}`,
+        name: `Provider ${vendor}`,
+        model: "test-model",
+        baseUrl: "https://gateway.internal.example/v1",
+        credentialRef: "credential:v1:test-key",
+        enabled: true,
+      });
+    }
+  }
+  assert.equal(
+    parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "decisions",
+      "--vendor",
+      "unknown-vendor",
+      "--id",
+      "a",
+      "--name",
+      "A",
+      "--model",
+      "m",
+      "--credential-ref",
+      "credential:v1:key",
+    ]).ok,
+    false,
+  );
+  const updateVendor = parseThinCommand([
+    "provider",
+    "update",
+    "review-choice",
+    "--vendor",
+    "google",
+    "--base-url",
+    "http://127.0.0.1:8080/v1beta",
+  ]);
+  assert.equal(updateVendor.ok, true);
+  if (updateVendor.ok)
+    assert.deepEqual(updateVendor.command.action, {
+      kind: "provider-update",
+      providerId: "review-choice",
+      vendor: "google",
+      baseUrl: "http://127.0.0.1:8080/v1beta",
+    });
   assert.equal(parseThinCommand(["provider", "update", "review-choice"]).ok, false);
   for (const operation of ["list", "show", "probe", "delete"]) {
     const args = operation === "list" ? ["provider", operation] : ["provider", operation, "review-choice"],
@@ -491,7 +569,10 @@ test("entity update and archive preserve the entity revision fence", () => {
     });
 });
 
-test("vertical exposes validate and the kind authoring commands while retired entity-kind aliases stay absent", () => {
+test("vertical exposes list, validate and the kind authoring commands while retired entity-kind aliases stay absent", () => {
+  const listed = parseThinCommand(["vertical", "list"]);
+  assert.equal(listed.ok, true);
+  if (listed.ok) assert.deepEqual(listed.command.action, { kind: "vertical-list" });
   const validate = parseThinCommand(["vertical", "validate", "--source", "software/coding"]);
   assert.equal(validate.ok, true);
   if (validate.ok)
@@ -921,6 +1002,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
               taskId: "task-one",
               packagePath: "tasks/task-one",
               outputShape: "repository-diff",
+              artifactPresetIds: ["docs-task"],
               dryRun: false,
               opId: "op-one",
               canonicalVisible: true,
@@ -1095,7 +1177,6 @@ test("work create, list, and show route to the task-create and work read actions
       title: "Release 2",
       decisionRef: "dec_release/CH1",
       locale: "zh-CN",
-      presetId: "create-work",
       taskClass: "work",
       planFile: "work-plan.md",
       requirePlan: true,
@@ -1571,6 +1652,7 @@ const reviewedExecutorSurface = Object.freeze([
   "repo.preset.audit",
   "repo.preset.uninstall",
   "repo.preset.upgrade",
+  "repo.vertical.list",
   "repo.vertical.validate",
   "repo.template.list",
   "repo.template.render",
@@ -1607,7 +1689,7 @@ test("executor injection follows the daemon-declared surface exactly", () => {
     );
     if (accepts)
       assert.equal(executorRejected, false, `${method}: the validator must accept a declared payload executor`);
-    else if (payload && !payload.open)
+    else if ((payload && !payload.open) || params.fields.payload === "json?")
       assert.equal(executorRejected, true, `${method}: an undeclared payload executor must be rejected`);
     else if (!payload)
       assert.equal(

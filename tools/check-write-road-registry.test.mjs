@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -241,11 +241,9 @@ function withFixture(run) {
       readFileSync(new URL("../packages/kernel/src/domain/action-declaration.ts", import.meta.url), "utf8"),
     );
     write(root, "packages/kernel/src/domain/entity-kind-registry.ts", "export const entityKindContracts = [];\n");
-    write(
-      root,
-      "packages/kernel/src/domain/action-source-facets.json",
-      readFileSync(new URL("../packages/kernel/src/domain/action-source-facets.json", import.meta.url), "utf8"),
-    );
+    const domain = "packages/kernel/src/domain";
+    for (const name of ["action-source-facets", "action-source-facets.ts", "ontology-facet-order.ts"])
+      cpSync(new URL(`../${domain}/${name}`, import.meta.url), path.join(root, domain, name), { recursive: true });
     write(
       root,
       "packages/cli/src/cli/thin-command.ts",

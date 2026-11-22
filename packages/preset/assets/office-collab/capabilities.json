@@ -1,0 +1,40 @@
+{
+  "schema": "preset-capabilities/v1",
+  "providers": [
+    {
+      "id": "completion-witness",
+      "kind": "checker",
+      "version": "1",
+      "actionKind": "completion-witness",
+      "payloadFields": ["result", "subjects", "predicateType", "predicate", "diagnostic"]
+    },
+    { "id": "policy:artifact-contract/v1", "kind": "command", "version": "1" },
+    {
+      "id": "policy:task-create/v1",
+      "kind": "command",
+      "version": "1",
+      "actionKind": "task-create",
+      "payloadFields": ["title", "taskId", "presetId", "profileId", "locale", "taskClass"]
+    },
+    { "id": "task-parent-relation", "kind": "command", "version": "1" },
+    {
+      "id": "policy:template-override/work-plan/v1",
+      "kind": "command",
+      "version": "1",
+      "requiredTaskClass": "work",
+      "templateOverrides": { "task.plan": "template://office/work-plan@1" }
+    },
+    {
+      "id": "policy:template-override/lightweight-task-plan/v1",
+      "kind": "command",
+      "version": "1",
+      "templateOverrides": { "task.plan": "template://office/task-plan-lightweight@1" }
+    },
+    {
+      "id": "policy:template-override/lightweight-closeout/v1",
+      "kind": "command",
+      "version": "1",
+      "templateOverrides": { "task.closeout": "template://office/closeout-lightweight@1" }
+    }
+  ]
+}

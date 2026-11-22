@@ -7,6 +7,7 @@ import { parseAmend, parseSupersede, parseTaskRelocation } from "./thin-command-
 import { parseRematerialize } from "./thin-command-rematerialize.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
+import { parseTaskList } from "./task-list-presentation.ts";
 
 export function parseTask(
   id: string,
@@ -18,7 +19,7 @@ export function parseTask(
 ): ThinParseResult {
   const verb = args[1],
     delegated: Partial<Record<string, () => ThinParseResult>> = {
-      "task-list": () => parseProjected(id, args.slice(2), rootDir, repoId, json, inputs),
+      "task-list": () => parseTaskList(args.slice(2), rootDir, repoId, json, inputs),
       "task-contract-migrate": () => parseContractMigrate(args, rootDir, repoId, json, inputs),
       "task-delete": () => parseTaskDelete(args, rootDir, repoId, json, inputs),
       "task-archive": () => parseTaskArchive(args, rootDir, repoId, json, inputs),
@@ -72,6 +73,7 @@ export function parseTask(
     id === "task-release" ||
     id === "task-reopen" ||
     id === "task-read-set" ||
+    id === "task-delivery-certificate" ||
     id === "task-review"
   ) {
     return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {

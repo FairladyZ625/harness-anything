@@ -10,7 +10,7 @@ import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createIdentityManagement, createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
-import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";

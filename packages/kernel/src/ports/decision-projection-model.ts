@@ -79,10 +79,32 @@ export interface DecisionProjectionRow {
   readonly amendments?: readonly DecisionAmendmentV1[];
   readonly contentPins?: readonly DecisionContentPinV1[];
   readonly body: DecisionBodyRow | null;
+  readonly listReview?: DecisionListReview | null;
   readonly readiness?: DecisionReadinessProjection;
   readonly capabilities: readonly DecisionCapability[];
   readonly claimsOpen: boolean;
   readonly materializationState?: import("../domain/entity-relation.ts").CanonicalMaterializationState;
+}
+
+export type DecisionListSummaryRow = Pick<
+  DecisionProjectionRow,
+  | "decisionId"
+  | "legacyId"
+  | "path"
+  | "state"
+  | "title"
+  | "question"
+  | "riskTier"
+  | "urgency"
+  | "proposedAt"
+  | "workspaceRevision"
+  | "chosen"
+  | "rejected"
+>;
+
+export interface DecisionListReview {
+  readonly digest: DecisionAcceptReviewReadiness["currentDigest"];
+  readonly readiness: DecisionAcceptReviewReadiness | null;
 }
 
 export type DecisionAgendaProjectionRow = Pick<
@@ -105,6 +127,8 @@ export interface DecisionListFilters {
   readonly legacyRange?: { readonly start: number; readonly end: number };
   readonly state?: DecisionState;
   readonly module?: string;
+  /** Any-of match on normalized `appliesTo.modules` entries (no trailing slash); index-backed. */
+  readonly modulePrefixes?: readonly string[];
   readonly productLine?: string;
   readonly limit?: number;
   readonly cursor?: string;
@@ -188,12 +212,40 @@ export function decisionReviewState(
   readonly currentReviewContentDigest: `sha256:${string}` | null;
   readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
 } {
+  if (row.listReview !== undefined) {
+    const review = row.listReview,
+      required =
+        requirement === "all" ||
+        (requirement === "medium_and_high" && row.riskTier !== "low") ||
+        (requirement === "high" && row.riskTier === "high");
+    let readiness = review?.readiness ?? null;
+    // The cached content verdict includes any current blocking review and historical
+    // unanswered findings. A stricter policy only replaces the latter with review_required.
+    if (required && readiness && readiness.basis !== "review" && readiness.blocker?.code !== "changes_requested")
+      readiness = {
+        ready: false,
+        currentDigest: readiness.currentDigest,
+        basis: null,
+        blocker: {
+          code: "review_required",
+          reason: `Repository policy requires an approved review for ${row.riskTier}-risk Decisions.`,
+        },
+        next: {
+          action: "dispatch-review",
+          actor: "proposer",
+          reason: "The proposer must request an independent review of the current content before acceptance.",
+        },
+      };
+    return {
+      currentReviewContentDigest: review?.digest ?? null,
+      acceptReviewReadiness: readiness,
+    };
+  }
   if (row.body === null) return { currentReviewContentDigest: null, acceptReviewReadiness: null };
-  const digest = decisionReviewContentDigest(row, row.body.body);
+  const readiness = row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body, requirement) : null;
   return {
-    currentReviewContentDigest: digest,
-    acceptReviewReadiness:
-      row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body, requirement) : null,
+    currentReviewContentDigest: readiness?.currentDigest ?? decisionReviewContentDigest(row, row.body.body),
+    acceptReviewReadiness: readiness,
   };
 }
 

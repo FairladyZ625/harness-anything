@@ -1,4 +1,5 @@
 import { POSTGRES_STORAGE_MIGRATION_SCHEMA } from "../migration/postgres-schema.ts";
+import { pgOccurredAtEpochMsSql } from "../projection/iso-timestamp-sql.ts";
 import { postgresScopeRlsStatements } from "./scope-schema.ts";
 
 export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
@@ -24,6 +25,33 @@ export const POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS: readonly string[] = Obj
   )`,
   `CREATE INDEX IF NOT EXISTS ha_event_entity_refs_revision ON ha_event_entity_refs
     (tenant_id,project_id,repo_id,revision)`,
+]);
+
+/** Sentinel stored in occurred_at_ms for synthetic non-ISO occurred_at values (< MIN_JS_EPOCH_MS) so backfill converges. */
+export const PG_OCCURRED_AT_MS_INVALID_SENTINEL = "-9000000000000000";
+
+/** Shared by cold ledger creation and the existing schema-owner read-index upgrade (`ensurePgProjectionSchema`).
+ * Adds a nullable scalar `occurred_at_ms` column with zero table rewrite, maintains it via a shared trigger
+ * for both previous and current writers, and indexes `(occurred_at_ms, revision)` under RLS. */
+export const POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS: readonly string[] = Object.freeze([
+  "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS occurred_at_ms bigint",
+  `CREATE OR REPLACE FUNCTION ha_occurred_at_epoch_ms(value text) RETURNS bigint
+    LANGUAGE sql IMMUTABLE STRICT SET search_path = pg_catalog, pg_temp AS $function$
+    SELECT ${pgOccurredAtEpochMsSql("value")}
+  $function$`,
+  `CREATE OR REPLACE FUNCTION ha_event_occurred_at_ms_sync() RETURNS trigger
+    LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+    BEGIN
+      NEW.occurred_at_ms := COALESCE(ha_occurred_at_epoch_ms(NEW.occurred_at), ${PG_OCCURRED_AT_MS_INVALID_SENTINEL}::bigint);
+      RETURN NEW;
+    END
+  $function$`,
+  `CREATE OR REPLACE TRIGGER ha_event_occurred_at_ms_sync BEFORE INSERT OR UPDATE OF occurred_at ON ha_events
+    FOR EACH ROW EXECUTE FUNCTION ha_event_occurred_at_ms_sync()`,
+  `CREATE INDEX IF NOT EXISTS ha_events_occurred_ms_revision
+    ON ha_events (tenant_id, project_id, policy_epoch, repo_id, occurred_at_ms, revision)`,
+  `CREATE INDEX IF NOT EXISTS ha_events_occurred_ms_pending
+    ON ha_events (tenant_id, project_id, policy_epoch, repo_id, revision) WHERE occurred_at_ms IS NULL`,
 ]);
 
 /** DDL owned by the event-ledger adapter; callers run it as the schema owner before runtime access. */
@@ -72,6 +100,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     ON ha_events (tenant_id, project_id, repo_id, event_type, revision DESC)`,
   `CREATE INDEX IF NOT EXISTS ha_events_occurred_at_idx
     ON ha_events (tenant_id, project_id, repo_id, occurred_at, revision DESC)`,
+  ...POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
   `CREATE INDEX IF NOT EXISTS ha_events_actor_refs_gin_idx ON ha_events USING gin (actor_refs)`,
   `CREATE INDEX IF NOT EXISTS ha_events_entity_refs_gin_idx ON ha_events USING gin (entity_refs)`,
   // Derived ledger index: survives task-projection rebuilds and is maintained by the event

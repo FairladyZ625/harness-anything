@@ -3,6 +3,8 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { consumeKnownError, mediaTypeForBinaryPath, RAW_ARTIFACT_MEDIA_TYPE } from "@harness-anything/kernel";
 import type { ArtifactTimelineCursor, ArtifactTimelineKind, TaskProjection } from "@harness-anything/kernel";
 import type { CursorPage } from "@harness-anything/application/internal/queries/task-index-query.ts";
+import { readCollaboratorArtifacts } from "@harness-anything/application/internal/queries/collaborator-artifacts.ts";
+import type { CollaboratorScope } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-contract.ts";
 
 /** The GUI timeline needs exactly one projection read: the ordered artifact index page. Tests can
@@ -58,6 +60,7 @@ function artifactMediaType(row: { readonly kind: ArtifactTimelineKind; readonly 
 export function readArtifactsGui(
   context: ArtifactsGuiReadContext,
   payload: Readonly<Record<string, unknown>> = {},
+  scope: CollaboratorScope = {},
 ): ArtifactsListResult {
   markDaemonOperationPhase("artifacts.scan");
   const kind: ArtifactGuiKind = artifactKinds.includes(payload.kind as ArtifactGuiKind)
@@ -68,7 +71,8 @@ export function readArtifactsGui(
       ? Math.min(Math.max(requested, storageReadPolicy.defaultValue.minimumRows), maximumArtifactLimit)
       : defaultArtifactLimit,
     cursor = typeof payload.cursor === "string" ? payload.cursor : undefined,
-    read = context.projection.readArtifactTimelinePage({
+    read = readCollaboratorArtifacts(context.projection, {
+      ...scope,
       kind,
       limit,
       ...(cursor === undefined ? {} : { after: decodeArtifactCursor(cursor) }),

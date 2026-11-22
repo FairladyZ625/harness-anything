@@ -130,12 +130,11 @@ DMG application、签名、notarization、其他操作系统和 update feed 属�
 当前发布边界刻意保守：
 
 - public-ready npm 集合由 workspace 元数据派生：所有未标 `private` 的
-  workspace（kernel、storage、application、preset、authorization-keycloak、
-  cli、daemon、gui）按依赖顺序发布；`authorization-gui` 与
-  `authorization-keycloak-gui` 是 GUI 的 private 构建期依赖，不进入发布面。
+  workspace（kernel、storage、application、preset、authorization、
+  cli、daemon、gui）按依赖顺序发布。授权包通过独立子路径提供服务端 provider 和
+  桌面集成，React 是桌面视图的可选 peer dependency。
   发布清单在发现 public 包依赖 private workspace 时直接失败。
-- public 包使用 lockstep version `0.1.0`；两个 private GUI 构建期包维持
-  `0.0.1`。
+- public 包使用 lockstep version `0.1.0`。
 - 不声明真实 npm package release。
 - signed installers、notarized builds、auto-update、release feeds、published artifacts 都未 ship。
 - Desktop 和 daemon 分发策略由本页治理。

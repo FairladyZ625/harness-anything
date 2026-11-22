@@ -157,6 +157,14 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           payload: { instanceId: "codex-signin", idempotencyKey },
         });
         assert.equal(replay.sessionId, spawned.sessionId);
+        // QUOTA-07: Concurrent login for the same instance with a distinct idempotencyKey is rejected
+        // cleanly without invalidating the active terminal's account cut.
+        const concurrent = await rpc(host, auth, "repo.runtimeInstance.auth.login", {
+          repo: { repoId },
+          payload: { instanceId: "codex-signin", idempotencyKey: `${idempotencyKey}-concurrent` },
+        });
+        assert.equal(concurrent.ok, false);
+        assert.equal(concurrent.code, "runtime_auth_in_progress");
         const frames: Record<string, unknown>[] = [],
           attached = await rpcTerminalAttach(host, auth, repoId, String(spawned.sessionId), frames);
         try {
@@ -177,6 +185,42 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           attached.close();
         }
         assert.equal(JSON.parse(readFileSync(authFile, "utf8")).token, token);
+        // QUOTA-07: Immediately after terminal exit (BEFORE any active probe), pure read show/list and health
+        // must have settled cleanly (never stuck in runtime_auth_in_progress after an idempotent replay!).
+        const pureShow = await rpc(host, auth, "daemon.runtimeInstance.show", {
+          payload: { instanceId: "codex-signin" },
+        });
+        const pureInstance = pureShow.instance as Record<string, unknown>;
+        assert.equal(
+          (pureInstance.authReadiness as Record<string, unknown>).code,
+          "runtime_auth_not_checked",
+          `expected pure show after idempotent replay + exit to clear runtime_auth_in_progress, got ${JSON.stringify(pureInstance.authReadiness)}`,
+        );
+        assert.equal(pureInstance.quota, undefined);
+        const pureHealth = pureInstance.providerHealth as Record<string, unknown>;
+        assert.equal(pureHealth.cooldownUntil, null);
+        assert.equal(pureHealth.quotaExhaustedUntil, null);
+        const pureList = await rpc(host, auth, "daemon.runtimeInstance.list", { payload: { all: true } });
+        const listedRow = (pureList.instances as Array<Record<string, unknown>>).find(
+          (row) => row.instanceId === "codex-signin",
+        );
+        assert.equal(
+          (listedRow?.authReadiness as Record<string, unknown> | undefined)?.code,
+          "runtime_auth_not_checked",
+        );
+        // Replaying the same idempotencyKey AFTER exit must return the exited receipt without re-entering auth_in_progress.
+        const postExitReplay = await rpc(host, auth, "repo.runtimeInstance.auth.login", {
+          repo: { repoId },
+          payload: { instanceId: "codex-signin", idempotencyKey },
+        });
+        assert.equal(postExitReplay.sessionId, spawned.sessionId);
+        const pureShowAfterPostReplay = await rpc(host, auth, "daemon.runtimeInstance.show", {
+          payload: { instanceId: "codex-signin" },
+        });
+        assert.equal(
+          ((pureShowAfterPostReplay.instance as Record<string, unknown>).authReadiness as Record<string, unknown>).code,
+          "runtime_auth_not_checked",
+        );
         const shown = await rpc(host, auth, "daemon.runtimeInstance.show", {
           payload: { instanceId: "codex-signin", probe: true },
         });
@@ -184,7 +228,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
           status: "ready",
           code: null,
           hint: null,
-          basis: "provider",
+          basis: "metadata",
         });
       });
     }

@@ -13,6 +13,7 @@ import { classifyProtectedChanges, type ProtectedSurfaceRule } from "./protected
 import {
   readSubmissionFacts,
   renderSubmissionFacts,
+  stripCloseoutFactsRegion,
   SUBMISSION_FACTS_END,
   SUBMISSION_FACTS_START,
 } from "./submission-facts.ts";
@@ -257,7 +258,7 @@ export function renderTaskPrBody(input: TaskPrBodyRenderInput): string {
     body = input.body ?? template,
     submissionFacts = readSubmissionFacts(input.submission),
     delivery = renderSubmissionFacts(input.submission, submissionFacts),
-    authored = typeof input.closeout === "string" ? input.closeout : "",
+    authored = typeof input.closeout === "string" ? stripCloseoutFactsRegion(input.closeout) : "",
     stripped = withoutFacts(withoutChineseSection(body)),
     baseline = withoutFacts(template),
     { sources, chinese } = authoredSources(authored, input.profileId),

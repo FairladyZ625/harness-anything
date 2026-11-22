@@ -21,6 +21,7 @@ import { serializeFleetFrame } from "../src/daemon-host/fleet/command-protocol.t
 import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
+  runFleetReplicaStream,
   runFleetTaskCommandClient,
 } from "../src/daemon-host/fleet/peer.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
@@ -361,6 +362,26 @@ test(
           assert.ok(error instanceof FleetRemoteError);
           assert.equal(error.code, "CENTER_MOVED");
           assert.deepEqual(error.centerMoved, expectedCenterMoved);
+          return true;
+        },
+      );
+
+      await assert.rejects(
+        runFleetReplicaStream({
+          hostname: "localhost",
+          port: port2,
+          ca: caCert,
+          servername: "localhost",
+          nodeId: "node-one",
+          credential: "secret-node-one",
+          repoId: "moved-repo",
+          readAccessToken: owners.readAccessToken("node-one"),
+          viewRoot: path.join(root, "edge-view"),
+          diskQuotaBytes: 64 * 1024 * 1024,
+        }),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.equal("code" in error ? error.code : undefined, "CENTER_MOVED", error.message);
           return true;
         },
       );

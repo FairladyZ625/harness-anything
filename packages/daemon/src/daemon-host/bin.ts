@@ -74,7 +74,13 @@ async function main(argv: readonly string[], afterParentExit = false): Promise<n
       return result.ok ? 0 : 1;
     }
   }
-  return runResidentDaemon(userRoot, daemonId, supervised, (receipt, code) => {
+  const { resolveDaemonMetricsConfig } = await import("./metrics-http-server.ts");
+  const metricsConfig = resolveDaemonMetricsConfig(process.env, {
+    port: option("--metrics-port"),
+    bind: option("--metrics-bind"),
+    path: option("--metrics-path"),
+  });
+  return runResidentDaemon(userRoot, daemonId, supervised, metricsConfig, (receipt, code) => {
     console.log(JSON.stringify(receipt));
     return code;
   });
@@ -84,6 +90,7 @@ async function runResidentDaemon(
   userRoot: string,
   daemonId: string,
   supervised: boolean,
+  metricsConfig: import("./metrics-http-server.ts").DaemonMetricsHttpConfig | null,
   finish: (receipt: Record<string, unknown>, exitCode: number) => number,
 ): Promise<number> {
   const { startDaemon } = await import("./runtime.ts"),
@@ -120,6 +127,7 @@ async function runResidentDaemon(
       startDaemon({
         userRoot,
         daemonId,
+        metrics: metricsConfig,
         // The resident daemon is the process that owns the operator login: every runtime launch
         // inherits this token, so an isolated instance HOME needs no `gh auth login` of its own.
         runtimeGithubToken: resolveOperatorGithubToken,
@@ -173,6 +181,10 @@ async function runResidentDaemon(
       });
     daemon = await startResident(true);
     if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
+    if (!process.env.NODE_TEST_CONTEXT && process.env.HARNESS_DISABLE_MODEL_PRICING_REFRESH !== "1") {
+      const { startModelPricingRefresh } = await import("./model-pricing-refresh.ts");
+      startModelPricingRefresh({ userRoot });
+    }
     if (ownerPid !== null)
       ownerLivenessTimer = setInterval(() => {
         if (!processExists(ownerPid)) requestStop();

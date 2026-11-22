@@ -32,6 +32,8 @@ test("Runtime report is archived after the worker submits its execution", { time
       "--admin",
       "--title",
       "Submitted runtime archive",
+      "--risk-tier",
+      "low",
     ]),
     submittedPackagePath = String(submittedTask.workspacePackagePath),
     submittedPlanPath = `${submittedPackagePath}/task_plan.md`;

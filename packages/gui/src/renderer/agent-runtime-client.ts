@@ -13,7 +13,7 @@ import type {
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageResult,
 } from "@harness-anything/daemon/protocol";
-import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
+import type { DaemonGuiReadPayloadMap, DaemonGuiReadResultMap } from "@harness-anything/daemon/protocol";
 import {
   applyRuntimeStreamSignal,
   emptyRuntimeStreamSnapshot,
@@ -26,11 +26,15 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
-import { invoke } from "./api-client-invoke.ts";
+import { invoke, requestGuiRead } from "./api-client-invoke.ts";
 import { guiTransport } from "./gui-transport.ts";
 import { sessionEventTimeline, type SessionEventTimeline } from "./sessions-model.ts";
 
 type RepoScope = { readonly repoId: string };
+type CollaboratorTokenUsage = Extract<
+  DaemonGuiReadResultMap["repo.agentRuntime.tokenUsage"],
+  { readonly groupBy: "person" | "node" }
+>;
 /** The `runtime-session-groups` projection selector: grouping, range and text query are daemon-side. */
 export type SessionGroupsQuery = {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
@@ -94,6 +98,7 @@ export const agentRuntimeClient = {
     repoId: string,
     taskId?: string,
     page?: { readonly limit: number; readonly cursor?: string },
+    scope?: Pick<DaemonGuiReadPayloadMap["repo.agentRuntime.overview"], "scopePersonId" | "filterNodeId">,
   ): Promise<AgentRuntimeOverviewResult> => {
     const readPage = async (facets: { readonly limit?: number; readonly cursor?: string }) =>
       checked(
@@ -101,6 +106,7 @@ export const agentRuntimeClient = {
           repoId,
           ...(taskId ? { taskId } : {}),
           ...facets,
+          ...scope,
         } as DaemonGuiReadPayloadMap["repo.agentRuntime.overview"] & RepoScope),
         "installations",
       ) as AgentRuntimeOverviewResult;
@@ -164,6 +170,15 @@ export const agentRuntimeClient = {
       } as DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsageDetail"] & RepoScope),
       "sessions",
     ) as AgentRuntimeTokenUsageDetailResult,
+  collaboratorTokenUsage: async (
+    repoId: string,
+    query: DaemonGuiReadPayloadMap["repo.agentRuntime.tokenUsage"] & { readonly groupBy: "person" | "node" },
+  ): Promise<CollaboratorTokenUsage> => {
+    const result = await requestGuiRead("repo.agentRuntime.tokenUsage", { repoId, ...query });
+    if (!result || !("groupBy" in result) || result.groupBy !== query.groupBy)
+      throw new Error("Token usage bridge returned an invalid attribution result.");
+    return result;
+  },
 };
 function memberIdOf(member: AgentRuntimeTokenUsageMemberIdentity): string {
   return member.kind === "agent" ? member.agentId : member.squadId;

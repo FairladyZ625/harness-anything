@@ -109,6 +109,8 @@ export interface InternalPresetResolution {
   readonly scripts: readonly PresetPackageScript[];
   /** The vertical's presets that declare the lightweight profile, so a create receipt can name the short path. */
   readonly lightweightPresetIds: readonly string[];
+  /** The vertical's non-work presets that declare `outputShape: "task-package-artifact"`, for dynamic create guidance. */
+  readonly artifactPresetIds: readonly string[];
   readonly requiredTaskClass?: "work";
   readonly packageRoot: string;
   readonly packageDigest: string;

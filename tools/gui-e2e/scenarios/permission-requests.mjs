@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { issueRuntimeExecutionCredential } from "../../../packages/daemon/src/daemon-host/runtime-execution-credential.ts";
 import { openDaemonJsonRpcClientAt } from "../../../packages/daemon/src/daemon-host/client/local-json-rpc-client.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { keycloakUrl, keycloakRealm } from "../../../packages/daemon/test/keycloak.fixtures.ts";
 
 export default {

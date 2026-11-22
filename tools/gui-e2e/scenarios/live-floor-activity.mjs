@@ -49,5 +49,9 @@ export default {
     assert.ok(minutes >= 10, `the activity age must cross the silence threshold: ${label}`);
     await tag.scrollIntoViewIfNeeded();
     await shot("live-floor-silent-activity");
+    const ended = page.getByTestId("live-floor-ended-row").filter({ hasText: taskTitle });
+    await ended.waitFor();
+    assert.equal(await ended.count(), 1);
+    await shot("live-floor-recent-outcome");
   },
 };

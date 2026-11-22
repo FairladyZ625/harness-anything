@@ -272,7 +272,9 @@ test("a default review dispatch writes a minimal intent and its node consumer sp
       readRuntimeDispatchByDispatchKey: () => null,
       readTaskSubmissionOperation: () => "submitted-op",
     },
-    settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
+    settings: {
+      readRepository: () => ({ defaultVertical: "software/coding", roles: { defaultReviewer: "closeout-reviewer" } }),
+    },
     store: { readHead: () => ({ revision: 2 }), readEntityDeclarations: () => [] },
     taskSurfaceWrite: (action: { readonly patches: readonly { readonly field: string; readonly value: string }[] }) => {
       writtenIntent = JSON.parse(action.patches[0]!.value) as Record<string, unknown>;
@@ -923,7 +925,9 @@ test("nodeReviewDispatchCandidate emits avoidVendor on first review, round affin
         document: docPath.endsWith("dispatch_rev_1.md") ? { body: "# Review 1" } : null,
       }),
     },
-    settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
+    settings: {
+      readRepository: () => ({ defaultVertical: "software/coding", roles: { defaultReviewer: "closeout-reviewer" } }),
+    },
     store: { readHead: () => ({ revision: 2 }), readEntityDeclarations: () => [] },
   } as unknown as Parameters<typeof nodeReviewDispatchCandidate>[0];
 

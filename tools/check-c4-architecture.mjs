@@ -11,6 +11,13 @@ const sourceCounterpartExtensions = new Map([
   [".cjs", ".cts"],
 ]);
 
+const authorizationPackage = {
+  id: "authorization",
+  c4Id: "authorization",
+  root: "packages/authorization",
+  packageName: "@harness-anything/authorization",
+};
+
 const architecturePackages = [
   { id: "kernel", c4Id: "kernel", root: "packages/kernel", packageName: "@harness-anything/kernel" },
   { id: "storage", c4Id: "storage", root: "packages/storage", packageName: "@harness-anything/storage" },
@@ -21,30 +28,7 @@ const architecturePackages = [
     packageName: "@harness-anything/application",
   },
   { id: "preset", c4Id: "preset", root: "packages/preset", packageName: "@harness-anything/preset" },
-  {
-    id: "authorization-builtin",
-    c4Id: "authorizationBuiltin",
-    root: "packages/authorization-builtin",
-    packageName: "@harness-anything/authorization-builtin",
-  },
-  {
-    id: "authorization-keycloak",
-    c4Id: "authorizationKeycloak",
-    root: "packages/authorization-keycloak",
-    packageName: "@harness-anything/authorization-keycloak",
-  },
-  {
-    id: "authorization-gui",
-    c4Id: "authorizationGui",
-    root: "packages/authorization-gui",
-    packageName: "@harness-anything/authorization-gui",
-  },
-  {
-    id: "authorization-keycloak-gui",
-    c4Id: "authorizationKeycloakGui",
-    root: "packages/authorization-keycloak-gui",
-    packageName: "@harness-anything/authorization-keycloak-gui",
-  },
+  authorizationPackage,
   { id: "dsh-plugin", c4Id: "dshPlugin", root: "packages/dsh-plugin", packageName: "@harness-anything/dsh-plugin" },
   { id: "daemon", c4Id: "daemon", root: "packages/daemon", packageName: "@harness-anything/daemon" },
   { id: "cli", c4Id: "cli", root: "packages/cli", packageName: "@harness-anything/cli" },
@@ -52,30 +36,24 @@ const architecturePackages = [
 ];
 
 // dec_04A9211B073F29F0FC1E1CA573 CH1/CH3/RJ2 & dec_7C93DEBCFB2D1A94C6FA07AAAD CH2:
-// closed-world deterministic 12-package C4 matrix (22 allowed, 110 forbidden).
+// dec_5B243AC66763BD6D25B0DE2E86 CH1: nine-package C4 matrix (16 allowed, 56 forbidden).
 const allowedPackageEdgeSet = new Set([
   "storage->kernel",
   "preset->kernel",
   "application->kernel",
-  "authorization-builtin->kernel",
-  "authorization-keycloak->kernel",
-  "authorization-gui->kernel",
-  "authorization-keycloak-gui->kernel",
-  "authorization-keycloak-gui->authorization-gui",
+  "authorization->kernel",
   "dsh-plugin->kernel",
   "daemon->kernel",
   "daemon->storage",
   "daemon->application",
   "daemon->preset",
-  "daemon->authorization-builtin",
-  "daemon->authorization-keycloak",
+  "daemon->authorization",
   "cli->daemon",
   "cli->kernel",
   "cli->preset",
   "gui->daemon",
   "gui->kernel",
-  "gui->authorization-gui",
-  "gui->authorization-keycloak-gui",
+  "gui->authorization",
 ]);
 
 const packageRelations = architecturePackages.flatMap(({ id: from }) =>
@@ -111,6 +89,45 @@ function packageForPath(file, packages = architecturePackages) {
       .filter(({ root }) => normalized === root || normalized.startsWith(`${root}/`))
       .sort((left, right) => right.root.length - left.root.length)[0] ?? null
   );
+}
+
+const packageRoot = `${authorizationPackage.root}/`;
+const sourceRoot = `${packageRoot}src/`;
+const sourceSlices = new Map([
+  ["builtin", ["builtin"]],
+  ["keycloak", ["keycloak"]],
+  ["gui", ["gui"]],
+  ["keycloak-gui", ["gui", "keycloak-gui"]],
+]);
+const hostSlices = {
+  cli: [],
+  daemon: ["builtin", "keycloak"],
+  gui: ["gui", "keycloak-gui"],
+};
+
+// dec_5B243AC66763BD6D25B0DE2E86/CH1: keep the former package directions at their new subpaths.
+export function authorizationImportViolation(importer, specifier, resolved) {
+  const sourceSlice = importer.startsWith(sourceRoot) ? importer.slice(sourceRoot.length).split("/")[0] : null;
+  const host = /^packages\/(cli|daemon|gui)\/src\//u.exec(importer)?.[1];
+  const allowed = sourceSlice ? (sourceSlices.get(sourceSlice) ?? []) : hostSlices[host];
+  if (!allowed) return null;
+
+  const { packageName } = authorizationPackage;
+  const specifierSlice =
+    specifier === packageName ? "" : specifier.startsWith(`${packageName}/`) ? specifier.split("/")[2] : null;
+  const resolvedSlice = resolved?.startsWith(sourceRoot)
+    ? resolved.slice(sourceRoot.length).split("/")[0]
+    : resolved?.startsWith(packageRoot)
+      ? ""
+      : null;
+  if (
+    (specifierSlice !== null && !allowed.includes(specifierSlice)) ||
+    (resolvedSlice !== null && !allowed.includes(resolvedSlice)) ||
+    ((sourceSlice === "builtin" || sourceSlice === "keycloak") && /^react(?:\/|$)/u.test(specifier))
+  )
+    return `authorization boundary: ${sourceSlice ?? host} must not import ${specifier}`;
+
+  return null;
 }
 
 function planeForPath(file) {
@@ -721,6 +738,8 @@ export async function checkArchitecture(root = process.cwd(), options = {}) {
         imported.resolutionMode,
       );
       const targetPackage = resolveWorkspaceTargetPackage(file, imported.specifier, absoluteRoot, workspace);
+      const authorizationViolation = authorizationImportViolation(file, imported.specifier, target);
+      if (authorizationViolation) violations.push(`${file}:${imported.line}: ${authorizationViolation}`);
       const targetPlane = targetPackage?.id === "daemon" && target ? planeForPath(target) : null;
       if (sourcePackage && targetPackage && sourcePackage.id !== targetPackage.id) {
         checkedImports += 1;

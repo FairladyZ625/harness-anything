@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import { harnessClient } from "../api-client.ts";
-import { readAllTaskDispatches } from "../task-dispatch-client.ts";
+import { readAllTaskDispatches, readLiveFloorDispatches } from "../task-dispatch-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatDuration, formatTime } from "../model/time.ts";
@@ -11,7 +11,8 @@ import type { TaskRow } from "../model/types.ts";
 import type { WorkIndex } from "../model/work-collections.ts";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
 import { useAgendaQuery } from "../agenda-data.ts";
-import { taskDocumentQuery } from "../task-data.ts";
+import { adaptProjectionRows } from "../task-adapter.ts";
+import { taskDocumentQuery, useCollaboratorTaskList } from "../task-data.ts";
 import { type AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
 import { SessionTranscript } from "../components/sessions/SessionTranscript.tsx";
@@ -48,19 +49,21 @@ const EMPTY_SESSIONS: readonly AgentRuntimeSessionDto[] = [];
 /** The renderer's localStorage behind a seam so the model stays testable without a DOM. */
 const PREFERENCE_STORAGE: LiveFloorPreferenceStorage | null =
   typeof window === "undefined" ? null : window.localStorage;
-/** 「刚结束」的时间窗与 daemon 完成列同口径:派工查询按它选候选任务。 */
-const ENDED_CANDIDATE_WINDOW_MS = 24 * 60 * 60_000;
 
 export function LiveFloorView({
   repoId,
   tasks,
   works,
+  scopePersonId = null,
+  viewerPersonId = null,
   onOpenTask,
   onNavigateEntity,
 }: {
   readonly repoId: string;
   readonly tasks: readonly TaskRow[];
   readonly works: WorkIndex;
+  readonly scopePersonId?: string | null;
+  readonly viewerPersonId?: string | null;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
 }) {
@@ -75,42 +78,32 @@ export function LiveFloorView({
   };
 
   const runtime = useQuery({
-      queryKey: runtimeQueryKeys.overviewAll(repoId),
-      queryFn: () => agentRuntimeClient.overview(repoId),
+      queryKey: [...runtimeQueryKeys.overviewAll(repoId), ...(scopePersonId === null ? [] : [scopePersonId])],
+      queryFn: () =>
+        scopePersonId === null
+          ? agentRuntimeClient.overview(repoId)
+          : agentRuntimeClient.overview(repoId, undefined, undefined, { scopePersonId }),
       staleTime: 4_000,
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
     sessions = runtime.data?.sessions ?? EMPTY_SESSIONS,
-    liveTaskIds = useMemo(
-      () => [...new Set(sessions.flatMap((session) => session.associations.map(({ taskId }) => taskId)))].sort(),
-      [sessions],
-    ),
-    // 「刚结束」的候选任务:24h 内有更新的任务(派工结算会把档案写进任务包,updatedAt 随之推进)。
-    recentTaskIds = useMemo(() => {
-      const cutoff = Date.now() - ENDED_CANDIDATE_WINDOW_MS;
-      return tasks
-        .filter((task) => Date.parse(task.lastKnownAt) >= cutoff)
-        .map(({ taskId }) => taskId)
-        .sort();
-    }, [tasks]),
-    dispatchTaskIds = useMemo(
-      () => [...new Set([...liveTaskIds, ...recentTaskIds])].sort(),
-      [liveTaskIds, recentTaskIds],
-    ),
+    runtimeSessionIds = useMemo(() => sessions.map(({ runtimeSessionId }) => runtimeSessionId).sort(), [sessions]),
     dispatches = useQuery({
-      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "live-floor", dispatchTaskIds.join("\0")],
-      queryFn: async () => {
-        const read = await readAllTaskDispatches({
-          repoId,
-          taskIds: dispatchTaskIds,
-        });
-        return read.dispatches;
-      },
+      queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "live-floor", scopePersonId, runtimeSessionIds],
+      queryFn: () => readLiveFloorDispatches(repoId, runtimeSessionIds, scopePersonId),
       enabled: runtime.data !== undefined,
       staleTime: 4_000,
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
-    agenda = useAgendaQuery(repoId),
+    taskList = useCollaboratorTaskList(repoId, scopePersonId === null ? {} : { scopePersonId }),
+    scopedTasks = useMemo(
+      () =>
+        scopePersonId === null
+          ? tasks
+          : adaptProjectionRows(taskList.data?.rows ?? [], repoId, taskList.data?.status ?? "pending", works),
+      [scopePersonId, taskList.data, tasks, repoId, works],
+    ),
+    agenda = useAgendaQuery(repoId, scopePersonId, viewerPersonId),
     // decision ask 的依据(提案原文问题)要先于 asks 组装就绪:候选直接取 agenda 的两个
     // decision 池,不经过 asks,否则声明顺序成环。
     decisionAsks = useMemo(
@@ -140,24 +133,24 @@ export function LiveFloorView({
       return questions;
     }, [decisionAsks, decisionReads]),
     liveRows = useMemo(
-      () => liveFloorRows({ sessions, dispatches: dispatches.data ?? [], works }),
+      () => liveFloorRows({ sessions, dispatches: dispatches.data?.active ?? [], works }),
       [dispatches.data, sessions, works],
     ),
     groups = useMemo(() => liveFloorWorkGroups(liveRows), [liveRows]),
     endedRows = useMemo(
-      () => liveFloorEndedRows({ dispatches: dispatches.data ?? [], tasks }),
+      () => liveFloorEndedRows({ dispatches: dispatches.data?.ended ?? [], tasks }),
       [dispatches.data, tasks],
     ),
-    pipeline = useMemo(() => liveFloorPipelineGroups(tasks, works), [tasks, works]),
+    pipeline = useMemo(() => liveFloorPipelineGroups(scopedTasks, works), [scopedTasks, works]),
     asks = useMemo(
       () =>
         liveFloorAskLanes({
           agenda: agenda.data ?? null,
-          tasks,
+          tasks: scopedTasks,
           decisionQuestions,
           labels: { gates: t("views.liveFloor.evidenceGates"), ci: t("views.liveFloor.evidenceCi") },
         }),
-      [agenda.data, tasks, decisionQuestions],
+      [agenda.data, scopedTasks, decisionQuestions],
     ),
     actionReads = useQueries({
       queries: liveRows.flatMap((row) =>
@@ -191,7 +184,7 @@ export function LiveFloorView({
   }
 
   const loading = runtime.isPending || (runtime.data !== undefined && dispatches.isPending),
-    error = runtime.error ?? dispatches.error,
+    error = runtime.error ?? dispatches.error ?? taskList.error,
     drawerTask = drawerTaskId === null ? null : (tasks.find((task) => task.taskId === drawerTaskId) ?? null);
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="live-floor-page">
@@ -299,7 +292,9 @@ export function LiveFloorView({
               <SectionHead
                 label={t("views.liveFloor.endedTitle")}
                 count={endedRows.length}
-                note={t("views.liveFloor.endedWindowNote")}
+                note={t(
+                  dispatches.data?.truncated ? "views.liveFloor.endedWindowPartial" : "views.liveFloor.endedWindowNote",
+                )}
               />
               {endedRows.length === 0 ? (
                 <Empty>{t("views.liveFloor.endedEmpty")}</Empty>

@@ -39,6 +39,7 @@ export interface EntityJsonObjectSchema {
   readonly properties: Readonly<Record<string, EntityJsonSchemaNode>>;
   readonly required: readonly string[];
   readonly additionalProperties: boolean;
+  readonly oneOf?: readonly EntityJsonSchemaNode[];
   readonly description?: string;
 }
 
@@ -203,6 +204,14 @@ function validateNodeValue(schema: EntityJsonSchemaNode, value: unknown, path: s
   for (const [field, fieldSchema] of Object.entries(schema.properties))
     if (Object.hasOwn(value, field) && value[field] !== undefined)
       validateNode(fieldSchema, value[field], `${path} field ${JSON.stringify(field)}`, errors);
+  if (schema.oneOf !== undefined) {
+    const matchingSchemas = schema.oneOf.filter((candidate) => {
+      const candidateErrors: string[] = [];
+      validateNode(candidate, value, path, candidateErrors);
+      return candidateErrors.length === 0;
+    }).length;
+    if (matchingSchemas !== 1) errors.push(`${path} must match exactly one declared schema variant.`);
+  }
 }
 
 function stableJson(value: unknown): string {

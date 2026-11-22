@@ -1,13 +1,7 @@
 import { releaseFallbackResources } from "./runtime-spawn-fallback.ts";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import type {
-  AgentRuntimeEventV1,
-  CanonicalEventStore,
-  CanonicalSquadRun,
-  DispatchLifecycleView,
-  RuntimeResultClaim,
-} from "@harness-anything/kernel";
+import type { CanonicalSquadRun, DispatchLifecycleView, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
   readDispatchStream,
@@ -16,7 +10,7 @@ import {
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeProcess } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ReviewerReviewArtifacts, RuntimeExecutionHandle } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import { workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { strayWriteWarning } from "../runtime-engine/runtime-write-boundary.ts";
@@ -40,11 +34,10 @@ import { taskPrBodyRenderer } from "./task-pr-body-render.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
-import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { disposeActiveRuntimeObservations, flushPendingSteerReceipts } from "./runtime-spawn-active.ts";
 import { captureDispatchForensics } from "./runtime-dispatch-evidence.ts";
 import { dispatchForensicsRequired, writeDispatchEvidenceState } from "./dispatch-evidence-state.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
-import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
 import { reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
@@ -85,16 +78,32 @@ export async function publishExit(
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
     stopProofPending = true;
-    if (!(await runtimeProcessTreeStopped(context.input.rootDir, active.dispatchId, active.process)))
+    if (active.process.cloud && !active.process.cloud.hasStopProof()) {
+      const lifecycle = await dispatchLifecycleForTerminal(context, active.dispatchId);
+      if (lifecycle.attempt.phase !== "settling")
+        await context.publishRuntimeEvent(
+          "runtime_session_liveness_changed",
+          { runtimeSessionId: active.runtimeSessionId, liveness: "unknown", stopUnconfirmed: true },
+          `runtime-stop-unconfirmed-${active.dispatchId}`,
+          active.binding,
+        );
+    }
+    if (!(await runtimeProcessTreeStopped(context.input.rootDir, active.dispatchId, active.process))) {
+      if (active.process.cloud)
+        throw context.runtimeSpawnError(
+          "stop_unconfirmed",
+          "Cloud sandbox stop is unconfirmed; its lease remains reserved.",
+        );
       throw context.runtimeSpawnError(
         "runtime_process_group_unproven",
         `Runtime process group ${String(active.process.pid)} has no stop proof.${processGroupRecoveryHint()}`,
       );
+    }
     stopProofPending = false;
     context.dispatchState?.deactivate(active.runtimeSessionId);
     // Cancel holds the write queue: consume lines flushed by the complete tree stop before
     // settlement retires the runtime and drops its queued output callbacks.
-    if (active.cancelRequested) await consumeDurableOutput(context, active);
+    if (active.cancelRequested && !active.process.cloud) await consumeDurableOutput(context, active);
     disposeActiveRuntimeObservations(active);
     // Every terminal path — success, failure, cancellation, and the daemon-restart loss
     // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -286,24 +295,26 @@ export async function publishExit(
         active.finalText === null ? null : String(scrubProviderValue(active.finalText)),
       );
     active.stream.appendAttemptOutcome(attemptOutcome, endedAt);
+    // Keep runtimeMetrics on the 6-key baseline shape while carrying optional cacheWriteTokens at
+    // the top level of runtime_session_outcome_observed.payload (accepted by N-1 allowUnknownFields).
     const runtimeMetrics = {
       inputTokens: active.inputTokens,
       cacheReadTokens: active.cacheReadTokens,
-      ...(cacheWriteTokensOfUsage(active.rawUsage) === null ? {} : { cacheWriteTokens: active.cacheWriteTokens }),
       outputTokens: active.outputTokens,
       totalTokens: active.inputTokens + active.outputTokens,
       toolCallCount: active.toolCallCount,
       usageUnavailable: !active.usageReported,
     };
+    const outcomeCacheWriteTokens =
+      cacheWriteTokensOfUsage(active.rawUsage) === null ? undefined : active.cacheWriteTokens;
+    const streamRuntimeMetrics = {
+      ...runtimeMetrics,
+      ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
+    };
     active.stream.appendRuntimeMetrics?.(
-      { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
+      { ...streamRuntimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       endedAt,
     );
-    // The kernel event's runtimeMetrics copy stays the three-count shape its domain
-    // whitelist pins (validRuntimeDispatchMetrics): kernel consumers do not price, so the
-    // separate cache-write counter travels only in the stream records, where the token
-    // usage read side picks it up.
-    const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
     if (submittedStall)
       body +=
@@ -654,7 +665,10 @@ export async function publishExit(
     context.processes.delete(active.runtimeSessionId);
     if (!escalationStop) active.process.release?.();
     const processGroupPid =
-      Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
+      active.process.pid !== undefined &&
+      Number.isSafeInteger(active.process.pid) &&
+      active.process.pid > 1 &&
+      active.process.pid !== process.pid
         ? active.process.pid
         : undefined;
     const fallback = await context.settleFallback(active, attemptOutcome, {
@@ -687,7 +701,13 @@ export async function publishExit(
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
     }
-    const { budgetRefusal, ...fallbackDisposition } = fallback ?? { fallbackState: null };
+    const {
+      budgetRefusal,
+      exhaustedReason: _exhaustedReason,
+      ...fallbackDisposition
+    } = fallback ?? {
+      fallbackState: null,
+    };
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -698,7 +718,8 @@ export async function publishExit(
         ...(budgetRefusal ? { reasonCode: budgetRefusal.code } : reasonCode ? { reasonCode } : {}),
         dispatchId: active.dispatchId,
         endedAt,
-        runtimeMetrics: kernelMetrics,
+        runtimeMetrics,
+        ...(outcomeCacheWriteTokens === undefined ? {} : { cacheWriteTokens: outcomeCacheWriteTokens }),
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
@@ -738,8 +759,9 @@ export async function publishExit(
 export async function runtimeProcessTreeStopped(
   rootDir: string,
   dispatchId: string,
-  runtime: RuntimeProcess,
+  runtime: RuntimeExecutionHandle,
 ): Promise<boolean> {
+  if (runtime.cloud) return runtime.cloud.stop();
   const pid = runtime.pid;
   if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
   if (probeProcessGroup({ pid, dispatch: { rootDir, dispatchId } }) === "proven_stopped") return true;
@@ -786,6 +808,16 @@ async function publishTerminalOutcome(
     cancelled = active
       ? active.cancelRequested && active.cancelOpId?.endsWith(":escalation") !== true
       : payload.outcome === "cancelled";
+  // F13 & F5: Never block exited/cancelled/outcome publication on steer receipt uplink RPCs.
+  // Pending receipts stay durable in pending-steer-receipts.json and drain via the dedicated
+  // background receipt pump (persisted on runtime_session_provider_bound even after exit).
+  if (context.triggerSteerReceiptFlush) {
+    context.triggerSteerReceiptFlush();
+  } else if (!context.closed?.()) {
+    void flushPendingSteerReceipts(context, dispatchId, runtimeSessionId, binding).catch((error: unknown) =>
+      console.error(`[runtime-steer-receipts] background flush deferred for ${dispatchId}:`, error),
+    );
+  }
   const stopAlreadyProven = "attempt" in publication && publication.previous.attempt.stopProof === "proven_stopped";
   if (!stopAlreadyProven)
     await context.publishRuntimeEvent(
@@ -832,14 +864,14 @@ async function publishTerminalOutcome(
       event: "runtime_exit",
       runtimeSessionId: active.runtimeSessionId,
       dispatchId: active.dispatchId,
-      pid: active.process.pid,
+      ...(active.process.pid === undefined ? {} : { pid: active.process.pid }),
       exitCode: active.lossExitCode ?? payload.exitCode,
       signal: active.lossSignal,
       outcome: active.lossReason ? "lost" : payload.outcome,
       reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
     });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-    if (archiveAllowed) await releaseFallbackResources(context, lifecycle, active.role, active.cwd);
+    await releaseFallbackResources(context, lifecycle, active.role, active.cwd, archiveAllowed);
     const onExitCommand = active.onExitCommand;
     if (typeof onExitCommand === "string")
       setImmediate(() =>
@@ -922,6 +954,7 @@ function unsubmittedExitGuidance(
 
 function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {
   const { authorizationDecision: _spawnDecision, ...current } = binding;
+  if (current.orphanRecovery) return current;
   return {
     ...current,
     actor: {
@@ -1289,24 +1322,15 @@ function firstDiagnosticLine(value: string): string {
   ).slice(0, 200);
 }
 
-export function applied(
-  _context: RuntimeSpawnerContext,
-  event: AgentRuntimeEventV1,
-  publication: ReturnType<CanonicalEventStore["publication"]>,
-  runtimeSessionId: string,
-  dispatchId: string,
-) {
-  return runtimeSpawnReceipt(event, publication, runtimeSessionId, dispatchId);
-}
-
 export function controlReceipt(
   context: RuntimeSpawnerContext,
   opId: string,
   runtimeSessionId: string,
   detail = "cancelled",
+  settlementReceipt?: JsonObject,
 ): JsonObject {
   if (context.input.remote) {
-    const centerReceipt = context.input.remote.runtimeControlReceipt?.(runtimeSessionId);
+    const centerReceipt = context.input.remote.runtimeControlReceipt?.(runtimeSessionId) ?? settlementReceipt;
     if (centerReceipt) {
       const outcome = centerReceipt.outcome;
       return {
@@ -1342,8 +1366,13 @@ export function controlReceipt(
     };
   }
   const store = context.requiredRuntimeStore(context.input),
-    published = store.readEvent(opId),
-    revision = published?.workspaceRevision ?? store.readHead()?.revision ?? 0,
+    published =
+      store.readEvent(opId) ??
+      (detail === "already-exited"
+        ? (store.readEvent(`${opId}-outcome`) ?? store.readEvent(`${opId}-ruling-resolved`))
+        : null);
+  opId = published?.opId ?? opId;
+  const revision = published?.workspaceRevision ?? store.readHead()?.revision ?? 0,
     publication = published ? store.publication(published) : null,
     canonicalVisible = published !== null && publication?.cut.opId === opId && publication.cut.revision === revision,
     base = {

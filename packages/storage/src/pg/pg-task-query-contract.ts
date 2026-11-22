@@ -35,6 +35,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readTaskEventExists",
   "readTaskSubmissionOperation",
   "readTaskCompletion",
+  "readTaskImportedEvent",
   "readProgress",
   "readDispatchLifecycle",
   "readSettingsEvent",

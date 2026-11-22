@@ -7,6 +7,7 @@
 import ts from "typescript";
 import { bindArguments, EMPTY_ENV, isFunctionNode, makeEvaluator, unwrap } from "./authorization-flow-graph.mjs";
 import { nodeStart } from "./authorization-gui-source-proof.mjs";
+import { sourceOriginFilter } from "./authorization-source-origins.mjs";
 import { processSourceSites, sourceFrameKey, sourceSite } from "./authorization-source-proof.mjs";
 
 const maxWalkDepth = 60;
@@ -471,6 +472,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         return { file, start: Number(start), end: Number(end) };
       }),
       stack = [];
+    const hasSourceOrigin = sourceOriginFilter(sourceGraph, sourceRanges);
 
     const newState = () => ({
       alive: true,
@@ -931,7 +933,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         report.authorized.push(
           `${where(node)}: independent current-cut ${descriptor.kind} decision for the command actor flows through its allowed service proof`,
         );
-      const source = report.sources.get(sourceSite(graph, node));
+      const source = report.sources.size > 0 && report.sources.get(sourceSite(graph, node));
       const observe = (target, allowed, evidence) => {
         target.seen = true;
         target.ok &&= Boolean(allowed);
@@ -987,6 +989,8 @@ export function makeAuthorizationTracer(graph, anchors) {
           evaluator: sourceEvaluator,
           env: bindFrame(value, sourceEvaluator.expandArguments(node.arguments, env), env),
           targets: pendingSources.map(([site]) => site),
+          targetOnly: true,
+          mayReachTarget: hasSourceOrigin,
         });
         for (const [site, target] of pendingSources)
           if (sites.has(site))
@@ -1592,6 +1596,7 @@ export function makeAuthorizationTracer(graph, anchors) {
         evaluator: sourceEvaluator,
         env,
         targets: [...sites.keys()].map((node) => sourceSite(sourceGraph, node)),
+        targetOnly: true,
       });
       return {
         sites: new Map([...sites].filter(([node]) => reachable.has(sourceSite(sourceGraph, node)))),
@@ -1799,6 +1804,7 @@ export function makeAuthorizationTracer(graph, anchors) {
       `${state.authorized ? 1 : 0}${state.effect ? 1 : 0}${state.sourceCovered ? 1 : 0}${state.local ? 1 : 0}${state.sessioned.size > 0 ? 1 : 0}:${state.writerTurn ? 1 : 0}${state.writerFenced ? 1 : 0}:${state.decisionKind?.kind ?? ""}:${state.decisionKind?.routed ? 1 : 0}:${[...(state.serviceSites ?? [])].map(([node, kind]) => `${sourceSite(graph, node)}=${kind}`).join(",")}`;
 
     function frameReachesSource(fn, env) {
+      if (!hasSourceOrigin(fn, env)) return false;
       let reachable = deferredReachability.get(fn);
       if (!reachable) deferredReachability.set(fn, (reachable = new WeakMap()));
       if (!reachable.has(env)) {
@@ -1807,6 +1813,8 @@ export function makeAuthorizationTracer(graph, anchors) {
           env,
           targets: sourceTargets,
           matchAny: true,
+          targetOnly: true,
+          mayReachTarget: hasSourceOrigin,
         });
         reachable.set(
           env,

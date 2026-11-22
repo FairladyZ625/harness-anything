@@ -4,6 +4,7 @@ import path from "node:path";
 import ts from "typescript";
 import { readSourceIdentity } from "../gate-allowlists/source-identity.mjs";
 import { listWorktreeFiles } from "./git.mjs";
+import { hostEnvironmentIoModule } from "../../packages/kernel/src/domain/host-environment-io.ts";
 
 // This catalog is also consumed by the import boundary. New drivers require
 // scanner and import-boundary positive/negative controls in the same change.
@@ -105,6 +106,16 @@ function inspectSource(root, rel, source, localAdapters) {
     }
     if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
       const symbol = importedSymbol(node.expression, imports);
+      if (
+        symbol?.export === "writeHostEnvironmentFile" &&
+        resolveLocalModule(root, rel, symbol.module) === hostEnvironmentIoModule
+      ) {
+        const purpose = node.arguments?.[0];
+        findings.push({
+          ...finding(source, rel, node, "host-file", symbol.export),
+          hostFile: purpose && ts.isStringLiteralLike(purpose) ? purpose.text : null,
+        });
+      }
       const api =
         symbol &&
         ["node:fs", "node:fs/promises", "fs", "fs/promises"].includes(symbol.module) &&
@@ -197,6 +208,7 @@ function finding(source, rel, node, kind, api) {
     column: character + 1,
     start: node.getStart(source),
     scope: scopeName(node, source),
+    portScope: topLevelFunctionName(node),
     identity,
     nonStateIdentity,
     key: identity ?? `${rel}#${scopeName(node, source)}#${api}#${digest}`,
@@ -219,6 +231,11 @@ function scopeName(node, source) {
       return cursor.name.getText(source);
   }
   return "<module>";
+}
+function topLevelFunctionName(node) {
+  let cursor = node;
+  while (cursor.parent && !ts.isSourceFile(cursor.parent)) cursor = cursor.parent;
+  return ts.isFunctionDeclaration(cursor) ? cursor.name?.text : undefined;
 }
 function importBindings(source) {
   const bindings = new Map();

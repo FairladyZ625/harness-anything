@@ -232,7 +232,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         name: "Fable",
         instructions: "Lead precisely.",
         runtimes: [{ type: "codex" }],
-        instance: "cli-worker",
+        localInstance: "cli-worker",
         role: "commander",
       },
       {
@@ -240,7 +240,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         name: "Terra",
         instructions: "Review precisely.",
         runtimes: [{ type: "codex" }],
-        instance: "cli-worker",
+        localInstance: "cli-worker",
         role: "worker",
       },
       {
@@ -248,7 +248,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         name: "Outsider",
         instructions: "Work outside the squad.",
         runtimes: [{ type: "codex" }],
-        instance: "cli-worker",
+        localInstance: "cli-worker",
         role: "worker",
       },
       {
@@ -256,7 +256,7 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         name: "OpenCode Worker",
         instructions: "Use OpenCode.",
         runtimes: [{ type: "claude" }],
-        instance: "claude-worker",
+        localInstance: "claude-worker",
         role: "worker",
       },
       {
@@ -264,19 +264,20 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
         name: "Any Worker",
         instructions: "Use any compatible runtime.",
         runtimes: [],
-        instance: "cli-worker",
+        localInstance: "cli-worker",
         role: "worker",
       },
     ],
     squadSource = path.join(parent, "core-squad");
   for (const identity of identities) {
     const agentSource = path.join(parent, identity.id);
+    const { localInstance: _localInstance, ...declaration } = identity;
     writeIdentity(agentSource, {
       id: identity.id,
       title: identity.name,
       kind: "agent",
       agent: {
-        ...identity,
+        ...declaration,
         skills: [{ id: "review", path: "skills/review" }],
         prompts: ["prompt://review"],
         preset: "standard-task",
@@ -284,6 +285,13 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
     });
     run(root, env, ["agent", "install", "--source", agentSource]);
   }
+  const settingsLocalPath = path.join(root, ".harness", "settings.local.json"),
+    settingsLocal = JSON.parse(readFileSync(settingsLocalPath, "utf8")) as Record<string, unknown>;
+  settingsLocal.runtimeAgentBindings = identities.map(({ id: agentId, localInstance }) => ({
+    agentId,
+    instance: localInstance,
+  }));
+  writeFileSync(settingsLocalPath, `${JSON.stringify(settingsLocal, null, 2)}\n`);
   writeIdentity(squadSource, {
     id: "core-squad",
     title: "Core Squad",

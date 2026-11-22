@@ -22,6 +22,7 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
+  TaskReviewDispatchFailureV1,
   assertCurrentWriter,
 } from "@harness-anything/kernel";
 import type { PresetRunReceiptV1, createPresetProcessService } from "@harness-anything/preset";
@@ -113,10 +114,13 @@ import type {
   TaskQueryCell,
 } from "./repo-cell-task-query.ts";
 import type { graphView as graphViewImpl } from "@harness-anything/application/internal/queries/repo-cell-graph-view.ts";
+import type { traceView as traceViewImpl } from "./repo-cell-trace-view.ts";
 import type {
   listEvents as listEventsImpl,
   showEvent as showEventImpl,
 } from "@harness-anything/application/internal/queries/repo-cell-event-query.ts";
+import type { readAuditExportPage as readAuditExportPageImpl } from "@harness-anything/application/internal/queries/ledger-audit-export.ts";
+import type { readTaskDeliveryCertificate as readTaskDeliveryCertificateImpl } from "@harness-anything/application/internal/queries/task-delivery-certificate.ts";
 import type { makeSquadCoordinator } from "./squad-coordinator.ts";
 import type {
   EntityActionCatalogRuntimes,
@@ -158,6 +162,9 @@ export interface RepoCellAutoClaimAssignment {
 }
 
 export interface RepoCellBinding {
+  readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
+  /** Center-local proof that a remote control request originated from the authorized Center control path. */
+  readonly trustedRemoteControl?: true;
   /** Git candidate names observed before entering the local document write turn. */
   readonly observedDocGitPaths?: readonly string[] | null;
   /** Worker-local session lifetime; stripped at every transport/persistence boundary. */
@@ -165,10 +172,14 @@ export interface RepoCellBinding {
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
   readonly sourceNodeId?: string;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
+  /** Center-created proof that a machine token was bound to this node and owner for replica reads. */
+  readonly fleetReplicaPrincipal?: { readonly nodeId: string; readonly personId: string; readonly expiresAt: number };
   /** Resolve a declared Artifact kind name to its stable `entity-kind/KND-…` identity at this turn. */
   readonly artifactKindResolver?: (kind: string) => string | null;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
   readonly taskClaimant?: TaskClaimant;
+  /** Repository-admin scope authorized by the read host for this request. */
+  readonly personalReadScope?: { readonly personId: string; readonly teamIds: readonly string[] };
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   /** Established exclusively by the daemon local socket boundary for host-resident actions. */
@@ -382,6 +393,11 @@ export interface RepoCell {
     onExecutionStart?: () => void,
     queueObservation?: RepoCellQueueObservation,
   ) => Promise<WriteReceipt | SquadControlResult>;
+  readonly recordReviewDispatchFailure: (
+    taskId: string,
+    failure: TaskReviewDispatchFailureV1 | null,
+    binding: RepoCellBinding,
+  ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     action: RepoTaskAction,
     binding: RepoCellBinding,
@@ -394,6 +410,7 @@ export interface RepoCell {
     queueObservation?: RepoCellQueueObservation,
     onExecutionStart?: () => void,
   ) => Promise<JsonObject>;
+  readonly spawnCenterReview: RepoCell["spawnRuntime"];
   readonly handoffRuntime: (
     payload: JsonObject,
     binding: RepoCellBinding,
@@ -445,7 +462,7 @@ export interface RepoCell {
     signal?: AbortSignal,
   ) => Promise<readonly RepoCellAutoClaimAssignment[]>;
   readonly readNodeAutoDispatchCandidates?: (
-    nodeId: string,
+    query: import("./node-auto-dispatch.ts").NodeAutoDispatchQuery,
     signal?: AbortSignal,
   ) => Promise<readonly import("./node-auto-dispatch.ts").NodeAutoDispatchCandidate[]>;
   readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;
@@ -466,6 +483,10 @@ export interface RepoCell {
   readonly attach: AgentRuntimeStreamHub["attach"];
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
+  /** Pure in-memory published status snapshot for observability scrapes; never performs synchronous disk I/O. */
+  readonly publishedStatus?: () => RepoCellStatus;
+  /** Refreshes and publishes live replica-only status on edge replication/health transitions (never on scrape). */
+  readonly refreshReplicaStatus?: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
   readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
@@ -560,6 +581,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly store: CanonicalEventStore;
   readonly input: {
     readonly repoId: string;
+    readonly edgeConfig?: () => import("./client/fleet-edge-config.ts").FleetEdgeConfig | null;
     readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
@@ -581,9 +603,12 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly listRelations: Bound<typeof listRelationsImpl>;
   readonly listEvents: Bound<typeof listEventsImpl>;
   readonly showEvent: Bound<typeof showEventImpl>;
+  readonly auditExportPage: Bound<typeof readAuditExportPageImpl>;
+  readonly taskDeliveryCertificate: Bound<typeof readTaskDeliveryCertificateImpl>;
   readonly reviewTask: Bound<typeof reviewTaskImpl>;
   readonly taskReadSet: Bound<typeof taskReadSetImpl>;
   readonly graphView: Bound<typeof graphViewImpl>;
+  readonly traceView: Bound<typeof traceViewImpl>;
   readonly publishGeneratedArtifact: typeof publishGeneratedArtifact;
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly entityActionRuntimes: EntityActionCatalogRuntimes;
@@ -667,6 +692,7 @@ export interface RepoCellApiContext {
   readonly input: {
     readonly repoId: string;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
+    readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
     readonly prepareDaemonGitEnvironment?: (
@@ -739,13 +765,16 @@ export interface RepoCellOpenInput {
   readonly storage?: DaemonStorageConfig;
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
+  readonly userRoot?: string;
   readonly ownerId: string;
   /** Supervisor-owned generation for physical isolate replacement, independent of wall-clock steps. */
   readonly writerGeneration?: number;
   readonly mode?: DaemonRepoMode;
   readonly authoredBranch?: string;
+  readonly cloudRuntime?: import("./runtime-spawn-types.ts").RuntimeSpawnerInput["cloudRuntime"];
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
+  readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession?: (rootDir: string) => Promise<RuntimeOperatorSession>;
   readonly runtimeInstanceDispatchState?: import("@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts").RuntimeInstanceDispatchState;
@@ -779,6 +808,8 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
+  /** Opt-in O(1) metrics status sink, wired only when Prometheus metrics collection is enabled. */
+  readonly onMetricsStatus?: (status: RepoCellStatus) => void;
   readonly onQueueDepthChange?: (queueDepth: number) => void;
   readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   readonly now?: () => string;

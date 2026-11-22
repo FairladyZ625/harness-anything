@@ -1,5 +1,5 @@
-import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
-import { identityProviderOf, type IdentityProvider } from "@harness-anything/authorization-gui/identity-presentation";
+import type { OidcAuthApi } from "@harness-anything/authorization/gui/oidc-auth-contract";
+import { identityProviderOf, type IdentityProvider } from "@harness-anything/authorization/gui/identity-presentation";
 
 /**
  * The identity port answers one of two things: a confirmed session state (signed in or signed

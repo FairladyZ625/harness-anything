@@ -469,6 +469,21 @@ test("fleet operational read admits dispatches, node auto-dispatch and auto-clai
   assert.deepEqual(parseFleetFrame(autoClaimCandidates), autoClaimCandidates);
   const autoDispatchCandidates = { ...frame, method: "repo.tasks.autoDispatchCandidates", payload: {} };
   assert.deepEqual(parseFleetFrame(autoDispatchCandidates), autoDispatchCandidates);
+  for (const [method, payload] of [
+    ["repo.tasks.list", { limit: 20 }],
+    ["repo.task.show", { taskId: "task-one" }],
+    ["repo.task.read", { action: { kind: "task-show", taskId: "task-one" } }],
+    ["observe.tail", { kind: "events", direction: "history" }],
+    ["repo.events.read", { afterRevision: 0, limit: 2, waitMs: 25_000 }],
+    ["repo.agentRuntime.events.read", { runtimeSessionId: "runtime-one", afterCursor: "lifecycle:0" }],
+    ["repo.agentRuntime.tokenUsage", { range: "7d" }],
+    ["repo.agentRuntime.tokenUsageDetail", { range: "7d", agentId: "agent-one" }],
+    ["repo.artifacts.list", { limit: 20 }],
+    ["repo.agenda.read", { limit: 20 }],
+  ] as const) {
+    const businessRead = { ...frame, method, payload };
+    assert.deepEqual(parseFleetFrame(businessRead), businessRead, method);
+  }
   assert.throws(() => parseFleetFrame({ ...frame, schema: "fleet.runtime.read/v1" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.agentRuntime.overview" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.task.run" }), FleetContractError);

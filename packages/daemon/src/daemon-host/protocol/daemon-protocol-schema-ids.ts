@@ -368,7 +368,14 @@ export const GUI_SYSTEM_STATUS_SCHEMA = Object.freeze({
  * an opaque `json?` payload let an injected field through the declared boundary — is why this is
  * enumerated rather than opaque.
  */
+export const daemonCollaboratorScopeFields = {
+  scopePersonId: "string?",
+  filterPersonId: "string?",
+  filterNodeId: "string?",
+} as const;
+
 export const daemonUseCaseProjectionPayloadShape = shape({
+  ...daemonCollaboratorScopeFields,
   name: { values: useCaseProjectionNameWords, optional: false },
   facet: optionalEnum(["plane", "runs", "groups", "members"]),
   scheduleId: "string?",
@@ -387,6 +394,9 @@ export const daemonUseCaseProjectionPayloadShape = shape({
 });
 
 export const daemonTaskQueryPayloadShape = shape({
+  ...daemonCollaboratorScopeFields,
+  involvement: optionalEnum(["all", "mine"]),
+  attestationOnly: "boolean?",
   status: "string?",
   changedAfterRevision: "number?",
   updatedAfter: "string?",
@@ -406,11 +416,15 @@ import { agentRuntimeTokenUsageRangeWords } from "../../runtime-engine/runtime-c
 export { agentRuntimeTokenUsageRangeWords };
 export const daemonTokenUsagePayloadShape = shape({
   range: optionalEnum(agentRuntimeTokenUsageRangeWords),
+  groupBy: optionalEnum(["person", "node"]),
+  ...daemonCollaboratorScopeFields,
 });
 export const daemonTokenUsageDetailPayloadShape = shape({
   range: optionalEnum(agentRuntimeTokenUsageRangeWords),
   agentId: "string?",
   squadId: "string?",
+  limit: "number?",
+  cursor: "string?",
 });
 
 export const daemonRelationQueryPayloadShape = shape({
@@ -428,18 +442,23 @@ export const daemonRelationQueryPayloadShape = shape({
 });
 
 export const daemonDecisionListPayloadShape = shape({
+  ...daemonCollaboratorScopeFields,
+  involvement: optionalEnum(["all", "mine"]),
   projection: optionalEnum(["summary", "full"]),
   state: optionalEnum(decisionStateWords),
 });
 
 /** 时间线默认面是 html;md(体量 ~77×)与 raw(二进制产物)是显式 opt-in,absent 字段即 html。 */
 export const daemonArtifactsListPayloadShape = shape({
+  ...daemonCollaboratorScopeFields,
   limit: "number?",
   cursor: "string?",
   kind: optionalEnum(["html", "md", "raw"]),
 });
 
 export const daemonAgendaPayloadShape = shape({
+  scopePersonId: "string?",
+  filterNodeId: "string?",
   limit: "number?",
   cursor: "string?",
   work: "string?",

@@ -91,7 +91,7 @@ function writeIdentity(
   name: string,
   runtimeType = "codex",
   model?: string,
-  instance?: string,
+  _instance?: string,
 ): void {
   mkdirSync(target, { recursive: true });
   writeFileSync(
@@ -102,7 +102,6 @@ function writeIdentity(
       name,
       instructions: `${name} instructions`,
       runtimes: [{ type: runtimeType, ...(model ? { model } : {}) }],
-      ...(instance ? { instance } : {}),
       skills: [],
       prompts: [],
       preset: "standard-task",

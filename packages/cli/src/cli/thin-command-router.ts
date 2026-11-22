@@ -214,6 +214,8 @@ export function parseRouted(
   const entityPin = parseEntityPinRouted(route, args, rootDir, repoId, json);
   if (entityPin) return entityPin;
   if (route.id === "ledger-reconcile") return parseLedgerReconcileRouted(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "ledger-audit-export")
+    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
@@ -238,7 +240,8 @@ export function parseRouted(
       route.id === "node-unregister" ? { operation: "node-unregister" } : {},
       route.method,
     );
-  if (rootCommand === "event") return parseEventRouted(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "event")
+    return parseEventRouted(route, args, rootDir, repoId, json || route.id === "event-subscribe", inputs);
   if (rootCommand === "repo") return parseRepoLifecycle(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "people") return parsePeople(route, args, rootDir, repoId, json, inputs);
   if (route.id === "receipt-show" && nonEmpty(args[2])) {
@@ -488,13 +491,14 @@ function parseBootstrapRouted(
 ): ThinParseResult {
   const f = readFlags("repo-bootstrap", args.slice(1), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const name = f.one.get("--name");
   return accepted(rootDir, undefined, json, {
     kind: "repo-bootstrap",
     ...(f.one.has("--repo-id") ? { repoId: f.one.get("--repo-id") } : {}),
     ...(f.one.has("--person-id") ? { personId: f.one.get("--person-id") } : {}),
     ...(f.one.has("--display-name") ? { displayName: f.one.get("--display-name") } : {}),
-    ...(name ? { name } : {}),
+    ...(f.one.get("--name") ? { name: f.one.get("--name") } : {}),
+    ...(f.one.get("--vertical") ? { vertical: f.one.get("--vertical") } : {}),
+    ...(f.one.get("--preset") ? { preset: f.one.get("--preset") } : {}),
     ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
     ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
   });

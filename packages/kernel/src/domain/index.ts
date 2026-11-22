@@ -3,6 +3,7 @@ export { commandInterceptionIssues } from "./command-interceptions.ts";
 export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
+export { decisionProviderVendors } from "./decision-provider.ts";
 export type {
   AdvisoryDecision,
   DecisionOption,
@@ -10,6 +11,7 @@ export type {
   DecisionProviderMetadata,
   DecisionProviderProbe,
   DecisionProviderRecord,
+  DecisionProviderVendor,
   DecisionQuestion,
   DecisionRequest,
   DecisionUsage,
@@ -68,6 +70,7 @@ export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";
 export {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
+  hasEffectiveReviewForExecution,
   reviewsForExecution,
   reviewVerdicts,
 } from "./review.ts";
@@ -138,6 +141,7 @@ export {
   readSubmissionFacts,
   renderSubmissionFacts,
   replaceSubmissionFacts,
+  upsertCloseoutSubmissionFacts,
 } from "./submission-facts.ts";
 export { classifyProtectedChanges, deriveProtectedSurfaceRules } from "./protected-surface-governance.ts";
 export {
@@ -481,6 +485,9 @@ export {
   dispatchPermissionEvidence,
   isDispatchAttemptCancelled,
   isDispatchAttemptExitedUnsettled,
+  isExhaustedDispatchTerminal,
+  isSettledDispatchFailure,
+  scheduledFallbackNotBefore,
   dispatchOwner,
   dispatchOwnerForNode,
   previewDispatchLifecycleOutcome,

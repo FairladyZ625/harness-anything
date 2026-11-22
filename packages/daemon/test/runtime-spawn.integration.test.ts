@@ -483,7 +483,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Default Model",
       instructions: "Use instance default.",
       runtimes: [{ type: "codex" }],
-      instance: "codex-agent-model",
       role: "commander",
     },
     {
@@ -492,7 +491,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Any Model",
       instructions: "Use any compatible runtime.",
       runtimes: [],
-      instance: "codex-agent-model",
     },
     {
       schema: "agent-declaration/v1",
@@ -500,7 +498,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Missing Preset",
       instructions: "Do not dispatch without the preset.",
       runtimes: [{ type: "codex" }],
-      instance: "codex-agent-model",
       preset: "missing-preset",
     },
     {
@@ -1041,12 +1038,6 @@ test("Agent skill is really read by the provider from the absolute path in its f
     });
   await host.attachmentsSettled();
   try {
-    const settings = await host.run(
-      repoId,
-      { kind: "settings-update", runtimeAllowedInstances: ["codex-skill"], idempotencyKey: "allow-codex-skill" },
-      auth,
-    );
-    assert.equal(settings.outcome, "applied", JSON.stringify(settings));
     await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
@@ -1070,7 +1061,6 @@ test("Agent skill is really read by the provider from the absolute path in its f
           name: "Skill Agent",
           instructions: "Use the provider skill.",
           runtimes: [{ type: "codex" }],
-          instance: "codex-skill",
           skills: [{ id: "provider-witness", path: "skills/provider-witness" }],
         },
       },

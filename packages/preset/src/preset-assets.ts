@@ -4,7 +4,7 @@ import {
   validateTemplateCatalogBodies,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
-import { compileVerticalContract } from "@harness-anything/kernel";
+import { compileVerticalContract, INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   decodeVerticalDefinition,
   TemplateCatalogSchema,
@@ -14,7 +14,9 @@ import type { CompiledVerticalContract } from "@harness-anything/kernel";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-json.ts";
 import {
-  defaultAssets,
+  asFailure,
+  builtinVerticalAssetRootSet,
+  builtinVerticalRoots,
   isPresetResolutionRecord,
   presetFailure,
   resolverContentHash,
@@ -25,13 +27,34 @@ import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const canonicalAssetsCache = new Map<string, CanonicalAssets>();
+const protectedBuiltinVerticalId = INITIAL_SETTINGS_V1.defaultVertical;
 
-/** Repository declarations are external input; IDs never become filesystem paths. */
-export function resolveVerticalAssetsRoot(verticalId: string, repoRoot?: string): string {
-  const roots = new Map([["software/coding", defaultAssets]]);
-  const directory = repoRoot && path.join(repoRoot, "verticals");
+export interface VerticalCatalogEntryV1 {
+  readonly id: string;
+  readonly title: string;
+  readonly version: string | null;
+  readonly layer: "builtin" | "repository";
+  readonly source: string;
+  readonly default: boolean;
+  readonly valid: boolean;
+  readonly shadows?: "builtin";
+  readonly issues: readonly { readonly code: string; readonly message: string }[];
+}
+
+function scanVerticalRoots(repoRoot?: string): {
+  readonly roots: Map<string, string>;
+  readonly localRoots: Map<string, string>;
+  readonly shadowedBuiltins: Set<string>;
+} {
+  const roots = new Map(builtinVerticalRoots),
+    localRoots = new Map<string, string>(),
+    shadowedBuiltins = new Set<string>(),
+    directory = repoRoot && path.join(repoRoot, "verticals");
   if (directory && existsSync(directory)) {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
+    for (const entry of entries) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
       const root = path.join(directory, entry.name),
         declaration = path.join(root, "vertical.json");
@@ -39,14 +62,30 @@ export function resolveVerticalAssetsRoot(verticalId: string, repoRoot?: string)
       const raw = parsePresetJson(requiredRegularFile(declaration, "missing_vertical"), "invalid_vertical");
       if (!isPresetResolutionRecord(raw) || typeof raw.id !== "string" || !raw.id.trim())
         throw presetFailure("invalid_vertical", `${declaration} must declare a vertical id.`);
-      if (roots.has(raw.id))
+      const id = raw.id.trim();
+      if (id === protectedBuiltinVerticalId)
+        throw presetFailure("duplicate_vertical", `Vertical ${id} is declared by both ${roots.get(id)} and ${root}.`);
+      if (localRoots.has(id))
         throw presetFailure(
           "duplicate_vertical",
-          `Vertical ${raw.id} is declared by both ${roots.get(raw.id)} and ${root}.`,
+          `Vertical ${id} is declared by both ${localRoots.get(id)} and ${root}.`,
         );
-      roots.set(raw.id, root);
+      if (builtinVerticalRoots.has(id)) shadowedBuiltins.add(id);
+      localRoots.set(id, root);
+      roots.set(id, root);
     }
   }
+  return { roots, localRoots, shadowedBuiltins };
+}
+
+export function findLocalVerticalRoot(verticalId: string, repoRoot?: string): string | null {
+  if (!repoRoot || verticalId === protectedBuiltinVerticalId) return null;
+  return scanVerticalRoots(repoRoot).localRoots.get(verticalId) ?? null;
+}
+
+/** Repository declarations are external input; IDs never become filesystem paths. */
+export function resolveVerticalAssetsRoot(verticalId: string, repoRoot?: string): string {
+  const { roots } = scanVerticalRoots(repoRoot);
   const root = roots.get(verticalId);
   if (!root)
     throw presetFailure(
@@ -56,12 +95,56 @@ export function resolveVerticalAssetsRoot(verticalId: string, repoRoot?: string)
   return root;
 }
 
+export function listVerticalCatalog(
+  input: { readonly rootDir?: string; readonly defaultVertical?: string } = {},
+): VerticalCatalogEntryV1[] {
+  const { roots, shadowedBuiltins } = scanVerticalRoots(input.rootDir),
+    defaultVertical = input.defaultVertical ?? null;
+  return [...roots.entries()]
+    .map(([id, root]): VerticalCatalogEntryV1 => {
+      const resolvedRoot = path.resolve(root),
+        isBuiltin = builtinVerticalAssetRootSet.has(resolvedRoot),
+        source = isBuiltin ? `builtin:${id}` : root,
+        layer = isBuiltin ? ("builtin" as const) : ("repository" as const),
+        shadows = !isBuiltin && shadowedBuiltins.has(id) ? ("builtin" as const) : undefined;
+      try {
+        const assets = loadCanonicalAssets(resolvedRoot),
+          vertical = assets.compiledVertical.definition;
+        return {
+          id: vertical.id,
+          title: vertical.title,
+          version: vertical.version,
+          layer,
+          source,
+          default: vertical.id === defaultVertical,
+          valid: true,
+          ...(shadows ? { shadows } : {}),
+          issues: [],
+        };
+      } catch (error) {
+        const issue = asFailure(error);
+        return {
+          id,
+          title: id,
+          version: null,
+          layer,
+          source,
+          default: id === defaultVertical,
+          valid: false,
+          ...(shadows ? { shadows } : {}),
+          issues: [{ code: issue.code, message: issue.message }],
+        };
+      }
+    })
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
 export function loadCanonicalAssets(source: string): CanonicalAssets {
   const resolvedSource = path.resolve(source),
     cached = canonicalAssetsCache.get(resolvedSource);
   if (cached) return cached;
   const assets = loadCanonicalAssetsUncached(resolvedSource);
-  if (resolvedSource !== path.resolve(defaultAssets)) return assets;
+  if (!builtinVerticalAssetRootSet.has(resolvedSource)) return assets;
   canonicalAssetsCache.set(resolvedSource, assets);
   return assets;
 }

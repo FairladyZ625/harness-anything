@@ -216,6 +216,8 @@ async function main() {
           return runRead(["schedule", "runs"]);
         case "settings-read":
           return runRead(["settings", "read"]);
+        case "vertical-list":
+          return runRead(["vertical", "list"]);
         case "vertical-validate":
           return runRead(["vertical", "validate"]);
         case "preset-list":
