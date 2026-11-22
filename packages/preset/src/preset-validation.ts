@@ -96,7 +96,16 @@ export function validateVerticalSource(
     readonly userRoot?: string;
   } = {},
 ) {
-  const requested = input.source ?? "software/coding",
+  if (input.source === undefined && input.assetsRoot === undefined) {
+    return {
+      schema: "vertical-validate-report/v1" as const,
+      source: "",
+      available: false,
+      valid: false,
+      issues: [presetFailure("missing_vertical", "Vertical source is required.")],
+    };
+  }
+  const requested = input.source ?? input.assetsRoot!,
     explicitBuiltin = requested.startsWith("builtin:"),
     builtinId = explicitBuiltin ? requested.slice("builtin:".length) : requested,
     builtin = builtinVerticalRoots.has(builtinId);

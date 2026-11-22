@@ -3,7 +3,6 @@ import { loadCanonicalAssets } from "./preset-assets.ts";
 import { materializeSelections } from "./preset-materialization.ts";
 import {
   builtinVerticalAssetRootSet,
-  defaultAssets,
   normalizeLocale,
   presetFailure,
   requiredText,
@@ -24,7 +23,7 @@ type PresetCatalogDisplayEntry = PresetCatalogEntryV1 & {
 
 export function runVerticalDiscoveryAction(
   action: Readonly<Record<string, unknown>> & { readonly kind: string },
-  assetsRoot = defaultAssets,
+  assetsRoot: string,
 ): unknown {
   const resolvedAssetsRoot = path.resolve(assetsRoot),
     assets = loadCanonicalAssets(resolvedAssetsRoot),

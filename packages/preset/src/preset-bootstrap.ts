@@ -83,6 +83,7 @@ export interface CompiledTaskPackage {
   readonly documents: readonly CompiledTaskDocument[];
   readonly metadata: TaskMetadataV1;
   readonly lightweightPresetIds: readonly string[];
+  readonly artifactPresetIds: readonly string[];
   readonly defaultNonLightweightProfileId: string | null;
 }
 export interface CompiledTaskBootstrap extends CompiledTaskPackage {
@@ -323,6 +324,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
     documents,
     metadata,
     lightweightPresetIds: resolved.lightweightPresetIds,
+    artifactPresetIds: resolved.artifactPresetIds,
     defaultNonLightweightProfileId:
       resolved.manifest.defaultProfile === "lightweight"
         ? (resolved.manifest.profiles.find(({ id }) => id !== "lightweight")?.id ?? null)

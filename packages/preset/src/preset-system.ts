@@ -30,6 +30,7 @@ import {
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
 import { listVerticalCatalog, resolveVerticalAssetsRoot } from "./preset-assets.ts";
+import { resolveDefaultPresetSelection, resolveWorkPresetId } from "./preset-runtime.ts";
 import { asFailure } from "./preset-resolver-common.ts";
 
 type TaskWorkKind = NonNullable<Parameters<typeof compileTaskPackage>[0]["workKind"]>;
@@ -60,7 +61,7 @@ export async function runPresetAction(input: {
     });
   if (action.kind === "vertical-validate")
     return validateVerticalSource({
-      source: optionalActionText(action.verticalSource) ?? input.settings?.defaultVertical,
+      source: optionalActionText(action.verticalSource) ?? requiredSettings(input.settings).defaultVertical,
       rootDir: input.rootDir,
       presetId: optionalActionText(action.presetId),
       userRoot: presetUserRoot(input.rootDir),
@@ -158,16 +159,23 @@ export function compileRepoTaskBootstrap(input: {
   readonly riskTierFlowVersion?: 1 | null;
 }): CompiledTaskBootstrap {
   const defaults = presetRuntimeDefaults(input.settings),
+    resolverOptions = presetResolverOptions(input.rootDir, defaults),
     taskClass = optionalTaskClass(input.action.taskClass),
-    profileId = optionalActionText(input.action.profileId) ?? defaults.profileId;
+    verticalId = optionalActionText(input.action.verticalId) ?? defaults.verticalId,
+    presetId =
+      optionalActionText(input.action.presetId) ??
+      (taskClass === "work" ? resolveWorkPresetId({ ...resolverOptions, verticalId }) : defaults.presetId),
+    profileId =
+      optionalActionText(input.action.profileId) ??
+      (taskClass === "work" && presetId !== defaults.presetId ? undefined : defaults.profileId);
   return compileTaskBootstrap({
-    ...presetResolverOptions(input.rootDir, defaults),
+    ...resolverOptions,
     ...taskPackageFields(input.action),
     taskId: input.taskId,
     title: required(input.action.title, "title"),
     ...(taskClass ? { taskClass } : {}),
-    presetId: optionalActionText(input.action.presetId) ?? defaults.presetId,
-    verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId,
+    presetId,
+    verticalId,
     ...(profileId ? { profileId } : {}),
     ...(input.riskTierFlowVersion === undefined ? {} : { riskTierFlowVersion: input.riskTierFlowVersion }),
     locale: optionalActionText(input.action.locale) ?? defaults.locale,
@@ -187,20 +195,42 @@ export function compileRepoTaskPackage(input: {
   readonly riskTierFlowVersion?: 1 | null;
 }): CompiledTaskPackage {
   const defaults = presetRuntimeDefaults(input.settings),
+    resolverOptions = presetResolverOptions(input.rootDir, defaults),
     taskClass = optionalTaskClass(input.action.taskClass),
-    profileId = optionalActionText(input.action.profileId) ?? defaults.profileId;
+    verticalId = optionalActionText(input.action.verticalId) ?? defaults.verticalId,
+    presetId =
+      optionalActionText(input.action.presetId) ??
+      (taskClass === "work" ? resolveWorkPresetId({ ...resolverOptions, verticalId }) : defaults.presetId),
+    profileId =
+      optionalActionText(input.action.profileId) ??
+      (taskClass === "work" && presetId !== defaults.presetId ? undefined : defaults.profileId);
   return compileTaskPackage({
-    ...presetResolverOptions(input.rootDir, defaults),
+    ...resolverOptions,
     ...taskPackageFields(input.action),
     taskId: input.taskId,
     title: required(input.action.title, "title"),
     ...(taskClass ? { taskClass } : {}),
-    presetId: optionalActionText(input.action.presetId) ?? defaults.presetId,
-    verticalId: optionalActionText(input.action.verticalId) ?? defaults.verticalId,
+    presetId,
+    verticalId,
     ...(profileId ? { profileId } : {}),
     ...(input.riskTierFlowVersion === undefined ? {} : { riskTierFlowVersion: input.riskTierFlowVersion }),
     locale: optionalActionText(input.action.locale) ?? defaults.locale,
   });
+}
+export function resolveRepoBootstrapDefaults(input: {
+  readonly rootDir: string;
+  readonly verticalId: string;
+  readonly presetId?: string;
+  readonly preferredPresetId?: string;
+}): { readonly verticalId: string; readonly presetId: string; readonly profileId: string } {
+  const selected = resolveDefaultPresetSelection({
+    repoRoot: input.rootDir,
+    userRoot: presetUserRoot(input.rootDir),
+    verticalId: input.verticalId,
+    ...(input.presetId ? { presetId: input.presetId } : {}),
+    ...(input.preferredPresetId ? { preferredPresetId: input.preferredPresetId } : {}),
+  });
+  return { verticalId: input.verticalId, ...selected };
 }
 export function compileRepoPresetSnapshotUpgrade(
   input: Omit<Parameters<typeof compilePresetSnapshotUpgrade>[0], keyof ReturnType<typeof presetResolverOptions>> & {

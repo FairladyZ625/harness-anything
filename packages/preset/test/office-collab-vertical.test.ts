@@ -103,14 +103,17 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
       if (source !== officeRoot) assert.equal(report.source, "builtin:office/collab");
     }
 
-    // Default validateVerticalSource with no source stays software/coding
-    const defaultReport = validateVerticalSource({ userRoot });
-    assert.equal(defaultReport.valid, true, JSON.stringify(defaultReport.issues));
-    assert.equal(defaultReport.source, "builtin:software/coding");
-    assert.equal(defaultReport.vertical?.id, "software/coding");
+    // dec_42EB7B8F636C12381A447E52A3/CH1: validateVerticalSource requires an explicit source and never falls back to software/coding
+    const omittedReport = validateVerticalSource({ userRoot });
+    assert.equal(omittedReport.valid, false);
+    assert.equal(omittedReport.issues[0]?.code, "missing_vertical");
+    const codingReport = validateVerticalSource({ source: "software/coding", userRoot });
+    assert.equal(codingReport.valid, true, JSON.stringify(codingReport.issues));
+    assert.equal(codingReport.source, "builtin:software/coding");
+    assert.equal(codingReport.vertical?.id, "software/coding");
 
-    // Validate all bundled office/collab preset packages
-    for (const presetId of ["deliverable-task", "handoff-task", "minutes-task"]) {
+    // Validate all bundled office/collab preset packages (including native work-root preset)
+    for (const presetId of ["deliverable-task", "handoff-task", "minutes-task", "work-root"]) {
       const presetReport = validatePresetPackage({ source: path.join(officeRoot, "presets", presetId) });
       assert.equal(presetReport.valid, true, `${presetId}: ${JSON.stringify(presetReport.issues)}`);
       const combined = validateVerticalSource({ source: "office/collab", presetId, userRoot });
@@ -137,7 +140,7 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
       assert.match(rendered.body, /## Acceptance Criteria/u);
     }
 
-    // Resolver lists all three bundled office/collab presets as valid
+    // Resolver lists all four bundled office/collab presets as valid
     const runtime = createRuntime({ userRoot });
     const listed = await runtime.resolver.list({ verticalId: "office/collab" });
     assert.deepEqual(
@@ -146,6 +149,7 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
         { id: "deliverable-task", validity: "valid", defaultProfile: "baseline" },
         { id: "handoff-task", validity: "valid", defaultProfile: "baseline" },
         { id: "minutes-task", validity: "valid", defaultProfile: "baseline" },
+        { id: "work-root", validity: "valid", defaultProfile: "baseline" },
       ],
     );
 
@@ -178,8 +182,8 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
       assert.deepEqual(decl.runtimes, []);
       assert.deepEqual(decl.skills ?? [], []);
     }
-    assert.ok(listBundledAgentDeclarationIds().includes("worker"));
-    assert.equal(readBundledAgentDeclaration("coordinator"), null);
+    assert.ok(listBundledAgentDeclarationIds("software/coding").includes("worker"));
+    assert.equal(readBundledAgentDeclaration("coordinator", "software/coding"), null);
 
     // Repository scaffold compiles for office/collab in both locales
     for (const locale of ["en-US", "zh-CN"] as const) {

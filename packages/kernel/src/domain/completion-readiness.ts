@@ -120,9 +120,10 @@ export interface CompletionContractGap {
  */
 export function completionContractGap(
   task: Pick<TaskV2, "taskId" | "presetSnapshotDigest" | "presetSnapshotGap" | "metadata"> | null | undefined,
+  defaultPresetId?: string,
 ): CompletionContractGap | null {
   if (!task?.presetSnapshotGap) return null;
-  const presetId = task.metadata?.presetId ?? "standard-task";
+  const presetId = task.metadata?.presetId ?? defaultPresetId ?? "<preset-id>";
   return {
     code: "document_invalid",
     gate: "completion-contract",

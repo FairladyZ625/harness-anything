@@ -203,7 +203,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         "outputShape: repository-diff",
         "completionGates: []",
         "contract: repository-diff requires a committable public-repository diff and real CI. " +
-          "For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
+          "For a task-package-only report or decision, use a task-package-artifact preset (architecture-rot-audit, code-impact-analysis, docs-task, lifecycle-blackbox-acceptance, subtask-expansion).",
         "next: remove --dry-run to publish this exact resolved scaffold",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
           "harness/tasks/task-alpha-alpha/task_plan.md; keep the preset's required section headings for task start, but reorder or add sections freely — only machine-managed frontmatter is frozen",

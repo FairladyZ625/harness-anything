@@ -14,9 +14,9 @@ import {
   type MarkdownDocumentContract,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { loadCanonicalAssets } from "@harness-anything/preset/internal/preset-assets";
+import { findLocalVerticalRoot, loadCanonicalAssets } from "@harness-anything/preset/internal/preset-assets";
 import { safeTemplatePath } from "@harness-anything/preset/internal/preset-materialization";
-import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
+import { builtinVerticalRoots, defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { CatalogSource } from "@harness-anything/preset/internal/preset-resolver-types";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
@@ -53,10 +53,11 @@ interface TransitionDocumentDescriptor {
 export function transitionDocumentReadinessContract(input: {
   readonly contract: unknown;
   readonly descriptor: TransitionDocumentDescriptor;
+  readonly rootDir?: string;
 }): MarkdownDocumentContract | null {
   const embedded = embeddedReadinessContract(input.descriptor.readiness, input.descriptor.readinessKnownSections);
   if (embedded) return embedded;
-  const catalog = catalogReadinessSource(input.contract, input.descriptor);
+  const catalog = catalogReadinessSource(input.contract, input.descriptor, input.rootDir);
   // A package materialized before descriptors carried the frozen contract is judged only by the
   // catalog's baseline anchors. A conditional section declared later never backfills an old plan.
   return catalog === null ? null : transitionDocumentContract(catalog.body, catalog.requiredAnchors);
@@ -89,17 +90,21 @@ const renamedTemplateRefs: Readonly<Record<string, string>> = Object.freeze({
 function catalogReadinessSource(
   contract: unknown,
   descriptor: TransitionDocumentDescriptor,
+  rootDir?: string,
 ): { readonly body: string; readonly requiredAnchors: readonly string[] } | null {
   const cited = descriptor.templateRef;
   if (typeof cited !== "string" || !cited) return null;
   const templateRef = Object.hasOwn(renamedTemplateRefs, cited) ? renamedTemplateRefs[cited] : cited,
-    locale =
-      typeof descriptor.locale === "string" && descriptor.locale
-        ? descriptor.locale
-        : contract && typeof contract === "object" && !Array.isArray(contract)
-          ? (contract as { readonly locale?: unknown }).locale
-          : undefined,
-    assets = loadCatalogAssets();
+    contractRecord =
+      contract && typeof contract === "object" && !Array.isArray(contract)
+        ? (contract as { readonly locale?: unknown; readonly verticalId?: unknown })
+        : null,
+    locale = typeof descriptor.locale === "string" && descriptor.locale ? descriptor.locale : contractRecord?.locale,
+    verticalId =
+      typeof contractRecord?.verticalId === "string" && contractRecord.verticalId.trim()
+        ? contractRecord.verticalId.trim()
+        : undefined,
+    assets = loadCatalogAssets(verticalId, rootDir);
   if (assets === null || typeof locale !== "string") return null;
   const document = assets.catalog.documents.find((item) => `template://${item.id}@${item.version}` === templateRef),
     variant = document?.locales.find((item) => item.locale === locale) ?? document?.locales[0];
@@ -113,7 +118,13 @@ function catalogReadinessSource(
 
 let bundledCatalog: CatalogSource | null | undefined;
 
-function loadCatalogAssets(): CatalogSource | null {
+function loadCatalogAssets(verticalId?: string, rootDir?: string): CatalogSource | null {
+  if (verticalId) {
+    const root = findLocalVerticalRoot(verticalId, rootDir) ?? builtinVerticalRoots.get(verticalId) ?? null;
+    return root !== null && existsSync(path.join(root, "template-catalog.json"))
+      ? loadCanonicalAssets(root).catalog
+      : null;
+  }
   if (bundledCatalog === undefined)
     bundledCatalog = existsSync(path.join(defaultAssets, "template-catalog.json"))
       ? loadCanonicalAssets(defaultAssets).catalog
@@ -184,6 +195,7 @@ export function locateTaskTransitionDocument(input: {
 }
 
 export function readTaskTransitionDocument(input: {
+  readonly rootDir?: string;
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
@@ -211,7 +223,10 @@ export function readTaskTransitionDocument(input: {
     source: overridden === undefined ? "canonical projection" : "submitted candidate",
     // The closeout is authored prose: submit extracts its sections and never compares them to a
     // scaffold (dec_E369B8616F50A6208B293997E7 CH2). Only the plan is judged against its contract.
-    contract: input.slot === "task.plan" ? transitionDocumentReadinessContract({ contract, descriptor }) : null,
+    contract:
+      input.slot === "task.plan"
+        ? transitionDocumentReadinessContract({ contract, descriptor, rootDir: input.rootDir })
+        : null,
   };
 }
 

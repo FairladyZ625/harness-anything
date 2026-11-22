@@ -131,7 +131,7 @@ export function readAgentDeclarationResolution(input: {
     throw agentDeclarationInvalidError(input.agentId, error);
   }
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
-  const bundled = readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir);
+  const bundled = input.verticalId ? readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir) : null;
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
 

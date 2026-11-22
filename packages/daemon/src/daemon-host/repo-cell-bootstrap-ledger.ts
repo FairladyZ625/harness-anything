@@ -45,7 +45,7 @@ export async function initializeBootstrapLedger(
     const verticalRevision = (store.readHead()?.revision ?? 0) + 1,
       verticalBundle = compileVerticalDeclarationEvent({
         type: "vertical_declared",
-        definition: readDefaultVerticalDefinition(),
+        definition: readDefaultVerticalDefinition(cell.rootDir, bootstrap.settingsBootstrap[0].defaultVertical),
         eventId: `event-vertical-declaration-${verticalRevision}`,
         opId: `vertical-declaration-initialize-${verticalRevision}`,
         workspaceRevision: verticalRevision,

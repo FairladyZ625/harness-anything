@@ -24,6 +24,7 @@ export {
   compileRepoTaskBootstrap,
   compileRepoTaskPackage,
   presetUserRoot,
+  resolveRepoBootstrapDefaults,
   runPresetAction,
 } from "./preset-system.ts";
 export { createPresetProcessService, recoverPresetRunStatus } from "./preset-process-service.ts";
