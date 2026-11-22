@@ -203,9 +203,9 @@ test(
     assert.ok(f.eventCount() > beforeDispatch, "the same center writer must accept the next valid write");
     const beforeCurrentDispatch = f.eventCount();
     const dispatch = await rpc("repo.decision.dispatchReview", dispatchPayload);
-    assert.equal(dispatch.code, "runtime_instance_not_allowed", JSON.stringify(dispatch));
-    assert.match(String(dispatch.rejectionExplanation), /No runtime instance is allowed/u);
-    assert.equal(f.eventCount(), beforeCurrentDispatch, "the center requires an allowed runtime before dispatch");
+    assert.equal(dispatch.code, "agent_runtime_unavailable", JSON.stringify(dispatch));
+    assert.match(String(dispatch.rejectionExplanation), /no enabled instance/u);
+    assert.equal(f.eventCount(), beforeCurrentDispatch, "the center requires an available runtime before dispatch");
     for (const operation of ["reject", "defer"]) {
       const other = await rpc("repo.decision.propose", proposal(`Edge GUI ${operation}`));
       assert.equal(other.outcome, "applied", JSON.stringify(other));

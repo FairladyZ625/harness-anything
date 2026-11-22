@@ -374,7 +374,7 @@ export function setFixtureAgentBinding(rootDir: string, agentId: string, instanc
   mkdirSync(path.dirname(localPath), { recursive: true });
   writeFileSync(
     localPath,
-    JSON.stringify({ ...stored, schema: "settings-local/v1", runtimeAgentBindings: bindings }),
+    JSON.stringify({ locale: "en-US", ...stored, schema: "settings-local/v1", runtimeAgentBindings: bindings }),
     "utf8",
   );
 }

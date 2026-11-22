@@ -635,13 +635,13 @@ test(
     assert.ok(scan.changes.some((c) => c.path === artifactPath));
     // Hosting is a local fixture declaration; all Git traffic stays on the private file remote.
     for (const root of [f.repo, edgeRoot]) {
-      const config = path.join(root, "harness", "harness.yaml");
+      const config = path.join(root, "harness", "harness.yaml"),
+        raw = readFileSync(config, "utf8");
       writeFileSync(
         config,
-        readFileSync(config, "utf8").replace(
-          "settings:\n",
-          "settings:\n  hosting:\n    provider: github\n    host: github.com\n",
-        ),
+        raw.includes("settings:\n")
+          ? raw.replace("settings:\n", "settings:\n  hosting:\n    provider: github\n    host: github.com\n")
+          : `${raw}settings:\n  hosting:\n    provider: github\n    host: github.com\n`,
       );
     }
     const submitted = await runFleetEdgeTask(
@@ -901,13 +901,13 @@ test(
     await catchUpReplica(replica);
     assert.equal(applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull").outcome, "applied");
     for (const root of [f.repo, edgeRoot]) {
-      const config = path.join(root, "harness", "harness.yaml");
+      const config = path.join(root, "harness", "harness.yaml"),
+        raw = readFileSync(config, "utf8");
       writeFileSync(
         config,
-        readFileSync(config, "utf8").replace(
-          "settings:\n",
-          "settings:\n  hosting:\n    provider: github\n    host: github.com\n",
-        ),
+        raw.includes("settings:\n")
+          ? raw.replace("settings:\n", "settings:\n  hosting:\n    provider: github\n    host: github.com\n")
+          : `${raw}settings:\n  hosting:\n    provider: github\n    host: github.com\n`,
       );
     }
     writeFileSync(
@@ -944,6 +944,7 @@ test(
       path.join(edgeRoot, ".harness", "settings.local.json"),
       JSON.stringify({
         schema: "settings-local/v1",
+        locale: "en-US",
         runtimeAgentBindings: [{ agentId: "carbon-worker", instance: "unconfigured-instance" }],
       }),
     );

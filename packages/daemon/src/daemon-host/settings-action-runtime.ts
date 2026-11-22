@@ -84,10 +84,19 @@ export function makeSettingsActionRuntime(
         receipt = cell.receiptForOperation(opId, binding);
       return replayReceipt(receipt, settingsState.read(), localChanged, targetRef);
     }
-    // Local provider selection and node policy must not publish a shared Settings change.
+    // Node-private policy and provider selection are strictly local even when authored YAML carries
+    // formatting drift or the repository has not yet minted its shared Settings entity. By contrast,
+    // locale/GUI updates on an uninitialized repository still flow through the mint path so
+    // `ha settings update --locale en-US` can initialize Settings from harness.yaml.
+    const strictLocalFields = new Set([
+      "taskMaterializationPolicy",
+      "runtimeAllowedInstances",
+      "runtimeAgentBindings",
+      "decisionsProvider",
+    ]);
     if (
       local !== null &&
-      (contract.execution.localOnlyFields ?? []).some((field) => Object.hasOwn(action, field)) &&
+      Object.keys(action).some((field) => strictLocalFields.has(field)) &&
       Object.keys(action).every(
         (field) =>
           ["kind", "expectedVersion", "idempotencyKey"].includes(field) ||

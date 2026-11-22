@@ -543,10 +543,7 @@ test("init at a configured authored root writes the machine documents where ever
     assert.deepEqual(readdirSync(path.join(fixture.repo, "harness")), ["harness.yaml"]);
     // F-1D3A0A64: init preserves the layout seed and publishes the project runtime list.
     assert.equal(readFileSync(declarationPath, "utf8"), declaration);
-    assert.equal(
-      readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8"),
-      `${declaration}settings:\n  runtime:\n    allowedInstances:\n      []\n`,
-    );
+    assert.equal(readFileSync(path.join(ledgerRoot, "harness.yaml"), "utf8"), declaration);
     const tracked = git(ledgerRoot, "ls-tree", "-r", "--name-only", "HEAD").split("\n");
     assert.equal(tracked.includes("harness.yaml"), true);
     assert.equal(tracked.includes("people.yaml"), false);

@@ -302,10 +302,10 @@ export function openFleetEdgeRuntime(input: {
     const { request } = context();
     return withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) =>
       mergeRepositoryLocalSettings(
-        repositorySettings(
-          (projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ??
-            readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
-        ),
+        repositorySettings({
+          ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
+          ...((projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined) ?? {}),
+        }),
         readLocalState(request.workspaceRoot).value,
       ),
     );
