@@ -117,6 +117,7 @@ export {
   stageCenterRelocation,
   verifyRelocationBundle,
   promoteFromEdge,
+  EdgeReplicaIntegrityError,
   promoteFromEdgeAuditPath,
   CenterMigratingError,
   CenterMovedError,

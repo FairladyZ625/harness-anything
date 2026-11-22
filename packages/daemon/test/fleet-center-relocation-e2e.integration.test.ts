@@ -5,9 +5,10 @@ import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { createServer as createHttpsServer } from "node:https";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import {
   readManagedRbacRelocationBundle,
   writeManagedRbacRelocationBundle,
@@ -30,7 +31,7 @@ import { auth } from "./daemon-host-recovery.fixture.ts";
 import { fleetHostWriterOptions } from "./fleet-store.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { localUserDaemonEndpoint, mkdirSecurely } from "../src/daemon-host/client/local-daemon-target.ts";
-import { readFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { relocateFleetCenter } from "../src/daemon-host/fleet/center-relocation-command.ts";
@@ -49,7 +50,6 @@ test(
       newStateRoot = path.join(newUserRoot, "fleet"),
       targetTls = createTestCertificate(path.join(root, "new-center-tls")),
       newExternalUrl = "https://center2.example.test:9443",
-      newLoginUrl = "https://login2.example.test:8443",
       newSpkiSha256 = `sha256:${targetTls.spkiSha256}`;
     let newHost: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
       newCenter: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
@@ -70,6 +70,24 @@ test(
         undefined,
         { replicaAdmission: true },
       );
+      const oldLoginProxy = await listenFleetLoginProxy(t, {
+          key: readFileSync(path.join(oldCenter.root, "tls.key")),
+          cert: readFileSync(path.join(oldCenter.root, "tls.crt")),
+          keycloak: oldCenter.owners.keycloak,
+        }),
+        newLoginProxy = await listenFleetLoginProxy(t, {
+          key: targetTls.key,
+          cert: targetTls.cert,
+          keycloak: oldCenter.owners.keycloak,
+        }),
+        oldAuthority = {
+          url: oldLoginProxy.url,
+          realm: "harness",
+          clientId: "harness-node-node-one",
+          servername: "localhost",
+          certificate: oldLoginProxy.certificate,
+        },
+        newLoginUrl = newLoginProxy.url;
       assert.equal(
         (
           await oldCenter.command("center-node", {
@@ -89,7 +107,9 @@ test(
       }
       assert.ok(oldEpoch > 0);
 
-      const edge = await fleetEdgeHostFixture(t, oldCenter),
+      const edge = await fleetEdgeHostFixture(t, oldCenter, {
+          oidcPorts: { loginAuthority: () => Promise.resolve(oldAuthority) },
+        }),
         {
           schema: _schema,
           loginUrl: _loginUrl,
@@ -109,6 +129,15 @@ test(
       assert.ok(initialSync && !Array.isArray(initialSync) && "result" in initialSync, JSON.stringify(initialSync));
       assert.equal((initialSync.result as Record<string, unknown>).ok, true, JSON.stringify(initialSync.result));
       assert.equal(await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId, nodeId: "node-one" }), true);
+      const edgeConnection = readFleetEdgeConfig(edge.edgeUser, repoId);
+      assert.ok(edgeConnection);
+      writeFleetEdgeConfig(edge.edgeUser, repoId, {
+        ...edgeConnection,
+        loginUrl: oldAuthority.url,
+        loginRealm: oldAuthority.realm,
+        loginServername: oldAuthority.servername,
+        loginCertificate: oldAuthority.certificate,
+      });
 
       let freezeObserved = false,
         importedRbacBundle = false;
@@ -261,7 +290,7 @@ test(
           clientId: "harness-node-node-one",
           browserUrl: newLoginUrl,
           servername: newTlsServerName,
-          certificate: targetTls.cert.toString("utf8"),
+          certificate: newLoginProxy.certificate,
         };
       newHost = await openDaemonHost({
         daemonId: "relocated-center",
@@ -309,7 +338,7 @@ test(
       assert.ok(beforeRepoint);
       const priorRevision = beforeRepoint.metadata.position.revision,
         priorGenerationId = beforeRepoint.id,
-        originalEdgeConfig = readFleetEdgeConfig(edge.edgeRoot)!,
+        originalEdgeConfig = readFleetEdgeConfig(edge.edgeUser, repoId)!,
         localMarker = path.join(edge.edgeRoot, "harness", "operator-local.txt");
       writeFileSync(localMarker, "operator-owned state\n");
       const newSpki = targetTls.spkiSha256,
@@ -345,18 +374,31 @@ test(
         return response.result as Record<string, unknown>;
       };
 
+      let forkAuthority = oldAuthority;
       const fork = await fleetNodeClaimFixture(
         t,
         undefined,
         undefined,
         undefined,
-        undefined,
+        () => forkAuthority,
         false,
         undefined,
         undefined,
         undefined,
         { replicaAdmission: true },
       );
+      const forkLoginProxy = await listenFleetLoginProxy(t, {
+        key: readFileSync(path.join(fork.root, "tls.key")),
+        cert: readFileSync(path.join(fork.root, "tls.crt")),
+        keycloak: fork.owners.keycloak,
+      });
+      forkAuthority = {
+        url: forkLoginProxy.url,
+        realm: "harness",
+        clientId: "harness-node-node-one",
+        servername: "localhost",
+        certificate: forkLoginProxy.certificate,
+      };
       assert.equal(
         (
           await fork.command("center-node", {
@@ -389,7 +431,7 @@ test(
           spkiSha256: forkSpkiSha256,
         });
       assert.equal(forked.code, "lineage_tip_mismatch", JSON.stringify(forked));
-      assert.deepEqual(readFleetEdgeConfig(edge.edgeRoot), originalEdgeConfig);
+      assert.deepEqual(readFleetEdgeConfig(edge.edgeUser, repoId), originalEdgeConfig);
       assert.equal(readReplicaGeneration(edgeViewDir)?.id, priorGenerationId);
 
       const repointed = await repoint(repointPayload);
@@ -398,8 +440,8 @@ test(
       assert.equal(repointed.lastAppliedRevision, priorRevision);
       assert.equal(Number(repointed.writerEpoch), activatedEpoch);
       assert.ok(Number(repointed.writerEpoch) > oldEpoch);
-      assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.port, newCenter.port);
-      assert.equal(readFleetEdgeConfig(edge.edgeRoot)?.writerEpoch, repointed.writerEpoch);
+      assert.equal(readFleetEdgeConfig(edge.edgeUser, repoId)?.port, newCenter.port);
+      assert.equal(readFleetEdgeConfig(edge.edgeUser, repoId)?.writerEpoch, repointed.writerEpoch);
       assert.equal(readFileSync(localMarker, "utf8"), "operator-owned state\n");
       assert.equal(await waitForFleetReplicaReady({ viewRoot: edge.viewRoot, repoId, nodeId: "node-one" }), true);
       const edgeWrite = await edge.command({
@@ -462,18 +504,18 @@ test(
       await listening;
       const promotionAuditPath = promoteFromEdgeAuditPath(edgeStateRoot, repoId),
         writerEpochPath = path.join(edgeStateRoot, "writer-epochs", `${repoId}.sqlite`),
-        writerEpochBefore = existsSync(writerEpochPath) ? readFileSync(writerEpochPath) : null;
+        writerEpochBefore = readWriterEpochState(edgeStateRoot, repoId);
       const missingConfirmation = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, ["--force-new-epoch"]);
       assert.equal(missingConfirmation.exitCode, 2);
       assert.equal(missingConfirmation.receipt.code, "missing_confirmation");
-      assert.deepEqual(existsSync(writerEpochPath) ? readFileSync(writerEpochPath) : null, writerEpochBefore);
+      assert.deepEqual(readWriterEpochState(edgeStateRoot, repoId), writerEpochBefore);
       assert.equal(existsSync(promotionAuditPath), false);
       const missingEpochConfirmation = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, [
         "--confirm-possible-tail-loss",
       ]);
       assert.equal(missingEpochConfirmation.exitCode, 2);
       assert.equal(missingEpochConfirmation.receipt.code, "missing_confirmation");
-      assert.deepEqual(existsSync(writerEpochPath) ? readFileSync(writerEpochPath) : null, writerEpochBefore);
+      assert.deepEqual(readWriterEpochState(edgeStateRoot, repoId), writerEpochBefore);
       assert.equal(existsSync(promotionAuditPath), false);
       const running = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, [
         "--force-new-epoch",
@@ -482,7 +524,7 @@ test(
       assert.equal(running.exitCode, 2);
       assert.equal(running.receipt.code, "edge_daemon_running");
       await new Promise<void>((resolve) => runningDaemon.close(() => resolve()));
-      assert.deepEqual(existsSync(writerEpochPath) ? readFileSync(writerEpochPath) : null, writerEpochBefore);
+      assert.deepEqual(readWriterEpochState(edgeStateRoot, repoId), writerEpochBefore);
       assert.equal(existsSync(promotionAuditPath), false);
 
       const staleLocalStore = makeTaskEventStore({
@@ -503,18 +545,20 @@ test(
 
       const unchangedWorkspace = openSqliteEventStore({ rootInput: edge.edgeRoot, repoId, readOnly: true });
       try {
+        const epochBeforeMissingConfirmation = readWriterEpochState(edgeStateRoot, repoId);
         const rejected = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, ["--force-new-epoch"]);
         assert.equal(rejected.exitCode, 2);
         assert.equal(rejected.receipt.code, "missing_confirmation");
+        assert.deepEqual(readWriterEpochState(edgeStateRoot, repoId), epochBeforeMissingConfirmation);
         assert.equal(unchangedWorkspace.replicationPosition().history, staleHistory);
       } finally {
         unchangedWorkspace.close();
       }
       assert.equal(existsSync(promoteFromEdgeAuditPath(edgeStateRoot, repoId)), false);
-      assert.equal(existsSync(path.join(edgeStateRoot, "writer-epochs", `${repoId}.sqlite`)), false);
 
       const pointerPath = path.join(edgeViewDir, "current.json"),
         originalPointer = readFileSync(pointerPath, "utf8"),
+        writerEpochBeforeMismatch = readWriterEpochState(edgeStateRoot, repoId),
         pointer = JSON.parse(originalPointer) as {
           readonly metadata: { readonly position: { readonly revision: number } };
         };
@@ -533,6 +577,7 @@ test(
         "--confirm-possible-tail-loss",
       ]);
       assert.equal(mismatchedPointer.exitCode, 2);
+      assert.equal(mismatchedPointer.receipt.code, "edge_replica_integrity_failed");
       assert.equal(existsSync(promoteFromEdgeAuditPath(edgeStateRoot, repoId)), false);
       const unchangedAfterMismatch = openSqliteEventStore({ rootInput: edge.edgeRoot, repoId, readOnly: true });
       try {
@@ -540,7 +585,7 @@ test(
       } finally {
         unchangedAfterMismatch.close();
       }
-      assert.equal(existsSync(path.join(edgeStateRoot, "writer-epochs", `${repoId}.sqlite`)), false);
+      assert.deepEqual(readWriterEpochState(edgeStateRoot, repoId), writerEpochBeforeMismatch);
       writeFileSync(pointerPath, originalPointer);
 
       const promoted = await promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, [
@@ -589,6 +634,15 @@ test(
       assert.equal(audit.forceNewEpoch, true);
       assert.equal(audit.possibleTailLossConfirmed, true);
 
+      mkdirSync(path.join(edge.edgeUser, "rbac"), { recursive: true });
+      writeFileSync(
+        path.join(edge.edgeUser, "rbac", "config.json"),
+        readFileSync(path.join(newUserRoot, "rbac", "config.json")),
+      );
+      writeFileSync(
+        path.join(edge.edgeUser, "rbac", "center-client-secret"),
+        readFileSync(path.join(newUserRoot, "rbac", "center-client-secret")),
+      );
       registerDaemonRepo({
         canonicalRoot: edge.edgeRoot,
         repoId,
@@ -664,6 +718,64 @@ async function promote(
   );
 }
 
+function readWriterEpochState(stateRoot: string, repoId: string) {
+  const databasePath = path.join(stateRoot, "writer-epochs", `${repoId}.sqlite`);
+  if (!existsSync(databasePath)) return null;
+  const authority = openPersistentWriterEpoch({ stateRoot, holderId: "promotion-test-reader" });
+  try {
+    return {
+      current: authority.current(repoId),
+      highWatermark: authority.highWatermark(repoId),
+    };
+  } finally {
+    authority.close();
+  }
+}
+
+async function listenFleetLoginProxy(
+  t: TestContext,
+  input: {
+    readonly key: Buffer;
+    readonly cert: Buffer;
+    readonly keycloak: { readonly fetch: typeof fetch };
+  },
+): Promise<{
+  readonly url: string;
+  readonly certificate: string;
+}> {
+  const certificate = input.cert.toString("utf8");
+  const loginServer = createHttpsServer({ key: input.key, cert: input.cert }, (request, response) => {
+    void (async () => {
+      let raw = "";
+      for await (const chunk of request) raw += String(chunk);
+      const url = new URL(request.url ?? "/", "https://localhost"),
+        answer = await input.keycloak.fetch(`https://fixture-keycloak.invalid${url.pathname}${url.search}`, {
+          method: request.method,
+          headers: request.headers as Record<string, string>,
+          ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
+        });
+      response.statusCode = answer.status;
+      response.setHeader("content-type", "application/json");
+      response.end(Buffer.from(await answer.arrayBuffer()));
+    })().catch(() => {
+      response.statusCode = 500;
+      response.end("{}");
+    });
+  });
+  loginServer.listen(0, "127.0.0.1");
+  await once(loginServer, "listening");
+  const address = loginServer.address();
+  assert.ok(address && typeof address !== "string");
+  t.after(
+    () =>
+      new Promise<void>((resolve) => {
+        loginServer.closeAllConnections();
+        loginServer.close(() => resolve());
+      }),
+  );
+  return { url: `https://localhost:${address.port}`, certificate };
+}
+
 function createTestCertificate(directory: string): {
   readonly key: Buffer;
   readonly cert: Buffer;
@@ -691,7 +803,7 @@ function createTestCertificate(directory: string): {
       "-days",
       "1",
       "-addext",
-      "subjectAltName=DNS:localhost",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
     ],
     { stdio: "ignore" },
   );

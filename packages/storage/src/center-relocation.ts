@@ -124,6 +124,15 @@ export interface PromoteFromEdgeResult {
   readonly promotedAt: string;
 }
 
+export class EdgeReplicaIntegrityError extends Error {
+  readonly code = "edge_replica_integrity_failed";
+
+  constructor(issues: readonly string[]) {
+    super(`edge replica integrity failed: ${issues.join(", ")}`);
+    this.name = "EdgeReplicaIntegrityError";
+  }
+}
+
 export function promoteFromEdgeAuditPath(stateRoot: string, repoId: string): string {
   return path.join(path.resolve(stateRoot), "governance", "center-emergency-promoted", `${repoId}.json`);
 }
@@ -362,7 +371,7 @@ function readReplicaPromotionCut(
     eventDigestsValid,
     contentDigestsValid,
   });
-  if (integrityIssues.length > 0) throw new Error(`edge replica integrity failed: ${integrityIssues.join(", ")}`);
+  if (integrityIssues.length > 0) throw new EdgeReplicaIntegrityError(integrityIssues);
   return {
     revision,
     oldEpoch: ledger.writerFence()?.epoch ?? 0,

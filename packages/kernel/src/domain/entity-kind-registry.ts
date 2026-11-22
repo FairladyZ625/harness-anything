@@ -1734,7 +1734,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       output: "replica-integrity issue list",
       failureCodes: ["repository_mismatch", "generation_mismatch", "lineage_mismatch", "invalid_lineage", "invalid_sequence", "revision_mismatch", "event_prefix_incomplete", "event_digest_invalid", "content_digest_invalid"],
       explain: "An edge replica may become authoritative only when its durable generation, lineage, event prefix and content objects agree with the published cut.",
-      consumers: ["packages/storage/src/center-relocation.ts#readReplicaPromotionCut"],
+      consumers: ["packages/storage/src/center-relocation.ts"],
       sources: [{
         candidateId: "judgment:packages/kernel:packages/kernel/src/domain/replica-promotion.ts#validatePromotableReplica:66fb8b45ccd423bf099d60429df41869",
         route: "promoteFromEdge → readReplicaPromotionCut → validatePromotableReplica before writer-epoch acquisition and generation publication",

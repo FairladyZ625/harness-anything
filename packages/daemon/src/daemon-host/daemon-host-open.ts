@@ -1659,13 +1659,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           binding: localSystemBinding(input.userRoot),
           actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
           evaluatedAtCut: "daemon-rbac:current",
-        }).then(() =>
-          managedRbac.run(
-            request.operation === "relocation-export"
-              ? { ...request, accessAdminJournal: relocationJournal.read() }
-              : request,
-          ),
-        )
+        })
+          .then(() =>
+            managedRbac.run(
+              request.operation === "relocation-export"
+                ? { ...request, accessAdminJournal: relocationJournal.read() }
+                : request,
+            ),
+          )
           .then(identityReadiness.observeConfigured, identityReadiness.observeConfigureFailure);
       })();
     },

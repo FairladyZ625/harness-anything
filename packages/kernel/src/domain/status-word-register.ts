@@ -7,11 +7,25 @@ import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 import { authoredDocumentStatusWordRegister } from "./status-word-register-authored-document.ts";
 import { dispatchStatusWordRegister } from "./status-word-register-dispatch.ts";
 
+export const rbacBackupStatuses = ["verified", "unavailable", "unknown"] as const;
+export type RbacBackupStatus = (typeof rbacBackupStatuses)[number];
+
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...consumerStatusWordRegister,
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
+  ...rbacBackupStatuses.map((word) => ({
+    word,
+    entity: "Migration" as const,
+    field: "RBAC backup status",
+    meaning: {
+      verified: "The operator has evidence that the separate RBAC backup or recovery path is available.",
+      unavailable: "The operator has confirmed that the separate RBAC backup or recovery path is unavailable.",
+      unknown: "The operator has not verified the separate RBAC backup or recovery path.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
   ...(
     [
       ["OPEN", "A peer request is awaiting its first claim."],

@@ -826,13 +826,6 @@ export { interactiveRpcMethods, providerMethods, runtimeInstanceAuthMethods, run
 
 export const fleetProtocolMethods = Object.freeze([
   {
-    id: "daemon.fleet.center.promote-from-edge",
-    phase: "Fleet-Wiring",
-    method: "daemon.fleet.center.promote-from-edge",
-    requiresRepo: false,
-    params: shape({ payload: shape({ repoId: "string" }) }),
-  },
-  {
     id: "daemon.fleet.center.start",
     phase: "Fleet-Wiring",
     method: "daemon.fleet.center.start",

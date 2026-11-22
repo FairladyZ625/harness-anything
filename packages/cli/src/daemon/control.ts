@@ -362,14 +362,15 @@ async function dispatchFleetControl(
   daemonId: string,
   finish: ControlFinisher,
 ): Promise<number> {
-  if (argv[at] === "fleet" && argv[at + 1] === "center") {
+  const fleetIndex = argv[at] === "daemon" ? at + 1 : at;
+  if (argv[fleetIndex] === "fleet" && argv[fleetIndex + 1] === "center") {
     const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
     return await runFleetCenterRelocationControl(argv, userRoot, finish);
   }
-  if (argv[at + 2] === "status") return await fleetStatusControl(argv, userRoot, daemonId, finish);
-  if (argv[at + 2] === "edge" && argv[at + 3] === "repoint")
+  if (argv[fleetIndex + 2] === "status") return await fleetStatusControl(argv, userRoot, daemonId, finish);
+  if (argv[fleetIndex + 2] === "edge" && argv[fleetIndex + 3] === "repoint")
     return await fleetRepointControl(argv, userRoot, daemonId, finish);
-  return await fleetControl(argv, at, userRoot, daemonId, finish);
+  return await fleetControl(argv, fleetIndex, userRoot, daemonId, finish);
 }
 async function fleetControl(
   argv: readonly string[],

@@ -94,7 +94,7 @@ import { relationStates } from "./relation-state.ts";
 import { closeoutGateStatuses } from "./status-word-register-closeout.ts";
 import { factLivenessStates } from "./fact-liveness.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
-import { statusWordRegister } from "./status-word-register.ts";
+import { rbacBackupStatuses, statusWordRegister } from "./status-word-register.ts";
 import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
 import { peerRequestStates } from "./peer-collaboration.ts";
 import {
@@ -107,9 +107,9 @@ import {
 } from "./dispatch-lifecycle.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
+export { rbacBackupStatuses };
 
-export const rbacBackupStatuses = ["verified", "unavailable", "unknown"] as const;
-export type RbacBackupStatus = (typeof rbacBackupStatuses)[number];
+export type { RbacBackupStatus } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   ...consumerStatusVocabularies,
@@ -117,7 +117,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "migration.rbac-backup-status",
     entity: "Migration",
     field: "RBAC backup status",
-    module: "packages/kernel/src/domain/status-vocabulary.ts",
+    module: "packages/kernel/src/domain/status-word-register.ts",
     anchor: "rbacBackupStatuses",
     words: rbacBackupStatuses,
     note: "Operator evidence about whether the separate RBAC backup is available before emergency promotion.",

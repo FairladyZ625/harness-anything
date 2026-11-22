@@ -45,7 +45,7 @@ This runbook covers a planned move from a personal laptop to a persistent server
 Use this only when the old center is physically unavailable and its bundle cannot be exported. The command is manual and has no timer or disconnect trigger.
 
 1. Confirm the old center is physically unavailable and cannot resume writes. Stop the selected edge daemon so its receiver cannot install or collect a generation during promotion.
-2. Check `fleet-edge.json` names the expected `repoId`, `nodeId`, and `viewRoot`. Confirm the published generation is current and its durable revision matches the reported replica position. Record the observed tail-loss decision.
+2. Check the daemon's `fleet-edge.json` for the expected `repoId`, `nodeId`, and `viewRoot`. Confirm the published generation is current and its durable revision matches the reported replica position. Record the observed tail-loss decision.
 3. Confirm the RBAC backup state. Use `verified` only after the logical bundle or an equivalent credential recovery path is available. The command records this operator-supplied state and cannot verify a remote Keycloak backup itself.
 4. Run the command with both confirmations. Missing either flag is rejected before the replica is opened.
 
