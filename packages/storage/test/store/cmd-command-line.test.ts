@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cmdShellInvocation, escapeCmdArgument } from "../../src/store/cmd-command-line.ts";
+import { cmdShellInvocation, escapeCmdArgument } from "@harness-anything/storage/cmd-command-line";
 
 // Vectors below are hand-derived from the audited Rust std implementation
 // (library/std/src/sys/args/windows.rs, the CVE-2024-24576 fix): a quoted argument carries
@@ -50,6 +50,11 @@ test("cmd shell invocation wraps a shim payload with extension and expansion swi
     "/c",
     '""C:\\Tools\\agy.cmd" --output-format stream-json -p "x & y%%cd:~,%PATH%%cd:~,%""',
   ]);
+});
+
+test("cmd shell invocation preserves percent sequences in a shim path", () => {
+  const invocation = cmdShellInvocation("C:\\Tools\\%PATH%\\agy.cmd", [], {});
+  assert.equal(invocation.args[4], '""C:\\Tools\\%%cd:~,%PATH%%cd:~,%\\agy.cmd""');
 });
 
 test("cmd shell invocation falls back to cmd.exe and refuses unsafe script paths", () => {

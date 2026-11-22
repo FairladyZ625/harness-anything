@@ -12,7 +12,7 @@ import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sy
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { devNull, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
@@ -327,7 +327,8 @@ function commit(cwd: string, file: string): string {
 function git(cwd: string, ...args: string[]): string {
   // A task-bound host injects GIT_AUTHOR_*/GIT_COMMITTER_* and its own git config; env beats both repo config
   // and -c flags, so the fixture must not inherit either.
-  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+  const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null",
+    env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
   for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
     delete env[name];
   delete env.HARNESS_TASK_BOUND;
