@@ -44,7 +44,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "./agent-runtime-instances.ts";
-import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
+import { observeDaemonBuild } from "./build-identity.ts";
 import {
   FleetEdgeConfigError,
   fleetEdgeConfigDir,
@@ -64,7 +64,6 @@ import {
   type NodeAutoDispatchCandidate,
 } from "./node-auto-dispatch.ts";
 import {
-  readNodeAutoClaimDiagnostics,
   readNodeAutoClaimPolicy,
   parseNodeAutoClaimPolicy,
   recordNodeAutoClaimDiagnostic,
@@ -120,8 +119,8 @@ import {
 import { createDaemonHostRepositoryApi } from "./daemon-host-repository-api.ts";
 import { createDaemonHostRuntimeApi } from "./daemon-host-runtime-api.ts";
 import {
+  buildDaemonSystemStatus,
   invalidRegistryStatus,
-  invalidRegistrySystemRow,
   invalidRepoId,
   localOnly,
   publicRegistryRepo,
@@ -144,7 +143,6 @@ import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 
 import { canonicalRoot, jsonRpcMethodContracts, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { openDaemonRuntimePorts } from "./daemon-runtime-ports.ts";
 import {
@@ -169,8 +167,7 @@ import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import { createNodeRetirement } from "./fleet/node-retirement.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
-import { managedRbacReceiptJournal } from "./access-admin-state.ts";
-import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
+import { managedRbacReceiptJournal, restoreManagedRbacAccessJournal } from "./access-admin-state.ts";
 
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import {
@@ -186,20 +183,6 @@ import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
-
-function restoreManagedRbacAccessJournal(value: unknown, journal: ReturnType<typeof managedRbacReceiptJournal>): void {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
-  const record = value as Record<string, unknown>;
-  if (record.schema !== IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA) return;
-  if (!Array.isArray(record.entries) || record.entries.some((entry) => typeof entry !== "string"))
-    throw hostCodedError("rbac_relocation_bundle_invalid", "The access-admin relocation journal is invalid.");
-  const existing = new Set(journal.read());
-  for (const entry of record.entries as string[]) {
-    if (existing.has(entry)) continue;
-    journal.append(entry);
-    existing.add(entry);
-  }
-}
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
   const requiredStorageBackend = resolveRequiredStorageBackend(input.requiredStorageBackend);
@@ -1121,69 +1104,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     localOnly(auth);
     return readHomeOverview({ context: hostContext, auth });
   };
-  const system = (auth: DaemonAuthenticationContext): JsonObject => {
-    localOnly(auth);
-    const registry = readDaemonRegistry({ userRoot: input.userRoot }),
-      autoClaim = readNodeAutoClaimPolicy(input.userRoot),
-      observedAt = new Date().toISOString(),
-      validRows = registry.repos.map((repo) => {
-        const status = cells.get(repo.repoId)?.status() ?? warming.get(repo.repoId) ?? unavailable.get(repo.repoId),
-          disabled = repo.state === "disabled",
-          proxy = repo.mode === "remote-proxy",
-          attached = status?.state === "attached",
-          warmingUp = status?.state === "warming";
-        return {
-          repoId: repo.repoId,
-          displayName: repo.displayName,
-          canonicalRoot: repo.canonicalRoot,
-          authoredBranch: repo.authoredBranch,
-          registrationState: repo.state,
-          connectionId: repo.connectionId,
-          mode: repo.mode,
-          cellState: disabled || proxy ? "not_loaded" : attached ? "attached" : warmingUp ? "warming" : "unavailable",
-          generation: disabled ? null : (status?.generation ?? null),
-          queueDepth: disabled ? null : (status?.queueDepth ?? null),
-          lockState: disabled || proxy ? "not_applicable" : attached ? "held" : "unknown",
-          recoveryMs: disabled ? null : (status?.recoveryMs ?? null),
-          lastError: disabled ? null : (status?.lastError ?? null),
-          unavailableReason:
-            disabled || proxy || attached || warmingUp ? null : (status?.lastError ?? "unknown / not projected"),
-        };
-      }),
-      invalidRows = registry.invalidRepos.map(invalidRegistrySystemRow);
-    return {
-      schema: "gui-system-status/v1",
-      ok: true,
-      observedAt,
-      daemon: {
-        ...point(),
-        protocolVersion: currentDaemonProtocolVersion,
-        uptimeMs: Math.max(0, Date.parse(observedAt) - Date.parse(startedAt)),
-        endpoint: input.endpoint ?? auth.endpoint ?? "local-unix-socket",
-        build: {
-          version: process.env.npm_package_version ?? "0.0.0",
-          commitSha: daemonBuildStamp().commit,
-        },
-        activeControl: latestControl
-          ? {
-              kind: latestControl.kind,
-              operationId: latestControl.operationId,
-              phase: latestControl.phase,
-              requestedAt: latestControl.requestedAt,
-              error: latestControl.error,
-            }
-          : null,
-      },
-      repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
-      nodeAutoClaim: {
-        enabled: autoClaim.policy.enabled,
-        configuration: autoClaim.diagnostic,
-        maxConcurrent: autoClaim.policy.maxConcurrent,
-        allowedAgentIds: [...autoClaim.policy.allowedAgentIds],
-        recent: readNodeAutoClaimDiagnostics(input.userRoot).slice(-10) as unknown as JsonObject[],
-      },
-    };
-  };
+  const system = (auth: DaemonAuthenticationContext): JsonObject =>
+    buildDaemonSystemStatus({
+      userRoot: input.userRoot,
+      auth,
+      endpoint: input.endpoint,
+      startedAt,
+      point,
+      latestControl,
+      cells,
+      warming,
+      unavailable,
+    });
   const accessAdminRef: { current: AccessAdminService | null } = { current: null };
   const relocationJournal = managedRbacReceiptJournal(input.userRoot);
   const managedRbac =

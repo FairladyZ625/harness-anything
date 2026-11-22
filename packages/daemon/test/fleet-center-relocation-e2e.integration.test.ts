@@ -572,10 +572,7 @@ test(
         }),
       );
       await assert.rejects(
-        promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, [
-          "--force-new-epoch",
-          "--confirm-possible-tail-loss",
-        ]),
+        promote(edge.edgeRoot, edge.edgeUser, edgeStateRoot, ["--force-new-epoch", "--confirm-possible-tail-loss"]),
         { code: "edge_replica_integrity_failed" },
       );
       assert.equal(existsSync(promoteFromEdgeAuditPath(edgeStateRoot, repoId)), false);

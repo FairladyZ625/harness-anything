@@ -659,7 +659,7 @@ export const daemonOntologyPolicies = [
       "packages/daemon/test/node-auto-claim.integration.test.ts",
     ],
     sources: [
-      "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.system.nodeAutoClaim:51f78f409b8b597100e3bc2e115bacbf",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-status.ts#buildDaemonSystemStatus.nodeAutoClaim:51f78f409b8b597100e3bc2e115bacbf",
       "policy:packages/daemon:packages/daemon/src/daemon-host/node-auto-claim-config.ts#DEFAULT_NODE_AUTO_CLAIM_POLICY.maxConcurrent:55893483e94f26e9a40480da84f22398",
       "policy:packages/daemon:packages/daemon/src/daemon-host/node-auto-claim-config.ts#parseNodeAutoClaimPolicy:4c5d1d8ddfb84ac9d53e3bfa6b6ea243",
       "policy:packages/daemon:packages/daemon/src/daemon-host/node-auto-claim-config.ts#parseNodeAutoClaimPolicy:c73687012810ace7541932012e7ed48b",

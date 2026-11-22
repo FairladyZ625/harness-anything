@@ -302,6 +302,12 @@
         "order": 491
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/access-admin-state.ts#restoreManagedRbacAccessJournal:3294b79036b561cc2ba016b32ac182d9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/access-admin-state.ts#managedRbacReceiptJournal.append"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/access-admin-utils.ts#coded:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6593,16 +6599,16 @@
         "order": 64
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:1df587b6a59edd544970cce9fddbf315",
+        "route": "rbac-bootstrap",
+        "role": "effect",
+        "order": 65
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77",
         "route": "rbac-bootstrap",
         "role": "effect",
         "order": 63
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:85833909ab835513f6a37d3d00ce0f77:2",
-        "route": "rbac-bootstrap",
-        "role": "effect",
-        "order": 65
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.host.manageRbac:97ac26b82a689aef98ce00ee87bc497b",

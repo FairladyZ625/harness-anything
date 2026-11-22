@@ -1,13 +1,5 @@
 {
   "sources": {
-    "daemon-fleet-center-promote-from-edge": [
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/center-relocation.ts#promoteFromEdge:1ab06882c3dd9be7079bc1495ce96a49",
-        "route": "daemon-fleet-center-promote-from-edge",
-        "role": "technical-port",
-        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
-      }
-    ],
     "daemon-local-state": [
       {
         "candidateId": "action:packages/storage:packages/storage/src/center-relocation.ts#importCenterRelocation:a8446b6e47067ca3cfe735f40cbb9140",
@@ -15,6 +7,12 @@
         "role": "technical-port",
         "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove",
         "order": 147
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/center-relocation.ts#promoteFromEdge:1ab06882c3dd9be7079bc1495ce96a49",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openAuditRevisionScratch.abort:174298e6746a6151a6dc28eccbac5a1d",

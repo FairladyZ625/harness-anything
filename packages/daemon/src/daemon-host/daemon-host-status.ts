@@ -1,5 +1,10 @@
-import { unbindDaemonRepo, type InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
+import { readDaemonRegistry, unbindDaemonRepo, type InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
+import { daemonBuildStamp } from "./build-identity.ts";
 import { hostCodedError } from "./daemon-host-errors.ts";
+import type { DaemonControlReceipt } from "./gui-s3-control.ts";
+import { readNodeAutoClaimDiagnostics, readNodeAutoClaimPolicy } from "./node-auto-claim-config.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { type RepoCell, type RepoCellStatus } from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
@@ -89,4 +94,81 @@ export function localOnly(auth: DaemonAuthenticationContext): void {
 export function requiredText(value: unknown, field: string): string {
   if (typeof value === "string" && value.length) return value;
   throw hostCodedError("invalid_request", `${field} is required.`);
+}
+
+export function buildDaemonSystemStatus(input: {
+  readonly userRoot: string;
+  readonly auth: DaemonAuthenticationContext;
+  readonly endpoint?: string;
+  readonly startedAt: string;
+  readonly point: () => { readonly daemonId: string; readonly pid: number; readonly startedAt: string };
+  readonly latestControl: DaemonControlReceipt | null;
+  readonly cells: ReadonlyMap<string, RepoCell>;
+  readonly warming: ReadonlyMap<string, RepoCellStatus>;
+  readonly unavailable: ReadonlyMap<string, RepoCellStatus>;
+}): JsonObject {
+  localOnly(input.auth);
+  const registry = readDaemonRegistry({ userRoot: input.userRoot }),
+    autoClaim = readNodeAutoClaimPolicy(input.userRoot),
+    observedAt = new Date().toISOString(),
+    validRows = registry.repos.map((repo) => {
+      const status =
+          input.cells.get(repo.repoId)?.status() ??
+          input.warming.get(repo.repoId) ??
+          input.unavailable.get(repo.repoId),
+        disabled = repo.state === "disabled",
+        proxy = repo.mode === "remote-proxy",
+        attached = status?.state === "attached",
+        warmingUp = status?.state === "warming";
+      return {
+        repoId: repo.repoId,
+        displayName: repo.displayName,
+        canonicalRoot: repo.canonicalRoot,
+        authoredBranch: repo.authoredBranch,
+        registrationState: repo.state,
+        connectionId: repo.connectionId,
+        mode: repo.mode,
+        cellState: disabled || proxy ? "not_loaded" : attached ? "attached" : warmingUp ? "warming" : "unavailable",
+        generation: disabled ? null : (status?.generation ?? null),
+        queueDepth: disabled ? null : (status?.queueDepth ?? null),
+        lockState: disabled || proxy ? "not_applicable" : attached ? "held" : "unknown",
+        recoveryMs: disabled ? null : (status?.recoveryMs ?? null),
+        lastError: disabled ? null : (status?.lastError ?? null),
+        unavailableReason:
+          disabled || proxy || attached || warmingUp ? null : (status?.lastError ?? "unknown / not projected"),
+      };
+    }),
+    invalidRows = registry.invalidRepos.map(invalidRegistrySystemRow);
+  return {
+    schema: "gui-system-status/v1",
+    ok: true,
+    observedAt,
+    daemon: {
+      ...input.point(),
+      protocolVersion: currentDaemonProtocolVersion,
+      uptimeMs: Math.max(0, Date.parse(observedAt) - Date.parse(input.startedAt)),
+      endpoint: input.endpoint ?? input.auth.endpoint ?? "local-unix-socket",
+      build: {
+        version: process.env.npm_package_version ?? "0.0.0",
+        commitSha: daemonBuildStamp().commit,
+      },
+      activeControl: input.latestControl
+        ? {
+            kind: input.latestControl.kind,
+            operationId: input.latestControl.operationId,
+            phase: input.latestControl.phase,
+            requestedAt: input.latestControl.requestedAt,
+            error: input.latestControl.error,
+          }
+        : null,
+    },
+    repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
+    nodeAutoClaim: {
+      enabled: autoClaim.policy.enabled,
+      configuration: autoClaim.diagnostic,
+      maxConcurrent: autoClaim.policy.maxConcurrent,
+      allowedAgentIds: [...autoClaim.policy.allowedAgentIds],
+      recent: readNodeAutoClaimDiagnostics(input.userRoot).slice(-10) as unknown as JsonObject[],
+    },
+  };
 }

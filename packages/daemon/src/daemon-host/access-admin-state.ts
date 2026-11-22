@@ -11,6 +11,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
+import { hostCodedError } from "./daemon-host-errors.ts";
 /** Append-only audit trail of access administration. Authorization never reads it. */
 export function managedRbacReceiptJournal(userRoot: string): {
   readonly read: () => readonly string[];
@@ -25,6 +27,24 @@ export function managedRbacReceiptJournal(userRoot: string): {
       /* @gate-identity state-store/runtime-instance.access-admin */ appendFileSync(file, `${line}\n`, { mode: 0o600 });
     },
   };
+}
+
+/** Merges exported access-admin audit receipts into the local journal without duplicating lines. */
+export function restoreManagedRbacAccessJournal(
+  value: unknown,
+  journal: ReturnType<typeof managedRbacReceiptJournal>,
+): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return;
+  const record = value as Record<string, unknown>;
+  if (record.schema !== IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA) return;
+  if (!Array.isArray(record.entries) || record.entries.some((entry) => typeof entry !== "string"))
+    throw hostCodedError("rbac_relocation_bundle_invalid", "The access-admin relocation journal is invalid.");
+  const existing = new Set(journal.read());
+  for (const entry of record.entries as string[]) {
+    if (existing.has(entry)) continue;
+    journal.append(entry);
+    existing.add(entry);
+  }
 }
 
 /** Pending permission requests are center-owned workflow state, separate from the provider's grant authority. */
