@@ -346,10 +346,10 @@ const registeredCacheAdapters =
 for (const finding of auditCacheDriverImports(packageSources, registeredCacheAdapters))
   record(path.join(root, finding.path), finding.message);
 
-// dec_D90F19C8AAAF39747F8F0D6698/CH8 C4: persistence belongs to packages/storage. The
-// backend discriminant, SQL text and database drivers must not appear in the ledger runtime
+// dec_D90F19C8AAAF39747F8F0D6698/CH8 C4 & dec_42EB7B8F636C12381A447E52A3/CH2: persistence belongs to packages/storage.
+// The backend discriminant, SQL text and database drivers must not appear in the ledger runtime
 // packages; authorization adapters manage an external IdP and are outside that list.
-const ledgerRuntimeSource = /^packages\/(?:kernel|application|cli|daemon|gui|preset)\/src\//u;
+const ledgerRuntimeSource = /^packages\/(?:kernel|application|cli|daemon|gui-fde|gui|preset)\/src\//u;
 const databaseDriverPattern =
   /^(?:node:sqlite|better-sqlite3|sqlite3|pg|postgres|mysql2?|mongodb|@effect\/sql(?:\/|$)|@electric-sql\/|drizzle-orm(?:\/|$)|kysely(?:\/|$)|prisma(?:\/|$))/u;
 const rawSqlPattern =
@@ -412,7 +412,7 @@ for (const file of packageSourceFiles) {
     for (const specifier of imports) {
       if (
         importedPathViolates(file, specifier, (target) =>
-          /packages\/(?:application|cli|daemon|gui|preset)\//.test(target),
+          /packages\/(?:application|cli|daemon|gui-fde|gui|preset)\//.test(target),
         )
       ) {
         record(file, `storage must depend inward on kernel only, not delivery packages via ${specifier}`);
@@ -443,8 +443,8 @@ for (const file of packageSourceFiles) {
           specifier,
           (target) =>
             /packages\/kernel\/src\/(?:application|store)\//.test(target) ||
-            /packages\/(?:cli|gui|adapters)\//.test(target) ||
-            /^@harness-anything\/(?:cli|gui|adapter-)/.test(target),
+            /packages\/(?:cli|gui-fde|gui|adapters)\//.test(target) ||
+            /^@harness-anything\/(?:cli|gui-fde|gui|adapter-)/.test(target),
         )
       ) {
         record(file, `ports layer imports implementation/controller layer via ${specifier}`);
@@ -469,8 +469,8 @@ for (const file of packageSourceFiles) {
       const target = resolveImport(file, specifier);
       if (
         /packages\/kernel\/src\/store\//.test(target) ||
-        /packages\/(?:cli|gui|adapters)\//.test(target) ||
-        /^@harness-anything\/(?:cli|gui|adapter-)/.test(target)
+        /packages\/(?:cli|gui-fde|gui|adapters)\//.test(target) ||
+        /^@harness-anything\/(?:cli|gui-fde|gui|adapter-)/.test(target)
       ) {
         record(file, `application layer imports store/adapter/controller implementation via ${specifier}`);
       }
@@ -503,13 +503,31 @@ for (const file of packageSourceFiles) {
       if (
         importedPathViolates(file, specifier, (target) => {
           if (/packages\/kernel\/src\/store\//.test(target)) return true;
+          // dec_42EB7B8F636C12381A447E52A3/CH2: gui and gui-fde must remain strictly decoupled.
+          if (/packages\/gui-fde\//.test(target) || /^@harness-anything\/gui-fde(?:\/|$)/.test(target)) return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !guiAdapterCompositionRoots.has(rel);
           }
           return false;
         })
       ) {
-        record(file, `GUI imports store or external adapter implementation via ${specifier}`);
+        record(file, `GUI imports store, gui-fde, or external adapter implementation via ${specifier}`);
+      }
+    }
+  }
+
+  // dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde must not import gui, store, application, or storage.
+  if (rel.startsWith("packages/gui-fde/")) {
+    for (const specifier of imports) {
+      if (
+        importedPathViolates(file, specifier, (target) => {
+          if (/packages\/kernel\/src\/store\//.test(target)) return true;
+          if (/packages\/(?:gui|application|storage)\//.test(target)) return true;
+          if (/^@harness-anything\/(?:gui|application|storage)(?:\/|$)/.test(target)) return true;
+          return false;
+        })
+      ) {
+        record(file, `GUI-FDE imports forbidden gui, store, application, or storage module via ${specifier}`);
       }
     }
   }
@@ -519,7 +537,8 @@ for (const file of packageSourceFiles) {
       if (
         importedPathViolates(file, specifier, (target) => {
           if (/packages\/kernel\/src\/store\//.test(target)) return !kernelStoreCompositionRoots.has(rel);
-          if (/packages\/gui\//.test(target) || /^@harness-anything\/gui/.test(target)) return true;
+          if (/packages\/gui(?:-fde)?\//.test(target) || /^@harness-anything\/gui(?:-fde)?(?:\/|$)/.test(target))
+            return true;
           if (/packages\/adapters\//.test(target) || /^@harness-anything\/adapter-/.test(target)) {
             return !cliAdapterCompositionRoots.has(rel) && !cliAdapterKnownDebt.has(rel);
           }
@@ -682,7 +701,8 @@ for (const component of stronglyConnectedComponents(packageNames, packageAdjacen
     `workspace package dependency cycle: ${component.sort().join(" -> ")} -> ${component.sort()[0]}`,
   );
 }
-const deliveryLeaves = new Set(["cli", "gui"]);
+// dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde joins cli and gui as a peer delivery leaf.
+const deliveryLeaves = new Set(["cli", "gui", "gui-fde"]);
 const daemonPackage = "daemon";
 for (const [importer, targets] of packageGraph) {
   for (const target of targets) {

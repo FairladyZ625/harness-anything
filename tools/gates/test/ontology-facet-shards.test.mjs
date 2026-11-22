@@ -25,9 +25,10 @@ test("each facet family matches the workspace package list and refreshes determi
   const packages = [...readWorkspacePackages(repo).map(({ directory }) => path.basename(directory)), "tools"].sort();
   const files = ontologyFacetShardFiles(domain);
   for (const family of ["action-source-facets", "source-contract-facets"]) {
+    // dec_42EB7B8F636C12381A447E52A3/CH2: compare sorted filenames (ASCII '-' < '.' sorts gui-fde.json before gui.json).
     assert.deepEqual(
       files.filter((file) => file.startsWith(`${family}/`)),
-      packages.map((name) => `${family}/${name}.json`),
+      packages.map((name) => `${family}/${name}.json`).sort(),
     );
   }
   for (const file of files) {

@@ -20,8 +20,10 @@ const canonicalPackages = [
   "daemon",
   "cli",
   "gui",
+  // dec_42EB7B8F636C12381A447E52A3/CH2: independent GUI-FDE workspace package.
+  "gui-fde",
 ];
-const privateCanonicalPackages = new Set(["dsh-plugin"]);
+const privateCanonicalPackages = new Set(["dsh-plugin", "gui-fde"]);
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "check-c4-architecture-"));
@@ -577,4 +579,40 @@ test("resolves explicit --model paths and worktree parent harness fallback clean
   assert.equal(worktreeResult.ok, false);
   assert.equal(worktreeResult.model.status, "checked");
   assert.ok(worktreeResult.model.paths.some((p) => p.endsWith("harness/context/architecture/model/model.c4")));
+});
+
+// dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde is a peer delivery shell isolated from packages/gui.
+test("enforces gui-fde allowed edges and strictly forbids gui <-> gui-fde imports", async (t) => {
+  const root = await fixture(t);
+  await seedClosedWorldPackages(root, {
+    "gui-fde": {
+      dependencies: {
+        "@harness-anything/daemon": "0.1.0",
+        "@harness-anything/kernel": "0.1.0",
+        "@harness-anything/preset": "0.1.0",
+      },
+    },
+  });
+  await source(
+    root,
+    "gui-fde",
+    "src/index.ts",
+    'import "@harness-anything/kernel";\nimport "@harness-anything/preset";\nimport "@harness-anything/daemon";\n',
+  );
+  const valid = await checkArchitecture(root);
+  assert.equal(valid.ok, true, valid.violations.join("\n"));
+
+  await source(root, "gui", "src/index.ts", 'import "@harness-anything/gui-fde";\n');
+  await source(
+    root,
+    "gui-fde",
+    "src/index.ts",
+    'import "@harness-anything/gui";\nimport "@harness-anything/application";\nimport "@harness-anything/storage";\n',
+  );
+  const blocked = await checkArchitecture(root);
+  assert.equal(blocked.ok, false);
+  assert.ok(blocked.violations.some((m) => m.includes("gui -> gui-fde is forbidden")));
+  assert.ok(blocked.violations.some((m) => m.includes("gui-fde -> gui is forbidden")));
+  assert.ok(blocked.violations.some((m) => m.includes("gui-fde -> application is forbidden")));
+  assert.ok(blocked.violations.some((m) => m.includes("gui-fde -> storage is forbidden")));
 });

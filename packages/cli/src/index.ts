@@ -134,6 +134,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   if (
     command === "daemon" ||
     command === "gui" ||
+    command === "fde" ||
     (command === "fleet" && argv[firstCliCommandIndex(argv) + 1] === "center")
   ) {
     const { runDaemonControl } = await import("./daemon/control.ts");
