@@ -1,22 +1,91 @@
 import { preserveExternalHtmlBody, preserveExternalMarkdownBody } from "./living-dossier-chronicler-merge.ts";
 import { renderDossierHtmlDocument } from "./living-dossier-html.ts";
 import {
-  DOSSIER_PAGE_SIZE,
-  activeBlockedTasks,
-  computeWorkRollups,
   emptyState,
   escapeMarkdownCell,
   mergeLedgerState,
   parseManagedState,
+  resolveRootWorkId,
   serializeStateComment,
   type DossierChangeItem,
   type DossierDecisionRecord,
   type DossierLedgerEntry,
   type DossierLedgerState,
   type DossierSynthesisInput,
+  type DossierTaskRecord,
+  type DossierWorkRollup,
 } from "./living-dossier-state.ts";
 
-export { DOSSIER_PAGE_SIZE, type DossierChangeItem, type DossierSynthesisInput };
+export { type DossierChangeItem, type DossierSynthesisInput };
+
+function activeBlockedTasks(state: DossierLedgerState): readonly DossierTaskRecord[] {
+  return Object.values(state.tasks)
+    .filter((task) => task.status === "blocked")
+    .sort((left, right) => right.workspaceRevision - left.workspaceRevision);
+}
+
+function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRollup[] {
+  const taskMap = state.tasks;
+  const workIds = new Set<string>(Object.keys(state.workCounters));
+  for (const task of Object.values(taskMap)) {
+    if (task.taskClass === "work") workIds.add(task.taskId);
+    const rootId = resolveRootWorkId(task, taskMap);
+    if (rootId) workIds.add(rootId);
+  }
+
+  const childrenByWork = new Map<string, DossierTaskRecord[]>();
+  for (const id of workIds) childrenByWork.set(id, []);
+
+  for (const task of Object.values(taskMap)) {
+    const rootId = resolveRootWorkId(task, taskMap);
+    if (rootId) childrenByWork.get(rootId)?.push(task);
+  }
+
+  const rollups: DossierWorkRollup[] = [];
+  for (const workId of workIds) {
+    const workRecord = taskMap[workId];
+    const counter = state.workCounters[workId];
+    const children = (childrenByWork.get(workId) ?? []).sort(
+      (left, right) => right.workspaceRevision - left.workspaceRevision,
+    );
+    const liveDone = children.filter((child) => child.status === "done").length;
+    const liveBlocked = children.filter((child) => child.status === "blocked").length;
+    const liveCancelled = children.filter((child) => child.status === "cancelled").length;
+    const totalTasks = children.length + (counter?.archivedTotal ?? 0);
+    const doneTasks = liveDone + (counter?.archivedDone ?? 0);
+    const blockedTasks = liveBlocked + (counter?.archivedBlocked ?? 0);
+    const cancelledTasks = liveCancelled + (counter?.archivedCancelled ?? 0);
+    const activeTasks = Math.max(0, totalTasks - doneTasks - blockedTasks - cancelledTasks);
+    const latestRevision = Math.max(
+      workRecord?.workspaceRevision ?? 0,
+      counter?.latestRevision ?? 0,
+      ...children.map((child) => child.workspaceRevision),
+    );
+    const packagePath = workRecord?.packagePath;
+    rollups.push({
+      workId,
+      title: workRecord?.title ?? workId,
+      status:
+        workRecord?.status ??
+        (blockedTasks > 0 ? "blocked" : totalTasks > 0 && doneTasks === totalTasks ? "done" : "active"),
+      totalTasks,
+      doneTasks,
+      blockedTasks,
+      activeTasks,
+      cancelledTasks,
+      explainerPath: packagePath
+        ? `${packagePath}/artifacts/explainer.html`
+        : `task/${workId} · artifacts/explainer.html`,
+      ...(packagePath ? { packagePath } : {}),
+      latestRevision,
+      recentChildIds: children.slice(0, 6).map((child) => child.taskId),
+    });
+  }
+
+  return rollups.sort(
+    (left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId),
+  );
+}
 
 const MARKDOWN_ANCHOR_HEADINGS: Readonly<Record<string, string>> = {
   overview: "Overview",

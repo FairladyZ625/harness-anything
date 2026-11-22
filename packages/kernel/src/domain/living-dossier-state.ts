@@ -2,8 +2,6 @@ import type { DecisionState } from "./decision-event-types.ts";
 import type { DossierSlot } from "./living-dossier.ts";
 import type { TaskClass } from "./task.ts";
 
-export const DOSSIER_PAGE_SIZE = 64;
-
 const STATE_COMMENT_PREFIX = "<!-- dossier-state:v1 ";
 const STATE_COMMENT_SUFFIX = " -->";
 const MAX_STORED_ENTRIES = 48;
@@ -11,6 +9,7 @@ const MAX_ACTIVE_DECISIONS = 256;
 const MAX_PENDING_PROPOSALS = 128;
 const MAX_RETIRED_DECISIONS = 48;
 const MAX_TRACKED_TASKS = 128;
+const MAX_PINNED_WORKS = 256;
 const MAX_TRACKED_RELATIONS = 64;
 const MAX_WORK_COUNTERS = 64;
 
@@ -69,11 +68,17 @@ export interface DossierLedgerEntry {
   readonly riskSignal: boolean;
 }
 
+export interface DossierDerivedLink {
+  readonly relationId?: string;
+  readonly taskId: string;
+}
+
 export interface DossierProposalMeta {
   readonly decisionId: string;
   readonly title: string;
   readonly chosen: readonly string[];
   readonly modules: readonly string[];
+  readonly derivedLinks?: readonly DossierDerivedLink[];
   readonly workspaceRevision: number;
 }
 
@@ -87,6 +92,7 @@ export interface DossierDecisionRecord {
   readonly reason?: string;
   readonly chosen?: readonly string[];
   readonly modules: readonly string[];
+  readonly derivedLinks?: readonly DossierDerivedLink[];
   readonly derivedTaskIds: readonly string[];
 }
 
@@ -159,11 +165,21 @@ export interface DossierLedgerState {
   readonly relations: readonly DossierRelationEdge[];
 }
 
-/** Fixed-point removal of http(s):// schemes so offline HTML stays 100% free of external URLs while keeping domain/path clues readable. */
+const EXTERNAL_SCHEME_PREFIX_RE = /(?:https?|ftps?|wss?|sftp|ssh|git|file|webcal):(?:\/\/|\\\/\\\/)/giu;
+const EXTERNAL_CONTACT_URI_RE = /\b(?:mailto|tel):([^\s"'<>`]+)/giu;
+const PROTOCOL_RELATIVE_URL_RE =
+  /(^|[\s(>[{"'`=,;])\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:[:/?#][^\s"'<>`]*)?)/giu;
+
+/** Fixed-point removal of external URI schemes so offline HTML stays 100% free of external URLs while keeping readable clues. */
 export function sanitizeExternalUrlText(value: string): string {
   let current = value;
-  while (/https?:(?:\/\/|\\\/\\\/)/iu.test(current)) {
-    current = current.replace(/https?:(?:\/\/|\\\/\\\/)/giu, "");
+  for (let pass = 0; pass < 8; pass += 1) {
+    const next = current
+      .replace(EXTERNAL_SCHEME_PREFIX_RE, "")
+      .replace(EXTERNAL_CONTACT_URI_RE, "$1")
+      .replace(PROTOCOL_RELATIVE_URL_RE, "$1$2");
+    if (next === current) break;
+    current = next;
   }
   return current;
 }
@@ -324,6 +340,18 @@ export function parseManagedState(previousBody: string | null, synthesizedAt: st
     !Array.isArray(parsed.entries)
   )
     return null;
+  const parsedRelations = Array.isArray(parsed.relations) ? parsed.relations.slice(0, MAX_TRACKED_RELATIONS) : [];
+  const rawActiveDecisions =
+    typeof parsed.activeDecisions === "object" && parsed.activeDecisions !== null ? parsed.activeDecisions : {};
+  const hydratedActiveDecisions: Record<string, DossierDecisionRecord> = {};
+  for (const [decisionId, record] of Object.entries(rawActiveDecisions)) {
+    const derivedLinks = normalizeDerivedLinks(record, decisionId, parsedRelations);
+    hydratedActiveDecisions[decisionId] = {
+      ...record,
+      ...(derivedLinks.length > 0 ? { derivedLinks } : {}),
+      derivedTaskIds: derivedTaskIdsFromLinks(derivedLinks),
+    };
+  }
   return {
     watermark: parsed.watermark,
     synthesizedAt: typeof parsed.synthesizedAt === "string" ? parsed.synthesizedAt : synthesizedAt,
@@ -338,14 +366,13 @@ export function parseManagedState(previousBody: string | null, synthesizedAt: st
     entries: parsed.entries.slice(0, MAX_STORED_ENTRIES),
     pendingProposals:
       typeof parsed.pendingProposals === "object" && parsed.pendingProposals !== null ? parsed.pendingProposals : {},
-    activeDecisions:
-      typeof parsed.activeDecisions === "object" && parsed.activeDecisions !== null ? parsed.activeDecisions : {},
+    activeDecisions: hydratedActiveDecisions,
     retiredDecisions: Array.isArray(parsed.retiredDecisions)
       ? parsed.retiredDecisions.slice(0, MAX_RETIRED_DECISIONS)
       : [],
     tasks: typeof parsed.tasks === "object" && parsed.tasks !== null ? parsed.tasks : {},
     workCounters: typeof parsed.workCounters === "object" && parsed.workCounters !== null ? parsed.workCounters : {},
-    relations: Array.isArray(parsed.relations) ? parsed.relations.slice(0, MAX_TRACKED_RELATIONS) : [],
+    relations: parsedRelations,
   };
 }
 
@@ -442,7 +469,46 @@ function decisionTaskLinkOf(
   return decisionId && taskId ? { decisionId, taskId } : null;
 }
 
-function resolveRootWorkId(
+function derivedTaskIdsFromLinks(links: readonly DossierDerivedLink[]): readonly string[] {
+  return [...new Set(links.map((item) => item.taskId))];
+}
+
+function normalizeDerivedLinks(
+  record:
+    | { readonly derivedLinks?: readonly DossierDerivedLink[]; readonly derivedTaskIds?: readonly string[] }
+    | undefined,
+  decisionId: string,
+  relations: readonly DossierRelationEdge[],
+): readonly DossierDerivedLink[] {
+  if (Array.isArray(record?.derivedLinks)) return record.derivedLinks;
+  const legacyIds = Array.isArray(record?.derivedTaskIds) ? record.derivedTaskIds : [];
+  if (legacyIds.length === 0) return [];
+  const links: DossierDerivedLink[] = [];
+  const matched = new Set<string>();
+  for (const edge of relations) {
+    const link = decisionTaskLinkOf(edge);
+    if (link && link.decisionId === decisionId && legacyIds.includes(link.taskId)) {
+      links.push({ ...(edge.relationId ? { relationId: edge.relationId } : {}), taskId: link.taskId });
+      matched.add(link.taskId);
+    }
+  }
+  for (const taskId of legacyIds) {
+    if (!matched.has(taskId)) links.push({ taskId });
+  }
+  return links;
+}
+
+function upsertDerivedLink(
+  links: readonly DossierDerivedLink[],
+  incoming: DossierDerivedLink,
+): readonly DossierDerivedLink[] {
+  const filtered = incoming.relationId
+    ? links.filter((item) => item.relationId !== incoming.relationId)
+    : links.filter((item) => item.relationId !== undefined || item.taskId !== incoming.taskId);
+  return [...filtered, incoming];
+}
+
+export function resolveRootWorkId(
   task: Pick<DossierTaskRecord, "taskId" | "parentTaskId">,
   taskMap: Readonly<Record<string, DossierTaskRecord>>,
 ): string | null {
@@ -491,10 +557,22 @@ function pruneTasks(
 ): Record<string, DossierTaskRecord> {
   const all = Object.values(tasks);
   if (all.length <= MAX_TRACKED_TASKS) return tasks;
-  const pinned = all.filter((task) => task.taskClass === "work" || task.status === "blocked");
+  const works = all
+    .filter((task) => task.taskClass === "work")
+    .sort(
+      (left, right) =>
+        Math.max(right.workspaceRevision, workCounters[right.taskId]?.latestRevision ?? 0) -
+          Math.max(left.workspaceRevision, workCounters[left.taskId]?.latestRevision ?? 0) ||
+        left.taskId.localeCompare(right.taskId),
+    );
+  const keptWorks = works.slice(0, MAX_PINNED_WORKS);
+  const evictedWorkIds = new Set(works.slice(MAX_PINNED_WORKS).map((task) => task.taskId));
+  for (const workId of evictedWorkIds) delete workCounters[workId];
+  const blockedNonWorks = all.filter((task) => task.taskClass !== "work" && task.status === "blocked");
+  const pinned = [...keptWorks, ...blockedNonWorks];
   const pinnedIds = new Set(pinned.map((task) => task.taskId));
   const candidates = all
-    .filter((task) => !pinnedIds.has(task.taskId))
+    .filter((task) => !pinnedIds.has(task.taskId) && !evictedWorkIds.has(task.taskId))
     .sort((left, right) => {
       const leftTerminal = left.status === "done" || left.status === "cancelled" ? 1 : 0;
       const rightTerminal = right.status === "done" || right.status === "cancelled" ? 1 : 0;
@@ -505,7 +583,7 @@ function pruneTasks(
   const evicted = candidates.slice(keepCount);
   for (const task of evicted) {
     const rootWorkId = resolveRootWorkId(task, tasks);
-    if (rootWorkId) incrementWorkCounter(workCounters, rootWorkId, task);
+    if (rootWorkId && !evictedWorkIds.has(rootWorkId)) incrementWorkCounter(workCounters, rootWorkId, task);
   }
   return Object.fromEntries([...pinned, ...kept].map((task) => [task.taskId, task]));
 }
@@ -528,12 +606,23 @@ function prunePendingProposals(proposals: Record<string, DossierProposalMeta>): 
   return Object.fromEntries(kept.map((item) => [item.decisionId, item]));
 }
 
-function pruneWorkCounters(counters: Record<string, DossierWorkCounter>): Record<string, DossierWorkCounter> {
-  const entries = Object.entries(counters);
-  if (entries.length <= MAX_WORK_COUNTERS) return counters;
-  return Object.fromEntries(
-    entries.sort((left, right) => right[1].latestRevision - left[1].latestRevision).slice(0, MAX_WORK_COUNTERS),
-  );
+function pruneWorkCounters(
+  counters: Record<string, DossierWorkCounter>,
+  prunedTasks: Readonly<Record<string, DossierTaskRecord>>,
+): Record<string, DossierWorkCounter> {
+  const survivingWorkIds = new Set<string>(Object.keys(prunedTasks));
+  for (const task of Object.values(prunedTasks)) {
+    const rootId = resolveRootWorkId(task, prunedTasks);
+    if (rootId) survivingWorkIds.add(rootId);
+  }
+  const pinnedEntries: [string, DossierWorkCounter][] = [];
+  const orphanEntries: [string, DossierWorkCounter][] = [];
+  for (const entry of Object.entries(counters)) {
+    if (survivingWorkIds.has(entry[0])) pinnedEntries.push(entry);
+    else orphanEntries.push(entry);
+  }
+  orphanEntries.sort((left, right) => right[1].latestRevision - left[1].latestRevision);
+  return Object.fromEntries([...pinnedEntries, ...orphanEntries.slice(0, MAX_WORK_COUNTERS)]);
 }
 
 function applyStructuredUpdate(
@@ -563,12 +652,17 @@ function applyStructuredUpdate(
       const payloadChosen = stringListFrom(change.payload.chosen);
       const mergedChosen = payloadChosen.length > 0 ? payloadChosen : (existing?.chosen ?? proposal?.chosen ?? []);
 
+      const mergedDerivedLinks = existing
+        ? normalizeDerivedLinks(existing, decisionId, relations)
+        : normalizeDerivedLinks(proposal, decisionId, relations);
+
       if (change.type === "decision_proposed") {
         pendingProposals[decisionId] = {
           decisionId,
           title,
           chosen: mergedChosen,
           modules: mergedModules,
+          ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
           workspaceRevision: change.workspaceRevision,
         };
       } else if (change.type === "decision_rejected" || change.type === "decision_deferred") {
@@ -589,7 +683,8 @@ function applyStructuredUpdate(
           ...(reason ? { reason } : {}),
           ...(mergedChosen.length > 0 ? { chosen: mergedChosen } : {}),
           modules: mergedModules,
-          derivedTaskIds: existing?.derivedTaskIds ?? [],
+          ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
+          derivedTaskIds: derivedTaskIdsFromLinks(mergedDerivedLinks),
         });
       } else if (
         change.type === "decision_accepted" ||
@@ -602,6 +697,7 @@ function applyStructuredUpdate(
             title,
             chosen: mergedChosen,
             modules: mergedModules,
+            ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
             workspaceRevision: change.workspaceRevision,
           };
         } else {
@@ -616,7 +712,8 @@ function applyStructuredUpdate(
             ...(reason ? { reason } : existing?.reason ? { reason: existing.reason } : {}),
             ...(mergedChosen.length > 0 ? { chosen: mergedChosen } : {}),
             modules: mergedModules,
-            derivedTaskIds: existing?.derivedTaskIds ?? [],
+            ...(mergedDerivedLinks.length > 0 ? { derivedLinks: mergedDerivedLinks } : {}),
+            derivedTaskIds: derivedTaskIdsFromLinks(mergedDerivedLinks),
           };
         }
       }
@@ -694,21 +791,27 @@ function applyStructuredUpdate(
   for (const retiredId of retiredIds) {
     const idx = relations.findIndex((item) => item.relationId === retiredId);
     if (idx >= 0) {
-      const [removed] = relations.splice(idx, 1);
+      relations.splice(idx, 1);
       retiredMatched = true;
-      const link = removed ? decisionTaskLinkOf(removed) : null;
-      if (link && activeDecisions[link.decisionId]) {
-        const stillLinked = relations.some((item) => {
-          const other = decisionTaskLinkOf(item);
-          return other?.decisionId === link.decisionId && other.taskId === link.taskId;
-        });
-        if (!stillLinked) {
-          const current = activeDecisions[link.decisionId]!;
-          activeDecisions[link.decisionId] = {
-            ...current,
-            derivedTaskIds: current.derivedTaskIds.filter((id) => id !== link.taskId),
-          };
-        }
+    }
+    for (const [decId, current] of Object.entries(activeDecisions)) {
+      const links = normalizeDerivedLinks(current, decId, relations);
+      const nextLinks = links.filter((item) => item.relationId !== retiredId);
+      if (nextLinks.length !== links.length) {
+        retiredMatched = true;
+        activeDecisions[decId] = {
+          ...current,
+          derivedLinks: nextLinks,
+          derivedTaskIds: derivedTaskIdsFromLinks(nextLinks),
+        };
+      }
+    }
+    for (const [decId, proposal] of Object.entries(pendingProposals)) {
+      const links = proposal.derivedLinks ?? [];
+      const nextLinks = links.filter((item) => item.relationId !== retiredId);
+      if (nextLinks.length !== links.length) {
+        retiredMatched = true;
+        pendingProposals[decId] = { ...proposal, derivedLinks: nextLinks };
       }
     }
   }
@@ -722,12 +825,24 @@ function applyStructuredUpdate(
     relations.unshift(edge);
 
     const link = decisionTaskLinkOf(edge);
-    if (link && activeDecisions[link.decisionId]) {
-      const current = activeDecisions[link.decisionId]!;
-      if (!current.derivedTaskIds.includes(link.taskId)) {
+    if (link) {
+      const incomingLink: DossierDerivedLink = {
+        ...(edge.relationId ? { relationId: edge.relationId } : {}),
+        taskId: link.taskId,
+      };
+      if (activeDecisions[link.decisionId]) {
+        const current = activeDecisions[link.decisionId]!;
+        const nextLinks = upsertDerivedLink(normalizeDerivedLinks(current, link.decisionId, relations), incomingLink);
         activeDecisions[link.decisionId] = {
           ...current,
-          derivedTaskIds: [...current.derivedTaskIds, link.taskId],
+          derivedLinks: nextLinks,
+          derivedTaskIds: derivedTaskIdsFromLinks(nextLinks),
+        };
+      } else if (pendingProposals[link.decisionId]) {
+        const proposal = pendingProposals[link.decisionId]!;
+        pendingProposals[link.decisionId] = {
+          ...proposal,
+          derivedLinks: upsertDerivedLink(proposal.derivedLinks ?? [], incomingLink),
         };
       }
     }
@@ -793,76 +908,7 @@ export function mergeLedgerState(input: DossierSynthesisInput, prior: DossierLed
     activeDecisions: pruneActiveDecisions(activeDecisions),
     retiredDecisions: retiredDecisions.slice(0, MAX_RETIRED_DECISIONS),
     tasks: prunedTasks,
-    workCounters: pruneWorkCounters(workCounters),
+    workCounters: pruneWorkCounters(workCounters, prunedTasks),
     relations: relations.slice(0, MAX_TRACKED_RELATIONS),
   };
-}
-
-export function activeBlockedTasks(state: DossierLedgerState): readonly DossierTaskRecord[] {
-  return Object.values(state.tasks)
-    .filter((task) => task.status === "blocked")
-    .sort((left, right) => right.workspaceRevision - left.workspaceRevision);
-}
-
-export function computeWorkRollups(state: DossierLedgerState): readonly DossierWorkRollup[] {
-  const taskMap = state.tasks;
-  const workIds = new Set<string>(Object.keys(state.workCounters));
-  for (const task of Object.values(taskMap)) {
-    if (task.taskClass === "work") workIds.add(task.taskId);
-    const rootId = resolveRootWorkId(task, taskMap);
-    if (rootId) workIds.add(rootId);
-  }
-
-  const childrenByWork = new Map<string, DossierTaskRecord[]>();
-  for (const id of workIds) childrenByWork.set(id, []);
-
-  for (const task of Object.values(taskMap)) {
-    const rootId = resolveRootWorkId(task, taskMap);
-    if (rootId) childrenByWork.get(rootId)?.push(task);
-  }
-
-  const rollups: DossierWorkRollup[] = [];
-  for (const workId of workIds) {
-    const workRecord = taskMap[workId];
-    const counter = state.workCounters[workId];
-    const children = (childrenByWork.get(workId) ?? []).sort(
-      (left, right) => right.workspaceRevision - left.workspaceRevision,
-    );
-    const liveDone = children.filter((child) => child.status === "done").length;
-    const liveBlocked = children.filter((child) => child.status === "blocked").length;
-    const liveCancelled = children.filter((child) => child.status === "cancelled").length;
-    const totalTasks = children.length + (counter?.archivedTotal ?? 0);
-    const doneTasks = liveDone + (counter?.archivedDone ?? 0);
-    const blockedTasks = liveBlocked + (counter?.archivedBlocked ?? 0);
-    const cancelledTasks = liveCancelled + (counter?.archivedCancelled ?? 0);
-    const activeTasks = Math.max(0, totalTasks - doneTasks - blockedTasks - cancelledTasks);
-    const latestRevision = Math.max(
-      workRecord?.workspaceRevision ?? 0,
-      counter?.latestRevision ?? 0,
-      ...children.map((child) => child.workspaceRevision),
-    );
-    const packagePath = workRecord?.packagePath;
-    rollups.push({
-      workId,
-      title: workRecord?.title ?? workId,
-      status:
-        workRecord?.status ??
-        (blockedTasks > 0 ? "blocked" : totalTasks > 0 && doneTasks === totalTasks ? "done" : "active"),
-      totalTasks,
-      doneTasks,
-      blockedTasks,
-      activeTasks,
-      cancelledTasks,
-      explainerPath: packagePath
-        ? `${packagePath}/artifacts/explainer.html`
-        : `task/${workId} · artifacts/explainer.html`,
-      ...(packagePath ? { packagePath } : {}),
-      latestRevision,
-      recentChildIds: children.slice(0, 6).map((child) => child.taskId),
-    });
-  }
-
-  return rollups.sort(
-    (left, right) => right.latestRevision - left.latestRevision || left.workId.localeCompare(right.workId),
-  );
 }

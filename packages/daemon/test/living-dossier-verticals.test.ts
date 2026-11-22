@@ -596,4 +596,70 @@ test("F-DOSSIER-03 & F-DOSSIER-04: real readDossierContext classifies compiled o
   validateDossierContent(atlasSlot, advancedHtmlNonEmpty, 9);
   assert.ok(advancedHtmlNonEmpty.includes("Curated office entity overview"));
   assert.doesNotMatch(advancedHtmlNonEmpty, /https?:\/\//iu);
+
+  // 7. F-DOSSIER-05/06 write-boundary regressions: V2-accepted ftp/mailto HTML & exact-524288 r999->r1000 empty page
+  const acceptedFtpMailtoHtml = [
+    "<!doctype html>",
+    '<html lang="zh-CN"><head><meta charset="utf-8"><meta name="dossier-watermark" content="4"><title>Atlas</title></head>',
+    '<body><main><section id="atlas-topology"><svg viewBox="0 0 320 100" role="img"><rect x="8" y="8" width="120" height="40"/></svg><a href="#change-ledger">Ledger</a></section>',
+    '<section id="entity-map"><p>Archive: ftp://archive.example.org/notes</p><p><a href="mailto:docs@example.org">Contact</a></p></section>',
+    '<section id="change-ledger"><p>Curated baseline at r4.</p></section></main></body></html>',
+  ].join("\n");
+  // Real V2 write boundary accepts ftp prose + mailto anchor before continuation
+  validateDossierContent(atlasSlot, acceptedFtpMailtoHtml, 4);
+
+  for (const [target, changes] of [
+    [6, [] as typeof atlasCtx.changes],
+    [9, atlasCtx.changes],
+  ] as const) {
+    const scrubbed = synthesizeDossierDocument({
+      verticalId: "office/collab",
+      slot: atlasSlot,
+      previousBody: acceptedFtpMailtoHtml,
+      expectedWatermark: 4,
+      targetWatermark: target,
+      changes,
+      synthesizedAt: "2026-11-23T04:00:00.000Z",
+      kindMap: atlasCtx.kindMap,
+    });
+    validateDossierContent(atlasSlot, scrubbed, target);
+    assert.doesNotMatch(scrubbed, /(?:https?|ftps?|wss?):\/\/|\b(?:mailto|tel):/iu);
+    assert.ok(scrubbed.includes("archive.example.org/notes"));
+    assert.ok(scrubbed.includes("Contact [ref: docs@example.org]"));
+    assert.ok(scrubbed.includes('<a href="#change-ledger">Ledger</a>'));
+  }
+
+  const maxBytes = 524_288;
+  const budgetHtmlHead = [
+    "<!doctype html>",
+    '<html lang="zh-CN"><head><meta charset="utf-8"><meta name="dossier-watermark" content="999"><title>Atlas</title></head>',
+    '<body><main><section id="atlas-topology"><svg viewBox="0 0 320 100" role="img"><rect x="8" y="8" width="120" height="40"/></svg></section>',
+    '<section id="entity-map"><p>Curated office baseline ',
+  ].join("\n");
+  const budgetHtmlTail = [
+    "</p></section>",
+    '<section id="change-ledger"><p>Baseline r999.</p></section>',
+    '<section id="dossier-incremental-appendix" data-dossier-appendix="1" data-dossier-incremental="true">',
+    "<h2>Incremental Updates <small>through r999</small></h2>",
+    '<div class="table-wrap"><table><thead><tr><th>Rev</th><th>Event</th><th>Entities</th><th>Summary</th><th>Time</th></tr></thead>',
+    '<tbody><tr><td class="rev">r999</td><td><code>task_completed</code></td><td class="refs">task/t999</td><td>Shipped</td><td class="time">2026-11-23 04:00:00</td></tr></tbody></table></div></section>',
+    "</main></body></html>",
+  ].join("\n");
+  const padBytes = maxBytes - Buffer.byteLength(budgetHtmlHead, "utf8") - Buffer.byteLength(budgetHtmlTail, "utf8");
+  const exactHtml999 = `${budgetHtmlHead}${"x".repeat(padBytes)}${budgetHtmlTail}`;
+  assert.equal(Buffer.byteLength(exactHtml999, "utf8"), maxBytes);
+  validateDossierContent(atlasSlot, exactHtml999, 999);
+
+  const exactHtml1000 = synthesizeDossierDocument({
+    verticalId: "office/collab",
+    slot: atlasSlot,
+    previousBody: exactHtml999,
+    expectedWatermark: 999,
+    targetWatermark: 1000,
+    changes: [],
+    synthesizedAt: "2026-11-23T04:05:00.000Z",
+    kindMap: atlasCtx.kindMap,
+  });
+  assert.ok(Buffer.byteLength(exactHtml1000, "utf8") <= maxBytes);
+  validateDossierContent(atlasSlot, exactHtml1000, 1000);
 });

@@ -1,5 +1,5 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { DOSSIER_PAGE_SIZE } from "./living-dossier-synthesizer.ts";
+import { DOSSIER_PAGE_SIZE } from "./cli-operational-policy.ts";
 
 export const DOSSIER_DIRECTORY = "dossiers/";
 export { DOSSIER_PAGE_SIZE };

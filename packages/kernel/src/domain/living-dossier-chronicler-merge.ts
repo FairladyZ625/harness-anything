@@ -45,8 +45,8 @@ function enforceDossierSizeCeiling(slotId: string, body: string): string {
 
 export function preserveExternalMarkdownBody(input: DossierSynthesisInput, previousBody: string): string {
   const withWatermark = updateMarkdownWatermarkHeader(previousBody, input.targetWatermark);
-  if (input.changes.length === 0) {
-    return enforceDossierSizeCeiling(input.slot.id, withWatermark);
+  if (input.changes.length === 0 && utf8ByteLength(withWatermark) <= dossierContentMaxBytes) {
+    return withWatermark;
   }
 
   const newRowLines = input.changes
@@ -106,21 +106,27 @@ function updateHtmlWatermarkMeta(body: string, targetWatermark: number): string 
   return body.replace(/<head(\s[^>]*)?>/iu, (match) => `${match}\n${replacement}`);
 }
 
+const ANY_HREF_ATTR_RE = /\s+href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/iu;
+const ANY_HREF_ATTR_GLOBAL_RE = /\s+href\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/giu;
+
+function isInPageFragmentHref(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === "" || /^#[A-Za-z0-9_.:-]+$/u.test(trimmed);
+}
+
 /**
- * Losslessly scrubs external http(s):// URLs from chronicler-authored HTML so GUI continuation
- * outputs stay 100% offline-clean without dropping curated sections or citation clues.
+ * Losslessly scrubs external URIs and non-fragment links from chronicler-authored HTML so GUI
+ * continuation outputs stay 100% offline-clean without dropping curated sections or citation clues.
  */
 export function sanitizeExternalHtmlOffline(html: string): string {
-  if (!/https?:(?:\/\/|\\\/\\\/)/iu.test(html)) return html;
-
-  const hrefPattern = /\s+href\s*=\s*(?:"(https?:\/\/[^"]*)"|'(https?:\/\/[^']*)'|(https?:\/\/[^\s"'=<>`]+))/iu;
-  // 1. Convert <a ... href="https?://...">text</a> to an offline linkless reference preserving domain/path clue.
+  // 1. Convert <a ... href="<non-fragment>">text</a> to an offline linkless reference preserving readable source clue.
   let cleaned = html.replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/giu, (full, attrs: string, inner: string) => {
-    const hrefMatch = hrefPattern.exec(attrs);
+    const hrefMatch = ANY_HREF_ATTR_RE.exec(attrs);
     if (!hrefMatch) return full;
-    const rawUrl = hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? "";
-    const strippedRef = sanitizeExternalUrlText(rawUrl);
-    const cleanedAttrs = attrs.replace(hrefPattern, "");
+    const rawUrl = (hrefMatch[1] ?? hrefMatch[2] ?? hrefMatch[3] ?? "").trim();
+    if (isInPageFragmentHref(rawUrl)) return full;
+    const strippedRef = sanitizeExternalUrlText(rawUrl).replace(/^[a-z][a-z0-9+.-]*:(?:\/\/)?/iu, "");
+    const cleanedAttrs = attrs.replace(ANY_HREF_ATTR_RE, "");
     const cleanedInner = sanitizeExternalUrlText(inner);
     const refSuffix =
       strippedRef.length > 0 && !cleanedInner.includes(strippedRef)
@@ -129,13 +135,22 @@ export function sanitizeExternalHtmlOffline(html: string): string {
     return `<a${cleanedAttrs}>${cleanedInner}${refSuffix}</a>`;
   });
 
-  // 2. Strip redundant SVG/XLink XML namespaces that embed http://www.w3.org/... (HTML5 inline SVG needs none).
-  cleaned = cleaned.replace(/\s+xmlns(?::[a-z][\w-]*)?\s*=\s*(?:"https?:\/\/[^"]*"|'https?:\/\/[^']*')/giu, "");
+  // 2. Strip redundant SVG/XLink XML namespaces that embed external URIs (HTML5 inline SVG needs none).
+  cleaned = cleaned.replace(
+    /\s+xmlns(?::[a-z][\w-]*)?\s*=\s*(?:"(?:https?|ftps?|wss?):\/\/[^"]*"|'(?:https?|ftps?|wss?):\/\/[^']*')/giu,
+    "",
+  );
 
-  // 3. Strip any remaining external href attributes on malformed/unclosed anchors.
-  cleaned = cleaned.replace(/\s+href\s*=\s*(?:"https?:\/\/[^"]*"|'https?:\/\/[^']*'|https?:\/\/[^\s"'=<>`]+)/giu, "");
+  // 3. Strip any remaining non-fragment href attributes on malformed/unclosed anchors.
+  cleaned = cleaned.replace(
+    ANY_HREF_ATTR_GLOBAL_RE,
+    (full, dq: string | undefined, sq: string | undefined, bare: string | undefined) => {
+      const rawUrl = (dq ?? sq ?? bare ?? "").trim();
+      return isInPageFragmentHref(rawUrl) ? full : "";
+    },
+  );
 
-  // 4. Fixed-point scrub any residual http(s):// in prose or comments while preserving domain/path text.
+  // 4. Fixed-point scrub any residual external URI schemes or protocol-relative URLs in prose/comments.
   return sanitizeExternalUrlText(cleaned);
 }
 
@@ -167,8 +182,8 @@ function insertHtmlSection(baseHtml: string, sectionHtml: string): string {
 
 export function preserveExternalHtmlBody(input: DossierSynthesisInput, previousBody: string): string {
   const withWatermark = sanitizeExternalHtmlOffline(updateHtmlWatermarkMeta(previousBody, input.targetWatermark));
-  if (input.changes.length === 0) {
-    return enforceDossierSizeCeiling(input.slot.id, withWatermark);
+  if (input.changes.length === 0 && utf8ByteLength(withWatermark) <= dossierContentMaxBytes) {
+    return withWatermark;
   }
 
   const newRows = input.changes
