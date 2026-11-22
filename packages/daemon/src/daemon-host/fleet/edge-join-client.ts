@@ -409,7 +409,10 @@ export function startFleetEdgeJoin(
 function edgeJoinOriginUrls(value: unknown): Readonly<Record<string, string>> | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw new EdgeJoinRequestError("edge_origin_invalid", "Edge join origin addresses must be a repository-to-address map.");
+    throw new EdgeJoinRequestError(
+      "edge_origin_invalid",
+      "Edge join origin addresses must be a repository-to-address map.",
+    );
   const entries = Object.entries(value);
   if (
     entries.length > 64 ||
