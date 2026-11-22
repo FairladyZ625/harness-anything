@@ -102,19 +102,26 @@ export function GateAttestForm({
   );
 }
 
-/** attest 反馈的行内展示:错误码/原因原样透传,不吞、不乐观。 */
-export function AttestFeedbackRow({ feedback }: { readonly feedback: TaskMutationFeedback | undefined }) {
+/** attest / consent / complete 反馈的行内展示:错误码/原因原样透传,不吞、不乐观。 */
+export function AttestFeedbackRow({
+  feedback,
+  testId = "task-attest-feedback",
+}: {
+  readonly feedback: TaskMutationFeedback | undefined;
+  readonly testId?: string;
+}) {
   if (!feedback) return null;
   return (
     <div
-      data-testid="task-attest-feedback"
+      data-testid={testId}
+      role={feedback.state === "error" ? "alert" : undefined}
       className={`mt-2 rounded border px-2 py-1.5 ui-micro ${feedback.state === "error" ? "border-danger/40 text-danger" : feedback.state === "pending" ? "border-stale/40 text-stale" : "border-status-done/40 text-text-muted"}`}
     >
       <span className="font-mono">
         {feedback.kind} · {feedback.state} · opId={feedback.opId}
       </span>
       {feedback.code && <span className="ml-1 font-mono">code={feedback.code}</span>}
-      <p className="mt-0.5">{feedback.hint}</p>
+      <p className="mt-0.5 break-words">{feedback.hint}</p>
     </div>
   );
 }

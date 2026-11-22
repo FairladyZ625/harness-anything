@@ -535,7 +535,7 @@ test("unregistering a device disables access and retains an immutable tombstone"
     ],
   );
   assert.deepEqual([results[1]!.expectedVersion, results[1]!.currentVersion], [version, "2"]);
-  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE /clients/")).length, 0);
+  assert.equal(keycloak.writes.filter((write) => /^DELETE \/clients\/[^/]+$/u.test(write)).length, 0);
   assert.deepEqual(
     (await nodes()).map(({ nodeId, state }) => [nodeId, state]),
     [

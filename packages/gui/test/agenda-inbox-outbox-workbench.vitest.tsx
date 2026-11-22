@@ -1156,6 +1156,86 @@ describe("Agenda delivery acceptance", () => {
     );
     await settle(() => expect(host.querySelector('[title="task/followup"]')).not.toBeNull());
   });
+  it("renders a role=alert error with code and diagnostic hint when consent or complete is rejected", async () => {
+    const row = projection("review-rejected", "in_review");
+    row.capabilities = [{ id: "complete", available: true, reason: null }];
+    row.closeoutAssessment = {
+      ...row.closeoutAssessment,
+      blocker: "consent",
+      consentReviewId: "review_one",
+      executionId: "exe_reviewed",
+    };
+    seedTasks([row]);
+    vi.spyOn(taskReworkClient, "read").mockResolvedValue({
+      reworkTargets: [{ executionId: "exe_reviewed", submissionDigest: "sha256:cut" }],
+      task: row.snapshot.task,
+    });
+    vi.spyOn(harnessClient, "consentReview").mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "task-review-consent",
+      outcome: "op_rejected",
+      opId: "op-agenda-consent-denied",
+      code: "human_confirmation_required",
+      rejectionExplanation: "Consent requires a personal session and a client granted the consent scope.",
+    } as never);
+    vi.spyOn(harnessClient, "completeTask").mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "task-complete",
+      outcome: "op_rejected",
+      opId: "op-agenda-complete-denied",
+      code: "consent_missing",
+      rejectionExplanation: "Review consent is missing for this cut.",
+    } as never);
+    render();
+    chip("出件验收");
+    click("agenda-consent");
+    await settle(() => {
+      const alert = find("agenda-mutation-error");
+      expect(alert.getAttribute("role")).toBe("alert");
+      expect(alert.textContent).toContain("human_confirmation_required");
+      expect(alert.textContent).toContain("client granted the consent scope");
+    });
+    click("agenda-complete");
+    await settle(() => {
+      const alert = find("agenda-mutation-error");
+      expect(alert.getAttribute("role")).toBe("alert");
+      expect(alert.textContent).toContain("consent_missing");
+      expect(alert.textContent).toContain("Review consent is missing");
+    });
+  });
+
+  it("keeps agenda complete clickable after consent settles as canonical_not_visible", async () => {
+    const row = projection("review-invisible", "in_review");
+    row.capabilities = [{ id: "complete", available: true, reason: null }];
+    row.closeoutAssessment = {
+      ...row.closeoutAssessment,
+      blocker: "consent",
+      consentReviewId: "review_one",
+      executionId: "exe_reviewed",
+    };
+    seedTasks([row]);
+    vi.spyOn(taskReworkClient, "read").mockResolvedValue({
+      reworkTargets: [{ executionId: "exe_reviewed", submissionDigest: "sha256:cut" }],
+      task: row.snapshot.task,
+    });
+    vi.spyOn(harnessClient, "consentReview").mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: true,
+      command: "task-review-consent",
+      outcome: "applied",
+      opId: "op-agenda-consent-invisible",
+      proof: { committedRevision: 9, appliedCut: 9, durable: true, canonicalVisible: false },
+    } as never);
+    const complete = vi.spyOn(harnessClient, "completeTask").mockResolvedValue(applied());
+    render();
+    chip("出件验收");
+    click("agenda-consent");
+    await settle(() => expect(find("agenda-complete").hasAttribute("disabled")).toBe(false));
+    click("agenda-complete");
+    await settle(() => expect(complete).toHaveBeenCalledTimes(1));
+  });
 });
 
 describe("Agenda Decision judgment", () => {

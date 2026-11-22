@@ -3,7 +3,7 @@ import { startWorkIdempotencyKey, startWorkPlan } from "../../start-work-flow.ts
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient } from "../../api-client.ts";
-import { settleTaskReceipt, useTaskActions } from "../../task-actions.ts";
+import { pendingMutationKind, settleTaskReceipt, useTaskActions } from "../../task-actions.ts";
 import { taskReworkClient } from "../../task-rework-client.ts";
 import { taskQueryKeys } from "../../task-data.ts";
 import { agendaQueryKeys } from "../../agenda-data.ts";
@@ -13,6 +13,7 @@ import { taskCan, type TaskRow } from "../../model/types.ts";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { TextInput } from "../../components/primitives/TextInput.tsx";
+import { AttestFeedbackRow } from "../../components/taskDetail/TaskGateAttestCard.tsx";
 import { t } from "../../i18n/index.tsx";
 
 export function AgendaOutboxActions({
@@ -130,6 +131,7 @@ export function AgendaOutboxActions({
   };
   if (!task) return null;
   const mutation = actions.feedback.get(task.taskId);
+  const pendingKind = pendingMutationKind(mutation);
   const consentReviewId = task.consentTarget?.reviewId;
   return (
     <section className="grid min-w-0 gap-3 border-t border-border pt-3" data-testid="agenda-outbox-actions">
@@ -140,8 +142,11 @@ export function AgendaOutboxActions({
               <Button
                 testId="agenda-consent"
                 variant="primary"
-                disabled={mutation?.state === "pending"}
-                onClick={() => void actions.consentReview(task, consentReviewId)}
+                disabled={pendingKind === "consent"}
+                onClick={() => {
+                  setFeedback(null);
+                  void actions.consentReview(task, consentReviewId);
+                }}
               >
                 {t("views.agenda.consentCloseout")}
               </Button>
@@ -149,8 +154,11 @@ export function AgendaOutboxActions({
             {taskCan(task, "complete") && (
               <Button
                 testId="agenda-complete"
-                disabled={mutation?.state === "pending"}
-                onClick={() => void actions.completeTask(task)}
+                disabled={pendingKind === "complete"}
+                onClick={() => {
+                  setFeedback(null);
+                  void actions.completeTask(task);
+                }}
               >
                 {t("views.agenda.completeTask")}
               </Button>
@@ -164,7 +172,7 @@ export function AgendaOutboxActions({
           />
           <Button
             testId="agenda-rework"
-            disabled={!reason.trim() || !rework.data?.reworkTargets[0] || mutation?.state === "pending"}
+            disabled={!reason.trim() || !rework.data?.reworkTargets[0] || pendingKind === "rework"}
             onClick={() => void actions.reworkTask(task, { ...rework.data!.reworkTargets[0], reason: reason.trim() })}
           >
             {t("views.agenda.reworkDispatch")}
@@ -227,7 +235,8 @@ export function AgendaOutboxActions({
           {created && <EntityRefLink entityRef={`task/${created}`} onNavigate={onNavigateEntity} />}
         </>
       )}
-      {(feedback || mutation) && (
+      {mutation?.state === "error" && <AttestFeedbackRow feedback={mutation} testId="agenda-mutation-error" />}
+      {(feedback || (mutation && mutation.state !== "error")) && (
         <p role="status" className="break-words ui-meta">
           {feedback ?? mutation?.hint}
         </p>
