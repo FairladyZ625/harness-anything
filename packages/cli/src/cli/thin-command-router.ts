@@ -491,13 +491,14 @@ function parseBootstrapRouted(
 ): ThinParseResult {
   const f = readFlags("repo-bootstrap", args.slice(1), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  const name = f.one.get("--name");
   return accepted(rootDir, undefined, json, {
     kind: "repo-bootstrap",
     ...(f.one.has("--repo-id") ? { repoId: f.one.get("--repo-id") } : {}),
     ...(f.one.has("--person-id") ? { personId: f.one.get("--person-id") } : {}),
     ...(f.one.has("--display-name") ? { displayName: f.one.get("--display-name") } : {}),
-    ...(name ? { name } : {}),
+    ...(f.one.get("--name") ? { name: f.one.get("--name") } : {}),
+    ...(f.one.get("--vertical") ? { vertical: f.one.get("--vertical") } : {}),
+    ...(f.one.get("--preset") ? { preset: f.one.get("--preset") } : {}),
     ...(f.booleans.has("--add-npm-scripts") ? { addNpmScripts: true } : {}),
     ...(f.booleans.has("--configure-only") ? { configureOnly: true } : {}),
   });

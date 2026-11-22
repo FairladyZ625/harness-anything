@@ -18,7 +18,7 @@ const codexInstances = [
 ];
 
 test("ask-agent ships bundled as a read-only codex dispatch on the Flash-class model", () => {
-  const declaration = readBundledAgentDeclaration("ask-agent");
+  const declaration = readBundledAgentDeclaration("ask-agent", "software/coding");
   assert.ok(declaration, "ask-agent must ship in the bundled agent layer");
   assert.equal(declaration.permissionMode, "read-only");
   assert.deepEqual(declaration.runtimes, [{ type: "codex", model: "deepseek-flash" }]);
@@ -26,6 +26,7 @@ test("ask-agent ships bundled as a read-only codex dispatch on the Flash-class m
     rootDir: "/unused",
     agentId: "ask-agent",
     entityStore: { get: () => null },
+    verticalId: "software/coding",
   });
   assert.equal(resolved?.layer, "bundled");
 });
@@ -44,7 +45,7 @@ test("system-bundled agents close their lifecycle: retire and delete are rejecte
     // dispatchable forever, while editing an overriding install stays the open path.
     const store = makeTaskEventStore({ repoId: "ask-agent-builtin", rootDir }),
       edited = {
-        ...readBundledAgentDeclaration("ask-agent")!,
+        ...readBundledAgentDeclaration("ask-agent", "software/coding")!,
         runtimes: [{ type: "codex", model: "gpt-6-luna" }],
       },
       revision = store.readHead()?.revision ?? 0,

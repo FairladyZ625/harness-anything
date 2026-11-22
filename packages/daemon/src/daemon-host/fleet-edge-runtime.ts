@@ -1870,6 +1870,7 @@ function findMirroredAgentDeclaration(
         ),
       ),
     );
+  if (!verticalId) return undefined;
   return readBundledAgentDeclaration(agentId, verticalId, request.workspaceRoot) ?? undefined;
 }
 

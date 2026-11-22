@@ -115,6 +115,8 @@ export function executeRepoAction(
     return runVerticalDeclarationAction({
       action,
       binding,
+      rootDir: cell.rootDir,
+      verticalId: cell.settings.readRepository().defaultVertical,
       store: cell.store,
       projection: cell.projection,
       now: cell.now,

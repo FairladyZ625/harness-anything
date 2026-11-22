@@ -563,6 +563,8 @@ export const daemonProtocolMethods = Object.freeze([
       personId: "string?",
       displayName: "string?",
       name: "string?",
+      vertical: "string?",
+      preset: "string?",
       addNpmScripts: "boolean?",
       configureOnly: "boolean?",
     }),

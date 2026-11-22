@@ -4,7 +4,7 @@ import {
   validateTemplateCatalogBodies,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
-import { compileVerticalContract } from "@harness-anything/kernel";
+import { compileVerticalContract, INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   decodeVerticalDefinition,
   TemplateCatalogSchema,
@@ -27,7 +27,7 @@ import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const canonicalAssetsCache = new Map<string, CanonicalAssets>();
-const CORE_BUILTIN_VERTICAL_ID = "software/coding";
+const protectedBuiltinVerticalId = INITIAL_SETTINGS_V1.defaultVertical;
 
 export interface VerticalCatalogEntryV1 {
   readonly id: string;
@@ -63,7 +63,7 @@ function scanVerticalRoots(repoRoot?: string): {
       if (!isPresetResolutionRecord(raw) || typeof raw.id !== "string" || !raw.id.trim())
         throw presetFailure("invalid_vertical", `${declaration} must declare a vertical id.`);
       const id = raw.id.trim();
-      if (id === CORE_BUILTIN_VERTICAL_ID)
+      if (id === protectedBuiltinVerticalId)
         throw presetFailure("duplicate_vertical", `Vertical ${id} is declared by both ${roots.get(id)} and ${root}.`);
       if (localRoots.has(id))
         throw presetFailure(
@@ -79,7 +79,7 @@ function scanVerticalRoots(repoRoot?: string): {
 }
 
 export function findLocalVerticalRoot(verticalId: string, repoRoot?: string): string | null {
-  if (!repoRoot || verticalId === CORE_BUILTIN_VERTICAL_ID) return null;
+  if (!repoRoot || verticalId === protectedBuiltinVerticalId) return null;
   return scanVerticalRoots(repoRoot).localRoots.get(verticalId) ?? null;
 }
 
@@ -99,7 +99,7 @@ export function listVerticalCatalog(
   input: { readonly rootDir?: string; readonly defaultVertical?: string } = {},
 ): VerticalCatalogEntryV1[] {
   const { roots, shadowedBuiltins } = scanVerticalRoots(input.rootDir),
-    defaultVertical = input.defaultVertical ?? CORE_BUILTIN_VERTICAL_ID;
+    defaultVertical = input.defaultVertical ?? null;
   return [...roots.entries()]
     .map(([id, root]): VerticalCatalogEntryV1 => {
       const resolvedRoot = path.resolve(root),

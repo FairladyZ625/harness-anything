@@ -220,7 +220,7 @@ function freezeCompletionContract(
 ): SubmissionV1["completionContract"] {
   const task = snapshot.task;
   if (!task) throw cell.cellCodedError("invalid_submission", "Submission has no task contract to freeze.");
-  const gap = completionContractGap(task);
+  const gap = completionContractGap(task, cell.settings?.readRepository().defaultPreset);
   if (gap)
     throw Object.assign(cell.cellCodedError("invalid_submission", `${gap.reason} Run ${gap.action}.`), {
       nextAction: gap.action,
@@ -235,7 +235,7 @@ function freezeCompletionContract(
   if (!frozenPreset) {
     // `readPresetSnapshot` answers null when the frozen bytes are unavailable. The old path passed
     // that null into resolveCompletionContract and read `.completion` from it.
-    const presetId = task.metadata?.presetId ?? "standard-task",
+    const presetId = task.metadata?.presetId ?? cell.settings?.readRepository().defaultPreset ?? "<preset-id>",
       action = `ha task contract migrate --task ${task.taskId} --to-preset ${presetId} --apply`;
     throw Object.assign(
       cell.cellCodedError(

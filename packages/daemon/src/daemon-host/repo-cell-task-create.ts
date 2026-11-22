@@ -383,6 +383,7 @@ export function prepareTaskCreateAt(
         taskId,
         packagePath: compiled.packagePath,
         outputShape: compiled.snapshot.profile.outputShape,
+        artifactPresetIds: compiled.artifactPresetIds,
         dryRun,
         opId,
         canonicalVisible: false,
@@ -402,11 +403,7 @@ export function prepareTaskCreateAt(
 function taskDecisionTarget(cell: RepoCellOperationalContext, action: RepoTaskAction): string | null {
   const decisionRef = action.decisionRef;
   if (decisionRef === undefined || decisionRef === null || decisionRef === "") {
-    if (
-      (action.presetId === "create-work" || action.taskClass === "work") &&
-      action.createMode !== "import" &&
-      action.createMode !== "migration"
-    )
+    if (action.taskClass === "work" && action.createMode !== "import" && action.createMode !== "migration")
       throw cell.cellCodedError(
         "decision_required",
         'Work requires an in_effect Decision. Run ha decision list; if none fits, run ha decision propose --help, then accept the selected Decision with ha decision accept <decision-id> --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision <decision-id>.',
@@ -496,6 +493,7 @@ export function preparedTaskCreateReceipt(
       taskId: fields.taskId,
       packagePath: compiled.packagePath,
       outputShape: compiled.snapshot.profile.outputShape,
+      artifactPresetIds: compiled.artifactPresetIds,
       dryRun: fields.dryRun,
       opId: compiled.event.opId,
       canonicalVisible: proof.canonicalVisible,

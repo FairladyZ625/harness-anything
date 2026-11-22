@@ -360,7 +360,7 @@ export const presetCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "work-create",
-    // CLI alias only: the forwarded durable action is task-create (create-work preset, taskClass=work),
+    // CLI alias only: the forwarded durable action is task-create (taskClass=work; daemon resolves the vertical's work preset),
     // so authorization, receipt, and the Action inventory key on the shared kind.
     actionKind: "task-create",
     phase: "Preset-A",
@@ -544,7 +544,7 @@ export const presetCommands = Object.freeze([
     id: "template-list",
     phase: "Preset-A",
     path: ["template", "list"],
-    summary: "List builtin software/coding template declarations.",
+    summary: "List active vertical template declarations.",
     method: "repo.template.list",
     inputs: [],
   }),

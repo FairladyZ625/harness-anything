@@ -9,11 +9,14 @@ import { validateCompletionDeclaration } from "./preset-extension-model.ts";
 import { effectiveCatalog, missingPresetFailure } from "./preset-catalog.ts";
 import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
 import {
+  defaultPresetCandidatesForVertical,
   missingProviderFailure,
   presetAvailability,
   presetsDeclaringProfile,
+  presetsWithOutputShape,
   providerIndex,
   requireAncestry,
+  workPresetIdsForVertical,
 } from "./preset-resolution-inputs.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
 import { file, presetPackageScripts } from "./preset-package.ts";
@@ -68,7 +71,11 @@ export function createRuntime(options: PresetResolverOptions): {
   const resolveInternal = (request: ResolvePresetRequestV1): InternalPresetResolution => {
     const assetsRoot = options.assetsRoot ?? resolveVerticalAssetsRoot(request.verticalId, options.repoRoot),
       assets = loadCanonicalAssets(assetsRoot),
-      inventory = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
+      inventory = effectiveCatalog(
+        options.bundledRoot ?? path.join(assetsRoot, "presets"),
+        userRoot,
+        assets.compiledVertical.definition.id,
+      ),
       selected = inventory.get(key(request.verticalId, request.presetId));
     if (selected && !selected.decoded)
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
@@ -373,6 +380,7 @@ export function createRuntime(options: PresetResolverOptions): {
       })),
       scripts: request.purpose === "task-create" ? presetPackageScripts(leaf.files) : [],
       lightweightPresetIds: presetsDeclaringProfile(inventory, request.verticalId, "lightweight"),
+      artifactPresetIds: presetsWithOutputShape(inventory, request.verticalId, "task-package-artifact", providerMap),
       ...(requiredTaskClass ? { requiredTaskClass } : {}),
       packageRoot: executablePackage.root,
       packageDigest: executablePackage.packageDigest,
@@ -392,8 +400,12 @@ export function createRuntime(options: PresetResolverOptions): {
   const resolver: CanonicalPresetResolver = {
     list: async ({ verticalId }) => {
       const assetsRoot = options.assetsRoot ?? resolveVerticalAssetsRoot(verticalId, options.repoRoot),
-        catalog = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
-        assets = loadCanonicalAssets(assetsRoot);
+        assets = loadCanonicalAssets(assetsRoot),
+        catalog = effectiveCatalog(
+          options.bundledRoot ?? path.join(assetsRoot, "presets"),
+          userRoot,
+          assets.compiledVertical.definition.id,
+        );
       assertCanonicalVertical(assets, verticalId);
       const resolveAttempt: PresetResolutionAttempt = (presetId) => {
         const attempt = attemptResolution(resolveInternal, {
@@ -444,7 +456,7 @@ export function presetDocumentBody(input: {
 }): string {
   const assetsRoot = resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
     bundledRoot = input.bundledRoot ?? path.join(assetsRoot, "presets"),
-    catalog = effectiveCatalog(bundledRoot, input.userRoot),
+    catalog = effectiveCatalog(bundledRoot, input.userRoot, input.verticalId),
     selected = catalog.get(key(input.verticalId, input.presetId));
   if (selected?.decoded) return selected.decoded.document.body;
   if (selected?.error) throw selected.error;
@@ -464,4 +476,67 @@ export function presetDocumentBody(input: {
       return attempt.ok ? { ok: true } : attempt;
     };
   throw missingPresetFailure(catalog, input.verticalId, input.presetId, resolveAttempt);
+}
+
+/** Resolve the unique `taskClass="work"` preset declared by `verticalId`, failing closed if absent or ambiguous. */
+export function resolveWorkPresetId(input: PresetResolverOptions & { readonly verticalId: string }): string {
+  const assetsRoot = input.assetsRoot ?? resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
+    assets = loadCanonicalAssets(assetsRoot),
+    catalog = effectiveCatalog(
+      input.bundledRoot ?? path.join(assetsRoot, "presets"),
+      path.resolve(input.userRoot),
+      assets.compiledVertical.definition.id,
+    ),
+    providers = providerIndex(assets.providers),
+    matches = workPresetIdsForVertical(catalog, input.verticalId, providers);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1)
+    throw presetFailure(
+      "ambiguous_work_preset",
+      `Vertical ${input.verticalId} declares multiple taskClass=work presets (${matches.join(", ")}); specify --preset explicitly.`,
+    );
+  const available = [...catalog.values()]
+    .filter((item) => item.verticalId === input.verticalId && item.decoded)
+    .map((item) => item.id)
+    .sort((left, right) => left.localeCompare(right));
+  throw presetFailure(
+    "preset_not_found",
+    `Vertical ${input.verticalId} has no preset declaring taskClass=work. ` +
+      (available.length
+        ? `Available presets: ${available.join(", ")}.`
+        : `No presets are installed for ${input.verticalId}.`) +
+      ' Declare a work-root preset importing a provider with requiredTaskClass="work".',
+  );
+}
+
+/** Resolve a valid default preset and profile for repository bootstrap on `verticalId`. */
+export function resolveDefaultPresetSelection(
+  input: PresetResolverOptions & { readonly verticalId: string; readonly presetId?: string },
+): { readonly presetId: string; readonly profileId: string } {
+  const assetsRoot = input.assetsRoot ?? resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
+    assets = loadCanonicalAssets(assetsRoot),
+    bundledRoot = input.bundledRoot ?? path.join(assetsRoot, "presets"),
+    userRoot = path.resolve(input.userRoot),
+    catalog = effectiveCatalog(bundledRoot, userRoot, assets.compiledVertical.definition.id),
+    providers = providerIndex(assets.providers);
+  assertCanonicalVertical(assets, input.verticalId);
+  if (input.presetId) {
+    const selected = catalog.get(key(input.verticalId, input.presetId));
+    if (selected?.decoded) return { presetId: selected.id, profileId: selected.decoded.manifest.defaultProfile };
+    if (selected?.error) throw selected.error;
+    const runtime = createRuntime({ ...input, assetsRoot, bundledRoot, userRoot });
+    throw missingPresetFailure(catalog, input.verticalId, input.presetId, (presetId) => {
+      const attempt = attemptResolution(runtime.resolveInternal, {
+        presetId,
+        verticalId: input.verticalId,
+        locale: "en-US",
+        purpose: "inspect",
+      });
+      return attempt.ok ? { ok: true } : attempt;
+    });
+  }
+  const candidates = defaultPresetCandidatesForVertical(catalog, input.verticalId, providers);
+  if (candidates.length === 0)
+    throw presetFailure("preset_not_found", `Vertical ${input.verticalId} has no selectable default preset.`);
+  return { presetId: candidates[0]!.id, profileId: candidates[0]!.decoded!.manifest.defaultProfile };
 }

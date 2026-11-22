@@ -139,6 +139,7 @@ for (const frame of [
         { id: "deliverable-task", validity: "valid" },
         { id: "handoff-task", validity: "valid" },
         { id: "minutes-task", validity: "valid" },
+        { id: "work-root", validity: "valid" },
       ],
     );
 
@@ -446,7 +447,7 @@ test(
 );
 
 test(
-  "HA09-8: pre-existing local custom office/collab vertical with same-name local agent files preserves core bundled worker/reviewer across Center cold read",
+  "dec_42EB7B8F636C12381A447E52A3/CH1: local custom office/collab vertical resolves its own verticals/<dir>/agents/*.json across Center cold read without falling back to software/coding",
   { timeout: 120_000 },
   async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-office-upgrade-worker-")),
@@ -467,8 +468,8 @@ test(
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);
 
-    // Author a baseline-style pre-existing local custom office/collab vertical that ALSO contains
-    // uninstalled same-name local agent files (reviewer.json + analyst.json) on disk.
+    // Author a local custom office/collab vertical providing its own business role declarations
+    // under verticals/legacy-office/agents/{reviewer,analyst}.json.
     const localOffice = path.join(root, "verticals", "legacy-office");
     cpSync(new URL("../../preset/assets/software-coding/", import.meta.url), localOffice, { recursive: true });
     rmSync(path.join(localOffice, "agents"), { recursive: true, force: true });
@@ -478,9 +479,9 @@ test(
       JSON.stringify({
         schema: "agent-declaration/v1",
         id: "reviewer",
-        name: "Uninstalled Local Reviewer",
+        name: "Local Office Reviewer",
         role: "reviewer",
-        instructions: "UNINSTALLED LOCAL REVIEWER MUST NOT OVERRIDE CORE.",
+        instructions: "Apply local custom office review checklist.",
         runtimes: [],
         skills: [],
       }),
@@ -490,9 +491,9 @@ test(
       JSON.stringify({
         schema: "agent-declaration/v1",
         id: "analyst",
-        name: "Uninstalled Local Analyst",
+        name: "Local Office Analyst",
         role: "worker",
-        instructions: "UNINSTALLED LOCAL ANALYST MUST NOT BECOME BUNDLED.",
+        instructions: "Synthesize local office brief with domain rules.",
         runtimes: [],
         skills: [],
       }),
@@ -640,8 +641,8 @@ for (const frame of [
     );
     assert.equal((await cliJsonAt(daemon1.endpoint, 0, "task", "start", taskId)).outcome, "applied");
 
-    // Cold-restart daemon to prove cold read of existing local office/collab task still resolves core bundled
-    // worker/reviewer and ignores uninstalled local agent files under verticals/legacy-office/agents/.
+    // Cold-restart daemon to prove cold read of local custom office/collab task resolves its own
+    // verticals/legacy-office/agents/*.json roles without falling back to software/coding.
     await daemon1.stop();
     stop = async () => {};
     const daemon2 = await launchDaemon();
@@ -651,10 +652,7 @@ for (const frame of [
     const legacyCatalog = (await rpc2("repo.gui.catalog.snapshot", { repo: { repoId } })) as {
       bundledAgents: string[];
     };
-    assert.ok(legacyCatalog.bundledAgents.includes("worker"), JSON.stringify(legacyCatalog.bundledAgents));
-    assert.ok(legacyCatalog.bundledAgents.includes("reviewer"), JSON.stringify(legacyCatalog.bundledAgents));
-    assert.ok(!legacyCatalog.bundledAgents.includes("contributor"), JSON.stringify(legacyCatalog.bundledAgents));
-    assert.ok(!legacyCatalog.bundledAgents.includes("analyst"), JSON.stringify(legacyCatalog.bundledAgents));
+    assert.deepEqual(legacyCatalog.bundledAgents, ["analyst", "reviewer"]);
 
     const reviewerDryRun = await cliJsonAt(
       daemon2.endpoint,
@@ -669,26 +667,22 @@ for (const frame of [
       "--dry-run",
     );
     assert.equal(reviewerDryRun.ok, true, JSON.stringify(reviewerDryRun));
-    assert.match(
-      String(reviewerDryRun.prompt),
-      /Independently review the assigned delivery against the task contract/u,
-    );
-    assert.doesNotMatch(String(reviewerDryRun.prompt), /UNINSTALLED LOCAL REVIEWER/u);
+    assert.match(String(reviewerDryRun.prompt), /Apply local custom office review checklist/u);
     assert.doesNotMatch(String(reviewerDryRun.prompt), /deliverable or handoff package/u);
 
-    const analystDenied = await spawnCli(
-      ["--root", root, "--json", "agent", "run", "analyst", "--task", taskId, "--instance", instanceId, "--dry-run"],
+    const workerDenied = await spawnCli(
+      ["--root", root, "--json", "agent", "run", "worker", "--task", taskId, "--instance", instanceId, "--dry-run"],
       cliEnvFor(daemon2.endpoint),
     );
-    assert.notEqual(analystDenied.status, 0, "uninstalled local analyst.json must not resolve as bundled");
-    assert.match(`${analystDenied.stdout}\n${analystDenied.stderr}`, /agent_not_found/u);
+    assert.notEqual(workerDenied.status, 0, "software/coding worker must not leak into local office vertical");
+    assert.match(`${workerDenied.stdout}\n${workerDenied.stderr}`, /agent_not_found/u);
 
     const dispatched = await cliJsonAt(
       daemon2.endpoint,
       0,
       "agent",
       "run",
-      "worker",
+      "analyst",
       "--task",
       taskId,
       "--instance",
@@ -706,13 +700,13 @@ for (const frame of [
     );
     assert.equal(settled.outcome, "stopped", JSON.stringify(settled));
     const launchedPrompt = readFileSync(promptFile, "utf8");
-    assert.match(launchedPrompt, /# Agent Identity: worker \(worker\)/u);
-    assert.match(launchedPrompt, /Complete the assigned task using the repository rules/u);
+    assert.match(launchedPrompt, /# Agent Identity: Local Office Analyst \(analyst\)/u);
+    assert.match(launchedPrompt, /Synthesize local office brief with domain rules/u);
   },
 );
 
 test(
-  "HA09-8: Fleet Edge resolves the same core worker/reviewer declarations as Center for a pre-existing local custom office/collab vertical containing same-name local agent files",
+  "dec_42EB7B8F636C12381A447E52A3/CH1: Fleet Edge resolves the same local vertical agents/*.json as Center without falling back to software/coding",
   { timeout: 120_000 },
   async (t) => {
     const replicaQuota = 64 * 1024 * 1024,
@@ -729,9 +723,9 @@ test(
         JSON.stringify({
           schema: "agent-declaration/v1",
           id: "reviewer",
-          name: "Uninstalled Local Reviewer",
+          name: "Local Office Reviewer",
           role: "reviewer",
-          instructions: "UNINSTALLED LOCAL REVIEWER MUST NOT OVERRIDE CORE.",
+          instructions: "Apply local custom office review checklist.",
           runtimes: [],
           skills: [],
         }),
@@ -741,9 +735,9 @@ test(
         JSON.stringify({
           schema: "agent-declaration/v1",
           id: "analyst",
-          name: "Uninstalled Local Analyst",
+          name: "Local Office Analyst",
           role: "worker",
-          instructions: "UNINSTALLED LOCAL ANALYST MUST NOT BECOME BUNDLED.",
+          instructions: "Synthesize local office brief with domain rules.",
           runtimes: [],
           skills: [],
         }),
@@ -913,7 +907,7 @@ test(
     );
     await syncEdge();
 
-    // Both Center and Edge must resolve reviewer and worker to core bundled declarations (never local agents/*.json or builtin office agents)
+    // Both Center and Edge must resolve reviewer and analyst from local verticals/legacy-office/agents/*.json
     const edgeReviewer = await edgeHost.spawnRuntime(
       fixture.subject.repoId,
       {
@@ -927,26 +921,25 @@ test(
       localAuth,
     );
     assert.equal(edgeReviewer.ok, true, JSON.stringify(edgeReviewer));
-    assert.match(String(edgeReviewer.prompt), /Independently review the assigned delivery against the task contract/u);
-    assert.doesNotMatch(String(edgeReviewer.prompt), /UNINSTALLED LOCAL REVIEWER/u);
+    assert.match(String(edgeReviewer.prompt), /Apply local custom office review checklist/u);
     assert.doesNotMatch(String(edgeReviewer.prompt), /deliverable or handoff package/u);
 
-    const edgeWorker = await edgeHost.spawnRuntime(
+    const edgeAnalyst = await edgeHost.spawnRuntime(
       fixture.subject.repoId,
       {
         runtimeInstanceId: runtimeDefinition.instanceId,
-        agentId: "worker",
+        agentId: "analyst",
         cwd: { scope: "repo-root" },
         taskId: legacyTaskId,
         dryRun: true,
-        dispatchKey: "edge-legacy-office-worker",
+        dispatchKey: "edge-legacy-office-analyst",
       },
       localAuth,
     );
-    assert.equal(edgeWorker.ok, true, JSON.stringify(edgeWorker));
-    assert.match(String(edgeWorker.prompt), /Complete the assigned task using the repository rules/u);
+    assert.equal(edgeAnalyst.ok, true, JSON.stringify(edgeAnalyst));
+    assert.match(String(edgeAnalyst.prompt), /Synthesize local office brief with domain rules/u);
 
-    for (const disallowed of ["analyst", "contributor"] as const) {
+    for (const disallowed of ["worker", "contributor"] as const) {
       await assert.rejects(
         edgeHost.spawnRuntime(
           fixture.subject.repoId,
@@ -1278,10 +1271,22 @@ test(
     initIngressRepo(root, process.getuid?.() ?? 0);
 
     // Pre-upgrade state: before built-in office/collab shipped, contributor and coordinator were ordinary custom ids.
-    // Shadow office/collab locally during pre-upgrade setup so contributor/coordinator can be legally installed and retired.
+    // Shadow office/collab locally with a local agent during pre-upgrade setup so contributor/coordinator can be legally installed and retired.
     const preUpgradeVerticalDir = path.join(root, "verticals", "pre-upgrade-office");
-    mkdirSync(preUpgradeVerticalDir, { recursive: true });
+    mkdirSync(path.join(preUpgradeVerticalDir, "agents"), { recursive: true });
     writeFileSync(path.join(preUpgradeVerticalDir, "vertical.json"), JSON.stringify({ id: "office/collab" }));
+    writeFileSync(
+      path.join(preUpgradeVerticalDir, "agents", "legacy-helper.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "legacy-helper",
+        name: "Legacy Helper",
+        role: "worker",
+        instructions: "Pre-upgrade local vertical helper.",
+        runtimes: [],
+        skills: [],
+      }),
+    );
     execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/main", "HEAD"]);
 
     realm.bind(userRoot);

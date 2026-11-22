@@ -56,7 +56,7 @@ export function readSubmissionAdmission(
             : undefined;
   // The completion-contract judgment already names these tasks. Submit answers with the same named
   // refusal and the explicit migration instead of walking into a null snapshot below.
-  const contractGap = completionContractGap(current.snapshot.task);
+  const contractGap = completionContractGap(current.snapshot.task, cell.settings?.readRepository().defaultPreset);
   if (contractGap)
     return {
       ok: false as const,

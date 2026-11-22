@@ -60,7 +60,7 @@ test("missing snapshot is an explicit replayable gap, preserving acceptance with
   assert.match(next.blocker!.next.reason, /cannot satisfy completion/);
   assert.equal(
     next.blocker!.next.action,
-    "ha task contract migrate --task task-history --to-preset standard-task --apply",
+    "ha task contract migrate --task task-history --to-preset <preset-id> --apply",
   );
   assert.ok(validateCurrentCanonicalEvent(converted.at(-1)!.event).length);
   assert.ok(validateSubmissionV1(cold.executions[0]!.submission).length);
@@ -96,7 +96,7 @@ test("a new submission cannot use a historical task gap even with a current cont
   assert.ok(issues.some((issue) => issue.message.includes("Historical snapshot bytes are unavailable")));
   assert.ok(
     issues.some((issue) =>
-      issue.message.includes("ha task contract migrate --task task-history --to-preset standard-task --apply"),
+      issue.message.includes("ha task contract migrate --task task-history --to-preset <preset-id> --apply"),
     ),
   );
 });

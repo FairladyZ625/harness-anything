@@ -18,6 +18,13 @@
     },
     { "id": "task-parent-relation", "kind": "command", "version": "1" },
     {
+      "id": "policy:template-override/work-plan/v1",
+      "kind": "command",
+      "version": "1",
+      "requiredTaskClass": "work",
+      "templateOverrides": { "task.plan": "template://office/work-plan@1" }
+    },
+    {
       "id": "policy:template-override/lightweight-task-plan/v1",
       "kind": "command",
       "version": "1",

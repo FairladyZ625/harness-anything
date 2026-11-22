@@ -1,0 +1,58 @@
+{
+  "schema": "template-catalog/v2",
+  "package": {
+    "id": "preset-office-work-root",
+    "title": "work-root",
+    "version": "1.0.0",
+    "owner": "preset",
+    "locales": ["zh-CN", "en-US"]
+  },
+  "documents": [
+    {
+      "id": "office/work-plan",
+      "version": "1",
+      "documentKind": "work-task-plan",
+      "slot": "task.plan",
+      "materializeAs": "task_plan.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Mission",
+        "## Stakeholders",
+        "## Workstreams",
+        "## Upstream Baselines",
+        "## Deliverable Contract",
+        "## Handoff and Review",
+        "## Exit Criteria"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Mission",
+            "## Stakeholders",
+            "## Workstreams",
+            "## Upstream Baselines",
+            "## Deliverable Contract",
+            "## Handoff and Review",
+            "## Exit Criteria"
+          ],
+          "bodyPath": "templates/task.work.plan/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Mission",
+            "## Stakeholders",
+            "## Workstreams",
+            "## Upstream Baselines",
+            "## Deliverable Contract",
+            "## Handoff and Review",
+            "## Exit Criteria"
+          ],
+          "bodyPath": "templates/task.work.plan/en-US.md"
+        }
+      ]
+    }
+  ]
+}

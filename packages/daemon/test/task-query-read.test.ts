@@ -860,7 +860,7 @@ test("agenda restart rows take the complete completion next, including contract 
     result.awaitingRestart.map(({ taskId, next }) => [taskId, next]),
     [
       ["task_closeout_missing", "ha task contract migrate --apply --task task_closeout_missing"],
-      ["task_preset_gap", "ha task contract migrate --task task_preset_gap --to-preset standard-task --apply"],
+      ["task_preset_gap", "ha task contract migrate --task task_preset_gap --to-preset <preset-id> --apply"],
     ],
   );
   assert.deepEqual(result.inFlight, []);

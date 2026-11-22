@@ -185,7 +185,7 @@ test("commander keeps worktree ownership without the worker delivery loop", () =
 });
 
 test("the bundled reviewer stays read-only and bound to its exact review cut", () => {
-  const reviewer = readBundledAgentDeclaration("closeout-reviewer");
+  const reviewer = readBundledAgentDeclaration("closeout-reviewer", "software/coding");
   assert.ok(reviewer);
   const prompt = assembleAgentPrompt(
     { ...reviewer, prompts: ["Inspect the pinned delivery."] },

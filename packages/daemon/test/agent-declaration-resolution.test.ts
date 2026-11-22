@@ -47,6 +47,7 @@ test("installed Agent declarations shadow the bundled product declaration", () =
     rootDir: "/unused",
     agentId: "closeout-reviewer",
     entityStore: entityStore(null),
+    verticalId: "software/coding",
   });
   assert.ok(bundled);
   assert.equal(bundled.layer, "bundled");
@@ -56,24 +57,48 @@ test("installed Agent declarations shadow the bundled product declaration", () =
     rootDir: "/unused",
     agentId: "closeout-reviewer",
     entityStore: entityStore(installed),
+    verticalId: "software/coding",
   });
   assert.ok(resolved);
   assert.equal(resolved.layer, "installed");
   assert.equal(resolved.declaration.name, "Repository reviewer");
   assert.deepEqual(
-    readAgentDeclaration({ rootDir: "/unused", agentId: "closeout-reviewer", entityStore: entityStore(installed) })
-      .runtimes,
+    readAgentDeclaration({
+      rootDir: "/unused",
+      agentId: "closeout-reviewer",
+      entityStore: entityStore(installed),
+      verticalId: "software/coding",
+    }).runtimes,
     [{ type: "codex", model: "review-model" }],
   );
 });
 
 test("unknown and invalid Agent ids resolve as absent", () => {
   assert.equal(
-    readAgentDeclarationResolution({ rootDir: "/unused", agentId: "not-bundled", entityStore: entityStore(null) }),
+    readAgentDeclarationResolution({
+      rootDir: "/unused",
+      agentId: "not-bundled",
+      entityStore: entityStore(null),
+      verticalId: "software/coding",
+    }),
     null,
   );
   assert.equal(
-    readAgentDeclarationResolution({ rootDir: "/unused", agentId: "../invalid", entityStore: entityStore(null) }),
+    readAgentDeclarationResolution({
+      rootDir: "/unused",
+      agentId: "../invalid",
+      entityStore: entityStore(null),
+      verticalId: "software/coding",
+    }),
+    null,
+  );
+  // Omitting verticalId never silently falls back to software/coding bundled agents.
+  assert.equal(
+    readAgentDeclarationResolution({
+      rootDir: "/unused",
+      agentId: "closeout-reviewer",
+      entityStore: entityStore(null),
+    }),
     null,
   );
 });
@@ -123,7 +148,12 @@ test("bundled agent resolution scopes by verticalId for office/collab while pres
     assert.throws(() => assertBundledAgentLifecycleOpen(role), { code: "agent_system_builtin" });
   }
   assert.equal(
-    readAgentDeclarationResolution({ rootDir: "/unused", agentId: "coordinator", entityStore: empty }),
+    readAgentDeclarationResolution({
+      rootDir: "/unused",
+      agentId: "coordinator",
+      entityStore: empty,
+      verticalId: "software/coding",
+    }),
     null,
   );
   // HA09-9: repo-wide retire/delete lifecycle guard protects system-bundled roles across all built-in verticals
@@ -152,6 +182,7 @@ test("bundled agent resolution scopes by verticalId for office/collab while pres
     rootDir: "/unused",
     agentId: "closeout-reviewer",
     entityStore: empty,
+    verticalId: "software/coding",
   });
   const officeCloseout = readAgentDeclaration({
     rootDir: "/unused",
@@ -162,17 +193,18 @@ test("bundled agent resolution scopes by verticalId for office/collab while pres
   assert.notEqual(codingCloseout.instructions, officeCloseout.instructions);
   assert.match(officeCloseout.instructions, /collaboration task execution/u);
 
-  // Custom non-builtin vertical falls back to software/coding bundled defaults
-  const customFallback = readAgentDeclarationResolution({
+  // dec_42EB7B8F636C12381A447E52A3/CH1: unknown/non-builtin verticals never fall back to software/coding agents
+  const customUnknown = readAgentDeclarationResolution({
     rootDir: "/unused",
     agentId: "closeout-reviewer",
     entityStore: empty,
     verticalId: "science/experiment",
   });
-  assert.equal(customFallback?.declaration.instructions, codingCloseout.instructions);
+  assert.equal(customUnknown, null);
+  assert.deepEqual(listBundledAgentDeclarationIds("science/experiment", "/unused"), []);
 });
 
-test("HA09-8: pre-existing local custom office/collab vertical preserves core bundled agents even when local agent files exist, while installed overrides still win", () => {
+test("dec_42EB7B8F636C12381A447E52A3/CH1: local vertical agents resolve directly, shadowed builtin without agents/ falls back to its own builtin agents, and installed overrides win", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-office-agents-")),
     pureBuiltinRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-office-agents-")),
     empty = entityStore(null);
@@ -181,47 +213,42 @@ test("HA09-8: pre-existing local custom office/collab vertical preserves core bu
     mkdirSync(localOfficeDir, { recursive: true });
     writeFileSync(path.join(localOfficeDir, "vertical.json"), JSON.stringify({ id: "office/collab" }));
 
-    const coreWorker = readAgentDeclaration({
-      rootDir: "/unused",
-      agentId: "worker",
-      entityStore: empty,
-      verticalId: "software/coding",
-    });
-    const coreReviewer = readAgentDeclaration({
-      rootDir: "/unused",
+    const builtinOfficeReviewer = readAgentDeclaration({
+      rootDir: pureBuiltinRoot,
       agentId: "reviewer",
       entityStore: empty,
-      verticalId: "software/coding",
+      verticalId: "office/collab",
     });
 
-    // Without a local agents/ directory, legacy local office/collab keeps pre-upgrade core bundled agents
-    assert.equal(
-      readAgentDeclaration({ rootDir, agentId: "worker", entityStore: empty, verticalId: "office/collab" })
-        .instructions,
-      coreWorker.instructions,
-    );
+    // Without a local agents/ directory, local shadow of office/collab falls back to builtin office/collab agents (never software/coding)
     assert.equal(
       readAgentDeclaration({ rootDir, agentId: "reviewer", entityStore: empty, verticalId: "office/collab" })
         .instructions,
-      coreReviewer.instructions,
+      builtinOfficeReviewer.instructions,
     );
     assert.equal(
       readAgentDeclarationResolution({
         rootDir,
-        agentId: "contributor",
+        agentId: "worker",
         entityStore: empty,
         verticalId: "office/collab",
       }),
       null,
     );
+    assert.deepEqual(listBundledAgentDeclarationIds("office/collab", rootDir), [
+      "closeout-reviewer",
+      "contributor",
+      "coordinator",
+      "reviewer",
+    ]);
     assert.throws(() => assertBundledAgentLifecycleOpen("worker", rootDir), {
       code: "agent_system_builtin",
     });
-    assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("contributor", rootDir));
-    assert.ok(listBundledAgentDeclarationIds("office/collab", rootDir).includes("worker"));
+    assert.throws(() => assertBundledAgentLifecycleOpen("contributor", rootDir), {
+      code: "agent_system_builtin",
+    });
 
-    // Uninstalled local agents/ files inside the custom office/collab vertical MUST NOT override core bundled agents
-    // or become system-bundled identities; custom agent overrides always come through installed canonical Agent entities.
+    // When local vertical provides agents/*.json, those local roles resolve directly without falling back to software/coding
     const localAgentsDir = path.join(localOfficeDir, "agents");
     mkdirSync(localAgentsDir, { recursive: true });
     writeFileSync(
@@ -257,31 +284,64 @@ test("HA09-8: pre-existing local custom office/collab vertical preserves core bu
     });
     assert.ok(reviewerWithLocalFile);
     assert.equal(reviewerWithLocalFile.layer, "bundled");
-    assert.equal(reviewerWithLocalFile.declaration.instructions, coreReviewer.instructions);
+    assert.equal(reviewerWithLocalFile.declaration.instructions, "Apply local office custom checklist.");
+    const analystResolution = readAgentDeclarationResolution({
+      rootDir,
+      agentId: "analyst",
+      entityStore: empty,
+      verticalId: "office/collab",
+    });
+    assert.ok(analystResolution);
+    assert.equal(analystResolution.layer, "bundled");
+    assert.equal(analystResolution.declaration.instructions, "Synthesize local office brief.");
+    // Local-only agent is not a system-bundled builtin shipped with Harness
+    assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("analyst", rootDir));
     assert.equal(
       readAgentDeclarationResolution({
         rootDir,
-        agentId: "analyst",
+        agentId: "worker",
         entityStore: empty,
         verticalId: "office/collab",
       }),
       null,
     );
-    assert.doesNotThrow(() => assertBundledAgentLifecycleOpen("analyst", rootDir));
-    const fallbackWorker = readAgentDeclaration({
-      rootDir,
-      agentId: "worker",
-      entityStore: empty,
-      verticalId: "office/collab",
-    });
-    assert.equal(fallbackWorker.instructions, coreWorker.instructions);
-    const listed = listBundledAgentDeclarationIds("office/collab", rootDir);
-    assert.ok(!listed.includes("analyst"));
-    assert.ok(!listed.includes("contributor"));
-    assert.ok(listed.includes("reviewer"));
-    assert.ok(listed.includes("worker"));
+    assert.deepEqual(listBundledAgentDeclarationIds("office/collab", rootDir), ["analyst", "reviewer"]);
 
-    // Installed canonical Agent entities still shadow the bundled layer cleanly
+    // Pure custom vertical (non-builtin) resolves its own verticals/<dir>/agents/*.json and never falls back to software/coding
+    const customAuditDir = path.join(rootDir, "verticals", "finance-audit");
+    mkdirSync(path.join(customAuditDir, "agents"), { recursive: true });
+    writeFileSync(path.join(customAuditDir, "vertical.json"), JSON.stringify({ id: "finance/audit" }));
+    writeFileSync(
+      path.join(customAuditDir, "agents", "auditor.json"),
+      JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "auditor",
+        name: "Finance Auditor",
+        role: "worker",
+        instructions: "Audit financial controls and record findings.",
+        runtimes: [],
+        skills: [],
+      }),
+    );
+    assert.deepEqual(listBundledAgentDeclarationIds("finance/audit", rootDir), ["auditor"]);
+    const auditor = readAgentDeclarationResolution({
+      rootDir,
+      agentId: "auditor",
+      entityStore: empty,
+      verticalId: "finance/audit",
+    });
+    assert.equal(auditor?.declaration.name, "Finance Auditor");
+    assert.equal(
+      readAgentDeclarationResolution({
+        rootDir,
+        agentId: "worker",
+        entityStore: empty,
+        verticalId: "finance/audit",
+      }),
+      null,
+    );
+
+    // Installed canonical Agent entities still shadow the bundled/local-vertical layer cleanly
     const installedReviewer: AgentDeclarationV1 = {
       schema: "agent-declaration/v1",
       id: "reviewer",

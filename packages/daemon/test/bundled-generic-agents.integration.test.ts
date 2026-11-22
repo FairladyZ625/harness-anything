@@ -134,7 +134,7 @@ for (const frame of [
       );
       assert.notEqual(preview.ok, false, JSON.stringify(preview));
       assert.equal(existsSync(promptFile), false, "dry-run must not launch the provider");
-      const declaration = readBundledAgentDeclaration(role);
+      const declaration = readBundledAgentDeclaration(role, "software/coding");
       assert.ok(declaration);
       const source = path.join(parent, `${role}.json`);
       writeFileSync(source, JSON.stringify(declaration));

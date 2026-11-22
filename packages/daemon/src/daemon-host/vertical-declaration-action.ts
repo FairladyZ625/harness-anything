@@ -1,7 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { normalizeHistoricalVerticalDocument } from "@harness-anything/kernel";
+import { INITIAL_SETTINGS_V1, normalizeHistoricalVerticalDocument } from "@harness-anything/kernel";
 import {
   applyVerticalKindCommand,
   compileVerticalContract,
@@ -15,7 +13,7 @@ import {
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { decodeVerticalDefinition, parseVerticalDeclarationDocument } from "@harness-anything/kernel/schemas";
-import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
+import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "@harness-anything/preset/internal/preset-assets";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { noChanges, reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 
@@ -52,6 +50,8 @@ export function requireCanonicalVerticalDeclaration(
 export async function runVerticalDeclarationAction(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
+  readonly rootDir?: string;
+  readonly verticalId?: string;
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
@@ -74,6 +74,8 @@ export async function runVerticalDeclarationAction(input: {
       nextRevision,
       input.mintKindId ?? mintKindId,
       input.projection,
+      input.rootDir,
+      input.verticalId,
     );
   if (current && JSON.stringify(result.definition) === JSON.stringify(current.definition))
     return noChanges({
@@ -125,9 +127,10 @@ function mintKindId(): string {
   return `KND-${randomBytes(16).toString("hex")}`;
 }
 
-/** The install seed every repository initializes its vertical declaration from. */
-export function readDefaultVerticalDefinition() {
-  return decodeVerticalDefinition(JSON.parse(readFileSync(path.join(defaultAssets, "vertical.json"), "utf8")));
+/** The install seed a repository initializes its vertical declaration from. */
+export function readDefaultVerticalDefinition(rootDir?: string, verticalId?: string) {
+  const resolvedVerticalId = verticalId ?? INITIAL_SETTINGS_V1.defaultVertical;
+  return loadCanonicalAssets(resolveVerticalAssetsRoot(resolvedVerticalId, rootDir)).compiledVertical.definition;
 }
 
 function candidate(
@@ -137,6 +140,8 @@ function candidate(
   acceptedRevision: number,
   mint: () => string,
   decisionReader: VerticalDeclarationReader,
+  rootDir?: string,
+  verticalId?: string,
 ): {
   readonly type: "vertical_declared" | "vertical_kind_upserted" | "vertical_kind_retired";
   readonly definition: ReturnType<typeof decodeVerticalDefinition>;
@@ -148,7 +153,7 @@ function candidate(
   if (action.kind === "vertical-declaration-migrate") {
     return {
       type: "vertical_declared",
-      definition: readDefaultVerticalDefinition(),
+      definition: readDefaultVerticalDefinition(rootDir, verticalId),
       kindId: null,
       kindRef: null,
       kindVersion: null,

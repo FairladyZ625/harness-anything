@@ -290,18 +290,19 @@ export async function prepareSubmissionDelivery(
           baseSha === null || headSha === null
             ? { baseSha, headSha, files: [] }
             : await readDeliveryRiskDiff(rootDir, baseSha, headSha);
-      const risk: PreparedSubmissionDelivery["risk"] = {
-        ok: true,
-        manifest,
-        assessment: await assessTaskRiskTier({
-          rootDir: cell.rootDir,
-          task: taskRiskIdentity(snapshot, taskId),
-          delivery,
-          pathReviewers: cell.settings.readRepository().review?.pathReviewers,
-          matchedPathReviewers: [],
-          ...(frozen?.riskTierAssessment ? { previousEffectiveTier: frozen.riskTierAssessment.effectiveTier } : {}),
-        }),
-      };
+      const repositorySettings = cell.settings.readRepository(),
+        risk: PreparedSubmissionDelivery["risk"] = {
+          ok: true,
+          manifest,
+          assessment: await assessTaskRiskTier({
+            rootDir: cell.rootDir,
+            task: taskRiskIdentity(snapshot, taskId, repositorySettings),
+            delivery,
+            pathReviewers: repositorySettings.review?.pathReviewers,
+            matchedPathReviewers: [],
+            ...(frozen?.riskTierAssessment ? { previousEffectiveTier: frozen.riskTierAssessment.effectiveTier } : {}),
+          }),
+        };
       return { facts, publicPullRequest, risk, assertCurrent };
     } catch (error) {
       // A legacy/same frozen cut needs no new assessment. Its final identity includes documents,
@@ -361,13 +362,17 @@ async function gitRead(
   return { ok: result.exitCode === 0, stdout: result.exitCode === 0 ? result.stdout.trim() : "" };
 }
 
-function taskRiskIdentity(snapshot: Snapshot, taskId: string): TaskRiskTierScriptInput["task"] {
+function taskRiskIdentity(
+  snapshot: Snapshot,
+  taskId: string,
+  settings: Pick<ReturnType<DeliveryCell["settings"]["readRepository"]>, "defaultVertical" | "defaultPreset">,
+): TaskRiskTierScriptInput["task"] {
   const metadata = snapshot.task?.metadata;
   return {
     taskId,
     declaredTier: metadata?.riskTier ?? "medium",
-    verticalId: metadata?.verticalId ?? "software/coding",
-    presetId: metadata?.presetId ?? "standard-task",
+    verticalId: metadata?.verticalId ?? settings.defaultVertical,
+    presetId: metadata?.presetId ?? settings.defaultPreset,
     workKind: metadata?.workKind ?? null,
   };
 }
