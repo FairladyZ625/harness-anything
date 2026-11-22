@@ -3,7 +3,7 @@ import {
   dossierRoot,
   type LivingDossier,
 } from "@harness-anything/kernel/internal/domain/living-dossier.ts";
-import type { FdeDomainDraft } from "./domain-draft.ts";
+import type { FdeDomainDraft } from "@harness-anything/preset/fde-studio-draft";
 import type { FdeHtmlPreviews } from "./studio-api.ts";
 
 function escapeHtml(value: string): string {

@@ -1,4 +1,4 @@
-import type { FdeDomainDraft, FdeLocale } from "../studio/domain-draft.ts";
+import type { FdeDomainDraft, FdeLocale } from "@harness-anything/preset/fde-studio-draft";
 import type {
   FdeBootstrapPayload,
   FdeCompiledPackage,

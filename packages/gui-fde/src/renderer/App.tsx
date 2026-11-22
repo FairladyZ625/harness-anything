@@ -10,7 +10,12 @@ import {
   SlidersHorizontal,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
-import { createDefaultFdeDraft, type FdeDomainDraft, type FdeLocale } from "../studio/domain-draft.ts";
+import {
+  createDefaultFdeDraft,
+  updateVerticalIdInDraft,
+  type FdeDomainDraft,
+  type FdeLocale,
+} from "@harness-anything/preset/fde-studio-draft";
 import type { FdeCompiledPackage, FdePersistResult, FdeSimulateReportDto } from "../studio/studio-api.ts";
 import { fdeApi } from "./api.ts";
 import { AgentsSection } from "./sections/AgentsSection.tsx";
@@ -128,10 +133,7 @@ export function App() {
           <input
             id="fde-vertical-id"
             value={draft.verticalId}
-            onChange={(event) => {
-              const verticalId = event.target.value;
-              setDraft({ ...draft, verticalId, slug: verticalId.replaceAll("/", "-") });
-            }}
+            onChange={(event) => setDraft(updateVerticalIdInDraft(draft, event.target.value))}
             className="h-7 w-44 font-mono text-xs"
           />
           <label className="sr-only" htmlFor="fde-vertical-title">

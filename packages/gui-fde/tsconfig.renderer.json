@@ -15,11 +15,6 @@
     "types": [],
     "outDir": "./dist/renderer-types"
   },
-  "include": [
-    "src/renderer/**/*.ts",
-    "src/renderer/**/*.tsx",
-    "src/studio/domain-draft.ts",
-    "src/studio/studio-api.ts"
-  ],
-  "references": [{ "path": "../kernel" }]
+  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx", "src/studio/studio-api.ts"],
+  "references": [{ "path": "../kernel" }, { "path": "../preset" }]
 }

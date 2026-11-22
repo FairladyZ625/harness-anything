@@ -1,4 +1,4 @@
-// harness-test-tier: integration
+// harness-test-tier: contract
 // dec_42EB7B8F636C12381A447E52A3/CH2: headless Vite SSR verification of all 5 builder sections and 3 preview panes.
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -6,9 +6,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
-import { createDefaultFdeDraft } from "../src/studio/domain-draft.ts";
-import { compileStudioDraft } from "../src/studio/compiler.ts";
-import type { FdeSimulateReportDto } from "../src/studio/studio-api.ts";
+import { compileStudioDraft, createDefaultFdeDraft, type FdeSimulateReportDto } from "../src/index.ts";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
 

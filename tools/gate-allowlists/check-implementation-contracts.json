@@ -134,8 +134,8 @@
       },
       {
         "value": "packages/gui-fde/tsconfig.json",
-        "ref": "dec_42EB7B8F636C12381A447E52A3/CH2",
-        "reason": "CH2 authorizes the independent GUI-FDE visual domain workbench workspace package."
+        "ref": "dec_42EB7B8F636C12381A447E52A3",
+        "reason": "dec_42EB7B8F636C12381A447E52A3/CH2 authorizes the independent GUI-FDE visual domain workbench workspace package."
       },
       {
         "value": "packages/kernel/tsconfig.json",

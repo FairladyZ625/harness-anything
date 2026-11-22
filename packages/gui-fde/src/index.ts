@@ -1,4 +1,17 @@
-export { createDefaultFdeDraft, FDE_LOCATOR_KINDS, FDE_RELATION_KINDS } from "./studio/domain-draft.ts";
+export {
+  createDefaultFdeDraft,
+  FDE_LOCATOR_KINDS,
+  FDE_RELATION_KINDS,
+  renameEntityInDraft,
+  renameGateInDraft,
+  renamePresetInDraft,
+  renameProfileInDraft,
+  updateEntityInDraft,
+  updateGateInDraft,
+  updatePresetInDraft,
+  updateProfileInDraft,
+  updateVerticalIdInDraft,
+} from "@harness-anything/preset";
 export type {
   FdeAgentDraft,
   FdeAttributeType,
@@ -15,11 +28,11 @@ export type {
   FdePresetProfileDraft,
   FdeRelationKind,
   FdeTemplateSlotDraft,
-} from "./studio/domain-draft.ts";
-export { compileStudioDraft } from "./studio/compiler.ts";
+} from "@harness-anything/preset";
 export { buildHtmlPreviews, renderDomainExplainerHtml, renderProjectAtlasHtml } from "./studio/html-preview.ts";
 export {
   applyPresetScaffold,
+  compileStudioDraft,
   persistStudioDraft,
   previewPresetScaffold,
   simulateStudioDraft,

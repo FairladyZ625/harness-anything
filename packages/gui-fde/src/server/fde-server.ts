@@ -3,11 +3,16 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
-import type { ScaffoldPresetInput, SimulationSamplePair } from "@harness-anything/preset";
-import { compileStudioDraft } from "../studio/compiler.ts";
-import { createDefaultFdeDraft, type FdeDomainDraft, type FdeLocale } from "../studio/domain-draft.ts";
+import {
+  createDefaultFdeDraft,
+  type FdeDomainDraft,
+  type FdeLocale,
+  type ScaffoldPresetInput,
+  type SimulationSamplePair,
+} from "@harness-anything/preset";
 import {
   applyPresetScaffold,
+  compileStudioDraft,
   persistStudioDraft,
   previewPresetScaffold,
   simulateStudioDraft,

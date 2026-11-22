@@ -68,3 +68,44 @@ export type {
   SimulationSamplePair,
   VerticalSimulateReport,
 } from "./vertical-simulate.ts";
+export {
+  createDefaultFdeDraft,
+  DEFAULT_GOVERNED_RELATION_PIN,
+  DEFAULT_GOVERNED_RELATION_REF,
+  FDE_LOCATOR_KINDS,
+  FDE_RELATION_KINDS,
+  renameEntityInDraft,
+  renameGateInDraft,
+  renamePresetInDraft,
+  renameProfileInDraft,
+  updateEntityInDraft,
+  updateGateInDraft,
+  updatePresetInDraft,
+  updateProfileInDraft,
+  updateVerticalIdInDraft,
+} from "./fde-studio-draft.ts";
+export type {
+  FdeAgentDraft,
+  FdeAttributeType,
+  FdeDomainDraft,
+  FdeDossierSlotDraft,
+  FdeEntityAttributeDraft,
+  FdeEntityKindDraft,
+  FdeEntityRelationDraft,
+  FdeGateDraft,
+  FdeGateFieldDraft,
+  FdeLocale,
+  FdeLocatorKind,
+  FdePresetDraft,
+  FdePresetProfileDraft,
+  FdeRelationKind,
+  FdeTemplateSlotDraft,
+} from "./fde-studio-draft.ts";
+export {
+  buildFdeGateCheckerScript,
+  buildFdeGateResultSchema,
+  buildFdeLivingDossier,
+  compileFdeStudioDraft,
+  validateFdeLivingDossier,
+} from "./fde-studio-compiler.ts";
+export type { CompiledFdeStudioPlan, FdeDossierValidation, FdeMaterializedFile } from "./fde-studio-compiler.ts";

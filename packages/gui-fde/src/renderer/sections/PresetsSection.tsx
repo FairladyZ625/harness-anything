@@ -1,10 +1,12 @@
 import { Plus, Trash } from "@phosphor-icons/react";
-import type {
-  FdeDomainDraft,
-  FdePresetDraft,
-  FdePresetProfileDraft,
-  FdeTemplateSlotDraft,
-} from "../../studio/domain-draft.ts";
+import {
+  updatePresetInDraft,
+  updateProfileInDraft,
+  type FdeDomainDraft,
+  type FdePresetDraft,
+  type FdePresetProfileDraft,
+  type FdeTemplateSlotDraft,
+} from "@harness-anything/preset/fde-studio-draft";
 
 interface PresetsSectionProps {
   readonly draft: FdeDomainDraft;
@@ -15,16 +17,11 @@ export function PresetsSection({ draft, onChange }: PresetsSectionProps) {
   const gateIds = draft.gates.map((gate) => gate.gateId);
 
   const updatePreset = (index: number, patch: Partial<FdePresetDraft>) => {
-    const presets = draft.presets.map((preset, idx) => (idx === index ? { ...preset, ...patch } : preset));
-    const defaultPresetId = index === 0 && patch.presetId ? patch.presetId : draft.defaultPresetId;
-    onChange({ ...draft, defaultPresetId, presets });
+    onChange(updatePresetInDraft(draft, index, patch));
   };
 
   const updateProfile = (presetIndex: number, profileIndex: number, patch: Partial<FdePresetProfileDraft>) => {
-    const preset = draft.presets[presetIndex];
-    if (!preset) return;
-    const profiles = preset.profiles.map((profile, idx) => (idx === profileIndex ? { ...profile, ...patch } : profile));
-    updatePreset(presetIndex, { profiles });
+    onChange(updateProfileInDraft(draft, presetIndex, profileIndex, patch));
   };
 
   const updateTemplate = (presetIndex: number, templateIndex: number, patch: Partial<FdeTemplateSlotDraft>) => {

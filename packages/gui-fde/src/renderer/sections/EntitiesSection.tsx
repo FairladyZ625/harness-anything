@@ -4,13 +4,14 @@ import {
   DEFAULT_GOVERNED_RELATION_REF,
   FDE_LOCATOR_KINDS,
   FDE_RELATION_KINDS,
+  updateEntityInDraft,
   type FdeAttributeType,
   type FdeDomainDraft,
   type FdeEntityAttributeDraft,
   type FdeEntityKindDraft,
   type FdeEntityRelationDraft,
   type FdeRelationKind,
-} from "../../studio/domain-draft.ts";
+} from "@harness-anything/preset/fde-studio-draft";
 
 interface EntitiesSectionProps {
   readonly draft: FdeDomainDraft;
@@ -21,8 +22,7 @@ export function EntitiesSection({ draft, onChange }: EntitiesSectionProps) {
   const entityIds = ["task", "decision", "fact", ...draft.entities.map((entity) => entity.id)];
 
   const updateEntity = (index: number, patch: Partial<FdeEntityKindDraft>) => {
-    const entities = draft.entities.map((entity, idx) => (idx === index ? { ...entity, ...patch } : entity));
-    onChange({ ...draft, entities });
+    onChange(updateEntityInDraft(draft, index, patch));
   };
 
   const addEntity = () => {

@@ -1,4 +1,4 @@
-// harness-test-tier: integration
+// harness-test-tier: contract
 // dec_42EB7B8F636C12381A447E52A3/CH2: loopback HTTP server security, API compilation/simulation/persistence contract.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

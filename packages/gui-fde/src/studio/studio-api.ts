@@ -1,4 +1,4 @@
-import type { FdeDomainDraft, FdeLocale } from "./domain-draft.ts";
+import type { FdeDomainDraft, FdeLocale } from "@harness-anything/preset/fde-studio-draft";
 
 export interface FdeMaterializedFile {
   readonly relativePath: string;

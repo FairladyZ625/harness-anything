@@ -1,5 +1,10 @@
 import { Plus, Trash } from "@phosphor-icons/react";
-import type { FdeDomainDraft, FdeGateDraft, FdeGateFieldDraft } from "../../studio/domain-draft.ts";
+import {
+  updateGateInDraft,
+  type FdeDomainDraft,
+  type FdeGateDraft,
+  type FdeGateFieldDraft,
+} from "@harness-anything/preset/fde-studio-draft";
 
 interface GatesSectionProps {
   readonly draft: FdeDomainDraft;
@@ -8,8 +13,7 @@ interface GatesSectionProps {
 
 export function GatesSection({ draft, onChange }: GatesSectionProps) {
   const updateGate = (index: number, patch: Partial<FdeGateDraft>) => {
-    const gates = draft.gates.map((gate, idx) => (idx === index ? { ...gate, ...patch } : gate));
-    onChange({ ...draft, gates });
+    onChange(updateGateInDraft(draft, index, patch));
   };
 
   const updateField = (gateIndex: number, fieldIndex: number, patch: Partial<FdeGateFieldDraft>) => {

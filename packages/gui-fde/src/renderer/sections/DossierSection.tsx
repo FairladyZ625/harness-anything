@@ -1,5 +1,5 @@
 import { Plus, Trash } from "@phosphor-icons/react";
-import type { FdeDomainDraft, FdeDossierSlotDraft } from "../../studio/domain-draft.ts";
+import type { FdeDomainDraft, FdeDossierSlotDraft } from "@harness-anything/preset/fde-studio-draft";
 import type { FdeDossierValidation } from "../../studio/studio-api.ts";
 
 interface DossierSectionProps {

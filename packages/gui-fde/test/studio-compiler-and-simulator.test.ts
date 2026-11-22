@@ -1,6 +1,6 @@
-// harness-test-tier: integration
+// harness-test-tier: contract
 // dec_42EB7B8F636C12381A447E52A3/CH2: end-to-end headless GUI-FDE domain compilation, HTML sandbox preview,
-// V4 positive/negative gate simulation, and scaffold persistence tests.
+// V4 positive/negative gate simulation, rename cross-reference synchronization, and scaffold persistence tests.
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +11,14 @@ import {
   compileStudioDraft,
   createDefaultFdeDraft,
   persistStudioDraft,
+  renameEntityInDraft,
+  renameGateInDraft,
+  renamePresetInDraft,
+  renameProfileInDraft,
   simulateStudioDraft,
+  updateGateInDraft,
+  updatePresetInDraft,
+  updateProfileInDraft,
 } from "../src/index.ts";
 
 function makeTempDir(t: test.TestContext): string {
@@ -158,4 +165,59 @@ test("persists drafted vertical to disk and supports scaffolding an additional p
   });
   assert.equal(extraPreset.bundledInLocalVertical, true);
   assert.ok(existsSync(path.join(rootDir, "verticals/supply-intake/presets/supplier-scorecard/preset.json")));
+});
+
+test("renaming default preset, gate, profile, and entity keeps cross-references valid in live V4 simulation", async (t) => {
+  const rootDir = makeTempDir(t);
+  const base = createDefaultFdeDraft({
+    verticalId: "ops/rename-regression",
+    title: "Ops Rename Regression",
+    defaultPresetId: "domain-task",
+    locale: "zh-CN",
+  });
+
+  // 1. Rename default preset: domain-task -> custom-preset
+  const afterPresetRename = renamePresetInDraft(base, "domain-task", "custom-preset");
+  const presetSim = await simulateStudioDraft({ draft: afterPresetRename, rootDir, locale: "zh-CN" });
+  assert.equal(presetSim.report.ok, true, JSON.stringify(presetSim.report.diagnostics, null, 2));
+  assert.equal(presetSim.report.bootstrap.defaultPresetId, "custom-preset");
+  assert.equal(presetSim.report.gates.length, 1);
+  assert.equal(presetSim.report.gates[0]!.positive.result, "pass");
+  assert.equal(presetSim.report.gates[0]!.negative.result, "fail");
+
+  // 2. Rename gate: deliverable-contract -> deliverable-v2
+  const afterGateRename = renameGateInDraft(base, "deliverable-contract", "deliverable-v2");
+  const gateSim = await simulateStudioDraft({ draft: afterGateRename, rootDir, locale: "zh-CN" });
+  assert.equal(gateSim.report.ok, true, JSON.stringify(gateSim.report.diagnostics, null, 2));
+  assert.equal(gateSim.report.gates.length, 1);
+  assert.equal(gateSim.report.gates[0]!.gateId, "deliverable-v2");
+  assert.equal(gateSim.report.gates[0]!.positive.result, "pass");
+  assert.equal(gateSim.report.gates[0]!.negative.result, "fail");
+
+  // 3. Rename profile: verified -> renamed
+  const afterProfileRename = renameProfileInDraft(base, "domain-task", "verified", "renamed");
+  const profileSim = await simulateStudioDraft({ draft: afterProfileRename, rootDir, locale: "zh-CN" });
+  assert.equal(profileSim.report.ok, true, JSON.stringify(profileSim.report.diagnostics, null, 2));
+  assert.equal(profileSim.report.bootstrap.defaultProfileId, "renamed");
+  assert.equal(profileSim.report.gates.length, 1);
+  assert.equal(profileSim.report.gates[0]!.profileId, "renamed");
+  assert.equal(profileSim.report.gates[0]!.positive.result, "pass");
+  assert.equal(profileSim.report.gates[0]!.negative.result, "fail");
+
+  // 4. Combined sequential UI-handler renames: preset + gate + profile + entity
+  let combined = updatePresetInDraft(base, 0, { presetId: "custom-preset" });
+  combined = updateGateInDraft(combined, 0, { gateId: "deliverable-v2" });
+  combined = updateProfileInDraft(combined, 0, 0, { id: "renamed" });
+  combined = renameEntityInDraft(combined, "deliverable", "audit-packet");
+  const combinedSim = await simulateStudioDraft({ draft: combined, rootDir, locale: "en-US" });
+  assert.equal(combinedSim.report.ok, true, JSON.stringify(combinedSim.report.diagnostics, null, 2));
+  assert.equal(combinedSim.compiled.dossierValidation.ok, true, combinedSim.compiled.dossierValidation.error);
+  assert.equal(combinedSim.report.bootstrap.defaultPresetId, "custom-preset");
+  assert.equal(combinedSim.report.bootstrap.defaultProfileId, "renamed");
+  assert.equal(combinedSim.report.gates.length, 1);
+  assert.equal(combinedSim.report.gates[0]!.gateId, "deliverable-v2");
+  assert.equal(combinedSim.report.gates[0]!.presetId, "custom-preset");
+  assert.equal(combinedSim.report.gates[0]!.profileId, "renamed");
+  assert.equal(combinedSim.report.gates[0]!.positive.result, "pass");
+  assert.equal(combinedSim.report.gates[0]!.negative.result, "fail");
 });

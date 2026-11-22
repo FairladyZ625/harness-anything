@@ -1,18 +1,20 @@
 import path from "node:path";
 import {
+  compileFdeStudioDraft,
   createSimulationSandbox,
   planPresetScaffold,
   scaffoldPresetPackage,
   simulateVerticalPackage,
   writeScaffoldFiles,
+  type FdeDomainDraft,
+  type FdeLocale,
   type PresetScaffoldPlan,
   type PresetScaffoldReport,
   type ScaffoldPresetInput,
   type SimulationSamplePair,
 } from "@harness-anything/preset";
-import { compileStudioDraft } from "./compiler.ts";
-import type { FdeDomainDraft, FdeLocale } from "./domain-draft.ts";
-import type { FdePersistResult, FdeSimulateReportDto, FdeSimulationResult } from "./studio-api.ts";
+import { buildHtmlPreviews } from "./html-preview.ts";
+import type { FdeCompiledPackage, FdePersistResult, FdeSimulateReportDto, FdeSimulationResult } from "./studio-api.ts";
 
 export interface SimulateStudioDraftInput {
   readonly draft: FdeDomainDraft;
@@ -28,6 +30,25 @@ export interface PersistStudioDraftInput {
   readonly rootDir: string;
   readonly overwrite?: boolean;
   readonly dryRun?: boolean;
+}
+
+/**
+ * Delegate Vertical/Preset/Gate/LivingDossier compilation to `@harness-anything/preset`'s
+ * pure `compileFdeStudioDraft` port (dec_42EB7B8F636C12381A447E52A3/CH2) and attach UI HTML previews.
+ */
+export function compileStudioDraft(draft: FdeDomainDraft, rootDir: string): FdeCompiledPackage {
+  const plan = compileFdeStudioDraft(draft, rootDir);
+  return {
+    verticalId: plan.verticalId,
+    slug: plan.slug,
+    title: plan.title,
+    relativeTargetDir: plan.relativeTargetDir,
+    defaultPresetId: plan.defaultPresetId,
+    workPresetId: plan.workPresetId,
+    files: plan.files,
+    htmlPreviews: buildHtmlPreviews(draft, plan.livingDossier),
+    dossierValidation: plan.dossierValidation,
+  };
 }
 
 /**

@@ -1,3 +1,5 @@
+// dec_42EB7B8F636C12381A447E52A3/CH2: pure Vertical/Preset/Gate/LivingDossier compiler owned by @harness-anything/preset.
+// GUI-FDE delegates all compilation, gate checker generation, and result schema generation here.
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import {
   validateDossierSlots,
@@ -5,10 +7,38 @@ import {
   type DossierTrigger,
   type LivingDossier,
 } from "@harness-anything/kernel/internal/domain/living-dossier.ts";
-import { planVerticalScaffold } from "@harness-anything/preset";
-import type { FdeDomainDraft, FdeGateDraft } from "./domain-draft.ts";
-import { buildHtmlPreviews } from "./html-preview.ts";
-import type { FdeCompiledPackage, FdeDossierValidation, FdeMaterializedFile } from "./studio-api.ts";
+import { planVerticalScaffold } from "./vertical-scaffold.ts";
+import type { FdeDomainDraft, FdeGateDraft, FdePresetDraft } from "./fde-studio-draft.ts";
+
+export interface FdeMaterializedFile {
+  readonly relativePath: string;
+  readonly body: string;
+  readonly sha256: string;
+}
+
+export interface FdeDossierValidation {
+  readonly ok: boolean;
+  readonly error?: string;
+}
+
+export interface CompiledFdeStudioPlan {
+  readonly verticalId: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly relativeTargetDir: string;
+  readonly defaultPresetId: string;
+  readonly workPresetId: string;
+  readonly files: readonly FdeMaterializedFile[];
+  readonly livingDossier: LivingDossier;
+  readonly dossierValidation: FdeDossierValidation;
+}
+
+interface ResolvedCommandGate {
+  readonly gate: FdeGateDraft;
+  readonly entrypointId: string;
+  readonly entrypointRef: string;
+  readonly scriptRelativePath: string;
+}
 
 function deterministicKindId(seed: string): string {
   return `KND-${sha256Text(seed).slice(0, 32)}`;
@@ -18,7 +48,38 @@ function jsonBody(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function buildLivingDossier(draft: FdeDomainDraft): LivingDossier {
+function resolvePrimaryPreset(draft: FdeDomainDraft): {
+  readonly preset: FdePresetDraft | undefined;
+  readonly defaultPresetId: string;
+} {
+  const preset = draft.presets.find((item) => item.presetId === draft.defaultPresetId) ?? draft.presets[0];
+  return { preset, defaultPresetId: preset?.presetId ?? draft.defaultPresetId };
+}
+
+function resolveEntrypointScriptId(gate: FdeGateDraft, index: number): string {
+  const trimmed = gate.entrypoint.trim();
+  const slashIndex = trimmed.indexOf("/");
+  const candidate = (slashIndex >= 0 ? trimmed.slice(slashIndex + 1) : trimmed).trim();
+  if (candidate.length > 0) return candidate;
+  return index === 0 ? "verify-deliverable" : `verify-${gate.gateId}`;
+}
+
+function resolveCommandGates(draft: FdeDomainDraft, defaultPresetId: string): readonly ResolvedCommandGate[] {
+  const result: ResolvedCommandGate[] = [];
+  for (const [index, gate] of draft.gates.entries()) {
+    if (gate.sourceKind !== "command") continue;
+    const entrypointId = resolveEntrypointScriptId(gate, index);
+    result.push({
+      gate,
+      entrypointId,
+      entrypointRef: `${defaultPresetId}/${entrypointId}`,
+      scriptRelativePath: `checks/${entrypointId}.mjs`,
+    });
+  }
+  return result;
+}
+
+export function buildFdeLivingDossier(draft: FdeDomainDraft): LivingDossier {
   const slots: DossierSlot[] = draft.livingDossier.map((slot) => {
     const triggers: DossierTrigger[] = [
       { kind: "event-watermark", minimumDelta: Math.max(1, Math.trunc(slot.minimumDelta || 1)) },
@@ -41,7 +102,7 @@ function buildLivingDossier(draft: FdeDomainDraft): LivingDossier {
   return { slots };
 }
 
-function dossierSlotStatus(draft: FdeDomainDraft, livingDossier: LivingDossier): FdeDossierValidation {
+export function validateFdeLivingDossier(draft: FdeDomainDraft, livingDossier: LivingDossier): FdeDossierValidation {
   if (livingDossier.slots.length === 0) return { ok: true };
   const entityKinds = new Set<string>(["task", "decision", "fact", ...draft.entities.map((entity) => entity.id)]);
   try {
@@ -52,7 +113,7 @@ function dossierSlotStatus(draft: FdeDomainDraft, livingDossier: LivingDossier):
   }
 }
 
-function buildGateCheckerScript(gate: FdeGateDraft): string {
+export function buildFdeGateCheckerScript(gate: FdeGateDraft): string {
   const rules = gate.fields.map((field) => ({
     name: field.name,
     type: field.type,
@@ -151,7 +212,7 @@ emit({
 `;
 }
 
-function buildResultSchema(gate: FdeGateDraft): Record<string, unknown> {
+export function buildFdeGateResultSchema(gate: FdeGateDraft): Record<string, unknown> {
   const properties: Record<string, Record<string, unknown>> = {};
   const required: string[] = [];
   for (const field of gate.fields) {
@@ -169,7 +230,12 @@ function buildResultSchema(gate: FdeGateDraft): Record<string, unknown> {
   };
 }
 
-function patchVerticalJson(baseText: string, draft: FdeDomainDraft, livingDossier: LivingDossier): string {
+function patchVerticalJson(
+  baseText: string,
+  draft: FdeDomainDraft,
+  livingDossier: LivingDossier,
+  commandGates: readonly ResolvedCommandGate[],
+): string {
   const parsed = JSON.parse(baseText) as Record<string, unknown>;
   const contractEntities = [
     { id: "task", entityType: "lifecycle", packageKind: "task-package/v2", contractEntity: true },
@@ -211,6 +277,9 @@ function patchVerticalJson(baseText: string, draft: FdeDomainDraft, livingDossie
     };
   });
 
+  const commandGateByGateId = new Map<string, ResolvedCommandGate>(
+    commandGates.map((resolved) => [resolved.gate.gateId, resolved]),
+  );
   const sources: Record<string, unknown> = {
     "manual-attest": {
       kind: "manual",
@@ -220,18 +289,19 @@ function patchVerticalJson(baseText: string, draft: FdeDomainDraft, livingDossie
   };
   const gates: Record<string, unknown> = {};
   for (const gate of draft.gates) {
+    const resolvedCommand = commandGateByGateId.get(gate.gateId);
     sources[gate.sourceId] =
       gate.sourceKind === "command"
         ? {
             kind: "command",
-            entrypoint: gate.entrypoint,
+            entrypoint: resolvedCommand?.entrypointRef ?? gate.entrypoint,
             predicateType: gate.predicateType,
-            resultSchema: buildResultSchema(gate),
+            resultSchema: buildFdeGateResultSchema(gate),
           }
         : {
             kind: "manual",
             predicateType: gate.predicateType,
-            resultSchema: buildResultSchema(gate),
+            resultSchema: buildFdeGateResultSchema(gate),
           };
     const bindings: Record<string, { readonly artifact: string; readonly pointer: string }> = {};
     for (const field of gate.fields) {
@@ -260,8 +330,11 @@ function patchVerticalJson(baseText: string, draft: FdeDomainDraft, livingDossie
   });
 }
 
-function patchDefaultPresetJson(baseText: string, draft: FdeDomainDraft): string {
-  const preset = draft.presets.find((item) => item.presetId === draft.defaultPresetId) ?? draft.presets[0];
+function patchDefaultPresetJson(
+  baseText: string,
+  preset: FdePresetDraft | undefined,
+  commandGates: readonly ResolvedCommandGate[],
+): string {
   if (!preset) return baseText;
   const parsed = JSON.parse(baseText) as Record<string, unknown>;
   const existingProfiles = Array.isArray(parsed.profiles)
@@ -274,14 +347,33 @@ function patchDefaultPresetJson(baseText: string, draft: FdeDomainDraft): string
     completionGates: [...profile.completionGates],
     templateSelections: defaultTemplateSelections,
   }));
+  const defaultProfile =
+    preset.profiles.length > 0 && !preset.profiles.some((profile) => profile.id === preset.defaultProfile)
+      ? preset.profiles[0]!.id
+      : preset.defaultProfile;
+  const existingEntrypoints =
+    parsed.entrypoints && typeof parsed.entrypoints === "object" ? (parsed.entrypoints as Record<string, unknown>) : {};
+  const entrypoints: Record<string, unknown> = { ...existingEntrypoints };
+  for (const resolved of commandGates) {
+    entrypoints[resolved.entrypointId] = {
+      type: "script",
+      intent: `Verify ${resolved.gate.artifactPath} against ${resolved.gate.artifactSchema} and emit a completion-witness payload.`,
+      inputs: [{ name: "witnessInput", type: "string", required: true }],
+      requires: [],
+      produces: [{ id: "completion-witness", kind: "checker", version: "1" }],
+      sideEffects: [],
+      command: resolved.scriptRelativePath,
+    };
+  }
   return jsonBody({
     ...parsed,
     id: preset.presetId,
     title: preset.title,
     kind: preset.presetKind,
     outputShape: preset.outputShape,
+    entrypoints,
     profiles,
-    defaultProfile: preset.defaultProfile,
+    defaultProfile,
   });
 }
 
@@ -294,19 +386,24 @@ function parseSampleArtifact(rawJson: string): unknown {
 }
 
 /**
- * Compile an FDE visual draft into a complete vertical package plan backed directly
+ * Pure compiler turning an FDE visual domain draft into a complete vertical package plan backed directly
  * by V4's canonical `planVerticalScaffold` and Kernel's `validateDossierSlots`.
+ *
+ * Single-source guarantee: command gate `completion.sources[].entrypoint`, `preset.json` `entrypoints`,
+ * and `presets/<defaultPresetId>/checks/<script>.mjs` are all derived from the same resolved preset ID.
  */
-export function compileStudioDraft(draft: FdeDomainDraft, rootDir: string): FdeCompiledPackage {
+export function compileFdeStudioDraft(draft: FdeDomainDraft, rootDir: string): CompiledFdeStudioPlan {
+  const { preset: primaryPreset, defaultPresetId } = resolvePrimaryPreset(draft);
   const plan = planVerticalScaffold({
     rootDir,
     verticalId: draft.verticalId,
     slug: draft.slug,
     title: draft.title,
-    defaultPresetId: draft.defaultPresetId,
+    defaultPresetId,
   });
-  const livingDossier = buildLivingDossier(draft);
-  const dossierValidation = dossierSlotStatus(draft, livingDossier);
+  const livingDossier = buildFdeLivingDossier(draft);
+  const dossierValidation = validateFdeLivingDossier(draft, livingDossier);
+  const commandGates = resolveCommandGates(draft, plan.defaultPresetId);
   const fileMap = new Map<string, string>(
     plan.files
       .filter((entry) => !entry.relativePath.startsWith("agents/") && !entry.relativePath.startsWith("samples/"))
@@ -314,22 +411,27 @@ export function compileStudioDraft(draft: FdeDomainDraft, rootDir: string): FdeC
   );
 
   const verticalBase = fileMap.get("vertical.json");
-  if (verticalBase) fileMap.set("vertical.json", patchVerticalJson(verticalBase, draft, livingDossier));
-
-  const defaultPresetPath = `presets/${draft.defaultPresetId}/preset.json`;
-  const presetBase = fileMap.get(defaultPresetPath);
-  if (presetBase) fileMap.set(defaultPresetPath, patchDefaultPresetJson(presetBase, draft));
-
-  const primaryPreset = draft.presets.find((item) => item.presetId === draft.defaultPresetId) ?? draft.presets[0];
-  const primaryTemplate = primaryPreset?.templates[0];
-  if (primaryTemplate) {
-    fileMap.set(`presets/${draft.defaultPresetId}/templates/brief/zh-CN.md`, primaryTemplate.zhCN);
-    fileMap.set(`presets/${draft.defaultPresetId}/templates/brief/en-US.md`, primaryTemplate.enUS);
+  if (verticalBase) {
+    fileMap.set("vertical.json", patchVerticalJson(verticalBase, draft, livingDossier, commandGates));
   }
 
-  const primaryGate = draft.gates[0];
-  if (primaryGate && primaryGate.sourceKind === "command") {
-    fileMap.set(`presets/${draft.defaultPresetId}/checks/verify-deliverable.mjs`, buildGateCheckerScript(primaryGate));
+  const defaultPresetPath = `presets/${plan.defaultPresetId}/preset.json`;
+  const presetBase = fileMap.get(defaultPresetPath);
+  if (presetBase) {
+    fileMap.set(defaultPresetPath, patchDefaultPresetJson(presetBase, primaryPreset, commandGates));
+  }
+
+  const primaryTemplate = primaryPreset?.templates[0];
+  if (primaryTemplate) {
+    fileMap.set(`presets/${plan.defaultPresetId}/templates/brief/zh-CN.md`, primaryTemplate.zhCN);
+    fileMap.set(`presets/${plan.defaultPresetId}/templates/brief/en-US.md`, primaryTemplate.enUS);
+  }
+
+  for (const resolved of commandGates) {
+    fileMap.set(
+      `presets/${plan.defaultPresetId}/${resolved.scriptRelativePath}`,
+      buildFdeGateCheckerScript(resolved.gate),
+    );
   }
 
   for (const agent of draft.agents) {
@@ -372,7 +474,7 @@ export function compileStudioDraft(draft: FdeDomainDraft, rootDir: string): FdeC
     defaultPresetId: plan.defaultPresetId,
     workPresetId: plan.workPresetId,
     files,
-    htmlPreviews: buildHtmlPreviews(draft, livingDossier),
+    livingDossier,
     dossierValidation,
   };
 }

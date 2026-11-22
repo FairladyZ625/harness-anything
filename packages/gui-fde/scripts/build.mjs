@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const packageRoot = path.resolve(import.meta.dirname, "..");
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const vite = fileURLToPath(new URL("./bin/vite.js", import.meta.resolve("vite/package.json")));
 const options = { cwd: packageRoot, stdio: "inherit" };
 

@@ -1,5 +1,5 @@
 import { Plus, Trash } from "@phosphor-icons/react";
-import type { FdeAgentDraft, FdeDomainDraft } from "../../studio/domain-draft.ts";
+import type { FdeAgentDraft, FdeDomainDraft } from "@harness-anything/preset/fde-studio-draft";
 
 interface AgentsSectionProps {
   readonly draft: FdeDomainDraft;
