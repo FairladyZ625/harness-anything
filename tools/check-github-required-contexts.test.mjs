@@ -1,10 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   checkGithubRequiredContexts,
   extractGitHubRequiredStatusCheckContexts,
   fetchGitHubBranchRules,
+  parseManifestBranchProtectionContexts,
 } from "./check-github-required-contexts.mjs";
 
 const FETCH_OPTIONS = { repo: "o/r", token: "t", backoffMs: 0, sleepImpl: async () => {} };
@@ -61,6 +63,21 @@ test("github required context check rejects missing and extra contexts", () => {
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /missing required contexts.*integration-shard \(3\)/u);
   assert.match(result.errors.join("\n"), /extra GitHub branch-rule contexts.*nonexistent-job/u);
+});
+
+test("the deployed ruleset must add both new fast-contract contexts", () => {
+  const gateManifestText = readFileSync(new URL("./gate-manifest.json", import.meta.url), "utf8");
+  const contexts = parseManifestBranchProtectionContexts(gateManifestText);
+  const added = ["fast-contract (5)", "fast-contract (6)"];
+  const before = contexts.filter((context) => !added.includes(context));
+  assert.deepEqual(
+    checkGithubRequiredContexts({ branchRules: [requiredStatusCheckRule(before)], gateManifestText }).errors,
+    ["missing required contexts in GitHub branch rules: fast-contract (5), fast-contract (6)"],
+  );
+  assert.equal(
+    checkGithubRequiredContexts({ branchRules: [requiredStatusCheckRule([...before, ...added])], gateManifestText }).ok,
+    true,
+  );
 });
 
 test("github required context check rejects dual empty context sets", () => {

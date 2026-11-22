@@ -4,7 +4,7 @@ import path from "node:path";
 import { mergeAuthorizationProofs } from "./authorization-audit-shards.mjs";
 import { git } from "./git.mjs";
 
-export const AUTHORIZATION_CI_SHARD_COUNT = 8;
+export const AUTHORIZATION_CI_SHARD_COUNT = 2;
 const schema = "authorization-proof-shard/v1";
 const fileName = (index) => `authorization-shard-${index}.json`;
 

@@ -47,36 +47,68 @@ test("CH1 keeps clean-build and Windows-only smoke off pull_request", () => {
   assert.deepEqual(pullRequestJobs, { "platform-smoke": ["quick-gates"], "clean-build": [] });
 });
 
-test("CH2 keeps required path gates green when their expensive step is not selected", () => {
+test("CH2 keeps package policy green when its expensive step is not selected", () => {
   const install = workflow.get("install");
   const packagePolicy = workflow.get("package-policy");
-  const sqlite = workflow.get("cost-budget-reads-sqlite");
-  assert.ok(install && packagePolicy && sqlite);
+  assert.ok(install && packagePolicy);
   assert.match(
     workflowText,
     /packagePolicy:\n\s+- 'package\.json'\n\s+- 'package-lock\.json'\n\s+- 'packages\/\*\*\/package\.json'/u,
   );
-  assert.match(workflowText, /costBudgetReads:\n\s+- 'packages\/storage\/\*\*'\n\s+- 'packages\/daemon\/src\/\*\*'/u);
   assert.match(workflowText, /needs\.install\.outputs\.packagePolicy != 'false'/u);
-  assert.match(workflowText, /needs\.install\.outputs\.costBudgetReads != 'false'/u);
   assert.equal(packagePolicy.isPullRequestJob, true);
   assert.equal(packagePolicy.isNonPullRequestJob, true, "package policy remains on main and schedule");
   assert.match(
     workflowText,
     /- if: github\.event_name != 'pull_request' \|\| needs\.install\.outputs\.packagePolicy != 'false'\n\s+run: node tools\/run-manifest-gates\.mjs --workflow-job package-policy/u,
   );
-  assert.match(workflowText, /github\.event_name == 'schedule'/u);
-  assert.equal(sqlite.isPullRequestJob, true, "SQLite remains a conditional PR observer job");
-  assert.match(sqlite.ifExpressions[0], /needs\.install\.outputs\.costBudgetReads != 'false'/u);
-  assert.match(sqlite.ifExpressions[0], /github\.event_name == 'schedule'/u);
-  assert.match(
-    workflowText,
-    /G38_REQUIRED_BACKENDS: \$\{\{ github\.event_name == 'pull_request' && needs\.install\.outputs\.costBudgetReads == 'false' && 'pglite' \|\| 'pglite,sqlite' \}\}/u,
-  );
   assert.match(
     workflowText,
     /run: node tools\/run-manifest-gates\.mjs --workflow-job quick-gates --github-groups --parallel 4 --exclude typecheck/u,
   );
+});
+
+test("Node 26 storage jobs skip only a proven unrelated PR and keep main and nightly coverage", () => {
+  const jobs = parse(workflowText).jobs;
+  const { costBudgetReads: patterns } = parse(jobs.install.steps.find((step) => step.id === "policy").with.filters);
+  const selected = (file) => patterns.some((pattern) => path.posix.matchesGlob(file, pattern));
+  for (const file of [
+    "packages/storage/src/pglite/storage-backend.ts",
+    "packages/daemon/test/pglite-repo-cell.integration.test.ts",
+    "packages/kernel/src/domain/task-lifecycle-publication.ts",
+    "packages/application/src/commands.ts",
+    "packages/preset/src/preset-resolver-common.ts",
+    "packages/authorization-keycloak/src/index.ts",
+    "packages/cli/src/cli-agent-rollback.ts",
+    "packages/cli/test/fixtures/g38-read-rollback.mjs",
+    "tools/gates/cost-budget-read-lane.mjs",
+    "tools/gate-manifest.json",
+    "package-lock.json",
+    "packages/gui/package.json",
+    "tsconfig.json",
+    ".github/workflows/rewrite-ci.yml",
+  ])
+    assert.ok(selected(file), `${file} must run the storage jobs`);
+  for (const file of [
+    "packages/gui/src/App.tsx",
+    "packages/cli/src/cli-version.ts",
+    "packages/dsh-plugin/src/index.ts",
+    "tools/check-gate-surface.mjs",
+  ])
+    assert.equal(selected(file), false, `${file} alone must skip the storage jobs`);
+  for (const jobId of ["pglite-node26", "cost-budget-reads", "cost-budget-reads-sqlite"]) {
+    const job = jobs[jobId];
+    const push =
+      jobId === "pglite-node26"
+        ? "github.event_name == 'push'"
+        : "(github.event_name == 'push' && github.ref == 'refs/heads/main')";
+    assert.equal(job.needs, "install", jobId);
+    assert.equal(
+      job.if,
+      `always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || ${push} || github.event_name == 'schedule')`,
+      jobId,
+    );
+  }
 });
 
 test("CH4 assigns all twelve light gates to the serial quick-gates runner", () => {
@@ -202,7 +234,7 @@ function assertGateTestsInFastContractOnly({ workflowMap, manifestData, tierMani
     assert.equal(
       fastAndContract.has(file),
       true,
-      `${file} must belong to fast or contract tier so fast-contract (1..4) executes it`,
+      `${file} must belong to fast or contract tier so the fast-contract matrix executes it`,
     );
   }
 }
