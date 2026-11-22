@@ -563,7 +563,7 @@ test("win32 discovery finds DeepSeek Harness dsh.cmd and forwards version argv",
     if (process.platform !== "win32")
       writeProviderExecutable(
         path.join(bin, "cmd.exe"),
-        'const assert = require("node:assert/strict"); assert.deepEqual(process.argv.slice(2, 5), ["/d", "/s", "/c"]); const match = /^"([^"]+)" --version$/.exec(process.argv[5]); assert.ok(match); require("node:child_process").execFileSync(process.execPath, [match[1], "--version"], { stdio: "inherit" });\n',
+        'const assert = require("node:assert/strict"); assert.deepEqual(process.argv.slice(2, 6), ["/e:ON", "/v:OFF", "/d", "/c"]); const match = /^""([^"]+)" --version"$/.exec(process.argv[6]); assert.ok(match); require("node:child_process").execFileSync(process.execPath, [match[1], "--version"], { stdio: "inherit" });\n',
       );
     const installations = await discoverRuntimeInstallations({ env: { PATH: bin }, platform: "win32" });
     assert.equal(installations.length, 1, JSON.stringify(installations));

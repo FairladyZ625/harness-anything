@@ -287,7 +287,11 @@ function executableInvocation(
 ): { readonly command: string; readonly argv: readonly string[]; readonly windowsVerbatimArguments: boolean } {
   const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
   if (!shim) return { command: executablePath, argv: [...args], windowsVerbatimArguments: false };
-  const invocation = cmdShellInvocation(executablePath, args, environment);
+  const comSpec =
+      environment.ComSpec ??
+      environment.COMSPEC ??
+      (process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC) : undefined),
+    invocation = cmdShellInvocation(executablePath, args, comSpec ? { ...environment, ComSpec: comSpec } : environment);
   return {
     command: invocation.command,
     argv: invocation.args,
