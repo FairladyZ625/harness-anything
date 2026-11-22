@@ -58,6 +58,7 @@ export type { TaskProjection } from "@harness-anything/kernel";
 // Projection database ownership, lifetime, initialization, and schema checks.
 interface ProjectionDatabaseOwner {
   readonly use: <A>(operation: (db: DatabaseSync) => A, onValidationProgress?: ProjectionProgress) => A;
+  readonly adopt: (db: DatabaseSync) => void;
   readonly close: () => void;
 }
 
@@ -400,7 +401,14 @@ function projectionDatabaseOwner(
       if (!succeeded && useDepth === 0) close();
     }
   };
-  const owner = { use, close };
+  const adopt = (database: DatabaseSync) => {
+    close();
+    register();
+    db = database;
+    fingerprint = projectionFileFingerprint(projectionPath);
+    schemaChecked = true;
+  };
+  const owner = { use, adopt, close };
   owners.set(projectionPath, owner);
   return owner;
 }
@@ -648,12 +656,14 @@ ${deferred ? "" : `${CORE_DEFERRED_INDEXES.join(";\n")};`}
  */
 export function withRebuildDatabase<A>(
   projectionPath: string,
+  readHead: EventStreamPort["readHead"],
   replay: (db: DatabaseSync) => void,
   verify: (db: DatabaseSync) => A,
   onValidationProgress?: ProjectionProgress,
 ): A {
   localRuntimeStateFileSystem.mkdirp(path.dirname(projectionPath));
   const db = openDatabase(projectionPath);
+  let adopted = false;
   try {
     /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */
     db.exec(
@@ -664,10 +674,13 @@ export function withRebuildDatabase<A>(
     const bulkContext = beginBulkRebuild(db);
     replay(db);
     finalizeRebuildDatabase(db, bulkContext, onValidationProgress);
-    return verify(db);
+    const result = verify(db);
+    projectionDatabaseOwner(projectionPath, readHead).adopt(db);
+    adopted = true;
+    return result;
   } finally {
     endBulkRebuild(db);
-    closeProjectionConnection(db);
+    if (!adopted) closeProjectionConnection(db);
   }
 }
 

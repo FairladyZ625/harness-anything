@@ -29,6 +29,8 @@ import { OPAQUE_TEXTUAL_POLICY_ID } from "@harness-anything/kernel/internal/doma
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import { createProjectionTables } from "../../src/projection/projection-tables.ts";
 import { readDocumentBaseMetadata } from "../../src/projection/bulk-rebuild-state.ts";
+import { ensureRuntimeMemberIndex } from "../../src/projection/runtime-member-index.ts";
+import { withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { canonicalEventWritePlan, makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
@@ -775,6 +777,116 @@ test("optimized cold rebuild replays synthetic 5,000-event ledger with full inde
         );
       } finally {
         db.close();
+      }
+    } finally {
+      projection.close();
+    }
+  });
+});
+
+test("cold open after rebuild keeps ensureRuntimeMemberIndex indexed and adopts the finalized connection", async (t) => {
+  await withTempStoreAsync(async (rootDir) => {
+    const template = lifecycleFixture().events[0]!;
+    assert.equal(template.type, "task_created");
+    const count = 200;
+    const events: PersistedCanonicalEventV1[] = Array.from({ length: count }, (_, index) => {
+      const revision = index + 1;
+      const taskId = `cold-open-task-${revision}`;
+      return {
+        ...template,
+        eventId: `cold-open-ev-${revision}`,
+        opId: `cold-open-op-${revision}`,
+        taskId,
+        workspaceRevision: revision,
+        occurredAt: new Date(Date.UTC(2026, 10, 22, 1, 0, revision)).toISOString(),
+        payload: { ...template.payload, task: { ...template.payload.task, taskId } },
+      };
+    });
+    const readHead = () => ({ revision: count, eventDigest: `sha256:${"d".repeat(64)}` as const });
+    const eventStore: EventStreamPort = {
+      readHead,
+      readBatch: (cursor, maxItems) => {
+        const start = cursor === null ? 0 : Number(cursor);
+        const batch = events.slice(start, start + maxItems);
+        const end = start + batch.length;
+        return {
+          sourceRevision: count,
+          events: batch,
+          cursor: end >= count ? null : String(end),
+          done: end >= count,
+          accessedItems: batch.length,
+          prefetchContent: () => new Map(),
+        };
+      },
+      readContentBlob: () => null,
+    };
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    try {
+      assert.equal(projection.rebuild().watermark, count);
+      // Same owner must reuse the finalized WAL connection without re-running createTables DDL.
+      const observedSql: string[] = [];
+      const originalExec = DatabaseSync.prototype.exec;
+      const execGuard = t.mock.method(DatabaseSync.prototype, "exec", function (this: DatabaseSync, sql: string) {
+        observedSql.push(sql);
+        return Reflect.apply(originalExec, this, [sql]);
+      });
+      let adoptedHandle: DatabaseSync | null = null;
+      try {
+        assert.equal(projection.list({ limit: 1 }).rows.length, 1);
+        withDatabase(projection.path, readHead, (db) => {
+          adoptedHandle = db;
+        });
+      } finally {
+        execGuard.mock.restore();
+      }
+      assert.equal(
+        observedSql.some((sql) => /CREATE TABLE/u.test(sql)),
+        false,
+        "first read after rebuild should reuse the adopted finalized connection without re-running createTables",
+      );
+      assert.notEqual(adoptedHandle, null);
+      projection.close();
+      assert.throws(() => adoptedHandle!.exec("SELECT 1"), "projection.close() must close the adopted rebuild handle");
+
+      // Cold reopen (fresh connection running ensureRuntimeMemberIndex) must use partial indexes, never scan event_index.
+      const db = new DatabaseSync(projection.path);
+      const plans: Array<{ readonly sql: string; readonly plan: readonly { readonly detail: string }[] }> = [];
+      const originalPrepare = DatabaseSync.prototype.prepare;
+      const prepareGuard = t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, sql: string) {
+        if (!/FROM event_index/u.test(sql)) return Reflect.apply(originalPrepare, this, [sql]);
+        const plan = Reflect.apply(originalPrepare, this, [`EXPLAIN QUERY PLAN ${sql}`]);
+        const statement = Reflect.apply(originalPrepare, this, [sql]);
+        return new Proxy(statement, {
+          get(target, key) {
+            if (key === "all")
+              return (...values: unknown[]) => {
+                plans.push({
+                  sql,
+                  plan: Reflect.apply(plan.all, plan, values) as readonly { readonly detail: string }[],
+                });
+                return Reflect.apply(target.all, target, values);
+              };
+            const value: unknown = Reflect.get(target, key);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      });
+      try {
+        ensureRuntimeMemberIndex(db, () => assert.fail("freshly rebuilt DB must have zero pending runtime rows"));
+      } finally {
+        prepareGuard.mock.restore();
+        db.close();
+      }
+      assert.ok(plans.length >= 1, "expected ensureRuntimeMemberIndex to probe event_index");
+      for (const entry of plans) {
+        assert.ok(
+          entry.plan.every(
+            ({ detail }) =>
+              !/\bSCAN event_index\b/u.test(detail) ||
+              /USING INDEX event_index_runtime_(?:member|dispatch_key)_pending/u.test(detail),
+          ),
+          `ensureRuntimeMemberIndex performed a full scan of event_index: ${JSON.stringify(entry)}`,
+        );
       }
     } finally {
       projection.close();

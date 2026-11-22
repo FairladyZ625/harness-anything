@@ -375,6 +375,7 @@ export function rebuildProjection(
     maxBatchItems = 0;
   const result = withRebuildDatabase(
     projectionPath,
+    readHead,
     (db) => {
       const initialWatermark = watermark(db);
       let reportedWatermark = initialWatermark;

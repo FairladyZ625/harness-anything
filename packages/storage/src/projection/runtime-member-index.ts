@@ -57,15 +57,25 @@ export function ensureRuntimeMemberIndex(
   for (const statement of ddl) runSql(db, statement);
   let applied = 0,
     total = 0;
-  const pending = "runtime_session_present IS NULL OR dispatch_key IS NULL";
+  // Query each partial pending index separately and union the bounded heads: an OR predicate
+  // forces SQLite to scan every event_index row on every cold projection open.
+  const pendingPageSql = `SELECT workspace_revision FROM (
+      SELECT workspace_revision FROM event_index WHERE runtime_session_present IS NULL ORDER BY workspace_revision LIMIT 64
+    )
+    UNION
+    SELECT workspace_revision FROM (
+      SELECT workspace_revision FROM event_index WHERE dispatch_key IS NULL ORDER BY workspace_revision LIMIT 64
+    )
+    ORDER BY workspace_revision LIMIT 64`;
+  const pendingCountSql = `SELECT count(*) AS count FROM (
+      SELECT workspace_revision FROM event_index WHERE runtime_session_present IS NULL
+      UNION
+      SELECT workspace_revision FROM event_index WHERE dispatch_key IS NULL
+    )`;
   for (;;) {
-    const rows = queryRows<{ workspace_revision: number }>(
-      db,
-      `SELECT workspace_revision FROM event_index WHERE ${pending} ORDER BY workspace_revision LIMIT 64`,
-    );
+    const rows = queryRows<{ workspace_revision: number }>(db, pendingPageSql);
     if (rows.length === 0) return;
-    if (total === 0)
-      total = Number(queryRows(db, `SELECT count(*) AS count FROM event_index WHERE ${pending}`)[0]!.count);
+    if (total === 0) total = Number(queryRows(db, pendingCountSql)[0]!.count);
     transaction(db, () => {
       for (const row of rows)
         runSql(
