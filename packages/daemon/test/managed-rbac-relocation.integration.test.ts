@@ -147,16 +147,8 @@ test(
     });
 
     await source.run({ operation: "bootstrap", mode: "managed" });
-    mkdirSync(path.join(targetRoot, "rbac"), { recursive: true, mode: 0o700 });
-    cpSync(path.join(sourceRoot, "rbac", "runtime"), path.join(targetRoot, "rbac", "runtime"), { recursive: true });
-    await managedRoot(targetRoot);
-    const target = (targetForCleanup = createIdentityManagement(targetRoot) as ManagedRbacService);
-    await target.run({ operation: "bootstrap", mode: "managed" });
 
     const sourceConfig = JSON.parse(readFileSync(path.join(sourceRoot, "rbac", "config.json"), "utf8")) as {
-        readonly url: string;
-      },
-      targetConfig = JSON.parse(readFileSync(path.join(targetRoot, "rbac", "config.json"), "utf8")) as {
         readonly url: string;
       },
       sourceSecret = readFileSync(path.join(sourceRoot, "rbac", "center-client-secret"), "utf8").trim(),
@@ -226,7 +218,18 @@ test(
       backupDir: bundleDir,
       accessAdminJournal: journal.entries,
     });
-    const realmBytes = readFileSync(path.join(bundleDir, "realm.json")),
+    // Stop the source PostgreSQL + Keycloak instance before bootstrapping the target so CI runners
+    // never host two managed Keycloak JVMs simultaneously.
+    await source.stop();
+    mkdirSync(path.join(targetRoot, "rbac"), { recursive: true, mode: 0o700 });
+    cpSync(path.join(sourceRoot, "rbac", "runtime"), path.join(targetRoot, "rbac", "runtime"), { recursive: true });
+    await managedRoot(targetRoot);
+    const target = (targetForCleanup = createIdentityManagement(targetRoot) as ManagedRbacService);
+    await target.run({ operation: "bootstrap", mode: "managed" });
+    const targetConfig = JSON.parse(readFileSync(path.join(targetRoot, "rbac", "config.json"), "utf8")) as {
+        readonly url: string;
+      },
+      realmBytes = readFileSync(path.join(bundleDir, "realm.json")),
       targetSecretBeforeImport = readFileSync(path.join(targetRoot, "rbac", "center-client-secret"), "utf8"),
       targetConfigBeforeImport = readFileSync(path.join(targetRoot, "rbac", "config.json"), "utf8"),
       targetUrl = targetConfig.url,
