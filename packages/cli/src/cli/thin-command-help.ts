@@ -163,6 +163,19 @@ export const clientLocalCommands = [
     ].join("\n"),
   },
   {
+    // dec_42EB7B8F636C12381A447E52A3/CH2: independent FDE visual domain builder & simulator launcher.
+    id: "fde",
+    path: ["fde"],
+    usage: "ha fde [--browser [--port <n>]] [--root <path>]",
+    summary: "Launch the GUI-FDE visual domain workbench or serve it on loopback.",
+    help: [
+      "    Workbench code comes from @harness-anything/gui-fde without coupling CLI or GUI.",
+      "    --browser serves the split domain builder and live gate simulator on 127.0.0.1.",
+      "    --port selects an explicit loopback TCP port (requires --browser; default 0 for ephemeral).",
+      "    --root selects the target repository workspace (default: current directory).",
+    ].join("\n"),
+  },
+  {
     id: "doctor",
     path: ["doctor"],
     usage: "ha doctor [commands|health|storage] [--root <path>] [--json]",

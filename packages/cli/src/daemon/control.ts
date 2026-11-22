@@ -71,6 +71,10 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     const { runGuiLaunch } = await import("../cli/gui-launch.ts");
     return runGuiLaunch(argv, {}, renderReceipt);
   }
+  if (argv[at] === "fde") {
+    const { runFdeLaunch } = await import("../cli/fde-launch.ts");
+    return runFdeLaunch(argv, {}, renderReceipt);
+  }
   try {
     if (command === "probe") {
       const { runDaemonProbeControl } = await import("./probe/probe-control.ts");

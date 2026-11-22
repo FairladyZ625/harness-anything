@@ -3,6 +3,8 @@ import authorization from "./action-source-facets/authorization.json" with { typ
 import cli from "./action-source-facets/cli.json" with { type: "json" };
 import daemon from "./action-source-facets/daemon.json" with { type: "json" };
 import dshPlugin from "./action-source-facets/dsh-plugin.json" with { type: "json" };
+// dec_42EB7B8F636C12381A447E52A3/CH2: action source facet shard for independent packages/gui-fde.
+import guiFde from "./action-source-facets/gui-fde.json" with { type: "json" };
 import gui from "./action-source-facets/gui.json" with { type: "json" };
 import kernel from "./action-source-facets/kernel.json" with { type: "json" };
 import preset from "./action-source-facets/preset.json" with { type: "json" };
@@ -13,7 +15,19 @@ import type { OntologyActionSources, OntologySourceBinding } from "./ontology-so
 
 type SourceRow = OrderedFacetRow<OntologySourceBinding>;
 const actionMetadata = kernel.actions as Readonly<Record<string, Omit<OntologyActionSources, "sources">>>;
-const shards = [application, authorization, cli, daemon, dshPlugin, gui, kernel, preset, storage, tools] as readonly {
+const shards = [
+  application,
+  authorization,
+  cli,
+  daemon,
+  dshPlugin,
+  guiFde,
+  gui,
+  kernel,
+  preset,
+  storage,
+  tools,
+] as readonly {
   readonly sources: Readonly<Record<string, readonly SourceRow[]>>;
 }[];
 

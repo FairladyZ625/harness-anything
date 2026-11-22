@@ -33,10 +33,13 @@ const architecturePackages = [
   { id: "daemon", c4Id: "daemon", root: "packages/daemon", packageName: "@harness-anything/daemon" },
   { id: "cli", c4Id: "cli", root: "packages/cli", packageName: "@harness-anything/cli" },
   { id: "gui", c4Id: "gui", root: "packages/gui", packageName: "@harness-anything/gui" },
+  // dec_42EB7B8F636C12381A447E52A3/CH2: independent FDE visual domain builder & live simulator workspace.
+  { id: "gui-fde", c4Id: "guiFde", root: "packages/gui-fde", packageName: "@harness-anything/gui-fde" },
 ];
 
 // dec_04A9211B073F29F0FC1E1CA573 CH1/CH3/RJ2 & dec_7C93DEBCFB2D1A94C6FA07AAAD CH2:
-// dec_5B243AC66763BD6D25B0DE2E86 CH1: nine-package C4 matrix (16 allowed, 56 forbidden).
+// dec_5B243AC66763BD6D25B0DE2E86 CH1 & dec_42EB7B8F636C12381A447E52A3/CH2:
+// ten-package C4 matrix (20 allowed, 70 forbidden; gui <-> gui-fde strictly forbidden).
 const allowedPackageEdgeSet = new Set([
   "storage->kernel",
   "preset->kernel",
@@ -54,6 +57,10 @@ const allowedPackageEdgeSet = new Set([
   "gui->daemon",
   "gui->kernel",
   "gui->authorization",
+  "gui-fde->daemon",
+  "gui-fde->kernel",
+  "gui-fde->preset",
+  "gui-fde->authorization",
 ]);
 
 const packageRelations = architecturePackages.flatMap(({ id: from }) =>
@@ -103,12 +110,14 @@ const hostSlices = {
   cli: [],
   daemon: ["builtin", "keycloak"],
   gui: ["gui", "keycloak-gui"],
+  // dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde shares desktop authorization slice boundaries.
+  "gui-fde": ["gui", "keycloak-gui"],
 };
 
-// dec_5B243AC66763BD6D25B0DE2E86/CH1: keep the former package directions at their new subpaths.
+// dec_5B243AC66763BD6D25B0DE2E86/CH1 & dec_42EB7B8F636C12381A447E52A3/CH2: keep package directions at their subpaths.
 export function authorizationImportViolation(importer, specifier, resolved) {
   const sourceSlice = importer.startsWith(sourceRoot) ? importer.slice(sourceRoot.length).split("/")[0] : null;
-  const host = /^packages\/(cli|daemon|gui)\/src\//u.exec(importer)?.[1];
+  const host = /^packages\/(cli|daemon|gui-fde|gui)\/src\//u.exec(importer)?.[1];
   const allowed = sourceSlice ? (sourceSlices.get(sourceSlice) ?? []) : hostSlices[host];
   if (!allowed) return null;
 

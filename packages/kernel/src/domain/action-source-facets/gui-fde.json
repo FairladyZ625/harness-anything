@@ -1,0 +1,12 @@
+{
+  "sources": {
+    "package-assets-build": [
+      {
+        "candidateId": "action:packages/gui-fde:packages/gui-fde/scripts/build.mjs#<module>:9f701f6abeefe5114a9620868d3662cf",
+        "route": "npm:gui-fde:build",
+        "role": "effect",
+        "order": 422
+      }
+    ]
+  }
+}

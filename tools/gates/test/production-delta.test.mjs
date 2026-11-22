@@ -73,6 +73,17 @@ test("G33 classifies dsh-plugin production sources through module policy", () =>
   ]);
 });
 
+// dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde production sources classify under gui-fde.
+test("G33 classifies gui-fde production sources through module policy", () => {
+  const { rootDir, base } = makeRepo({ "packages/gui-fde/src/index.ts": "old\n" });
+  writeRepoFile(rootDir, "packages/gui-fde/src/index.ts", "new\nnext\n");
+  const result = computeProductionDelta({ rootDir, base });
+  assert.deepEqual(result.unclassified, []);
+  assert.deepEqual(result.changed, [
+    { filePath: "packages/gui-fde/src/index.ts", module: "gui-fde", added: 2, deleted: 1 },
+  ]);
+});
+
 test("G33 ignores tool tests and fixtures in both delta directions", () => {
   const files = {
     "tools/gates/example.test.mjs": "old test\n",

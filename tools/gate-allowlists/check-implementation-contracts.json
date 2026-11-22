@@ -133,6 +133,11 @@
         "reason": "Workspace TypeScript references are a governed package boundary list."
       },
       {
+        "value": "packages/gui-fde/tsconfig.json",
+        "ref": "dec_42EB7B8F636C12381A447E52A3",
+        "reason": "dec_42EB7B8F636C12381A447E52A3/CH2 authorizes the independent GUI-FDE visual domain workbench workspace package."
+      },
+      {
         "value": "packages/kernel/tsconfig.json",
         "ref": "ADR-0023#D6",
         "reason": "Workspace TypeScript references are a governed package boundary list."

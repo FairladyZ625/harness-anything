@@ -21,6 +21,7 @@ test("module-policy keeps its ordered budget catalog and tooling policy", () => 
     "preset",
     "cli",
     "gui",
+    "gui-fde",
     "daemon",
     "storage",
     "fleet",
@@ -39,6 +40,8 @@ test("module-policy keeps its ordered budget catalog and tooling policy", () => 
   assert.equal(classifyModule("packages/cli/src/commands/extensions/preset.ts"), "preset");
   assert.equal(classifyModule("packages/cli/src/index.ts"), "cli");
   assert.equal(classifyModule("packages/gui/src/index.ts"), "gui");
+  // dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde classifies independently from gui.
+  assert.equal(classifyModule("packages/gui-fde/src/index.ts"), "gui-fde");
   assert.equal(classifyModule("packages/daemon/src/daemon-host/index.ts"), "daemon");
   assert.equal(classifyModule("packages/storage/src/index.ts"), "storage");
   assert.equal(classifyModule("packages/authority-write-path/src/index.ts"), "authority-write-path");

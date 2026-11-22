@@ -33,6 +33,8 @@ const policyIndexes = new WeakMap();
 const serverSourceIndexes = new WeakMap();
 const nonServerRoots = [
   "packages/gui/",
+  // dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde is a client delivery shell.
+  "packages/gui-fde/",
   "packages/cli/",
   "packages/dsh-plugin/",
   "packages/authorization/src/gui/",

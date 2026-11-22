@@ -1,0 +1,67 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@theme {
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-mono--font-feature-settings: "liga" 0;
+
+  --color-bg: oklch(0.195 0.006 285);
+  --color-surface: oklch(0.23 0.007 285);
+  --color-surface-raised: oklch(0.27 0.008 285);
+  --color-border: oklch(1 0 0 / 0.1);
+  --color-border-strong: oklch(1 0 0 / 0.2);
+  --color-text: oklch(0.94 0.004 285);
+  --color-text-muted: oklch(0.76 0.01 285);
+  --color-accent: oklch(0.78 0.13 195);
+  --color-accent-fg: oklch(0.16 0.02 195);
+  --color-pass: oklch(0.76 0.14 150);
+  --color-fail: oklch(0.71 0.17 25);
+  --color-warn: oklch(0.78 0.14 75);
+}
+
+:root {
+  color-scheme: dark;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+input,
+select,
+textarea {
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 1px solid var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+button {
+  cursor: pointer;
+}
