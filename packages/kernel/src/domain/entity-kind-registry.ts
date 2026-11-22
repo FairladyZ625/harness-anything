@@ -1,3 +1,4 @@
+import { actionSourceFacets } from "./action-source-facets.ts";
 import {
   cliOperationalPolicy,
   cliContractPolicy,
@@ -132,6 +133,7 @@ import {
   canonicalContractDecodePolicy,
   documentClaimPolicy,
   documentSyncRoutingPolicy,
+  dossierSynthesisPolicy,
   verticalDecodeDetailPolicy,
 } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
@@ -941,6 +943,16 @@ const documentIdentity = requireEntityTypeContract("document").id,
 const documentActionCatalog = Object.freeze({
     ref: "kernel/doc-event/v1",
     actions: Object.freeze([
+      Object.freeze({
+        ...declaredStreamAction(
+          "document",
+          documentIdentity,
+          "synthesize-dossier",
+          "dossier-synthesize",
+          "Publish a dossier slot and the source watermark absorbed by its content.",
+        ),
+        concurrency: actionSourceFacets["dossier-synthesize"]!.concurrency!,
+      }),
       declaredStreamAction(
         "document",
         documentIdentity,
@@ -1685,7 +1697,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
-    policies: [documentClaimPolicy, documentSyncRoutingPolicy],
+    policies: [documentClaimPolicy, documentSyncRoutingPolicy, dossierSynthesisPolicy],
   },
   {
     kind: "migration",

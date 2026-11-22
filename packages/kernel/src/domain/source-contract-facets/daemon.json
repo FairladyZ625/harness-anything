@@ -55,6 +55,30 @@
   "document": {
     "contracts": [
       {
+        "id": "daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim",
+        "symbol": "packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim",
+        "explain": "Require the active Schedule fence and bind scheduled synthesis to its authenticated occurrence.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim:cd1806883e10de10780b401b758cc0ee",
+            "route": "packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim"
+          }
+        ],
+        "order": 20
+      },
+      {
+        "id": "daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDossierRead",
+        "symbol": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDossierRead",
+        "explain": "Check the dossier DTO envelope at the daemon protocol boundary.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDossierRead:5c0a1cdd431a99f4917a48ecee65e990",
+            "route": "packages/daemon/src/daemon-host/protocol/daemon-result-validation.ts#validateDossierRead"
+          }
+        ],
+        "order": 21
+      },
+      {
         "id": "daemon/src/doc-sync-candidate-scanner.ts#validateSelectedDocPaths",
         "symbol": "packages/daemon/src/daemon-host/doc-sync-candidate-scanner.ts#validateSelectedDocPaths",
         "explain": "Workspace path normalization guard ensuring explicit `ha doc sync` path selections stay within authored ledger roots without traversal.",

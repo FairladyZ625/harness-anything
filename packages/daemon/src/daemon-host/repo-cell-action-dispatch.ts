@@ -1,3 +1,4 @@
+import { runDossierAction } from "./dossier-actions.ts";
 import { prepareOrphanRuntimeLeaseRelease } from "./runtime-orphan-recovery.ts";
 import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
@@ -87,6 +88,8 @@ export function executeRepoAction(
   binding: RepoCellBinding,
 ): WriteReceipt | Promise<WriteReceipt> {
   validateCanonicalIdentityInputs(cell, action);
+  if (["dossier-status", "dossier-context", "dossier-synthesize"].includes(action.kind))
+    return runDossierAction(cell, action, binding);
   // doc sync has one writer: publishing a DocEventIntent. Its catalog binding (document/*) names the
   // stream for Policy and explanations, never a second compile path, so it stays ahead of the generic
   // catalog runtime below.

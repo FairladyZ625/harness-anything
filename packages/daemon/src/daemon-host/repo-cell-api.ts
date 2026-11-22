@@ -33,6 +33,7 @@ import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { prepareCenterReviewFallback } from "./task-review-dispatch.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 
+import { dossierReads } from "./dossier-actions.ts";
 import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { decisionStateWords } from "./protocol/daemon-protocol-vocabulary.ts";
@@ -290,6 +291,11 @@ export function createRepoCellApi(
       }
     | undefined;
   const readHandlers = {
+    "repo.dossier.status": () => dossierReads(context.extracted).status(),
+    "repo.dossier.read": (payload: Readonly<Record<string, unknown>>) =>
+      dossierReads(context.extracted).read(payload.slotId),
+    "repo.dossier.context.read": (payload: Readonly<Record<string, unknown>>) =>
+      dossierReads(context.extracted).context(payload.slotId, payload.maxWatermark),
     "repo.events.read": (payload: Readonly<Record<string, unknown>>) =>
       readCanonicalEventPage(context.store, context.input.repoId, canonicalEventReadRequest(payload)),
     "repo.reckoning.signals.read": (payload: Readonly<Record<string, unknown>>) => ({
