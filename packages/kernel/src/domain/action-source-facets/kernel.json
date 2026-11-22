@@ -697,6 +697,10 @@
           "file": "packages/gui/scripts/write-build-id.mjs",
           "script": "build"
         },
+        "npm:gui-fde:build": {
+          "file": "packages/gui-fde/scripts/build.mjs",
+          "script": "build"
+        },
         "npm:daemon:build": {
           "file": "packages/daemon/scripts/copy-assets.mjs",
           "script": "build"
