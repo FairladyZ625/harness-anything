@@ -1870,7 +1870,8 @@ export async function main(argv, session = {}) {
 export function installInterruptHandlers(session) {
   let interrupted = false;
   const handler = (signal, reason = null) => {
-    const exitCode = reason ? 124 : signal === "SIGINT" ? 130 : 143;
+    const abortReason = typeof reason === "string" && reason.length > 0 ? reason : null;
+    const exitCode = abortReason ? 124 : signal === "SIGINT" ? 130 : 143;
     if (interrupted) process.exit(exitCode);
     interrupted = true;
     for (const child of liveChildren) killChildTree(child);
@@ -1899,12 +1900,14 @@ export function installInterruptHandlers(session) {
         notes.push(`temp root removal failed: ${String(error instanceof Error ? error.message : error)}`);
       }
     }
-    console.error(`${reason ?? `interrupted by ${signal}`}: ${notes.join("; ")}`);
+    console.error(`${abortReason ?? `interrupted by ${signal}`}: ${notes.join("; ")}`);
     process.exit(exitCode);
   };
   session.abort = handler;
-  process.on("SIGINT", handler);
-  process.on("SIGTERM", handler);
+  // Node passes (signal, signalCode) to signal listeners; wrap so the numeric signalCode
+  // is never mistaken for a timeout reason.
+  process.on("SIGINT", () => handler("SIGINT"));
+  process.on("SIGTERM", () => handler("SIGTERM"));
 }
 
 // Node resolves the invoked entry through realpath (the isolated test snapshot reaches this
