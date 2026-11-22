@@ -722,6 +722,8 @@ export const daemonProtocolMethods = Object.freeze([
         "stop",
         "backup",
         "restore",
+        "relocation-export",
+        "relocation-import",
         "upgrade",
         "login-begin",
         "login-complete",

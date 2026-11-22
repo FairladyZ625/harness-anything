@@ -567,6 +567,7 @@
   "packages/storage/test/pglite/pglite-storage-migration.integration.test.ts": 463,
   "packages/storage/test/pglite/pglite-task-status-cost.integration.test.ts": 553,
   "packages/storage/test/pglite/pglite-terminal-materialization.integration.test.ts": 546,
+  "packages/storage/test/pglite/pglite-trace-index-parity.integration.test.ts": 800,
   "packages/storage/test/pglite/pglite-value-index.integration.test.ts": 766,
   "packages/storage/test/pglite/runtime-provider-bytes.integration.test.ts": 4212,
   "packages/storage/test/postgres/pg-content-blob-range.integration.test.ts": 846,

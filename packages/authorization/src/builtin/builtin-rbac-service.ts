@@ -52,6 +52,8 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
       }
       throw identityPluginRequired();
     }
+    if (request.operation === "relocation-export" || request.operation === "relocation-import")
+      throw identityPluginRequired();
     ensureBuiltinConfig(this.#root);
     if (request.operation === "health") return this.health();
     if (request.operation === "listener-set") throw identityPluginRequired();

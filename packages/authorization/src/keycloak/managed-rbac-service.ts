@@ -51,6 +51,7 @@ import {
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
 import {
+  MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
   ManagedRbacRelocationService,
   writeManagedRbacCenterClientSecret,
   type ManagedRbacConfig,
@@ -118,6 +119,7 @@ export interface ManagedRbacPorts {
   /** Accepted repository declarations projected to Policy scopes; [] when no repo host is wired. */
   readonly readArtifactActionScopes: () => Promise<readonly string[]>;
   readonly auditLegacyRoleMigration?: (receipt: KeycloakLegacyRoleMigrationReceipt) => void | Promise<void>;
+  readonly restoreAccessAdminJournal?: (journal: unknown) => void;
   readonly recordLifecycle?: (event: ManagedRbacLifecycleEvent) => void;
   readonly onListenerWriteStage?: (stage: ListenerWriteStage) => void;
   readonly protectedListenerPaths?: () => readonly string[];
@@ -244,6 +246,47 @@ export class ManagedRbacService {
     if (operation === "listener-set") return this.#setListener(request, ownerRecovery);
     if (operation === "backup") return this.#backup(request);
     if (operation === "restore") return this.#restore(request);
+    if (operation === "relocation-export") {
+      if (!request.backupDir)
+        throw managedRbacError("rbac_relocation_bundle_invalid", "Relocation export requires a bundle directory.");
+      return this.#relocationService().exportBundle({
+        bundleDir: request.backupDir,
+        edgeJoinJournal: {
+          schema: MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
+          entries: request.accessAdminJournal ?? [],
+        },
+      });
+    }
+    if (operation === "relocation-import") {
+      if (!request.backupDir || !request.loginUrl)
+        throw managedRbacError(
+          "rbac_relocation_bundle_invalid",
+          "Relocation import requires a bundle directory and login URL.",
+        );
+      const config = this.#readManagedConfig(),
+        listener = config.listener,
+        listenAddress = request.listenAddress ?? listener?.address,
+        certificateFile = request.certificateFile ?? listener?.certificateFile,
+        certificateKeyFile = request.certificateKeyFile ?? listener?.certificateKeyFile;
+      if (!listenAddress || !certificateFile || !certificateKeyFile)
+        throw managedRbacError(
+          "rbac_relocation_login_url_invalid",
+          "Configure the target managed RBAC TLS listener before importing its relocation bundle.",
+        );
+      const result = await this.#relocationService().importBundle({
+        bundleDir: request.backupDir,
+        loginUrl: request.loginUrl,
+        listenAddress,
+        certificateFile,
+        certificateKeyFile,
+        certificateMode:
+          request.certificateMode === "internal-ca" || config.certificateMode === "internal-ca"
+            ? "internal-ca"
+            : "domain",
+      });
+      this.#ports.restoreAccessAdminJournal?.(result.edgeJoinJournal);
+      return result;
+    }
     const started = Date.now();
     if (operation === "bootstrap" || operation === "upgrade") await this.#install();
     await this.start();

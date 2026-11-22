@@ -613,6 +613,21 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     ],
   }),
   defineHostAdminCommand({
+    id: "daemon-fleet-center-promote-from-edge",
+    hostAuthority: "local-transport",
+    phase: "Fleet-Wiring",
+    path: ["daemon", "fleet", "center", "promote-from-edge"],
+    summary: "Promote a verified local edge replica after explicit tail-loss and new-epoch confirmation.",
+    method: "daemon.fleet.center.promote-from-edge",
+    inputs: [
+      cliInput("--root", "single", true, { code: "missing_field" }, { pathKind: "host-path" }),
+      cliInput("--repo", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--state-root", "single", true, { code: "missing_field" }, { pathKind: "host-path" }),
+      cliInput("--force-new-epoch", "boolean", true, { code: "missing_field" }),
+      cliInput("--confirm-possible-tail-loss", "boolean", true, { code: "missing_field" }),
+    ],
+  }),
+  defineHostAdminCommand({
     id: "daemon-fleet-edge-sync",
     hostAuthority: "local-transport",
     phase: "Fleet-Wiring",

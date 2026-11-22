@@ -1,9 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
-import { localLedgerBackupFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
+import {
+  localLedgerBackupFileSystem,
+  localRuntimeStateFileSystem,
+} from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
+import { readGenerationThreeActivationAtPath } from "./store/generation-three-selection.ts";
 import { openPersistentWriterEpoch } from "./writer-epoch.ts";
+import type { RbacBackupStatus } from "@harness-anything/kernel/internal/domain/status-vocabulary.ts";
+import { validatePromotableReplica } from "@harness-anything/kernel/internal/domain/replica-promotion.ts";
 import {
   CenterMigratingError,
   CenterMovedError,
@@ -20,8 +28,9 @@ import {
   type LedgerBackupRegistrationV1,
   type LedgerBackupStage,
 } from "./store/ledger-backup.ts";
-import { resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
-import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
+import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
+import { removeFileDurably, syncDirectory, syncFile, writeFileDurably } from "./durable-file.ts";
+import type { ReplicationPosition } from "./store/replication-log.ts";
 
 export interface RelocationBundleFileV1 {
   readonly path: string;
@@ -83,6 +92,307 @@ export interface ImportCenterRelocationInput {
   readonly writerHolderId?: string;
   readonly now?: () => string;
   readonly importRbacBundle?: (context: ImportCenterRelocationRbacContext) => void | Promise<void>;
+}
+
+export interface PromoteFromEdgeInput {
+  readonly rootInput: HarnessLayoutInput;
+  readonly repoId: string;
+  readonly replicaDatabasePath: string;
+  readonly replicaGeneration: number;
+  readonly replicaPosition: ReplicationPosition;
+  readonly stateRoot: string;
+  readonly holderId?: string;
+  readonly observedWriterEpoch?: number;
+  readonly forceNewEpoch: boolean;
+  readonly confirmPossibleTailLoss: boolean;
+  readonly rbacBackupStatus?: RbacBackupStatus;
+  readonly now?: () => string;
+}
+
+export interface PromoteFromEdgeResult {
+  readonly schema: "center-emergency-promoted/v1";
+  readonly repoId: string;
+  readonly oldEpoch: number;
+  readonly newEpoch: number;
+  readonly finalRevision: number;
+  readonly tipHash: string;
+  readonly replicationHistory: string;
+  readonly replicationSequence: number;
+  readonly rbacBackupStatus: RbacBackupStatus;
+  readonly displacedGenerationPath: string | null;
+  readonly auditPath: string;
+  readonly promotedAt: string;
+}
+
+export class EdgeReplicaIntegrityError extends Error {
+  readonly code = "edge_replica_integrity_failed";
+
+  constructor(issues: readonly string[]) {
+    super(`edge replica integrity failed: ${issues.join(", ")}`);
+    this.name = "EdgeReplicaIntegrityError";
+  }
+}
+
+export function promoteFromEdgeAuditPath(stateRoot: string, repoId: string): string {
+  return path.join(path.resolve(stateRoot), "governance", "center-emergency-promoted", `${repoId}.json`);
+}
+
+/**
+ * Promote a published edge replica through the storage writer boundary. This is a manual operation
+ * and has no scheduler or reconnect caller.
+ */
+export async function promoteFromEdge(input: PromoteFromEdgeInput): Promise<PromoteFromEdgeResult> {
+  if (!input.forceNewEpoch || !input.confirmPossibleTailLoss)
+    throw new Error("promote-from-edge requires --force-new-epoch and --confirm-possible-tail-loss");
+  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(input.repoId)) throw new Error("repoId is invalid for a center promotion");
+  const now = input.now ?? (() => new Date().toISOString()),
+    holderId = input.holderId ?? `emergency-center-${process.pid}`,
+    replicaDatabasePath = path.resolve(input.replicaDatabasePath),
+    targetDatabasePath = sqliteLedgerPath(input.rootInput, 3),
+    targetGenerationDir = path.dirname(targetDatabasePath),
+    source = openSqliteEventStore({
+      repoId: input.repoId,
+      databasePath: replicaDatabasePath,
+      generation: input.replicaGeneration,
+      readOnly: true,
+    });
+  let authority: ReturnType<typeof openPersistentWriterEpoch> | undefined;
+  let stagingDirectory: string | undefined,
+    published = false,
+    displacedGenerationPath: string | null = null;
+  let newEpoch: number;
+  try {
+    if (input.replicaGeneration !== 3)
+      throw new Error(`edge replica generation ${input.replicaGeneration} is unsupported; generation 3 is required`);
+    if (localLedgerBackupFileSystem.exists(promoteFromEdgeAuditPath(input.stateRoot, input.repoId)))
+      throw new Error(`an emergency promotion record already exists for ${input.repoId}`);
+    const observed = readReplicaPromotionCut(source, input.repoId, input.replicaPosition),
+      activation = readGenerationThreeActivationAtPath(replicaDatabasePath, input.repoId);
+    if (activation === null) throw new Error("edge replica has no valid generation 3 activation certificate");
+    if (input.observedWriterEpoch !== undefined && observed.oldEpoch !== input.observedWriterEpoch)
+      throw new Error("edge replica writer epoch differs from fleet-edge.json");
+
+    const targetStoreDir = path.dirname(targetGenerationDir),
+      cacheRoot = resolveHarnessLayout(input.rootInput).cacheRoot;
+    localLedgerBackupFileSystem.mkdir(targetStoreDir, { recursive: true });
+    stagingDirectory = path.join(targetStoreDir, `.promote-from-edge-${randomUUID()}`);
+    localLedgerBackupFileSystem.mkdir(stagingDirectory, { recursive: true });
+    const stagedDatabasePath = path.join(stagingDirectory, "ledger.sqlite"),
+      sourceDatabase = new DatabaseSync(replicaDatabasePath, { readOnly: true });
+    try {
+      sourceDatabase.exec(`VACUUM INTO ${sqlString(stagedDatabasePath)}`);
+    } finally {
+      sourceDatabase.close();
+    }
+    const sourceObjects = path.join(path.dirname(replicaDatabasePath), "objects"),
+      stagedObjects = path.join(stagingDirectory, "objects");
+    if (localLedgerBackupFileSystem.exists(sourceObjects))
+      localLedgerBackupFileSystem.copy(sourceObjects, stagedObjects, {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
+    localLedgerBackupFileSystem.copy(`${replicaDatabasePath}.activation.json`, `${stagedDatabasePath}.activation.json`);
+    syncPromotionTree(stagingDirectory);
+
+    const ledger = openSqliteEventStore({
+      repoId: input.repoId,
+      databasePath: stagedDatabasePath,
+      generation: 3,
+    });
+    let rotated: ReplicationPosition, tipHash: string, finalRevision: number;
+    try {
+      const staged = readReplicaPromotionCut(ledger, input.repoId, input.replicaPosition);
+      if (staged.tipHash !== observed.tipHash || staged.revision !== observed.revision)
+        throw new Error("copied edge replica differs from its verified source cut");
+      authority = openPersistentWriterEpoch({
+        stateRoot: input.stateRoot,
+        holderId,
+        now,
+        initialEpochFloor: observed.oldEpoch,
+      });
+      const lease = authority.acquire(input.repoId, observed.oldEpoch);
+      newEpoch = lease.epoch;
+      ledger.claimWriter({ repoId: input.repoId, holder: holderId, epoch: newEpoch });
+      rotated = ledger.rotateReplicationHistory();
+      finalRevision = ledger.revision();
+      tipHash = canonicalLedgerCut(input.repoId, ledger.eventIdentityAtRevision(finalRevision)).headDigest;
+    } finally {
+      ledger.close();
+    }
+    for (const suffix of ["", "-wal", "-shm"]) {
+      const cachedProjection = path.join(cacheRoot, `task.sqlite${suffix}`);
+      if (localLedgerBackupFileSystem.exists(cachedProjection)) removeFileDurably(cachedProjection);
+    }
+    try {
+      if (localLedgerBackupFileSystem.exists(targetGenerationDir)) {
+        const retiredRoot = path.join(path.dirname(targetStoreDir), "retired", "center-promote-from-edge");
+        localLedgerBackupFileSystem.mkdir(retiredRoot, { recursive: true });
+        displacedGenerationPath = path.join(retiredRoot, `generation-3-${randomUUID()}`);
+        localRuntimeStateFileSystem.rename(targetGenerationDir, displacedGenerationPath);
+        syncDirectory(targetStoreDir);
+        syncDirectory(retiredRoot);
+      }
+      localRuntimeStateFileSystem.rename(stagingDirectory, targetGenerationDir);
+      published = true;
+      syncDirectory(targetStoreDir);
+    } catch (publishError) {
+      try {
+        if (published && localLedgerBackupFileSystem.exists(targetGenerationDir)) {
+          localRuntimeStateFileSystem.rename(targetGenerationDir, stagingDirectory);
+          published = false;
+        }
+        if (
+          displacedGenerationPath !== null &&
+          localLedgerBackupFileSystem.exists(displacedGenerationPath) &&
+          !localLedgerBackupFileSystem.exists(targetGenerationDir)
+        ) {
+          localRuntimeStateFileSystem.rename(displacedGenerationPath, targetGenerationDir);
+          syncDirectory(targetStoreDir);
+          displacedGenerationPath = null;
+        }
+      } catch (restoreError) {
+        throw new AggregateError(
+          [publishError, restoreError],
+          "generation publish failed and the prior ledger could not be restored",
+        );
+      }
+      throw publishError;
+    }
+
+    const promotedLedger = openSqliteEventStore({ rootInput: input.rootInput, repoId: input.repoId, readOnly: true });
+    try {
+      const promoted = promotedLedger.replicationPosition();
+      if (promoted.history !== rotated.history || promoted.sequence !== 0 || promoted.revision !== finalRevision)
+        throw new Error("promoted edge ledger differs from its rotated replication cut");
+    } finally {
+      promotedLedger.close();
+    }
+    const promotedAt = now(),
+      auditPath = promoteFromEdgeAuditPath(input.stateRoot, input.repoId),
+      result: PromoteFromEdgeResult = {
+        schema: "center-emergency-promoted/v1",
+        repoId: input.repoId,
+        oldEpoch: observed.oldEpoch,
+        newEpoch,
+        finalRevision,
+        tipHash,
+        replicationHistory: rotated.history,
+        replicationSequence: rotated.sequence,
+        rbacBackupStatus: input.rbacBackupStatus ?? "unknown",
+        displacedGenerationPath,
+        auditPath,
+        promotedAt,
+      };
+    writeFileDurably(
+      auditPath,
+      `${JSON.stringify(
+        {
+          ...result,
+          event: "center_emergency_promoted",
+          possibleTailLossConfirmed: true,
+          forceNewEpoch: true,
+        },
+        null,
+        2,
+      )}\n`,
+      0o600,
+    );
+    return result;
+  } finally {
+    authority?.close();
+    source.close();
+    if (stagingDirectory && !published && localLedgerBackupFileSystem.exists(stagingDirectory))
+      localLedgerBackupFileSystem.remove(stagingDirectory);
+  }
+}
+
+function readReplicaPromotionCut(
+  ledger: ReturnType<typeof openSqliteEventStore>,
+  repoId: string,
+  expectedPosition: ReplicationPosition,
+): { readonly revision: number; readonly oldEpoch: number; readonly tipHash: string } {
+  const metadata = ledger.metadata(),
+    position = ledger.replicationPosition(),
+    revision = ledger.revision();
+
+  let afterRevision = 0,
+    done = false,
+    eventDigestsValid = true,
+    eventSequenceComplete = true;
+  while (!done) {
+    const page = ledger.eventRowPage(afterRevision, 256);
+    for (const row of page.rows) {
+      if (row.revision !== afterRevision + 1) eventSequenceComplete = false;
+      if (row.digest !== `sha256:${sha256Text(row.eventJson)}`) eventDigestsValid = false;
+      afterRevision = row.revision;
+    }
+    if (!page.done && page.rows.length === 0) {
+      eventSequenceComplete = false;
+      done = true;
+      continue;
+    }
+    done = page.done;
+  }
+  let contentDigestsValid = true;
+  for (const digest of ledger.contentObjectDigests()) {
+    if (!/^[0-9a-f]{64}$/u.test(digest)) {
+      contentDigestsValid = false;
+      continue;
+    }
+    const objectPath = path.join(
+      path.dirname(ledger.databasePath),
+      "objects",
+      "sha256",
+      digest.slice(0, 2),
+      digest.slice(2),
+    );
+    if (!localLedgerBackupFileSystem.lstat(objectPath, { throwIfNoEntry: false })?.isFile()) {
+      contentDigestsValid = false;
+      continue;
+    }
+    if (sha256File(objectPath) !== `sha256:${digest}`) contentDigestsValid = false;
+  }
+  const integrityIssues = validatePromotableReplica({
+    expectedRepoId: repoId,
+    actualRepoId: metadata.repoId,
+    expectedGeneration: 3,
+    actualGeneration: metadata.generation,
+    expectedHistory: expectedPosition.history,
+    actualHistory: position.history,
+    expectedSequence: expectedPosition.sequence,
+    actualSequence: position.sequence,
+    expectedPositionRevision: expectedPosition.revision,
+    actualPositionRevision: position.revision,
+    metadataRevision: metadata.revision,
+    ledgerRevision: revision,
+    lastEventRevision: afterRevision,
+    eventSequenceComplete,
+    eventDigestsValid,
+    contentDigestsValid,
+  });
+  if (integrityIssues.length > 0) throw new EdgeReplicaIntegrityError(integrityIssues);
+  return {
+    revision,
+    oldEpoch: ledger.writerFence()?.epoch ?? 0,
+    tipHash: canonicalLedgerCut(repoId, ledger.eventIdentityAtRevision(revision)).headDigest,
+  };
+}
+
+function syncPromotionTree(directory: string): void {
+  for (const file of inventory(directory)) syncFile(file);
+  const syncDirectories = (current: string): void => {
+    for (const name of localLedgerBackupFileSystem.readDirectory(current)) {
+      const entry = path.join(current, name);
+      if (localLedgerBackupFileSystem.stat(entry).isDirectory()) syncDirectories(entry);
+    }
+    syncDirectory(current);
+  };
+  syncDirectories(directory);
+}
+
+function sqlString(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
 }
 
 const REPLICATION_SLOTS_BUNDLE_PATH = "replication-slots.sqlite";

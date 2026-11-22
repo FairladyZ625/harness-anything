@@ -66,6 +66,15 @@ export const clientLocalCommands = [
     help: "    A restarted old center returns CENTER_MOVED with the tombstone routing fields.",
   },
   {
+    id: "fleet-center-promote-from-edge",
+    path: ["daemon", "fleet", "center", "promote-from-edge"],
+    usage:
+      "ha daemon fleet center promote-from-edge --root <path> --repo <id> --state-root <path> --force-new-epoch --confirm-possible-tail-loss [--holder-id <id>] [--rbac-backup-status verified|unavailable|unknown] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary:
+      "Manually promote a complete edge replica, rotate replication lineage, and record an emergency governance event.",
+    help: "    This is never automatic. Both confirmation flags are required and the edge daemon must be stopped.",
+  },
+  {
     id: "daemon-metrics",
     path: ["daemon", "metrics"],
     usage:
