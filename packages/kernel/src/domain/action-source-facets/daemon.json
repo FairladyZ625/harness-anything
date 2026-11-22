@@ -6353,6 +6353,14 @@
         "order": 2
       }
     ],
+    "dossier-synthesize": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/dossier-actions.ts#runDossierAction:3f59762dc7d2b18ec71a86a7dac3a222",
+        "route": "dossier-synthesize",
+        "role": "effect",
+        "order": 0
+      }
+    ],
     "migrate-import": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/migration-import-backfill.ts#prepareEntityBackfills:5dda57937e072c4fe7b8963e352e0c6d",

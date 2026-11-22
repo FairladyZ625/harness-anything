@@ -16,6 +16,7 @@
     "access": "public",
     "exports": {
       ".": "./dist/index.js",
+      "./fde-studio-draft": "./dist/fde-studio-draft.js",
       "./internal/preset-assets": "./dist/preset-assets.js",
       "./internal/preset-command-contract": "./dist/preset-command-contract.js",
       "./internal/preset-materialization": "./dist/preset-materialization.js",
@@ -41,6 +42,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./fde-studio-draft": "./src/fde-studio-draft.ts",
     "./internal/preset-assets": "./src/preset-assets.ts",
     "./internal/preset-command-contract": "./src/preset-command-contract.ts",
     "./internal/preset-materialization": "./src/preset-materialization.ts",

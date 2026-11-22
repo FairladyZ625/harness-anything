@@ -1750,7 +1750,7 @@ export function openFleetEdgeRuntime(input: {
     }
     const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
       viewId: pulled.replica.viewId,
-      ...(requestedPaths === undefined ? {} : { request: { paths: requestedPaths } }),
+      ...(requestedPaths === undefined ? { changedPaths: [] } : { request: { paths: requestedPaths } }),
     });
     if (materialized.outcome === "pull_blocked")
       throw edgeRuntimeError(

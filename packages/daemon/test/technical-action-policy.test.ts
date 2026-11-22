@@ -130,7 +130,12 @@ test("policy metadata from both production providers omits technical actions and
   ] as const) {
     const metadata = await readPolicyMetadata({ provider, accessToken });
     const actions = metadata.actions.map((row) => row.action);
-    assert.equal(actions.length, 176);
+    // dec_4276A0CEACD4D402F122295925/CH2: one canonical dossier synthesis action;
+    // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
+    // adds host-local repo-write actions preset-init and vertical-init (176 -> 178).
+    // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion (178 -> 179).
+    assert.equal(actions.length, 179);
+    assert.ok(actions.includes("dossier-synthesize"));
     for (const scope of technicalScopes) assert.equal(actions.includes(scope), false, scope);
     for (const scope of business.scopes) assert.equal(actions.includes(scope), true, scope);
   }

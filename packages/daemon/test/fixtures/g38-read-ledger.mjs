@@ -19,6 +19,7 @@ import {
   compileScheduleDefinitionEvent,
 } from "@harness-anything/kernel";
 import { decodeVerticalDefinition } from "@harness-anything/kernel/schemas";
+import { compileDossierSynthesis } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import { canonicalEventWritePlan } from "../../../storage/src/store/task-event-store.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { eventAt, docBundle } from "../../../storage/test/store/task-event-store.fixtures.ts";
@@ -34,6 +35,17 @@ export const READ_ACTIVE_SESSION_ID = "history-active";
 export const READ_HISTORY_BATCH_SIZE = 100;
 export const READ_SESSION_ID = "runtime-query-session";
 export const READ_DOCUMENT = `tasks/${READ_TASK_ID}-g38/artifacts/selected.md`;
+export const READ_DOSSIER_SLOT = {
+  id: "project-context",
+  path: "context.md",
+  kind: "markdown",
+  title: "Project context",
+  summary: "Accepted context for the project.",
+  entityKinds: ["task"],
+  requiredAnchors: ["context"],
+  watermarkMetadata: "required",
+  triggers: [],
+};
 
 export async function seedReadLedger({ append, beginHistory = () => {} }, dimension, size) {
   let next = 1,
@@ -89,10 +101,13 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
   }
   // A real installed vertical and Settings keep the production read runtime's catalog,
   // completion and query judgments active; no fake early-return/failed-action measurements.
+  const definition = JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8"));
+  const dossierFixture = dimension === "task-history";
+  if (dossierFixture) definition.livingDossier = { slots: [READ_DOSSIER_SLOT] };
   await add(
     compileVerticalDeclarationEvent({
       type: "vertical_declared",
-      definition: decodeVerticalDefinition(JSON.parse(readFileSync(`${defaultAssets}/vertical.json`, "utf8"))),
+      definition: decodeVerticalDefinition(definition),
       eventId: "read-vertical",
       opId: "read-vertical",
       workspaceRevision: next,
@@ -410,12 +425,31 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
       }),
     );
   }
+  if (dossierFixture) {
+    const sourceWatermark = next - 1;
+    const watermark = sourceWatermark - 4;
+    await add(
+      compileDossierSynthesis({
+        verticalId: definition.id,
+        slot: READ_DOSSIER_SLOT,
+        expectedWatermark: watermark - 1,
+        watermark,
+        sourceWatermark,
+        body: `<!-- dossier-watermark: ${watermark} -->\n# Context\nA bounded accepted project narrative.`,
+        opId: "read-dossier",
+        actor: created.actor,
+        source: "local",
+        occurredAt: "2026-11-04T00:00:00.000Z",
+        workspaceRevision: next,
+      }),
+    );
+  }
   return {
     revision: next - 1,
     baseRevision,
     growth:
       dimension === "event-bytes"
         ? 1
-        : size * (dimension === "runtime-sessions" ? 3 : dimension === "dispatches" ? 4 : 1),
+        : size * (dimension === "runtime-sessions" ? 3 : dimension === "dispatches" ? 4 : 1) + Number(dossierFixture),
   };
 }

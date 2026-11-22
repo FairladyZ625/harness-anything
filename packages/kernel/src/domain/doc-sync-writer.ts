@@ -14,6 +14,7 @@ import {
   RAW_ARTIFACT_POLICY_ID,
 } from "./artifact-text-classification.ts";
 import { additiveProof, decisionDocumentPath, opaqueProof, touch } from "./doc-sync-regions.ts";
+import { DOSSIER_DIRECTORY } from "./living-dossier.ts";
 import { DOC_POLICY_ID, docRouteRegistry, DocSyncContractError } from "./doc-sync-types.ts";
 import type {
   CurrentDocEventV1,
@@ -413,7 +414,9 @@ export function resolveDocRoute(path: PortableDocumentPath): {
                   ? "task-review-execution"
                   : null;
   if (taskRoute) return { allowed: false, requiredRoute: taskRoute };
-  const denied = docRouteRegistry.find((route) => path === route.prefix || path.startsWith(route.prefix));
+  const denied = docRouteRegistry.find(({ prefix }) =>
+    prefix === DOSSIER_DIRECTORY ? path.toLowerCase().startsWith(prefix) : path === prefix || path.startsWith(prefix),
+  );
   return denied
     ? { allowed: false, requiredRoute: denied.requiredRoute }
     : { allowed: true, requiredRoute: "doc-sync" };

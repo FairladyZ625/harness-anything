@@ -1741,7 +1741,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               }
               const effectivePaths =
                   latched !== null && changedPaths !== undefined && changedPaths.length === 0
-                    ? undefined
+                    ? latched.dirtyPaths.length > 0
+                      ? latched.dirtyPaths
+                      : undefined
                     : changedPaths,
                 materialized = applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "replica-confirmed", {
                   changedPaths: effectivePaths,

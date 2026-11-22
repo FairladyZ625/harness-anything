@@ -9,6 +9,7 @@
     { "path": "./packages/dsh-plugin" },
     { "path": "./packages/daemon" },
     { "path": "./packages/cli" },
-    { "path": "./packages/gui" }
+    { "path": "./packages/gui" },
+    { "path": "./packages/gui-fde" }
   ]
 }

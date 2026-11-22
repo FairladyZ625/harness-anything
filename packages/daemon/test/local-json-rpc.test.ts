@@ -704,8 +704,12 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
   // task_a28bf79f248c4e59f2149f22ad: a password change is the signed-in person's own-session action,
   // no longer access-manage.
-  // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion.
-  assert.equal(actionDeclarations.length, 180);
+  // dec_4276A0CEACD4D402F122295925 CH2 adds the dossier synthesis write.
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "dossier-synthesize")?.policyTier, "maintainer");
+  // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
+  // adds host-local repo-write actions preset-init and vertical-init (180 -> 182).
+  // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion (182 -> 183).
+  assert.equal(actionDeclarations.length, 183);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),
@@ -911,10 +915,12 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     "distill-candidate",
     "doc-conflict-discard-local",
     "doc-materialize",
+    "preset-init",
     "preset-install",
     "preset-seed",
     "preset-uninstall",
     "projection-rebuild",
+    "vertical-init",
   ]) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
     assert.equal(declaration?.residency.scope, "host-local", kind);
@@ -1056,6 +1062,9 @@ test("protocol descriptors preserve topology metadata without authorizing action
     "preset-audit": "repo-read",
     "preset-uninstall": "repo-write",
     "preset-upgrade": "repo-write",
+    "preset-init": "repo-write",
+    "vertical-init": "repo-write",
+    "vertical-simulate": "repo-read",
     "script-run": "repo-write",
     "preset-run-start": "repo-write",
     "preset-run-status": "repo-read",

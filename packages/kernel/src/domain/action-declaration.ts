@@ -94,6 +94,7 @@ export const actionPresentation = {
   "doc-conflict-resolve": { domain: "doc", name: "解决文档冲突", description: "提交文档冲突的处理结果。" },
   "doc-materialize": { domain: "doc", name: "生成本地文档", description: "将中心文档生成到本地工作区。" },
   "doc-retire": { domain: "doc", name: "退役文档", description: "结束文档的现行用途。" },
+  "dossier-synthesize": { domain: "dossier", name: "合成项目活档案", description: "按水位更新项目活档案槽位。" },
   "doc-submit": { domain: "doc", name: "提交文档", description: "将本地文档提交到中心。" },
   "entity-archive": { domain: "entity", name: "归档对象", description: "将对象移入归档。" },
   "entity-delete": { domain: "entity", name: "删除对象", description: "删除指定业务对象。" },
@@ -126,6 +127,7 @@ export const actionPresentation = {
     name: "撤回权限申请",
     description: "撤回尚未处理的本人权限申请。",
   },
+  "preset-init": { domain: "preset", name: "初始化任务预设", description: "生成合法的预设模板与声明式门禁骨架。" },
   "preset-install": { domain: "preset", name: "安装任务模板", description: "安装任务使用的预设模板。" },
   "preset-run-start": { domain: "preset", name: "启动模板流程", description: "开始执行模板定义的流程。" },
   "preset-seed": { domain: "preset", name: "播种任务模板", description: "将预设内容写入工作区。" },
@@ -250,6 +252,11 @@ export const actionPresentation = {
   "terminal-spawn": { domain: "terminal", name: "打开终端", description: "创建新的终端会话。" },
   "terminal-terminate": { domain: "terminal", name: "关闭终端", description: "结束指定终端会话。" },
   "vertical-declaration-migrate": { domain: "vertical", name: "迁移领域声明", description: "迁移业务领域的声明版本。" },
+  "vertical-init": {
+    domain: "vertical",
+    name: "初始化业务领域",
+    description: "一键生成完整的本地垂直域资产与门禁骨架。",
+  },
   "vertical-kind-publish-schema": { domain: "vertical", name: "发布领域结构", description: "发布业务领域的数据结构。" },
   "vertical-kind-retire": { domain: "vertical", name: "退役领域类型", description: "结束业务领域类型的使用。" },
   "vertical-kind-upsert": { domain: "vertical", name: "维护领域类型", description: "创建或更新业务领域类型。" },
@@ -437,6 +444,7 @@ export const actionDeclarations = Object.freeze([
   declare("doc-materialize", "repo-write", hostResidency, { catalogId: "task/materialize" }),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
+  canonical("dossier-synthesize", "document/synthesize-dossier", "repo-write", "canonical-acceptance", "maintainer"),
   // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind
   // projects its own <kind>/<action> declaration into the runtime registry
   // (artifact-action-declarations.ts) under dec_2446BC2F8C68630F71AE3E3BD7/CH4.
@@ -454,6 +462,7 @@ export const actionDeclarations = Object.freeze([
   canonical("migrate-import", "migration/import", "repo-write"),
   canonical("people-delegate", "person/delegate", "admin"),
   canonical("people-revoke-delegation", "person/revoke-delegation", "admin"),
+  declare("preset-init", "repo-write", hostResidency),
   declare("preset-install", "repo-write", hostResidency),
   declare("preset-run-start", "repo-write", runtimeResidency),
   declare("preset-seed", "repo-write", hostResidency),
@@ -577,6 +586,7 @@ export const actionDeclarations = Object.freeze([
   declare("terminal-spawn", "repo-write", runtimeResidency),
   declare("terminal-terminate", "repo-write", runtimeResidency),
   canonical("vertical-declaration-migrate", "vertical-declaration/migrate", "repo-write"),
+  declare("vertical-init", "repo-write", hostResidency),
   canonical("vertical-kind-publish-schema", "vertical-declaration/publish-kind-schema", "repo-write"),
   canonical("vertical-kind-retire", "vertical-declaration/retire-kind", "repo-write"),
   canonical("vertical-kind-upsert", "vertical-declaration/upsert-kind", "repo-write"),

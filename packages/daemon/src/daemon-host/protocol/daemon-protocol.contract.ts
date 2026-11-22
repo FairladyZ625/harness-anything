@@ -317,6 +317,7 @@ export default Object.freeze({
     "Entity-Pin",
     "Edge-Resident-H1",
     "Fleet-Collab",
+    "LivingDossier",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: daemonOwnedRpcMethods,

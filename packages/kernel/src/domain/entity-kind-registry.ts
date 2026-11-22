@@ -1,3 +1,4 @@
+import { actionSourceFacets } from "./action-source-facets.ts";
 import {
   cliOperationalPolicy,
   cliContractPolicy,
@@ -26,6 +27,7 @@ import {
   dispatchLifecyclePolicies,
   dispatchLifecycleJudgment,
 } from "./dispatch-lifecycle-ontology.ts";
+import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import {
@@ -132,6 +134,7 @@ import {
   canonicalContractDecodePolicy,
   documentClaimPolicy,
   documentSyncRoutingPolicy,
+  dossierSynthesisPolicy,
   verticalDecodeDetailPolicy,
 } from "./storage-replay-policy.ts";
 import { completionGateOverridePolicy, completionGateOverrideJudgment } from "./completion-gate-policy.ts";
@@ -941,6 +944,16 @@ const documentIdentity = requireEntityTypeContract("document").id,
 const documentActionCatalog = Object.freeze({
     ref: "kernel/doc-event/v1",
     actions: Object.freeze([
+      Object.freeze({
+        ...declaredStreamAction(
+          "document",
+          documentIdentity,
+          "synthesize-dossier",
+          "dossier-synthesize",
+          "Publish a dossier slot and the source watermark absorbed by its content.",
+        ),
+        concurrency: actionSourceFacets["dossier-synthesize"]!.concurrency!,
+      }),
       declaredStreamAction(
         "document",
         documentIdentity,
@@ -1557,8 +1570,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       },
     ],
     actionCatalog: runtimeSessionCatalog,
-    policies: [...dispatchLifecyclePolicies, daemonRuntimeSessionPolicy],
-    judgments: [dispatchLifecycleJudgment],
+    policies: [...dispatchLifecyclePolicies, daemonRuntimeSessionPolicy, ...inboxPolicies],
+    judgments: [dispatchLifecycleJudgment, ...inboxJudgments],
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
@@ -1685,7 +1698,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,
-    policies: [documentClaimPolicy, documentSyncRoutingPolicy],
+    policies: [documentClaimPolicy, documentSyncRoutingPolicy, dossierSynthesisPolicy],
   },
   {
     kind: "migration",

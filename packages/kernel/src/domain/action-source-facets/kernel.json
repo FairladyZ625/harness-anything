@@ -536,6 +536,35 @@
     "doc-submit": {
       "owner": "document"
     },
+    "dossier-synthesize": {
+      "owner": "document",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "dossier-slot-watermark",
+          "input": "expectedWatermark",
+          "required": true
+        },
+        "leasePolicy": {
+          "authority": "canonical-repository-writer"
+        },
+        "occurrenceClaim": {
+          "authority": "schedule-occurrence-claim",
+          "required": "scheduled-runtime",
+          "input": "claimFence"
+        },
+        "idempotency": {
+          "authority": "canonical-command-operation-id"
+        },
+        "artifactOwnership": {
+          "owner": "dossier-slot",
+          "refTemplate": "dossiers/{verticalId}/{slotId}"
+        }
+      },
+      "execution": {
+        "ingress": "dossier-synthesize",
+        "read": false
+      }
+    },
     "entity-archive": {
       "owner": "entity"
     },
@@ -693,6 +722,10 @@
           "file": "packages/gui/scripts/write-build-id.mjs",
           "script": "build"
         },
+        "npm:gui-fde:build": {
+          "file": "packages/gui-fde/scripts/build.mjs",
+          "script": "build"
+        },
         "npm:daemon:build": {
           "file": "packages/daemon/scripts/copy-assets.mjs",
           "script": "build"
@@ -758,6 +791,31 @@
         }
       },
       "technical": true
+    },
+    "preset-init": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "preset-init",
+        "read": false
+      }
     },
     "preset-install": {
       "owner": "preset",
@@ -1752,6 +1810,31 @@
     },
     "vertical-declaration-migrate": {
       "owner": "vertical-declaration"
+    },
+    "vertical-init": {
+      "owner": "preset",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "vertical-init",
+        "read": false
+      }
     },
     "vertical-kind-publish-schema": {
       "owner": "vertical"

@@ -28,6 +28,7 @@ import {
   copyTree,
   copyTreeArgs,
   copyTreeMethod,
+  cleanupStaleTempRoots,
   cliInvocation,
   externalWorkspaceLinks,
   forensicEnv,
@@ -183,6 +184,57 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   });
   // Explicit wins verbatim; the default derivation walks git-common-dir of the given cwd.
   assert.equal(resolveSourceRoot("/some/explicit"), path.resolve("/some/explicit"));
+});
+
+test("temp cleanup removes only expired, dead-owner ha-oldcopy roots", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-cleanup-test-"));
+  try {
+    const deadPid = Array.from({ length: 100 }, (_, index) => 2_000_000_000 - index).find((pid) => !processAlive(pid));
+    assert.ok(deadPid, "the test found an unused pid for the orphan marker");
+    const expired = path.join(parent, `ha-oldcopy-${deadPid}-expired`);
+    const active = path.join(parent, `ha-oldcopy-${process.pid}-active`);
+    const unrelated = path.join(parent, `harness-test-isolation-${deadPid}-expired`);
+    const legacy = path.join(parent, "ha-oldcopy-legacy-without-owner");
+    for (const target of [expired, active, unrelated, legacy]) mkdirSync(target);
+
+    assert.deepEqual(cleanupStaleTempRoots({ now: Date.now(), tempDir: parent, maxAgeMs: 60_000 }), []);
+    assert.deepEqual(cleanupStaleTempRoots({ now: Date.now() + 120_000, tempDir: parent, maxAgeMs: 60_000 }), [
+      expired,
+    ]);
+    assert.equal(existsSync(expired), false);
+    assert.equal(existsSync(active), true, "a live owner protects an old directory");
+    assert.equal(existsSync(unrelated), true, "the other temp-directory prefix is out of scope");
+    assert.equal(existsSync(legacy), true, "a legacy directory without an owner pid is left untouched");
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
+
+test("timeout abort removes its owned temp root before exiting non-zero", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-timeout-test-"));
+  try {
+    const tempRoot = path.join(parent, "ha-oldcopy-timeout-root");
+    mkdirSync(tempRoot);
+    const moduleUrl = new URL("./old-data-copy-evidence.mjs", import.meta.url).href;
+    const scriptText = `
+      const { installInterruptHandlers } = await import(${JSON.stringify(moduleUrl)});
+      const tempRoot = process.env.tempRoot;
+      const session = { tempRoot };
+      installInterruptHandlers(session);
+      session.abort("SIGTERM", "timed out after test");
+    `;
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", scriptText], {
+      encoding: "utf8",
+      cwd: repoRoot,
+      timeout: 10_000,
+      env: { ...process.env, tempRoot },
+    });
+    assert.equal(result.status, 124, `${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /timed out after test/u);
+    assert.equal(existsSync(tempRoot), false, "timeout cleanup removed the temp root");
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
 });
 
 function git(root, ...args) {

@@ -50,8 +50,12 @@ test("runtime declarations have one Base tier and scope; technical actions creat
   // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
   // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
   // task_a28bf79f248c4e59f2149f22ad: the own-session password change, not socket-owner authority.
-  // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion.
-  assert.equal(actionDeclarations.length, 180);
+  // dec_4276A0CEACD4D402F122295925 CH2 adds the dossier synthesis write.
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "dossier-synthesize")?.policyTier, "maintainer");
+  // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
+  // adds host-local repo-write actions preset-init and vertical-init (180 -> 182).
+  // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion (182 -> 183).
+  assert.equal(actionDeclarations.length, 183);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-password-change")?.socketOwnerAuthority, false);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");

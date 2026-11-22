@@ -390,3 +390,24 @@ test("issue form, intake, and template agree on required headings", () => {
   );
   assert.match(intake, /^permissions:\r?\n  issues: write$/mu, "intake still needs to comment");
 });
+
+test("FDE domain-bootstrap skills align on the 5-step scaffold/simulate CLI workflow", () => {
+  const verticalSkill = readFileSync(path.join(skillsRoot, "vertical-creator", "SKILL.md"), "utf8");
+  const presetSkill = readFileSync(path.join(skillsRoot, "preset-creator", "SKILL.md"), "utf8");
+  const gateSkill = readFileSync(path.join(skillsRoot, "gate-customization", "SKILL.md"), "utf8");
+
+  assert.match(verticalSkill, /ha vertical init /u);
+  assert.match(verticalSkill, /ha vertical simulate /u);
+  assert.match(verticalSkill, /ha preset init /u);
+  assert.match(verticalSkill, /ha preset uninstall /u);
+
+  assert.match(presetSkill, /ha preset init /u);
+  assert.match(presetSkill, /ha preset validate /u);
+  assert.match(presetSkill, /ha vertical simulate /u);
+  assert.match(presetSkill, /ha preset uninstall /u);
+
+  assert.match(gateSkill, /ha vertical init /u);
+  assert.match(gateSkill, /ha preset init /u);
+  assert.match(gateSkill, /ha vertical simulate /u);
+  assert.match(gateSkill, /gate_witness_missing/u);
+});

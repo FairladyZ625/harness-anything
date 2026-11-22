@@ -1,0 +1,45 @@
+{
+  "name": "@harness-anything/gui-fde",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "description": "Visual domain workbench and live materialization/gate simulator for Forward Deployed Engineers (dec_42EB7B8F636C12381A447E52A3/CH2).",
+  "main": "./dist-electron/electron-main.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist",
+    "dist-electron",
+    "package.json"
+  ],
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc -p tsconfig.json --pretty false"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.2.9",
+    "@fontsource-variable/geist-mono": "^5.2.8",
+    "@harness-anything/daemon": "0.1.0",
+    "@harness-anything/kernel": "0.1.0",
+    "@harness-anything/preset": "0.1.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "electron": "42.11.16",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.5",
+    "tailwindcss": "^4.3.2",
+    "vite": "8.1.6"
+  }
+}

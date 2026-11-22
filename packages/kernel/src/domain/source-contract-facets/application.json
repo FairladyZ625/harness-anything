@@ -40,6 +40,59 @@
     ],
     "judgments": []
   },
+  "document": {
+    "contracts": [
+      {
+        "id": "application/src/commands/dossier-content.ts#validateDossierContent",
+        "symbol": "packages/application/src/commands/dossier-content.ts#validateDossierContent",
+        "explain": "Check the content type, named anchors and metadata of the accepted document.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/commands/dossier-content.ts#validateDossierContent:bf20ffd1ae964fa9a5f03ebb3126d6a9",
+            "route": "packages/application/src/commands/dossier-content.ts#validateDossierContent"
+          }
+        ],
+        "order": 504
+      },
+      {
+        "id": "application/src/commands/dossier-content.ts#validateHtml",
+        "symbol": "packages/application/src/commands/dossier-content.ts#validateHtml",
+        "explain": "Inspect HTML anchors and source metadata at document acceptance.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/commands/dossier-content.ts#validateHtml:79e68da8be9f387f3de5b34745c73299",
+            "route": "packages/application/src/commands/dossier-content.ts#validateHtml"
+          }
+        ],
+        "order": 502
+      },
+      {
+        "id": "application/src/commands/dossier-content.ts#validateMarkdown",
+        "symbol": "packages/application/src/commands/dossier-content.ts#validateMarkdown",
+        "explain": "Inspect Markdown anchors and source metadata at document acceptance.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/commands/dossier-content.ts#validateMarkdown:866f89eb185acd48f974b5d70a7051a1",
+            "route": "packages/application/src/commands/dossier-content.ts#validateMarkdown"
+          }
+        ],
+        "order": 503
+      },
+      {
+        "id": "application/src/commands/dossier-content.ts#validateStyle",
+        "symbol": "packages/application/src/commands/dossier-content.ts#validateStyle",
+        "explain": "Check CSS resource syntax for an offline, single-file dossier.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/application:packages/application/src/commands/dossier-content.ts#validateStyle:5c4b67d0d0cab6fc601b2a7fcc643df7",
+            "route": "packages/application/src/commands/dossier-content.ts#validateStyle"
+          }
+        ],
+        "order": 501
+      }
+    ],
+    "judgments": []
+  },
   "task": {
     "contracts": [
       {

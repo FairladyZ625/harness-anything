@@ -172,6 +172,8 @@ const taskProjectionTables = Object.freeze(
     "dispatch_lifecycle_attempt",
     "dispatch_lifecycle_task_lease",
     "dispatch_lifecycle_cursor",
+    "inbox_item",
+    "inbox_cursor",
     "fact",
     "fact_fts",
     "fact_domain_type",
@@ -993,6 +995,21 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
   document: [
     ...physicalStoresForKind("document"),
     canonical("document.events", "doc-event/v1", "packages/kernel/src/domain/doc-sync-writer.ts"),
+    canonical(
+      "document.dossier-synthesis-events",
+      "dossier-synthesis-event/v1",
+      "packages/kernel/src/domain/dossier-synthesis-event.ts",
+      [],
+      ["dossier_synthesized"],
+    ),
+    projection(
+      "document.dossier-synthesis-state",
+      "document",
+      "document.dossier-synthesis-events",
+      "dossier-synthesis-event/v1",
+      "state",
+      ["dossier_synthesized"],
+    ),
     canonical(
       "document.entity-events",
       "entity-document-event/v1",

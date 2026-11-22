@@ -34,7 +34,8 @@ export type StatusEntity =
   | "AuthoredDocument"
   | "Host"
   | "Migration"
-  | "Projection";
+  | "Projection"
+  | "Inbox";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 
@@ -105,6 +106,7 @@ import {
   dispatchDeliveryStatuses,
   dispatchDisplayStatuses,
 } from "./dispatch-lifecycle.ts";
+import { inboxStatusVocabularies } from "./status-word-register-inbox.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 export { rbacBackupStatuses };
@@ -113,6 +115,7 @@ export type { RbacBackupStatus } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   ...consumerStatusVocabularies,
+  ...inboxStatusVocabularies,
   {
     id: "migration.rbac-backup-status",
     entity: "Migration",

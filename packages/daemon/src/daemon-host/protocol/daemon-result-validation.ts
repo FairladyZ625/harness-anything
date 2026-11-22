@@ -242,6 +242,12 @@ const validateTaskRuntimeContextRead: ResultValidator = (value) =>
     : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];
 import { validatePolicyMetadataRead, validateReckoningRead } from "./daemon-protocol-repository-reads.ts";
 
+function validateDossierRead(value: unknown, schema: string, field: string): readonly string[] {
+  return isJsonObject(value) && value.schema === schema && Object.hasOwn(value, field)
+    ? []
+    : [`invalid ${schema} result`];
+}
+
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.home.read": validateHomeOverviewResult,
@@ -274,6 +280,9 @@ const resultValidators = {
   "repo.entity.rows.read": validateEntityRowList,
   "repo.entity.locator.read": validateEntityLocatorRead,
   "repo.entity.content.read": validateEntityContentRead,
+  "repo.dossier.status": (value) => validateDossierRead(value, "dossier-status/v1", "slots"),
+  "repo.dossier.read": (value) => validateDossierRead(value, "dossier-content/v1", "body"),
+  "repo.dossier.context.read": (value) => validateDossierRead(value, "dossier-context/v1", "nextWatermark"),
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.reckoning.signals.read": validateReckoningRead,
   "repo.policy.metadata.read": validatePolicyMetadataRead,

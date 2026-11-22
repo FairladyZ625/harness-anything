@@ -19,10 +19,11 @@ export const boundedContextExceptions: readonly BoundedContextActionException[] 
     reason: "The locale field is a daemon-local preference and never appears in settings-event/v1.",
   }),
   Object.freeze({
-    actions: Object.freeze(["preset-install", "preset-seed", "preset-uninstall"]),
+    actions: Object.freeze(["preset-init", "preset-install", "preset-seed", "preset-uninstall", "vertical-init"]),
     boundedContext: "preset-library" as const,
     residency: "runtime-local" as const,
-    reason: "Preset library installation mutates the selected workspace library and has no canonical repository event.",
+    reason:
+      "Preset library installation and vertical/preset scaffolding mutate repository or workspace declaration files and have no canonical repository event.",
   }),
   Object.freeze({
     actions: Object.freeze([

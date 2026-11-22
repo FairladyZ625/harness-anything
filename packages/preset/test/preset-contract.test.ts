@@ -284,6 +284,7 @@ test("builtin vertical and template discovery stay read-only while vertical run 
         [
           "vertical-list",
           "vertical-validate",
+          "vertical-simulate",
           "template-list",
           "template-render",
           "script-list",
@@ -302,6 +303,12 @@ test("builtin vertical and template discovery stay read-only while vertical run 
         id: "vertical-validate",
         path: ["vertical", "validate"],
         method: "repo.vertical.validate",
+        commandClass: "repo-read",
+      },
+      {
+        id: "vertical-simulate",
+        path: ["vertical", "simulate"],
+        method: "repo.vertical.simulate",
         commandClass: "repo-read",
       },
       { id: "template-list", path: ["template", "list"], method: "repo.template.list", commandClass: "repo-read" },

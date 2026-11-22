@@ -653,6 +653,16 @@ function currentSchedule(input: EntityActionCompileInput): ScheduleV1 | null {
   return validateScheduleV1(input.currentEntity).length === 0 ? (input.currentEntity as ScheduleV1) : null;
 }
 
+export function scheduleClaimForSource(
+  schedule: ScheduleV1 | undefined,
+  claimFence: string,
+  source: EntityActionCompileInput["source"],
+): NonNullable<ScheduleV1["status"]["activeRun"]> | null {
+  const active = schedule?.status.activeRun;
+  const nodeId = typeof source === "object" && source.kind === "node" ? source.nodeId : "local";
+  return active?.claimFence === claimFence && active.nodeId === nodeId ? active : null;
+}
+
 function matchingClaim(
   actionId: "link" | "settle",
   schedule: ScheduleV1,
@@ -660,12 +670,8 @@ function matchingClaim(
   source: EntityActionCompileInput["source"],
 ): NonNullable<ScheduleV1["status"]["activeRun"]> {
   const claimFence = text(fence, "claimFence"),
-    active = schedule.status.activeRun;
-  if (
-    !active ||
-    active.claimFence !== claimFence ||
-    active.nodeId !== (typeof source === "object" && source.kind === "node" ? source.nodeId : "local")
-  )
+    active = scheduleClaimForSource(schedule, claimFence, source);
+  if (!active)
     rejectCriterion(
       actionId,
       "schedule/active-claim-fence",

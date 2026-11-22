@@ -37,6 +37,9 @@ const repositoryReadActionKind = "repository-read" as const;
  */
 const executionRepositoryReads: ReadonlyMap<string, RepoTaskAction> = new Map([
   ["repo.agent.skills.list", { kind: repositoryReadActionKind }],
+  ["repo.dossier.status", { kind: repositoryReadActionKind }],
+  ["repo.dossier.read", { kind: repositoryReadActionKind }],
+  ["repo.dossier.context.read", { kind: repositoryReadActionKind }],
 ]);
 
 /** Narrow authentication before any host method can act, including local socket-owner controls. */

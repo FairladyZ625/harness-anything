@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2024",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "jsx": "react-jsx",
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["src/renderer/**"],
+  "references": [
+    {
+      "path": "../kernel"
+    },
+    {
+      "path": "../preset"
+    },
+    {
+      "path": "../daemon"
+    },
+    {
+      "path": "./tsconfig.renderer.json"
+    }
+  ]
+}

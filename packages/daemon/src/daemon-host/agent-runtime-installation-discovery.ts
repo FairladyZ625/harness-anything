@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { accessSync, constants, realpathSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { cmdShellInvocation } from "@harness-anything/storage/cmd-command-line";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runProcessExitAsync, runProcessTextAsync, type ProcessExitResult, type ProcessInput } from "./process-port.ts";
 import {
@@ -219,7 +220,7 @@ export async function runExecutable(
     readonly signal?: AbortSignal;
   },
 ): Promise<string> {
-  const invocation = executableInvocation(platform, executablePath, args),
+  const invocation = executableInvocation(platform, executablePath, args, options.env),
     { command, argv, windowsVerbatimArguments } = invocation;
   const stdout = await runProcessTextAsync(
     command,
@@ -248,7 +249,7 @@ export function runExecutableResult(
     readonly signal?: AbortSignal;
   },
 ): Promise<ProcessExitResult> {
-  const invocation = executableInvocation(platform, executablePath, args),
+  const invocation = executableInvocation(platform, executablePath, args, options.env),
     { command, argv, windowsVerbatimArguments } = invocation;
   return runProcessExitAsync(
     command,
@@ -282,13 +283,18 @@ function executableInvocation(
   platform: NodeJS.Platform,
   executablePath: string,
   args: readonly string[],
+  environment: NodeJS.ProcessEnv,
 ): { readonly command: string; readonly argv: readonly string[]; readonly windowsVerbatimArguments: boolean } {
-  const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath),
-    command =
-      shim && process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC ?? "cmd.exe") : "cmd.exe";
+  const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
+  if (!shim) return { command: executablePath, argv: [...args], windowsVerbatimArguments: false };
+  const comSpec =
+      environment.ComSpec ??
+      environment.COMSPEC ??
+      (process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC) : undefined),
+    invocation = cmdShellInvocation(executablePath, args, comSpec ? { ...environment, ComSpec: comSpec } : environment);
   return {
-    command: shim ? command : executablePath,
-    argv: shim ? ["/d", "/s", "/c", `"${executablePath}" ${args.join(" ")}`] : [...args],
-    windowsVerbatimArguments: shim,
+    command: invocation.command,
+    argv: invocation.args,
+    windowsVerbatimArguments: invocation.windowsVerbatimArguments,
   };
 }

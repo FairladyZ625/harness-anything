@@ -6,6 +6,7 @@ import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
+import { projectInboxEvent } from "./inbox-projection.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
@@ -41,6 +42,7 @@ import {
   type DocumentState,
 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import { isDossierSynthesisEvent } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import { isEntityDocumentEvent } from "@harness-anything/kernel/internal/domain/entity-document-event.ts";
 import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { isLedgerLayoutMigrationEvent } from "@harness-anything/kernel/internal/domain/ledger-layout-migration-event.ts";
@@ -209,6 +211,7 @@ function applyEventProjection(
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
   projectDispatchLifecycleEvent(db, event);
+  projectInboxEvent(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
     insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
@@ -247,7 +250,7 @@ function applyEventProjection(
     );
     return;
   }
-  if (isEntityDocumentEvent(event)) {
+  if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) {
     projectEntityDocumentRematerialization(db, event, eventJson, readBlob);
     return;
   }

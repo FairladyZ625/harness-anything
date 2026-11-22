@@ -33,6 +33,20 @@ test("G38 production read inventory has registered measurements for every protoc
     { READ_PROBES } = await import("../../../packages/daemon/test/fixtures/g38-read-cost.mjs");
   validateReadCoverage(section, await readInventory(rootDir), READ_PROBES);
 });
+
+test("G38 dossier reads use the same bounded cut as accepted history grows", async () => {
+  const { measureReadScale } = await import("../../../packages/daemon/test/fixtures/g38-read-cost.mjs");
+  const probeIds = ["dossier-status", "dossier-content", "dossier-context"];
+  const small = await measureReadScale("sqlite", "task-history", 20, { probeIds });
+  const large = await measureReadScale("sqlite", "task-history", 200, { probeIds });
+  for (const id of probeIds) {
+    assert.equal(large[id].resultSize, small[id].resultSize);
+    for (const phase of ["firstCall", "counts"])
+      for (const [metric, margin] of Object.entries(READ_MARGINS))
+        assert.ok(large[id][phase][metric] <= small[id][phase][metric] + margin, `${id}/${phase}/${metric}`);
+  }
+});
+
 function fixture() {
   const section = {
     schema: "read-cost-scaling-budget/v1",

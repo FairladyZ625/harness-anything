@@ -75,6 +75,8 @@ export const EVIDENCE_INDEX = Object.freeze({
     "dec_13FF6AEF3598AF34DC8F4A0558",
     "dec_25B3C380F6FB9D4D4A1E27921E",
     "dec_2BF45FF7E52020380F5F35CE2D",
+    // Verified in_effect at GUI-FDE dispatch (task_862f6fb553d8de3736cdbcf27d), 2026-11-22.
+    "dec_42EB7B8F636C12381A447E52A3",
     "dec_57A9D27BA446C23759A08B1C13",
     "dec_585DB10A4218D9FA00F67B9537",
     // Verified in_effect at authorization consolidation dispatch, 2026-11-20.

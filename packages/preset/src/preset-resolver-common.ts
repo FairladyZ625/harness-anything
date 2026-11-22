@@ -1,3 +1,4 @@
+import type { SettingsV1 } from "@harness-anything/kernel";
 import type { PresetFailure } from "./preset-resolver-types.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -81,4 +82,24 @@ export function assertSupportedScriptInterpreter(command: string): void {
       "unsupported_interpreter",
       "The Python interpreter is not supported yet for this script entrypoint.",
     );
+}
+
+export interface PresetRuntimeDefaults {
+  readonly verticalId: string;
+  readonly presetId: string;
+  readonly profileId?: string;
+  readonly locale: string;
+  readonly taskOverlay: string;
+  readonly repositoryOverlay: string;
+}
+
+export function presetRuntimeDefaults(settings: SettingsV1): PresetRuntimeDefaults {
+  return {
+    verticalId: settings.defaultVertical,
+    presetId: settings.defaultPreset,
+    profileId: settings.defaultProfile,
+    locale: settings.locale,
+    taskOverlay: settings.scaffolds.task,
+    repositoryOverlay: settings.scaffolds.repository,
+  };
 }

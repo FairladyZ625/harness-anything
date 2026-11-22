@@ -1,5 +1,4 @@
 import { mkdirSync } from "node:fs";
-import { devNull } from "node:os";
 import path from "node:path";
 import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
@@ -319,7 +318,12 @@ export async function collectCommandWitness(
       codeRoot = path.join(scratch.directory, "code");
       /* @gate-identity non-state/environment-io.fce35847c1d968e8 */ mkdirSync(codeRoot);
       const archive = path.join(scratch.directory, "code.tar"),
-        env = { PATH: globalThis.process.env.PATH, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+        gitConfigNull = globalThis.process.platform === "win32" ? "NUL" : "/dev/null",
+        env = {
+          PATH: globalThis.process.env.PATH,
+          GIT_CONFIG_GLOBAL: gitConfigNull,
+          GIT_CONFIG_SYSTEM: gitConfigNull,
+        };
       await runProcessTextAsync(
         "git",
         ["archive", "--format=tar", `--output=${archive}`, submission.commitSha],

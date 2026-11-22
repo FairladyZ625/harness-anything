@@ -38,6 +38,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readTaskImportedEvent",
   "readProgress",
   "readDispatchLifecycle",
+  "readInbox",
   "readSettingsEvent",
   "listFactDomainTypes",
   "listEntities",
