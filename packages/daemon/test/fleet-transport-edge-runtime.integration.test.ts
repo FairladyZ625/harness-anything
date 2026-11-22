@@ -1272,20 +1272,18 @@ test(
       sessionIds.push(String(launched.runtimeSessionId));
     }
     await runtime.reconcile();
-    const settings = await fixture.host.read(fixture.subject.repoId, "repo.settings.read", {}, localAuthFixture());
-    const revoked = await fixture.host.run(
-      fixture.subject.repoId,
-      { kind: "settings-update", runtimeAllowedInstances: [], expectedVersion: settings.revision },
-      localAuthFixture(),
+    mkdirSync(path.join(workspaceRoot, ".harness"), { recursive: true });
+    writeFileSync(
+      path.join(workspaceRoot, ".harness", "settings.local.json"),
+      JSON.stringify({ schema: "settings-local/v1", locale: "en-US", runtime: { allowedInstances: [] } }),
+      "utf8",
     );
-    assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
-    await waitForFleetPublication(fixture.host, fixture.subject.repoId, revoked.opId, localAuthFixture());
     await catchUp();
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", {
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
-        prompt: "Project access was revoked in the replica, without materializing the workspace.",
+        prompt: "Project access was revoked on this node, without materializing the workspace.",
         dispatchKey: "replica-revoked",
       }),
       { code: "runtime_instance_not_allowed" },

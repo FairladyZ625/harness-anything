@@ -157,10 +157,7 @@ export function makeRepoCellSettingsState(
   const readLocal = (): LocalSettingsV1 => localState().value;
 
   // The local file's own schema marker is not part of the merged view; every local field is.
-  const read = (): SettingsV1 => {
-    const { schema: _localSchema, ...local } = readLocal();
-    return { ...readRepository(), ...local };
-  };
+  const read = (): SettingsV1 => mergeRepositoryLocalSettings(readRepository(), readLocal());
 
   const writeLocal = (value: LocalSettingsV1): boolean => {
     const current = localState();
@@ -285,6 +282,16 @@ export function makeRepoCellSettingsState(
     readRepository,
     writeLocal,
   };
+}
+
+export function mergeRepositoryLocalSettings(repository: RepositorySettingsV1, local: LocalSettingsV1): SettingsV1 {
+  const { schema: _localSchema, runtime, decisions, ...preferences } = local;
+  return {
+    ...repository,
+    ...preferences,
+    runtime: { ...repository.runtime, ...runtime },
+    ...(decisions === undefined ? {} : { decisions: { ...repository.decisions, ...decisions } }),
+  } as unknown as SettingsV1;
 }
 
 /** The authored settings value and the document bytes a mint would publish from them. */

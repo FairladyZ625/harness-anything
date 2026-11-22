@@ -60,7 +60,6 @@ export default {
               name: "DeepSeek Harness · 独立评审 Reviewer",
               instructions: "Review precisely.",
               runtimes: [{ type: "deepseek-harness", model: candidatesValue }],
-              instance: "deepseek-gui",
             },
           }),
         );

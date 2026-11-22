@@ -105,8 +105,6 @@ for (const frame of [
       },
     });
     assert.equal(configured.ok, true, JSON.stringify(configured));
-    const settings = await run({ kind: "settings-update", runtimeAllowedInstances: [instanceId] });
-    assert.equal(settings.outcome, "applied", JSON.stringify(settings));
     const roles = { defaultWorker: "worker", defaultReviewer: "reviewer", defaultCommander: "commander" };
     assert.equal((await cli(0, "settings", "update", "--roles", JSON.stringify(roles))).outcome, "applied");
     const created = await cli(0, "task", "create", "--title", "Portable worker dispatch", "--risk-tier", "low");
@@ -155,7 +153,7 @@ for (const frame of [
       t.diagnostic(`install ${role}: ${JSON.stringify(installed)}`);
     }
     assert.equal((await cli(0, "task", "start", taskId)).outcome, "applied");
-    const receipt = await cli(0, "agent", "run", "worker", "--task", taskId, "--instance", instanceId);
+    const receipt = await cli(0, "agent", "run", "worker", "--task", taskId);
     assert.equal(receipt.ok, true, JSON.stringify(receipt));
     assert.equal(receipt.outcome, "running", JSON.stringify(receipt));
     assert.equal(typeof receipt.dispatchId, "string", JSON.stringify(receipt));

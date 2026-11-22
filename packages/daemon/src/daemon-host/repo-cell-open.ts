@@ -884,14 +884,19 @@ export async function openRepoWriterCell(
         entityActionRuntimes,
       );
     });
-  const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
   let restoringRuntimes = true;
   setImmediate(() => {
     if (state === "closed") return;
     void recoveryWork
-      .run(() => runtimeSpawner.adopt())
+      .run(async () => {
+        const [recoveryResults, squadRecoveryDispatchIds] = await Promise.all([
+          runtimeSpawner.adopt(),
+          squadCoordinator.retentionProtectedDispatchIds(),
+        ]);
+        return { recoveryResults, squadRecoveryDispatchIds };
+      })
       .then(
-        (recoveryResults) => {
+        ({ recoveryResults, squadRecoveryDispatchIds }) => {
           if (state === "closed") return;
           const adoptionProtectedIds = recoveryResults.flatMap((entry) =>
             entry.outcome !== "settled" && entry.dispatchId !== null ? [entry.dispatchId] : [],

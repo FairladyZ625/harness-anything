@@ -26,6 +26,7 @@ import type { Snapshot } from "../src/daemon-host/repo-cell-types.ts";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,
+  setFixtureAgentBinding,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { policyTestRealm, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -635,6 +636,7 @@ export async function fixture(
     consent,
     complete: () => run({ kind: "task-complete", taskId, executionId }),
     install: async (instanceId: string | null = "review-first") => {
+      setFixtureAgentBinding(root, "closeout-reviewer", instanceId);
       const installed = await run({
         kind: "agent-install",
         declaration: {
@@ -643,7 +645,6 @@ export async function fixture(
           name: "Independent reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: agentModel }],
-          ...(instanceId === null ? {} : { instance: instanceId }),
           role: "worker",
         },
       });

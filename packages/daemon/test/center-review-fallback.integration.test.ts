@@ -98,7 +98,6 @@ async function submitFromEdge(t: TestContext, delivery: "git" | "ledger", edgeRe
         name: "Independent reviewer",
         instructions: "Inspect the accepted delivery.",
         runtimes: [{ type: "codex", model: definition.model }],
-        instance: definition.instanceId,
         role: "reviewer",
       },
     },

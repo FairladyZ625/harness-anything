@@ -69,7 +69,6 @@ test(
           instructions: "Review the forwarded cut.",
           role: "reviewer",
           runtimes: [{ type: "codex", model: definition.model }],
-          instance: definition.instanceId,
         },
       },
       localAuthFixture(),

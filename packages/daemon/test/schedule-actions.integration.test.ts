@@ -152,7 +152,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
                 runtimes: [{ type: "codex" }],
-                instance: definition.instanceId,
               },
             },
             actor,
@@ -648,7 +647,6 @@ test(
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
                 runtimes: [{ type: "codex" }],
-                instance: definition.instanceId,
               },
             },
             nodeAuth,
@@ -1049,7 +1047,7 @@ test("scheduled single-agent runs honor declared permissionMode ceilings across 
       },
     });
     try {
-      for (const [id, permissionMode, instanceId, runtimeType] of [
+      for (const [id, permissionMode, _instanceId, runtimeType] of [
         ["readonly-codex", "read-only", definition.instanceId, "codex"],
         ["workspace-codex", "workspace-write", definition.instanceId, "codex"],
         ["readonly-zcode", "read-only", "zcode-schedule", "zcode"],
@@ -1063,7 +1061,6 @@ test("scheduled single-agent runs honor declared permissionMode ceilings across 
               name: id,
               instructions: "Respect declared permissionMode ceiling.",
               runtimes: [{ type: runtimeType }],
-              instance: instanceId,
               permissionMode,
             },
           },

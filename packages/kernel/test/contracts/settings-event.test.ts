@@ -12,13 +12,16 @@ import {
   assertSettingsEventInputs,
   compileSettingsChangedEvent,
   settingsEventWritePlan,
+  validateCurrentSettingsEvent,
   validateSettingsEvent,
 } from "../../src/domain/settings-event.ts";
 import { requireEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
-import { interpretEntityValue } from "../../src/domain/entity-kind-projection.ts";
+import type { EntityJsonSchemaNode } from "../../src/domain/entity-json-schema.ts";
+import { interpretEmbeddedEntityProjections, interpretEntityValue } from "../../src/domain/entity-kind-projection.ts";
 import { dropRetiredSettingsWalFlush } from "../../src/domain/settings-history.ts";
 import {
   SETTINGS_FIELD_OWNERSHIP,
+  SETTINGS_FIELD_DECLARATIONS,
   SETTINGS_REPOSITORY_V1_SCHEMA,
   SETTINGS_V1_SCHEMA,
   validateRepositorySettings,
@@ -48,17 +51,65 @@ const original = [
   "",
 ].join("\n");
 
-test("every Settings business field declares repository or local ownership", () => {
+test("historical provider bindings are readable while new shared settings reject them", () => {
+  const body = `${original}  decisions:\n    provider: historical-provider\n  runtime:\n    allowedInstances: [historical-instance]\n    allowedKinds: [codex]\n`;
+  const settings = readSettingsFacet(body);
+  assert.equal(settings.decisions?.provider, undefined);
+  assert.equal(settings.runtime.allowedInstances, undefined);
+  assert.deepEqual(settings.runtime.allowedKinds, ["codex"]);
+  const candidate = writeRepositorySettingsFacet(body, settings);
+  assert.doesNotMatch(candidate, /historical-/u);
+  const { event } = compileSettingsChangedEvent({
+    settings,
+    baseDocumentBody: body,
+    candidateDocumentBody: candidate,
+    eventId: "event-private-settings-history",
+    opId: "op-private-settings-history",
+    workspaceRevision: 1,
+    actor: { principal: { personId: "owner" }, executor: null },
+    source: "local",
+    occurredAt: "2026-11-19T00:00:00.000Z",
+  });
+  const historical = {
+    ...event,
+    payload: {
+      ...event.payload,
+      settings: {
+        ...event.payload.settings,
+        decisions: { provider: "historical-provider" },
+        runtime: { ...event.payload.settings.runtime, allowedInstances: ["historical-instance"] },
+      },
+    },
+  };
+  assert.deepEqual(validateSettingsEvent(historical), []);
+  assert.notDeepEqual(validateCurrentSettingsEvent(historical), []);
+  const [projected] = interpretEmbeddedEntityProjections(requireEntityKindContract("settings"), historical);
+  assert.ok(projected);
+  assert.equal(
+    (projected.value.runtime as { readonly allowedInstances?: readonly string[] }).allowedInstances,
+    undefined,
+  );
+  assert.equal((projected.value.decisions as { readonly provider?: string } | undefined)?.provider, undefined);
+  const bytes = serializeCanonicalEventUnchecked(historical);
+  assert.equal(serializeCanonicalEventUnchecked(parseCanonicalEvent(bytes)), bytes);
+});
+
+test("every Settings leaf declares repository or local ownership", () => {
   const businessFields = Object.keys(SETTINGS_V1_SCHEMA.properties).filter(
     (field) => field !== "schema" && field !== "settingsId",
   );
   assert.deepEqual(businessFields.sort(), Object.keys(SETTINGS_FIELD_OWNERSHIP).sort());
-  for (const field of businessFields)
-    assert.equal(
-      SETTINGS_V1_SCHEMA.properties[field]!["x-settings-ownership"],
-      SETTINGS_FIELD_OWNERSHIP[field as keyof typeof SETTINGS_FIELD_OWNERSHIP],
-      field,
-    );
+  assert.equal(SETTINGS_FIELD_OWNERSHIP.decisions, "mixed");
+  assert.equal(SETTINGS_FIELD_OWNERSHIP.runtime, "mixed");
+  for (const declaration of SETTINGS_FIELD_DECLARATIONS) {
+    let field: EntityJsonSchemaNode = SETTINGS_V1_SCHEMA;
+    for (const segment of declaration.path) {
+      if (field.type !== "object")
+        throw new Error(`Settings schema path is not an object: ${declaration.path.join(".")}`);
+      field = field.properties[segment]!;
+    }
+    assert.equal(field["x-settings-ownership"], declaration.ownership, declaration.path.join("."));
+  }
 });
 
 test("a repository Settings declaration recorded before reviewIndependence existed still projects", () => {

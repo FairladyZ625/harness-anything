@@ -26,7 +26,6 @@ import {
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
-import { initialRuntimeInstanceSettings } from "../src/daemon-host/runtime-spawn-allowlist.ts";
 import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
@@ -135,9 +134,7 @@ export function seedSettingsEvent(input: {
     return settleSeeded(store, fixtureKey, input.keepOpen);
   }
   const documentBody = settingsBase(rootDir),
-    parsed = readSettingsFacet(documentBody),
-    settings =
-      input.runtimeInstances === undefined ? parsed : initialRuntimeInstanceSettings(parsed, input.runtimeInstances),
+    settings = readSettingsFacet(documentBody),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
   store.append(
     compileSettingsChangedEvent({
@@ -270,9 +267,7 @@ export async function settleSettingsEvent(input: {
     stream = store.read();
   if (!stream.events.some((event) => event.schema === "settings-event/v1")) {
     const documentBody = settingsBase(rootDir),
-      parsed = readSettingsFacet(documentBody),
-      seededSettings =
-        input.runtimeInstances === undefined ? parsed : initialRuntimeInstanceSettings(parsed, input.runtimeInstances),
+      seededSettings = readSettingsFacet(documentBody),
       digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
     store.append(
       compileSettingsChangedEvent({
@@ -346,25 +341,42 @@ export async function allowFixtureRuntimeInstances(
   runtimeAllowedInstances: readonly string[],
 ): Promise<void> {
   const settings = await host.read(repoId, "repo.settings.read", {}, auth);
+  const allowedInstanceIds = [
+    ...new Set([...(settings.settings.runtime?.allowedInstances ?? []), ...runtimeAllowedInstances]),
+  ];
   const receipt = await host.run(
     repoId,
     {
       kind: "settings-update",
-      runtimeAllowedInstances: [
-        ...new Set([...(settings.settings.runtime?.allowedInstances ?? []), ...runtimeAllowedInstances]),
-      ],
+      runtimeAllowedInstances: allowedInstanceIds,
       expectedVersion: settings.revision,
     },
     auth,
   );
   assert.ok(receipt.outcome === "applied" || receipt.outcome === "no_changes", JSON.stringify(receipt));
   if (receipt.outcome === "no_changes") return;
-  const published = await host.run(
-    repoId,
-    { kind: "receipt-show", opId: receipt.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
-    auth,
+  const updated = await host.read(repoId, "repo.settings.read", {}, auth);
+  assert.deepEqual(updated.settings.runtime?.allowedInstances, allowedInstanceIds);
+}
+
+export function setFixtureAgentBinding(rootDir: string, agentId: string, instanceId: string | null): void {
+  const localPath = resolveHarnessLayout(rootDir).settingsLocalPath,
+    stored = existsSync(localPath)
+      ? (JSON.parse(readFileSync(localPath, "utf8")) as Record<string, unknown>)
+      : { schema: "settings-local/v1" },
+    rows = stored.runtimeAgentBindings;
+  if (rows !== undefined && !Array.isArray(rows)) throw new Error("runtimeAgentBindings must be an array.");
+  const bindings = (Array.isArray(rows) ? rows : []).filter(
+    (row): row is Record<string, unknown> =>
+      row !== null && typeof row === "object" && (row as Record<string, unknown>).agentId !== agentId,
   );
-  assert.equal(published.wait?.state, "satisfied", JSON.stringify(published));
+  if (instanceId !== null) bindings.push({ agentId, instance: instanceId });
+  mkdirSync(path.dirname(localPath), { recursive: true });
+  writeFileSync(
+    localPath,
+    JSON.stringify({ locale: "en-US", ...stored, schema: "settings-local/v1", runtimeAgentBindings: bindings }),
+    "utf8",
+  );
 }
 
 /** Register a fixture runtime and opt it into the already bootstrapped repository in one step. */

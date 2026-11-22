@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,7 +8,6 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { getEntityKindContract } from "@harness-anything/kernel";
 import {
-  agentRuntimeSelectionIssue,
   prepareAgentEntityInstall,
   readAgentDeclaration,
   readAgentEntityGuiProjection,
@@ -154,30 +152,26 @@ test("runtime kind is an open identifier: third-party runtimes validate while tr
   }
 });
 
-test("preferredInstances is an ordered unique list of instance slugs and survives install", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-preferred-instances-"));
+test("legacy installed bindings stay readable and new writes reject both private fields", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-private-bindings-"));
   try {
-    assert.deepEqual(
-      validateAgentDeclarationV1({ ...agent, preferredInstances: ["ds-bailian", "ds-harness-api"] }),
-      [],
-    );
-    for (const preferredInstances of [
-      ["ds-bailian", "ds-bailian"],
-      ["DeepSeek-Bailian"],
-      ["../etc/passwd"],
-      "ds-bailian",
-    ])
-      assert.notDeepEqual(
-        validateAgentDeclarationV1({ ...agent, preferredInstances }),
-        [],
-        JSON.stringify(preferredInstances),
+    for (const fields of [{ instance: "old-node" }, { preferredInstances: ["old-node"] }]) {
+      const declaration = { ...agent, ...fields };
+      assert.match(validateAgentDeclarationV1(declaration).join("\n"), /instance|preferredInstances/iu);
+      await assert.rejects(
+        () => install({ rootDir, kind: "agent-install", declaration }),
+        (error: unknown) => (error as { code?: string }).code === "invalid_manifest",
       );
-    const declaration = { ...agent, id: "preferred", preferredInstances: ["ds-harness-api", "ds-bailian"] };
-    await install({ rootDir, kind: "agent-install", declaration });
-    const installed = readAgentDeclaration({ rootDir, agentId: "preferred" });
-    assert.deepEqual(installed.preferredInstances, ["ds-harness-api", "ds-bailian"]);
-    // A soft preference is not a hard pin: dispatch still has a fallback when it is unavailable.
-    assert.equal(installed.instance, undefined);
+    }
+    await appendLegacyAgentDeclaration(rootDir, {
+      ...agent,
+      instance: "old-node",
+      preferredInstances: ["old-node"],
+    });
+    const installed = readAgentDeclaration({ rootDir, agentId: agent.id });
+    assert.deepEqual(installed.runtimes, agent.runtimes);
+    assert.equal(Object.hasOwn(installed, "instance"), false);
+    assert.equal(Object.hasOwn(installed, "preferredInstances"), false);
   } finally {
     removeTempRepository(rootDir);
   }
@@ -525,133 +519,6 @@ test("Agent install admits only declarations a runtime instance can run", async 
     removeTempRepository(rootDir);
   }
 });
-
-test("an unpinned Agent installs with several compatible instances and a declared instance still validates", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-instance-selection-")),
-    runtimeInstances = [
-      { instanceId: "codex-a", kindId: "codex", models: ["gpt-5.6-sol", "gpt-5.6-terra"], enabled: true },
-      { instanceId: "codex-b", kindId: "codex", models: ["gpt-5.6-sol", "gpt-5.6-terra"], enabled: true },
-    ] as const;
-  try {
-    // Dispatch ranks compatible instances deterministically, so an unbound declaration is
-    // installable whenever at least one enabled instance can run it.
-    assert.equal(
-      (
-        (await install({ rootDir, kind: "agent-install", declaration: agent, runtimeInstances })) as {
-          entityId: string;
-        }
-      ).entityId,
-      agent.id,
-    );
-    const pinned = { ...agent, id: "pinned", name: "Pinned", instance: "codex-b" };
-    assert.equal(
-      (
-        (await install({ rootDir, kind: "agent-install", declaration: pinned, runtimeInstances })) as {
-          entityId: string;
-        }
-      ).entityId,
-      "pinned",
-    );
-    await assert.rejects(
-      () =>
-        install({
-          rootDir,
-          kind: "agent-install",
-          declaration: { ...pinned, id: "ghosted", instance: "codex-missing" },
-          runtimeInstances,
-        }),
-      (error: unknown) => (error as { code?: string }).code === "agent_instance_unavailable",
-    );
-    // A kind mismatch names the instance's kind and models, the declared runtime kinds, and the
-    // route that actually fixes it: editing the agent's runtimes, not the instance's model list.
-    await assert.rejects(
-      () =>
-        install({
-          rootDir,
-          kind: "agent-install",
-          declaration: { ...agent, id: "wrong-kind", instance: "claude-a" },
-          runtimeInstances: [
-            ...runtimeInstances,
-            { instanceId: "claude-a", kindId: "claude", models: ["opus"], enabled: true },
-          ],
-        }),
-      (error: unknown) => {
-        const failure = error as { code?: string; message?: string },
-          message = String(failure.message);
-        return (
-          failure.code === "agent_instance_incompatible" &&
-          /declares instance claude-a/u.test(message) &&
-          /whose kind is claude/u.test(message) &&
-          /models: opus/u.test(message) &&
-          /runtimes require codex/u.test(message) &&
-          /Change the agent's runtimes to include claude/u.test(message) &&
-          !/runtime instance update/u.test(message)
-        );
-      },
-    );
-    // A model mismatch names the requested kind:model, the instance's model catalog, and the
-    // exact update command that adds the requested model without dropping the existing ones.
-    await assert.rejects(
-      () =>
-        install({
-          rootDir,
-          kind: "agent-install",
-          declaration: {
-            ...agent,
-            id: "wrong-model",
-            instance: "codex-a",
-            runtimes: [{ type: "codex", model: "gpt-5.6-luna" }],
-          },
-          runtimeInstances,
-        }),
-      (error: unknown) => {
-        const failure = error as { code?: string; message?: string },
-          message = String(failure.message);
-        return (
-          failure.code === "agent_instance_incompatible" &&
-          /codex:gpt-5\.6-luna/u.test(message) &&
-          /codex-a \(codex, models: gpt-5\.6-sol, gpt-5\.6-terra\)/u.test(message) &&
-          /ha runtime instance update codex-a --model gpt-5\.6-sol --model gpt-5\.6-terra --model gpt-5\.6-luna/u.test(
-            message,
-          )
-        );
-      },
-    );
-  } finally {
-    removeTempRepository(rootDir);
-  }
-});
-
-test(
-  "the model-mismatch recovery command preserves a JSON provider/model tuple as one shell argument",
-  { skip: process.platform === "win32" },
-  () => {
-    const tupleModel = '["openai","GPT-6.1-Astra"]',
-      declaration = {
-        ...agent,
-        id: "tuple-model",
-        name: "Tuple Model",
-        instance: "codex-a",
-        runtimes: [{ type: "codex", model: tupleModel }],
-      },
-      instances = [{ instanceId: "codex-a", kindId: "codex", models: ["gpt-5.6-sol"], enabled: true }];
-    const issue = agentRuntimeSelectionIssue(declaration, instances);
-    assert.equal(issue?.code, "agent_instance_incompatible");
-    const message = String(issue?.message),
-      command = message.slice(message.indexOf("ha runtime instance update "), -1);
-    assert.match(command, /--model '\["openai","GPT-6\.1-Astra"\]'/u);
-    // Let the shell parse the emitted command; printf echoes each resulting argv entry NUL-separated.
-    const shell = spawnSync("/bin/sh", ["-c", `printf '%s\\0' ${command.replace(/^ha /u, "")}`], {
-      encoding: "utf8",
-    });
-    assert.equal(shell.status, 0, shell.stderr);
-    const argv = shell.stdout.split("\0").slice(0, -1),
-      added = argv.flatMap((value, index) => (argv[index - 1] === "--model" ? [value] : []));
-    assert.deepEqual(argv.slice(0, 5), ["runtime", "instance", "update", "codex-a", "--model"]);
-    assert.deepEqual(added, ["gpt-5.6-sol", tupleModel]);
-    assert.equal(agentRuntimeSelectionIssue(declaration, [{ ...instances[0], models: added }]), null);
-  },
-);
 
 test("entity validation names every malformed manifest and refuses squads that reference missing agents", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-errors-")),
@@ -1292,15 +1159,6 @@ test("install and validate warn when a valid declaration leaves the instance cho
     assert.equal(validateReport.valid, true);
     assert.equal(validateReport.warnings?.length, 1);
     assert.equal(validateReport.warnings?.[0]?.code, "agent_runtime_instance_ambiguous");
-    // Stating the order silences it on both paths without changing validity.
-    const preferredDeclaration = { ...declaration, preferredInstances: ["ds-bailian"] },
-      preferredReport = (await install({
-        rootDir,
-        kind: "agent-install",
-        declaration: preferredDeclaration,
-        runtimeInstances,
-      })) as { warnings?: readonly unknown[] };
-    assert.deepEqual(preferredReport.warnings ?? [], []);
   } finally {
     removeTempRepository(rootDir);
   }

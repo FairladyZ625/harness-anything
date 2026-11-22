@@ -735,8 +735,8 @@ describe("agent runtime renderer", () => {
     expect(agent).toContain('data-testid="agent-host-access-operator"');
     expect(agent).toContain('data-testid="agent-host-access-bypass"');
     expect(agent).toMatch(/data-testid="agent-host-access-isolated"[^>]*aria-pressed="true"/u);
-    expect(agent).toContain('data-testid="agent-instance-select"');
-    expect(agent).toContain("Claude One · gpt-5.6-sol");
+    expect(agent).not.toContain('data-testid="agent-instance-select"');
+    expect(agent).toContain('data-testid="agent-runtime-model-claude"');
     expect(agent).toContain("provider/claude-one");
     const squad = renderToStaticMarkup(
       createElement(SquadCard, {
@@ -771,12 +771,13 @@ describe("agent runtime renderer", () => {
         onSelectRuntime: noop,
       }),
     );
-    expect(agentDeclarationFrom(agentDetail.id, agentDraftFrom(agentDetail))).toMatchObject({
+    const declaration = agentDeclarationFrom(agentDetail.id, agentDraftFrom(agentDetail));
+    expect(declaration).toMatchObject({
       skills: agentDetail.skills,
-      instance: agentDetail.instance,
       permissionMode: agentDetail.permissionMode,
       hostAccess: agentDetail.hostAccess,
     });
+    expect(declaration).not.toHaveProperty("instance");
     const declaredEffort = {
       ...agentDetail,
       runtimes: [{ type: "claude", effort: "xhigh" as const }],

@@ -30,6 +30,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   fixtureFence,
   openBootstrappedRepoCell as openRepoCell,
+  setFixtureAgentBinding,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -93,6 +94,7 @@ async function installOrUpdateAgent(
   instanceId: string,
   permissionMode?: "read-only" | "workspace-write" | "bypass",
 ): Promise<void> {
+  setFixtureAgentBinding(cell.status().rootDir, id, instanceId);
   const res = await cell.run(
     {
       kind: "agent-install",
@@ -102,7 +104,6 @@ async function installOrUpdateAgent(
         name: `Agent ${id}`,
         instructions: "Follow task contract.",
         runtimes: [{ type: "codex", model: "gpt-5.6-sol" }],
-        instance: instanceId,
         ...(permissionMode === undefined ? {} : { permissionMode }),
       },
     },

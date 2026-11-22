@@ -11,9 +11,12 @@ import {
   SETTINGS_FIELD_DECLARATIONS,
   createSettingsDeclarationRuntime,
   defineSettingsField,
+  localSettings,
   readSettingsFacet,
   repositorySettings,
   settingsFieldPresentationFromDeclarations,
+  type SettingsV1,
+  validateLocalSettingsV1,
   writeRepositorySettingsFacet,
 } from "../../src/domain/settings.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -88,17 +91,38 @@ test("Settings updates create a missing settings mapping for a non-default field
     settings = repositorySettings(readSettingsFacet(authoredBody)),
     written = writeRepositorySettingsFacet(authoredBody, {
       ...settings,
-      runtime: { allowedInstances: ["machine-codex"] },
+      runtime: { ...settings.runtime, allowedKinds: ["codex"] },
     });
-  assert.deepEqual(readSettingsFacet(written).runtime?.allowedInstances, ["machine-codex"]);
-  assert.match(written, /^settings:\n  runtime:\n    allowedInstances:\n      - machine-codex$/mu);
+  assert.deepEqual(readSettingsFacet(written).runtime?.allowedKinds, ["codex"]);
+  assert.match(written, /^settings:\n  runtime:\n    allowedKinds:\n      - codex$/mu);
 });
 
-test("Settings updates preserve an explicit empty runtime allowlist", () => {
+test("Settings updates preserve an explicit empty runtime capability list", () => {
   const settings = repositorySettings(readSettingsFacet(documentBody)),
-    written = writeRepositorySettingsFacet(documentBody, { ...settings, runtime: { allowedInstances: [] } });
-  assert.deepEqual(readSettingsFacet(written).runtime?.allowedInstances, []);
-  assert.match(written, /allowedInstances:\s*\[\]/u);
+    written = writeRepositorySettingsFacet(documentBody, {
+      ...settings,
+      runtime: { ...settings.runtime, allowedKinds: [] },
+    });
+  assert.deepEqual(readSettingsFacet(written).runtime?.allowedKinds, []);
+  assert.match(written, /allowedKinds:\s*\[\]/u);
+});
+
+test("node-local Agent bindings enforce instance ids, unique preferences, and unique Agents", () => {
+  const valid = localSettings({
+    runtimeAgentBindings: [{ agentId: "worker", instance: "codex-api", preferredInstances: ["codex-backup"] }],
+  });
+  assert.deepEqual(validateLocalSettingsV1(valid), []);
+  assert.notDeepEqual(
+    validateLocalSettingsV1(
+      localSettings({
+        runtimeAgentBindings: [
+          { agentId: "worker", preferredInstances: ["codex-api", "codex-api"] },
+          { agentId: "worker", instance: "Bad ID" },
+        ],
+      }),
+    ),
+    [],
+  );
 });
 
 test("Settings arrays are written in their declared YAML sequence styles", () => {
@@ -644,6 +668,28 @@ test("repositorySettingsActionValues covers every repository field for a fully p
       .closeoutConsent,
     false,
   );
+});
+
+test("repositorySettingsActionValues combines local runtime and decision fields without dropping shared values", () => {
+  const local = localSettings({
+      decisions: { provider: "local-decisions" },
+      runtime: { allowedInstances: ["private-provider"] },
+    }),
+    sharedDecisions = { enabledPoints: ["dispatch-stop-reason@0123456789ab"] },
+    merged = {
+      ...current,
+      ...local,
+      schema: "settings/v1",
+      settingsId: "repository",
+      runtime: { ...current.runtime, ...local.runtime },
+      decisions: { ...sharedDecisions, ...local.decisions },
+    } as SettingsV1,
+    values = repositorySettingsActionValues(merged);
+
+  assert.equal(values.runtimeSelectionStrategy, current.runtime.selectionStrategy);
+  assert.deepEqual(values.runtimeAllowedInstances, ["private-provider"]);
+  assert.equal(values.decisionsProvider, "local-decisions");
+  assert.deepEqual(values.decisionsEnabledPoints, sharedDecisions.enabledPoints);
 });
 
 /** A repository whose authored document already declares a local command mapping for `lint`. */

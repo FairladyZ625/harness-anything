@@ -105,7 +105,6 @@ test(
             role: "worker",
             instructions: "Inspect the repository.",
             runtimes: [{ type: "codex" }],
-            instance: "codex-session",
           },
         })
       ).outcome,

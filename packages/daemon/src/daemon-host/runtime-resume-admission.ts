@@ -22,6 +22,7 @@ import {
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import { resolveRuntimeCwd, resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import { applyLocalAgentBinding } from "./runtime-spawn-agent.ts";
 import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -203,7 +204,8 @@ export async function preflightRuntimeSelection(input: RuntimeSpawnerInput, payl
         ? requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task?.metadata
             ?.verticalId
         : undefined,
-    agent = agentId === undefined ? null : (input.resolveAgent?.(agentId, verticalId) ?? null),
+    declaration = agentId === undefined ? undefined : input.resolveAgent?.(agentId, verticalId),
+    agent = declaration === undefined ? null : applyLocalAgentBinding(input, declaration),
     requested = runtimeInstanceId ?? agent?.instance;
   if (requested === undefined) return;
   const projection = input.remote ? null : requiredRuntimeProjection(input),

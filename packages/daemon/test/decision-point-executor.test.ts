@@ -221,6 +221,34 @@ test("an unset or stale binding leaves settlement dormant without a provider cal
   assert.equal(calls, 0);
 });
 
+test("an unset local provider selects the first enabled provider for active decision points", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
+  const requests: Array<{ readonly providerId: string }> = [],
+    executor = openTestExecutor({
+      rootDir,
+      providers: {
+        list: () => [
+          { ...provider, providerId: "disabled-provider", enabled: false },
+          provider,
+          { ...provider, providerId: "later-provider" },
+        ],
+        port: { decide: async (request) => (requests.push(request), answer) },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell } = fakeCell({ decisions: { enabledPoints: [binding] } });
+
+  await executor.settle(
+    cell,
+    outcomeEvent() as Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }>,
+  );
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.providerId, provider.providerId);
+});
+
 test("a configured but unavailable provider records a typed failure without changing settlement", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));

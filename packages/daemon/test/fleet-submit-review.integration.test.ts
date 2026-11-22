@@ -22,7 +22,7 @@ import { taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
-import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import { registerFixtureRuntimeInstance, setFixtureAgentBinding } from "./repo-settings.fixture.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
@@ -61,7 +61,6 @@ test(
           name: "Independent reviewer",
           instructions: "Review the accepted cut.",
           runtimes: [{ type: "codex", model: definition.model }],
-          instance: definition.instanceId,
           role: "reviewer",
         },
       },
@@ -292,7 +291,6 @@ test(
             schema: "agent-declaration/v1",
             ...declaration,
             runtimes: [{ type: "codex", model: definition.model }],
-            instance: definition.instanceId,
           },
         },
         localAuthFixture(),
@@ -340,6 +338,7 @@ test(
       },
     });
     await catchUpReplica({ ...f.peer("node-one"), viewRoot: edge.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    setFixtureAgentBinding(edge.edgeRoot, "closeout-reviewer", definition.instanceId);
     await registerFixtureRuntimeInstance(edge.host, repoId, localAuthFixture(), {
       instanceId: definition.instanceId,
       name: "Replica review fixture",
@@ -482,7 +481,6 @@ test(
               instructions: "Review the frozen delivery.",
               role: "reviewer",
               runtimes: [{ type: "codex", model: definition.model }],
-              instance: definition.instanceId,
             },
           },
           localAuthFixture(),
@@ -638,13 +636,13 @@ test(
     assert.ok(scan.changes.some((c) => c.path === artifactPath));
     // Hosting is a local fixture declaration; all Git traffic stays on the private file remote.
     for (const root of [f.repo, edgeRoot]) {
-      const config = path.join(root, "harness", "harness.yaml");
+      const config = path.join(root, "harness", "harness.yaml"),
+        raw = readFileSync(config, "utf8");
       writeFileSync(
         config,
-        readFileSync(config, "utf8").replace(
-          "settings:\n",
-          "settings:\n  hosting:\n    provider: github\n    host: github.com\n",
-        ),
+        raw.includes("settings:\n")
+          ? raw.replace("settings:\n", "settings:\n  hosting:\n    provider: github\n    host: github.com\n")
+          : `${raw}settings:\n  hosting:\n    provider: github\n    host: github.com\n`,
       );
     }
     const submitted = await runFleetEdgeTask(
@@ -904,13 +902,13 @@ test(
     await catchUpReplica(replica);
     assert.equal(applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull").outcome, "applied");
     for (const root of [f.repo, edgeRoot]) {
-      const config = path.join(root, "harness", "harness.yaml");
+      const config = path.join(root, "harness", "harness.yaml"),
+        raw = readFileSync(config, "utf8");
       writeFileSync(
         config,
-        readFileSync(config, "utf8").replace(
-          "settings:\n",
-          "settings:\n  hosting:\n    provider: github\n    host: github.com\n",
-        ),
+        raw.includes("settings:\n")
+          ? raw.replace("settings:\n", "settings:\n  hosting:\n    provider: github\n    host: github.com\n")
+          : `${raw}settings:\n  hosting:\n    provider: github\n    host: github.com\n`,
       );
     }
     writeFileSync(
@@ -942,6 +940,15 @@ test(
     );
     assert.equal(declared.outcome, "applied", JSON.stringify(declared));
     await catchUpReplica(replica);
+    mkdirSync(path.join(edgeRoot, ".harness"), { recursive: true });
+    writeFileSync(
+      path.join(edgeRoot, ".harness", "settings.local.json"),
+      JSON.stringify({
+        schema: "settings-local/v1",
+        locale: "en-US",
+        runtimeAgentBindings: [{ agentId: "carbon-worker", instance: "unconfigured-instance" }],
+      }),
+    );
 
     let allowHostingCredential = false,
       prExists = false,

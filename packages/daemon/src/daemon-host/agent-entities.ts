@@ -27,7 +27,6 @@ import {
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
 import { agentRuntimeAmbiguityWarning } from "./runtime-instance-selection.ts";
-import { formatShellCommand } from "./shell-command-text.ts";
 
 export {
   agentDeclarationInvalidCode,
@@ -236,7 +235,7 @@ export function readAgentEntityGuiProjection<
         id: agent.id,
         name: agent.name,
         runtimes: agent.runtimes,
-        instance: agent.instance ?? null,
+        instance: null,
         permissionMode: agent.permissionMode ?? null,
         mcpPolicy: agent.mcpPolicy ?? null,
         ...(agent.selectionStrategy === undefined ? {} : { selectionStrategy: agent.selectionStrategy }),
@@ -359,7 +358,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     id: agent.id,
     name: agent.name,
     runtimes: agent.runtimes,
-    instance: agent.instance ?? null,
+    instance: null,
     permissionMode: agent.permissionMode ?? null,
     mcpPolicy: agent.mcpPolicy ?? null,
     ...(agent.selectionStrategy === undefined ? {} : { selectionStrategy: agent.selectionStrategy }),
@@ -1119,52 +1118,6 @@ export function agentRuntimeSelectionIssue(
       const target = agentRuntimeTargetForKind(agent.runtimes, instance.kindId);
       return target?.model === undefined || agentRuntimeModelMatches(instance.models, target.model);
     });
-  if (agent.instance !== undefined) {
-    const selected = available.find((instance) => instance.instanceId === agent.instance);
-    if (!selected)
-      return {
-        code: "agent_instance_unavailable",
-        message: `Agent ${agent.id} declares instance ${agent.instance}, but it is not enabled on this node.`,
-      };
-    if (!compatible.includes(selected)) {
-      const target = agentRuntimeTargetForKind(agent.runtimes, selected.kindId),
-        instanceModels = selected.models.length ? selected.models.join(", ") : "none";
-      // A kind mismatch cannot be repaired by adding a model to the instance: the author must
-      // change the declaration's runtime row or point it at an instance of the declared kind.
-      if (target?.model === undefined) {
-        const declaredModels = agentRuntimeModelSummary(agent.runtimes);
-        return {
-          code: "agent_instance_incompatible",
-          message:
-            `Agent ${agent.id} declares instance ${agent.instance}, whose kind is ${selected.kindId} ` +
-            `(models: ${instanceModels}), but its runtimes require ${agentRuntimeTargetSummary(agent.runtimes)}` +
-            `${declaredModels ? ` (models ${declaredModels})` : ""}. ` +
-            `Change the agent's runtimes to include ${selected.kindId}, or choose an instance of the declared kinds; ` +
-            "run ha runtime instance list.",
-        };
-      }
-      return {
-        code: "agent_instance_incompatible",
-        message:
-          `Agent ${agent.id} declares instance ${agent.instance} (${selected.kindId}, models: ${instanceModels}), ` +
-          `but its runtimes request ${target.type}:${target.model}. Change the agent's runtime model to an available one, ` +
-          "or add the requested model to the instance: " +
-          `${formatShellCommand("ha", [
-            "runtime",
-            "instance",
-            "update",
-            agent.instance,
-            ...[...selected.models, target.model].flatMap((model) => ["--model", model]),
-          ])}.`,
-      };
-    }
-    return null;
-  }
-  // Ambiguity between enabled compatible instances is not an install-time fault: dispatch ranks
-  // the candidates deterministically (runtimes row order, then the declaration's preferredInstances,
-  // then exact-over-case-insensitive model spelling, then live load, then the configured allowlist
-  // order) and the declaration only pins `instance` when the author wants that node-local binding.
-  // `agentRuntimeAmbiguityWarning` reports the unstated choice separately as a non-blocking warning.
   if (compatible.length > 0) return null;
   if (kindCompatible.length === 0)
     return {

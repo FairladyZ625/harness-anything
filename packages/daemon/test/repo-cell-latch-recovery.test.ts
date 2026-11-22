@@ -817,7 +817,6 @@ test(
               id,
               name: id,
               role,
-              instance: "stub",
               instructions: "Perform the assigned role.",
               runtimes: [{ type: "codex" }],
             },

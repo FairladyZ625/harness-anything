@@ -175,7 +175,7 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly model?: string;
   /** The concrete kind selected for an unbound runtime dispatch. */
   readonly runtimeKind?: string;
-  /** Repository-scoped allowlist; undefined means the repository has not been initialized yet. */
+  /** This node's eligible catalog order for this repository, if explicitly configured. */
   readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
@@ -191,7 +191,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     instances: input.instances.map((instance) => ({ ...instance, models: runtimeInstanceDispatchModels(instance) })),
   };
   const configured = input.allowedInstanceIds !== undefined,
-    allowed = input.allowedInstanceIds ?? [],
+    allowed = input.allowedInstanceIds ?? input.instances.map((instance) => instance.instanceId),
     allowedNames = allowed.length ? allowed.join(", ") : "none",
     enableCommand = (instanceId: string): string =>
       [...allowed, instanceId]
@@ -202,16 +202,11 @@ export function resolveRuntimeInstanceCandidates(input: {
     if (configured && allowed.includes(instanceId)) return;
     if (!input.instances.some((instance) => instance.instanceId === instanceId))
       throw runtimeSpawnError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    if (!configured)
-      throw runtimeSpawnError(
-        "runtime_instance_allowlist_uninitialized",
-        "This repository has no runtime instance allowlist. Run ha init or enable the instance in repository settings before dispatching.",
-      );
     if (allowed.includes(instanceId)) return;
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
-      `Runtime instance ${instanceId} is not allowed for this repository. ` +
-        `Allowed instances: ${allowedNames}. Enable it without replacing the existing allowlist with ` +
+      `Runtime instance ${instanceId} is not allowed for this repository on this node. ` +
+        `Allowed instances: ${allowedNames}. Adjust the local order with ` +
         `ha settings update ${enableCommand(instanceId)}.`,
     );
   };
@@ -264,7 +259,7 @@ export function resolveRuntimeInstanceCandidates(input: {
           `Supported models: ${pinned.models.join(", ")}. ` +
           "Use --model <supported-model> or run ha runtime instance list, then retry with --instance <instance-id>.",
       );
-    if (input.agent?.instance !== input.requested || served) return [input.requested];
+    if (input.explicitlyRequested || input.agent?.instance !== input.requested || served) return [input.requested];
     unusableDeclaredPin = input.requested;
   }
   // input.model is the dispatch-level override (--model); the per-kind declared model lives
@@ -272,11 +267,6 @@ export function resolveRuntimeInstanceCandidates(input: {
   const declaredModel = input.model,
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
-  if (!configured && input.instances.length > 0)
-    throw runtimeSpawnError(
-      "runtime_instance_allowlist_uninitialized",
-      "This repository has no runtime instance allowlist. Run ha init or enable an instance in repository settings before dispatching.",
-    );
   const unavailable = input.unavailableReasons ?? [],
     allowedInstances = input.instances.filter((instance) => allowed.includes(instance.instanceId)),
     // An unusable declaration pin is not a machine instance the declaration can use; excluding it
@@ -345,7 +335,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
-    if (allowedInstances.length === 0)
+    if (configured && allowedInstances.length === 0)
       throw runtimeSpawnError(
         "runtime_instance_not_allowed",
         `No runtime instance is allowed for this repository. Allowed instances: ${allowedNames}. ` +

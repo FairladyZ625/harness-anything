@@ -5,6 +5,15 @@ import type { DoctorCheck } from "./repo-cell-doctor.ts";
 
 const checkId = "decisions-provider";
 
+export function selectDecisionProvider(
+  providers: readonly DecisionProviderRecord[],
+  configuredProviderId: string | null | undefined,
+): DecisionProviderRecord | undefined {
+  return configuredProviderId == null
+    ? providers.find((entry) => entry.enabled)
+    : providers.find((entry) => entry.providerId === configuredProviderId);
+}
+
 /**
  * `ha doctor health` Decisions configuration check. The provider records are machine-local, so the
  * host process supplies them; this function only judges the provider the repository selected.
@@ -31,17 +40,17 @@ export function decisionProviderDoctorCheck(input: {
       next: `Repair or remove ${configPath}, then rerun ha doctor health.`,
     };
   }
-  const providerId = input.configuredProviderId;
+  const provider = selectDecisionProvider(providers, input.configuredProviderId),
+    providerId = input.configuredProviderId ?? provider?.providerId ?? null;
   if (providerId === null)
     return {
       id: checkId,
       status: "ok",
       count: 0,
       summary:
-        "No Decisions provider is selected for this repository; advisory decision points stay dormant and dispatch settlement uses deterministic defaults.",
+        "No enabled local Decisions provider is available; advisory decision points stay dormant and dispatch settlement uses deterministic defaults.",
       next: "Nothing to do.",
     };
-  const provider = providers.find((entry) => entry.providerId === providerId);
   if (!provider)
     return {
       id: checkId,
