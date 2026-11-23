@@ -6585,6 +6585,12 @@
     ],
     "peer-handoff": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:c7fea9ced024d293674c16207b62d9f6",
+        "route": "peer-handoff",
+        "role": "effect",
+        "order": 3
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#prepareHandoffBundle.hex:b46bd6134bb1a6e160a70fe1b0801eba",
         "route": "peer-handoff",
         "role": "effect",
@@ -6595,12 +6601,6 @@
         "route": "peer-handoff",
         "role": "effect",
         "order": 2
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:c7fea9ced024d293674c16207b62d9f6",
-        "route": "peer-handoff",
-        "role": "effect",
-        "order": 3
       }
     ],
     "peer-promote": [

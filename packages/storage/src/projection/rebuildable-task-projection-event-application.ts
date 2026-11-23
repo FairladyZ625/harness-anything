@@ -7,7 +7,7 @@ import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import { projectDispatchLifecycleEvent } from "./dispatch-lifecycle-projection.ts";
 import { projectInboxEvent } from "./inbox-projection.ts";
-import { projectPeerRequestEvent } from "./peer-request-projection.ts";
+import { projectPeerRequestEvent } from "./inbox-projection.ts";
 import { isPeerRequestEvent } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
 import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {

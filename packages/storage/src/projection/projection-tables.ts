@@ -9,7 +9,7 @@ import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle, DISPATCH_LIFECYCLE_TABLES_SQL } from "./dispatch-lifecycle-projection.ts";
 import { catchUpInbox, INBOX_TABLES_SQL } from "./inbox-projection.ts";
-import { catchUpPeerRequests, PEER_REQUEST_TABLES_SQL } from "./peer-request-projection.ts";
+import { catchUpPeerRequests, PEER_REQUEST_TABLES_SQL } from "./inbox-projection.ts";
 /**
  * Reverse code-path trace keys (dec_9979850C7CE87C17271D78E4D1 CH2). SQLite normalizes task executions
  * into `entity_projection` (`executions: []` in `task_snapshot.snapshot_json`), so execution submission

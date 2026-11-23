@@ -48,7 +48,7 @@ import {
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
 import { catchUpInbox, ensureInboxModel } from "./inbox-projection.ts";
-import { catchUpPeerRequests, ensurePeerRequestModel } from "./peer-request-projection.ts";
+import { catchUpPeerRequests, ensurePeerRequestModel } from "./inbox-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,

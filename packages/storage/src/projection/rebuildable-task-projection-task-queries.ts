@@ -51,7 +51,7 @@ import { readRelationProjectionRow } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 import { readDispatchLifecycleRows } from "./dispatch-lifecycle-projection.ts";
 import { readInboxRows } from "./inbox-projection.ts";
-import { readPeerRequestRows } from "./peer-request-projection.ts";
+import { readPeerRequestRows } from "./inbox-projection.ts";
 export type {
   ProjectionPage,
   TaskProjectionListQuery,

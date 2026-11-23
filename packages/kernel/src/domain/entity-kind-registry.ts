@@ -30,8 +30,7 @@ import {
 import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
-import { createPeerActionCatalog } from "./peer-action-contract.ts";
-import { peerJudgments, peerPolicies } from "./peer-ontology.ts";
+import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-collaboration.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,

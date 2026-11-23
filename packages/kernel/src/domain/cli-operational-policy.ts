@@ -789,9 +789,9 @@ export const hostKernelPolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/todo-action-contract.ts#createTodoActionCatalog.actions.concurrency:192c1ff349a9ababf553d185adcb6094",
       "policy:packages/kernel:packages/kernel/src/domain/todo-action-contract.ts#createTodoActionCatalog.actions.concurrency.leasePolicy:55c37a1b3c234b85f69395d263e99417",
       "policy:packages/kernel:packages/kernel/src/domain/todo-action-contract.ts#createTodoActionCatalog.actions.concurrency.occurrenceClaim:f944f853338fd2ae894d521fa857e43e",
-      "policy:packages/kernel:packages/kernel/src/domain/peer-action-contract.ts#createPeerActionCatalog.actions.concurrency:74c75905d0b01e399939c9e5831b72d0",
-      "policy:packages/kernel:packages/kernel/src/domain/peer-action-contract.ts#createPeerActionCatalog.actions.concurrency.leasePolicy:55c37a1b3c234b85f69395d263e99417",
-      "policy:packages/kernel:packages/kernel/src/domain/peer-action-contract.ts#createPeerActionCatalog.actions.concurrency.occurrenceClaim:f944f853338fd2ae894d521fa857e43e",
+      "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#createPeerActionCatalog.actions.concurrency:74c75905d0b01e399939c9e5831b72d0",
+      "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#createPeerActionCatalog.actions.concurrency.leasePolicy:55c37a1b3c234b85f69395d263e99417",
+      "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#createPeerActionCatalog.actions.concurrency.occurrenceClaim:f944f853338fd2ae894d521fa857e43e",
     ].map((candidateId) => ({ candidateId, route: "entity action concurrency" })),
   },
   {
