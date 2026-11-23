@@ -7,7 +7,11 @@ import { TASK_EVENT_SHAPE_COMPAT_VERSION, deriveBasePolicyGroups } from "@harnes
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { buildFleetOverview } from "../src/daemon-host/fleet/fleet-overview-read.ts";
 import type { FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
-import { serializeReplicationFrame, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
+import {
+  SNAPSHOT_OBJECT_PACK_CAPABILITY,
+  serializeReplicationFrame,
+  type ReplicationFrame,
+} from "../src/fleet-sync/fleet/protocol.ts";
 import { createNodeSessionStatus } from "../src/daemon-host/fleet/node-session-status.ts";
 import {
   fleetReplicationFixture,
@@ -220,9 +224,9 @@ test(
 );
 
 // The edge deliberately withholds its durable/apply ACK after receiving a complete real backup.
-// The center must identify that wait directly, without treating an old ACK as a failure detector.
+// The center must identify local installation separately from socket drain and preserve transfer progress.
 test(
-  "a connected replica waiting for its ACK exposes its exact phase and progress time",
+  "a connected replica waiting for install ACK exposes its exact phase and progress time",
   { timeout: 60_000 },
   async (t) => {
     let now = first;
@@ -235,6 +239,7 @@ test(
       position: null,
       edgeBuildCommit: null,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      capabilities: [SNAPSHOT_OBJECT_PACK_CAPABILITY],
     });
     let backup: Extract<ReplicationFrame, { type: "replica.backup" }> | undefined;
     for (;;) {
@@ -244,14 +249,17 @@ test(
     }
     assert.ok(backup);
     const activity = () => center.status().replicas.find((row) => row.nodeId === "edge-one")!.activity;
-    await waitForState(() => activity()?.phase === "awaiting_ack", "sender to wait for the edge ACK");
+    const manifest = await peer.receive();
+    assert.equal(manifest.type, "replica.objects.manifest");
+    peer.sendRawBytes(Buffer.from(serializeReplicationFrame({ type: "replica.objects.want", sha256s: [] })));
+    await waitForState(() => activity()?.phase === "installing_backup", "sender to wait for local installation ACK");
     now = ended;
     const stalled = overview(center).nodes.find((node) => node.nodeId === "edge-one")!;
     assert.deepEqual(stalled.online, { kind: "value", text: "connected" });
     assert.equal(stalled.replica?.ackRevision, null);
     assert.match(
       (stalled.watch as { text: string }).text,
-      /center phase=awaiting_ack since=2026-11-03T01:00:00.000Z lastProgressAt=2026-11-03T01:00:00.000Z bytesSent=/u,
+      /center phase=installing_backup since=2026-11-03T01:00:00.000Z lastProgressAt=2026-11-03T01:00:00.000Z bytesSent=/u,
     );
     assert.match((stalled.watch as { text: string }).text, /edge watch unavailable/u);
     const position = backup.metadata.position;

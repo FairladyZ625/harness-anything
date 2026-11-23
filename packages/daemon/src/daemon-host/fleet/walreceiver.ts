@@ -256,11 +256,10 @@ async function receivePackStream(input: {
     const digest = currentDigest;
     currentHandle = null;
     currentTmpPath = "";
-    try {
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    // Object bytes are validated before publication and the install worker owns the
+    // generation-level durability fence. A per-object fsync here turns a large pack into
+    // hundreds of thousands of synchronous metadata operations.
+    await handle.close();
     if (digest.digest("hex") !== sha) {
       await /* @gate-identity non-state/environment-io.0e61dbc95383ec54 */ rm(tmpPath, { force: true });
       throw new ReplicationError("replication pack object digest differs", "replica_protocol_error");
@@ -583,12 +582,14 @@ export async function runWalReceiver(input: {
               frame.sha256,
               stagedObjectsDir ? { stagedObjectsDir } : undefined,
             );
+            // The install worker has verified the archive and durably published the generation.
+            // Clear resumable bytes before waiting for the edge ACK to release peak disk space.
+            await clearStagedSnapshots(snapshotsRoot);
           } catch (error) {
             await clearStagedSnapshots(snapshotsRoot);
             throw error;
           }
           await ack(frame.metadata.position);
-          await clearStagedSnapshots(snapshotsRoot);
         } else {
           await /* @gate-identity non-state/environment-io.4f62e1d5a38603ae */ mkdir(input.directory, {
             recursive: true,

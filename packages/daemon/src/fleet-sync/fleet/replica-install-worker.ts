@@ -90,11 +90,22 @@ function writeCheckpoint(checkpointPath: string, input: ReplicaInstallWorkerInpu
   writeFileDurably(checkpointPath, JSON.stringify(checkpoint));
 }
 
-function flushDirectoryTree(directory: string): void {
+function flushDirectoryTree(directory: string, immutableObjects = false): void {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) flushDirectoryTree(target);
-    else syncFile(target);
+    if (entry.isDirectory()) {
+      const isObjectsRoot = entry.name === "objects" && path.basename(path.dirname(directory)) === "generations";
+      const isSha256Root = immutableObjects || (entry.name === "sha256" && path.basename(directory) === "objects");
+      flushDirectoryTree(target, isObjectsRoot || isSha256Root);
+    }
+  }
+  // Content-addressed objects are immutable and were validated at the write boundary. Their
+  // directory entries are persisted once, while SQLite and mutable metadata keep their file-level
+  // durability fence before current.json is published.
+  if (!immutableObjects) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile()) syncFile(path.join(directory, entry.name));
+    }
   }
   syncDirectory(directory);
 }

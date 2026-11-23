@@ -10,6 +10,8 @@ export interface ReplicaSyncActivity {
   readonly lastProgressAt: string;
   readonly bytesSent: number | null;
   readonly totalBytes: number | null;
+  readonly objectsSent?: number | null;
+  readonly totalObjects?: number | null;
   readonly queuePosition: number | null;
   readonly estimatedWaitMs: number | null;
 }
@@ -17,6 +19,8 @@ export interface ReplicaSyncActivity {
 export type ReplicaSyncActivityUpdate = {
   readonly bytesSent?: number;
   readonly totalBytes?: number;
+  readonly objectsSent?: number;
+  readonly totalObjects?: number;
   readonly queuePosition?: number;
   readonly estimatedWaitMs?: number | null;
 };
@@ -47,10 +51,24 @@ export function createReplicaStatusTracker(input: {
         lastProgressAt: now,
         bytesSent:
           transfer?.bytesSent ??
-          (phase === "awaiting_ack" || phase === "waiting_socket_drain" ? (previous?.bytesSent ?? null) : null),
+          (phase === "awaiting_ack" || phase === "waiting_socket_drain" || phase === "installing_backup"
+            ? (previous?.bytesSent ?? null)
+            : null),
         totalBytes:
           transfer?.totalBytes ??
-          (phase === "awaiting_ack" || phase === "waiting_socket_drain" ? (previous?.totalBytes ?? null) : null),
+          (phase === "awaiting_ack" || phase === "waiting_socket_drain" || phase === "installing_backup"
+            ? (previous?.totalBytes ?? null)
+            : null),
+        objectsSent:
+          transfer?.objectsSent ??
+          (phase === "awaiting_ack" || phase === "waiting_socket_drain" || phase === "installing_backup"
+            ? (previous?.objectsSent ?? null)
+            : null),
+        totalObjects:
+          transfer?.totalObjects ??
+          (phase === "awaiting_ack" || phase === "waiting_socket_drain" || phase === "installing_backup"
+            ? (previous?.totalObjects ?? null)
+            : null),
         queuePosition: transfer?.queuePosition ?? null,
         estimatedWaitMs: transfer?.estimatedWaitMs ?? null,
       });

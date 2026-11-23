@@ -80,17 +80,21 @@ async function* streamObjectPack(
   entries: readonly BaseBackupObjectEntry[],
   readObject: (sha256: string) => AsyncIterable<Uint8Array>,
   signal: AbortSignal,
+  onObject?: (bytesSent: number) => void,
 ): AsyncGenerator<Uint8Array> {
+  let bytesSent = 0;
   for (const entry of entries) {
     signal.throwIfAborted();
     const header = Buffer.allocUnsafe(72);
     Buffer.from(entry.sha256, "ascii").copy(header, 0);
     header.writeBigUInt64BE(BigInt(entry.size), 64);
+    bytesSent += header.byteLength;
     yield header;
     let written = 0;
     for await (const chunk of readObject(entry.sha256)) {
       signal.throwIfAborted();
       written += chunk.byteLength;
+      bytesSent += chunk.byteLength;
       yield chunk;
     }
     if (written !== entry.size) {
@@ -98,6 +102,7 @@ async function* streamObjectPack(
         `replication pack object size mismatch for ${entry.sha256}: expected ${entry.size}, got ${written}`,
       );
     }
+    onObject?.(bytesSent);
   }
 }
 
@@ -112,7 +117,12 @@ export async function runWalSender(input: {
   readonly onAcknowledged?: () => void;
   readonly onActivity?: (
     phase: ReplicaSyncPhase,
-    transfer?: { readonly bytesSent: number; readonly totalBytes: number },
+    transfer?: {
+      readonly bytesSent?: number;
+      readonly totalBytes?: number;
+      readonly objectsSent?: number;
+      readonly totalObjects?: number;
+    },
   ) => void;
 }): Promise<void> {
   const { peer, source, slots, lease, signal } = input;
@@ -130,8 +140,8 @@ export async function runWalSender(input: {
     }
     return frame;
   };
-  const acknowledge = async (sent: ReplicationPosition) => {
-    input.onActivity?.("awaiting_ack");
+  const acknowledge = async (sent: ReplicationPosition, phase: ReplicaSyncPhase = "awaiting_ack") => {
+    input.onActivity?.(phase);
     const frame = await receiveExpecting();
     if (
       frame.type !== "replica.ack" ||
@@ -211,6 +221,10 @@ export async function runWalSender(input: {
             const want = await receiveExpecting();
             if (want.type !== "replica.objects.want") throw new Error("expected replica.objects.want");
           } else {
+            let objectsSent = 0;
+            let objectBytesSent = 0;
+            const totalObjects = allObjects.length;
+            const totalObjectBytes = allObjects.reduce((sum, entry) => sum + 72 + entry.size, 0);
             for (let offset = 0; offset < allObjects.length; offset += REPLICATION_OBJECT_MANIFEST_BATCH) {
               assertOwner();
               const batch = allObjects.slice(offset, offset + REPLICATION_OBJECT_MANIFEST_BATCH);
@@ -232,14 +246,32 @@ export async function runWalSender(input: {
                 if (group.length === 0) return;
                 const totalBytes = group.reduce((sum, entry) => sum + 72 + entry.size, 0);
                 await peer.send({ type: "replica.objects.pack", totalBytes, count: group.length });
+                const pack = group;
+                const progress = (bytesSent: number) =>
+                  input.onActivity?.("sending_objects", {
+                    bytesSent: objectBytesSent + bytesSent,
+                    totalBytes: totalObjectBytes,
+                    objectsSent,
+                    totalObjects,
+                  });
+                progress(0);
                 await sendBytes(
                   peer,
-                  streamObjectPack(group, source.object, signal),
+                  streamObjectPack(pack, source.object, signal, (bytesSent) => {
+                    objectsSent += 1;
+                    input.onActivity?.("sending_objects", {
+                      bytesSent: objectBytesSent + bytesSent,
+                      totalBytes: totalObjectBytes,
+                      objectsSent,
+                      totalObjects,
+                    });
+                  }),
                   signal,
-                  undefined,
+                  (bytesSent) => progress(bytesSent),
                   0,
                   supportsBinaryWire,
                 );
+                objectBytesSent += totalBytes;
                 await peer.send({ type: "replica.objects.pack.end" });
                 group = [];
                 groupPayloadBytes = 0;
@@ -255,7 +287,7 @@ export async function runWalSender(input: {
             }
           }
         }
-        await acknowledge(archive.metadata.position);
+        await acknowledge(archive.metadata.position, isSplitPack ? "installing_backup" : "awaiting_ack");
         position = archive.metadata.position;
       } finally {
         await archive.release();

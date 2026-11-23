@@ -16,6 +16,7 @@ import type {
   SqliteBaseBackupInput,
 } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
+import { openReplicaStore } from "./store/replica-store.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
 if (storageContext) {
@@ -106,6 +107,18 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
     await /* @gate-identity state-store/task.backup-sqlite */ mkdir(cache, { recursive: true });
     await backup(ledger, path.join(store, "ledger.sqlite"));
     await backup(projection, path.join(cache, "task.sqlite"));
+    // This replica begins at the backup cut, so discard center history before the copy reaches the edge.
+    const replicaLedger = openReplicaStore({
+      databasePath: path.join(store, "ledger.sqlite"),
+      repoId: metadata.repoId,
+      generation: metadata.ledgerGeneration,
+    });
+    try {
+      replicaLedger.position();
+    } finally {
+      replicaLedger.close();
+    }
+    syncFile(path.join(store, "ledger.sqlite"));
     const activation = `${input.ledgerPath}.activation.json`;
     if (existsSync(activation))
       await /* @gate-identity state-store/task.backup-sqlite */ copyFile(

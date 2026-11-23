@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { syncDirectory, writeFileDurably } from "@harness-anything/storage";
@@ -304,6 +305,7 @@ export function publishStagingGeneration(input: {
 
 function createGenerationReaders(root: string) {
   const pins = new Map<string, number>();
+  let pendingDeletion: Promise<void> = Promise.resolve();
   const collect = (): void => {
     const current = readReplicaGeneration(root),
       directory = path.join(root, "generations");
@@ -314,13 +316,23 @@ function createGenerationReaders(root: string) {
       (entry) =>
         entry.isDirectory() && entry.name !== current?.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
     );
+    if (superseded.length === 0) return;
+    // Move superseded generations out of the live namespace synchronously (O(1) rename), then
+    // recursively unlink them asynchronously so cutover and pin release never block the event loop.
+    const trashRoot = path.join(root, ".deleting");
+    /* @gate-identity state-store/task.replica-generation */ mkdirSync(trashRoot, { recursive: true });
+    const pending: string[] = [];
     for (const entry of superseded) {
-      /* @gate-identity state-store/task.replica-generation */
-      rmSync(path.join(directory, entry.name), {
-        recursive: true,
-        force: true,
-      });
+      const source = path.join(directory, entry.name);
+      const destination = path.join(trashRoot, `${entry.name}-${randomUUID()}`);
+      /* @gate-identity state-store/task.replica-generation */ renameSync(source, destination);
+      pending.push(destination);
     }
+    syncDirectory(directory);
+    syncDirectory(trashRoot);
+    pendingDeletion = pendingDeletion.then(() =>
+      Promise.all(pending.map((directoryPath) => removeStagingDirectory(directoryPath))).then(() => undefined),
+    );
   };
   /**
    * Removes corrupt/unrecognized staging and retired cut/pull artifacts, while preserving valid
@@ -343,6 +355,7 @@ function createGenerationReaders(root: string) {
       recursive: true,
       force: true,
     });
+    await removeStagingDirectory(path.join(root, ".deleting"));
     // An edge upgraded in place still holds the retired layout under the same view path.
     const pointer = path.join(root, "current.json");
     if (existsSync(pointer) && readReplicaGeneration(root) === null)
