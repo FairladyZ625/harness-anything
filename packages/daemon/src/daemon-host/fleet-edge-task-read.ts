@@ -4,6 +4,11 @@ import { makeTaskProjectionReader } from "@harness-anything/storage";
 import { type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, fleetMirrorViewAtProjection, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration, type ReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
+import {
+  activeReplicaSyncProgress,
+  formatReplicaSyncProgressHint,
+  readReplicaHealth,
+} from "../fleet-sync/fleet/replica-health.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 
 export const DEFAULT_EDGE_READ_MAX_AGE_MS = 60_000;
@@ -42,7 +47,15 @@ export function withEdgeReadModel<T>(
   const viewDir = path.join(input.viewRoot, "repos", input.repoId, "views", input.nodeId);
   // A generation pin protects files; its admission-time position is not the query's snapshot.
   return withReplicaGeneration(viewDir, (generation) => {
-    if (!generation) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+    if (!generation) {
+      const activeSync = activeReplicaSyncProgress(readReplicaHealth(viewDir), now());
+      if (activeSync !== null) {
+        throw new EdgeReadError("replica_syncing", formatReplicaSyncProgressHint(activeSync), {
+          syncProgress: activeSync,
+        });
+      }
+      throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+    }
     const owner = generation.metadata.readerProfile;
     if (!owner?.personId || owner.personId !== input.principalId || owner.nodeId !== input.nodeId)
       throw new EdgeReadError("authorization_denied", "Only the admitted node owner may read this replica.");
@@ -71,9 +84,11 @@ export function withEdgeReadModel<T>(
 }
 class EdgeReadError extends Error {
   readonly code: string;
-  constructor(code: string, message: string) {
+  readonly data?: Readonly<Record<string, unknown>>;
+  constructor(code: string, message: string, data?: Readonly<Record<string, unknown>>) {
     super(message);
     this.code = code;
+    if (data !== undefined) this.data = data;
   }
 }
 export function edgeFreshness(

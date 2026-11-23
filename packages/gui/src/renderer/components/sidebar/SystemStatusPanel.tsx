@@ -6,6 +6,7 @@ import {
   type RuntimeHealthLevel,
 } from "../../model/runtime-health.ts";
 import { formatDuration, formatRelative, formatTime } from "../../model/time.ts";
+import { replicaSyncPercent, type ReplicaSyncProgressRead } from "../../repository-read-frame.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 
 const HEALTH_TONE: Record<RuntimeHealthLevel, string> = {
@@ -154,6 +155,7 @@ export interface LedgerStatusBarInput {
   readonly error: string | null;
   /** 读失败的 daemon 错误码;认证类失败由顶部读面横幅与账号卡承担。 */
   readonly errorCode?: string;
+  readonly syncProgress?: ReplicaSyncProgressRead | null;
 }
 
 /**
@@ -177,30 +179,81 @@ export function LedgerStatusBar({
   readonly onRefresh: () => void;
 }) {
   if (status.errorCode === "authentication_required") return null;
-  const failed = status.error !== null;
-  const testId = failed ? "task-error-state" : status.empty ? "task-empty-state" : "real-task-summary";
-  const headline = failed
-    ? `${t("components.appSidebar.failedReadLedgerBridge")}: ${status.error}`
-    : status.revision === null && status.refreshing
-      ? t("components.appSidebar.ledgerReadingEvents")
+  const syncing = status.errorCode === "replica_syncing";
+  const syncPercent = syncing ? replicaSyncPercent(status.syncProgress ?? null) : null;
+  const syncStepLabel =
+    syncing && status.syncProgress
+      ? t(`components.workspaceSummary.syncStep.${status.syncProgress.step}` as MessageKey)
+      : null;
+  const failed = !syncing && status.error !== null;
+  const testId = syncing
+    ? "ledger-syncing-state"
+    : failed
+      ? "task-error-state"
       : status.empty
-        ? t("components.appSidebar.noTaskRowsFromLocalBridge")
-        : t("components.appSidebar.ledgerEvents", {
-            count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
-          });
+        ? "task-empty-state"
+        : "real-task-summary";
+  const headline = syncing
+    ? [
+        syncPercent !== null
+          ? t("components.appSidebar.ledgerInitialSyncPercent", { percent: String(syncPercent) })
+          : t("components.appSidebar.ledgerInitialSync"),
+        syncStepLabel,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : failed
+      ? `${t("components.appSidebar.failedReadLedgerBridge")}: ${status.error}`
+      : status.revision === null && status.refreshing
+        ? t("components.appSidebar.ledgerReadingEvents")
+        : status.empty
+          ? t("components.appSidebar.noTaskRowsFromLocalBridge")
+          : t("components.appSidebar.ledgerEvents", {
+              count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
+            });
   return (
     <span
       data-testid={testId}
       className={`flex min-w-0 items-center gap-1.5 font-mono ui-micro ${
-        failed ? "min-h-[22px] py-0.5 text-status-blocked" : "h-[22px] text-text-faint"
+        syncing
+          ? "min-h-[22px] py-0.5 text-stale"
+          : failed
+            ? "min-h-[22px] py-0.5 text-status-blocked"
+            : "h-[22px] text-text-faint"
       }`}
     >
       <span
         data-testid="ledger-connection-dot"
-        title={status.connected ? undefined : t("components.appSidebar.ledgerDisconnected")}
-        className={`size-2 shrink-0 rounded-full ${status.connected ? "bg-success" : "bg-danger"}`}
+        title={
+          syncing
+            ? t("components.appSidebar.ledgerSyncingTitle")
+            : status.connected
+              ? undefined
+              : t("components.appSidebar.ledgerDisconnected")
+        }
+        className={`size-2 shrink-0 rounded-full ${
+          syncing ? "bg-stale animate-pulse" : status.connected ? "bg-success" : "bg-danger"
+        }`}
       />
-      {failed ? (
+      {syncing ? (
+        <span className="min-w-0 flex-1">
+          <span className="block truncate tabular-nums">{headline}</span>
+          <span
+            role="progressbar"
+            data-testid="ledger-sync-progress"
+            aria-label={headline}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            {...(syncPercent !== null ? { "aria-valuenow": syncPercent } : {})}
+            className="mt-0.5 block h-1 w-full overflow-hidden rounded-full bg-surface-raised"
+          >
+            <span
+              className={`block h-full rounded-full bg-stale transition-all ${syncPercent === null ? "animate-pulse" : ""}`}
+              style={{ width: `${syncPercent ?? 25}%` }}
+            />
+          </span>
+        </span>
+      ) : failed ? (
         <span data-testid="ledger-error" className="min-w-0 flex-1 whitespace-normal break-words">
           {headline}
         </span>

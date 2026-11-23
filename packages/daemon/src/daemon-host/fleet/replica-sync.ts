@@ -227,6 +227,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
     recordReplicaHealth(viewDir, {
       syncFailure,
+      syncProgress: null,
       // Every ACK, keepalive progress included, proves the stream alive; edge doctor ages it.
       ...(syncFailure === null ? { lastHeartbeatAt: new Date().toISOString() } : {}),
     });

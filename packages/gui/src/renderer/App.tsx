@@ -107,6 +107,7 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
+import { extractReplicaSyncProgress, isLedgerUnavailableError } from "./repository-read-frame.ts";
 import { requestAccountLogin } from "./account-login-request.ts";
 import { appMainSurface } from "./app-main-surface.ts";
 import { CollaboratorFilters, useCollaboratorFilters } from "./components/CollaboratorFilters.tsx";
@@ -159,24 +160,18 @@ function AppShell() {
     [tasksQuery.data],
   );
 
-  // 侧栏左下角系统运行区的第一行输入(原左上角状态栏,task_b2fb4bc7):
-  // 全部来自上面两条既有查询,不加第二条读路。
-  const ledgerErrors = [workspaceSummaryQuery.error, tasksQuery.error].filter(
+  // 侧栏左下角系统运行区的第一行输入:全部来自上面两条既有查询,tasksQuery 探针优先提供最新同步进度。
+  const ledgerErrors = [tasksQuery.error, workspaceSummaryQuery.error].filter(
     (error): error is Error => error instanceof Error,
   );
   const ledgerReadError = ledgerErrors[0];
-  // 两条读各自失败时,认证错误不能盖掉另一条读的非认证故障:侧栏优先显示可展示的
-  // 非认证错误;只有现存错误全是认证错误时才把整行交给顶部横幅。
   const ledgerStatusError =
     ledgerErrors.find((error) => !("code" in error && error.code === "authentication_required")) ?? ledgerReadError;
   const ledgerReadCode =
     ledgerStatusError && "code" in ledgerStatusError && typeof ledgerStatusError.code === "string"
       ? ledgerStatusError.code
       : undefined;
-  const ledgerUnavailable = [workspaceSummaryQuery.error, tasksQuery.error].some(
-    (error) =>
-      error && "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
-  );
+  const ledgerUnavailable = ledgerErrors.some(isLedgerUnavailableError);
   const ledgerStatusBar: LedgerStatusBarInput = {
     revision: tasksQuery.data?.sourceRevision ?? null,
     refreshedAgoSec:
@@ -186,6 +181,7 @@ function AppShell() {
     empty: workspaceSummaryQuery.isSuccess === true && workspaceSummaryQuery.data.tasks.total === 0,
     error: workspaceSummaryQuery.isError || tasksQuery.isError ? (ledgerStatusError?.message ?? "") : null,
     errorCode: ledgerReadCode,
+    syncProgress: extractReplicaSyncProgress(ledgerStatusError),
   };
   const refreshLedger = useCallback(() => {
     void tasksQuery.refetch();

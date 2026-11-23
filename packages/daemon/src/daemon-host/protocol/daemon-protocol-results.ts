@@ -1303,6 +1303,7 @@ export interface DaemonProtocolErrorResult {
     readonly code: string;
     readonly errcode?: number;
     readonly errstr?: string;
+    readonly syncProgress?: import("../../fleet-sync/fleet/replica-health.ts").ReplicaSyncProgress;
   };
   readonly diagnostic?: ReceiptDiagnostic;
 }

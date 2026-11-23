@@ -50,6 +50,7 @@ export function RepositoryReadNotice({
       return error instanceof Error &&
         "code" in error &&
         (error.code === "replica_unavailable" ||
+          error.code === "replica_syncing" ||
           error.code === "authorization_denied" ||
           error.code === "authentication_required")
         ? [error]
@@ -61,14 +62,32 @@ export function RepositoryReadNotice({
         a.cut.revision - b.cut.revision,
     )[0];
   if (!frame && errors.length === 0) return null;
-  const authenticationRequired = errors.some((error) => error.code === "authentication_required"),
+  const authenticationRequired = errors.some((error) => "code" in error && error.code === "authentication_required"),
+    hardUnavailable = errors.some(
+      (error) => "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
+    ),
+    replicaSyncing =
+      !authenticationRequired &&
+      !hardUnavailable &&
+      errors.some((error) => "code" in error && error.code === "replica_syncing"),
     state = authenticationRequired
       ? "authentication-required"
-      : errors.length > 0
-        ? "unavailable"
-        : frame!.freshness.state,
-    stateLabel = authenticationRequired ? t("components.repositoryRead.authenticationRequiredState") : state,
-    tone = state === "unavailable" || authenticationRequired ? "bad" : state === "stale" ? "wait" : "neutral";
+      : replicaSyncing
+        ? "syncing"
+        : errors.length > 0
+          ? "unavailable"
+          : frame!.freshness.state,
+    stateLabel = authenticationRequired
+      ? t("components.repositoryRead.authenticationRequiredState")
+      : replicaSyncing
+        ? t("components.repositoryRead.syncingState")
+        : state,
+    tone =
+      state === "unavailable" || authenticationRequired
+        ? "bad"
+        : state === "stale" || replicaSyncing
+          ? "wait"
+          : "neutral";
   return (
     <Notice tone={tone} variant="strip" testId="repository-read-notice">
       <span data-testid="repository-read-state" data-state={state} className="flex flex-wrap items-center gap-2">
@@ -97,6 +116,8 @@ export function RepositoryReadNotice({
             </Button>
           )}
         </span>
+      ) : replicaSyncing ? (
+        <p>{Array.from(new Set(errors.map((error) => error.message))).join(" · ")}</p>
       ) : errors.length > 0 ? (
         <p>
           {t("components.repositoryRead.unavailable")}{" "}

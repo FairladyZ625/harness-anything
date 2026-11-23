@@ -1,6 +1,7 @@
 import { validateReceiptAcceptance } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { SquadControlResult } from "../squad-control-result.ts";
 import { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
+import { parseReplicaSyncProgress, type ReplicaSyncProgress } from "../../fleet-sync/fleet/replica-health.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-results.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {
@@ -429,7 +430,13 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
     ["evidence", value.evidence, nonEmpty(value.evidence), "must be a non-empty string"],
   ] as const)
     if (!valid) return [validationError(entityId, field, actual, expectation)];
-  const errorShapeError = recordShapeError(entityId, value.error, ["code"], ["code", "errcode", "errstr"], "error");
+  const errorShapeError = recordShapeError(
+    entityId,
+    value.error,
+    ["code"],
+    ["code", "errcode", "errstr", "syncProgress"],
+    "error",
+  );
   if (errorShapeError) return [errorShapeError];
   if (!isJsonObject(value.error)) return [];
   if (!nonEmpty(value.error.code))
@@ -440,6 +447,10 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
     return [validationError(entityId, "error.errcode", value.error.errcode, "must be a non-negative integer")];
   if (value.error.errstr !== undefined && !nonEmpty(value.error.errstr))
     return [validationError(entityId, "error.errstr", value.error.errstr, "must be a non-empty string")];
+  if (value.error.syncProgress !== undefined && parseReplicaSyncProgress(value.error.syncProgress) === null)
+    return [
+      validationError(entityId, "error.syncProgress", value.error.syncProgress, "must be valid replica sync progress"),
+    ];
   if (value.diagnostic !== undefined && !isStructuredDiagnostic(value.diagnostic))
     return [validationError(entityId, "diagnostic", value.diagnostic, "must be a structured receipt diagnostic")];
   return [];
@@ -817,7 +828,8 @@ export function daemonProtocolError(
   sourceError?: unknown,
 ): DaemonProtocolErrorResult {
   const diagnostic = explicitDiagnostic ?? validationDiagnostic(hint),
-    sqliteError = sqliteErrorDetails(sourceError);
+    sqliteError = sqliteErrorDetails(sourceError),
+    syncProgress = errorSyncProgressDetails(sourceError);
   return {
     schema: "command-receipt/v2",
     ok: false,
@@ -828,9 +840,16 @@ export function daemonProtocolError(
     code,
     evidence: `rejection:${code}`,
     rejectionExplanation: hint,
-    error: { code, ...sqliteError },
+    error: { code, ...sqliteError, ...(syncProgress ? { syncProgress } : {}) },
     ...(diagnostic ? { diagnostic } : {}),
   } as DaemonProtocolErrorResult;
+}
+
+function errorSyncProgressDetails(error: unknown): ReplicaSyncProgress | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const data = (error as { readonly data?: unknown }).data;
+  if (!isJsonObject(data)) return undefined;
+  return parseReplicaSyncProgress(data.syncProgress) ?? undefined;
 }
 
 function sqliteErrorDetails(error: unknown): { readonly errcode?: number; readonly errstr?: string } {

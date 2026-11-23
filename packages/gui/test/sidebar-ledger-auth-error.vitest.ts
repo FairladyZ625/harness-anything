@@ -20,13 +20,21 @@ const AT = "2026-11-05T00:00:00.000Z";
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
-function readFailure(code: string, hint: string) {
-  return { ok: false as const, error: { code, hint } };
-}
-
 interface ReadFailure {
   readonly code: string;
   readonly hint: string;
+  readonly syncProgress?: Record<string, unknown>;
+}
+
+function readFailure(failure: ReadFailure) {
+  return {
+    ok: false as const,
+    error: {
+      code: failure.code,
+      hint: failure.hint,
+      ...(failure.syncProgress ? { syncProgress: failure.syncProgress } : {}),
+    },
+  };
 }
 
 async function mountApp(options: { readonly summary: ReadFailure; readonly tasks: ReadFailure }): Promise<HTMLElement> {
@@ -65,8 +73,8 @@ async function mountApp(options: { readonly summary: ReadFailure; readonly tasks
         },
       ],
     }),
-    getTasks: async () => readFailure(options.tasks.code, options.tasks.hint),
-    getWorkspaceSummary: async () => readFailure(options.summary.code, options.summary.hint),
+    getTasks: async () => readFailure(options.tasks),
+    getWorkspaceSummary: async () => readFailure(options.summary),
     getAgenda: async () => ({
       ok: true,
       status: "ready",
@@ -208,5 +216,38 @@ describe("sidebar ledger failure surface", () => {
     expect(panel.textContent).toContain(hint);
     expect(panel.textContent).not.toContain("需要登录");
     expect(panel.querySelector('[data-testid="task-error-state"]')).not.toBeNull();
+  });
+
+  it("renders amber syncing progress in both sidebar and main surface during replica_syncing", async () => {
+    const syncing: ReadFailure = {
+      code: "replica_syncing",
+      hint: "objects · 3/5 objects · 60% (12.0 MiB / 20.0 MiB)",
+      syncProgress: {
+        step: "objects",
+        receivedBytes: 12 * 1024 * 1024,
+        totalBytes: 20 * 1024 * 1024,
+        receivedObjects: 3,
+        totalObjects: 5,
+        updatedAt: AT,
+      },
+    };
+    const container = await mountApp({ summary: syncing, tasks: syncing });
+    const panel = statusPanel(container);
+    expect(panel.querySelector('[data-testid="ledger-syncing-state"]')).not.toBeNull();
+    expect(panel.querySelector('[data-testid="task-error-state"]')).toBeNull();
+    expect(panel.textContent).not.toContain("台账桥读取失败");
+    expect(panel.textContent).toContain("初始副本同步 60%");
+    expect(panel.textContent).toContain("大对象分片传输");
+    expect(panel.querySelector('[data-testid="ledger-sync-progress"]')?.getAttribute("aria-valuenow")).toBe("60");
+
+    const mainCard = container.querySelector('[data-testid="workspace-replica-syncing"]') as HTMLElement;
+    expect(mainCard).not.toBeNull();
+    expect(mainCard.textContent).toContain("正在同步初始台账副本");
+    expect(mainCard.textContent).toContain("60%");
+    expect(mainCard.textContent).toContain("3 / 5");
+    expect(mainCard.textContent).toContain("12.0 MiB / 20.0 MiB");
+    expect(
+      mainCard.querySelector('[data-testid="workspace-replica-sync-progress"]')?.getAttribute("aria-valuenow"),
+    ).toBe("60");
   });
 });
