@@ -4,6 +4,11 @@ import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot, TaskIndexProjectionRow } from "@harness-anything/kernel";
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import { pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
@@ -23,7 +28,10 @@ export type PgTaskIndexQueries = AsyncQueries<
  * recursive member walk parameterized makes the planner use the parent index for each frontier
  * instead of flattening a repository-wide join. OFFSET 0 also keeps the child-existence
  * check correlated: a hashed EXISTS subplan scans all parents even for a one-row page. */
-export const presentationStatusSql = (readersParameter: number) => `CASE
+export const presentationStatusSql = (
+  readersParameter: number,
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+) => `CASE
   WHEN task_status IN ('done','cancelled') THEN task_status
   WHEN task_class = 'work' OR (parent_task_id IS NULL AND EXISTS (
     SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id
@@ -36,13 +44,22 @@ export const presentationStatusSql = (readersParameter: number) => `CASE
         AND child.policy_epoch=ha_task_snapshots.policy_epoch
         AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[])
         AND child.parent_task_id=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id
-    UNION SELECT child.task_id, child.task_status FROM members parent CROSS JOIN LATERAL (
+    ${
+      capabilities.supportsLateralJoin
+        ? `UNION SELECT child.task_id, child.task_status FROM members parent CROSS JOIN LATERAL (
       SELECT child.task_id, child.task_status FROM ha_task_snapshots child
        WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id
          AND child.policy_epoch=ha_task_snapshots.policy_epoch
          AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[])
          AND child.parent_task_id=parent.task_id AND child.task_id<>ha_task_snapshots.task_id OFFSET 0
-    ) child
+    ) child`
+        : `UNION SELECT child.task_id, child.task_status FROM members parent
+      JOIN ha_task_snapshots child
+        ON child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id
+        AND child.policy_epoch=ha_task_snapshots.policy_epoch
+        AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[])
+        AND child.parent_task_id=parent.task_id AND child.task_id<>ha_task_snapshots.task_id`
+    }
   ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM members WHERE status NOT IN ('done','cancelled')) THEN
       CASE WHEN EXISTS (SELECT 1 FROM members) THEN CASE WHEN EXISTS (SELECT 1 FROM members WHERE status='done') THEN 'done' ELSE 'cancelled' END END
     WHEN task_status='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), task_status)
@@ -56,20 +73,36 @@ export async function readScopedTaskIds(
   rootTaskId: string,
 ): Promise<string[]> {
   const visible = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-    AND (cardinality($4::text[])=0 OR readers && $4::text[])`;
+    AND (cardinality($4::text[])=0 OR readers && $4::text[])`,
+    childVisible = `child.tenant_id=$1 AND child.project_id=$2 AND child.policy_epoch=$3
+    AND (cardinality($4::text[])=0 OR child.readers && $4::text[])`,
+    parentVisible = `parent.tenant_id=$1 AND parent.project_id=$2 AND parent.policy_epoch=$3
+    AND (cardinality($4::text[])=0 OR parent.readers && $4::text[])`,
+    capabilities = getClientDialectCapabilities(client);
   const result = await client.query<{ task_id: string }>(
-    `WITH RECURSIVE descendants(task_id) AS (
-       SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
-       UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
-         SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND parent_task_id=parent.task_id OFFSET 0
-       ) child
-     ), ancestors(task_id,parent_id) AS (
-       SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
-       UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
-         SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
-       ) parent
-     )
-     SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors`,
+    capabilities.supportsLateralJoin
+      ? `WITH RECURSIVE descendants(task_id) AS (
+           SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
+           UNION SELECT child.task_id FROM descendants parent CROSS JOIN LATERAL (
+             SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND parent_task_id=parent.task_id OFFSET 0
+           ) child
+         ), ancestors(task_id,parent_id) AS (
+           SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
+           UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child CROSS JOIN LATERAL (
+             SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=child.parent_id OFFSET 0
+           ) parent
+         )
+         SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors`
+      : `WITH RECURSIVE descendants(task_id) AS (
+           SELECT task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
+           UNION SELECT child.task_id FROM descendants parent
+             JOIN ha_task_snapshots child ON ${childVisible} AND child.parent_task_id=parent.task_id
+         ), ancestors(task_id,parent_id) AS (
+           SELECT task_id,parent_task_id FROM ha_task_snapshots WHERE ${visible} AND task_id=$5
+           UNION SELECT parent.task_id,parent.parent_task_id FROM ancestors child
+             JOIN ha_task_snapshots parent ON ${parentVisible} AND parent.task_id=child.parent_id
+         )
+         SELECT task_id FROM descendants UNION SELECT task_id FROM ancestors`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, readers, rootTaskId],
   );
   return result.rows.map(({ task_id }) => task_id);
@@ -104,7 +137,7 @@ export function pgTaskIndexQueries(
     readTaskExists: (id) => read(async (client) => (await rows(client, "task_id=$5", [id])).length > 0),
     readTaskByIdempotencyKey: (key) =>
       read(async (client) => {
-        const row = (await rows(client, "snapshot#>>'{task,metadata,idempotencyKey}'=$5", [key]))[0];
+        const row = (await rows(client, "snapshot #>>'{task,metadata,idempotencyKey}'=$5", [key]))[0];
         return row?.snapshot.task
           ? { taskId: row.task_id, status: row.snapshot.task.status, packagePath: row.package_path }
           : null;
@@ -135,7 +168,9 @@ export function pgTaskIndexQueries(
         const cut = await readCutInTransaction(client, scope, readers, options.repoId),
           values: unknown[] = [...parameters],
           where = ["tenant_id=$1", "project_id=$2", "policy_epoch=$3", readerVisibility.slice(5)],
-          presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status";
+          presentation = query.presentationStatus
+            ? presentationStatusSql(4, getClientDialectCapabilities(client))
+            : "task_status";
         let scopedTaskIds: string[] | undefined;
         if (query.scopeRootTaskId !== undefined) {
           scopedTaskIds = await readScopedTaskIds(client, scope, readers, query.scopeRootTaskId);

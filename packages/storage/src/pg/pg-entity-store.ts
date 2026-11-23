@@ -12,6 +12,7 @@ import {
 import type { StoredEntity } from "../store/entity-store.ts";
 import type { PostgresScopeClaims } from "../postgres/transaction.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
+import { dialectUpsertValuesSql, getClientDialectCapabilities } from "../postgres/dialect.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 export interface PgEntityStoreOptions {
@@ -162,16 +163,36 @@ async function persistDeclarationWithClient(
     extensionMetadata = write.extensionMetadata ?? {};
   if (parsed.id !== write.id) throw new Error(`${write.kind} declaration identity does not match its storage id`);
   await client.query(
-    `INSERT INTO ${table}
-             (tenant_id, project_id, policy_epoch, readers, ${idColumn}, workspace_revision, declaration_revision, declaration,
-              document_path, document_sha256, extension_metadata, updated_at)
-           VALUES ($1, $2, $3, $4::text[], $5, $6, $6, $7::jsonb, $8, $9, $10::jsonb, clock_timestamp())
-           ON CONFLICT (tenant_id, project_id, policy_epoch, ${idColumn}) DO UPDATE SET
-             policy_epoch = excluded.policy_epoch, readers = excluded.readers,
-             workspace_revision = excluded.workspace_revision, declaration_revision = excluded.declaration_revision, declaration = excluded.declaration,
-             document_path = excluded.document_path, document_sha256 = excluded.document_sha256,
-             extension_metadata = excluded.extension_metadata, updated_at = excluded.updated_at
-           WHERE ${table}.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table,
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: idColumn, valueSql: "$5::text" },
+        { name: "workspace_revision", valueSql: "$6::bigint" },
+        { name: "declaration_revision", valueSql: "$6::bigint" },
+        { name: "declaration", valueSql: "$7::jsonb" },
+        { name: "document_path", valueSql: "$8::text" },
+        { name: "document_sha256", valueSql: "$9::text" },
+        { name: "extension_metadata", valueSql: "$10::jsonb" },
+        { name: "updated_at", valueSql: "clock_timestamp()" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", idColumn],
+      updates: [
+        { column: "policy_epoch", valueSql: "excluded.policy_epoch" },
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "declaration_revision", valueSql: "excluded.declaration_revision" },
+        { column: "declaration", valueSql: "excluded.declaration" },
+        { column: "document_path", valueSql: "excluded.document_path" },
+        { column: "document_sha256", valueSql: "excluded.document_sha256" },
+        { column: "extension_metadata", valueSql: "excluded.extension_metadata" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: `${table}.workspace_revision < excluded.workspace_revision`,
+    }),
     [
       claims.tenantId,
       claims.projectId,

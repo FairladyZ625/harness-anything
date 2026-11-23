@@ -6,10 +6,11 @@ import { initializePgDecisionReadStatus } from "./pg-decision-read-status.ts";
 import { projectPgDecisionReads } from "./pg-decision-search.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
 import {
-  PG_OWN_DIRTY_RELATION_REFS_CTE,
+  pgOwnDirtyRelationRefsCte,
   refreshPgDirtyRelationFreshness,
   refreshPgRelationFreshnessForRefs,
 } from "./pg-relation-freshness.ts";
+import { dialectUpsertSelectSql, dialectUpsertValuesSql, getClientDialectCapabilities } from "../postgres/dialect.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { projectPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { DISPATCH_LIFECYCLE_MODEL_VERSION } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
@@ -294,17 +295,21 @@ export async function rebuildPgProjection(
       scope,
       input.events.slice(offset, offset + summaryPageSize).map((event) => pgDefaultEventSummaryEntry(event)),
     );
+  const capabilities = getClientDialectCapabilities(client);
   await client.query(
-    `INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
-     SELECT h.tenant_id,h.project_id,h.policy_epoch,h.repo_id,
+    dialectUpsertSelectSql(capabilities, {
+      table: "ha_event_summary_state",
+      columns: ["tenant_id", "project_id", "policy_epoch", "repo_id", "ready"],
+      selectSql: `SELECT h.tenant_id,h.project_id,h.policy_epoch,h.repo_id,
        NOT EXISTS (
          SELECT 1 FROM ha_events e
          WHERE (e.tenant_id,e.project_id,e.policy_epoch,e.repo_id) =
            (h.tenant_id,h.project_id,h.policy_epoch,h.repo_id) AND e.summary_json IS NULL
-       )
-     FROM ha_repo_heads h WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3
-     ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id)
-     DO UPDATE SET ready=EXCLUDED.ready`,
+       ) AS ready
+     FROM ha_repo_heads h WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3`,
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "repo_id"],
+      updates: [{ column: "ready", valueSql: "EXCLUDED.ready" }],
+    }),
     scopeValues,
   );
   return receipt;
@@ -330,25 +335,46 @@ async function reduceAndStoreTaskSnapshot(
   const rawLease = decideRawTaskLease(existing.rows[0]?.raw_lease ?? null, event);
 
   await client.query(
-    `INSERT INTO ha_task_snapshots
-       (tenant_id, project_id, policy_epoch, readers, task_id, workspace_revision, snapshot, raw_lease,
-        package_path, generation, created_at, completed_at, updated_at)
-     VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $11::jsonb, $8, 'v1',
-             COALESCE((SELECT created_at FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5), $9::timestamptz),
-       COALESCE((SELECT completed_at FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5), CASE WHEN $10::text = 'task_completed' THEN $9::timestamptz END),
-             $9::timestamptz)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, task_id) DO UPDATE SET
-       policy_epoch = excluded.policy_epoch,
-       readers = excluded.readers,
-       workspace_revision = excluded.workspace_revision,
-       snapshot = excluded.snapshot,
-       raw_lease = excluded.raw_lease,
-       package_path = COALESCE(excluded.package_path, ha_task_snapshots.package_path),
-       generation = excluded.generation,
-       created_at = COALESCE(ha_task_snapshots.created_at, excluded.created_at),
-       completed_at = COALESCE(ha_task_snapshots.completed_at, excluded.completed_at),
-       updated_at = excluded.updated_at
-     WHERE ha_task_snapshots.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_task_snapshots",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: "task_id", valueSql: "$5::text" },
+        { name: "workspace_revision", valueSql: "$6::bigint" },
+        { name: "snapshot", valueSql: "$7::jsonb" },
+        { name: "raw_lease", valueSql: "$11::jsonb" },
+        { name: "package_path", valueSql: "$8::text" },
+        { name: "generation", valueSql: "'v1'::text" },
+        {
+          name: "created_at",
+          valueSql:
+            "COALESCE((SELECT created_at FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5), $9::timestamptz)",
+        },
+        {
+          name: "completed_at",
+          valueSql:
+            "COALESCE((SELECT completed_at FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5), CASE WHEN $10::text = 'task_completed' THEN $9::timestamptz END)",
+        },
+        { name: "updated_at", valueSql: "$9::timestamptz" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "task_id"],
+      updates: [
+        { column: "policy_epoch", valueSql: "excluded.policy_epoch" },
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "snapshot", valueSql: "excluded.snapshot" },
+        { column: "raw_lease", valueSql: "excluded.raw_lease" },
+        { column: "package_path", valueSql: "COALESCE(excluded.package_path, ha_task_snapshots.package_path)" },
+        { column: "generation", valueSql: "excluded.generation" },
+        { column: "created_at", valueSql: "COALESCE(ha_task_snapshots.created_at, excluded.created_at)" },
+        { column: "completed_at", valueSql: "COALESCE(ha_task_snapshots.completed_at, excluded.completed_at)" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: "ha_task_snapshots.workspace_revision < excluded.workspace_revision",
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -360,7 +386,7 @@ async function reduceAndStoreTaskSnapshot(
       event.type === "task_created" ? `tasks/${event.taskId}-${slugifyTaskTitle(event.payload.task.title)}` : null,
       event.occurredAt,
       event.type,
-      JSON.stringify(rawLease),
+      rawLease === null ? null : JSON.stringify(rawLease),
     ],
   );
   tables.add("ha_task_snapshots");
@@ -408,13 +434,28 @@ async function storeFact(
             archived: false,
           };
   await client.query(
-    `INSERT INTO ha_facts
-       (tenant_id, project_id, policy_epoch, readers, fact_id, workspace_revision, value, updated_at)
-     VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $8::timestamptz)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, fact_id) DO UPDATE SET
-       policy_epoch = excluded.policy_epoch, readers = excluded.readers, workspace_revision = excluded.workspace_revision,
-       value = excluded.value, updated_at = excluded.updated_at
-     WHERE ha_facts.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_facts",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: "fact_id", valueSql: "$5::text" },
+        { name: "workspace_revision", valueSql: "$6::bigint" },
+        { name: "value", valueSql: "$7::jsonb" },
+        { name: "updated_at", valueSql: "$8::timestamptz" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "fact_id"],
+      updates: [
+        { column: "policy_epoch", valueSql: "excluded.policy_epoch" },
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "value", valueSql: "excluded.value" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: "ha_facts.workspace_revision < excluded.workspace_revision",
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -456,13 +497,28 @@ async function storeDecision(
         : {}),
     };
   await client.query(
-    `INSERT INTO ha_decisions
-       (tenant_id, project_id, policy_epoch, readers, decision_id, workspace_revision, value, updated_at)
-     VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $8::timestamptz)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, decision_id) DO UPDATE SET
-       policy_epoch = excluded.policy_epoch, readers = excluded.readers, workspace_revision = excluded.workspace_revision,
-       value = excluded.value, updated_at = excluded.updated_at
-     WHERE ha_decisions.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_decisions",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: "decision_id", valueSql: "$5::text" },
+        { name: "workspace_revision", valueSql: "$6::bigint" },
+        { name: "value", valueSql: "$7::jsonb" },
+        { name: "updated_at", valueSql: "$8::timestamptz" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "decision_id"],
+      updates: [
+        { column: "policy_epoch", valueSql: "excluded.policy_epoch" },
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "value", valueSql: "excluded.value" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: "ha_decisions.workspace_revision < excluded.workspace_revision",
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -504,15 +560,36 @@ async function storeRelation(
     recordIndex: 0,
   };
   await client.query(
-    `INSERT INTO ha_relations
-       (tenant_id, project_id, policy_epoch, readers, relation_id, source_ref, target_ref, relation_type, relation_state,
-        workspace_revision, value, updated_at)
-     VALUES ($1, $2, $3, $4::text[], $5, $6, $7, $8, $9, $10, $11::jsonb, $12::timestamptz)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, relation_id) DO UPDATE SET
-       policy_epoch = excluded.policy_epoch, readers = excluded.readers, source_ref = excluded.source_ref, target_ref = excluded.target_ref,
-       relation_type = excluded.relation_type, relation_state = excluded.relation_state,
-       workspace_revision = excluded.workspace_revision, value = excluded.value, updated_at = excluded.updated_at
-     WHERE ha_relations.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_relations",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: "relation_id", valueSql: "$5::text" },
+        { name: "source_ref", valueSql: "$6::text" },
+        { name: "target_ref", valueSql: "$7::text" },
+        { name: "relation_type", valueSql: "$8::text" },
+        { name: "relation_state", valueSql: "$9::text" },
+        { name: "workspace_revision", valueSql: "$10::bigint" },
+        { name: "value", valueSql: "$11::jsonb" },
+        { name: "updated_at", valueSql: "$12::timestamptz" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "relation_id"],
+      updates: [
+        { column: "policy_epoch", valueSql: "excluded.policy_epoch" },
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "source_ref", valueSql: "excluded.source_ref" },
+        { column: "target_ref", valueSql: "excluded.target_ref" },
+        { column: "relation_type", valueSql: "excluded.relation_type" },
+        { column: "relation_state", valueSql: "excluded.relation_state" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "value", valueSql: "excluded.value" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: "ha_relations.workspace_revision < excluded.workspace_revision",
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -545,18 +622,34 @@ async function storeTaskBootstrap(
   const snapshot = initializeTaskLifecycleSnapshot(event);
   const packagePath = taskBootstrapPackagePath(event);
   await client.query(
-    `INSERT INTO ha_task_snapshots
-       (tenant_id, project_id, policy_epoch, readers, task_id, workspace_revision, snapshot,
-        package_path, generation, created_at, completed_at, updated_at)
-     VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $8, 'v1', $9::timestamptz,
-             NULL, $9::timestamptz)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, task_id) DO UPDATE SET
-       workspace_revision = excluded.workspace_revision, snapshot = excluded.snapshot,
-       package_path = excluded.package_path, generation = excluded.generation,
-       created_at = COALESCE(ha_task_snapshots.created_at, excluded.created_at),
-       completed_at = COALESCE(ha_task_snapshots.completed_at, excluded.completed_at),
-       updated_at = excluded.updated_at
-     WHERE ha_task_snapshots.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_task_snapshots",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: "task_id", valueSql: "$5::text" },
+        { name: "workspace_revision", valueSql: "$6::bigint" },
+        { name: "snapshot", valueSql: "$7::jsonb" },
+        { name: "package_path", valueSql: "$8::text" },
+        { name: "generation", valueSql: "'v1'::text" },
+        { name: "created_at", valueSql: "$9::timestamptz" },
+        { name: "completed_at", valueSql: "NULL::timestamptz" },
+        { name: "updated_at", valueSql: "$9::timestamptz" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "task_id"],
+      updates: [
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "snapshot", valueSql: "excluded.snapshot" },
+        { column: "package_path", valueSql: "excluded.package_path" },
+        { column: "generation", valueSql: "excluded.generation" },
+        { column: "created_at", valueSql: "COALESCE(ha_task_snapshots.created_at, excluded.created_at)" },
+        { column: "completed_at", valueSql: "COALESCE(ha_task_snapshots.completed_at, excluded.completed_at)" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: "ha_task_snapshots.workspace_revision < excluded.workspace_revision",
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -579,19 +672,37 @@ async function storeMigrationImport(
   event: Extract<PersistedCanonicalEventV1, { readonly schema: "migration-import-event/v1" }>,
   tables: Set<string>,
 ): Promise<{ readonly taskId: string | null; readonly snapshot: TaskLifecycleSnapshot | null }> {
-  const entity = event.payload.entity;
+  const capabilities = getClientDialectCapabilities(client),
+    entity = event.payload.entity;
   if (entity.kind === "task") {
     const snapshot = initializeTaskLifecycleSnapshot(event);
     await client.query(
-      `INSERT INTO ha_task_snapshots
-         (tenant_id, project_id, policy_epoch, readers, task_id, workspace_revision, snapshot,
-          package_path, generation, created_at, completed_at, updated_at)
-       VALUES ($1,$2,$3,$4::text[],$5,$6,$7::jsonb,$8,'v0',$9::timestamptz,
-               NULL,$10::timestamptz)
-       ON CONFLICT (tenant_id, project_id, policy_epoch, task_id) DO UPDATE SET
-         workspace_revision=excluded.workspace_revision,snapshot=excluded.snapshot,
-         package_path=excluded.package_path,generation='v0',updated_at=excluded.updated_at
-       WHERE ha_task_snapshots.workspace_revision < excluded.workspace_revision`,
+      dialectUpsertValuesSql(capabilities, {
+        table: "ha_task_snapshots",
+        columns: [
+          { name: "tenant_id", valueSql: "$1::text" },
+          { name: "project_id", valueSql: "$2::text" },
+          { name: "policy_epoch", valueSql: "$3::bigint" },
+          { name: "readers", valueSql: "$4::text[]" },
+          { name: "task_id", valueSql: "$5::text" },
+          { name: "workspace_revision", valueSql: "$6::bigint" },
+          { name: "snapshot", valueSql: "$7::jsonb" },
+          { name: "package_path", valueSql: "$8::text" },
+          { name: "generation", valueSql: "'v0'::text" },
+          { name: "created_at", valueSql: "$9::timestamptz" },
+          { name: "completed_at", valueSql: "NULL::timestamptz" },
+          { name: "updated_at", valueSql: "$10::timestamptz" },
+        ],
+        conflictColumns: ["tenant_id", "project_id", "policy_epoch", "task_id"],
+        updates: [
+          { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+          { column: "snapshot", valueSql: "excluded.snapshot" },
+          { column: "package_path", valueSql: "excluded.package_path" },
+          { column: "generation", valueSql: "'v0'" },
+          { column: "updated_at", valueSql: "excluded.updated_at" },
+        ],
+        whereSql: "ha_task_snapshots.workspace_revision < excluded.workspace_revision",
+      }),
       [
         scope.tenantId,
         scope.projectId,
@@ -622,10 +733,26 @@ async function storeMigrationImport(
       archived: false,
     };
     await client.query(
-      `INSERT INTO ha_facts (tenant_id,project_id,policy_epoch,readers,fact_id,workspace_revision,value,updated_at)
-       VALUES ($1,$2,$3,$4::text[],$5,$6,$7::jsonb,$8::timestamptz)
-       ON CONFLICT (tenant_id,project_id,policy_epoch,fact_id) DO UPDATE SET workspace_revision=excluded.workspace_revision,value=excluded.value,updated_at=excluded.updated_at
-       WHERE ha_facts.workspace_revision < excluded.workspace_revision`,
+      dialectUpsertValuesSql(capabilities, {
+        table: "ha_facts",
+        columns: [
+          { name: "tenant_id", valueSql: "$1::text" },
+          { name: "project_id", valueSql: "$2::text" },
+          { name: "policy_epoch", valueSql: "$3::bigint" },
+          { name: "readers", valueSql: "$4::text[]" },
+          { name: "fact_id", valueSql: "$5::text" },
+          { name: "workspace_revision", valueSql: "$6::bigint" },
+          { name: "value", valueSql: "$7::jsonb" },
+          { name: "updated_at", valueSql: "$8::timestamptz" },
+        ],
+        conflictColumns: ["tenant_id", "project_id", "policy_epoch", "fact_id"],
+        updates: [
+          { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+          { column: "value", valueSql: "excluded.value" },
+          { column: "updated_at", valueSql: "excluded.updated_at" },
+        ],
+        whereSql: "ha_facts.workspace_revision < excluded.workspace_revision",
+      }),
       [
         scope.tenantId,
         scope.projectId,
@@ -642,10 +769,26 @@ async function storeMigrationImport(
   }
   if (entity.kind === "decision") {
     await client.query(
-      `INSERT INTO ha_decisions (tenant_id,project_id,policy_epoch,readers,decision_id,workspace_revision,value,updated_at)
-       VALUES ($1,$2,$3,$4::text[],$5,$6,$7::jsonb,$8::timestamptz)
-       ON CONFLICT (tenant_id,project_id,policy_epoch,decision_id) DO UPDATE SET workspace_revision=excluded.workspace_revision,value=excluded.value,updated_at=excluded.updated_at
-       WHERE ha_decisions.workspace_revision < excluded.workspace_revision`,
+      dialectUpsertValuesSql(capabilities, {
+        table: "ha_decisions",
+        columns: [
+          { name: "tenant_id", valueSql: "$1::text" },
+          { name: "project_id", valueSql: "$2::text" },
+          { name: "policy_epoch", valueSql: "$3::bigint" },
+          { name: "readers", valueSql: "$4::text[]" },
+          { name: "decision_id", valueSql: "$5::text" },
+          { name: "workspace_revision", valueSql: "$6::bigint" },
+          { name: "value", valueSql: "$7::jsonb" },
+          { name: "updated_at", valueSql: "$8::timestamptz" },
+        ],
+        conflictColumns: ["tenant_id", "project_id", "policy_epoch", "decision_id"],
+        updates: [
+          { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+          { column: "value", valueSql: "excluded.value" },
+          { column: "updated_at", valueSql: "excluded.updated_at" },
+        ],
+        whereSql: "ha_decisions.workspace_revision < excluded.workspace_revision",
+      }),
       [
         scope.tenantId,
         scope.projectId,
@@ -675,12 +818,36 @@ async function storeEntityPin(
 ): Promise<void> {
   const match = /^task\/(.+)$/u.exec(event.payload.entityRef);
   if (!match) return;
-  await client.query(
-    `UPDATE ha_task_snapshots
-       SET snapshot = jsonb_set(snapshot, '{task,pinned}', to_jsonb($1::boolean), true)
-     WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND task_id=$5`,
-    [event.type === "entity_pinned", scope.tenantId, scope.projectId, scope.policyEpoch, match[1]],
-  );
+  const pinned = event.type === "entity_pinned";
+  if (getClientDialectCapabilities(client).supportsExtendedJsonb) {
+    await client.query(
+      `UPDATE ha_task_snapshots
+         SET snapshot = jsonb_set(snapshot, '{task,pinned}', to_jsonb($1::boolean), true)
+       WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND task_id=$5`,
+      [pinned, scope.tenantId, scope.projectId, scope.policyEpoch, match[1]],
+    );
+  } else {
+    const existing = await client.query<{ readonly snapshot: Record<string, unknown> }>(
+      `SELECT snapshot FROM ha_task_snapshots
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4 FOR UPDATE`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, match[1]],
+    );
+    const current = existing.rows[0]?.snapshot;
+    if (current && typeof current === "object") {
+      const task = current.task && typeof current.task === "object" ? (current.task as Record<string, unknown>) : {};
+      await client.query(
+        `UPDATE ha_task_snapshots SET snapshot = $1::jsonb
+         WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND task_id=$5`,
+        [
+          JSON.stringify({ ...current, task: { ...task, pinned } }),
+          scope.tenantId,
+          scope.projectId,
+          scope.policyEpoch,
+          match[1],
+        ],
+      );
+    }
+  }
   tables.add("ha_task_snapshots");
 }
 
@@ -704,25 +871,47 @@ async function storeEntityEvent(
     return;
   }
   if ((event.type as string) === "agent_retired") {
-    await client.query(
-      `UPDATE ha_agents SET declaration = declaration || $1::jsonb, workspace_revision=$2, updated_at=$3::timestamptz WHERE tenant_id=$4 AND project_id=$5 AND policy_epoch=$6 AND agent_id=$7`,
-      [
-        JSON.stringify({
-          lifecycleState: "retired",
-          retirement: {
-            retiredAt: payload.retiredAt,
-            reason: payload.reason,
-            ...(payload.successor === undefined ? {} : { successor: payload.successor }),
-          },
-        }),
-        event.workspaceRevision,
-        event.occurredAt,
-        scope.tenantId,
-        scope.projectId,
-        scope.policyEpoch,
-        id,
-      ],
-    );
+    const patch = {
+      lifecycleState: "retired",
+      retirement: {
+        retiredAt: payload.retiredAt,
+        reason: payload.reason,
+        ...(payload.successor === undefined ? {} : { successor: payload.successor }),
+      },
+    };
+    if (getClientDialectCapabilities(client).supportsExtendedJsonb) {
+      await client.query(
+        `UPDATE ha_agents SET declaration = declaration || $1::jsonb, workspace_revision=$2, updated_at=$3::timestamptz WHERE tenant_id=$4 AND project_id=$5 AND policy_epoch=$6 AND agent_id=$7`,
+        [
+          JSON.stringify(patch),
+          event.workspaceRevision,
+          event.occurredAt,
+          scope.tenantId,
+          scope.projectId,
+          scope.policyEpoch,
+          id,
+        ],
+      );
+    } else {
+      const existing = await client.query<{ readonly declaration: Record<string, unknown> }>(
+        `SELECT declaration FROM ha_agents WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND agent_id=$4 FOR UPDATE`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, id],
+      );
+      if (existing.rows[0]) {
+        await client.query(
+          `UPDATE ha_agents SET declaration = $1::jsonb, workspace_revision=$2, updated_at=$3::timestamptz WHERE tenant_id=$4 AND project_id=$5 AND policy_epoch=$6 AND agent_id=$7`,
+          [
+            JSON.stringify({ ...existing.rows[0].declaration, ...patch }),
+            event.workspaceRevision,
+            event.occurredAt,
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            id,
+          ],
+        );
+      }
+    }
     tables.add("ha_agents");
     return;
   }
@@ -758,10 +947,36 @@ async function storeEntityEvent(
         : interpretReplayDeclaration(contract, raw, id),
     declaration = entity?.value ?? raw;
   if (entity && entity.id !== id) throw new Error("entity declaration identity mismatch");
-  const table = kind === "agent" ? "ha_agents" : "ha_squads";
-  const idColumn = kind === "agent" ? "agent_id" : "squad_id";
+  const table = kind === "agent" ? "ha_agents" : "ha_squads",
+    idColumn = kind === "agent" ? "agent_id" : "squad_id";
   await client.query(
-    `INSERT INTO ${table} (tenant_id,project_id,policy_epoch,readers,${idColumn},workspace_revision,declaration_revision,declaration,document_path,document_sha256,updated_at) VALUES ($1,$2,$3,$4::text[],$5,$6,$6,$7::jsonb,$8,$9,$10::timestamptz) ON CONFLICT (tenant_id,project_id,policy_epoch,${idColumn}) DO UPDATE SET readers=excluded.readers,workspace_revision=excluded.workspace_revision,declaration_revision=excluded.declaration_revision,declaration=excluded.declaration,document_path=excluded.document_path,document_sha256=excluded.document_sha256,updated_at=excluded.updated_at WHERE ${table}.workspace_revision < excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table,
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: idColumn, valueSql: "$5::text" },
+        { name: "workspace_revision", valueSql: "$6::bigint" },
+        { name: "declaration_revision", valueSql: "$6::bigint" },
+        { name: "declaration", valueSql: "$7::jsonb" },
+        { name: "document_path", valueSql: "$8::text" },
+        { name: "document_sha256", valueSql: "$9::text" },
+        { name: "updated_at", valueSql: "$10::timestamptz" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", idColumn],
+      updates: [
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "declaration_revision", valueSql: "excluded.declaration_revision" },
+        { column: "declaration", valueSql: "excluded.declaration" },
+        { column: "document_path", valueSql: "excluded.document_path" },
+        { column: "document_sha256", valueSql: "excluded.document_sha256" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: `${table}.workspace_revision < excluded.workspace_revision`,
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -824,12 +1039,35 @@ async function recordExecutionRelationSourceVersion(
   relationId: string,
   workspaceRevision: number,
 ): Promise<void> {
+  if (getClientDialectCapabilities(client).supportsExtendedJsonb) {
+    await client.query(
+      `UPDATE ha_relations
+       SET value=jsonb_set(value, '{sourceObservedVersion}',
+         to_jsonb(GREATEST(COALESCE((value->>'sourceObservedVersion')::bigint, 0), $1::bigint)), true)
+       WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND relation_id=$5`,
+      [workspaceRevision, scope.tenantId, scope.projectId, scope.policyEpoch, relationId],
+    );
+    return;
+  }
+  const existing = await client.query<{ readonly value: Record<string, unknown> }>(
+    `SELECT value FROM ha_relations
+     WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_id=$4 FOR UPDATE`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, relationId],
+  );
+  if (!existing.rows[0]) return;
+  const current = existing.rows[0].value,
+    prior = Number(current.sourceObservedVersion ?? 0),
+    nextVersion = Math.max(Number.isFinite(prior) ? prior : 0, workspaceRevision);
   await client.query(
-    `UPDATE ha_relations
-     SET value=jsonb_set(value, '{sourceObservedVersion}',
-       to_jsonb(GREATEST(COALESCE((value->>'sourceObservedVersion')::bigint, 0), $1::bigint)), true)
+    `UPDATE ha_relations SET value=$1::jsonb
      WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND relation_id=$5`,
-    [workspaceRevision, scope.tenantId, scope.projectId, scope.policyEpoch, relationId],
+    [
+      JSON.stringify({ ...current, sourceObservedVersion: nextVersion }),
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      relationId,
+    ],
   );
 }
 
@@ -967,30 +1205,77 @@ async function updateProjectionMeta(
     throw new TypeError("projection revisions must be non-negative safe integers");
   if (watermark > sourceRevision)
     throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
-  // The cut's meta row and the drain of this transaction's relation-freshness marks share one statement;
-  // the marked relations are recomputed before the transaction commits the cut (dec_E34C4284B48AFAF152D7BF1980).
-  const drained = await client.query<{ readonly ref: string }>(
-    `${PG_OWN_DIRTY_RELATION_REFS_CTE}, meta AS (INSERT INTO ha_projection_meta
-       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark, artifact_index_version, dispatch_lifecycle_version, inbox_version, peer_request_version)
-     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END, 1, ${DISPATCH_LIFECYCLE_MODEL_VERSION}, ${INBOX_MODEL_VERSION}, ${PEER_REQUEST_MODEL_VERSION})
-     ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
-       policy_epoch = excluded.policy_epoch, schema_version = excluded.schema_version,
-       readers = '{}',
-       watermark = GREATEST(ha_projection_meta.watermark, excluded.watermark),
-       source_revision = GREATEST(ha_projection_meta.source_revision, excluded.source_revision),
-       entity_declaration_watermark = CASE WHEN ha_projection_meta.entity_declaration_watermark >= ha_projection_meta.watermark
+  const capabilities = getClientDialectCapabilities(client),
+    metaSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_projection_meta",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "projection_name", valueSql: "'task/v1'::text" },
+        { name: "schema_version", valueSql: "$4::integer" },
+        { name: "watermark", valueSql: "$5::bigint" },
+        { name: "source_revision", valueSql: "$6::bigint" },
+        { name: "state_digest", valueSql: "NULL::text" },
+        { name: "updated_at", valueSql: "clock_timestamp()" },
+        {
+          name: "entity_declaration_watermark",
+          valueSql: "CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END",
+        },
+        { name: "artifact_index_version", valueSql: "1::smallint" },
+        { name: "dispatch_lifecycle_version", valueSql: `${DISPATCH_LIFECYCLE_MODEL_VERSION}::smallint` },
+        { name: "inbox_version", valueSql: `${INBOX_MODEL_VERSION}::smallint` },
+        { name: "peer_request_version", valueSql: `${PEER_REQUEST_MODEL_VERSION}::smallint` },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "projection_name"],
+      updates: [
+        { column: "policy_epoch", valueSql: "excluded.policy_epoch" },
+        { column: "schema_version", valueSql: "excluded.schema_version" },
+        { column: "readers", valueSql: "'{}'::text[]" },
+        { column: "watermark", valueSql: "GREATEST(ha_projection_meta.watermark, excluded.watermark)" },
+        {
+          column: "source_revision",
+          valueSql: "GREATEST(ha_projection_meta.source_revision, excluded.source_revision)",
+        },
+        {
+          column: "entity_declaration_watermark",
+          valueSql: `CASE WHEN ha_projection_meta.entity_declaration_watermark >= ha_projection_meta.watermark
          AND ha_projection_meta.entity_declaration_watermark >= excluded.watermark - 1
          THEN GREATEST(ha_projection_meta.entity_declaration_watermark, excluded.watermark)
-         ELSE ha_projection_meta.entity_declaration_watermark END,
-       updated_at = excluded.updated_at)
-     SELECT ref FROM own_dirty_refs`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION, watermark, sourceRevision],
-  );
-  await refreshPgRelationFreshnessForRefs(
-    client,
-    scope,
-    drained.rows.map(({ ref }) => ref),
-  );
+         ELSE ha_projection_meta.entity_declaration_watermark END`,
+        },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+    });
+  let drainedRefs: readonly string[];
+  if (capabilities.supportsOnConflict) {
+    // The cut's meta row and the drain of this transaction's relation-freshness marks share one statement;
+    // the marked relations are recomputed before the transaction commits the cut (dec_E34C4284B48AFAF152D7BF1980).
+    const drained = await client.query<{ readonly ref: string }>(
+      `${pgOwnDirtyRelationRefsCte(capabilities)}, meta AS (${metaSql})
+       SELECT ref FROM own_dirty_refs`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION, watermark, sourceRevision],
+    );
+    drainedRefs = drained.rows.map(({ ref }) => ref);
+  } else {
+    const currentXact = capabilities.supportsXid8 ? "pg_current_xact_id()" : "txid_current()";
+    await client.query(metaSql, [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      PG_PROJECTION_SCHEMA_VERSION,
+      watermark,
+      sourceRevision,
+    ]);
+    const drained = await client.query<{ readonly ref: string }>(
+      `DELETE FROM ha_relation_freshness_dirty
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND xact=${currentXact}
+       RETURNING ref`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch],
+    );
+    drainedRefs = drained.rows.map(({ ref }) => ref);
+  }
+  await refreshPgRelationFreshnessForRefs(client, scope, drainedRefs);
 }
 
 export function projectionStateDigest(snapshots: readonly TaskLifecycleSnapshot[]): `sha256:${string}` {

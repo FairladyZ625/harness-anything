@@ -13,9 +13,10 @@ import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-h
 import { canonicalJson, hashCanonicalJsonTextFieldChunksAsync } from "../projection/rebuildable-task-projection-sql.ts";
 import { decodePageCursor, encodePageCursor, checkedPageLimit } from "../projection/task-query-projection.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
-import { pgProjectionStoredRows } from "./pg-projection-stored-rows.ts";
+import { readPgProjectionStoredRows } from "./pg-projection-stored-rows.ts";
 import { PG_PROJECTION_AUDIT_TABLES } from "./pg-projection-schema.ts";
 import { readPgTaskSessions } from "./pg-runtime-session-queries.ts";
 import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
@@ -137,7 +138,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
           taskIds = remaining.slice(0, limit),
           last = taskIds.at(-1),
           tasks = await client.query<{ task_id: string; title: string; package_path: string | null }>(
-            `SELECT task_id,snapshot#>>'{task,title}' AS title,package_path FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+            `SELECT task_id,snapshot #>>'{task,title}' AS title,package_path FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
            AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[]) ORDER BY task_id`,
             [...parameters, taskIds],
           ),
@@ -171,13 +172,12 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
             digest = await digestPgProjectionValues(client, scope, readers, digest);
             continue;
           }
-          const stored = pgProjectionStoredRows(table);
-          const result = await client.query<{ row_value: Record<string, unknown> }>(
-            `SELECT (${stored.row}) - ARRAY['tenant_id','project_id','policy_epoch','readers'] AS row_value FROM ${stored.from}
-           WHERE projection.tenant_id=$1 AND projection.project_id=$2 AND projection.policy_epoch=$3 AND (cardinality($4::text[])=0 OR projection.readers && $4::text[]) ORDER BY ${table === "ha_entity_declaration_heads" ? "entity_kind,entity_id" : `((${stored.row}) - ARRAY['tenant_id','project_id','policy_epoch','readers'])::text`}`,
-            parameters,
-          );
-          for (const { row_value } of result.rows) {
+          const rows = await readPgProjectionStoredRows(client, table, scope, {
+            excludeColumns: ["tenant_id", "project_id", "policy_epoch", "readers"],
+            readers,
+            orderBy: "declaration_head_or_row",
+          });
+          for (const row_value of rows) {
             // Current declarations retain JSON text for NUL/surrogate compatibility. Previous
             // writers' object key order must not turn an equivalent rebuild into a new state.
             const value =
@@ -200,18 +200,36 @@ async function digestPgProjectionValues(
   readers: readonly string[],
   previousDigest: string,
 ): Promise<string> {
-  const rowWithoutScope = "to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers']",
-    rowWithoutScopeAndValue = `${rowWithoutScope} - 'value'`,
-    result = await client.query<{
-      row_value: Record<string, unknown>;
-      value_part: string | null;
-      value_bytes: number;
-      value_characters: number | null;
-      model: string;
-      owner_id: string;
-      entity_id: string;
-    }>(
-      `SELECT ${rowWithoutScopeAndValue} AS row_value,
+  const capabilities = getClientDialectCapabilities(client);
+  let rowWithoutScopeAndValue: string, orderBySql: string;
+  if (capabilities.supportsExtendedJsonb) {
+    const rowWithoutScope = "to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers']";
+    rowWithoutScopeAndValue = `${rowWithoutScope} - 'value'`;
+    orderBySql = `(${rowWithoutScope})::text`;
+  } else {
+    const metadataColumns = (
+      await client.query<{ attname: string }>(
+        `SELECT a.attname FROM pg_catalog.pg_attribute a
+         JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+         WHERE c.relname = 'ha_projection_values' AND pg_catalog.pg_table_is_visible(c.oid)
+           AND a.attnum > 0 AND NOT a.attisdropped
+           AND a.attname NOT IN ('tenant_id','project_id','policy_epoch','readers','value')
+         ORDER BY a.attnum`,
+      )
+    ).rows.map((row) => `projection."${row.attname.replaceAll('"', '""')}"`);
+    rowWithoutScopeAndValue = `row_to_json((SELECT r FROM (SELECT ${metadataColumns.join(", ")}) AS r))`;
+    orderBySql = "projection.model, projection.owner_id, projection.entity_id";
+  }
+  const result = await client.query<{
+    row_value: Record<string, unknown>;
+    value_part: string | null;
+    value_bytes: number;
+    value_characters: number | null;
+    model: string;
+    owner_id: string;
+    entity_id: string;
+  }>(
+    `SELECT ${rowWithoutScopeAndValue} AS row_value,
          CASE WHEN octet_length(projection.value) <= $5 THEN projection.value END AS value_part,
          octet_length(projection.value) AS value_bytes,
          CASE WHEN octet_length(projection.value) > $5 THEN char_length(projection.value) END AS value_characters,
@@ -219,9 +237,9 @@ async function digestPgProjectionValues(
        FROM ha_projection_values projection
        WHERE projection.tenant_id=$1 AND projection.project_id=$2 AND projection.policy_epoch=$3
          AND (cardinality($4::text[])=0 OR projection.readers && $4::text[])
-       ORDER BY (${rowWithoutScope})::text`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, readers, stateDigestChunkBytes],
-    );
+       ORDER BY ${orderBySql}`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, readers, stateDigestChunkBytes],
+  );
   let digest = previousDigest;
   for (const row of result.rows) {
     async function* readValueChunks(): AsyncIterable<Uint8Array> {

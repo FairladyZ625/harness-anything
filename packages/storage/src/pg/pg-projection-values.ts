@@ -5,6 +5,12 @@ import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts"
 import type { RuntimeSession, RuntimeSessionReadQuery } from "@harness-anything/kernel";
 import { runtimeSessionInActivityWindow } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectUpsertValuesSql,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 /**
@@ -28,13 +34,29 @@ export async function putPgProjectionValue(
     documentMetadata = canonicalJson(metadata);
   }
   await client.query(
-    `INSERT INTO ha_projection_values
-    (tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value,document_metadata)
-    VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9,$10)
-    ON CONFLICT (tenant_id,project_id,policy_epoch,model,owner_id,entity_id) DO UPDATE SET
-      readers=excluded.readers, workspace_revision=excluded.workspace_revision, value=excluded.value,
-      document_metadata=excluded.document_metadata
-    WHERE ha_projection_values.workspace_revision <= excluded.workspace_revision`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_projection_values",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "readers", valueSql: "$4::text[]" },
+        { name: "model", valueSql: "$5::text" },
+        { name: "entity_id", valueSql: "$6::text" },
+        { name: "owner_id", valueSql: "$7::text" },
+        { name: "workspace_revision", valueSql: "$8::bigint" },
+        { name: "value", valueSql: "$9::text" },
+        { name: "document_metadata", valueSql: "$10::text" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "model", "owner_id", "entity_id"],
+      updates: [
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "value", valueSql: "excluded.value" },
+        { column: "document_metadata", valueSql: "excluded.document_metadata" },
+      ],
+      whereSql: "ha_projection_values.workspace_revision <= excluded.workspace_revision",
+    }),
     [
       scope.tenantId,
       scope.projectId,
@@ -101,6 +123,7 @@ export function pgRuntimeSessionReadStatement(
   scope: PgProjectionScope,
   repoId: string,
   query: RuntimeSessionReadQuery = {},
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
 ): { readonly text: string; readonly values: readonly unknown[] } {
   const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, [...(scope.readers ?? [])]];
   if (query.inFlightOnly)
@@ -132,7 +155,7 @@ export function pgRuntimeSessionReadStatement(
     where.push(`EXISTS (SELECT 1 FROM ha_projection_values active
     JOIN ha_projection_values address ON address.tenant_id=active.tenant_id AND address.project_id=active.project_id
       AND address.policy_epoch=active.policy_epoch AND address.model='dispatch-lifecycle-session' AND address.owner_id=''
-      AND address.value=to_jsonb(active.entity_id)::text
+      AND address.value=${capabilities.supportsExtendedJsonb ? "to_jsonb(active.entity_id)::text" : "to_json(active.entity_id)::text"}
     WHERE active.tenant_id=v.tenant_id AND active.project_id=v.project_id AND active.policy_epoch=v.policy_epoch
       AND active.model='dispatch-lifecycle-active' AND address.entity_id=v.entity_id
       AND EXISTS (SELECT 1 FROM jsonb_array_elements(ha_read_index_json(active.value)->'attempts') attempt
@@ -152,6 +175,22 @@ export function pgRuntimeSessionReadStatement(
   if (query.executionOwnerNodeId !== undefined) {
     const repoParameter = bind(repoId),
       nodeParameter = bind(query.executionOwnerNodeId);
+    if (!capabilities.supportsLateralJoin) {
+      return {
+        text: `SELECT v.value FROM ha_projection_values v
+          WHERE ${where.join(" AND ")}
+            AND EXISTS (
+              SELECT 1 FROM ha_events e
+              WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=${repoParameter}
+                AND e.event_schema='agent-runtime-event/v1' AND e.event_type='runtime_dispatch_requested'
+                AND e.source_node_id=${nodeParameter} AND e.runtime_session_present${query.unsettledOnly ? " AND e.runtime_session_unsettled" : ""}
+                AND (cardinality($4::text[])=0 OR e.readers && $4::text[])
+                AND e.runtime_session_id COLLATE "default"=v.entity_id
+            )
+          ORDER BY v.entity_id`,
+        values,
+      };
+    }
     const candidate = (after: boolean) => `SELECT e.runtime_session_id COLLATE "default" AS runtime_session_id
       FROM ha_events e WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=${repoParameter}
       AND e.event_schema='agent-runtime-event/v1' AND e.event_type='runtime_dispatch_requested'
@@ -196,7 +235,7 @@ export async function listPgRuntimeSessions(
   if (query.unsettledOnly || query.nonExitedOnly || query.activitySince !== undefined)
     await assertPgReadIndexReady(client, scope, "runtime-session");
   if (query.executionOwnerNodeId !== undefined) await assertPgEventReadIndexReady(client, scope, repoId);
-  const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
+  const statement = pgRuntimeSessionReadStatement(scope, repoId, query, getClientDialectCapabilities(client)),
     result = await client.query<{ value: string }>(statement.text, [...statement.values]);
   // inFlightOnly uses the bounded current-set table; all other ranges are indexed in SQL.
   return result.rows

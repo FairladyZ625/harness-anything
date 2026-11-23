@@ -19,7 +19,7 @@
         "explain": "PostgreSQL repeatable-read adapter gathers scoped decisions, relation closure, facts and tasks, then calls the unique kernel coverageOf judgment; it does not compute coverage eligibility.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/pg/pg-knowledge-queries.ts#pgKnowledgeQueries.coverage:2eb5cd609c1410a66026b1f9ba07e5e9",
+            "candidateId": "judgment:packages/storage:packages/storage/src/pg/pg-knowledge-queries.ts#pgKnowledgeQueries.coverage:e69975312a6aa3f534bf65744d0cc490",
             "route": "packages/storage/src/pg/pg-knowledge-queries.ts#pgKnowledgeQueries.coverage"
           }
         ],

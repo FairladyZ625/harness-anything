@@ -142,6 +142,14 @@ test("public management backfill completes a previous-writer Decision search exp
       repoId: "public-decision-upgrade",
       ownsPool: false,
     });
+    assert.deepEqual(
+      (await source.readDecisions(["dec_1", "dec_2", "dec_1"], false)).decisions.map((decision) => decision.decisionId),
+      ["dec_1", "dec_2"],
+    );
+    assert.deepEqual(
+      (await source.readDecisions(["dec_2", "dec_1", "dec_2"], false)).decisions.map((decision) => decision.decisionId),
+      ["dec_2", "dec_1"],
+    );
     await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), { code: "projection_pending" });
     const manage = <T>(run: (client: import("pg").PoolClient) => Promise<T>) =>
       storage.withPostgresTransaction(fixture.adminPool, run, scope);

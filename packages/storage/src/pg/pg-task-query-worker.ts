@@ -25,6 +25,7 @@ import {
   withPostgresCommitGuard,
   createPostgresPool,
 } from "../postgres/transaction.ts";
+import { dialectRuntimeRoleUnsafeQuery, ensurePoolDialectCapabilities } from "../postgres/dialect.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
 import type { ReplicationPosition } from "../store/replication-log.ts";
@@ -183,6 +184,7 @@ function startWorker(
     let borrowedReadOnly = false,
       backfillReaderKeys = false;
     try {
+      const capabilities = await ensurePoolDialectCapabilities(pool, client);
       // Embedded storage has no replication peer. Network PG must retain at least remote flush durability.
       if (!options.readSessions) {
         const row = (await client.query<{ synchronous_commit: string }>("SHOW synchronous_commit")).rows[0];
@@ -196,11 +198,7 @@ function startWorker(
           (await client.query<{ transaction_read_only: string }>("SHOW transaction_read_only")).rows[0]!
             .transaction_read_only === "on";
       if (input.requireRuntimeRole) {
-        const row = (
-          await client.query<{ unsafe: boolean }>(
-            "SELECT r.rolsuper OR r.rolbypassrls OR EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'ha_%' AND tableowner=current_user) AS unsafe FROM pg_roles r WHERE rolname=current_user",
-          )
-        ).rows[0];
+        const row = (await client.query<{ unsafe: boolean }>(dialectRuntimeRoleUnsafeQuery(capabilities))).rows[0];
         if (!row || row.unsafe)
           throw Object.assign(new Error("PostgreSQL runtime requires a non-owner role without BYPASSRLS"), {
             code: "pg_runtime_role_unsafe",

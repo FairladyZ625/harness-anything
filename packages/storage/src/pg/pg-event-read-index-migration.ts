@@ -13,77 +13,85 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import {
   PG_OCCURRED_AT_MS_INVALID_SENTINEL,
-  POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
   POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
+  postgresEventOccurredMsSchemaStatements,
 } from "../postgres/event-ledger-schema.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  dialectUpsertValuesSql,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 
 const eventReadFields = {
   list_row: `json_build_object('revision',NEW.revision,'opId',NEW.op_id,'eventId',NEW.event_id,
     'schema',v->>'schema','type',NEW.event_type,'occurredAt',NEW.occurred_at,
-    'actor',json_build_object('personId',v#>>'{actor,principal,personId}','executorId',v#>>'{actor,executor,id}'),
+    'actor',json_build_object('personId',v #>>'{actor,principal,personId}','executorId',v #>>'{actor,executor,id}'),
     'entityRefs',NEW.entity_refs)::text`,
   event_schema: "v->>'schema'",
-  event_entity_id: "v#>>'{entity,id}'",
-  executor_id: "v#>>'{actor,executor,id}'",
-  runtime_session_id: "v#>>'{payload,runtimeSessionId}'",
-  source_node_id: "v#>>'{source,nodeId}'",
-  actor_person_id: "v#>>'{actor,principal,personId}'",
+  event_entity_id: "v #>>'{entity,id}'",
+  executor_id: "v #>>'{actor,executor,id}'",
+  runtime_session_id: "v #>>'{payload,runtimeSessionId}'",
+  source_node_id: "v #>>'{source,nodeId}'",
+  actor_person_id: "v #>>'{actor,principal,personId}'",
   fleet_source_json: "(v->'source')::text",
   fleet_node_id: `CASE v->>'source' WHEN 'local' THEN 'center'
-    ELSE CASE WHEN v#>>'{source,kind}' IN ('node','assignment') THEN v#>>'{source,nodeId}'
+    ELSE CASE WHEN (v #>>'{source,kind}') IN ('node','assignment') THEN v #>>'{source,nodeId}'
     WHEN left(v->>'source',16)='runtime-session/' THEN (
       SELECT source_node_id FROM ha_events s WHERE s.tenant_id=NEW.tenant_id AND s.project_id=NEW.project_id
         AND s.policy_epoch=NEW.policy_epoch AND s.repo_id=NEW.repo_id
         AND s.runtime_session_id=substr(v->>'source',17) AND s.event_type='runtime_session_started'
         AND s.revision<NEW.revision AND s.source_node_id IS NOT NULL ORDER BY s.revision DESC LIMIT 1
     ) END END`,
-  fleet_task_id: `CASE WHEN v->>'schema' IN ('task-event/v1','task-bootstrap-event/v1','task-progress-event/v1')
-    OR NEW.event_type='runtime_dispatch_requested' THEN COALESCE(v->>'taskId',v#>>'{payload,taskId}') END`,
+  fleet_task_id: `CASE WHEN (v->>'schema') IN ('task-event/v1','task-bootstrap-event/v1','task-progress-event/v1')
+    OR NEW.event_type='runtime_dispatch_requested' THEN COALESCE(v->>'taskId',v #>>'{payload,taskId}') END`,
   fact_anchor_id:
-    "CASE WHEN NEW.event_type='fact_recorded' THEN v->>'factId' WHEN NEW.event_type='entity_migrated' THEN v#>>'{payload,entity,fact,factId}' END",
-  dispatch_id: "v#>>'{payload,dispatchId}'",
+    "CASE WHEN NEW.event_type='fact_recorded' THEN v->>'factId' WHEN NEW.event_type='entity_migrated' THEN v #>>'{payload,entity,fact,factId}' END",
+  dispatch_id: "v #>>'{payload,dispatchId}'",
   // The dispatch key moved from payload.idempotencyKey to payload.dispatchKey. Reviewer keys are
   // excluded because their canonical bytes are qualified by the read-time event transform; the
   // projection's runtime-dispatch-key model serves those normalized bytes.
   dispatch_key: `CASE WHEN NEW.event_type='runtime_dispatch_requested'
-    AND v#>>'{payload,role}' IS DISTINCT FROM 'reviewer'
-    THEN COALESCE(v#>>'{payload,dispatchKey}',v#>>'{payload,idempotencyKey}') END`,
-  definition_snapshot_ref: "v#>>'{payload,definitionSnapshotRef}'",
-  resumed_from_dispatch_id: "v#>>'{payload,resumedFromDispatchId}'",
-  payload_task_id: "v#>>'{payload,taskId}'",
-  payload_execution_id: "v#>>'{payload,executionId}'",
+    AND (v #>>'{payload,role}') IS DISTINCT FROM 'reviewer'
+    THEN COALESCE(v #>>'{payload,dispatchKey}',v #>>'{payload,idempotencyKey}') END`,
+  definition_snapshot_ref: "v #>>'{payload,definitionSnapshotRef}'",
+  resumed_from_dispatch_id: "v #>>'{payload,resumedFromDispatchId}'",
+  payload_task_id: "v #>>'{payload,taskId}'",
+  payload_execution_id: "v #>>'{payload,executionId}'",
   canonical_task_id: "v->>'taskId'",
-  task_execution_id: "v#>>'{payload,execution,executionId}'",
-  agent_id: "v#>>'{payload,agentId}'",
-  agent_label: "v#>>'{payload,agentName}'",
-  squad_id: "v#>>'{payload,squadId}'",
-  ["attempt_group_id"]: "v#>>'{payload,attemptGroupId}'",
-  review_decision_id: "v#>>'{payload,reviewTarget,decisionId}'",
-  dispatch_started_at: "v#>>'{payload,startedAt}'",
-  dispatch_activity_at: "COALESCE(v#>>'{payload,startedAt}',v->>'occurredAt')",
-  registers_domain_type: "v#>>'{payload,registersDomainType}'",
+  task_execution_id: "v #>>'{payload,execution,executionId}'",
+  agent_id: "v #>>'{payload,agentId}'",
+  agent_label: "v #>>'{payload,agentName}'",
+  squad_id: "v #>>'{payload,squadId}'",
+  ["attempt_group_id"]: "v #>>'{payload,attemptGroupId}'",
+  review_decision_id: "v #>>'{payload,reviewTarget,decisionId}'",
+  dispatch_started_at: "v #>>'{payload,startedAt}'",
+  dispatch_activity_at: "COALESCE(v #>>'{payload,startedAt}',v->>'occurredAt')",
+  registers_domain_type: "v #>>'{payload,registersDomainType}'",
   runtime_control_kind: `CASE WHEN NEW.event_type='runtime_cancel_requested'
-    OR (NEW.event_type='runtime_session_liveness_changed' AND v#>>'{payload,controlRequest,action}'='cancel')
+    OR (NEW.event_type='runtime_session_liveness_changed' AND v #>>'{payload,controlRequest,action}'='cancel')
     THEN 'cancel'
     WHEN NEW.event_type='runtime_steer_requested'
-    OR (NEW.event_type='runtime_session_liveness_changed' AND v#>>'{payload,controlRequest,action}'='steer')
+    OR (NEW.event_type='runtime_session_liveness_changed' AND v #>>'{payload,controlRequest,action}'='steer')
     THEN 'steer' END`,
   runtime_control_receipt_status: `CASE WHEN NEW.event_type IN ('runtime_session_provider_bound','runtime_session_liveness_changed')
-    AND v#>>'{payload,controlReceipt,status}' IN ('applied','rejected')
-    THEN CASE WHEN v#>>'{payload,controlReceipt,status}'='applied' AND v#>'{payload,controlReceipt,steerVersion}' IS NOT NULL
+    AND (v #>>'{payload,controlReceipt,status}') IN ('applied','rejected')
+    THEN CASE WHEN (v #>>'{payload,controlReceipt,status}')='applied' AND (v #>'{payload,controlReceipt,steerVersion}') IS NOT NULL
       THEN 'applied_versioned'
-      ELSE v#>>'{payload,controlReceipt,status}' END END`,
+      ELSE v #>>'{payload,controlReceipt,status}' END END`,
   runtime_control_receipt_req_op_id: `CASE WHEN NEW.event_type IN ('runtime_session_provider_bound','runtime_session_liveness_changed')
-    AND v#>>'{payload,controlReceipt,requestOpId}' IS NOT NULL
-    THEN v#>>'{payload,controlReceipt,requestOpId}' END`,
+    AND (v #>>'{payload,controlReceipt,requestOpId}') IS NOT NULL
+    THEN v #>>'{payload,controlReceipt,requestOpId}' END`,
   task_index_id: `CASE v->>'schema'
-    WHEN 'task-progress-event/v1' THEN v#>>'{payload,taskId}'
+    WHEN 'task-progress-event/v1' THEN v #>>'{payload,taskId}'
     WHEN 'agent-runtime-event/v1' THEN CASE NEW.event_type
-      WHEN 'runtime_session_task_bound' THEN v#>>'{payload,taskId}'
-      WHEN 'runtime_session_started' THEN v#>>'{payload,taskBinding,taskId}' END
-    WHEN 'migration-import-event/v1' THEN COALESCE(v#>>'{payload,entity,task,taskId}',
-      v#>>'{payload,entity,execution,taskId}',v#>>'{payload,entity,fact,taskId}')
+      WHEN 'runtime_session_task_bound' THEN v #>>'{payload,taskId}'
+      WHEN 'runtime_session_started' THEN v #>>'{payload,taskBinding,taskId}' END
+    WHEN 'migration-import-event/v1' THEN COALESCE(v #>>'{payload,entity,task,taskId}',
+      v #>>'{payload,entity,execution,taskId}',v #>>'{payload,entity,fact,taskId}')
     ELSE v->>'taskId' END`,
 };
 const eventScope = "tenant_id,project_id,policy_epoch,repo_id";
@@ -124,31 +132,84 @@ const dispatchIndexes = [
 /** RLS-safe scalar indexes over immutable event bytes; only a disposable parsing copy is JSONB.
  * Current and previous writers share the trigger; it remains after the 2026-11-18 binary window.
  */
-export function eventReadIndexDdl(): readonly string[] {
+export function eventReadIndexDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  const buildObject = capabilities.supportsExtendedJsonb ? "jsonb_build_object" : "json_build_object",
+    tokensFrom = capabilities.supportsWithOrdinality
+      ? String.raw`FROM regexp_matches(serialized,$tokens$("(?:\\.|[^"\\])*"|[^"]+)$tokens$,'g')
+          WITH ORDINALITY AS tokens(part,position)`
+      : String.raw`FROM (SELECT part, row_number() OVER () AS position
+          FROM regexp_matches(serialized,$tokens$("(?:\\.|[^"\\])*"|[^"]+)$tokens$,'g') AS part) tokens`,
+    fleetNodeTasksUpsertSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_fleet_node_tasks",
+      columns: [
+        { name: "tenant_id", valueSql: "NEW.tenant_id" },
+        { name: "project_id", valueSql: "NEW.project_id" },
+        { name: "policy_epoch", valueSql: "NEW.policy_epoch" },
+        { name: "repo_id", valueSql: "NEW.repo_id" },
+        { name: "readers", valueSql: "NEW.readers" },
+        { name: "node_id", valueSql: "NEW.fleet_node_id" },
+        { name: "task_id", valueSql: "NEW.fleet_task_id" },
+        { name: "revision", valueSql: "NEW.revision" },
+        { name: "person_id", valueSql: "NEW.actor_person_id" },
+        { name: "updated_at", valueSql: "NEW.occurred_at" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "repo_id", "node_id", "task_id"],
+      updates: [
+        { column: "readers", valueSql: "excluded.readers" },
+        { column: "revision", valueSql: "excluded.revision" },
+        { column: "person_id", valueSql: "excluded.person_id" },
+        { column: "updated_at", valueSql: "excluded.updated_at" },
+      ],
+      whereSql: "ha_fleet_node_tasks.revision <= excluded.revision",
+    }),
+    summaryStateUpsertSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_event_summary_state",
+      columns: [
+        { name: "tenant_id", valueSql: "tenant" },
+        { name: "project_id", valueSql: "project" },
+        { name: "policy_epoch", valueSql: "epoch" },
+        { name: "repo_id", valueSql: "repo" },
+        { name: "ready", valueSql: "true" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "repo_id"],
+      updates: [{ column: "ready", valueSql: "true" }],
+    });
   return [
     ...POSTGRES_EVENT_REF_INDEX_SCHEMA_STATEMENTS,
-    ...POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS,
-    ...postgresScopeRlsStatements("ha_event_entity_refs", { ifNotExists: true }),
+    ...postgresEventOccurredMsSchemaStatements(capabilities),
+    ...postgresScopeRlsStatements("ha_event_entity_refs", { ifNotExists: true, capabilities }),
     /* @gate-identity state-store/task.projection.ha_fleet_node_tasks */ `CREATE TABLE IF NOT EXISTS ha_fleet_node_tasks (
       tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL, repo_id text NOT NULL,
       readers text[] NOT NULL, node_id text COLLATE "C" NOT NULL, task_id text NOT NULL,
       revision bigint NOT NULL, person_id text, updated_at text NOT NULL,
       PRIMARY KEY (tenant_id,project_id,policy_epoch,repo_id,node_id,task_id)
     )`,
-    ...postgresScopeRlsStatements("ha_fleet_node_tasks", { ifNotExists: true }),
+    ...postgresScopeRlsStatements("ha_fleet_node_tasks", { ifNotExists: true, capabilities }),
     // An old writer may run as soon as the trigger is installed. Prepare its table privileges
     // first, without relying on default grants. Embedded/schema-owner-only databases have no
     // runtime roles; the explicit external grant entrypoint still requires both existing roles.
     ...eventRefIndexGrantDdl(),
-    ...Object.keys(eventReadFields).map(
-      (column) => `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS ${column} text COLLATE "C"`,
+    ...Object.keys(eventReadFields).map((column) =>
+      dialectAddColumnIfNotExistsSql(capabilities, "ha_events", column, 'text COLLATE "C"'),
     ),
-    `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS ${pgDispatchPageTimeKey} bigint`,
-    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
-    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
-    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_unsettled boolean NOT NULL DEFAULT false",
-    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS summary_json text",
-    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS default_summary_json text",
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_events", pgDispatchPageTimeKey, "bigint"),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_events", "read_index_version", "smallint NOT NULL DEFAULT 0"),
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_events",
+      "runtime_session_present",
+      "boolean NOT NULL DEFAULT false",
+    ),
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_events",
+      "runtime_session_unsettled",
+      "boolean NOT NULL DEFAULT false",
+    ),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_events", "summary_json", "text"),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_events", "default_summary_json", "text"),
     // Previous writers persist only bounded input; the kernel remains the final summary authority.
     // Even json getters decode unrelated NUL/lone-surrogate escapes. Parse a disposable copy whose
     // strings contain their original JSON escape tokens, then put those tokens back without loss.
@@ -167,14 +228,14 @@ export function eventReadIndexDdl(): readonly string[] {
         END LOOP;
         RETURN substr(token,1,cursor_pos-1)||'"';
       END $function$`,
-    String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_source(serialized text) RETURNS text
+    capabilities.supportsExtendedJsonb
+      ? String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_source(serialized text) RETURNS text
       LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
       DECLARE raw jsonb; payload jsonb; claims json;
       BEGIN
         SELECT string_agg(CASE WHEN left(part[1],1)='"'
           THEN to_json(substr(part[1],2,char_length(part[1])-2))::text ELSE part[1] END,'' ORDER BY position)::jsonb
-          INTO raw FROM regexp_matches(serialized,$tokens$("(?:\\.|[^"\\])*"|[^"]+)$tokens$,'g')
-          WITH ORDINALITY AS tokens(part,position);
+          INTO raw ${tokensFrom};
         payload := raw->'payload';
         IF jsonb_typeof(payload->'documentClaims')='array' THEN
           SELECT COALESCE(json_agg(json_build_object('path',ha_default_summary_text(claim->'path')::json)),'[]'::json)
@@ -187,11 +248,11 @@ export function eventReadIndexDdl(): readonly string[] {
           'workspaceRevision',raw->'workspaceRevision',
           'taskId',ha_default_summary_text(raw->'taskId')::json,
           'factId',ha_default_summary_text(raw->'factId')::json,'decisionId',ha_default_summary_text(raw->'decisionId')::json,
-          'actor',json_build_object('executor',json_build_object('id',ha_default_summary_text(raw#>'{actor,executor,id}')::json)),
+          'actor',json_build_object('executor',json_build_object('id',ha_default_summary_text(raw #>'{actor,executor,id}')::json)),
           'payload',json_build_object(
             'taskId',ha_default_summary_text(payload->'taskId')::json,
-            'subject',json_build_object('kind',ha_default_summary_text(payload#>'{subject,kind}')::json,
-              'taskId',ha_default_summary_text(payload#>'{subject,taskId}')::json),
+            'subject',json_build_object('kind',ha_default_summary_text(payload #>'{subject,kind}')::json,
+              'taskId',ha_default_summary_text(payload #>'{subject,taskId}')::json),
             'statement',ha_default_summary_text(payload->'statement',true)::json,
             'text',ha_default_summary_text(payload->'text',true)::json,
             'title',ha_default_summary_text(payload->'title',true)::json,
@@ -200,25 +261,82 @@ export function eventReadIndexDdl(): readonly string[] {
             'entityKind',ha_default_summary_text(payload->'entityKind')::json,
             'entityId',ha_default_summary_text(payload->'entityId')::json,
             'witness',CASE WHEN jsonb_typeof(payload->'witness')='object' THEN json_build_object(
-              'gateId',ha_default_summary_text(payload#>'{witness,gateId}')::json,
-              'result',ha_default_summary_text(payload#>'{witness,result}')::json) END,
+              'gateId',ha_default_summary_text(payload #>'{witness,gateId}')::json,
+              'result',ha_default_summary_text(payload #>'{witness,result}')::json) END,
             'review',CASE WHEN jsonb_typeof(payload->'review')='object' THEN json_build_object(
-              'verdict',ha_default_summary_text(payload#>'{review,verdict}')::json) END,
+              'verdict',ha_default_summary_text(payload #>'{review,verdict}')::json) END,
             'documentClaims',claims
           )
         )::text;
+      END $function$`
+      : String.raw`CREATE OR REPLACE FUNCTION ha_default_summary_source(serialized text) RETURNS text
+      LANGUAGE plpgsql IMMUTABLE STRICT AS $function$
+      DECLARE raw jsonb; payload jsonb; claims_text text := 'null'; witness_text text := 'null'; review_text text := 'null';
+      BEGIN
+        SELECT string_agg(CASE WHEN left(part[1],1)='"'
+          THEN to_json(substr(part[1],2,char_length(part[1])-2))::text ELSE part[1] END,'' ORDER BY position)::jsonb
+          INTO raw ${tokensFrom};
+        payload := raw->'payload';
+        IF jsonb_typeof(payload->'documentClaims')='array' THEN
+          SELECT '[' || COALESCE(string_agg('{"path":' || ha_default_summary_text(claim->'path') || '}', ','), '') || ']'
+          INTO claims_text FROM jsonb_array_elements(payload->'documentClaims') claim;
+        END IF;
+        IF jsonb_typeof(payload->'witness')='object' THEN
+          witness_text := '{"gateId":' || ha_default_summary_text(payload #>'{witness,gateId}')
+            || ',"result":' || ha_default_summary_text(payload #>'{witness,result}') || '}';
+        END IF;
+        IF jsonb_typeof(payload->'review')='object' THEN
+          review_text := '{"verdict":' || ha_default_summary_text(payload #>'{review,verdict}') || '}';
+        END IF;
+        RETURN '{"eventId":' || ha_default_summary_text(raw->'eventId')
+          || ',"schema":' || ha_default_summary_text(raw->'schema')
+          || ',"type":' || ha_default_summary_text(raw->'type')
+          || ',"occurredAt":' || ha_default_summary_text(raw->'occurredAt')
+          || ',"workspaceRevision":' || COALESCE((raw->'workspaceRevision')::text, 'null')
+          || ',"taskId":' || ha_default_summary_text(raw->'taskId')
+          || ',"factId":' || ha_default_summary_text(raw->'factId')
+          || ',"decisionId":' || ha_default_summary_text(raw->'decisionId')
+          || ',"actor":{"executor":{"id":' || ha_default_summary_text(raw #>'{actor,executor,id}') || '}}'
+          || ',"payload":{"taskId":' || ha_default_summary_text(payload->'taskId')
+          || ',"subject":{"kind":' || ha_default_summary_text(payload #>'{subject,kind}')
+          || ',"taskId":' || ha_default_summary_text(payload #>'{subject,taskId}') || '}'
+          || ',"statement":' || ha_default_summary_text(payload->'statement',true)
+          || ',"text":' || ha_default_summary_text(payload->'text',true)
+          || ',"title":' || ha_default_summary_text(payload->'title',true)
+          || ',"runtimeSessionId":' || ha_default_summary_text(payload->'runtimeSessionId')
+          || ',"instanceId":' || ha_default_summary_text(payload->'instanceId')
+          || ',"entityKind":' || ha_default_summary_text(payload->'entityKind')
+          || ',"entityId":' || ha_default_summary_text(payload->'entityId')
+          || ',"witness":' || witness_text
+          || ',"review":' || review_text
+          || ',"documentClaims":' || claims_text || '}}';
       END $function$`,
-    String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
+    capabilities.supportsExtendedJsonb
+      ? String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
       LANGUAGE sql IMMUTABLE STRICT AS $function$
-        SELECT jsonb_build_object(
+        SELECT (${buildObject}(
           'eventId', v->>'eventId', 'schema', v->>'schema', 'type', v->>'type',
           'occurredAt', v->>'occurredAt', 'workspaceRevision', v->'workspaceRevision',
-          'taskId', COALESCE(v->>'taskId', v#>>'{payload,taskId}'), 'actor', jsonb_build_object('executor', jsonb_build_object('id', v#>>'{actor,executor,id}')),
-          'payload', jsonb_build_object(
-            'taskId', COALESCE(v->>'taskId', v#>>'{payload,taskId}'),
-            'title', left(v#>>'{payload,title}', 280),
-            'statement', left(v#>>'{payload,statement}', 280),
-            'text', left(v#>>'{payload,text}', 280)))
+          'taskId', COALESCE(v->>'taskId', v #>>'{payload,taskId}'), 'actor', ${buildObject}('executor', ${buildObject}('id', v #>>'{actor,executor,id}')),
+          'payload', ${buildObject}(
+            'taskId', COALESCE(v->>'taskId', v #>>'{payload,taskId}'),
+            'title', left(v #>>'{payload,title}', 280),
+            'statement', left(v #>>'{payload,statement}', 280),
+            'text', left(v #>>'{payload,text}', 280))))::text
+      $function$`
+      : String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary_from_jsonb(v jsonb) RETURNS text
+      LANGUAGE sql IMMUTABLE STRICT AS $function$
+        SELECT '{"eventId":' || COALESCE(to_json(v->>'eventId')::text, 'null')
+          || ',"schema":' || COALESCE(to_json(v->>'schema')::text, 'null')
+          || ',"type":' || COALESCE(to_json(v->>'type')::text, 'null')
+          || ',"occurredAt":' || COALESCE(to_json(v->>'occurredAt')::text, 'null')
+          || ',"workspaceRevision":' || COALESCE((v->'workspaceRevision')::text, 'null')
+          || ',"taskId":' || COALESCE(to_json(COALESCE(v->>'taskId', v #>>'{payload,taskId}'))::text, 'null')
+          || ',"actor":{"executor":{"id":' || COALESCE(to_json(v #>>'{actor,executor,id}')::text, 'null') || '}}'
+          || ',"payload":{"taskId":' || COALESCE(to_json(COALESCE(v->>'taskId', v #>>'{payload,taskId}'))::text, 'null')
+          || ',"title":' || COALESCE(to_json(left(v #>>'{payload,title}', 280))::text, 'null')
+          || ',"statement":' || COALESCE(to_json(left(v #>>'{payload,statement}', 280))::text, 'null')
+          || ',"text":' || COALESCE(to_json(left(v #>>'{payload,text}', 280))::text, 'null') || '}}'
       $function$`,
     String.raw`CREATE OR REPLACE FUNCTION ha_fleet_event_summary(serialized text) RETURNS text
       LANGUAGE sql IMMUTABLE STRICT AS $function$
@@ -246,17 +364,16 @@ export function eventReadIndexDdl(): readonly string[] {
           OR EXISTS (SELECT 1 FROM ha_fleet_node_tasks a WHERE a.tenant_id=NEW.tenant_id AND a.project_id=NEW.project_id
             AND a.policy_epoch=NEW.policy_epoch AND a.repo_id=NEW.repo_id AND a.node_id=NEW.fleet_node_id AND a.task_id=NEW.fleet_task_id)
         ) THEN
-          INSERT INTO ha_fleet_node_tasks(tenant_id,project_id,policy_epoch,repo_id,readers,node_id,task_id,revision,person_id,updated_at)
-          VALUES(NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.repo_id,NEW.readers,NEW.fleet_node_id,NEW.fleet_task_id,
-            NEW.revision,NEW.actor_person_id,NEW.occurred_at)
-          ON CONFLICT(tenant_id,project_id,policy_epoch,repo_id,node_id,task_id) DO UPDATE
-            SET readers=excluded.readers,revision=excluded.revision,person_id=excluded.person_id,updated_at=excluded.updated_at
-            WHERE ha_fleet_node_tasks.revision <= excluded.revision;
+          ${fleetNodeTasksUpsertSql};
         END IF;
         RETURN NULL;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_event_entity_ref_fields AFTER INSERT OR UPDATE OF event_json,entity_refs,readers ON ha_events
-      FOR EACH ROW EXECUTE FUNCTION ha_event_entity_ref_fields()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_event_entity_ref_fields",
+      tableName: "ha_events",
+      timingAndEvent: "AFTER INSERT OR UPDATE OF event_json,entity_refs,readers",
+      functionCall: "ha_event_entity_ref_fields()",
+    }),
     // The ISO date/time is parsed without its zone, so the function is independent of session
     // timezone. PostgreSQL calls astronomical year 0000 "0001 BC".
     `CREATE OR REPLACE FUNCTION ha_dispatch_epoch_ms(value text) RETURNS bigint
@@ -299,8 +416,12 @@ export function eventReadIndexDdl(): readonly string[] {
         NEW.read_index_version := 7;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json,entity_refs ON ha_events
-      FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_event_read_index_fields",
+      tableName: "ha_events",
+      timingAndEvent: "BEFORE INSERT OR UPDATE OF event_json,entity_refs",
+      functionCall: "ha_event_read_index_fields()",
+    }),
     `CREATE INDEX IF NOT EXISTS ha_events_summary_pending ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE summary_json IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_events_default_summary_pending ON ha_events
@@ -396,13 +517,28 @@ export function eventReadIndexDdl(): readonly string[] {
         END IF;
         RETURN NULL;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_dispatch_session_present AFTER INSERT ON ha_projection_values
-      FOR EACH ROW WHEN (NEW.model='runtime-session' AND NEW.owner_id='') EXECUTE FUNCTION ha_dispatch_session_presence()`,
-    `CREATE OR REPLACE TRIGGER ha_dispatch_session_absent AFTER DELETE ON ha_projection_values
-      FOR EACH ROW WHEN (OLD.model='runtime-session' AND OLD.owner_id='') EXECUTE FUNCTION ha_dispatch_session_presence()`,
-    `CREATE OR REPLACE TRIGGER ha_dispatch_session_outcome AFTER UPDATE OF value,readers ON ha_projection_values
-      FOR EACH ROW WHEN (NEW.model='runtime-session' AND NEW.owner_id='' AND OLD.runtime_outcome IS DISTINCT FROM NEW.runtime_outcome)
-      EXECUTE FUNCTION ha_dispatch_session_presence()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_dispatch_session_present",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER INSERT",
+      whenSql: "NEW.model='runtime-session' AND NEW.owner_id=''",
+      functionCall: "ha_dispatch_session_presence()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_dispatch_session_absent",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER DELETE",
+      whenSql: "OLD.model='runtime-session' AND OLD.owner_id=''",
+      functionCall: "ha_dispatch_session_presence()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_dispatch_session_outcome",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER UPDATE OF value,readers",
+      whenSql:
+        "NEW.model='runtime-session' AND NEW.owner_id='' AND OLD.runtime_outcome IS DISTINCT FROM NEW.runtime_outcome",
+      functionCall: "ha_dispatch_session_presence()",
+    }),
     `CREATE INDEX IF NOT EXISTS ha_events_dispatch_outcome ON ha_events (${eventScope},dispatch_id,revision DESC)
       WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_session_outcome_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_index ON ha_events (${eventScope},task_index_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
@@ -454,9 +590,7 @@ export function eventReadIndexDdl(): readonly string[] {
           ) SELECT count(*)::integer INTO processed FROM filled;
         END IF;
         IF processed = 0 THEN
-          INSERT INTO ha_event_summary_state(tenant_id,project_id,policy_epoch,repo_id,ready)
-          VALUES (tenant,project,epoch,repo,true)
-          ON CONFLICT (tenant_id,project_id,policy_epoch,repo_id) DO UPDATE SET ready=true;
+          ${summaryStateUpsertSql};
         END IF;
         RETURN processed;
       END $function$`,
@@ -592,10 +726,14 @@ export async function backfillPgDefaultEventSummariesPage(
     summaries = batch.rows.map(
       (row) => pgDefaultEventSummaryEntry(JSON.parse(row.event_json) as PersistedCanonicalEventV1).summaryJson,
     );
+  const capabilities = getClientDialectCapabilities(client),
+    filledFrom = capabilities.supportsWithOrdinality
+      ? "FROM unnest($5::bigint[], $6::text[]) AS filled(revision, summary_json)"
+      : "FROM (SELECT ($5::bigint[])[i] AS revision, ($6::text[])[i] AS summary_json FROM generate_subscripts($5::bigint[], 1) AS i) AS filled";
   await client.query(
     `UPDATE ha_events AS e
      SET default_summary_json = filled.summary_json
-     FROM unnest($5::bigint[], $6::text[]) AS filled(revision, summary_json)
+     ${filledFrom}
      WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=$4
        AND e.revision=filled.revision`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, revisions, summaries],
@@ -631,11 +769,14 @@ export async function fillPgDefaultEventSummaries(
   }[],
 ): Promise<void> {
   if (entries.length === 0) return;
+  const capabilities = getClientDialectCapabilities(client),
+    batchFrom = capabilities.supportsWithOrdinality
+      ? "unnest($4::bigint[], $5::text[], $6::text[], $7::text[]) AS batch(revision, op_id, event_id, summary_json)"
+      : "(SELECT ($4::bigint[])[i] AS revision, ($5::text[])[i] AS op_id, ($6::text[])[i] AS event_id, ($7::text[])[i] AS summary_json FROM generate_subscripts($4::bigint[], 1) AS i) AS batch";
   await client.query(
     `UPDATE ha_events AS e
      SET default_summary_json = batch.summary_json
-     FROM unnest($4::bigint[], $5::text[], $6::text[], $7::text[])
-       AS batch(revision, op_id, event_id, summary_json),
+     FROM ${batchFrom},
        ha_repo_heads AS h
      WHERE h.tenant_id = $1 AND h.project_id = $2 AND h.policy_epoch = $3
        AND e.tenant_id = h.tenant_id AND e.project_id = h.project_id

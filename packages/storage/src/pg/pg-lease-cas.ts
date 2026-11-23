@@ -41,7 +41,7 @@ export async function changePgLease(input: {
       if (operation === "reserve") {
         const count = (
           await client.query<{ count: string }>(
-            "SELECT COUNT(*) AS count FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND raw_lease->>'phase' NOT IN ('released','orphaned') AND raw_lease->>'expiresAt'>$4",
+            "SELECT COUNT(*) AS count FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (CASE WHEN jsonb_typeof(raw_lease)='object' THEN raw_lease->>'phase' END) NOT IN ('released','orphaned') AND (CASE WHEN jsonb_typeof(raw_lease)='object' THEN raw_lease->>'expiresAt' END)>$4",
             [scope.tenantId, scope.projectId, scope.policyEpoch, now],
           )
         ).rows[0]!;

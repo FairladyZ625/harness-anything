@@ -1,5 +1,12 @@
 import type { PoolClient } from "pg";
 import { canonicalizeWriteValue } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectUpsertValuesSql,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import { reduceEntityDeclarationState } from "../store/entity-declaration-state.ts";
 import type {
@@ -10,17 +17,28 @@ import { type StoredEntityEventV1 } from "@harness-anything/kernel/internal/doma
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { resolveConfirmedRepoCut } from "../postgres/transaction.ts";
 
-export const entityDeclarationDdl = [
-  /* @gate-identity state-store/task.projection.ha_entity_declaration_heads */ `CREATE TABLE IF NOT EXISTS ha_entity_declaration_heads (
-    ${POSTGRES_SCOPE_COLUMNS_SQL}, readers text[] NOT NULL DEFAULT '{}',
-    entity_kind text NOT NULL, entity_id text NOT NULL, state text NOT NULL,
-    live boolean NOT NULL, workspace_revision bigint NOT NULL,
-    PRIMARY KEY (tenant_id,project_id,policy_epoch,entity_kind,entity_id)
-  )`,
-  `CREATE INDEX IF NOT EXISTS ha_entity_declaration_live ON ha_entity_declaration_heads
-    (tenant_id,project_id,policy_epoch,entity_kind,entity_id) WHERE live`,
-  `ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS entity_declaration_watermark bigint NOT NULL DEFAULT 0`,
-] as const;
+export function entityDeclarationDdlStatements(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  return [
+    /* @gate-identity state-store/task.projection.ha_entity_declaration_heads */ `CREATE TABLE IF NOT EXISTS ha_entity_declaration_heads (
+      ${POSTGRES_SCOPE_COLUMNS_SQL}, readers text[] NOT NULL DEFAULT '{}',
+      entity_kind text NOT NULL, entity_id text NOT NULL, state text NOT NULL,
+      live boolean NOT NULL, workspace_revision bigint NOT NULL,
+      PRIMARY KEY (tenant_id,project_id,policy_epoch,entity_kind,entity_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS ha_entity_declaration_live ON ha_entity_declaration_heads
+      (tenant_id,project_id,policy_epoch,entity_kind,entity_id) WHERE live`,
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_projection_meta",
+      "entity_declaration_watermark",
+      "bigint NOT NULL DEFAULT 0",
+    ),
+  ];
+}
+
+export const entityDeclarationDdl = Object.freeze(entityDeclarationDdlStatements());
 
 export async function materializePgEntityDeclaration(
   client: PoolClient,
@@ -54,10 +72,27 @@ export async function reduceAndStoreDeclaration(
     ).rows[0],
     state = reduceEntityDeclarationState(before ? (JSON.parse(before.state) as EntityDeclarationState) : null, event);
   await client.query(
-    `INSERT INTO ha_entity_declaration_heads
-    (tenant_id,project_id,policy_epoch,entity_kind,entity_id,state,live,workspace_revision,readers)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,project_id,policy_epoch,entity_kind,entity_id)
-    DO UPDATE SET state=excluded.state,live=excluded.live,workspace_revision=excluded.workspace_revision,readers=excluded.readers`,
+    dialectUpsertValuesSql(getClientDialectCapabilities(client), {
+      table: "ha_entity_declaration_heads",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "entity_kind", valueSql: "$4::text" },
+        { name: "entity_id", valueSql: "$5::text" },
+        { name: "state", valueSql: "$6::text" },
+        { name: "live", valueSql: "$7::boolean" },
+        { name: "workspace_revision", valueSql: "$8::bigint" },
+        { name: "readers", valueSql: "$9::text[]" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "entity_kind", "entity_id"],
+      updates: [
+        { column: "state", valueSql: "excluded.state" },
+        { column: "live", valueSql: "excluded.live" },
+        { column: "workspace_revision", valueSql: "excluded.workspace_revision" },
+        { column: "readers", valueSql: "excluded.readers" },
+      ],
+    }),
     [
       ...keys,
       JSON.stringify(canonicalizeWriteValue(state)),

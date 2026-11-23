@@ -1,11 +1,20 @@
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
+
 /**
  * Additive v5 expansion. Remove the previous-writer trigger, extractor and backfill function
  * on 2026-11-18, after pre-metadata binaries have drained; the column and current writes remain.
  * Run each backfill call in its own management transaction with the target scope's RLS claims.
  */
-export function documentMetadataDdl(): readonly string[] {
+export function documentMetadataDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
   return [
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS document_metadata text",
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_projection_values", "document_metadata", "text"),
     // DocumentState is a flat, canonical JSON object: body is string|null, followed by metadata.
     // PostgreSQL JSON operators reject legal NUL/unpaired-surrogate body escapes. Remove that
     // one serialized field without decoding any strings; current writers supply metadata directly.
@@ -22,10 +31,13 @@ export function documentMetadataDdl(): readonly string[] {
         END IF;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_document_metadata_previous_writer
-      BEFORE INSERT OR UPDATE OF value ON ha_projection_values
-      FOR EACH ROW WHEN (NEW.model = 'document')
-      EXECUTE FUNCTION ha_document_metadata_previous_writer()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_document_metadata_previous_writer",
+      tableName: "ha_projection_values",
+      timingAndEvent: "BEFORE INSERT OR UPDATE OF value",
+      whenSql: "NEW.model = 'document'",
+      functionCall: "ha_document_metadata_previous_writer()",
+    }),
     `CREATE INDEX IF NOT EXISTS ha_projection_document_metadata_pending ON ha_projection_values
       (tenant_id,project_id,policy_epoch,owner_id,entity_id) WHERE model='document' AND document_metadata IS NULL`,
     `CREATE OR REPLACE FUNCTION ha_backfill_document_metadata(

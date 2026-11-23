@@ -7,6 +7,14 @@ import {
 import { relationTypeDeclarations } from "@harness-anything/kernel/internal/domain/relation-type-registry.ts";
 import type { RelationCycleAudit, RelationCycleIssue } from "@harness-anything/kernel";
 import { checkedPageLimit } from "./pg-query-page.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectCreateTriggerStatements,
+  dialectUpsertSelectSql,
+  dialectUpsertValuesSql,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 
 export interface PgRelationCycleScope {
@@ -35,7 +43,53 @@ const acyclicTypes = relationTypeDeclarations.filter(({ acyclic }) => acyclic).m
 export const PG_RELATION_CYCLE_TABLES = Object.freeze(relationCycleTables);
 
 /** Relation writes mirror only cycle-relevant edges. The count row also owns the resumable backfill cursor. */
-export function relationCycleAuditDdl(): readonly string[] {
+export function relationCycleAuditDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  const dirtyMarkSql = dialectUpsertSelectSql(capabilities, {
+      table: "ha_relation_cycle_dirty",
+      columns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "relation_type", "node_ref"],
+      selectSql: `SELECT tenant AS tenant_id,project AS project_id,epoch AS policy_epoch,reader_key,kind AS relation_type,node AS node_ref FROM ha_relation_cycle_count
+          WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch
+            AND (cardinality(reader_key)=0 OR reader_key && visibility)`,
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "relation_type", "node_ref"],
+    }),
+    countSeedSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_relation_cycle_count",
+      columns: [
+        { name: "tenant_id", valueSql: "v_tenant_id" },
+        { name: "project_id", valueSql: "v_project_id" },
+        { name: "policy_epoch", valueSql: "v_policy_epoch" },
+        { name: "reader_key", valueSql: "'{}'::text[]" },
+        { name: "singleton", valueSql: "true" },
+        { name: "edge_count", valueSql: "0::bigint" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "singleton"],
+    }),
+    edgeTriggerUpsertSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_relation_cycle_edge",
+      columns: [
+        { name: "tenant_id", valueSql: "NEW.tenant_id" },
+        { name: "project_id", valueSql: "NEW.project_id" },
+        { name: "policy_epoch", valueSql: "NEW.policy_epoch" },
+        { name: "relation_id", valueSql: "NEW.relation_id" },
+        { name: "source_ref", valueSql: "NEW.source_ref" },
+        { name: "target_ref", valueSql: "NEW.target_ref" },
+        { name: "relation_type", valueSql: "NEW.relation_type" },
+        { name: "direction", valueSql: "NEW.value->>'direction'" },
+        { name: "relation_state", valueSql: "NEW.relation_state" },
+        { name: "readers", valueSql: "NEW.readers" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "relation_id"],
+      updates: [
+        { column: "source_ref", valueSql: "EXCLUDED.source_ref" },
+        { column: "target_ref", valueSql: "EXCLUDED.target_ref" },
+        { column: "relation_type", valueSql: "EXCLUDED.relation_type" },
+        { column: "direction", valueSql: "EXCLUDED.direction" },
+        { column: "relation_state", valueSql: "EXCLUDED.relation_state" },
+        { column: "readers", valueSql: "EXCLUDED.readers" },
+      ],
+    });
   return [
     /* @gate-identity state-store/task.projection.ha_relation_cycle_edge */ `CREATE TABLE IF NOT EXISTS ha_relation_cycle_edge (
       ${POSTGRES_SCOPE_COLUMNS_SQL}, relation_id text NOT NULL, source_ref text NOT NULL, target_ref text NOT NULL,
@@ -71,27 +125,33 @@ export function relationCycleAuditDdl(): readonly string[] {
       RETURNS void LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       BEGIN
         IF kind = ANY(ARRAY[${acyclicSql}]::text[]) THEN
-          INSERT INTO ha_relation_cycle_dirty(tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref)
-          SELECT tenant,project,epoch,reader_key,kind,node FROM ha_relation_cycle_count
-          WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch
-            AND (cardinality(reader_key)=0 OR reader_key && visibility)
-          ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref) DO NOTHING;
+          ${dirtyMarkSql};
         END IF;
       END $function$`,
     `CREATE OR REPLACE FUNCTION ha_relation_cycle_sync() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+      DECLARE
+        v_tenant_id text;
+        v_project_id text;
+        v_policy_epoch bigint;
       BEGIN
         IF TG_OP = 'UPDATE' AND
           (NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.relation_id,NEW.source_ref,NEW.target_ref,NEW.relation_type,NEW.relation_state,NEW.value->>'direction',NEW.readers)
           IS NOT DISTINCT FROM
           (OLD.tenant_id,OLD.project_id,OLD.policy_epoch,OLD.relation_id,OLD.source_ref,OLD.target_ref,OLD.relation_type,OLD.relation_state,OLD.value->>'direction',OLD.readers)
         THEN RETURN NEW; END IF;
-        INSERT INTO ha_relation_cycle_count(tenant_id,project_id,policy_epoch,reader_key,singleton,edge_count)
-        VALUES (COALESCE(NEW.tenant_id,OLD.tenant_id),COALESCE(NEW.project_id,OLD.project_id),
-          COALESCE(NEW.policy_epoch,OLD.policy_epoch),'{}',true,0)
-        ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,singleton) DO NOTHING;
-        PERFORM 1 FROM ha_relation_cycle_count WHERE tenant_id=COALESCE(NEW.tenant_id,OLD.tenant_id)
-          AND project_id=COALESCE(NEW.project_id,OLD.project_id) AND policy_epoch=COALESCE(NEW.policy_epoch,OLD.policy_epoch)
+        IF TG_OP = 'DELETE' THEN
+          v_tenant_id := OLD.tenant_id;
+          v_project_id := OLD.project_id;
+          v_policy_epoch := OLD.policy_epoch;
+        ELSE
+          v_tenant_id := NEW.tenant_id;
+          v_project_id := NEW.project_id;
+          v_policy_epoch := NEW.policy_epoch;
+        END IF;
+        ${countSeedSql};
+        PERFORM 1 FROM ha_relation_cycle_count WHERE tenant_id=v_tenant_id
+          AND project_id=v_project_id AND policy_epoch=v_policy_epoch
           AND reader_key='{}' AND singleton FOR UPDATE;
         IF TG_OP <> 'INSERT' THEN
           DELETE FROM ha_relation_cycle_edge WHERE tenant_id=OLD.tenant_id AND project_id=OLD.project_id
@@ -105,11 +165,7 @@ export function relationCycleAuditDdl(): readonly string[] {
         END IF;
         IF TG_OP <> 'DELETE' THEN
           IF NEW.relation_type IN (${acyclicSql}) THEN
-            INSERT INTO ha_relation_cycle_edge(tenant_id,project_id,policy_epoch,relation_id,source_ref,target_ref,relation_type,direction,relation_state,readers)
-            VALUES (NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.relation_id,NEW.source_ref,NEW.target_ref,NEW.relation_type,NEW.value->>'direction',NEW.relation_state,NEW.readers)
-            ON CONFLICT (tenant_id,project_id,policy_epoch,relation_id) DO UPDATE
-              SET source_ref=EXCLUDED.source_ref,target_ref=EXCLUDED.target_ref,relation_type=EXCLUDED.relation_type,
-                direction=EXCLUDED.direction,relation_state=EXCLUDED.relation_state,readers=EXCLUDED.readers;
+            ${edgeTriggerUpsertSql};
           END IF;
           PERFORM ha_relation_cycle_mark(NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.relation_type,NEW.source_ref,NEW.readers);
           PERFORM ha_relation_cycle_mark(NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.relation_type,NEW.target_ref,NEW.readers);
@@ -120,8 +176,12 @@ export function relationCycleAuditDdl(): readonly string[] {
         END IF;
         IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_relations_relation_cycle_sync AFTER INSERT OR UPDATE OR DELETE ON ha_relations
-      FOR EACH ROW EXECUTE FUNCTION ha_relation_cycle_sync()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_relations_relation_cycle_sync",
+      tableName: "ha_relations",
+      timingAndEvent: "AFTER INSERT OR UPDATE OR DELETE",
+      functionCall: "ha_relation_cycle_sync()",
+    }),
   ];
 }
 
@@ -133,11 +193,22 @@ export async function backfillPgRelationCycleAuditPage(
 ): Promise<PgRelationCycleRefreshPage> {
   checkedPageLimit(pageSize, 4096);
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
-    readers = [...new Set(scope.readers ?? [])].sort();
+    readers = [...new Set(scope.readers ?? [])].sort(),
+    capabilities = getClientDialectCapabilities(client);
   // The all-reader row serializes every visibility cache with relation triggers, in one lock order.
   await client.query(
-    `INSERT INTO ha_relation_cycle_count(tenant_id,project_id,policy_epoch,reader_key,singleton,edge_count)
-     VALUES ($1,$2,$3,'{}',true,0) ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,singleton) DO NOTHING`,
+    dialectUpsertValuesSql(capabilities, {
+      table: "ha_relation_cycle_count",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "reader_key", valueSql: "'{}'::text[]" },
+        { name: "singleton", valueSql: "true" },
+        { name: "edge_count", valueSql: "0::bigint" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "singleton"],
+    }),
     keys,
   );
   await client.query(
@@ -145,8 +216,18 @@ export async function backfillPgRelationCycleAuditPage(
     keys,
   );
   await client.query(
-    `INSERT INTO ha_relation_cycle_count(tenant_id,project_id,policy_epoch,reader_key,singleton,edge_count)
-     VALUES ($1,$2,$3,$4,true,0) ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,singleton) DO NOTHING`,
+    dialectUpsertValuesSql(capabilities, {
+      table: "ha_relation_cycle_count",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+        { name: "reader_key", valueSql: "$4::text[]" },
+        { name: "singleton", valueSql: "true" },
+        { name: "edge_count", valueSql: "0::bigint" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "singleton"],
+    }),
     [...keys, readers],
   );
   const state = (
@@ -177,25 +258,82 @@ export async function backfillPgRelationCycleAuditPage(
     hasMore = rows.length > pageSize,
     cursor = page.at(-1)?.relation_id ?? state.backfill_cursor;
   if (page.length) {
-    await client.query(
-      `INSERT INTO ha_relation_cycle_edge(tenant_id,project_id,policy_epoch,relation_id,source_ref,target_ref,relation_type,direction,relation_state,readers)
-       SELECT $1,$2,$3,row.relation_id,row.source_ref,row.target_ref,row.relation_type,row.direction,row.relation_state,row.readers
-       FROM jsonb_to_recordset($4::jsonb) AS row(relation_id text,source_ref text,target_ref text,relation_type text,direction text,relation_state text,readers text[])
-       WHERE row.relation_type=ANY($5::text[])
-       ON CONFLICT (tenant_id,project_id,policy_epoch,relation_id) DO UPDATE SET source_ref=EXCLUDED.source_ref,
-         target_ref=EXCLUDED.target_ref,relation_type=EXCLUDED.relation_type,direction=EXCLUDED.direction,
-         relation_state=EXCLUDED.relation_state,readers=EXCLUDED.readers`,
-      [...keys, JSON.stringify(page), acyclicTypes],
-    );
-    await client.query(
-      `INSERT INTO ha_relation_cycle_dirty(tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref)
-       SELECT $1,$2,$3,$4,edge.relation_type,endpoint.node_ref
-       FROM jsonb_to_recordset($5::jsonb) AS edge(relation_type text,source_ref text,target_ref text,readers text[])
-       CROSS JOIN LATERAL (VALUES (edge.source_ref),(edge.target_ref)) AS endpoint(node_ref)
-       WHERE edge.relation_type=ANY($6::text[]) AND (cardinality($4::text[])=0 OR edge.readers && $4::text[])
-       ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref) DO NOTHING`,
-      [...keys, readers, JSON.stringify(page), acyclicTypes],
-    );
+    if (capabilities.supportsExtendedJsonb && capabilities.supportsLateralJoin && capabilities.supportsOnConflict) {
+      await client.query(
+        `INSERT INTO ha_relation_cycle_edge(tenant_id,project_id,policy_epoch,relation_id,source_ref,target_ref,relation_type,direction,relation_state,readers)
+         SELECT $1,$2,$3,row.relation_id,row.source_ref,row.target_ref,row.relation_type,row.direction,row.relation_state,row.readers
+         FROM jsonb_to_recordset($4::jsonb) AS row(relation_id text,source_ref text,target_ref text,relation_type text,direction text,relation_state text,readers text[])
+         WHERE row.relation_type=ANY($5::text[])
+         ON CONFLICT (tenant_id,project_id,policy_epoch,relation_id) DO UPDATE SET
+           source_ref=EXCLUDED.source_ref,target_ref=EXCLUDED.target_ref,relation_type=EXCLUDED.relation_type,
+           direction=EXCLUDED.direction,relation_state=EXCLUDED.relation_state,readers=EXCLUDED.readers`,
+        [...keys, JSON.stringify(page), acyclicTypes],
+      );
+      await client.query(
+        `INSERT INTO ha_relation_cycle_dirty(tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref)
+         SELECT $1,$2,$3,$4,edge.relation_type,endpoint.node_ref
+         FROM jsonb_to_recordset($5::jsonb) AS edge(relation_type text,source_ref text,target_ref text,readers text[])
+         CROSS JOIN LATERAL (VALUES (edge.source_ref),(edge.target_ref)) AS endpoint(node_ref)
+         WHERE edge.relation_type=ANY($6::text[]) AND (cardinality($4::text[])=0 OR edge.readers && $4::text[])
+         ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,relation_type,node_ref) DO NOTHING`,
+        [...keys, readers, JSON.stringify(page), acyclicTypes],
+      );
+    } else {
+      const edgeRowSql = dialectUpsertValuesSql(capabilities, {
+          table: "ha_relation_cycle_edge",
+          columns: [
+            { name: "tenant_id", valueSql: "$1::text" },
+            { name: "project_id", valueSql: "$2::text" },
+            { name: "policy_epoch", valueSql: "$3::bigint" },
+            { name: "relation_id", valueSql: "$4::text" },
+            { name: "source_ref", valueSql: "$5::text" },
+            { name: "target_ref", valueSql: "$6::text" },
+            { name: "relation_type", valueSql: "$7::text" },
+            { name: "direction", valueSql: "$8::text" },
+            { name: "relation_state", valueSql: "$9::text" },
+            { name: "readers", valueSql: "$10::text[]" },
+          ],
+          conflictColumns: ["tenant_id", "project_id", "policy_epoch", "relation_id"],
+          updates: [
+            { column: "source_ref", valueSql: "EXCLUDED.source_ref" },
+            { column: "target_ref", valueSql: "EXCLUDED.target_ref" },
+            { column: "relation_type", valueSql: "EXCLUDED.relation_type" },
+            { column: "direction", valueSql: "EXCLUDED.direction" },
+            { column: "relation_state", valueSql: "EXCLUDED.relation_state" },
+            { column: "readers", valueSql: "EXCLUDED.readers" },
+          ],
+        }),
+        dirtyRowSql = dialectUpsertValuesSql(capabilities, {
+          table: "ha_relation_cycle_dirty",
+          columns: [
+            { name: "tenant_id", valueSql: "$1::text" },
+            { name: "project_id", valueSql: "$2::text" },
+            { name: "policy_epoch", valueSql: "$3::bigint" },
+            { name: "reader_key", valueSql: "$4::text[]" },
+            { name: "relation_type", valueSql: "$5::text" },
+            { name: "node_ref", valueSql: "$6::text" },
+          ],
+          conflictColumns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "relation_type", "node_ref"],
+        });
+      for (const row of page) {
+        if (!acyclicTypes.includes(row.relation_type as (typeof acyclicTypes)[number])) continue;
+        await client.query(edgeRowSql, [
+          ...keys,
+          row.relation_id,
+          row.source_ref,
+          row.target_ref,
+          row.relation_type,
+          row.direction,
+          row.relation_state,
+          row.readers,
+        ]);
+        if (readers.length === 0 || row.readers.some((reader) => readers.includes(reader))) {
+          for (const endpoint of [row.source_ref, row.target_ref]) {
+            await client.query(dirtyRowSql, [...keys, readers, row.relation_type, endpoint]);
+          }
+        }
+      }
+    }
   }
   const done = !hasMore;
   await client.query(

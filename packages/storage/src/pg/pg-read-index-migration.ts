@@ -1,3 +1,9 @@
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -13,30 +19,40 @@ export function pgRuntimeObservedAtSql(column = "value"): string {
  * Keep them after the previous-binary window (2026-11-18): current writes still require them.
  * Backfill runs as bounded management transactions; canonical text is never converted to JSONB.
  */
-export function readIndexDdl(): readonly string[] {
+export function readIndexDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  const addCol = (col: string, def: string) =>
+      dialectAddColumnIfNotExistsSql(capabilities, "ha_projection_values", col, def),
+    readIndexJsonBody = capabilities.supportsWithOrdinality
+      ? String.raw`SELECT COALESCE(string_agg(CASE WHEN part[1] ~ $unsafe$^\\u(?:0000|[dD][89a-fA-F][0-9A-Fa-f]{2})$$unsafe$
+          THEN $replacement$\ufffd$replacement$ ELSE part[1] END,'' ORDER BY position),'')::jsonb
+        FROM regexp_matches(serialized,$tokens$(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|\\.|[^\\]+)$tokens$,'g')
+          WITH ORDINALITY AS tokens(part,position)`
+      : String.raw`SELECT COALESCE(string_agg(CASE WHEN part[1] ~ $unsafe$^\\u(?:0000|[dD][89a-fA-F][0-9A-Fa-f]{2})$$unsafe$
+          THEN $replacement$\ufffd$replacement$ ELSE part[1] END,'' ORDER BY position),'')::jsonb
+        FROM (SELECT part, row_number() OVER () AS position
+          FROM regexp_matches(serialized,$tokens$(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|\\.|[^\\]+)$tokens$,'g') AS part) tokens`;
   return [
     /* @gate-identity state-store/task.projection.ha_runtime_session_tasks */ `CREATE TABLE IF NOT EXISTS ha_runtime_session_tasks (
       ${POSTGRES_SCOPE_COLUMNS_SQL},readers text[] NOT NULL DEFAULT '{}',task_id text NOT NULL,session_id text NOT NULL,
       PRIMARY KEY(tenant_id,project_id,policy_epoch,task_id,session_id))`,
     `CREATE INDEX IF NOT EXISTS ha_runtime_session_tasks_session ON ha_runtime_session_tasks
       (tenant_id,project_id,policy_epoch,session_id,task_id)`,
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS runtime_liveness text",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS runtime_outcome text",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS order_at text",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS order_revision bigint",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS execution_id text",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS interval_open boolean",
-    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS fact_edge boolean",
+    addCol("runtime_liveness", "text"),
+    addCol("runtime_outcome", "text"),
+    addCol("read_index_version", "smallint NOT NULL DEFAULT 0"),
+    addCol("order_at", "text"),
+    addCol("order_revision", "bigint"),
+    addCol("execution_id", "text"),
+    addCol("interval_open", "boolean"),
+    addCol("fact_edge", "boolean"),
     // Even json getters decode unrelated strings. Tokenize escapes in the disposable copy:
     // preserve valid surrogate pairs and escaped backslashes; repair only NUL/lone surrogates.
     // Canonical text is untouched. Indexed identities already cross PostgreSQL text columns.
-    String.raw`CREATE OR REPLACE FUNCTION ha_read_index_json(serialized text) RETURNS jsonb
+    `CREATE OR REPLACE FUNCTION ha_read_index_json(serialized text) RETURNS jsonb
       LANGUAGE sql IMMUTABLE STRICT AS $function$
-        SELECT COALESCE(string_agg(CASE WHEN part[1] ~ $unsafe$^\\u(?:0000|[dD][89a-fA-F][0-9A-Fa-f]{2})$$unsafe$
-          THEN $replacement$\ufffd$replacement$ ELSE part[1] END,'' ORDER BY position),'')::jsonb
-        FROM regexp_matches(serialized,$tokens$(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|\\.|[^\\]+)$tokens$,'g')
-          WITH ORDINALITY AS tokens(part,position)
+        ${readIndexJsonBody}
       $function$`,
     `CREATE OR REPLACE FUNCTION ha_projection_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
@@ -50,16 +66,20 @@ export function readIndexDdl(): readonly string[] {
         ELSIF NEW.model='lease-interval' THEN
           NEW.order_revision := (v->>'acquiredRevision')::bigint;
           NEW.execution_id := v->>'executionId';
-          NEW.interval_open := v->>'releasedRevision' IS NULL;
+          NEW.interval_open := (v->>'releasedRevision') IS NULL;
         ELSIF NEW.model='relation-write' THEN
           NEW.fact_edge := starts_with(v->>'ownerRef','fact/') OR starts_with(v->>'targetRef','fact/');
         END IF;
         NEW.read_index_version := CASE WHEN NEW.model='runtime-session' THEN 2 ELSE 1 END;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_projection_read_index_fields BEFORE INSERT OR UPDATE OF value,readers
-      ON ha_projection_values FOR EACH ROW WHEN (NEW.model IN ('pin','lease-interval','relation-write','runtime-session'))
-      EXECUTE FUNCTION ha_projection_read_index_fields()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_projection_read_index_fields",
+      tableName: "ha_projection_values",
+      timingAndEvent: "BEFORE INSERT OR UPDATE OF value,readers",
+      whenSql: "NEW.model IN ('pin','lease-interval','relation-write','runtime-session')",
+      functionCall: "ha_projection_read_index_fields()",
+    }),
     `CREATE OR REPLACE FUNCTION ha_runtime_session_task_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       BEGIN
@@ -75,12 +95,20 @@ export function readIndexDdl(): readonly string[] {
         END IF;
         RETURN NULL;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_runtime_session_task_fields
-      AFTER INSERT OR UPDATE OF value,readers ON ha_projection_values FOR EACH ROW
-      WHEN (NEW.model='runtime-session') EXECUTE FUNCTION ha_runtime_session_task_fields()`,
-    `CREATE OR REPLACE TRIGGER ha_runtime_session_task_delete
-      AFTER DELETE ON ha_projection_values FOR EACH ROW
-      WHEN (OLD.model='runtime-session') EXECUTE FUNCTION ha_runtime_session_task_fields()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_runtime_session_task_fields",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER INSERT OR UPDATE OF value,readers",
+      whenSql: "NEW.model='runtime-session'",
+      functionCall: "ha_runtime_session_task_fields()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_runtime_session_task_delete",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER DELETE",
+      whenSql: "OLD.model='runtime-session'",
+      functionCall: "ha_runtime_session_task_fields()",
+    }),
     `CREATE INDEX IF NOT EXISTS ha_projection_read_index_pending ON ha_projection_values
       (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
       WHERE read_index_version=0 AND model IN ('pin','lease-interval','relation-write','runtime-session')`,

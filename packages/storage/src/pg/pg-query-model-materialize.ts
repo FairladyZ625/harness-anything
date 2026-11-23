@@ -428,7 +428,7 @@ async function pgMaterializationEntityState(
   }
   if (kind === "task") {
     const result = await client.query<{ state: string }>(
-      "SELECT CASE WHEN snapshot#>>'{task,packageDisposition}'='archived' THEN 'archived' ELSE snapshot#>>'{task,status}' END AS state FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+      "SELECT CASE WHEN snapshot #>>'{task,packageDisposition}'='archived' THEN 'archived' ELSE snapshot #>>'{task,status}' END AS state FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
       parameters,
     );
     return result.rows[0] ? { ref, kind, state: result.rows[0].state } : null;

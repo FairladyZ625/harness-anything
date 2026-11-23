@@ -6,6 +6,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { assertPgEventReadIndexReady, pgImportedTaskPinPredicate } from "./pg-event-read-index-migration.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 
 export async function readPgPersonalPins(
   client: PoolClient,
@@ -72,17 +73,29 @@ export async function readPgEntityOrigins(
   if (entities.length === 0) return entities;
   await assertPgEventReadIndexReady(client, scope, repoId);
   const result = await client.query<{ id: string; person_id: string | null; node_id: string | null }>(
-    `SELECT requested.id, origin.actor_person_id AS person_id, origin.fleet_node_id AS node_id
-     FROM unnest($7::text[]) AS requested(id)
-     LEFT JOIN LATERAL (
-       SELECT event.actor_person_id, event.fleet_node_id
-       FROM ha_event_entity_refs ref JOIN ha_events event USING (tenant_id, project_id, repo_id, policy_epoch, revision)
-       WHERE ref.tenant_id=$1 AND ref.project_id=$2 AND ref.policy_epoch=$3 AND ref.repo_id=$4
-         AND (cardinality($5::text[])=0 OR event.readers && $5::text[])
-         AND ref.entity_ref=$6 || '/' || requested.id
-         AND event.event_type IN ('entity_upserted','entity_reference_declared','entity_content_observed','schedule_created')
-       ORDER BY ref.revision LIMIT 1
-     ) origin ON true`,
+    getClientDialectCapabilities(client).supportsLateralJoin
+      ? `SELECT requested.id, origin.actor_person_id AS person_id, origin.fleet_node_id AS node_id
+         FROM unnest($7::text[]) AS requested(id)
+         LEFT JOIN LATERAL (
+           SELECT event.actor_person_id, event.fleet_node_id
+           FROM ha_event_entity_refs ref JOIN ha_events event USING (tenant_id, project_id, repo_id, policy_epoch, revision)
+           WHERE ref.tenant_id=$1 AND ref.project_id=$2 AND ref.policy_epoch=$3 AND ref.repo_id=$4
+             AND (cardinality($5::text[])=0 OR event.readers && $5::text[])
+             AND ref.entity_ref=$6 || '/' || requested.id
+             AND event.event_type IN ('entity_upserted','entity_reference_declared','entity_content_observed','schedule_created')
+           ORDER BY ref.revision LIMIT 1
+         ) origin ON true`
+      : `SELECT requested.id, origin.actor_person_id AS person_id, origin.fleet_node_id AS node_id
+         FROM unnest($7::text[]) AS requested(id)
+         LEFT JOIN (
+           SELECT DISTINCT ON (ref.entity_ref) ref.entity_ref, event.actor_person_id, event.fleet_node_id
+           FROM ha_event_entity_refs ref JOIN ha_events event USING (tenant_id, project_id, repo_id, policy_epoch, revision)
+           WHERE ref.tenant_id=$1 AND ref.project_id=$2 AND ref.policy_epoch=$3 AND ref.repo_id=$4
+             AND (cardinality($5::text[])=0 OR event.readers && $5::text[])
+             AND ref.entity_ref = ANY(ARRAY(SELECT $6 || '/' || x FROM unnest($7::text[]) x))
+             AND event.event_type IN ('entity_upserted','entity_reference_declared','entity_content_observed','schedule_created')
+           ORDER BY ref.entity_ref, ref.revision
+         ) origin ON origin.entity_ref = $6 || '/' || requested.id`,
     [
       scope.tenantId,
       scope.projectId,

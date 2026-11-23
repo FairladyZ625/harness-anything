@@ -23,6 +23,7 @@ import { pgInboxQueries } from "./pg-inbox.ts";
 import { pgPeerRequestQueries } from "./pg-peer-request.ts";
 import type { Pool } from "pg";
 import { pgEventQueries, pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import type {
   DecisionAgendaProjectionPageRead,
   DecisionProjectionListRead,
@@ -193,7 +194,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           // snapshot status, never the recursive subtree rollup. The rollup is computed only when
           // the caller reads presentation status; an explicit raw caller may skip even the scalar.
           presentation = presentationStatus
-            ? presentationStatusSql(5)
+            ? presentationStatusSql(5, getClientDialectCapabilities(client))
             : presentationRollup
               ? "snapshot #>> '{task,status}'"
               : "NULL::text",
@@ -243,7 +244,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           ];
         if (query.status !== undefined) {
           values.push(query.status);
-          where.push(`${query.presentationStatus ? presentationStatusSql(4) : "task_status"} = $${values.length}`);
+          where.push(
+            `${query.presentationStatus ? presentationStatusSql(4, getClientDialectCapabilities(client)) : "task_status"} = $${values.length}`,
+          );
         }
         if (query.search !== undefined) {
           const search = query.search.replace(/[\\%_]/gu, "\\$&");
@@ -334,7 +337,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
         const limitParameter = limit === null ? null : values.push(limit + 1);
         const repoParameter = values.push(repoId),
-          presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status",
+          presentation = query.presentationStatus
+            ? presentationStatusSql(4, getClientDialectCapabilities(client))
+            : "task_status",
           result = await client.query<{
             task_id: string;
             package_path: string | null;
@@ -481,12 +486,17 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           where.push(`decision_id = ANY($${values.length}::text[])`);
         }
         const result = await client.query<{ decision_id: string; value: Record<string, unknown> }>(
-          `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")} ORDER BY array_position($5::text[], decision_id)`,
+          `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")}`,
           values,
+        );
+        const order = new Map<string, number>();
+        for (const [index, id] of decisionIds.entries()) if (!order.has(id)) order.set(id, index);
+        const orderedRows = [...result.rows].sort(
+          (left, right) => (order.get(left.decision_id) ?? Infinity) - (order.get(right.decision_id) ?? Infinity),
         );
         return {
           status: cut.status,
-          decisions: await readPgDecisionRows(client, options.scope, repoId, result.rows, withBody),
+          decisions: await readPgDecisionRows(client, options.scope, repoId, orderedRows, withBody),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
@@ -551,7 +561,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readLease = (column: "task_id" | "raw_lease->>'executionId'", id: string, now: string) =>
+  const readLease = (
+    column: "task_id" | "(CASE WHEN jsonb_typeof(raw_lease)='object' THEN raw_lease->>'executionId' END)",
+    id: string,
+    now: string,
+  ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
@@ -569,7 +583,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     );
   const currentLease = (taskId: string, at = now()) => readLease("task_id", taskId, at);
   const currentLeaseForExecution = (executionId: string, at = now()) =>
-    readLease("raw_lease->>'executionId'", executionId, at);
+    readLease("(CASE WHEN jsonb_typeof(raw_lease)='object' THEN raw_lease->>'executionId' END)", executionId, at);
   function listDecisions(
     filters: DecisionListFilters,
     selection: "summary",
