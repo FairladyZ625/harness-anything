@@ -709,7 +709,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
   // adds host-local repo-write actions preset-init and vertical-init (180 -> 182).
   // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion (182 -> 183).
-  assert.equal(actionDeclarations.length, 183);
+  // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D): ha peer ask/reply/promote/handoff (183 -> 187).
+  assert.equal(actionDeclarations.length, 187);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),

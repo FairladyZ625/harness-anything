@@ -132,6 +132,32 @@ export const READ_PROBES = Object.freeze({
       return 1;
     },
   },
+  "peer-inbox": {
+    reads: ["command:peer-inbox", "method:repo.peer.inbox"],
+    dimensions: ["task-history"],
+    run: ({ projection }) => {
+      const read = projection.readPeerRequests({ by: "list", recipientPersonId: "person_peer", limit: 20 });
+      assert.equal(read.status, "ready");
+      return read;
+    },
+    size: (value) => value.requests.length,
+  },
+  "peer-watch": {
+    reads: ["command:peer-watch", "method:repo.peer.watch"],
+    dimensions: ["task-history"],
+    run: ({ projection }) => {
+      const read = projection.readInbox({
+        by: "queue",
+        status: "pending",
+        consumerKind: "interactive_watch",
+        inboxId: "person:person_peer",
+        limit: 20,
+      });
+      assert.equal(read.status, "ready");
+      return read;
+    },
+    size: (value) => value.items.length,
+  },
   "runtime-events": {
     reads: ["method:repo.agentRuntime.events.read"],
     run: ({ runtime }) =>
