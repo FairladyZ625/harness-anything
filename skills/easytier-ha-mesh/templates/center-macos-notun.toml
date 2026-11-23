@@ -1,0 +1,41 @@
+instance_name = "ha-center"
+hostname = "ha-center"
+ipv4 = "10.144.144.2"
+listeners = [
+  "tcp://0.0.0.0:11010",
+  "udp://0.0.0.0:11010",
+]
+
+tcp_whitelist = ["7545", "18544"]
+udp_whitelist = []
+
+[network_identity]
+network_name = "<NETWORK_NAME>"
+network_secret = "<NETWORK_SECRET>"
+
+[[peer]]
+uri = "udp://<RELAY_PUBLIC_IP>:11010"
+
+[[peer]]
+uri = "tcp://<RELAY_PUBLIC_IP>:11010"
+
+# 若 Keycloak / Fleet 绑定在原内网 IP（匹配证书 SAN），导出该 IP 给虚拟网：
+[[proxy_network]]
+cidr = "10.211.55.2/32"
+
+# 如需在 no_tun 模式下从 Center 主动 SSH 连某个 Edge，可取消注释：
+# [[port_forward]]
+# proto = "tcp"
+# bind_addr = "127.0.0.1:22004"
+# dst_addr = "10.144.144.4:22"
+
+[flags]
+private_mode = true
+latency_first = true
+no_tun = true
+use_smoltcp = true
+bind_device = true
+disable_ipv6 = true
+enable_kcp_proxy = true
+multi_thread = true
+data_compress_algo = 2

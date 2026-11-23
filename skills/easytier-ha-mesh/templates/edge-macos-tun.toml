@@ -1,0 +1,29 @@
+instance_name = "ha-edge-<NODE_NAME>"
+hostname = "edge-<NODE_NAME>"
+ipv4 = "10.144.144.<HOST_OCTET>"
+listeners = [
+  "tcp://0.0.0.0:11010",
+  "udp://0.0.0.0:11010",
+]
+
+tcp_whitelist = ["7545", "18544"]
+udp_whitelist = []
+
+[network_identity]
+network_name = "<NETWORK_NAME>"
+network_secret = "<NETWORK_SECRET>"
+
+[[peer]]
+uri = "udp://<RELAY_PUBLIC_IP>:11010"
+
+[[peer]]
+uri = "tcp://<RELAY_PUBLIC_IP>:11010"
+
+[flags]
+private_mode = true
+latency_first = true
+bind_device = true
+disable_ipv6 = true
+enable_kcp_proxy = true
+multi_thread = true
+data_compress_algo = 2

@@ -1,0 +1,18 @@
+<service>
+  <id>EasyTierService</id>
+  <name>EasyTier Mesh Service</name>
+  <description>EasyTier P2P mesh service for Harness Anything edge node</description>
+  <executable>D:\software\easytier\easytier-core.exe</executable>
+  <arguments>-c D:\software\easytier\config.toml --multi-thread true --bind-device true</arguments>
+  <workingdirectory>D:\software\easytier</workingdirectory>
+  <logpath>D:\software\easytier\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+  <onfailure action="restart" delay="5 sec"/>
+  <startmode>Automatic</startmode>
+  <serviceaccount>
+    <account>LocalSystem</account>
+  </serviceaccount>
+</service>
