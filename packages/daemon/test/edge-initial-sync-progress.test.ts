@@ -139,7 +139,7 @@ test("withEdgeReadModel exposes replica_syncing with structured progress only du
   );
   assert.deepEqual(validateDaemonProtocolError(errorResult), []);
   assert.deepEqual(errorResult.error.syncProgress, progress);
-  assert.match(errorResult.rejectionExplanation ?? "", /objects · 3\/5 objects · 60%/);
+  assert.match(errorResult.rejectionExplanation ?? "", /objects · 3\/5 objects · 12\.0 MiB \/ 20\.0 MiB \(60%\)/);
 
   // Malformed syncProgress is rejected by protocol validator.
   assert.notEqual(
@@ -246,7 +246,7 @@ test("walreceiver publishes basebackup, installing, and projecting progress into
     send: (frame) => pair.edgePeer.send(frame),
     receive: async (signal) => {
       const frame = await pair.edgePeer.receive(signal);
-      if (frame.type === "replica.done" && !chunkSeen) {
+      if (frame.type === "replica.backup.end" && !chunkSeen) {
         chunkSeen = true;
         const duringTransfer = readReplicaHealth(viewDir).syncProgress;
         if (duringTransfer) observedSteps.push(duringTransfer.step);
