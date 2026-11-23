@@ -311,7 +311,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       contract,
       orderedProse[0]!,
       orderedProse[1]!,
-      orderedProse[2]!,
       ...additions,
       ...(explainer === null ? [] : [explainer]),
       ...presetScripts,

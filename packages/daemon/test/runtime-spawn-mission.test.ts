@@ -317,6 +317,7 @@ test("artifact missions omit repository-diff and PR guidance while code missions
 for (const outputShape of ["task-package-artifact", "repository-diff"] as const)
   test(`runtime mission uses the frozen preset shape ${outputShape}`, async () => {
     const projection = {
+        read: () => ({ packagePath: null }),
         readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
       } as never,
       resolved = await resolveRuntimeMission({

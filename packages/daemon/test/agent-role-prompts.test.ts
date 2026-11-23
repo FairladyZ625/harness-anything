@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
+import { agentRolePrompt } from "../src/daemon-host/agent-role-prompts.ts";
 import { assembleAgentPrompt, assembleUnboundPrompt } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
 import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -126,7 +127,7 @@ test("the secret boundary is unchanged across all three host-access tiers", () =
 });
 
 const writeGrants = [
-  "stage only owned files",
+  "Stage only owned repository files",
   "canonical repository root read-only",
   "worker repository root",
   "temporary WIP commit",
@@ -184,6 +185,17 @@ test("commander keeps worktree ownership without the worker delivery loop", () =
   assert.doesNotMatch(prompt, /task delivery commands/u);
 });
 
+test("artifact role prompts omit repository-diff delivery instructions", () => {
+  const artifactWorker = agentRolePrompt("worker", undefined, "task-package-artifact"),
+    artifactReviewer = agentRolePrompt("reviewer", undefined, "task-package-artifact"),
+    codeWorker = agentRolePrompt("worker", undefined, "repository-diff");
+
+  assert.doesNotMatch(artifactWorker, /Repository-Diff Delivery|ha task push|git archive|rebase onto/u);
+  assert.doesNotMatch(artifactReviewer, /Repository-Diff Delivery|gh pr view|tools\/pr-merge\.mjs/u);
+  assert.match(codeWorker, /Repository-Diff Delivery/u);
+  assert.match(codeWorker, /ha task push/u);
+});
+
 test("the bundled reviewer stays read-only and bound to its exact review cut", () => {
   const reviewer = readBundledAgentDeclaration("closeout-reviewer", "software/coding");
   assert.ok(reviewer);
@@ -193,7 +205,7 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
     "Honor declared gates.",
     [{ id: "review", sourceDir: "/skills/review", skillFile: "/skills/review/SKILL.md" }],
   );
-  assert.match(prompt, /code repository is read-only.*Do not modify code, stage files, create commits/u);
+  assert.match(prompt, /Repository files are read-only.*Do not modify the reviewed cut or publish it/u);
   assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
   assert.match(
     prompt,
@@ -242,7 +254,7 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /removing one needs equivalent coverage/u);
     assert.match(prompt, /Let errors surface with their own code/u);
     assert.match(prompt, /Measure before attributing performance/u);
-    assert.match(prompt, /Squad child hands its local commits to the Commander and stops/u);
+    assert.match(prompt, /A Squad child hands its local code commits to the Commander and stops/u);
     assert.match(prompt, /branch is not published at settlement/u);
     assert.match(prompt, /delivery, verification, residual risks and same-mechanism evidence.*closeout.md/u);
     assert.match(prompt, /Start only when the task's stated preconditions hold and its dependencies are proven ready/u);
