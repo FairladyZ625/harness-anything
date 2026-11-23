@@ -38,6 +38,7 @@ import { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from ".
 export type { DeviceLoginRequest, OidcLoginAuthority, OidcSessionPorts } from "@harness-anything/kernel";
 
 interface RbacConfig {
+  readonly mode?: string;
   readonly url: string;
   readonly realm: string;
   readonly clientId?: string;
@@ -635,7 +636,12 @@ export class OidcSessionService {
         return { ...bound, nodePrincipal: { nodeId: node.nodeId, personId: principal.personId } };
       });
     }
-    const { sessionStore } = await this.#centerIdentity(loginTarget),
+    const center = await this.#centerIdentity(loginTarget).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "oidc_center_required") return undefined;
+      throw error;
+    });
+    if (!center) return auth;
+    const { sessionStore } = center,
       generation = this.#sessionGeneration,
       { session, unavailable, rejected, expired } = await this.#use(sessionStore);
     if (replicaRead && (rejected || expired)) return { ...auth, replicaReadDenied: true };
@@ -1135,7 +1141,7 @@ export class OidcSessionService {
       };
     }
     const config = this.#config();
-    if (!config.url || !config.realm)
+    if (config.mode === "builtin" || !config.url || !config.realm || URL.parse(config.url)?.protocol === "builtin:")
       throw coded("oidc_center_required", "Select a repository connected to a center before signing in.");
     const listenerCertificate = config.listener
       ? readRegularListenerCertificateIfPresent(config.listener.certificateFile)
@@ -1172,6 +1178,11 @@ export class OidcSessionService {
   }
 
   async #issuer(authority: OidcLoginAuthority): Promise<string> {
+    for (const url of [authority.url, authority.browserUrl ?? authority.url]) {
+      const protocol = URL.parse(url)?.protocol;
+      if (protocol !== "http:" && protocol !== "https:")
+        throw coded("oidc_authority_invalid", "The OIDC authority must use an HTTP or HTTPS URL.");
+    }
     const response = await this.#fetchAuthority(
       authority,
       `${authority.url}/realms/${encodeURIComponent(authority.realm)}/.well-known/openid-configuration`,

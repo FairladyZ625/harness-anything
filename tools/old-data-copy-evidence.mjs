@@ -35,6 +35,7 @@ import { fileURLToPath } from "node:url";
 import { readDaemonRegistry } from "../packages/kernel/src/daemon/registry.ts";
 import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
 import { cmdShellInvocation } from "../packages/storage/src/store/cmd-command-line.ts";
+import { locateFleetEdgeConfig } from "../packages/daemon/src/daemon-host/client/fleet-edge-config.ts";
 import { materialize } from "./readonly-checkout.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -369,10 +370,9 @@ export function resolveSourceDataRoot(
         (existsSync(repo.canonicalRoot) ? realpathSync(repo.canonicalRoot) : path.resolve(repo.canonicalRoot)) ===
           resolvedSource,
     );
-  const edgeConfigPath = edgeRepo
-    ? path.join(path.resolve(userRoot), "fleet", "edge", edgeRepo.repoId, "fleet-edge.json")
-    : null;
-  if (!edgeConfigPath || !existsSync(edgeConfigPath)) return { dataLocalRoot: localRoot, replica: null };
+  if (!edgeRepo) return { dataLocalRoot: localRoot, replica: null };
+  const edgeConfigPath = locateFleetEdgeConfig(userRoot, edgeRepo.repoId, resolvedSource);
+  if (!edgeConfigPath) return { dataLocalRoot: localRoot, replica: null };
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(edgeConfigPath, "utf8"));

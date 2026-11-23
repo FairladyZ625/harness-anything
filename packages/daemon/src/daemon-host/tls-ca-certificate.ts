@@ -77,6 +77,10 @@ export function authorizationFetch(config: {
   return (input, init) => fetchWithTlsCa(globalThis.fetch, ca, input, init, config.servername);
 }
 
+class UnsupportedHttpProtocolError extends TypeError {
+  readonly code = "unsupported_http_protocol";
+}
+
 export async function fetchWithTlsCa(
   fetcher: typeof fetch,
   ca: string | readonly string[],
@@ -84,7 +88,9 @@ export async function fetchWithTlsCa(
   init?: RequestInit,
   servername?: string,
 ): Promise<Response> {
-  if (new URL(input instanceof Request ? input.url : input).protocol !== "https:") return fetcher(input, init);
+  const protocol = URL.parse(input instanceof Request ? input.url : input)?.protocol;
+  if (protocol === "http:") return fetcher(input, init);
+  if (protocol !== "https:") throw new UnsupportedHttpProtocolError("Expected an HTTP(S) request URL.");
   const dispatcher = new Agent({
     connect: {
       ca: typeof ca === "string" ? ca : [...ca],

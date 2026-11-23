@@ -48,6 +48,7 @@ import { observeDaemonBuild } from "./build-identity.ts";
 import {
   FleetEdgeConfigError,
   fleetEdgeConfigDir,
+  fleetEdgeWorkspaceResidue,
   readFleetEdgeConfig,
   readFleetEdgeConfigForRoot,
 } from "./client/fleet-edge-config.ts";
@@ -1667,6 +1668,17 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const rootDir = repo.canonicalRoot,
         config = readFleetEdgeConfig(input.userRoot, repo.repoId);
       if (!config || config.repoId !== repo.repoId) {
+        if (!config) {
+          const residue = fleetEdgeWorkspaceResidue(input.userRoot, repo.repoId, rootDir);
+          if (residue) {
+            input.recordLifecycle?.({
+              event: "replica_sync_failed",
+              repoId: repo.repoId,
+              code: residue.code,
+              error: residue.message,
+            });
+          }
+        }
         fleetVersionWarnings.delete(repo.repoId);
         continue;
       }

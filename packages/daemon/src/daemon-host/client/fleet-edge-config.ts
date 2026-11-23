@@ -3,7 +3,7 @@
 // `<userRoot>/fleet/edge/<repoId>/fleet-edge.json`; it carries the machine credential the center
 // issued when the node was registered. The repository selects the canonical center namespace.
 // A successful `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
-import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 // The durable-write helper is imported from its module, not the storage barrel: this file is
@@ -53,9 +53,40 @@ export function fleetEdgeConfigPath(userRoot: string, repoId: string): string {
 export function fleetEdgeCaPath(userRoot: string, repoId: string): string {
   return path.join(fleetEdgeConfigDir(userRoot, repoId), "fleet-center-ca.pem");
 }
-export function readFleetEdgeConfig(userRoot: string, repoId: string): FleetEdgeConfig | null {
-  const file = fleetEdgeConfigPath(userRoot, repoId);
-  if (!existsSync(file)) return null;
+export interface FleetEdgeWorkspaceResidue {
+  readonly code: "fleet_edge_config_workspace_residue";
+  readonly message: string;
+}
+
+export function fleetEdgeWorkspaceResidue(
+  userRoot: string,
+  repoId: string,
+  rootDir: string,
+): FleetEdgeWorkspaceResidue | null {
+  const destination = fleetEdgeConfigPath(userRoot, repoId);
+  if (existsSync(destination)) return null;
+  const source = path.join(rootDir, "fleet-edge.json");
+  if (lstatSync(source, { throwIfNoEntry: false }) === undefined) return null;
+  const sourceCa = path.join(rootDir, "fleet-center-ca.pem"),
+    destinationCa = fleetEdgeCaPath(userRoot, repoId);
+  return {
+    code: "fleet_edge_config_workspace_residue",
+    message: `Move ${JSON.stringify(source)} to ${JSON.stringify(destination)}. If present, move ${JSON.stringify(sourceCa)} to ${JSON.stringify(destinationCa)} and set caPath in the moved config to that absolute CA path. Then rerun ha daemon fleet edge sync.`,
+  };
+}
+
+export function locateFleetEdgeConfig(userRoot: string, repoId: string, rootDir?: string): string | null {
+  const destination = fleetEdgeConfigPath(userRoot, repoId);
+  if (existsSync(destination)) return destination;
+  if (rootDir === undefined) return null;
+  const residue = fleetEdgeWorkspaceResidue(userRoot, repoId, rootDir);
+  if (residue !== null) throw new FleetEdgeConfigError(residue.code, residue.message);
+  return null;
+}
+
+export function readFleetEdgeConfig(userRoot: string, repoId: string, remoteEdgeRoot?: string): FleetEdgeConfig | null {
+  const file = locateFleetEdgeConfig(userRoot, repoId, remoteEdgeRoot);
+  if (!file) return null;
   let value: unknown;
   try {
     value = JSON.parse(readFileSync(file, "utf8"));
@@ -138,18 +169,17 @@ function canonicalComparePath(target: string): string {
 export function resolveFleetEdgeRepoIdForRoot(userRoot: string, rootDir: string): string | null {
   const target = canonicalComparePath(rootDir),
     matches = readDaemonRegistry({ userRoot }).repos.filter(
-      (repo) => repo.canonicalRoot !== null && canonicalComparePath(repo.canonicalRoot) === target,
+      (repo) =>
+        repo.mode === "remote-edge" &&
+        repo.canonicalRoot !== null &&
+        canonicalComparePath(repo.canonicalRoot) === target,
     ),
-    preferred =
-      matches.find((repo) => repo.state === "enabled" && repo.mode === "remote-edge") ??
-      matches.find((repo) => repo.mode === "remote-edge") ??
-      matches.find((repo) => repo.state === "enabled") ??
-      matches[0];
+    preferred = matches.find((repo) => repo.state === "enabled") ?? matches[0];
   return preferred?.repoId ?? null;
 }
 export function readFleetEdgeConfigForRoot(userRoot: string, rootDir: string): FleetEdgeConfig | null {
   const repoId = resolveFleetEdgeRepoIdForRoot(userRoot, rootDir);
-  return repoId === null ? null : readFleetEdgeConfig(userRoot, repoId);
+  return repoId === null ? null : readFleetEdgeConfig(userRoot, repoId, rootDir);
 }
 export function hasAnyFleetEdgeConfig(userRoot: string): boolean {
   const edgeRoot = path.join(path.resolve(userRoot), "fleet", "edge");

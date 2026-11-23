@@ -271,7 +271,7 @@ function registeredRemoteEdge(userRoot: string | undefined, repoId: string) {
     ? {
         userRoot: effectiveUserRoot,
         workspaceRoot: repo.canonicalRoot,
-        config: readFleetEdgeConfig(effectiveUserRoot, repoId),
+        config: readFleetEdgeConfig(effectiveUserRoot, repoId, repo.canonicalRoot),
       }
     : null;
 }
