@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -305,36 +305,34 @@ export function publishStagingGeneration(input: {
 
 function createGenerationReaders(root: string) {
   const pins = new Map<string, number>();
-  let collection: Promise<void> | null = null;
-  const collect = (): Promise<void> => {
-    if (collection) return collection;
-    collection = (async () => {
-      const current = readReplicaGeneration(root),
-        directory = path.join(root, "generations");
-      if (!existsSync(directory)) return;
-      // Rename the old generation out of the live namespace first. The recursive removal then runs
-      // asynchronously and cannot hold the daemon event loop while readers continue on the new cut.
-      const pending: string[] = [];
-      const superseded = readdirSync(directory, { withFileTypes: true }).filter(
-        (entry) =>
-          entry.isDirectory() &&
-          entry.name !== current?.id &&
-          !entry.name.endsWith(".staging") &&
-          !entry.name.startsWith(".deleting-") &&
-          !pins.get(entry.name),
-      );
-      for (const entry of superseded) {
-        const source = path.join(directory, entry.name);
-        const destination = path.join(directory, `.deleting-${entry.name}-${randomUUID()}`);
-        await /* @gate-identity state-store/task.replica-generation */ rename(source, destination);
-        pending.push(destination);
-      }
-      if (pending.length > 0) syncDirectory(directory);
-      await Promise.all(pending.map((directoryPath) => removeStagingDirectory(directoryPath)));
-    })().finally(() => {
-      collection = null;
-    });
-    return collection;
+  let pendingDeletion: Promise<void> = Promise.resolve();
+  const collect = (): void => {
+    const current = readReplicaGeneration(root),
+      directory = path.join(root, "generations");
+    if (!existsSync(directory)) return;
+    // Staging belongs to an install in flight; only unpinned generations other than the published one
+    // go (all of them once a revocation withdrew the pointer).
+    const superseded = readdirSync(directory, { withFileTypes: true }).filter(
+      (entry) =>
+        entry.isDirectory() && entry.name !== current?.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
+    );
+    if (superseded.length === 0) return;
+    // Move superseded generations out of the live namespace synchronously (O(1) rename), then
+    // recursively unlink them asynchronously so cutover and pin release never block the event loop.
+    const trashRoot = path.join(root, ".deleting");
+    /* @gate-identity state-store/task.replica-generation */ mkdirSync(trashRoot, { recursive: true });
+    const pending: string[] = [];
+    for (const entry of superseded) {
+      const source = path.join(directory, entry.name);
+      const destination = path.join(trashRoot, `${entry.name}-${randomUUID()}`);
+      /* @gate-identity state-store/task.replica-generation */ renameSync(source, destination);
+      pending.push(destination);
+    }
+    syncDirectory(directory);
+    syncDirectory(trashRoot);
+    pendingDeletion = pendingDeletion.then(() =>
+      Promise.all(pending.map((directoryPath) => removeStagingDirectory(directoryPath))).then(() => undefined),
+    );
   };
   /**
    * Removes corrupt/unrecognized staging and retired cut/pull artifacts, while preserving valid
@@ -357,6 +355,7 @@ function createGenerationReaders(root: string) {
       recursive: true,
       force: true,
     });
+    await removeStagingDirectory(path.join(root, ".deleting"));
     // An edge upgraded in place still holds the retired layout under the same view path.
     const pointer = path.join(root, "current.json");
     if (existsSync(pointer) && readReplicaGeneration(root) === null)
@@ -390,7 +389,7 @@ function createGenerationReaders(root: string) {
             return;
           }
           pins.delete(current.id);
-          if (readReplicaGeneration(root)?.id !== current.id) void collect();
+          if (readReplicaGeneration(root)?.id !== current.id) collect();
         },
       };
     },

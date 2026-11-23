@@ -5888,13 +5888,6 @@
         "order": 1312
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/fleet/replica-generation.ts#createGenerationReaders.collect:e34e442181e9b15541e03deb141205c6",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
-        "order": 1306
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/fleet/replica-generation.ts#createGenerationReaders.discardStaging:836e38cd78b88b11aa6b56291467eda3",
         "route": "daemon-local-state",
         "role": "technical-port",
