@@ -69,6 +69,14 @@ test(
         true,
         "the package carries committed outcomes, not only events",
       );
+      assert.deepEqual(
+        mirrorLedger
+          .prepare("SELECT sequence FROM replication_log ORDER BY sequence")
+          .all()
+          .map((row) => Number((row as { sequence: number }).sequence)),
+        [header.position.sequence],
+        "the copied replica log retains only the packaged cut anchor",
+      );
     } finally {
       mirrorLedger.close();
     }

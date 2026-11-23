@@ -384,6 +384,7 @@ test("snapshot-object-pack/v1 deduplicates existing local objects and streams mi
 
   const requestedObjects: string[] = [];
   const wantedFromEdge: string[][] = [];
+  const activities: Array<{ phase: string; bytesSent?: number; totalBytes?: number; objectsSent?: number }> = [];
   const pair = createWirePeerPair({
     onEdgeToCenter: (frame) => {
       if (frame.type === "replica.objects.want") wantedFromEdge.push([...frame.sha256s]);
@@ -440,7 +441,14 @@ test("snapshot-object-pack/v1 deduplicates existing local objects and streams mi
   });
 
   await Promise.allSettled([
-    runWalSender({ peer: pair.centerPeer, source, slots, lease, signal: abort.signal }),
+    runWalSender({
+      peer: pair.centerPeer,
+      source,
+      slots,
+      lease,
+      signal: abort.signal,
+      onActivity: (phase, progress) => activities.push({ phase, ...progress }),
+    }),
     runWalReceiver({
       peer: pair.edgePeer,
       repoId: metadata.repoId,
@@ -457,6 +465,22 @@ test("snapshot-object-pack/v1 deduplicates existing local objects and streams mi
   assert.deepEqual(requestedObjects, [sha2]);
   assert.deepEqual(installedObj1, obj1);
   assert.deepEqual(installedObj2, obj2);
+  assert.ok(activities.some((activity) => activity.phase === "sending_objects" && (activity.bytesSent ?? 0) > 0));
+  assert.ok(activities.some((activity) => activity.phase === "installing_backup"));
+  assert.ok(activities.some((activity) => activity.phase === "sending_objects" && (activity.objectsSent ?? 0) > 0));
+  const objectProgress = activities.filter((activity) => activity.phase === "sending_objects");
+  assert.ok(objectProgress.every((activity) => (activity.bytesSent ?? 0) <= (activity.totalBytes ?? 0)));
+  assert.ok(
+    objectProgress.every(
+      (activity, index) => index === 0 || (activity.bytesSent ?? 0) >= (objectProgress[index - 1]!.bytesSent ?? 0),
+    ),
+    "object byte progress is monotonic across complete objects and pack boundaries",
+  );
+  assert.equal(
+    existsSync(path.join(edgeDir, "snapshots", "snap-pack-001", "archive.part")),
+    false,
+    "verified archive.part is released after installation",
+  );
   assert.equal(SNAPSHOT_BINARY_WIRE_CAPABILITY, "snapshot-binary-wire/v1");
   assert.equal(SNAPSHOT_OBJECT_PACK_CAPABILITY, "snapshot-object-pack/v1");
   assert.equal(SNAPSHOT_RESUME_CAPABILITY, "snapshot-resume/v1");

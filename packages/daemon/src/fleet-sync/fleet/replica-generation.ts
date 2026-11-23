@@ -1,6 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { syncDirectory, writeFileDurably } from "@harness-anything/storage";
@@ -304,23 +305,45 @@ export function publishStagingGeneration(input: {
 
 function createGenerationReaders(root: string) {
   const pins = new Map<string, number>();
-  const collect = (): void => {
-    const current = readReplicaGeneration(root),
-      directory = path.join(root, "generations");
-    if (!existsSync(directory)) return;
-    // Staging belongs to an install in flight; only unpinned generations other than the published one
-    // go (all of them once a revocation withdrew the pointer).
-    const superseded = readdirSync(directory, { withFileTypes: true }).filter(
-      (entry) =>
-        entry.isDirectory() && entry.name !== current?.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
-    );
-    for (const entry of superseded) {
-      /* @gate-identity state-store/task.replica-generation */
-      rmSync(path.join(directory, entry.name), {
-        recursive: true,
-        force: true,
-      });
-    }
+  let collection: Promise<void> | null = null;
+  const collect = (): Promise<void> => {
+    if (collection) return collection;
+    collection = (async () => {
+      const current = readReplicaGeneration(root),
+        directory = path.join(root, "generations");
+      if (!existsSync(directory)) return;
+      // Rename the old generation out of the live namespace first. The recursive removal then runs
+      // asynchronously and cannot hold the daemon event loop while readers continue on the new cut.
+      const pending: string[] = [];
+      const superseded = readdirSync(directory, { withFileTypes: true }).filter(
+        (entry) =>
+          entry.isDirectory() &&
+          entry.name !== current?.id &&
+          !entry.name.endsWith(".staging") &&
+          !entry.name.startsWith(".deleting-") &&
+          !pins.get(entry.name),
+      );
+      for (const entry of superseded) {
+        const source = path.join(directory, entry.name);
+        const destination = path.join(directory, `.deleting-${entry.name}-${randomUUID()}`);
+        try {
+          /* @gate-identity state-store/task.replica-generation */ renameSync(source, destination);
+          pending.push(destination);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          consumeKnownError(error);
+        }
+      }
+      if (pending.length > 0) syncDirectory(directory);
+      await Promise.all(
+        pending.map((directoryPath) =>
+          removeStagingDirectory(directoryPath),
+        ),
+      );
+    })().finally(() => {
+      collection = null;
+    });
+    return collection;
   };
   /**
    * Removes corrupt/unrecognized staging and retired cut/pull artifacts, while preserving valid
@@ -376,7 +399,7 @@ function createGenerationReaders(root: string) {
             return;
           }
           pins.delete(current.id);
-          if (readReplicaGeneration(root)?.id !== current.id) collect();
+          if (readReplicaGeneration(root)?.id !== current.id) void collect();
         },
       };
     },

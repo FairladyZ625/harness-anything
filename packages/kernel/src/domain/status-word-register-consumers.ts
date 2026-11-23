@@ -210,7 +210,7 @@ const catalogs: readonly Catalog[] = [
       },
       Host: {
         replicaSyncPhaseWords:
-          "Replica transfer prepares, authorizes, queues or transfers its backup and commits, then waits for durable acknowledgement or new work.",
+          "Replica transfer prepares, authorizes, queues or transfers its backup and commits, reports object-pack byte and object progress, waits for local backup installation, then waits for durable acknowledgement or new work.",
         fleetConflictStateWords: "A fleet mirror conflict is staged or resolved.",
         fleetMirrorApplyOutcomeWords:
           "Mirror application succeeds, is blocked by local changes, or has no attached view.",
