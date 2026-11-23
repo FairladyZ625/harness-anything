@@ -636,29 +636,32 @@ export class OidcSessionService {
         return { ...bound, nodePrincipal: { nodeId: node.nodeId, personId: principal.personId } };
       });
     }
-    const center = await this.#centerIdentity(loginTarget).catch((error: unknown) => {
-      if (error instanceof Error && "code" in error && error.code === "oidc_center_required") return undefined;
-      throw error;
-    });
-    if (!center) return auth;
+    const { sessionUnavailable: _clearedUnavailable, ...restAuth } = auth,
+      cleanAuth = restAuth as T,
+      center = await this.#centerIdentity(loginTarget).catch((error: unknown) => {
+        if (error instanceof Error && "code" in error && error.code === "oidc_center_required") return undefined;
+        throw error;
+      });
+    if (!center) return cleanAuth;
     const { sessionStore } = center,
       generation = this.#sessionGeneration,
-      { session, unavailable, rejected, expired } = await this.#use(sessionStore);
-    if (replicaRead && (rejected || expired)) return { ...auth, replicaReadDenied: true };
-    if (!session || generation !== this.#sessionGeneration) return auth;
-    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now())
-      return { ...auth, replicaReadDenied: true };
+      { session, unavailable, rejected, expired } = await this.#use(sessionStore),
+      sessionExpired =
+        session !== undefined && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now();
+    if (replicaRead && (rejected || expired || sessionExpired)) return { ...cleanAuth, replicaReadDenied: true };
+    if (generation !== this.#sessionGeneration || expired || sessionExpired) return cleanAuth;
     if (unavailable) {
-      if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
-        return auth;
-      return {
-        ...auth,
-        replicaReadPrincipal: { personId: session.personId, sessionExpiresAt: session.sessionExpiresAt },
-      };
+      if (replicaRead && session)
+        return {
+          ...cleanAuth,
+          replicaReadPrincipal: { personId: session.personId, sessionExpiresAt: session.sessionExpiresAt },
+        };
+      return { ...cleanAuth, sessionUnavailable: unavailable };
     }
+    if (!session) return cleanAuth;
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget));
     return {
-      ...auth,
+      ...cleanAuth,
       localSessionAccessToken: async () => {
         const current = await this.#live(sessionStore);
         if (

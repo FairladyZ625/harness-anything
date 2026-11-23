@@ -10,12 +10,28 @@ export function repositoryReadFrame(value: unknown): Partial<RepositoryReadFrame
   return { cut: frame.cut, freshness: frame.freshness, warning: frame.warning };
 }
 
+const transientIdentityReadFailures = new Set(["oidc_session_unavailable"]);
 const reportedReadFailures = new Set([
   "replica_unavailable",
   "replica_syncing",
   "authorization_denied",
   "authentication_required",
+  ...transientIdentityReadFailures,
 ]);
+
+function readErrorCode(error: unknown): string | null {
+  return error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : null;
+}
+
+export function isReportedReadFailureError(error: unknown): error is Error & { readonly code: string } {
+  const code = readErrorCode(error);
+  return code !== null && reportedReadFailures.has(code);
+}
+
+export function isTransientIdentityReadFailure(error: unknown): boolean {
+  const code = readErrorCode(error);
+  return code !== null && transientIdentityReadFailures.has(code);
+}
 
 export type ReplicaBootstrapStep = "basebackup" | "objects" | "installing" | "projecting";
 

@@ -268,16 +268,29 @@ test(
       { kind: "task-create", taskId: "closed-write", title: "Closed" } as never,
       localAuthFixture(),
     );
-    assert.equal(write.code, "authentication_required", JSON.stringify(write));
+    assert.equal(write.code, "oidc_session_unavailable", JSON.stringify(write));
+    assert.notEqual(store.read(), undefined);
     rejected = true;
     const rejectedRead = await e.command({ kind: "task-list" });
     assert.equal(rejectedRead.code, "authorization_denied", JSON.stringify(rejectedRead));
     assert.equal(store.read(), undefined);
+    const rejectedWrite = await e.host.run(
+      "lease-repo",
+      { kind: "task-create", taskId: "rejected-write", title: "Rejected" } as never,
+      localAuthFixture(),
+    );
+    assert.equal(rejectedWrite.code, "authentication_required", JSON.stringify(rejectedWrite));
     e.signIn("person-one");
     store.write(
       JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1000, sessionExpiresAt: Date.now() - 1 }),
     );
     rejected = false;
     assert.equal((await e.command({ kind: "task-list" })).code, "authorization_denied");
+    const expiredWrite = await e.host.run(
+      "lease-repo",
+      { kind: "task-create", taskId: "expired-write", title: "Expired" } as never,
+      localAuthFixture(),
+    );
+    assert.equal(expiredWrite.code, "authentication_required", JSON.stringify(expiredWrite));
   },
 );

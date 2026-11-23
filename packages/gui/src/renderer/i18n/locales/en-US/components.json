@@ -385,6 +385,8 @@
   "components.repositoryRead.lastReported": "Runtime status is the last report, not current liveness.",
   "components.repositoryRead.unavailable": "Some repository reads are unavailable; they do not represent empty data.",
   "components.repositoryRead.syncingState": "Syncing",
+  "components.repositoryRead.identityUnavailableState": "Identity service unreachable",
+  "components.repositoryRead.identityUnavailable": "Unable to reach the identity service to refresh your session; your local sign-in is preserved and reads will retry when connectivity returns.",
   "components.repositoryRead.authenticationRequiredState": "Sign in required",
   "components.repositoryRead.authenticationRequired": "The session has ended or the current credentials can no longer read the ledger; sign in again to continue.",
   "components.repositoryRead.signIn": "Sign in",

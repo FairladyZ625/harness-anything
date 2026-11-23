@@ -385,6 +385,8 @@
   "components.repositoryRead.lastReported": "运行状态为最后报告，不代表当前存活。",
   "components.repositoryRead.unavailable": "部分仓库读不可用；不能将其视为空数据。",
   "components.repositoryRead.syncingState": "同步中",
+  "components.repositoryRead.identityUnavailableState": "认证服务暂时不可达",
+  "components.repositoryRead.identityUnavailable": "无法连接认证服务刷新会话；当前已保留本地登录状态，网络恢复后将自动重试。",
   "components.repositoryRead.authenticationRequiredState": "需要登录",
   "components.repositoryRead.authenticationRequired": "会话已结束或无法再用当前凭据读取台账；请重新登录后继续。",
   "components.repositoryRead.signIn": "登录",

@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { RepositoryReadNotice } from "../src/renderer/components/RepositoryReadNotice.tsx";
+import { repositoryReadFailure } from "../src/renderer/repository-read-frame.ts";
 
 let container: HTMLDivElement, root: Root, client: QueryClient;
 
@@ -143,5 +144,96 @@ describe("RepositoryReadNotice", () => {
     expect(container.textContent).toContain("同步中");
     expect(container.textContent).toContain("basebackup · 45% (9.0 MiB / 20.0 MiB)");
     expect(container.textContent).not.toContain("部分仓库读不可用");
+  });
+
+  it("shows a non-login identity-unavailable notice on transient oidc_session_unavailable while keeping the replica cut", async () => {
+    const parsed = repositoryReadFailure({
+      ok: false,
+      error: { code: "oidc_session_unavailable", hint: "Keycloak could not be reached to renew the session." },
+    });
+    expect(parsed).toMatchObject({ code: "oidc_session_unavailable" });
+
+    function EdgeReads() {
+      useQuery({
+        queryKey: ["repo-a", "tasks"],
+        queryFn: async () => ({
+          cut: { revision: 42, headDigest: "head-42" },
+          freshness: {
+            state: "fresh",
+            confirmedAt: "2026-10-07T00:00:00.000Z",
+            ageMs: 0,
+            lagRevisions: 0,
+            maxAgeMs: 60_000,
+            maxLagRevisions: 32,
+          },
+          warning: null,
+        }),
+        retry: false,
+      });
+      useQuery({
+        queryKey: ["repo-a", "dispatches"],
+        queryFn: async () => {
+          throw Object.assign(new Error("Keycloak could not be reached to renew the session."), {
+            code: "oidc_session_unavailable",
+          });
+        },
+        retry: false,
+      });
+      return null;
+    }
+    const onLogin = vi.fn();
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <EdgeReads />
+          <RepositoryReadNotice repoId="repo-a" onLogin={onLogin} />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="repository-read-state"]')?.getAttribute("data-state")).toBe(
+        "identity-unavailable",
+      ),
+    );
+    expect(container.textContent).toContain("认证服务暂时不可达");
+    expect(container.textContent).toContain("revision 42");
+    expect(container.textContent).not.toContain("需要登录");
+    expect(container.textContent).not.toContain("会话已结束");
+    expect(container.querySelector('[data-testid="repository-read-sign-in"]')).toBeNull();
+  });
+
+  it("still fail-closes to authentication-required when both oidc_session_unavailable and authentication_required occur", async () => {
+    function MixedFailures() {
+      useQuery({
+        queryKey: ["repo-a", "dispatches"],
+        queryFn: async () => {
+          throw Object.assign(new Error("Keycloak unreachable"), { code: "oidc_session_unavailable" });
+        },
+        retry: false,
+      });
+      useQuery({
+        queryKey: ["repo-a", "tasks"],
+        queryFn: async () => {
+          throw Object.assign(new Error("Sign in again"), { code: "authentication_required" });
+        },
+        retry: false,
+      });
+      return null;
+    }
+    const onLogin = vi.fn();
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <MixedFailures />
+          <RepositoryReadNotice repoId="repo-a" onLogin={onLogin} />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="repository-read-state"]')?.getAttribute("data-state")).toBe(
+        "authentication-required",
+      ),
+    );
+    expect(container.querySelector('[data-testid="repository-read-sign-in"]')).not.toBeNull();
   });
 });

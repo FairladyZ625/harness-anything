@@ -363,6 +363,7 @@
   "collaboration.readError.authorizationDenied": "Your identity is not authorized to view the fleet topology (the grant was revoked or never given).",
   "collaboration.readError.insufficientScope": "Your identity's scope does not cover viewing the fleet topology.",
   "collaboration.readError.authenticationRequired": "Sign in before viewing the fleet topology.",
+  "collaboration.readError.identityUnavailable": "Unable to reach the identity service to refresh your session; your local sign-in is preserved, retry shortly.",
   "collaboration.state.fresh": "fresh",
   "collaboration.state.lag": "lagging",
   "collaboration.state.unsynced": "unsynced",

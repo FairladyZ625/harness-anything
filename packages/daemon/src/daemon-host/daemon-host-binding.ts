@@ -77,6 +77,7 @@ export function localDefaultBinding(
       ? auth.replicaReadPrincipal
       : undefined;
   if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };
+  else if (auth.sessionUnavailable) throw auth.sessionUnavailable;
   else if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
     throw hostCodedError(
       "authentication_required",
@@ -91,6 +92,12 @@ export function localDefaultBinding(
     },
     auth,
   );
+}
+
+/** Resolves a bound local session token, surfacing transient renewal unavailability instead of degrading to anonymous. */
+export async function resolveBoundAccessToken(auth: DaemonAuthenticationContext): Promise<string | undefined> {
+  if (auth.sessionUnavailable) throw auth.sessionUnavailable;
+  return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
 }
 
 /**

@@ -2,6 +2,7 @@ import path from "node:path";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
 import { fleetEdgeConfigDir, readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { resolveBoundAccessToken } from "./daemon-host-binding.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import {
   parseFleetCenterExternalUrl,
@@ -666,12 +667,8 @@ export function createDaemonHostRuntimeApi(
               ...(matchingConfig?.loginCertificate ? { loginCertificate: matchingConfig.loginCertificate } : {}),
             },
             configDir: fleetEdgeConfigDir(context.input.userRoot, syncRequest.repoId),
-            readUserAccessToken: async () => {
-              const session = await context.oidc.bind(auth, syncRequest.workspaceRoot);
-              return session.localSessionAccessToken
-                ? session.localSessionAccessToken()
-                : session.oidcPrincipal?.accessToken;
-            },
+            readUserAccessToken: async () =>
+              resolveBoundAccessToken(await context.oidc.bind(auth, syncRequest.workspaceRoot)),
           });
         const receipt = await syncFleetEdgeMirror(
           { userRoot: context.input.userRoot, payload: syncRequest },

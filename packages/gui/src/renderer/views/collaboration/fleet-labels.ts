@@ -61,6 +61,7 @@ export const READ_ERROR_LABELS: Readonly<Record<string, MessageKey>> = {
   authorization_denied: "collaboration.readError.authorizationDenied",
   insufficient_scope: "collaboration.readError.insufficientScope",
   authentication_required: "collaboration.readError.authenticationRequired",
+  oidc_session_unavailable: "collaboration.readError.identityUnavailable",
 };
 
 export function reasonText(reason: string): string {

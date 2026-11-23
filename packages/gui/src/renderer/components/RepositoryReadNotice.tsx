@@ -1,7 +1,11 @@
 import { useEffect, useReducer } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
-import { repositoryReadFrame } from "../repository-read-frame.ts";
+import {
+  isReportedReadFailureError,
+  isTransientIdentityReadFailure,
+  repositoryReadFrame,
+} from "../repository-read-frame.ts";
 import { isRendererRecord } from "../result-validation.ts";
 import { formatTime } from "../model/time.ts";
 import { t } from "../i18n/index.tsx";
@@ -45,47 +49,41 @@ export function RepositoryReadNotice({
   if (repoId === null) return null;
   const queries = cache.getAll().filter((query) => query.getObserversCount() > 0 && query.queryKey.includes(repoId)),
     frames = queries.flatMap((query) => readFrames(query.state.data)),
-    errors = queries.flatMap((query) => {
-      const error = query.state.error;
-      return error instanceof Error &&
-        "code" in error &&
-        (error.code === "replica_unavailable" ||
-          error.code === "replica_syncing" ||
-          error.code === "authorization_denied" ||
-          error.code === "authentication_required")
-        ? [error]
-        : [];
-    }),
+    errors = queries.flatMap((query) => (isReportedReadFailureError(query.state.error) ? [query.state.error] : [])),
     frame = [...frames].sort(
       (a, b) =>
         Number(b.freshness.state === "stale") - Number(a.freshness.state === "stale") ||
         a.cut.revision - b.cut.revision,
     )[0];
   if (!frame && errors.length === 0) return null;
-  const authenticationRequired = errors.some((error) => "code" in error && error.code === "authentication_required"),
+  const authenticationRequired = errors.some((error) => error.code === "authentication_required"),
     hardUnavailable = errors.some(
-      (error) => "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
+      (error) => error.code === "replica_unavailable" || error.code === "authorization_denied",
     ),
     replicaSyncing =
-      !authenticationRequired &&
-      !hardUnavailable &&
-      errors.some((error) => "code" in error && error.code === "replica_syncing"),
+      !authenticationRequired && !hardUnavailable && errors.some((error) => error.code === "replica_syncing"),
+    identityUnavailableOnly =
+      !authenticationRequired && errors.length > 0 && errors.every((error) => isTransientIdentityReadFailure(error)),
     state = authenticationRequired
       ? "authentication-required"
       : replicaSyncing
         ? "syncing"
-        : errors.length > 0
-          ? "unavailable"
-          : frame!.freshness.state,
+        : identityUnavailableOnly
+          ? "identity-unavailable"
+          : errors.length > 0
+            ? "unavailable"
+            : frame!.freshness.state,
     stateLabel = authenticationRequired
       ? t("components.repositoryRead.authenticationRequiredState")
       : replicaSyncing
         ? t("components.repositoryRead.syncingState")
-        : state,
+        : identityUnavailableOnly
+          ? t("components.repositoryRead.identityUnavailableState")
+          : state,
     tone =
       state === "unavailable" || authenticationRequired
         ? "bad"
-        : state === "stale" || replicaSyncing
+        : state === "stale" || replicaSyncing || identityUnavailableOnly
           ? "wait"
           : "neutral";
   return (
@@ -118,6 +116,8 @@ export function RepositoryReadNotice({
         </span>
       ) : replicaSyncing ? (
         <p>{Array.from(new Set(errors.map((error) => error.message))).join(" · ")}</p>
+      ) : identityUnavailableOnly ? (
+        <p>{t("components.repositoryRead.identityUnavailable")}</p>
       ) : errors.length > 0 ? (
         <p>
           {t("components.repositoryRead.unavailable")}{" "}

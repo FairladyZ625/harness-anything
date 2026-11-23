@@ -26,6 +26,8 @@ export interface IdentityAuthenticationContext {
   readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number | null };
   /** Current replica-read request's session was rejected or had reached its local deadline. */
   readonly replicaReadDenied?: boolean;
+  /** Transient identity-provider renewal failure for a still-valid local session; callers must not degrade to anonymous. */
+  readonly sessionUnavailable?: Error & { readonly code?: string };
   /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
   readonly keycloakCenter?: (rejectedAccessToken?: string) => Promise<{
     readonly url: string;

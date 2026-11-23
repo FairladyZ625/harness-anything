@@ -7,6 +7,9 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { forward } from "../src/daemon-host/fleet/forwarding-port.ts";
+import { forwardingIntentForAction } from "../src/daemon-host/fleet/forwarding-intent.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
@@ -17,6 +20,8 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 interface FixtureOptions {
   readonly tokenIssuer?: string;
   readonly legacySession?: boolean;
+  readonly now?: () => number;
+  readonly refreshOutcome?: () => "ok" | "network-timeout" | "http-503" | "invalid_grant";
 }
 
 function fixture(t: TestContext, options: FixtureOptions = {}) {
@@ -48,6 +53,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
   if (options.legacySession) writeFileSync(legacyFile, JSON.stringify({ schema: "harness-oidc-session/v2" }));
   let serial = 0;
   const service = createIdentitySession(userRoot, {
+    ...(options.now ? { now: options.now } : {}),
     loginAuthority: async (target) => {
       const authority = target ? authorities.get(target) : undefined;
       if (!authority) throw new Error(`Unknown login target ${String(target)}.`);
@@ -61,8 +67,17 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
       if (url.pathname.endsWith("/userinfo"))
         return Response.json({ sub: `subject:${url.hostname}`, harness_person_id: `person:${url.hostname}` });
       if (url.pathname.endsWith("/token")) {
-        const body = init?.body as URLSearchParams,
-          accessIssuer =
+        const body = init?.body as URLSearchParams;
+        if (body.get("grant_type") === "refresh_token") {
+          const outcome = options.refreshOutcome?.() ?? "ok";
+          if (outcome === "network-timeout")
+            throw new TypeError("fetch failed", {
+              cause: Object.assign(new Error("connect ETIMEDOUT"), { code: "ETIMEDOUT" }),
+            });
+          if (outcome === "http-503") return new Response(null, { status: 503 });
+          if (outcome === "invalid_grant") return Response.json({ error: "invalid_grant" }, { status: 400 });
+        }
+        const accessIssuer =
             url.origin === "http://edge-token.example.test" && options.tokenIssuer ? options.tokenIssuer : issuer,
           claims = {
             iss: accessIssuer,
@@ -304,4 +319,125 @@ test("an old single-session file is deleted and does not block the first center 
     (await active.service.bind({ transportKind: "unix-socket" }, active.localRoot)).oidcPrincipal?.personId,
     "person:local-token.example.test",
   );
+});
+
+test("transient OIDC renewal unavailability on an edge surfaces oidc_session_unavailable instead of degrading to anonymous authentication_required", async (t) => {
+  let now = Date.now(),
+    refreshOutcome: "ok" | "network-timeout" | "http-503" | "invalid_grant" = "ok";
+  const active = fixture(t, { now: () => now, refreshOutcome: () => refreshOutcome }),
+    repoId = "edge-repo",
+    caPath = path.join(active.userRoot, "center-ca.pem");
+  writeFileSync(caPath, "-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n");
+  mkdirSync(path.join(active.edgeRoot, "harness"), { recursive: true });
+  writeFileSync(path.join(active.edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: active.userRoot,
+    canonicalRoot: active.edgeRoot,
+    repoId,
+    mode: "remote-edge",
+    authoredBranch: "main",
+    createConvenienceLinks: false,
+  });
+  writeFleetEdgeConfig(active.userRoot, repoId, {
+    repoId,
+    host: "127.0.0.1",
+    port: 1,
+    caPath,
+    nodeId: "edge-node",
+    credential: "machine-credential",
+    viewRoot: path.join(active.edgeRoot, "view"),
+    quotaBytes: 100,
+  });
+  await signIn(active.service, active.edgeRoot);
+
+  // Move into the access-token renewal window while the session itself is still valid.
+  now += 3_605_000;
+  refreshOutcome = "network-timeout";
+
+  const auth = { transportKind: "unix-socket" as const },
+    online = await active.service.bind(auth, active.edgeRoot, false);
+  assert.equal(online.oidcPrincipal, undefined);
+  assert.equal(online.sessionUnavailable?.code, "oidc_session_unavailable");
+  assert.throws(() => localDefaultBinding(online), { code: "oidc_session_unavailable" });
+
+  // Offline replica reads keep working seamlessly with the preserved local session.
+  const replica = await active.service.bind(auth, active.edgeRoot, true);
+  assert.equal(replica.replicaReadPrincipal?.personId, "person:edge-token.example.test");
+  assert.equal(replica.sessionUnavailable, undefined);
+  assert.equal(localDefaultBinding(replica, null, true).actor.principal.personId, "person:edge-token.example.test");
+
+  // Center-forwarded operational reads and commands fail fast with oidc_session_unavailable,
+  // never stripping the principal to send an anonymous request that would report authentication_required.
+  for (const method of [
+    "repo.task.dispatches",
+    "repo.events.read",
+    "repo.fleet.overview.read",
+    "repo.policy.metadata.read",
+  ] as const) {
+    await assert.rejects(
+      forward({
+        userRoot: active.userRoot,
+        repoId,
+        intent: { kind: "operational-read", method, inputs: {} },
+        auth,
+        oidc: active.service,
+        runRuntime: async () => ({ ok: true }),
+      }),
+      { code: "oidc_session_unavailable" },
+    );
+  }
+  await assert.rejects(
+    forward({
+      userRoot: active.userRoot,
+      repoId,
+      intent: forwardingIntentForAction("repo.task.create", { kind: "task-create", title: "Offline retry" }),
+      auth,
+      oidc: active.service,
+      runRuntime: async () => ({ ok: true }),
+    }),
+    { code: "oidc_session_unavailable" },
+  );
+
+  // Reachable 503 during renewal must also propagate oidc_session_unavailable (never false authentication_required),
+  // while continuing not to grant an offline replica identity.
+  refreshOutcome = "http-503";
+  const online503 = await active.service.bind(auth, active.edgeRoot, false);
+  assert.equal(online503.sessionUnavailable?.code, "oidc_session_unavailable");
+  const replica503 = await active.service.bind(auth, active.edgeRoot, true);
+  assert.equal(replica503.replicaReadPrincipal, undefined);
+  assert.equal(replica503.sessionUnavailable?.code, "oidc_session_unavailable");
+
+  // Recovery: once IdP connectivity returns, the preserved session renews cleanly without re-login.
+  refreshOutcome = "ok";
+  const recovered = await active.service.bind(auth, active.edgeRoot, false);
+  assert.equal(recovered.sessionUnavailable, undefined);
+  assert.equal(recovered.oidcPrincipal?.personId, "person:edge-token.example.test");
+
+  // Negative control 1: explicit invalid_grant deletes the session and fails closed with authentication_required.
+  now += 3_605_000;
+  refreshOutcome = "invalid_grant";
+  const revoked = await active.service.bind(auth, active.edgeRoot, false);
+  assert.equal(revoked.oidcPrincipal, undefined);
+  assert.equal(revoked.sessionUnavailable, undefined);
+  assert.throws(() => localDefaultBinding(revoked), { code: "authentication_required" });
+  assert.equal(managedRbacSessionStore(active.userRoot, active.edgeIssuer, "harness").read(), undefined);
+
+  // Negative control 2: unsigned request still fails closed with authentication_required.
+  const unsigned = await active.service.bind(auth, active.edgeRoot, false);
+  assert.equal(unsigned.sessionUnavailable, undefined);
+  assert.throws(() => localDefaultBinding(unsigned), { code: "authentication_required" });
+});
+
+test("expired SSO session encountering network error during renewal still fails closed with authentication_required", async (t) => {
+  let now = Date.now(),
+    refreshOutcome: "ok" | "network-timeout" = "ok";
+  const active = fixture(t, { now: () => now, refreshOutcome: () => refreshOutcome }),
+    auth = { transportKind: "unix-socket" as const };
+  await signIn(active.service, active.edgeRoot);
+  now += 22_000_000;
+  refreshOutcome = "network-timeout";
+  const expired = await active.service.bind(auth, active.edgeRoot, false);
+  assert.equal(expired.oidcPrincipal, undefined);
+  assert.equal(expired.sessionUnavailable, undefined);
+  assert.throws(() => localDefaultBinding(expired), { code: "authentication_required" });
 });

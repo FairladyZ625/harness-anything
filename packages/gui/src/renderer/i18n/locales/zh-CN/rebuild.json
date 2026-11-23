@@ -363,6 +363,7 @@
   "collaboration.readError.authorizationDenied": "当前身份未获授权查看舰队拓扑（授权已被收回或从未授予）",
   "collaboration.readError.insufficientScope": "当前身份的权限范围不足以查看舰队拓扑",
   "collaboration.readError.authenticationRequired": "需要先登录账号才能查看舰队拓扑",
+  "collaboration.readError.identityUnavailable": "暂时无法连接认证服务刷新会话，当前已保留本地登录状态，请稍后重试",
   "collaboration.state.fresh": "新鲜",
   "collaboration.state.lag": "落后",
   "collaboration.state.unsynced": "未同步",
