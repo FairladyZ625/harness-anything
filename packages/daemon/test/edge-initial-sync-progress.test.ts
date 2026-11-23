@@ -29,7 +29,10 @@ import {
   validateDaemonProtocolError,
 } from "../src/daemon-host/protocol/daemon-protocol-validate-results.ts";
 
-function createWirePeerPair(): { readonly centerPeer: ReplicationPeer; readonly edgePeer: ReplicationPeer } {
+function createWirePeerPair(onEdgeToCenter?: (frame: ReplicationFrame) => void): {
+  readonly centerPeer: ReplicationPeer;
+  readonly edgePeer: ReplicationPeer;
+} {
   const edgeDecoder = new ReplicationDecoder();
   const centerDecoder = new ReplicationDecoder();
   const toEdge: ReplicationFrame[] = [];
@@ -43,16 +46,36 @@ function createWirePeerPair(): { readonly centerPeer: ReplicationPeer; readonly 
       const next = queue.shift();
       if (next) return next;
       return new Promise<ReplicationFrame>((resolve, reject) => {
-        const waiter = { resolve, reject };
-        signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+        const onAbort = () => {
+          const idx = waiters.indexOf(waiter);
+          if (idx >= 0) waiters.splice(idx, 1);
+          reject(signal?.reason ?? new Error("aborted"));
+        };
+        const waiter = {
+          resolve: (frame: ReplicationFrame) => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve(frame);
+          },
+          reject: (error: unknown) => {
+            signal?.removeEventListener("abort", onAbort);
+            reject(error);
+          },
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
         waiters.push(waiter);
       });
     };
   const makeSend =
-    (decoder: ReplicationDecoder, queue: ReplicationFrame[], waiters: typeof edgeWaiters) =>
+    (
+      decoder: ReplicationDecoder,
+      queue: ReplicationFrame[],
+      waiters: typeof edgeWaiters,
+      hook?: (frame: ReplicationFrame) => void,
+    ) =>
     async (frame: ReplicationFrame): Promise<void> => {
       const wire = serializeReplicationWireFrame(frame);
       const wireBuf = typeof wire === "string" ? Buffer.from(wire) : wire;
+      hook?.(frame);
       for (const decoded of decoder.push(wireBuf)) {
         const waiter = waiters.shift();
         if (waiter) waiter.resolve(decoded);
@@ -61,7 +84,10 @@ function createWirePeerPair(): { readonly centerPeer: ReplicationPeer; readonly 
     };
   return {
     centerPeer: { send: makeSend(edgeDecoder, toEdge, edgeWaiters), receive: makeReceive(toCenter, centerWaiters) },
-    edgePeer: { send: makeSend(centerDecoder, toCenter, centerWaiters), receive: makeReceive(toEdge, edgeWaiters) },
+    edgePeer: {
+      send: makeSend(centerDecoder, toCenter, centerWaiters, onEdgeToCenter),
+      receive: makeReceive(toEdge, edgeWaiters),
+    },
   };
 }
 
@@ -178,37 +204,43 @@ test("walreceiver publishes basebackup, installing, and projecting progress into
   const stagingDir = path.join(viewDir, "staging");
   const observedSteps: string[] = [];
   let installedPosition: ReplicationPosition | null = null;
+  const abort = new AbortController();
 
   const target: ReplicationTarget = {
-    directory: stagingDir,
-    currentPosition: () => installedPosition,
-    installBaseBackup: async () => {
+    position: () => installedPosition,
+    install: async () => {
       const duringInstall = readReplicaHealth(viewDir).syncProgress;
       if (duringInstall) observedSteps.push(duringInstall.step);
+      installedPosition = metadata.position;
     },
-    projectInstalledBackup: async (pos) => {
+    apply: () => undefined,
+    installObject: async () => undefined,
+    project: async () => {
       const duringProject = readReplicaHealth(viewDir).syncProgress;
       if (duringProject) observedSteps.push(duringProject.step);
-      installedPosition = pos;
     },
-    appendEvents: () => {},
   };
 
   const source: ReplicationSource = {
-    repoId: metadata.repoId,
-    history: () => metadata.position.history,
-    headSequence: () => metadata.position.sequence,
-    readEventsAfter: () => [],
-    prepareSnapshot: async () => ({
-      snapshotId: "snap-progress-1",
-      archivePath: archiveFile,
-      sha256,
-      sizeBytes: bytes.byteLength,
+    read: () => null,
+    wait: async () => undefined,
+    acknowledged: async () => undefined,
+    backup: async () => ({
       metadata,
+      file: archiveFile,
+      size: bytes.byteLength,
+      sha256,
+      mode: "monolithic",
+      snapshotId: "snap-progress-1",
+      resumeOffset: 0,
+      release: async () => undefined,
     }),
+    object: async function* () {},
   };
 
-  const pair = createWirePeerPair();
+  const pair = createWirePeerPair((frame) => {
+    if (frame.type === "replica.ack") abort.abort(new Error("done"));
+  });
   let chunkSeen = false;
   const wrappedEdgePeer: ReplicationPeer = {
     send: (frame) => pair.edgePeer.send(frame),
@@ -223,27 +255,32 @@ test("walreceiver publishes basebackup, installing, and projecting progress into
     },
   };
 
-  const abort = new AbortController();
-  const senderPromise = runWalSender({
-    peer: pair.centerPeer,
-    slots,
-    lease,
-    source,
+  await pair.centerPeer.send({
+    type: "replica.accept",
+    centerBuildCommit: "test",
+    taskEventShapeVersion: 1,
     capabilities: [SNAPSHOT_RESUME_CAPABILITY, SNAPSHOT_BINARY_WIRE_CAPABILITY, SNAPSHOT_OBJECT_PACK_CAPABILITY],
-    signal: abort.signal,
-  }).catch(() => {});
+  });
 
-  const receiverPromise = runWalReceiver({
-    peer: wrappedEdgePeer,
-    repoId: metadata.repoId,
-    nodeId: "edge-air",
-    target,
-    capabilities: [SNAPSHOT_RESUME_CAPABILITY, SNAPSHOT_BINARY_WIRE_CAPABILITY, SNAPSHOT_OBJECT_PACK_CAPABILITY],
-    onPositionAcked: () => abort.abort(),
-    signal: abort.signal,
-  }).catch(() => {});
+  await Promise.allSettled([
+    runWalSender({
+      peer: pair.centerPeer,
+      slots,
+      lease,
+      source,
+      signal: abort.signal,
+    }),
+    runWalReceiver({
+      peer: wrappedEdgePeer,
+      repoId: metadata.repoId,
+      target,
+      directory: stagingDir,
+      quotaBytes: 64 * 1024 * 1024,
+      maxBufferedBytes: 1024 * 1024,
+      signal: abort.signal,
+    }),
+  ]);
 
-  await Promise.all([senderPromise, receiverPromise]);
   assert.deepEqual(observedSteps, ["basebackup", "installing", "projecting"]);
   assert.equal(readReplicaHealth(viewDir).syncProgress, null);
 });
