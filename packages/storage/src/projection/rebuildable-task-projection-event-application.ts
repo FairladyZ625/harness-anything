@@ -123,6 +123,7 @@ import {
   replayClaim,
   replayRelease,
   replayRenew,
+  replayStewardshipTransfer,
 } from "./rebuildable-task-projection-runtime.ts";
 import {
   canonicalJson,
@@ -924,6 +925,7 @@ export function applyTaskEvent(
       canonicalJson(edge),
     );
   if (event.type === "execution_started") replayClaim(db, event);
+  if (event.type === "execution_stewardship_transferred") replayStewardshipTransfer(db, event);
   if (event.type === "lease_renewed") replayRenew(db, event);
   if (
     (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||

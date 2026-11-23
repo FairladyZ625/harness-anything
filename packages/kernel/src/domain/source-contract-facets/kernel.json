@@ -482,7 +482,7 @@
         "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionV1:62f4962d3efc52ec879d67b426e9a8e2",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionV1:e45cca57052fa8d8422935c80e8f399f",
             "route": "packages/kernel/src/domain/execution.ts#validateExecutionV1"
           }
         ],
@@ -506,7 +506,7 @@
         "explain": "ExecutionV1: Execution, Submission, Lease and holder codecs; no second lifecycle admission.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseV1:b67ccb4198d40c286befed93563d93a2",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseV1:f26ba8dfeb76201bcee85763f5d5ef0d",
             "route": "packages/kernel/src/domain/execution.ts#validateLeaseV1"
           }
         ],
@@ -2390,7 +2390,7 @@
         "explain": "task-lifecycle-event: Versioned task-lifecycle-event.ts input envelope and declared publication contract.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields:b2a99b1ee466a6b919de2a957279f97b",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields:9e3fe3ec586a1d973bfc9c35a72539a4",
             "route": "packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields"
           }
         ],

@@ -4,7 +4,7 @@ import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
-import { dispatchPeerAction } from "./peer-action.ts";
+import { dispatchPeerAction, enforceTaskActionStewardshipFence } from "./peer-action.ts";
 import { runTaskWitnessAction } from "@harness-anything/application/internal/commands/task-witness-action.ts";
 import { readTaskWitnessRequest } from "./task-witness-request.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
@@ -270,6 +270,7 @@ export function executeRepoAction(
   // Progress has a legacy writer that owns its operation id and document adjudication. Keep that
   // single route when the declaration is catalog-bound so catalog admission does not hash twice or
   // bypass carried document claims.
+  enforceTaskActionStewardshipFence(cell, action, binding);
   if (action.kind === "task-submit") return submitTask(cell, action, binding);
   if (Array.isArray(action.docChanges))
     return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
@@ -290,6 +291,11 @@ export function executeRepoAction(
     const sourceRevision = actionContract.execution.read
       ? cell.projection.readCut().sourceRevision
       : (cell.store.readHead()?.revision ?? 0);
+    if (action.kind === "peer-takeover") {
+      return prepareOrphanRuntimeLeaseRelease(cell, action, binding).then((preparedBinding) =>
+        dispatchPeerAction(cell, action, preparedBinding, sourceRevision),
+      );
+    }
     return dispatchPeerAction(cell, action, binding, sourceRevision);
   }
   if (actionContract?.target.kind === "task" && actionContract.execution) {

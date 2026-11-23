@@ -103,6 +103,36 @@ export function replayClaim(
   );
 }
 
+export function replayStewardshipTransfer(
+  db: DatabaseSync,
+  event: Extract<TaskEventV1, { readonly type: "execution_stewardship_transferred" }>,
+): void {
+  const lease = checkedLease(event.payload.lease, true);
+  prepareQuery(db, UPDATE_LEASE_RELEASE_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(event.workspaceRevision, event.taskId, lease.executionId);
+  prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(event.taskId, canonicalJson({ ...lease, phase: "held" }));
+  prepareQuery(db, INSERT_LEASE_INTERVAL_SQL, (sql) =>
+    /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-runtime.sqlite-database */ db.prepare(
+      sql,
+    ),
+  ).run(
+    event.taskId,
+    lease.executionId,
+    event.workspaceRevision,
+    canonicalJson(holder(lease)),
+    event.payload.previousHolder === null ? null : canonicalJson(event.payload.previousHolder),
+    event.payload.leaseExpiresAt,
+    event.payload.mode === "offline_takeover" ? "ttl_expired_takeover" : "same_principal_reconnect",
+  );
+}
+
 export function replayRenew(db: DatabaseSync, event: Extract<TaskEventV1, { readonly type: "lease_renewed" }>): void {
   const current = storedLease(db, event.taskId),
     renewed = checkedLease(event.payload.lease, true);

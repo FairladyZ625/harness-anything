@@ -18,10 +18,17 @@ export async function prepareOrphanRuntimeLeaseRelease(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<RepoCellBinding> {
-  if (action.kind !== "task-release" || action.forceTakeover !== true || typeof action.taskId !== "string")
-    return binding;
+  const isTaskRelease =
+    action.kind === "task-release" && action.forceTakeover === true && typeof action.taskId === "string";
+  const isPeerTakeover =
+    action.kind === "peer-takeover" &&
+    typeof action.targetId === "string" &&
+    typeof action.reason === "string" &&
+    action.reason.trim().length > 0;
+  if (!isTaskRelease && !isPeerTakeover) return binding;
+  const targetTaskId = isTaskRelease ? (action.taskId as string) : (action.targetId as string);
   const reason = cell.requiredCellText(action.reason, "reason").trim(),
-    lease = cell.projection.read(action.taskId).snapshot.lease;
+    lease = cell.projection.read(targetTaskId).snapshot.lease;
   if (!lease || lease.actor.principal.personId === binding.actor.principal.personId) return binding;
   const runtimeSessionId = runtimeSessionIdFromActor(lease.actor);
   if (!runtimeSessionId) return binding;

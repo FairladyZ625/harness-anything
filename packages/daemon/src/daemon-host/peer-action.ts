@@ -1,6 +1,28 @@
 import { createHash, randomBytes } from "node:crypto";
-import { type CanonicalContentBlob, type CanonicalWriteBundle, type WriteReceiptDraft } from "@harness-anything/kernel";
 import {
+  isNativeExecution,
+  taskLifecycleWritePlan,
+  type CanonicalContentBlob,
+  type CanonicalWriteBundle,
+  type ExecutionV1,
+  type LeaseV1,
+  type TaskV2,
+  type WriteReceiptDraft,
+} from "@harness-anything/kernel";
+import {
+  executionStewardshipEpoch,
+  type ExecutionWipCheckpointV1,
+} from "@harness-anything/kernel/internal/domain/execution.ts";
+import {
+  compileExecutionStewardshipTransferred,
+  compileExecutionWipCheckpointed,
+} from "@harness-anything/kernel/internal/domain/task-lifecycle-replay.ts";
+import type {
+  ExecutionStewardshipTransferredEvent,
+  ExecutionWipCheckpointedEvent,
+} from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
+import {
+  assertExecutionStewardshipFence,
   classifyPeerIntentRiskTier,
   compilePeerRequestAnswered,
   compilePeerRequestClaimed,
@@ -8,6 +30,8 @@ import {
   compilePeerRequestOpened,
   compilePeerRequestPromoted,
   compilePeerRequestRejected,
+  DEFAULT_OFFLINE_TAKEOVER_THRESHOLD_MS,
+  evaluateOfflineTakeoverAdmission,
   evaluatePeerExecutionCeiling,
   isPeerFrameCausallyReady,
   matchesPeerWatchFilter,
@@ -32,13 +56,103 @@ import { canonicalEventWritePlan } from "@harness-anything/kernel/internal/ports
 import { reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 import { applyPreparedTaskCreate, prepareTaskCreateAt, type PreparedTaskCreate } from "./repo-cell-task-create.ts";
 import type { RepoCellBinding, RepoCellOperationalContext, RepoTaskAction } from "./repo-cell-types.ts";
-import { prepareHandoffBundle, type PreparedHandoffBundle } from "./peer-handoff-bundle.ts";
+import {
+  materializeHandoffBundle,
+  prepareHandoffBundle,
+  type MaterializedHandoffBundle,
+  type PreparedHandoffBundle,
+} from "./peer-handoff-bundle.ts";
 
 const DEFAULT_CLAIM_LEASE_MS = 5 * 60_000;
+const DEFAULT_HANDOFF_LEASE_TTL_MS = 30 * 60_000;
+const STEWARD_FENCED_TASK_ACTIONS = new Set([
+  "task-start",
+  "task-submit",
+  "task-progress-append",
+  "task-release",
+  "task-annotate",
+  "task-attest",
+  "task-declare-executor",
+  "task-settle",
+  "task-respond-review",
+]);
 
 export interface PeerActionExecutionOptions {
   readonly preparedHandoff?: PreparedHandoffBundle;
   readonly fleetStreamConnected?: boolean;
+}
+
+function activeExecutionForTask(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+): { readonly task: TaskV2; readonly execution: ExecutionV1; readonly snapshotLease: LeaseV1 | null } {
+  const read = cell.projection.read(taskId);
+  const task = read.snapshot.task;
+  if (!task) reject("entity_not_found", `Task ${taskId} does not exist.`);
+  const execution = read.snapshot.executions.findLast(
+    (entry): entry is ExecutionV1 =>
+      isNativeExecution(entry) &&
+      entry.iteration === task!.iteration &&
+      (entry.state === "active" || entry.state === "changes_requested"),
+  );
+  if (!execution) {
+    reject(
+      "invalid_transition",
+      `Task ${taskId} has no active Execution on iteration ${String(task!.iteration)} to transfer or checkpoint.`,
+    );
+  }
+  return { task: task!, execution: execution!, snapshotLease: read.snapshot.lease };
+}
+
+function buildTaskEventBundle(
+  event: ExecutionStewardshipTransferredEvent | ExecutionWipCheckpointedEvent,
+): CanonicalWriteBundle {
+  return {
+    event,
+    plan: taskLifecycleWritePlan(event),
+    blobs: [],
+  };
+}
+
+/** Reject stale-epoch or superseded-steward writes with structured `execution_handed_off`. */
+export function enforceTaskActionStewardshipFence(
+  cell: Pick<RepoCellOperationalContext, "projection">,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): void {
+  if (!STEWARD_FENCED_TASK_ACTIONS.has(action.kind)) return;
+  const taskId = typeof action.taskId === "string" && action.taskId.trim().length > 0 ? action.taskId.trim() : null;
+  if (!taskId) return;
+  const read = cell.projection.read(taskId);
+  const task = read.snapshot.task;
+  if (!task) return;
+  const requestedExecId =
+    typeof action.executionId === "string" && action.executionId.trim().length > 0 ? action.executionId.trim() : null;
+  const targetExecution = read.snapshot.executions.findLast(
+    (entry): entry is ExecutionV1 =>
+      isNativeExecution(entry) &&
+      (requestedExecId !== null
+        ? entry.executionId === requestedExecId
+        : entry.iteration === task.iteration && (entry.state === "active" || entry.state === "changes_requested")),
+  );
+  if (!targetExecution) return;
+  const expectedStewardshipEpoch = typeof action.stewardshipEpoch === "number" ? action.stewardshipEpoch : undefined;
+  const actingNodeId =
+    typeof action.nodeId === "string" && action.nodeId.trim().length > 0
+      ? action.nodeId.trim()
+      : binding.source !== "local" && typeof binding.source === "object" && "nodeId" in binding.source
+        ? String(binding.source.nodeId)
+        : undefined;
+  const verdict = assertExecutionStewardshipFence({
+    executionId: targetExecution.executionId,
+    currentStewardshipEpoch: executionStewardshipEpoch(targetExecution),
+    currentStewardPersonId: targetExecution.actor.principal.personId,
+    ...(targetExecution.stewardNodeId ? { currentStewardNodeId: targetExecution.stewardNodeId } : {}),
+    actingPersonId: binding.actor.principal.personId,
+    ...(actingNodeId ? { actingNodeId } : {}),
+    ...(expectedStewardshipEpoch !== undefined ? { expectedStewardshipEpoch } : {}),
+  });
+  if (!verdict.ok) reject(verdict.errorCode, verdict.message);
 }
 
 function requiredString(value: unknown, label: string): string {
@@ -430,7 +544,7 @@ export function runPeerAction(
     }
 
     const batch: CanonicalWriteBundle[] = [];
-    let state = current;
+    let state: PeerRequestV1 = current;
     let nextWorkspaceRev = head;
     const claimActive =
       state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
@@ -568,7 +682,7 @@ export function runPeerAction(
     }
 
     const batch: CanonicalWriteBundle[] = [];
-    let state = current;
+    let state: PeerRequestV1 = current;
     let nextWorkspaceRev = head;
     const claimActive =
       state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
@@ -633,6 +747,363 @@ export function runPeerAction(
     };
   }
 
+  if (action.kind === "peer-accept-handoff") {
+    if (action.fleetStreamConnected === false || options?.fleetStreamConnected === false) {
+      reject(
+        "peer_replication_disconnected",
+        "Fleet replication stream (7545) is disconnected; peer accept-handoff fails closed until reconnected.",
+      );
+    }
+    const requestId = requiredString(action.requestId, "<request-id>");
+    const current = findPeerRequest(cell, requestId);
+    if (current.kind !== "handoff") {
+      reject("peer_request_transition_invalid", `PeerRequest ${requestId} is kind=${current.kind}, not handoff.`);
+    }
+    if (current.to.personId !== personId) {
+      reject("peer_request_recipient_mismatch", `Only ${current.to.personId} may accept handoff ${requestId}.`);
+    }
+    if (current.state !== "OPEN" && current.state !== "CLAIMED") {
+      reject("peer_request_transition_invalid", `PeerRequest ${requestId} is already ${current.state}.`);
+    }
+    const rawAnchor = current.continuationPacket?.anchorRef ?? current.anchorRef;
+    const taskId = rawAnchor?.startsWith("task/") ? rawAnchor.slice("task/".length) : rawAnchor;
+    if (!taskId) {
+      reject("invalid_field", `Handoff PeerRequest ${requestId} is missing a task anchorRef.`);
+    }
+    const { task, execution, snapshotLease } = activeExecutionForTask(cell, taskId!);
+    const previousEpoch = executionStewardshipEpoch(execution);
+    const nextEpoch = previousEpoch + 1;
+    const stewardNodeId = optionalString(action.nodeId) ?? cell.input.repoId;
+    const ttlMs =
+      typeof action.ttlMs === "number" && Number.isSafeInteger(action.ttlMs) && action.ttlMs >= 1_000
+        ? action.ttlMs
+        : DEFAULT_HANDOFF_LEASE_TTL_MS;
+    const expiresAt = new Date(Date.parse(now) + ttlMs).toISOString();
+    const liveLease = cell.projection.currentLease(taskId!, now) ?? snapshotLease;
+    const previousHolder = liveLease
+      ? { taskId: taskId!, executionId: liveLease.executionId, actor: liveLease.actor, source: liveLease.source }
+      : null;
+    const nextLeaseVersion = (liveLease?.version ?? 0) + 1;
+    const packet = current.continuationPacket;
+    const nextWipCheckpoint: ExecutionWipCheckpointV1 | undefined = packet?.wipCommitSha
+      ? {
+          commitSha: packet.wipCommitSha,
+          ...(packet.wipBundleBlobSha256 ? { bundleBlobSha256: packet.wipBundleBlobSha256 } : {}),
+          receiptRefs: [...packet.verifiedReceipts],
+          recordedAt: now,
+          stewardshipEpoch: nextEpoch,
+        }
+      : execution.wipCheckpoint;
+    const nextExecution: ExecutionV1 = {
+      ...execution,
+      actor: binding.actor,
+      stewardshipEpoch: nextEpoch,
+      stewardNodeId,
+      ...(nextWipCheckpoint ? { wipCheckpoint: nextWipCheckpoint } : {}),
+    };
+    const nextLease: LeaseV1 = {
+      schema: "lease/v1",
+      taskId: taskId!,
+      executionId: execution.executionId,
+      actor: binding.actor,
+      source: binding.source,
+      phase: "held",
+      expiresAt,
+      ttlMs,
+      version: nextLeaseVersion,
+      stewardshipEpoch: nextEpoch,
+    };
+    const nextTask: TaskV2 = task.status === "active" ? task : { ...task, status: "active" };
+
+    const batch: CanonicalWriteBundle[] = [];
+    let nextWorkspaceRev = head + 1;
+    const transferEvent = compileExecutionStewardshipTransferred(
+      {
+        eventId: `event-${opId}-transfer`,
+        workspaceRevision: nextWorkspaceRev,
+        opId: `${opId}-transfer`,
+        taskId: taskId!,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
+        task: nextTask,
+        execution: nextExecution,
+        lease: nextLease,
+        previousHolder,
+        previousStewardshipEpoch: previousEpoch,
+        stewardshipEpoch: nextEpoch,
+        mode: "accept_handoff",
+        peerRequestId: requestId,
+        reason: `Accepted peer handoff ${requestId} from ${current.from.personId}`,
+        leaseExpiresAt: expiresAt,
+      },
+    );
+    batch.push(buildTaskEventBundle(transferEvent));
+
+    let state: PeerRequestV1 = current;
+    const claimActive =
+      state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
+    if (!claimActive) {
+      nextWorkspaceRev += 1;
+      const claimExpiresAt = new Date(Date.parse(now) + DEFAULT_CLAIM_LEASE_MS).toISOString();
+      const claimEvent = compilePeerRequestClaimed(
+        {
+          eventId: `event-${opId}-claim`,
+          workspaceRevision: nextWorkspaceRev,
+          opId: `${opId}-claim`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
+        { requestId, requestRevision: state.revision + 1, expiresAt: claimExpiresAt },
+      );
+      state = reducePeerRequestEvent(state, claimEvent);
+      batch.push(buildPeerEventBundle(claimEvent, requestId));
+    }
+
+    nextWorkspaceRev += 1;
+    const doneEvent = compilePeerRequestDone(
+      {
+        eventId: `event-${opId}-done`,
+        workspaceRevision: nextWorkspaceRev,
+        opId: `${opId}-done`,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      { requestId, requestRevision: state.revision + 1, claimId: state.claim!.claimId },
+    );
+    state = reducePeerRequestEvent(state, doneEvent);
+    batch.push(buildPeerEventBundle(doneEvent, requestId));
+
+    const inboxRevision = nextWorkspaceRev + 1;
+    batch.push(
+      buildInboxEnqueueBundle({
+        opId,
+        workspaceRevision: inboxRevision,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+        payload: {
+          inboxId: `person:${current.from.personId}`,
+          itemId: `peer-reply-${requestId}-${state.revision}`,
+          source: "peer_reply",
+          sourceRef: requestId,
+          sourceEpoch: state.revision,
+          dedupeKey: inboxDedupeKey({ source: "peer_reply", sourceRef: requestId, sourceEpoch: state.revision }),
+          admission: "dispatchable",
+          consumerKind: "interactive_watch",
+          taskId: taskId!,
+          agentId: null,
+          senderPersonId: personId,
+          workId: current.to.workId ?? null,
+          lane: current.to.lane ?? null,
+          correlationId: requestId,
+          minRevision: inboxRevision,
+          requiredBlobSha256s: [],
+          summary: `Handoff accepted for ${execution.executionId} (stewardshipEpoch=${nextEpoch})`,
+          enqueuedAt: now,
+        },
+      }),
+    );
+
+    commitBatch(cell, batch);
+    return {
+      ...cell.readResult(
+        opId,
+        {
+          request: state,
+          taskId: taskId!,
+          executionId: nextExecution.executionId,
+          stewardshipEpoch: nextEpoch,
+          stewardNodeId,
+          deliveryBaseline: nextExecution.deliveryBaseline ?? null,
+          lease: nextLease,
+          ...(packet?.wipBundleBlobSha256 ? { wipBundleBlobSha256: packet.wipBundleBlobSha256 } : {}),
+          ...(packet?.wipCommitSha ? { wipCommitSha: packet.wipCommitSha } : {}),
+        },
+        inboxRevision,
+        null,
+      ),
+      authorizationDecision: binding.authorizationDecision,
+    };
+  }
+
+  if (action.kind === "peer-takeover") {
+    const taskId = requiredString(action.targetId, "<target-id>");
+    const reason = requiredString(action.reason, "--reason");
+    const { task, execution, snapshotLease } = activeExecutionForTask(cell, taskId);
+    const liveLease = cell.projection.currentLease(taskId, now) ?? snapshotLease;
+    const holderNodeOnline =
+      typeof action.holderNodeOnline === "boolean"
+        ? action.holderNodeOnline
+        : liveLease !== null && liveLease.phase === "held";
+    const disconnectedForMs =
+      typeof action.disconnectedForMs === "number"
+        ? action.disconnectedForMs
+        : liveLease !== null && liveLease.phase === "orphaned"
+          ? Math.max(0, Date.parse(now) - Date.parse(liveLease.expiresAt))
+          : null;
+    const verdict = evaluateOfflineTakeoverAdmission({
+      fleetStreamConnected: action.fleetStreamConnected !== false && options?.fleetStreamConnected !== false,
+      hasWritePermission: binding.authorizationDecision?.outcome === "allowed",
+      holderNodeOnline,
+      disconnectedForMs,
+      ...(typeof action.thresholdMs === "number" ? { takeoverThresholdMs: action.thresholdMs } : {}),
+      humanConfirmed: action.humanConfirmed === true,
+    });
+    if (!verdict.allowed) {
+      reject(verdict.errorCode, verdict.message);
+    }
+
+    const previousEpoch = executionStewardshipEpoch(execution);
+    const nextEpoch = previousEpoch + 1;
+    const stewardNodeId = optionalString(action.nodeId) ?? cell.input.repoId;
+    const ttlMs =
+      typeof action.ttlMs === "number" && Number.isSafeInteger(action.ttlMs) && action.ttlMs >= 1_000
+        ? action.ttlMs
+        : DEFAULT_HANDOFF_LEASE_TTL_MS;
+    const expiresAt = new Date(Date.parse(now) + ttlMs).toISOString();
+    const previousHolder = liveLease
+      ? { taskId, executionId: liveLease.executionId, actor: liveLease.actor, source: liveLease.source }
+      : null;
+    const nextLeaseVersion = (liveLease?.version ?? 0) + 1;
+    const nextExecution: ExecutionV1 = {
+      ...execution,
+      actor: binding.actor,
+      stewardshipEpoch: nextEpoch,
+      stewardNodeId,
+    };
+    const nextLease: LeaseV1 = {
+      schema: "lease/v1",
+      taskId,
+      executionId: execution.executionId,
+      actor: binding.actor,
+      source: binding.source,
+      phase: "held",
+      expiresAt,
+      ttlMs,
+      version: nextLeaseVersion,
+      stewardshipEpoch: nextEpoch,
+    };
+    const nextTask: TaskV2 = task.status === "active" ? task : { ...task, status: "active" };
+    const nextWorkspaceRev = head + 1;
+    const transferEvent = compileExecutionStewardshipTransferred(
+      {
+        eventId: `event-${opId}`,
+        workspaceRevision: nextWorkspaceRev,
+        opId,
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
+        task: nextTask,
+        execution: nextExecution,
+        lease: nextLease,
+        previousHolder,
+        previousStewardshipEpoch: previousEpoch,
+        stewardshipEpoch: nextEpoch,
+        mode: "offline_takeover",
+        reason,
+        leaseExpiresAt: expiresAt,
+        ...(binding.orphanRecovery?.audit ? { orphanRecovery: binding.orphanRecovery.audit } : {}),
+      },
+    );
+    commitBatch(cell, [buildTaskEventBundle(transferEvent)]);
+    return {
+      ...cell.readResult(
+        opId,
+        {
+          taskId,
+          executionId: nextExecution.executionId,
+          previousStewardshipEpoch: previousEpoch,
+          stewardshipEpoch: nextEpoch,
+          stewardNodeId,
+          deliveryBaseline: nextExecution.deliveryBaseline ?? null,
+          lease: nextLease,
+          thresholdMs: verdict.thresholdMs ?? DEFAULT_OFFLINE_TAKEOVER_THRESHOLD_MS,
+          ...(binding.orphanRecovery?.audit ? { orphanRecovery: binding.orphanRecovery.audit } : {}),
+        },
+        nextWorkspaceRev,
+        null,
+      ),
+      authorizationDecision: binding.authorizationDecision,
+    };
+  }
+
+  if (action.kind === "peer-checkpoint") {
+    const taskId = requiredString(action.targetId, "<target-id>");
+    const { task, execution } = activeExecutionForTask(cell, taskId);
+    const currentEpoch = executionStewardshipEpoch(execution);
+    const fence = assertExecutionStewardshipFence({
+      executionId: execution.executionId,
+      currentStewardshipEpoch: currentEpoch,
+      currentStewardPersonId: execution.actor.principal.personId,
+      ...(execution.stewardNodeId ? { currentStewardNodeId: execution.stewardNodeId } : {}),
+      actingPersonId: personId,
+      ...(optionalString(action.nodeId) ? { actingNodeId: optionalString(action.nodeId) } : {}),
+      ...(typeof action.stewardshipEpoch === "number" ? { expectedStewardshipEpoch: action.stewardshipEpoch } : {}),
+    });
+    if (!fence.ok) reject(fence.errorCode, fence.message);
+
+    const bundle = options?.preparedHandoff;
+    const commitSha =
+      bundle?.wipCommitSha ?? optionalString(action.wipCommitSha) ?? "0000000000000000000000000000000000000000";
+    const receiptRef = optionalString(action.receiptRef);
+    const receiptRefs = receiptRef
+      ? [receiptRef]
+      : Array.isArray(action.receiptRefs)
+        ? (action.receiptRefs as string[])
+        : [];
+    const checkpoint: ExecutionWipCheckpointV1 = {
+      commitSha,
+      ...(bundle?.bundleSha256 ? { bundleBlobSha256: bundle.bundleSha256 } : {}),
+      receiptRefs,
+      recordedAt: now,
+      stewardshipEpoch: currentEpoch,
+    };
+    const nextExecution: ExecutionV1 = {
+      ...execution,
+      wipCheckpoint: checkpoint,
+    };
+    const nextWorkspaceRev = head + 1;
+    const checkpointEvent = compileExecutionWipCheckpointed(
+      {
+        eventId: `event-${opId}`,
+        workspaceRevision: nextWorkspaceRev,
+        opId,
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
+        task,
+        execution: nextExecution,
+        checkpoint,
+      },
+    );
+    commitBatch(cell, [buildTaskEventBundle(checkpointEvent)]);
+    return {
+      ...cell.readResult(
+        opId,
+        {
+          taskId,
+          executionId: nextExecution.executionId,
+          stewardshipEpoch: currentEpoch,
+          checkpoint,
+        },
+        nextWorkspaceRev,
+        null,
+      ),
+      authorizationDecision: binding.authorizationDecision,
+    };
+  }
+
   reject("unsupported_command", `Unsupported peer action: ${action.kind}.`);
 }
 
@@ -661,6 +1132,44 @@ export function dispatchPeerAction(
       ...(typeof action.wipCommitSha === "string" ? { explicitCommitSha: action.wipCommitSha } : {}),
       ...(typeof action.bundlePath === "string" ? { explicitBundlePath: action.bundlePath } : {}),
     }).then((preparedHandoff) => execute(preparedHandoff));
+  }
+  if (action.kind === "peer-checkpoint" && typeof action.targetId === "string" && action.targetId.trim().length > 0) {
+    return prepareHandoffBundle({
+      rootDir: cell.rootDir,
+      targetId: action.targetId.trim(),
+      ...(typeof action.wipCommitSha === "string" ? { explicitCommitSha: action.wipCommitSha } : {}),
+      ...(typeof action.bundlePath === "string" ? { explicitBundlePath: action.bundlePath } : {}),
+    }).then((preparedHandoff) => execute(preparedHandoff));
+  }
+  if (action.kind === "peer-takeover") {
+    return execute();
+  }
+  if (action.kind === "peer-accept-handoff" && action.materializeWorktree === true) {
+    return Promise.resolve(execute()).then(async (receipt): Promise<WriteReceiptDraft> => {
+      if (receipt.outcome !== "applied" || typeof receipt.evidence !== "string") return receipt;
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(receipt.evidence) as Record<string, unknown>;
+      } catch {
+        return receipt;
+      }
+      const sha = typeof payload.wipBundleBlobSha256 === "string" ? payload.wipBundleBlobSha256 : null;
+      const commitSha = typeof payload.wipCommitSha === "string" ? payload.wipCommitSha : null;
+      const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
+      if (sha && commitSha && taskId) {
+        const blob = cell.store.readContentBlob(bareSha256(sha));
+        if (blob) {
+          const materialized: MaterializedHandoffBundle = await materializeHandoffBundle({
+            rootDir: cell.rootDir,
+            targetId: taskId,
+            bundleBytes: blob,
+            wipCommitSha: commitSha,
+          });
+          return { ...receipt, evidence: JSON.stringify({ ...payload, materialized }) };
+        }
+      }
+      return receipt;
+    });
   }
   return execute();
 }

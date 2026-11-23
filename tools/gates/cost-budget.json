@@ -864,10 +864,13 @@
         },
         {
           "actions": [
+            "peer-accept-handoff",
             "peer-ask",
+            "peer-checkpoint",
             "peer-handoff",
             "peer-promote",
-            "peer-reply"
+            "peer-reply",
+            "peer-takeover"
           ],
           "reason": "peer collaboration writes append one bounded PeerRequest event plus one interactive_watch Inbox wakeup; no history collection is traversed."
         },

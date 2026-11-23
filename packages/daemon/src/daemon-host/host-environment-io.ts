@@ -119,14 +119,14 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
 }
 
 /** Atomically write a single caller-specified export artifact file, creating parent directories if needed. */
-export async function writeCallerOutputFile(filePath: string, contents: string): Promise<void> {
+export async function writeCallerOutputFile(filePath: string, contents: string | Uint8Array): Promise<void> {
   const dir = path.dirname(filePath);
   await mkdir(dir, { recursive: true });
   const temporary = path.join(dir, `.${path.basename(filePath)}.${randomUUID()}.tmp`);
   const handle = await open(temporary, "wx", 0o600);
   let published = false;
   try {
-    await writeFile(handle, contents, "utf8").finally(() => handle.close());
+    await writeFile(handle, contents, typeof contents === "string" ? "utf8" : undefined).finally(() => handle.close());
     await rename(temporary, filePath);
     published = true;
   } finally {

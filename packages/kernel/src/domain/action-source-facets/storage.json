@@ -973,6 +973,27 @@
         "order": 128
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayStewardshipTransfer:2ed4f2d9b30bc1da50ebf496a2425d26",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run",
+        "order": 128
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayStewardshipTransfer:5d477206a67cd11c6190d54205a776f0",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run",
+        "order": 127
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#replayStewardshipTransfer:8b55f90f5fa2e3c53a6b2513abdcb955",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/sqlite.d.ts#node:sqlite.StatementSync.run",
+        "order": 128
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/projection/rebuildable-task-projection-runtime.ts#reserve:ad21e4635fa1bc9a508793f848ad8299",
         "route": "daemon-local-state",
         "role": "technical-port",

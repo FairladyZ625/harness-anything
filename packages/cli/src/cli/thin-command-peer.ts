@@ -10,6 +10,9 @@ export const peerRouteParsers: readonly (readonly [string, typeof parsePeer])[] 
   ["peer-inbox", parsePeer],
   ["peer-promote", parsePeer],
   ["peer-handoff", parsePeer],
+  ["peer-accept-handoff", parsePeer],
+  ["peer-takeover", parsePeer],
+  ["peer-checkpoint", parsePeer],
 ];
 
 export function parsePeer(
@@ -20,8 +23,17 @@ export function parsePeer(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const hasPositional = route.id === "peer-reply" || route.id === "peer-promote" || route.id === "peer-handoff";
-  const field = route.id === "peer-handoff" ? "targetId" : "requestId";
+  const hasPositional =
+    route.id === "peer-reply" ||
+    route.id === "peer-promote" ||
+    route.id === "peer-handoff" ||
+    route.id === "peer-accept-handoff" ||
+    route.id === "peer-takeover" ||
+    route.id === "peer-checkpoint";
+  const field =
+    route.id === "peer-handoff" || route.id === "peer-takeover" || route.id === "peer-checkpoint"
+      ? "targetId"
+      : "requestId";
   const positional = hasPositional ? { [field]: args[2] } : {};
   if (hasPositional && !nonEmpty(args[2])) return rejected("missing_field", `Use ${route.usage}.`, json);
   return parseProjected(

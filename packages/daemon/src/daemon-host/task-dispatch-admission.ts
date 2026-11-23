@@ -65,3 +65,26 @@ export function taskDispatchLeaseQualifies(
       (lease.actor.executor === null && !callerIsRuntimeSession))
   );
 }
+
+/** Fence implementation worker dispatch when active Execution stewardship moved to another principal. */
+export function enforceRuntimeSpawnStewardshipFence(
+  taskSnapshot: ReturnType<TaskProjection["read"]>["snapshot"] | null,
+  reviewerBinding: boolean,
+  actor: ActorIdentity,
+): void {
+  if (!taskSnapshot || reviewerBinding) return;
+  const actingPersonId = actor.principal.personId;
+  const activeExec = taskSnapshot.executions.findLast(
+    (entry): entry is Extract<typeof entry, { readonly schema: "execution/v1" }> =>
+      entry.schema === "execution/v1" &&
+      entry.iteration === taskSnapshot.task?.iteration &&
+      (entry.state === "active" || entry.state === "changes_requested"),
+  );
+  if (activeExec && (activeExec.stewardshipEpoch ?? 1) > 1 && activeExec.actor.principal.personId !== actingPersonId) {
+    throw runtimeSpawnError(
+      "execution_handed_off",
+      `Execution ${activeExec.executionId} was handed off to ${activeExec.actor.principal.personId} ` +
+        `at stewardshipEpoch ${String(activeExec.stewardshipEpoch)}; dispatch from ${actingPersonId} is fenced.`,
+    );
+  }
+}

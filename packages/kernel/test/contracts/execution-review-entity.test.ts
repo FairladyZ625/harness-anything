@@ -189,6 +189,8 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
       payloadField: "execution",
       types: [
         "execution_started",
+        "execution_stewardship_transferred",
+        "execution_wip_checkpointed",
         "lease_renewed",
         "execution_submitted",
         "submission_forwarded",

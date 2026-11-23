@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalContentBlob } from "@harness-anything/kernel";
-import { createHostScratchDirectory } from "./host-environment-io.ts";
+import { createHostScratchDirectory, writeCallerOutputFile } from "./host-environment-io.ts";
 import { runProcessExitAsync } from "./process-port.ts";
 
 export interface PreparedHandoffBundle {
@@ -68,6 +68,43 @@ export async function prepareHandoffBundle(input: {
       bundleSha256: `sha256:${hex}`,
       bundleSize: bytes.byteLength,
     };
+  } finally {
+    scratch.close();
+  }
+}
+
+export interface MaterializedHandoffBundle {
+  readonly materialized: boolean;
+  readonly gitDir: string;
+  readonly commitSha: string;
+}
+
+/** Materialize a content-addressed git bundle blob into the receiver's local worktree/repo. */
+export async function materializeHandoffBundle(input: {
+  readonly rootDir: string;
+  readonly targetId: string;
+  readonly bundleBytes: Uint8Array;
+  readonly wipCommitSha: string;
+}): Promise<MaterializedHandoffBundle> {
+  const worktreeDir = path.join(input.rootDir, ".worktrees", input.targetId);
+  const gitDir = existsSync(worktreeDir) ? worktreeDir : input.rootDir;
+  if (!existsSync(path.join(gitDir, ".git"))) {
+    return { materialized: false, gitDir, commitSha: input.wipCommitSha };
+  }
+  const scratch = createHostScratchDirectory("peerHandoffBundle");
+  const bundleFile = path.join(scratch.directory, `${input.targetId}.bundle`);
+  try {
+    await writeCallerOutputFile(bundleFile, input.bundleBytes);
+    const unbundled = await runProcessExitAsync(
+      "git",
+      ["bundle", "unbundle", bundleFile],
+      gitDir,
+      undefined,
+      undefined,
+      undefined,
+      { timeoutMs: 15_000 },
+    );
+    return { materialized: unbundled.exitCode === 0, gitDir, commitSha: input.wipCommitSha };
   } finally {
     scratch.close();
   }

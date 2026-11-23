@@ -2830,7 +2830,7 @@
         "order": 3
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#writeCallerOutputFile:5aaa157fa2d3b319d38f729c5da71f4c",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-environment-io.ts#writeCallerOutputFile:5902309dd1eaac79e58628bc862e9e8d",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/fs/promises.d.ts#fs/promises.writeFile",
@@ -6562,6 +6562,14 @@
         "order": 424
       }
     ],
+    "peer-accept-handoff": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2:2",
+        "route": "peer-accept-handoff",
+        "role": "effect",
+        "order": 1
+      }
+    ],
     "peer-ask": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#commitBatch:3026cfab2e7274a19f0149669c0d0919",
@@ -6574,6 +6582,14 @@
         "route": "peer-ask",
         "role": "effect",
         "order": 2
+      }
+    ],
+    "peer-checkpoint": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:c7fea9ced024d293674c16207b62d9f6:2",
+        "route": "peer-checkpoint",
+        "role": "effect",
+        "order": 1
       }
     ],
     "peer-handoff": [
@@ -6598,7 +6614,7 @@
     ],
     "peer-promote": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2:3",
         "route": "peer-promote",
         "role": "effect",
         "order": 1
@@ -6608,6 +6624,14 @@
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction.execute:db744652bb1541da2384953ce4ca28b1",
         "route": "peer-reply",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "peer-takeover": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2",
+        "route": "peer-takeover",
         "role": "effect",
         "order": 1
       }

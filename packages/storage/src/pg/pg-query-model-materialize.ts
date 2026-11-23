@@ -332,6 +332,30 @@ export async function materializePgQueryModels(
         } satisfies LeaseInterval,
         event.taskId,
       );
+    } else if (event.type === "execution_stewardship_transferred") {
+      const lease = event.payload.lease;
+      for (const interval of await openIntervals(lease.executionId))
+        await put(
+          "lease-interval",
+          String(interval.acquiredRevision),
+          { ...interval, releasedRevision: revision },
+          event.taskId,
+        );
+      await put(
+        "lease-interval",
+        String(revision),
+        {
+          taskId: event.taskId,
+          executionId: lease.executionId,
+          acquiredRevision: revision,
+          releasedRevision: null,
+          holder: { taskId: lease.taskId, executionId: lease.executionId, actor: lease.actor, source: lease.source },
+          previousHolder: event.payload.previousHolder,
+          leaseExpiresAt: event.payload.leaseExpiresAt,
+          reason: event.payload.mode === "offline_takeover" ? "ttl_expired_takeover" : "same_principal_reconnect",
+        } satisfies LeaseInterval,
+        event.taskId,
+      );
     } else if (event.type === "lease_renewed") {
       for (const interval of await openIntervals(event.payload.lease.executionId))
         await put(

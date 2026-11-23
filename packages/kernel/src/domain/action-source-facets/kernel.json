@@ -755,7 +755,13 @@
       },
       "technical": true
     },
+    "peer-accept-handoff": {
+      "owner": "peer-request"
+    },
     "peer-ask": {
+      "owner": "peer-request"
+    },
+    "peer-checkpoint": {
       "owner": "peer-request"
     },
     "peer-handoff": {
@@ -765,6 +771,9 @@
       "owner": "peer-request"
     },
     "peer-reply": {
+      "owner": "peer-request"
+    },
+    "peer-takeover": {
       "owner": "peer-request"
     },
     "people-delegate": {

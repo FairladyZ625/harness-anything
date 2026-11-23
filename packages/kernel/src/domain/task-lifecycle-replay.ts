@@ -11,7 +11,13 @@ import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, supersededTaskState, validateTaskEvent } from "./task-lifecycle-event.ts";
-import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
+import type {
+  ExecutionAnnotatedEvent,
+  ExecutionExecutorDeclaredEvent,
+  ExecutionStewardshipTransferredEvent,
+  ExecutionWipCheckpointedEvent,
+  TaskEventV1,
+} from "./task-lifecycle-event.ts";
 import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
 import type { MigrationImportEventV1 } from "./migration-import-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
@@ -339,6 +345,34 @@ export function compileExecutionAnnotation(input: {
     });
   return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
 }
+export function compileExecutionStewardshipTransferred(
+  meta: {
+    readonly eventId: string;
+    readonly workspaceRevision: number;
+    readonly opId: string;
+    readonly taskId: string;
+    readonly actor: ActorAxes;
+    readonly source: WriteSource;
+    readonly occurredAt: string;
+  },
+  payload: Omit<ExecutionStewardshipTransferredEvent["payload"], "documentClaims">,
+): ExecutionStewardshipTransferredEvent {
+  return createTaskEvent<ExecutionStewardshipTransferredEvent>(meta, "execution_stewardship_transferred", payload);
+}
+export function compileExecutionWipCheckpointed(
+  meta: {
+    readonly eventId: string;
+    readonly workspaceRevision: number;
+    readonly opId: string;
+    readonly taskId: string;
+    readonly actor: ActorAxes;
+    readonly source: WriteSource;
+    readonly occurredAt: string;
+  },
+  payload: Omit<ExecutionWipCheckpointedEvent["payload"], "documentClaims">,
+): ExecutionWipCheckpointedEvent {
+  return createTaskEvent<ExecutionWipCheckpointedEvent>(meta, "execution_wip_checkpointed", payload);
+}
 /** Initialize from an already admitted canonical seed, without manufacturing a task event. */
 export function initializeTaskLifecycleSnapshot(
   event: TaskBootstrapEventV1 | MigrationImportEventV1,
@@ -408,6 +442,21 @@ export function reduceTaskEvent(
         ? replaceExecution(snapshot.executions, event.payload.execution)
         : [...snapshot.executions, event.payload.execution],
       lease: event.payload.lease,
+    };
+  else if (event.type === "execution_stewardship_transferred")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+      lease: event.payload.lease,
+    };
+  else if (event.type === "execution_wip_checkpointed")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
     };
   else if (event.type === "lease_renewed")
     next = {
