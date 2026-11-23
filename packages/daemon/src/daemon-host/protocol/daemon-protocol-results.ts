@@ -61,6 +61,7 @@ import type { SquadRunReadResult, SquadRunsListResult } from "../squad-run-contr
 import type { ArtifactsListResult } from "./artifacts-contract.ts";
 import type { DaemonTaskRuntimeContextResult } from "./daemon-protocol-runtime-context.ts";
 import type { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
+import type { ReplicaSyncProgress } from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 import { taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 import type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
@@ -1303,6 +1304,7 @@ export interface DaemonProtocolErrorResult {
     readonly code: string;
     readonly errcode?: number;
     readonly errstr?: string;
+    readonly syncProgress?: ReplicaSyncProgress;
   };
   readonly diagnostic?: ReceiptDiagnostic;
 }

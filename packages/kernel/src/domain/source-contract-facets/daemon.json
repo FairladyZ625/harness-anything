@@ -999,7 +999,7 @@
         "explain": "JSON-RPC protocol error-data wire shape validator checking structured error codes, hints and authorization denial payloads.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonProtocolError:693da8716e7c4d74c922f9cb6eec6d25",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonProtocolError:0c35b5a316fefd1d34a5034b8bc3dda3",
             "route": "packages/daemon/src/daemon-host/protocol/daemon-protocol-validate-results.ts#validateDaemonProtocolError"
           }
         ],

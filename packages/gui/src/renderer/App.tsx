@@ -107,6 +107,7 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
+import { extractReplicaSyncProgress, isLedgerUnavailableError } from "./repository-read-frame.ts";
 import { requestAccountLogin } from "./account-login-request.ts";
 import { appMainSurface } from "./app-main-surface.ts";
 import { CollaboratorFilters, useCollaboratorFilters } from "./components/CollaboratorFilters.tsx";
@@ -159,24 +160,18 @@ function AppShell() {
     [tasksQuery.data],
   );
 
-  // 侧栏左下角系统运行区的第一行输入(原左上角状态栏,task_b2fb4bc7):
-  // 全部来自上面两条既有查询,不加第二条读路。
-  const ledgerErrors = [workspaceSummaryQuery.error, tasksQuery.error].filter(
+  // 侧栏左下角系统运行区的第一行输入:全部来自上面两条既有查询,tasksQuery 探针优先提供最新同步进度。
+  const ledgerErrors = [tasksQuery.error, workspaceSummaryQuery.error].filter(
     (error): error is Error => error instanceof Error,
   );
   const ledgerReadError = ledgerErrors[0];
-  // 两条读各自失败时,认证错误不能盖掉另一条读的非认证故障:侧栏优先显示可展示的
-  // 非认证错误;只有现存错误全是认证错误时才把整行交给顶部横幅。
   const ledgerStatusError =
     ledgerErrors.find((error) => !("code" in error && error.code === "authentication_required")) ?? ledgerReadError;
   const ledgerReadCode =
     ledgerStatusError && "code" in ledgerStatusError && typeof ledgerStatusError.code === "string"
       ? ledgerStatusError.code
       : undefined;
-  const ledgerUnavailable = [workspaceSummaryQuery.error, tasksQuery.error].some(
-    (error) =>
-      error && "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
-  );
+  const ledgerUnavailable = ledgerErrors.some(isLedgerUnavailableError);
   const ledgerStatusBar: LedgerStatusBarInput = {
     revision: tasksQuery.data?.sourceRevision ?? null,
     refreshedAgoSec:
@@ -186,12 +181,14 @@ function AppShell() {
     empty: workspaceSummaryQuery.isSuccess === true && workspaceSummaryQuery.data.tasks.total === 0,
     error: workspaceSummaryQuery.isError || tasksQuery.isError ? (ledgerStatusError?.message ?? "") : null,
     errorCode: ledgerReadCode,
+    syncProgress: extractReplicaSyncProgress(ledgerStatusError),
   };
   const refreshLedger = useCallback(() => {
     void tasksQuery.refetch();
     void workspaceSummaryQuery.refetch();
   }, [tasksQuery, workspaceSummaryQuery]);
   const lastLedgerCut = useRef<string | null>(null);
+  const lastRecoveredCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
   const decisionActions = useDecisionActions(projectId);
@@ -462,16 +459,34 @@ function AppShell() {
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
     const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}`;
-    // 首次水合只是建立比较基准,不是「台账变化」。把它当变化会让刚完成的
-    // workspace summary / 三元切面立刻再读一遍;后续 cut 才失效挂载中的读面。
+    if (lastLedgerCut.current !== null && !lastLedgerCut.current.startsWith(`${activeRepoId}:`)) {
+      lastRecoveredCut.current = null;
+    }
     if (lastLedgerCut.current === null) {
       lastLedgerCut.current = cut;
-      return;
+    } else if (lastLedgerCut.current !== cut) {
+      lastLedgerCut.current = cut;
+      void invalidateLedgerDependents(queryClient, activeRepoId);
     }
-    if (lastLedgerCut.current === cut) return;
-    lastLedgerCut.current = cut;
-    void invalidateLedgerDependents(queryClient, activeRepoId);
-  }, [activeRepoId, queryClient, tasksQuery.data?.sourceRevision, tasksQuery.data?.watermark]);
+    // 等在途请求落定后再判恢复:TanStack Query 对无缓存数据的在途 fetch 调用 invalidateQueries
+    // 会复用旧 retryer promise,必须等发布前的滞后 replica_syncing 回执落定后再补拉一次真实读。
+    if (workspaceSummaryQuery.isFetching || agendaQuery.isFetching) return;
+    const needsRecovery =
+      isLedgerUnavailableError(workspaceSummaryQuery.error) || isLedgerUnavailableError(agendaQuery.error);
+    if (needsRecovery && lastRecoveredCut.current !== cut) {
+      lastRecoveredCut.current = cut;
+      void invalidateLedgerDependents(queryClient, activeRepoId);
+    }
+  }, [
+    activeRepoId,
+    agendaQuery.error,
+    agendaQuery.isFetching,
+    queryClient,
+    tasksQuery.data?.sourceRevision,
+    tasksQuery.data?.watermark,
+    workspaceSummaryQuery.error,
+    workspaceSummaryQuery.isFetching,
+  ]);
 
   useEffect(() => {
     if (!systemQuery.isSuccess || !tasksQuery.isSuccess) return;

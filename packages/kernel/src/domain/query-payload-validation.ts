@@ -6,6 +6,54 @@ import { timestamp } from "./timestamp.ts";
 export const agentRuntimeTokenUsageRangeWords = Object.freeze(["today", "7d", "30d"] as const);
 export type AgentRuntimeTokenUsageRange = (typeof agentRuntimeTokenUsageRangeWords)[number];
 
+export const replicaBootstrapSteps = ["basebackup", "objects", "installing", "projecting"] as const;
+export type ReplicaBootstrapStep = (typeof replicaBootstrapSteps)[number];
+
+export interface ReplicaSyncProgress {
+  readonly step: ReplicaBootstrapStep;
+  readonly receivedBytes: number;
+  readonly totalBytes: number | null;
+  readonly receivedObjects?: number;
+  readonly totalObjects?: number;
+  readonly updatedAt: string;
+}
+
+export function parseReplicaSyncProgress(value: unknown): ReplicaSyncProgress | null {
+  if (!isRecord(value)) return null;
+  const step = value.step as ReplicaBootstrapStep;
+  if (!replicaBootstrapSteps.includes(step)) return null;
+  if (!Number.isSafeInteger(value.receivedBytes) || Number(value.receivedBytes) < 0) return null;
+  const receivedBytes = Number(value.receivedBytes);
+  if (
+    value.totalBytes !== null &&
+    (!Number.isSafeInteger(value.totalBytes) || Number(value.totalBytes) < receivedBytes)
+  ) {
+    return null;
+  }
+  const totalBytes = value.totalBytes === null ? null : Number(value.totalBytes);
+  if (
+    value.receivedObjects !== undefined &&
+    (!Number.isSafeInteger(value.receivedObjects) || Number(value.receivedObjects) < 0)
+  ) {
+    return null;
+  }
+  if (
+    value.totalObjects !== undefined &&
+    (!Number.isSafeInteger(value.totalObjects) || Number(value.totalObjects) < Number(value.receivedObjects ?? 0))
+  ) {
+    return null;
+  }
+  if (!timestamp(value.updatedAt)) return null;
+  return {
+    step,
+    receivedBytes,
+    totalBytes,
+    ...(value.receivedObjects !== undefined ? { receivedObjects: Number(value.receivedObjects) } : {}),
+    ...(value.totalObjects !== undefined ? { totalObjects: Number(value.totalObjects) } : {}),
+    updatedAt: value.updatedAt,
+  };
+}
+
 export type QueryPayloadKind = "task-list" | "relation-graph";
 
 export type QueryPayloadValidationIssue =

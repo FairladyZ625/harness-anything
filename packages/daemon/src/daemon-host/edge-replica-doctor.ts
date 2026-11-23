@@ -10,7 +10,12 @@ import {
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
-import { readReplicaHealth, replicaFailure } from "../fleet-sync/fleet/replica-health.ts";
+import {
+  activeReplicaSyncProgress,
+  formatReplicaSyncProgressHint,
+  readReplicaHealth,
+  replicaFailure,
+} from "../fleet-sync/fleet/replica-health.ts";
 
 /** Three missed center keepalives: a stream this quiet is not delivering (REPLICATION_KEEPALIVE_MS). */
 const REPLICA_STREAM_SILENT_MS = 45_000;
@@ -82,19 +87,24 @@ export function edgeReplicaDoctor(
     }
     const health = readReplicaHealth(viewDir),
       failure = health.modelFailure ?? health.syncFailure,
+      activeSync = view === null && failure === null ? activeReplicaSyncProgress(health, now()) : null,
       heartbeatAge = health.lastHeartbeatAt === null ? null : now() - Date.parse(health.lastHeartbeatAt),
       silent = view !== null && failure === null && (heartbeatAge === null || heartbeatAge > REPLICA_STREAM_SILENT_MS);
     replica.rebuildCount = health.rebuildCount;
     replica.lastHeartbeatAt = health.lastHeartbeatAt;
     replica.lastSuccessAt = health.lastHeartbeatAt;
-    replica.failureCode = failure?.code ?? (view ? (silent ? "replica_stream_silent" : null) : "replica_unavailable");
+    replica.failureCode =
+      failure?.code ??
+      (view ? (silent ? "replica_stream_silent" : null) : activeSync ? "replica_syncing" : "replica_unavailable");
     replica.failureMessage =
       failure?.message ??
-      (silent
-        ? health.lastHeartbeatAt === null
-          ? "The replication stream has never confirmed a position."
-          : `No center confirmation since ${health.lastHeartbeatAt}; the replication stream is not delivering.`
-        : null);
+      (activeSync
+        ? formatReplicaSyncProgressHint(activeSync)
+        : silent
+          ? health.lastHeartbeatAt === null
+            ? "The replication stream has never confirmed a position."
+            : `No center confirmation since ${health.lastHeartbeatAt}; the replication stream is not delivering.`
+          : null);
     // Lag is only known while the stream confirms the center head; a silent or failed stream's lag is unknown.
     replica.lag =
       replica.currentCut && replica.centerCut && replica.failureCode === null

@@ -115,4 +115,33 @@ describe("RepositoryReadNotice", () => {
     await vi.waitFor(() => expect(container.querySelector('[data-testid="probe-data"]')?.textContent).toBe("rows"));
     expect(container.querySelector('[data-testid="repository-read-notice"]')).toBeNull();
   });
+
+  it("renders a wait-toned syncing notice instead of unavailable when reads report replica_syncing", async () => {
+    function SyncingRead() {
+      useQuery({
+        queryKey: ["repo-a", "tasks-syncing"],
+        queryFn: async () => {
+          throw Object.assign(new Error("basebackup · 45% (9.0 MiB / 20.0 MiB)"), { code: "replica_syncing" });
+        },
+        retry: false,
+      });
+      return null;
+    }
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <SyncingRead />
+          <RepositoryReadNotice repoId="repo-a" />
+        </QueryClientProvider>,
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(container.querySelector('[data-testid="repository-read-state"]')?.getAttribute("data-state")).toBe(
+        "syncing",
+      ),
+    );
+    expect(container.textContent).toContain("同步中");
+    expect(container.textContent).toContain("basebackup · 45% (9.0 MiB / 20.0 MiB)");
+    expect(container.textContent).not.toContain("部分仓库读不可用");
+  });
 });

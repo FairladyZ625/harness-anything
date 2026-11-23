@@ -13,6 +13,8 @@ import {
 import { consumeKnownError, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { openReplicationCommitFile } from "../../fleet-sync/fleet/commit-file.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { recordReplicaHealth, type ReplicaSyncProgress } from "../../fleet-sync/fleet/replica-health.ts";
 import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import {
   isBaseBackupMetadata,
@@ -237,8 +239,9 @@ async function receivePackStream(input: {
   readonly wantedSizes: ReadonlyMap<string, number>;
   readonly stagedObjectsDir: string;
   readonly signal: AbortSignal;
+  readonly onProgress?: (deltaBytes: number, objectsReceived: number) => void;
 }): Promise<number> {
-  const { peer, totalBytes, expectedCount, wantedSizes, stagedObjectsDir, signal } = input;
+  const { peer, totalBytes, expectedCount, wantedSizes, stagedObjectsDir, signal, onProgress } = input;
   const headerBuf = Buffer.allocUnsafe(72);
   let headerBytes = 0;
   let currentSha = "";
@@ -317,6 +320,7 @@ async function receivePackStream(input: {
           }
         }
       }
+      onProgress?.(bytes.length, objectsReceived);
     });
   } catch (error) {
     const openHandle = currentHandle as FileHandle | null;
@@ -349,6 +353,32 @@ export async function runWalReceiver(input: {
 }): Promise<void> {
   let frameSize: number | null = null;
   const { peer, target, signal } = input;
+  const healthViewDir = path.basename(input.directory) === "staging" ? path.dirname(input.directory) : null;
+  let lastProgressFlushAtMs = 0;
+  let lastProgressFlushBytes = 0;
+  const publishSyncProgress = (progress: Omit<ReplicaSyncProgress, "updatedAt"> | null, force = false): void => {
+    if (!healthViewDir) return;
+    if (progress === null) {
+      lastProgressFlushAtMs = 0;
+      lastProgressFlushBytes = 0;
+      recordReplicaHealth(healthViewDir, { syncProgress: null });
+      return;
+    }
+    const nowMs = Date.now();
+    const byteAdvance = Math.abs(progress.receivedBytes - lastProgressFlushBytes);
+    const flushIntervalMs = storageReadPolicy.defaultValue.backoff.followerMaximum;
+    if (!force && byteAdvance < SNAPSHOT_TRANSFER_FLUSH_BYTES && nowMs - lastProgressFlushAtMs < flushIntervalMs) {
+      return;
+    }
+    lastProgressFlushAtMs = nowMs;
+    lastProgressFlushBytes = progress.receivedBytes;
+    const updatedAt = new Date(nowMs).toISOString();
+    recordReplicaHealth(healthViewDir, {
+      syncProgress: { ...progress, updatedAt },
+      syncFailure: null,
+      lastHeartbeatAt: updatedAt,
+    });
+  };
   const contextualize = (error: unknown): Error => {
     const failure = error instanceof Error ? error : new Error(String(error));
     if (!failure.message.includes("; replica="))
@@ -438,6 +468,10 @@ export async function runWalReceiver(input: {
         recursive: true,
       });
       const existingRoots = findExistingObjectPaths(path.dirname(input.directory));
+      let cumulativeObjectsReceived = 0;
+      let cumulativeObjectsTarget = 0;
+      let cumulativeBytesReceived = 0;
+      let cumulativeBytesTarget = 0;
       for (;;) {
         const manifest = await peer.receive(signal);
         if (manifest.type !== "replica.objects.manifest")
@@ -449,8 +483,20 @@ export async function runWalReceiver(input: {
           if (!have) {
             wantedSizes.set(entry.sha256, entry.size);
             wantSha256s.push(entry.sha256);
+            cumulativeBytesTarget += entry.size + 72;
           }
         }
+        cumulativeObjectsTarget += wantSha256s.length;
+        publishSyncProgress(
+          {
+            step: "objects",
+            receivedBytes: cumulativeBytesReceived,
+            totalBytes: cumulativeBytesTarget > 0 ? cumulativeBytesTarget : null,
+            receivedObjects: cumulativeObjectsReceived,
+            totalObjects: cumulativeObjectsTarget,
+          },
+          true,
+        );
         await peer.send({ type: "replica.objects.want", sha256s: wantSha256s });
         let receivedForBatch = 0;
         while (receivedForBatch < wantSha256s.length) {
@@ -459,6 +505,7 @@ export async function runWalReceiver(input: {
             throw new ReplicationError("expected replica.objects.pack", "replica_protocol_error");
           if (pack.totalBytes > input.quotaBytes)
             throw new ReplicationError("replication object pack exceeds disk quota", "replica_quota_exceeded");
+          const baseObjectsBeforePack = cumulativeObjectsReceived;
           receivedForBatch += await receivePackStream({
             peer,
             totalBytes: pack.totalBytes,
@@ -466,7 +513,31 @@ export async function runWalReceiver(input: {
             wantedSizes,
             stagedObjectsDir,
             signal,
+            onProgress: (deltaBytes, packObjectsDone) => {
+              cumulativeBytesReceived = Math.min(
+                Math.max(cumulativeBytesTarget, cumulativeBytesReceived + deltaBytes),
+                cumulativeBytesReceived + deltaBytes,
+              );
+              publishSyncProgress({
+                step: "objects",
+                receivedBytes: cumulativeBytesReceived,
+                totalBytes: Math.max(cumulativeBytesTarget, cumulativeBytesReceived),
+                receivedObjects: baseObjectsBeforePack + packObjectsDone,
+                totalObjects: cumulativeObjectsTarget,
+              });
+            },
           });
+          cumulativeObjectsReceived = baseObjectsBeforePack + pack.count;
+          publishSyncProgress(
+            {
+              step: "objects",
+              receivedBytes: cumulativeBytesReceived,
+              totalBytes: Math.max(cumulativeBytesTarget, cumulativeBytesReceived),
+              receivedObjects: cumulativeObjectsReceived,
+              totalObjects: cumulativeObjectsTarget,
+            },
+            true,
+          );
           await expect("replica.objects.pack.end");
         }
         if (manifest.done) break;
@@ -522,6 +593,7 @@ export async function runWalReceiver(input: {
           };
           let receivedBytes = resumeOffset;
           let lastFlushedBytes = resumeOffset;
+          publishSyncProgress({ step: "basebackup", receivedBytes: resumeOffset, totalBytes: frame.size }, true);
           const writeTransferState = (receivedBytes: number) =>
             writeHostEnvironmentFile(
               "fleetSnapshotTransfer",
@@ -554,6 +626,7 @@ export async function runWalReceiver(input: {
               async (bytes) => {
                 await handle.writeFile(bytes);
                 receivedBytes += bytes.length;
+                publishSyncProgress({ step: "basebackup", receivedBytes, totalBytes: frame.size });
                 if (receivedBytes - lastFlushedBytes >= SNAPSHOT_TRANSFER_FLUSH_BYTES) {
                   await writeTransferState(receivedBytes);
                   lastFlushedBytes = receivedBytes;
@@ -563,6 +636,7 @@ export async function runWalReceiver(input: {
             );
             await expect("replica.backup.end");
             await handle.sync();
+            publishSyncProgress({ step: "basebackup", receivedBytes: frame.size, totalBytes: frame.size }, true);
           } finally {
             if (receivedBytes !== lastFlushedBytes) {
               await writeTransferState(receivedBytes).catch(() => undefined);
@@ -575,6 +649,7 @@ export async function runWalReceiver(input: {
             await receiveSplitObjects(stagedObjectsDir);
           }
           try {
+            publishSyncProgress({ step: "installing", receivedBytes: frame.size, totalBytes: frame.size }, true);
             await target.install(
               partFile,
               frame.metadata,
@@ -586,10 +661,13 @@ export async function runWalReceiver(input: {
             // Clear resumable bytes before waiting for the edge ACK to release peak disk space.
             await clearStagedSnapshots(snapshotsRoot);
           } catch (error) {
+            publishSyncProgress(null, true);
             await clearStagedSnapshots(snapshotsRoot);
             throw error;
           }
+          publishSyncProgress({ step: "projecting", receivedBytes: frame.size, totalBytes: frame.size }, true);
           await ack(frame.metadata.position);
+          publishSyncProgress(null, true);
         } else {
           await /* @gate-identity non-state/environment-io.4f62e1d5a38603ae */ mkdir(input.directory, {
             recursive: true,
@@ -598,19 +676,25 @@ export async function runWalReceiver(input: {
           const stagedObjectsDir =
             frame.objectsMode === "pack" ? path.join(input.directory, `${randomUUID()}-objects`) : undefined;
           const handle = await /* @gate-identity non-state/environment-io.86c097b43a2b67a1 */ open(file, "wx");
+          let streamedBytes = 0;
+          publishSyncProgress({ step: "basebackup", receivedBytes: 0, totalBytes: frame.size }, true);
           try {
             try {
               await receiveBytes(peer, frame.size, signal, async (bytes) => {
                 await handle.writeFile(bytes);
+                streamedBytes += bytes.length;
+                publishSyncProgress({ step: "basebackup", receivedBytes: streamedBytes, totalBytes: frame.size });
               });
               await expect("replica.backup.end");
               await handle.sync();
+              publishSyncProgress({ step: "basebackup", receivedBytes: frame.size, totalBytes: frame.size }, true);
             } finally {
               await handle.close();
             }
             if (stagedObjectsDir) {
               await receiveSplitObjects(stagedObjectsDir);
             }
+            publishSyncProgress({ step: "installing", receivedBytes: frame.size, totalBytes: frame.size }, true);
             await target.install(
               file,
               frame.metadata,
@@ -618,8 +702,10 @@ export async function runWalReceiver(input: {
               frame.sha256,
               stagedObjectsDir ? { stagedObjectsDir } : undefined,
             );
+            publishSyncProgress({ step: "projecting", receivedBytes: frame.size, totalBytes: frame.size }, true);
             await ack(frame.metadata.position);
           } finally {
+            publishSyncProgress(null, true);
             await /* @gate-identity non-state/environment-io.4d1cb7398be78de6 */ rm(file, { force: true });
             if (stagedObjectsDir) {
               await /* @gate-identity non-state/environment-io.92a3b4c5d6e7f809 */ rm(stagedObjectsDir, {
