@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const method = "repo.entity.actions.explain" as const,
   requestSchema = "entity-action-explain-request/v1" as const,
@@ -97,7 +98,7 @@ test("explain reports allowed and denied rows for the authenticated actor at one
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -130,7 +131,7 @@ test("revoking a grant after explain denies the next explain and the real write"
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -173,7 +174,7 @@ test("repeated explain refs preserve output positions without repeating online a
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -218,7 +219,7 @@ test("authority transport outage is unavailable while a malformed authority resp
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -275,7 +276,7 @@ test("HTTP 5xx from the session or center authority is unavailable, not a denial
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -352,7 +353,7 @@ test("person explain reports person-directory 503 and connection failure as unav
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -415,7 +416,7 @@ test("catalog discovers every action without authorizing, and identity precondit
   } finally {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

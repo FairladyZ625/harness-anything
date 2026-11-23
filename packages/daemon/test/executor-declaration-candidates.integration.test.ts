@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import {
   writeSettingsFixture,
 } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type SpawnedProcess = {
   exit: ((code: number | null) => void) | null;
@@ -334,7 +335,7 @@ test("declare-executor traces the authoring dispatch across executions and never
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -442,7 +443,7 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -595,7 +596,7 @@ test("a dispatchless owner submission declares its external agent and doctor fol
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -756,6 +757,6 @@ test("an agent delegate records a child's external author despite an unrelated p
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { readArtifactActionScopes } from "../src/daemon-host/authorization-provi
 import { authorizationFetch } from "../src/daemon-host/tls-ca-certificate.ts";
 import { evaluateRepoCellAction, authorizeRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("an injected non-Keycloak provider authorizes through the real daemon and kernel boundary", async () => {
   const requests: string[] = [];
@@ -120,7 +121,7 @@ test("policy sync reads accepted repository declarations without the writer regi
       "a retired seed kind is replaced by the repository declaration",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

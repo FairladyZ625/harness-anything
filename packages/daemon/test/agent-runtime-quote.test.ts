@@ -2,7 +2,7 @@
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ import type { JsonObject, JsonRpcResponse } from "../src/daemon-host/protocol/js
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function responseResult(response: JsonRpcResponse): JsonObject {
   assert.ok("result" in response, "daemon response must be a protocol result");
@@ -249,7 +250,7 @@ test("real local socket calls return priced and unpriced quote receipts", async 
     assert.equal(unpriced.code, "MODEL_UNPRICED");
   } finally {
     await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

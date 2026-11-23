@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -15,6 +15,7 @@ import { createUnixSocketTransportServer } from "../src/daemon-host/transport/un
 import { initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "runtime discovery write load keeps independent read clients within the stopgap latency envelope",
@@ -137,7 +138,7 @@ test(
     } finally {
       await transport.stop();
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
 
     async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -229,7 +230,7 @@ test(
       restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
       restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
       restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
 
     async function request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -320,7 +321,7 @@ test(
       restoreEnv("HARNESS_WAL_FLUSH_EVENTS", priorFlushEvents);
       restoreEnv("HARNESS_WAL_FLUSH_MS", priorFlushMs);
       restoreEnv("HARNESS_WAL_FLUSH_ADAPTIVE", priorAdaptive);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

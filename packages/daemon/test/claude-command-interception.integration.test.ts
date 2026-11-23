@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { readSettingsFacet } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { launchNative } from "../src/daemon-host/runtime-spawn-process.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = (process.env.PATH ?? "")
     .split(path.delimiter)
@@ -185,7 +186,7 @@ function claudeScenario(approved: boolean) {
     t.after(async () => {
       await worker.terminateTree?.();
       worker.release?.();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     assert.ok(stream.ref);
     let stdout = "",

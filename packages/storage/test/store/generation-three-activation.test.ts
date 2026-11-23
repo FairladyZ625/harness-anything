@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   type GenerationThreeActivation,
 } from "../../src/store/generation-three-activation.ts";
 import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const certificate: GenerationThreeActivation = {
   schema: "generation-activation/v3",
@@ -80,7 +81,7 @@ for (const interrupt of ["during-write", "before-link", "after-link", "after-dir
       files.createExclusiveText = create;
       files.linkExclusive = link;
       files.syncDirectory = sync;
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -25,6 +25,7 @@ import {
   taskQueryGuidance,
   workerRootPathToken,
 } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const daemonRoute = { userRoot: "/tmp/ha/user", daemonId: "default", endpoint: "/tmp/ha/user/daemon.sock" };
 
@@ -144,7 +145,7 @@ test("a Git worktree without a HEAD returns unavailable", async () => {
   try {
     assert.equal(await currentWorktreeHead(cwd), null);
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTempRepository(cwd);
   }
 });
 

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 import { executionDelegationPath, readExecutionDelegations } from "../src/daemon-host/execution-delegation-store.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 const runtimeSessionId = "runtime-ledger-ops",
   issuerPersonId = "person_zeyu";
 
@@ -23,7 +24,7 @@ test("center private delegation survives restart and narrows online Keycloak per
   t.after(async () => {
     await cell?.close();
     await realm.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   mkdirSync(rootDir);
   execFileSync("git", ["init", "--quiet", rootDir]);

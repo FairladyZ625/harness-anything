@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -12,6 +12,7 @@ import { readCloseoutSubmission } from "./closeout-submission.fixture.ts";
 import { prepareSubmissionDelivery } from "../src/daemon-host/submission-delivery.ts";
 import { preparedSubmission } from "../src/daemon-host/submission-preparation.ts";
 import { judgeOldDataCopyReceipt, oldDataCopyReceiptPath } from "../src/daemon-host/submit-old-data-copy.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const packagePath = "tasks/task-1",
   receiptPath = oldDataCopyReceiptPath(packagePath),
@@ -44,7 +45,7 @@ function fixture(t: TestContext, options: FixtureOptions) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
       writeFileSync(path.join(root, file), body);
     };
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git("init", "-q", "-b", "main");
   git("config", "user.name", "Harness Test");
   git("config", "user.email", "harness@example.test");

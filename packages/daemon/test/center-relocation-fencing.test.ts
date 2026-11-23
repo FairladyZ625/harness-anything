@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -27,6 +27,7 @@ import {
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function derNode(tag: number, content: Buffer): Buffer {
   const len = content.length,
@@ -156,7 +157,7 @@ test("retired center fences daemon writer epochs and serializes clean CENTER_MOV
       spkiSha256: tombstone.spkiSha256,
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -411,7 +412,7 @@ test(
       if (host2) await host2.close();
       await owners.close();
       closeSqliteEventStoresUnder(root);
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removeTempRepository(root);
     }
   },
 );

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -12,6 +12,7 @@ import {
   daemonServiceUnit,
   daemonServiceUnitContent,
 } from "../src/daemon-host/client/daemon-service.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
@@ -48,7 +49,7 @@ test("linux-arm64 external OIDC/Keycloak configuration, health, and resume succe
     await service.resume();
     assert.equal(existsSync(path.join(root, "rbac", "runtime")), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -83,7 +84,7 @@ for (const operation of ["bootstrap", "upgrade"] as const) {
       assert.equal(fetches, 0, "unsupported platform must fail before issuing any download request");
       assert.equal(existsSync(path.join(root, "rbac", "runtime")), false);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }

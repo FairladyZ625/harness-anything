@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -30,6 +30,7 @@ import {
   lifecycleEvent,
   lifecycleReadFor,
 } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -86,7 +87,7 @@ test("restart adoption archives only owned streams with durable evidence", async
       });
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -180,7 +181,7 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
     await launch;
     spawner.close();
     modelSlotQueue.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -233,7 +234,7 @@ test("adoption leaves an unproven missing-PID dispatch pending for loss reconcil
     assert.deepEqual(published, ["runtime_session_liveness_changed"]);
     assert.equal(context.processes.size, 0);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -294,7 +295,7 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
     assert.equal(settled, true);
     assert.equal(context.processes.size, 0);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -368,7 +369,7 @@ test("adoption reports completed restores independently of a pending or failed s
   } finally {
     pending.resolve();
     if (context) closeRuntimes(context);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -462,7 +463,7 @@ test("runtime cancel settles a missing-process stream only after its canonical g
       ],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -532,7 +533,7 @@ test("runtime cancel leaves a missing-process task dispatch live when stop proof
       "stop proof is published before the release guard; the refused lease still suppresses the outcome",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -552,7 +553,7 @@ for (const scenario of [
       reclaimed: string[] = [],
       probes: Array<[number, unknown]> = [];
     let processGroupPid = 2_147_483_645;
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "stream-group-proof");
     if (scenario === "live") {
       // A detached worker owns a real process group, but its stream lost process_started.
@@ -677,7 +678,7 @@ test("runtime cancel closes an exited session whose dispatch stream is missing",
       "runtime_session_outcome_observed",
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -750,7 +751,7 @@ test("runtime cancel settles a live remote session when the owner stream is gone
       "runtime_session_outcome_observed",
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -801,7 +802,7 @@ test("runtime cancel refuses to settle an owner session when its process group i
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -843,7 +844,7 @@ test("runtime cancel cannot settle a remote owner's runtime from another node", 
       (error: unknown) => error instanceof Error && "code" in error && error.code === "execution_scope_mismatch",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -886,7 +887,7 @@ test("runtime cancel on a non-owner converges after the owner publishes a termin
     assert.equal(receipt.detail, "already-exited");
     assert.deepEqual(published, [], "a non-owner must observe terminal state without writing owner events");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -928,7 +929,7 @@ test("runtime steer records the requesting actor and prompt without settling the
       false,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -981,7 +982,7 @@ test("a successful steer receipt survives the GUI write exit instead of reportin
       true,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1022,7 +1023,7 @@ test("runtime steer applies to an ACP kind through the dispatch stream, adopted 
       ["Focus on the failing test."],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1061,7 +1062,7 @@ test("runtime steer still refuses before the provider established a session", as
       false,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1103,7 +1104,7 @@ test("runtime steer rejects a provider without a declared steer strategy", async
       "a rejected steer must not write a command record",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1145,7 +1146,7 @@ test("runtime steer refuses a dispatch whose worker host is already gone", async
       "a refused steer must not leave a command record behind",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

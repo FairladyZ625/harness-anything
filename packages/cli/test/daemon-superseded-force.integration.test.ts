@@ -26,6 +26,7 @@ import {
   setup as setupAutostartFixture,
   waitForFileContent,
 } from "./daemon-autostart-cli.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function killGroup(pid: number): void {
   try {
@@ -110,7 +111,7 @@ test(
       child.kill("SIGKILL");
       if (workerPid) killGroup(workerPid);
       await exited;
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

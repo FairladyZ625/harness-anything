@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -12,6 +12,7 @@ import type { RepoCellOperationalContext } from "../src/daemon-host/repo-cell-ty
 import type { RepoCellBinding, Snapshot } from "../src/daemon-host/repo-cell-types.ts";
 import { completeTask } from "../src/daemon-host/repo-cell-task-progress.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/daemon-host/repo-cell-settlement.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
@@ -31,7 +32,7 @@ function init(root: string): string {
 }
 const publicRoot = mkdtempSync(path.join(tmpdir(), "ha-public-evidence-"));
 const publicSha = init(publicRoot);
-after(() => rmSync(publicRoot, { recursive: true, force: true }));
+after(() => removeTempRepository(publicRoot));
 function execution(commitSha: string, deliverables: string[] = []): Snapshot["executions"][number] {
   const current = {
     schema: "execution/v1",
@@ -232,7 +233,7 @@ test("complete needs no code/doc step: the retired gate is out of the completion
     assert.notEqual(receipt.code, "code_doc_missing");
     assert.notEqual(receipt.outcome, "op_rejected");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

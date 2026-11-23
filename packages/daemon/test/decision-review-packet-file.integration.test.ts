@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const proposer = withPolicyGroup(
   {
@@ -29,7 +30,7 @@ const owner = withPolicyGroup({ ...proposer, actor: { ...proposer.actor, executo
 
 test("respond-review and override-review read their packet from --from-file like review does", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-packet-file-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("decision-review-packet-file"),
@@ -100,7 +101,7 @@ test("respond-review and override-review read their packet from --from-file like
 
 test("decision review registers the finding category required by its dispatch mission", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-category-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("decision-review-category"),

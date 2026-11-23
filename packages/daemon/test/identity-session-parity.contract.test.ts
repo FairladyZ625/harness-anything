@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { BuiltinIdentitySession } from "@harness-anything/authorization/builtin"
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const kind of ["builtin", "keycloak"] as const) {
   test(`${kind}: local session authority observes login, current grants, and logout`, async (t) => {
@@ -15,7 +16,7 @@ for (const kind of ["builtin", "keycloak"] as const) {
     const realm = kind === "keycloak" ? await serveKeycloak() : undefined;
     t.after(async () => {
       await realm?.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     if (realm) realm.bind(root);
     let now = Date.now(),

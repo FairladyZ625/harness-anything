@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,6 +25,7 @@ import {
   publishExit as publishSettlementExit,
   tasklessSettlementRuntime,
 } from "./runtime-spawn-settlement.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Keep controller tests on the real terminal publisher and accepted aggregate, so cancellation
 // assertions cover completed stop/output/terminal behavior across the ownership boundary.
@@ -95,7 +96,7 @@ test("an unproven self PID rejects settlement without releasing its recovery han
 
 test("self escalation queues terminal settlement after its response instead of escaping the writer", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-escalation-writer-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_666666666666666666666666",
     runtimeSessionId = "runtime-escalation-writer",
     binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const },
@@ -150,7 +151,7 @@ for (const stopProofCode of ["runtime_process_group_unproven", "runtime_lease_re
     const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-escalation-tree-stop-")),
       packageRoot = path.join(rootDir, "harness", "tasks", "task-owner"),
       worker = fixtureRuntimeProcess(context);
-    context.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    context.after(() => removeTempRepository(rootDir));
     mkdirSync(path.join(packageRoot, "artifacts", "rulings"), { recursive: true });
     writeFileSync(
       path.join(packageRoot, "artifacts", "rulings", "dispatch_0123456789abcdef01234567.md"),
@@ -407,7 +408,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
     assert.equal(published, true);
   } finally {
     console.warn = warning;
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -478,6 +479,6 @@ test("runtime cancel settles provider lines flushed while the provider is termin
     assert.deepEqual(consumed, ['{"seq":1}', '{"seq":2}']);
     assert.deepEqual(settledAfter, [2]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

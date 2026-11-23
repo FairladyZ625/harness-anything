@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type TLSSocket } from "node:tls";
 import test, { type TestContext } from "node:test";
 import { runFleetReplicaStream } from "../src/daemon-host/fleet/peer.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a replica stopped during token resolution never enters the session handshake", async (t) => {
   await cancellationAt(t, "token");
@@ -19,7 +20,7 @@ async function cancellationAt(t: TestContext, phase: "token" | "handshake"): Pro
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-handshake-")),
     keyFile = path.join(root, "key.pem"),
     certFile = path.join(root, "cert.pem");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   execFileSync(
     "openssl",
     [

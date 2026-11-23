@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null },
   binding = withPolicyGroup({ actor, source: "local" as const }, "viewer"),
@@ -28,7 +29,7 @@ test("every query-only declaration completes through the synchronous fixture rea
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-query-only-contract-")),
     repoId = workspaceId("query-only-contract"),
     declared = daemonProtocolCommands.filter((command) => command.repoCellExecution === "query-only");
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initIngressRepo(rootDir, process.getuid?.() ?? 0);

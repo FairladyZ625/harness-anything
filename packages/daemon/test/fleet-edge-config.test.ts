@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import {
   writeFleetEdgeConfig,
 } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { resolveFleetReplicaAuthority } from "../src/daemon-host/fleet/replica-token.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const valid = {
   schema: "fleet-edge-config/v1",
@@ -74,7 +75,7 @@ test("a fleet-edge config lives under userRoot by repoId and carries the machine
     assert.equal(existsSync(configFile), false);
     assert.equal(existsSync(fleetEdgeCaPath(userRoot, repoId)), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -114,7 +115,7 @@ test("resolveFleetEdgeRepoIdForRoot and readFleetEdgeConfigForRoot map registere
     assert.equal(readFleetEdgeConfigForRoot(userRoot, repoB)?.nodeId, "node-b");
     assert.equal(readFleetEdgeConfigForRoot(userRoot, path.join(root, "unregistered")), null);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

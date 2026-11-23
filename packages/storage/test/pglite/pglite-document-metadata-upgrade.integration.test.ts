@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts"
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { v5PutDocument } from "../postgres/pg-v5-document-client.fixture.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 pgliteIntegrationSuite("PGlite v5 document metadata upgrade", () => {
   test("reopen fills existing v5 documents before exposing the embedded scope", async () => {
@@ -70,7 +71,7 @@ pgliteIntegrationSuite("PGlite v5 document metadata upgrade", () => {
       );
     } finally {
       await backend.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(dataDir);
     }
   });
 });

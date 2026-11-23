@@ -9,7 +9,7 @@
 //   - task-list/task-show/agenda/workspace-summary are intercepted host-side by the RepoCell
 //     proxy (packages/daemon/src/daemon-host/repo-cell-proxy.ts) and are instrumented in this process directly.
 // No production hook is added anywhere; every patch lives in g1-cost-probe.mjs.
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -49,6 +49,7 @@ import { serveKeycloak } from "../keycloak.fixtures.ts";
 import { git, initRepo } from "../task-surface.fixtures.ts";
 import { realizedDecisionBody, realizedTaskPlan } from "../../../../tools/fixtures/task-plan.mjs";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 export const G1_METRICS = Object.freeze(["sqlRowsRead", "sha256Calls", "sha256Bytes", "gitProcesses", "fileReadBytes"]);
 const legacyBudgets = JSON.parse(
@@ -786,6 +787,6 @@ export async function measureWriteCostScaling(
     return { eventCount, counts, firstCall };
   } finally {
     await realm.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 }

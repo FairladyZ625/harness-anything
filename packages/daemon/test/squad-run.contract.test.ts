@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   validateSquadRunRead,
   validateSquadRunsList,
 } from "../src/daemon-host/squad-run-contract.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const identity = {
   executionId: "execution-squad",
@@ -412,7 +413,7 @@ test("squad state rebuild replays an archived leader stream", () => {
     archiveDispatchStream(rootDir, "dispatch_00000000000000000000a1b2");
     assert.equal(latestSquadStates(rootDir).get(squadRunId)?.revision, 2);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

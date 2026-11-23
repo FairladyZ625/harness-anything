@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/a
 // the import-boundary gate requires tests to obtain repositories from this fixture.
 type OpenedCell = Awaited<ReturnType<typeof openFencedRepoCell>>;
 import { initRepo } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // 2026-10-23 实测的 brain-os-frontend:台账是当前一代(revision 793),但 793 个事件里没有一条
 // settings-event/v1,harness.yaml 也从未入账。设置读取因此报 projection_pending,提示去执行一个
@@ -121,7 +122,7 @@ test("a ledger that never minted Settings reports a missing entity with the comm
     await assert.rejects(cell.read("repo.settings.read"), missingSettings);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -158,7 +159,7 @@ test("a locale-only update mints Settings from the authored harness.yaml instead
     assert.equal(await settingsEventCount(rootDir, "settings-entity-locale"), 1);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -201,7 +202,7 @@ test("minting Settings preserves an existing machine-local preferences file byte
     assert.deepEqual(readLocalSettings(localPath), MACHINE_LOCAL_DOCUMENT);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -234,7 +235,7 @@ test("a rejected settings update leaves no settings event and no local preferenc
     assert.equal(readFileSync(localPath, "utf8"), before, "a rejected settings update must not touch local settings");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -259,7 +260,7 @@ test("a malformed authored settings facet names itself instead of failing codele
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -288,7 +289,7 @@ test("a ledger that already accepted Settings is never re-initialized from the w
     assert.equal(read.settings.reviewReturnBudget, 4, "the accepted entity wins over an uncommitted authored edit");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -322,7 +323,7 @@ test("projection rebuild cannot mint Settings on behalf of an agent executor", a
     await assert.rejects(cell.read("repo.settings.read"), missingSettings);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -393,6 +394,6 @@ test("ha init still mints Settings as the owner's agent, because repo-bootstrap 
     assert.equal(refused.code, "settings_write_requires_principal", JSON.stringify(refused));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

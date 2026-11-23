@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { operationId } from "../src/daemon-host/repo-cell-proof.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const settlementActor = withPolicyGroup(
   {
@@ -235,7 +236,7 @@ test(
         await cell.close();
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -528,7 +529,7 @@ test(
         await cell.close();
       }
     } finally {
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   },
 );

@@ -43,6 +43,7 @@ import { seedSquadWaitState } from "./squad-terminal-wait.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const taskId = "task_12345678",
   bindingOf = (id: string) => ({ branch: id, path: `.worktrees/${id}` }),
@@ -56,7 +57,7 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     squadRunId = "squad_0123456789abcdef01234567",
     hash = createHash("sha256").update(`${repoId}\0squad-wait:${squadRunId}`).digest("hex"),
     leaderDispatchId = `dispatch_${hash.slice(0, 24)}`;
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const first = await openBootstrappedRepoCell({
     repoId,
@@ -245,7 +246,7 @@ test("the first start checks the bound worktree out once, from the default branc
     task = boundTask("cancelled");
     assert.equal(taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null)?.kind, "worktree");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -263,10 +264,10 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     git(fixture.root, "remote", "set-head", "origin", "trunk");
     assert.equal(repositoryBaseRef(fixture.root), "origin/trunk");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
   const local = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-master-"));
-  t.after(() => rmSync(local, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(local));
   try {
     // No remote at all, default branch master: the worktree starts from the local master.
     git(local, "init", "-q", "-b", "master");
@@ -280,7 +281,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     assert.equal(checkout?.baseRef, "master");
     assert.equal(git(checkout!.cwd, "rev-parse", "HEAD"), git(local, "rev-parse", "master"));
   } finally {
-    rmSync(local, { recursive: true, force: true });
+    removeTempRepository(local);
   }
 });
 
@@ -295,7 +296,7 @@ test("a task checkout ignores an unpublished local main commit and starts from o
     assert.equal(checkout.baseRef, "origin/main");
     assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), published);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -336,7 +337,7 @@ test("a fresh start refreshes only the default branch, and still starts from the
       "an unfiltered fetch would have brought the unrelated task branch in",
     );
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -361,7 +362,7 @@ test("setup steps run once in order inside the worktree with the Harness variabl
     await lifecycle(fixture.root, () => task, { kind: "task-start", taskId }, { setup });
     assert.equal(readFileSync(path.join(fixture.base, "steps.txt"), "utf8").trim().split("\n").length, 2);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -397,7 +398,7 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
     assert.match(String((started as { summary?: unknown }).summary), /Setup ran: run: echo checking/u);
     assert.equal(readFileSync(counter, "utf8"), "x\n", "the step that succeeded does not run again");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -410,7 +411,7 @@ test("a task read sees only the setup steps that succeeded in this worktree, not
     await runWorktreeSetup({ rootDir: fixture.root, cwd: checkout!.cwd, taskId, steps: ["run: true", "run: false"] });
     assert.deepEqual(readWorktreeSetupSucceeded(checkout!.cwd), ["run: true"]);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -434,7 +435,7 @@ test("a run step still going at the timeout fails like any other step and names 
     );
     assert.match(readFileSync(result.log, "utf8"), /^\$ run: echo installing; sleep 30\ninstalling\n/u);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -456,7 +457,7 @@ test("the Settings step timeout reaches the checkout: a raised section value out
     if (stopped.setup.ok) return;
     assert.equal(stopped.setup.detail, "timed out after 0.3s");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -490,7 +491,7 @@ test(
       );
       await waitForDurableCondition(() => !alive(pid));
     } finally {
-      rmSync(fixture.base, { recursive: true, force: true });
+      removeTempRepository(fixture.base);
     }
   },
 );
@@ -525,7 +526,7 @@ test("the node-modules adapter mirrors the root store and removes its mirror bef
     assert.equal(existsSync(cwd), false);
     assert.equal(existsSync(path.join(fixture.root, "node_modules", "left-pad")), true, "the root store stays");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -539,7 +540,7 @@ test("an edge workspace installs the worktree's own lockfile and never touches a
     product = path.join(base, "product"),
     workspace = path.join(ancestor, "harness-edge", "canonical"),
     worktree = path.join(workspace, ".worktrees", taskId);
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   // A real-looking ancestor install: a lockfile npm would happily reify, and a marker-only node_modules to detect it.
   mkdirSync(path.join(ancestor, "node_modules", "ancestor-only"), { recursive: true });
   writeFileSync(path.join(ancestor, "node_modules", "ancestor-only", "index.js"), "module.exports = 1;\n");
@@ -615,7 +616,7 @@ test("a worktree with neither a store to share nor a lockfile of its own fails w
     ancestor = path.join(base, "home"),
     workspace = path.join(ancestor, "harness-edge", "canonical"),
     worktree = path.join(workspace, ".worktrees", taskId);
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   mkdirSync(path.join(ancestor, "node_modules", "ancestor-only"), { recursive: true });
   writeFileSync(path.join(ancestor, "node_modules", "ancestor-only", "index.js"), "module.exports = 1;\n");
   writeFileSync(path.join(ancestor, "package.json"), '{"name":"ancestor","version":"1.0.0","private":true}\n');
@@ -651,7 +652,7 @@ test("a checkout whose directory was removed is restored onto its surviving bran
     await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup());
     assert.equal(git(cwd, "rev-parse", "HEAD"), head);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -675,8 +676,8 @@ test("a Git-less node has no worktree to give, and forwarded writes leave checko
       );
     assert.equal(existsSync(path.join(fixture.root, binding.path)), false);
   } finally {
-    rmSync(gitless, { recursive: true, force: true });
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(gitless);
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -709,7 +710,7 @@ test("a task that does not change repository files works in its own task package
       null,
     );
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -766,7 +767,7 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
         const view = taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null);
         assert.equal(view?.kind === "worktree" && view.state, scenario.expect.present ? "retained" : "reclaimed");
       } finally {
-        rmSync(fixture.base, { recursive: true, force: true });
+        removeTempRepository(fixture.base);
       }
     });
 });
@@ -794,7 +795,7 @@ test("a closed task's initialized submodules are reclaimed, and dirty submodule 
     assert.match(String((clean as { summary?: string }).summary), /removed/u);
     assert.equal(git(fixture.root, "branch", "--list", binding.branch), "");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -820,7 +821,7 @@ test("a residue directory a late writer left at a reclaimed path reads as reclai
       state: "reclaimed",
     });
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -856,7 +857,7 @@ test("a worktree retained at close is reclaimed by a later close on this node on
           assert.match(String((later as { summary?: string }).summary), new RegExp(`${taskId} and branch`, "u"));
         assert.equal(later.warnings, undefined);
       } finally {
-        rmSync(fixture.base, { recursive: true, force: true });
+        removeTempRepository(fixture.base);
       }
     });
 });
@@ -918,7 +919,7 @@ test("the standalone reconciliation reclaims what a failed close left behind onc
         assert.equal(git(fixture.root, "branch", "--list", otherId).length, 0);
         assert.equal(git(fixture.root, "branch", "--list", openId).length > 0, true);
       } finally {
-        rmSync(fixture.base, { recursive: true, force: true });
+        removeTempRepository(fixture.base);
       }
     });
 });
@@ -935,7 +936,7 @@ test("an applied write that leaves the task open does not touch its worktree", a
     );
     assert.equal(existsSync(cwd), true);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -961,14 +962,14 @@ test("a finished Squad run's worker checkout is reclaimed against the Commander 
           : { outcome: "removed", archiveTag: `archive/wt-${path.basename(worker.cwd)}`, unmergedCommits: 1 },
       );
     } finally {
-      rmSync(fixture.base, { recursive: true, force: true });
+      removeTempRepository(fixture.base);
     }
   }
 });
 
 test("handoff checkout uses the accepted SHA even when the published branch advances", async (t) => {
   const fixture = repositoryFixture(t);
-  t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(fixture.base));
   const accepted = git(fixture.root, "rev-parse", "HEAD");
   git(fixture.root, "switch", "-qc", taskId);
   commit(fixture.root, "later.txt");
@@ -983,7 +984,7 @@ test("handoff checkout uses the accepted SHA even when the published branch adva
 
 test("review checkout uses a detached frozen snapshot beside the worker worktree", async (t) => {
   const fixture = repositoryFixture(t);
-  t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(fixture.base));
   const worker = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!,
     frozen = git(worker.cwd, "rev-parse", "HEAD");
   writeFileSync(path.join(worker.cwd, "worker-change.txt"), "worker change\n");
@@ -1005,7 +1006,7 @@ test("review checkout uses a detached frozen snapshot beside the worker worktree
 
 test("handoff checkout rejects dirty, mismatched, missing and non-SHA anchors without changing the tree", async (t) => {
   const fixture = repositoryFixture(t);
-  t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(fixture.base));
   const checkout = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!,
     accepted = git(checkout.cwd, "rev-parse", "HEAD");
   writeFileSync(path.join(checkout.cwd, "untracked.txt"), "keep me");
@@ -1069,7 +1070,7 @@ function repositoryFixture(t: TestContext): { readonly base: string; readonly ro
   const base = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-")),
     remote = path.join(base, "remote.git"),
     root = path.join(base, "canonical");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "--bare", "-q", remote);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Worktree Test");
@@ -1104,7 +1105,7 @@ function git(cwd: string, ...args: string[]): string {
 
 test("an explicit stack checkout preserves its anchor and refuses an unrelated existing task branch", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stack-checkout-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   git(rootDir, "checkout", "-qb", "reviewed-stack");
   writeFileSync(path.join(rootDir, "stack.txt"), "reviewed stack\n");

@@ -25,6 +25,7 @@ import {
   derive,
   dispatch,
 } from "./closeout-submission-cut.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("explicit structured commit derives mixed deletion evidence without a dispatch", async (t) => {
   const { root } = fixture(t);
@@ -471,7 +472,7 @@ test("anchor drift warning fires only when the delivery cut moved under unchange
 
 test("a root-commit delivery on an unborn repository diffs against the empty tree", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-closeout-unborn-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Harness Test");
   git(root, "config", "user.email", "harness@example.test");
@@ -628,8 +629,8 @@ test("re-freezing after rebase fetches a stale origin main and excludes its path
   const { root, base } = fixture(t),
     origin = mkdtempSync(path.join(tmpdir(), "ha-closeout-origin-")),
     upstream = mkdtempSync(path.join(tmpdir(), "ha-closeout-upstream-"));
-  t.after(() => rmSync(origin, { recursive: true, force: true }));
-  t.after(() => rmSync(upstream, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(origin));
+  t.after(() => removeTempRepository(upstream));
   git(origin, "init", "--bare", "-q", "--initial-branch=main");
   git(root, "remote", "add", "origin", origin);
   git(root, "push", "-q", "--set-upstream", "origin", "main");

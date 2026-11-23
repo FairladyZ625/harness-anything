@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import type { RepoCellBinding, WriteReceipt } from "../src/daemon-host/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
@@ -118,7 +119,7 @@ test("an expired current-round lease is recoverable by any repo-write actor thro
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -223,7 +224,7 @@ test("the task owner can force-release an abandoned lease, rejoin its execution,
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -261,7 +262,7 @@ test("naming a foreign execution id explains the round's active execution to rej
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -302,7 +303,7 @@ test("ReturnToPlanned frees the round so ha task start allocates a fresh executi
     assert.equal(String(fresh.executionId).startsWith("exe_"), true);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -348,7 +349,7 @@ test("an archived dead-zone task reopens and rejoins its execution through ha ta
     assert.equal(rejoined.executionId, "exe_archive_dz", "reopen leaves the round recoverable");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

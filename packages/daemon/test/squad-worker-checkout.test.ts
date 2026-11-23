@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-worksp
 import { prepareWorkerWorktree, resolveSquadCwd } from "../src/daemon-host/squad-worker-checkout.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("each squad assignment uses its own child task binding and preserves the Commander baseline", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-checkout-"));
@@ -66,13 +67,13 @@ test("each squad assignment uses its own child task binding and preserves the Co
     execFileSync("git", ["merge", "--no-ff", "--no-edit", first!.branch], { cwd: rootDir });
     execFileSync("git", ["merge-base", "--is-ancestor", childSha, "HEAD"], { cwd: rootDir });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
 test("worker checkout follows its child binding even when the Commander changes branch or detaches", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "squad-checkout-branch-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["init", "-q", rootDir]);
   execFileSync("git", ["config", "user.name", "Fixture"], { cwd: rootDir });
   execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: rootDir });
@@ -96,7 +97,7 @@ test("worker checkout follows its child binding even when the Commander changes 
 
 test("a worker checkout runs the repository's setup steps with the child task id", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "squad-checkout-setup-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["init", "-q", "-b", "task_0123456789abcdef0123456789", rootDir]);
   execFileSync(
     "git",
@@ -117,7 +118,7 @@ test("a worker checkout runs the repository's setup steps with the child task id
 
 test("a task-bound squad run refuses an unborn repository before launch and keeps Git-less edges rootless", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-unborn-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["init", "-q", "-b", "main", rootDir]);
   execFileSync("git", ["config", "user.name", "Fixture"], { cwd: rootDir });
   execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: rootDir });
@@ -136,13 +137,13 @@ test("a task-bound squad run refuses an unborn repository before launch and keep
 
   // dec_BBA713052997C3EF5F5D3DD952 CH3: a Git-less edge still records no workspace instead of failing.
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-gitless-"));
-  t.after(() => rmSync(gitless, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(gitless));
   assert.equal(await resolveSquadCwd(gitless, undefined, query, taskId, noWorktreeSetup()), gitless);
 });
 
 test("a task-bound squad run refuses a committed detached repository with no default base", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-detached-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["init", "-q", "-b", "main", rootDir]);
   execFileSync(
     "git",
@@ -170,7 +171,7 @@ test("a task-bound squad run refuses a committed detached repository with no def
 
 test("a task-bound squad run uses its worktree when the repository has a default base", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-default-base-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["init", "-q", "-b", "main", rootDir]);
   execFileSync(
     "git",
@@ -198,7 +199,7 @@ function noSetup(rootDir: string, taskId = "task_child") {
 test("a squad checkout preserves a backoff group's Git conflict and aborts it only after closure", async (t) => {
   {
     const rootDir = mkdtempSync(path.join(tmpdir(), "squad-conflict-owner-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const git = (cwd: string, ...args: string[]) =>
       execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
     git(rootDir, "init", "-q", "-b", "main");

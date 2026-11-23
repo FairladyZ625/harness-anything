@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Pool } from "pg";
@@ -12,6 +12,7 @@ import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { appendRuntimeQueryFixtures } from "./pg-runtime-query-parity.fixture.ts";
 import { bundle, docBundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 export const repoId = "migration-content-probe",
   scope = { tenantId: "tenant-content", projectId: "project-content", readers: ["reader-a"], policyEpoch: 0 };
@@ -135,6 +136,6 @@ export async function assertContentParity(pool: Pool, backend: string): Promise<
     await sqlite.drain();
     await pg.projection.close();
     await pg.entities.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }

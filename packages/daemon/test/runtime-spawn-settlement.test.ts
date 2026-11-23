@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,6 +24,7 @@ import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-con
 import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("path-like or textual runtime missions produce an actionable receipt without exposing the input", (context) => {
   const expectation =
@@ -115,7 +116,7 @@ test("F1: an exit without process-group stop proof retains node-local instance l
     assert.equal(dispatchState.readActiveLoads().get(runtime.instanceId), 1);
     assert.equal(runtime.exitSettlement, undefined, "stop proof may be retried without losing node load");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -158,7 +159,7 @@ test("stalled settlement never enters the provider fallback chain", async () => 
     assert.equal(terminals[0]?.outcome, "failed");
     assert.match(String(terminals[0]?.reason), /stalled/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -214,7 +215,7 @@ test("a late provider exit after cancellation does not publish a second terminal
     assert.equal((outcomes[0]?.attempt as Record<string, unknown>)?.classification, "awaiting_ruling");
     assert.equal(context.exiting.size, 0);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -259,7 +260,7 @@ test("a rejected in-flight exit settlement can be retried by the next provider c
     assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
     assert.ok(runtime.exitSettlement, "the completed terminal promise absorbs late callbacks");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -362,7 +363,7 @@ test("the idle watchdog reaches stalled settlement and dispatch_stalled after th
     Date.now = originalNow;
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -398,7 +399,7 @@ test("taskless settlement requires the provider's completed turn and final resul
       assert.equal(outcomes[0]?.outcome, sample.expected);
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -460,7 +461,7 @@ test("completed provider turn without final text stays unknown without a protoco
     assert.match(bodies[0] ?? "", /Dispatch transcript:/u);
     assert.deepEqual(protocolErrors, []);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -547,7 +548,7 @@ test("reviewer exit on superseded cut settles as superseded instead of failed", 
     assert.equal(outcomes[0]?.reasonCode, "review_cut_superseded");
     assert.match(String((outcomes[0]?.attempt as { readonly reason?: string })?.reason), /superseded/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -579,7 +580,7 @@ test("settlement reclaims the run's per-instance temp directory", async () => {
     await publishExit(context, runtime, 0);
     assert.deepEqual(reclaimed, [["provider-a", runtime.runtimeSessionId]]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -621,7 +622,7 @@ test("a temp reclaim failure is carried into the terminal body, not swallowed", 
       `terminal bodies: ${JSON.stringify(outcomeBodies)}`,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -745,7 +746,7 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
     assert.equal(Object.hasOwn(unreportedOutcomes[0] ?? {}, "cacheWriteTokens"), false);
     assert.equal(Object.hasOwn(archivedRecords[1] ?? {}, "runtimeMetrics"), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -822,7 +823,7 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
       }
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -872,7 +873,7 @@ test("remote settlement reads a ruling from the worker cwd before the mirrored p
     assert.equal((outcomes[0]?.attempt as { readonly classification?: string })?.classification, "awaiting_ruling");
     assert.match(bodies[0] ?? "", /artifacts\/rulings\/dispatch_0123456789abcdef01234567\.md/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -914,7 +915,7 @@ test("remote settlement keeps a late task exit ordinary when its execution is al
     assert.equal(outcomes[0]?.outcome, "stopped");
     assert.equal((outcomes[0]?.attempt as { readonly classification?: string })?.classification, "worker_stop");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -994,7 +995,7 @@ test("a failed attempt persists a one-line reason that references the dispatch s
     assert.match(outcome.reason, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
     assert.doesNotMatch(outcome.reason, /PROVIDER-STDERR-RAW-SECOND-LINE/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1170,7 +1171,7 @@ for (const cancelled of [false, true])
       );
     } finally {
       console.error = originalError;
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -1253,7 +1254,7 @@ test("terminal settlement leaves the outcome pending when fallback settlement fa
     assert.deepEqual(outcomeBodies, []);
     assert.equal(runtime.exitSettlement, undefined, "recovery can retry the unsettled attempt");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1283,7 +1284,7 @@ test("stalled settlement waits until the aggregate confirms the process is alive
     await settleStalledRuntime(context, runtime);
     assert.equal(runtime.stalledAt, null);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1345,7 +1346,7 @@ test("a stalled dispatch settles through the process-tree path and never masks i
     assert.deepEqual(termination, ["tree"], "one termination path runs; no second best-effort kill hides it");
     assert.equal(runtime.stalledAt, "2026-10-24T00:05:00.000Z", "the stall observation is still recorded");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1413,6 +1414,6 @@ test("F13/F14: hung or failing steer receipt uplink during publishTerminalOutcom
     releaseHungReceipt();
     await new Promise((resolve) => setTimeout(resolve, 25));
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

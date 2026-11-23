@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Person explanations resolve Keycloak identity and evaluate online permission", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-person-action-keycloak-")),
@@ -42,7 +43,7 @@ test("Person explanations resolve Keycloak identity and evaluate online permissi
   t.after(async () => {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   });
   const personRef = `person/${actor.principal.personId}`;
   realm.keycloak.permit(actor.principal.personId, `person-action-keycloak:${personRef}`, ["people-delegate"]);

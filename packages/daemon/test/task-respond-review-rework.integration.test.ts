@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
   latestReviewerDispatchFor,
   multiVendorReviewerOwner,
 } from "./fixtures/reviewer-cross-vendor-lru.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const RESPONSE_VALIDATOR = "task-lifecycle-review-transitions/respondReview.validate",
   RESPONSE_PROOF = "repo-cell-proof/proofFor.RespondReview";
@@ -351,7 +352,7 @@ test("a returned cut registers its response and re-freezes the delivery for the 
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -417,7 +418,7 @@ test("a response rejected for its actor proof names that proof criterion instead
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

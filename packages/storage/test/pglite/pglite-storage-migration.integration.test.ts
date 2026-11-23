@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
@@ -15,6 +15,7 @@ import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { bundle, docBundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { test } from "node:test";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 pgliteIntegrationSuite("PGlite/PostgreSQL cold storage migration", () => {
   test("Node 26: bidirectional byte, digest and projection reconciliation uses the same durable state machine", async () => {
@@ -122,7 +123,7 @@ pgliteIntegrationSuite("PGlite/PostgreSQL cold storage migration", () => {
       await a.close();
       await b.close();
       await fixture.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 });

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -10,6 +10,7 @@ import { prepareDispatchWorktree } from "../src/daemon-host/runtime-resume-admis
 import { repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import { prepareTaskStartWorktree, taskWorkspaceView } from "../src/daemon-host/task-worktree.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Issue #4431: a task-bound dispatch must be refused when its required worktree cannot be cut from a Git repository,
 // even when an earlier explicit start already recorded an execution. A start may answer "no workspace here" without
@@ -76,7 +77,7 @@ test("a task-bound runtime dispatch refuses a committed detached repository with
 test("a Git-less edge keeps the no-workspace answer instead of a missing-base failure", async (t) => {
   // dec_BBA713052997C3EF5F5D3DD952 CH3: an edge without Git records no workspace rather than failing.
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-dispatch-gitless-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.equal(await prepareDispatchWorktree({ rootDir: root }, { taskId }, () => binding), null);
 });
 
@@ -111,7 +112,7 @@ test("a dispatch after an explicit start still refuses an unborn repository befo
 function unbornRepository(t: TestContext): { readonly base: string; readonly root: string } {
   const base = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-dispatch-unborn-")),
     root = path.join(base, "canonical");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   mkdirSync(root);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Worktree Dispatch Test");

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -18,6 +18,7 @@ import {
   runMaybe as runRuntimeCliMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -199,7 +200,7 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     assert.equal((missing.receipt.error as Record<string, unknown>).code, "runtime_instance_not_found");
   } finally {
     runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -331,7 +332,7 @@ test("real CLI runtime instance list/show/--probe displays subscription quota wi
     );
   } finally {
     runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

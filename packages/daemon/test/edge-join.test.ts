@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
   isEdgeJoinPlatform,
   type EdgeJoinRecord,
 } from "../src/daemon-host/fleet/edge-join.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const inviteInput = {
   centerOrigin: "https://center.example:8443",
@@ -95,7 +96,7 @@ test("an invitation rejects a valid listener leaf when it is not a CA root", (t)
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-link-leaf-")),
     keyFile = path.join(root, "leaf.key"),
     certificateFile = path.join(root, "leaf.pem");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   execFileSync(
     "openssl",
     [

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { tokenUsageProjection } from "./token-usage-lifecycle.fixtures.ts";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
   MODEL_PRICING_REFRESH_INTERVAL_MS,
   refreshModelPricingCatalog,
 } from "../src/daemon-host/model-pricing-refresh.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /** 价格模块与读面金额累加的定向测试:四段计价(新输入/缓存读/缓存写/输出)、无价格模型不按
  * 0 计、缓存写缺字段的历史记录按 0 计、金额出现在每个聚合维度、校验器接受新形状。 */
@@ -191,7 +192,7 @@ test("startup installs a fresh disk cache without requesting the network", async
     assert.deepEqual(installed, catalog);
     assert.equal(nextRefresh, MODEL_PRICING_REFRESH_INTERVAL_MS - 60 * 60 * 1_000);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -234,7 +235,7 @@ test("startup refreshes a stale disk cache and atomically persists the validated
     assert.deepEqual(installed, cache.catalog);
     assert.deepEqual(readdirSync(userRoot), ["model-pricing-cache.json"]);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -265,7 +266,7 @@ test("a stale disk cache is not installed when the refresh fails", async () => {
     });
     assert.equal(installs, 0);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -298,7 +299,7 @@ test("invalid cache and failed refresh leave the in-memory catalog unchanged", a
       outputPerMillion: 10,
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -420,7 +421,7 @@ test("the aggregate converts priced models and counts unpriced tokens per dimens
     // 环比周期也带金额与未计价(token 计入,只是价格不编)。
     assert.equal(result.previous.totals.unpricedTokens, 0);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -449,7 +450,7 @@ test("the member detail carries cost totals computed from each session's model",
     assert.equal(priced.cacheWriteTokens, 600_000);
     assert.equal(legacy.cacheWriteTokens, 0);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -478,6 +479,6 @@ test("the validators reject results whose cost fields are absent or negative", (
       "missing cache-write counter must be rejected",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

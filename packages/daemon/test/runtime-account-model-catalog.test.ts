@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-insta
 import { runtimeKindForId } from "../src/runtime-engine/runtime-inventory.ts";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const providers = ["claude", "codex", "claude-acp", "codex-acp", "devin", "opencode", "minimax-code"] as const;
 // Help/bundled catalogs are deliberately identical. Only each isolated account's
@@ -63,7 +64,7 @@ for (const kindId of providers)
         }
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -113,7 +114,7 @@ for (const failure of ["nonzero", "timeout"] as const)
       assert.equal(store.read("account")?.availableModels, undefined);
       assert.deepEqual(store.read("account")?.models, ["configured-model"]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -163,7 +164,7 @@ test("list --probe persists each provider account catalog independently of its c
         assert.equal((result.modelCatalogReadiness as Record<string, { status: string }>)[instanceId]?.status, "ready");
       }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -191,7 +192,7 @@ test("Codex catalog rejects a repeated continuation cursor rather than looping",
       (error) => error instanceof Error && "code" in error && error.code === "runtime_model_catalog_invalid",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -227,7 +228,7 @@ test("an undeclared account catalog is explicitly unsupported after successful a
     assert.equal((result.modelCatalogReadiness as { code: string }).code, "runtime_model_catalog_unsupported");
     assert.equal(store.read("account")?.availableModels, undefined);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -359,7 +360,7 @@ for (const scenario of [
         );
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -408,7 +409,7 @@ for (const kindId of ["claude-acp", "codex-acp"] as const)
         (error) => error instanceof Error && "code" in error && error.code === "runtime_subscription_required",
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -473,6 +474,6 @@ for (const credentialEnvironment of ["OPENCODE_AUTH_CONTENT", "XDG_DATA_HOME"] a
           credentialSource === "operator" ? ["account-model"] : undefined,
         );
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     });

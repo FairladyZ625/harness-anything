@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
 import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const auth = {
   transportKind: "unix-socket",
@@ -50,7 +51,7 @@ test("a post-initialize open failure releases the workspace lock for the next at
     });
     await reopened.close();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -86,6 +87,6 @@ test("repeated bare init reuses the registered repo id while its RepoCell is ope
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

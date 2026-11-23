@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { readDaemonRegistry } from "@harness-anything/kernel";
 import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const entrypointTemplatePath = path.join(repoRoot, "deploy/helm/harness-center/templates/entrypoint-configmap.yaml");
@@ -40,7 +41,7 @@ test(
     t.after(async () => {
       await pg.pool.end();
       await pg.close();
-      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(sandbox);
     });
 
     mkdirSync(pod1UserRoot, { recursive: true });
@@ -147,7 +148,7 @@ test(
     }
 
     // Simulate Kubernetes Pod replacement: completely destroy Pod 1's emptyDir userRoot.
-    rmSync(pod1UserRoot, { recursive: true, force: true });
+    removeTempRepository(pod1UserRoot);
 
     // Pod 2: completely separate fresh emptyDir userRoot, mounting ONLY the same daemon-storage.json Secret.
     writeFileSync(path.join(pod2UserRoot, "daemon-storage.json"), JSON.stringify(storageConfig, null, 2));

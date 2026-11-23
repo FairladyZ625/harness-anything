@@ -13,9 +13,10 @@ import {
   parseNodeAutoClaimCandidates,
   parseNodeAutoClaimSnapshot,
 } from "../src/daemon-host/node-auto-claim.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const assignment = {
   taskId: "task-a",
@@ -285,7 +286,7 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
     await loop.close();
     assert.deepEqual(started, ["task-allowed", "task-queued", "task-allowed"]);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -334,7 +335,7 @@ test("concurrency slots include local runs missing from the runtime projection",
     release();
     await loop.close();
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -389,7 +390,7 @@ test("a failed candidate is suppressed during refill while a later candidate pro
     await loop.close();
     assert.equal(attempts.get(failed.id), 1, "runtime settlement does not recursively retry the failed assignment");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -448,7 +449,7 @@ test("a terminal task frees its concurrency slot before its claim run returns", 
     releaseFirst();
     await loop.close();
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 test("a disabled auto-claim loop never opens the owner replica and closes cleanly", async () => {
@@ -479,7 +480,7 @@ test("a disabled auto-claim loop never opens the owner replica and closes cleanl
     assert.equal(loop.diagnostics()[0]?.reason, "disabled");
   } finally {
     await loop.close();
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -539,6 +540,6 @@ test("auto-claim close consumes only its own lifetime abort and keeps other scan
     await assert.rejects(closingFailed, /scan failed for another reason/u);
     await failed.scan;
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

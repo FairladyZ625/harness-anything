@@ -8,7 +8,7 @@
 // codex-api.
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harne
 import { readTaskDispatches } from "../src/daemon-host/dispatch-read.ts";
 import { withLocalDispatchStreamEvidence } from "../src/daemon-host/dispatch-activity-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_5beaecffdf966066d2816b0d",
   runtimeSessionId = "runtime_c55acf69e24aca9e79143d30",
@@ -200,7 +201,7 @@ function writeEdgeStream(input: {
 
 test("an edge dispatch row carries the transcript ref the executing node published", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-transcript-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const startedAt = "2026-11-07T03:40:00.000Z",
     transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
     row = readTaskDispatches({
@@ -215,7 +216,7 @@ test("an edge dispatch row carries the transcript ref the executing node publish
 
 test("a settled edge dispatch keeps its transcript ref from the archived dispatch document", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-edge-archive-transcript-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const startedAt = "2026-11-07T03:40:00.000Z",
     transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`,
     row = readTaskDispatches({
@@ -234,7 +235,7 @@ test("an ended edge dispatch still gets its transcript ref from the local stream
     now = Date.now(),
     startedAt = new Date(now - 40 * 60_000).toISOString(),
     frameAt = new Date(now - 30 * 60_000).toISOString();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   writeEdgeStream({ rootDir, instance: edgeInstances[1], startedAt, frameAt });
   const ended: RuntimeSession = {
     ...edgeSession({
@@ -262,7 +263,7 @@ for (const instance of edgeInstances) {
       startedAt = new Date(now - 40 * 60_000).toISOString(),
       frameAt = new Date(now - 5_000).toISOString(),
       transcriptRef = `file:.harness/runtime/dispatches/${dispatchId}.jsonl`;
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     writeEdgeStream({ rootDir, instance, startedAt, frameAt });
     const row = readTaskDispatches({
       projection: centerProjection(
@@ -293,7 +294,7 @@ test("a submitted implementation stays waiting even when local provider frames k
     now = Date.now(),
     startedAt = new Date(now - 40 * 60_000).toISOString(),
     frameAt = new Date(now - 5_000).toISOString();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   writeEdgeStream({ rootDir, instance: edgeInstances[0], startedAt, frameAt });
   const row = readTaskDispatches({
     projection: centerProjection(

@@ -2,7 +2,7 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -20,6 +20,7 @@ import {
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const keyA = "fixture-provider-key-a",
   keyB = "fixture-provider-key-b",
@@ -48,7 +49,7 @@ function vault() {
 function fixture(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-credential-replacement-")),
     userRoot = path.join(root, "user");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const executablePath = writeProviderExecutable(
     path.join(root, "provider.mjs"),
     `
@@ -135,7 +136,7 @@ for (const kindId of ["claude", "codex"])
       assert.equal(f.backend.secrets.size, 1);
       assert.equal(f.backend.removed.length, 1);
     } finally {
-      rmSync(f.root, { recursive: true, force: true });
+      removeTempRepository(f.root);
     }
   });
 
@@ -179,7 +180,7 @@ test("invalid keys, subscription mode, failed vault and rejected metadata preser
     assert.equal(await consume(f, "claude"), "a");
     assert.equal(f.backend.secrets.size, 1);
   } finally {
-    rmSync(f.root, { recursive: true, force: true });
+    removeTempRepository(f.root);
   }
 });
 
@@ -225,7 +226,7 @@ test("daemon FIFO orders simultaneous replacements and metadata updates; shared 
     assert.equal(f.backend.secrets.size, 2);
     assert.equal(f.backend.removed.length, 1);
   } finally {
-    rmSync(f.root, { recursive: true, force: true });
+    removeTempRepository(f.root);
   }
 });
 
@@ -281,7 +282,7 @@ test("a launch already resolving the old item finishes before replacement cleanu
     assert.equal(await consume(f, "claude"), "b");
   } finally {
     release();
-    rmSync(f.root, { recursive: true, force: true });
+    removeTempRepository(f.root);
   }
 });
 
@@ -312,7 +313,7 @@ test("readback failure rolls back and retired-item cleanup failure reports succe
     assert.doesNotMatch(JSON.stringify(receipt), /fixture-provider-key-[abc]|credentialRef/u);
     assert.equal(await consume(f, "claude"), "b");
   } finally {
-    rmSync(f.root, { recursive: true, force: true });
+    removeTempRepository(f.root);
   }
 });
 
@@ -404,7 +405,7 @@ test("real CLI stdin and GUI registry IPC bridge replace through the same isolat
     ] as const)
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
-    rmSync(f.root, { recursive: true, force: true });
+    removeTempRepository(f.root);
   }
 });
 
@@ -471,6 +472,6 @@ test("hosting ref rebinds through a live daemon are immediately visible to attac
     assert.equal(await prepare("shared", "github", "repo-a"), null);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

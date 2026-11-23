@@ -29,6 +29,7 @@ import { consumeProviderLine } from "../src/daemon-host/runtime-spawn-provider-s
 import { lifecycleReadFor, lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   runtimeSessionId = "runtime-provider-stalled",
@@ -238,7 +239,7 @@ test("provider reconnect frames surface as stalled, keep last progress and the r
     assert.equal(reads().overview({}).sessions[0]?.activity.providerUnreachable, undefined);
     assert.equal(localDispatchActivity(rootDir, startedAt, now + 1_000).activityStatus, "thinking");
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -303,7 +304,7 @@ test("bounded summary keeps the exact last real progress when reconnect frames o
       lastError: `${reconnectError} ${padding}`,
     });
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -354,7 +355,7 @@ test("legacy reconnect tails without a progress stamp use a conservative bound a
     assert.ok(Date.parse(summary.lastProgressAt) >= Date.parse(recentProgressAt));
     assert.equal(localDispatchActivity(rootDir, startedAt, now).providerUnreachable, undefined);
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -393,7 +394,7 @@ test("the center serves the classification reported by the executing node withou
     assert.equal(cleared.activityStatus, "thinking");
     assert.equal(cleared.providerUnreachable, undefined);
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -549,7 +550,7 @@ test("the live persisted worker-host path reports and clears without sliding the
     assert.equal(published.length, 2);
     assert.equal(readDispatchStreamSummary(rootDir, dispatchId)!.lastProgressAt, recoveryAt);
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -698,7 +699,7 @@ test("remote fleet adoption reads the replica unsettled set and clears the repor
     );
   } finally {
     runtime?.close();
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -766,6 +767,6 @@ test("an old head marker does not mask a newer tail progress stamp", (t) => {
       lastError: `${reconnectError} ${padding}`,
     });
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

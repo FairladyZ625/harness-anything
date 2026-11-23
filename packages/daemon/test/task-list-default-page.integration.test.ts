@@ -2,12 +2,13 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task list defaults to 50 rows and exposes a continuation cursor", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-list-default-page-"));
@@ -37,7 +38,7 @@ test("task list defaults to 50 rows and exposes a continuation cursor", async ()
     assert.equal(typeof listed.page.nextCursor, "string");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -104,6 +105,6 @@ test("completed work presentation agrees across reads while transitions retain r
     assert.equal(transition.outcome, "applied", JSON.stringify(transition));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak"
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 import { readArtifactActionScopes } from "../src/daemon-host/authorization-provider.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sharedKind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
   sharedScope = `${sharedKind}/import`,
@@ -71,7 +72,7 @@ test("policy sync normalizes a historical completion default to the converted de
       "the retired key is normalized away, so conversion changes no policy scope",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -120,7 +121,7 @@ test("one repository retiring a shared kind cannot revoke another repository's i
         `${order.join("->")} existing grant keeps import`,
       );
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   }
 });

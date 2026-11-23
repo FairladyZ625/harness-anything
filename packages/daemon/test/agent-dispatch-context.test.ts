@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function assertScopedGuidance(prompt: string, taskId: string): void {
   assert.doesNotMatch(prompt, /ha (?:graph|work show|task create)/u);
@@ -514,7 +515,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(prompt, null, "the provider must not launch without its required ancestor plan");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -646,7 +647,7 @@ test("a portable Agent dispatches in a repository whose skills live in repositor
     assert.equal(launches, 1, "a missing repository skill must fail before the launch boundary");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -827,7 +828,7 @@ test("artifact task cwd stays in its package while permissions follow request, a
     assert.equal(launches, 8, "ZCode rejects unattended restricted modes before launch");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -980,7 +981,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(launchCalls, 1, "second dry-run must not reach prepareLaunch");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1106,7 +1107,7 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
     assert.match(block, new RegExp(decisionIds[0]!.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1189,6 +1190,6 @@ test("a dispatch whose declaration mounts self-iteration carries the closeout st
     assert.doesNotMatch(String(plain.prompt), /# Self-iteration closeout/u, "the opt-in is the only trigger");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

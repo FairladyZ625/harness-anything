@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const PR_TEMPLATE = `# English
 
@@ -67,6 +68,6 @@ test("task create ships no PR body slot even when the repository declares a PR t
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

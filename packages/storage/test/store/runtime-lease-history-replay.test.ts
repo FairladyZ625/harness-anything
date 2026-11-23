@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,6 +24,7 @@ import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 
 import { withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
 import { projectProgress } from "../../src/projection/rebuildable-task-projection-write-model.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = {
     principal: { personId: "person-progress" },
@@ -120,7 +121,7 @@ test("historically accepted delegated progress remains replayable", async () => 
   } finally {
     projection.close();
     await store.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 function bootstrapAndStart(rootDir: string) {

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   renderBackupRetention,
   runBackupRetention,
 } from "../src/cli/thin-command-backup-retention.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const now = "2026-10-11T00:00:00.000Z";
 
@@ -45,13 +46,13 @@ test("the listing marks entries past the retention window and keeps fresh ones r
     assert.match(rendered, /3 entries, 1 past the 30-day retention window\./u);
     assert.match(rendered, /never deleted/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
 test("a missing backup root lists empty instead of failing", () => {
   const root = path.join(tmpdir(), "ha-backup-retention-absent");
-  rmSync(root, { recursive: true, force: true });
+  removeTempRepository(root);
   assert.deepEqual(listBackupRetention({ backupRoot: root, now, keepDays: 30 }), []);
   assert.equal(renderBackupRetention([], 30, root), `No backup entries under ${root}.`);
 });
@@ -70,7 +71,7 @@ test("an unreadable backup root fails with its own error code instead of listing
       (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOTDIR",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -90,8 +91,8 @@ test("the boundary day is retained and the day after expires", () => {
       true,
     );
   } finally {
-    rmSync(fresh, { recursive: true, force: true });
-    rmSync(stale, { recursive: true, force: true });
+    removeTempRepository(fresh);
+    removeTempRepository(stale);
   }
 });
 

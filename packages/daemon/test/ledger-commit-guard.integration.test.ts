@@ -12,6 +12,7 @@ import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "ledger-guard";
 const auth = {
@@ -135,6 +136,6 @@ test("the ledger commit guard protects the ledger repository and leaves the proj
   } finally {
     await cell?.close();
     authority.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const load = (rootDir, relative) => import(pathToFileURL(path.join(rootDir, relative)).href);
 
@@ -48,6 +49,6 @@ export async function measureBackupCaptureCopies(rootDir, size) {
     assert.ok(capture, "the capture must report what it copied while the writer is held");
     return { size, counts: { captureCopiedFiles: capture.copiedFiles } };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }

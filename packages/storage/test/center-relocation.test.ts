@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -26,6 +26,7 @@ import { makeTaskEventStore } from "../src/store/task-event-store.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { configureWriterEpochStorage } from "../src/writer-epoch-storage.ts";
 import { bundle, docBundle, eventAt, initRepo } from "./store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("relocation import verifies every digest, advances oldEpoch by one, and removes a tampered destination", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-relocation-")),
@@ -83,7 +84,7 @@ test("relocation import verifies every digest, advances oldEpoch by one, and rem
     } finally {
       next.close();
     }
-    rmSync(destination, { recursive: true, force: true });
+    removeTempRepository(destination);
     writeFileSync(path.join(payload, "ledger.sqlite-placeholder"), "tampered\n");
     await assert.rejects(
       importCenterRelocation({ bundleDir, destinationRoot: destination, stateRoot }),
@@ -92,7 +93,7 @@ test("relocation import verifies every digest, advances oldEpoch by one, and rem
     assert.equal(existsSync(destination), false);
     assert.equal(readCenterRelocated(root), null);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -276,7 +277,7 @@ test("end-to-end export and import preserve real events, SHA-256 object blobs, r
     }
   } finally {
     closeSqliteEventStoresUnder(root);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -326,7 +327,7 @@ test("exportCenterRelocation selects active generation 3 over retained historica
     assert.equal(exported.manifest.tipHash, gen3TipHash);
   } finally {
     closeSqliteEventStoresUnder(root);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -414,7 +415,7 @@ test("retire fences per-repo tombstones without breaking sibling repos, enforces
       externalAuthority.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -436,6 +437,6 @@ test("relocation manifest rejects absolute paths before touching a destination",
     );
     assert.throws(() => verifyRelocationBundle(root), /invalid file entry/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

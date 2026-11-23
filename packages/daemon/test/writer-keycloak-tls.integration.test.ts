@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -22,6 +22,7 @@ import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function certificate(root: string, name: string) {
   const key = path.join(root, `${name}.key`),
@@ -158,7 +159,7 @@ for (const trust of ["trusted", "missing-ca", "wrong-ca", "wrong-host"] as const
     t.after(async () => {
       await opened.supervisor?.close();
       await realm.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     await provider.syncBasePolicy("center-token");
     realm.keycloak.permit(
@@ -257,7 +258,7 @@ for (const trusted of [true, false]) {
       token = realm.keycloak.account("tls-person");
     t.after(async () => {
       await realm.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
     writeFileSync(path.join(userRoot, "rbac", "config.json"), JSON.stringify({ mode: "external", ...authority }));

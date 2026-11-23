@@ -3,7 +3,7 @@ import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,6 +18,7 @@ import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sessionLifetimeSeconds = 21_600,
   accessTokenSeconds = 60,
@@ -134,7 +135,7 @@ function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext
       });
     };
   // Register cleanup with the test lifecycle so cancellation releases the directory too.
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(
     path.join(root, "rbac", "config.json"),
@@ -489,7 +490,7 @@ test("first administrator closes after one success and fleet policy admin withou
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-admin-")),
     rbac = path.join(root, "rbac"),
     keycloak = fakeKeycloak();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
@@ -566,7 +567,7 @@ test("SMTP email delivery failure rolls back the newly invited Keycloak user", a
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-smtp-rollback-")),
     rbac = path.join(root, "rbac"),
     keycloak = fakeKeycloak();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
@@ -621,7 +622,7 @@ test("SMTP email delivery failure rolls back the newly invited Keycloak user", a
 test("an invitation inside the OIDC write queue renews a lapsing session in place", { timeout: 10_000 }, async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-inwriter-")),
     rbac = path.join(root, "rbac");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
@@ -1169,7 +1170,7 @@ test("a listener change retires the cached center token from the previous issuer
     configFile = path.join(rbac, "config.json"),
     rejected = new Set<string>(),
     adminTokens: string[] = [];
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(configFile, JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
@@ -1214,7 +1215,7 @@ test("the first administrator deletes the bootstrap user before retiring its pas
     rbac = path.join(root, "rbac"),
     calls: string[] = [],
     passwordFile = path.join(rbac, "bootstrap-admin-password");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");

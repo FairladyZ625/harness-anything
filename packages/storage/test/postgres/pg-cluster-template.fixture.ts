@@ -9,7 +9,6 @@ import {
   readFileSync,
   renameSync,
   rmdirSync,
-  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -17,6 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ManagedPostgresBinaries } from "@harness-anything/authorization/keycloak/managed-rbac-service";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const LOCK_WAIT_MS = 120_000;
 const LOCK_POLL_MS = 25;
@@ -276,7 +276,7 @@ export async function cloneOrInitPostgresCluster(
     await withDirLock(lockDir, async () => {
       if (existsSync(path.join(templateDir, "PG_VERSION"))) return;
       const staging = `${templateDir}.staging-${process.pid}-${Date.now()}`;
-      rmSync(staging, { recursive: true, force: true });
+      removeTempRepository(staging);
       try {
         execFileSync(
           binaries.initdb,
@@ -287,10 +287,10 @@ export async function cloneOrInitPostgresCluster(
           renameSync(staging, templateDir);
         } catch (error) {
           if (!existsSync(path.join(templateDir, "PG_VERSION"))) throw error;
-          rmSync(staging, { recursive: true, force: true });
+          removeTempRepository(staging);
         }
       } catch (error) {
-        rmSync(staging, { recursive: true, force: true });
+        removeTempRepository(staging);
         throw error;
       }
     });
@@ -298,13 +298,13 @@ export async function cloneOrInitPostgresCluster(
   cachedTemplateByBin.set(cacheKey, templateDir);
 
   if (existsSync(path.join(templateDir, "PG_VERSION"))) {
-    rmSync(dataDirectory, { recursive: true, force: true });
+    removeTempRepository(dataDirectory);
     cpSync(templateDir, dataDirectory, { recursive: true, force: true });
     enforcePostgresPermissions(dataDirectory);
     if (existsSync(path.join(dataDirectory, "PG_VERSION"))) return;
   }
 
-  rmSync(dataDirectory, { recursive: true, force: true });
+  removeTempRepository(dataDirectory);
   execFileSync(
     binaries.initdb,
     ["-D", dataDirectory, "--username=postgres", "--auth=trust", "--encoding=UTF8", "--no-locale"],

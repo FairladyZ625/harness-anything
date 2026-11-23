@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,6 +31,7 @@ import {
   parseZcodeFrame,
 } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A real dispatch cwd is its own worktree. The liveness watcher recurses the whole cwd, so a
 // fixture pointed at a shared tmp tree attaches one fs_event handle per entry there and the test
@@ -341,7 +342,7 @@ test("Codex empty turn usage is replaced by the matching session turn token coun
     assert.deepEqual(runtime.rawUsage, { input_tokens: 181354, cached_input_tokens: 170624, output_tokens: 2449 });
     assert.equal(runtime.usageReported, true);
   } finally {
-    rmSync(providerHome, { recursive: true, force: true });
+    removeTempRepository(providerHome);
   }
 });
 
@@ -394,7 +395,7 @@ test("Codex session metrics without a frozen provider directory stay unreported"
       { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -919,7 +920,7 @@ test("an adopted session settles usage recovered from the persisted provider str
     assert.equal(settled?.outputTokens, 60);
     assert.equal(settled?.usageUnavailable, false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1025,7 +1026,7 @@ test("a usage dialect with only context occupancy settles unavailable instead of
       },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1234,8 +1235,8 @@ test("DeepSeek Harness settlement folds the complete transcript total, ahead of 
       },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(providerHome, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(providerHome);
   }
 });
 
@@ -1288,8 +1289,8 @@ test("DeepSeek Harness settlement folds up to a torn final frame and no further"
       { input: 1600, cacheRead: 600, output: 40 },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(providerHome, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(providerHome);
   }
 });
 
@@ -1474,8 +1475,8 @@ test("DeepSeek Harness settlement stays unavailable when only the projection che
       { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(providerHome, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(providerHome);
   }
 });
 
@@ -1510,7 +1511,7 @@ test("durable drains wait for the first record while the worker runs, then consu
     await consumeDurableOutput(context as never, active as never);
     assert.deepEqual(consumed, ['{"seq":1}'], "an already-counted record is never consumed twice");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1541,7 +1542,7 @@ test(
       await consumeDurableOutput(context as never, { dispatchId, durableOutputCount: 0 } as never, 2_000);
       assert.deepEqual(consumed, []);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );
@@ -1594,7 +1595,7 @@ test("a canonical file_change records a stray write and publishes the warning on
       1,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1627,7 +1628,7 @@ test("a relative traversal into the canonical checkout records a stray write", a
       1,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

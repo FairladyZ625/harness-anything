@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import type { RuntimeOperatorSession } from "../src/daemon-host/runtime-online-b
 import type { KeycloakCenterAuthority } from "../src/daemon-host/transport/auth-context.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { definition, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "a rebuilt built-in RBAC can recover a stopped orphan runtime and release its exact lease",
@@ -31,7 +32,7 @@ test(
     const cleanups: (() => void | Promise<void>)[] = [];
     t.after(async () => {
       for (const cleanup of cleanups.reverse()) await cleanup();
-      rmSync(fixture, { recursive: true, force: true });
+      removeTempRepository(fixture);
     });
     mkdirSync(repoPath);
     const rootDir = canonicalRoot(repoPath);

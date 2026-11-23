@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { parseProviderFrame } from "../src/daemon-host/runtime-spawn-provider-fr
 import { publishExit } from "./runtime-spawn-settlement.fixtures.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const blocked = {
   type: "command_execution",
@@ -86,6 +87,6 @@ for (const scenario of [
         assert.match(attempt.reason, /no successful local command evidence/u);
       }
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });

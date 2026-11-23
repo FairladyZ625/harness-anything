@@ -24,6 +24,7 @@ import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "scaffold-mirror",
   nodeId = "node-one",
@@ -174,7 +175,7 @@ async function initializedCenterWithEdge() {
       await center.close();
       await host.close();
       await owners.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

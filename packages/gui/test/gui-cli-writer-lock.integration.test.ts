@@ -3,13 +3,14 @@ import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -138,7 +139,7 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previousEnv.userRoot);
     restoreEnv("HARNESS_DAEMON_ID", previousEnv.daemonId);
     restoreEnv("HARNESS_DAEMON_ENDPOINT", previousEnv.endpoint);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

@@ -8,7 +8,6 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -32,6 +31,7 @@ import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types
 import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
 import { dispatchMissionForPermission, explicitPromptMission } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { dispatchCallbackRelay } from "../src/daemon-host/runtime-callback-relay.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",
@@ -61,7 +61,7 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
       subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
       platform: "darwin",
     });
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const mission = dispatchMissionForPermission(explicitPromptMission("task_own", null, "Deliver."), "workspace-write", {
     kindId: "claude",
     platform: process.platform,
@@ -177,7 +177,7 @@ test("Claude workspace-write CLI uses only its per-dispatch relay socket", async
       subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
       platform: "darwin",
     });
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   store.create({
     schemaVersion: 2,
     instanceId: "claude-relay",
@@ -499,7 +499,7 @@ test("permission defaults open and tightens through the instance record or a sin
       (error: unknown) => codedAs(error, "invalid_runtime_permission"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -556,7 +556,7 @@ test("agy defaults to bypass and distinguishes persisted restrictions from a dis
     assert.equal(overridden.args.includes("--dangerously-skip-permissions"), true);
     assert.equal(store.read("agy-open")?.permissionMode, "read-only");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -603,7 +603,7 @@ test("codex isolation edits persist and read back through the same projection th
     assert.equal(readIsolation(), "enforced");
     assert.equal(store.read("codex-isolated")?.isolationState, "enforced");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -644,7 +644,7 @@ test("agy accepts each isolation state declared by its provider contract", () =>
     });
     assert.equal(store.read("agy-isolated")?.isolationState, "operator-environment");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -744,7 +744,7 @@ test("environment-borne permission modes reach the provider environment and ACP 
       (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -758,7 +758,7 @@ test("Codex workspace-write grants linked worktree gitdir and commondir across f
     wtExternal = path.join(base, "wt-external"),
     nonGit = path.join(base, "non-git"),
     relayPath = "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock";
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   mkdirSync(nonGit, { recursive: true });
   for (const repo of [repoRoot, otherRepoRoot]) {
     execFileSync("git", ["init", repo]);
@@ -1003,7 +1003,7 @@ test("Codex workspace-write rejects shape-complete out-of-bounds commondir and s
     innerRepo = path.join(outerRepo, "packages", "inner"),
     sneakyDotGitRoot = path.join(base, "sneaky", ".git"),
     relayPath = "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock";
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
 
   for (const repo of [repoRoot, externalRepo, outerRepo, innerRepo]) {
     mkdirSync(repo, { recursive: true });
@@ -1155,7 +1155,7 @@ test("Codex workspace-write enforces <= 4096-byte Git metadata cap and degrades 
         // best-effort test teardown before rmSync
       }
     }
-    rmSync(base, { recursive: true, force: true });
+    removeTempRepository(base);
   });
 
   execFileSync("git", ["init", repoRoot]);

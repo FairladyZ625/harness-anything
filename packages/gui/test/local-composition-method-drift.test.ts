@@ -2,13 +2,14 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("GUI names daemon method-set drift before sending the unavailable request", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-method-drift-")),
@@ -60,6 +61,6 @@ test("GUI names daemon method-set drift before sending the unavailable request",
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previousDaemonId;
     server.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

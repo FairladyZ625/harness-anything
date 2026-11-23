@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
   firstWorkspaceLinkFinding,
   workspaceLinkDoctorCheck,
 } from "../src/daemon-host/workspace-link-integrity.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function workspaceFixture(): string {
   const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-links-"));
@@ -25,7 +26,7 @@ function workspaceFixture(): string {
 test("workspace links that stay in the checkout pass the integrity check", (t) => {
   if (process.platform === "win32") t.skip("requires POSIX file-symbolic-link semantics");
   const root = workspaceFixture();
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   symlinkSync("../../packages/cli", path.join(root, "node_modules", "@harness-anything", "cli"));
   assert.deepEqual(checkWorkspaceLinks(root), { rootDir: root, checked: 1, findings: [], ok: true });
   assert.equal(firstWorkspaceLinkFinding([root]), null);
@@ -37,8 +38,8 @@ test("an external workspace link is named with its repair command", (t) => {
   const root = workspaceFixture(),
     external = mkdtempSync(path.join(tmpdir(), "ha-external-workspace-"));
   t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(external, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(external);
   });
   symlinkSync(external, path.join(root, "node_modules", "@harness-anything", "cli"));
   const check = checkWorkspaceLinks(root),
@@ -64,10 +65,10 @@ test("an external scope parent cannot hide a workspace link", (t) => {
     externalScope = mkdtempSync(path.join(tmpdir(), "ha-external-workspace-scope-")),
     scopePath = path.join(root, "node_modules", "@harness-anything");
   t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(externalScope, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(externalScope);
   });
-  rmSync(scopePath, { recursive: true, force: true });
+  removeTempRepository(scopePath);
   symlinkSync(externalScope, scopePath, "dir");
   symlinkSync("../../packages/cli", path.join(externalScope, "cli"));
 
@@ -91,7 +92,7 @@ test("an external scope parent cannot hide a workspace link", (t) => {
 test("a registered root that no longer exists is not a workspace link failure", (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-missing-workspace-root-")),
     missingRoot = path.join(parent, "repo");
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   // The daemon spawn path owns the missing-root diagnosis; the link check must not preempt it with
   // an ENOENT raised while resolving a checkout that is not there.
   assert.equal(firstWorkspaceLinkFinding([missingRoot]), null);
@@ -103,11 +104,11 @@ test("daemon startup refuses external workspace links before creating its pid", 
     external = mkdtempSync(path.join(tmpdir(), "ha-external-daemon-workspace-")),
     userRoot = path.join(root, ".daemon-user");
   t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(external, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(external);
   });
   const scopePath = path.join(root, "node_modules", "@harness-anything");
-  rmSync(scopePath, { recursive: true, force: true });
+  removeTempRepository(scopePath);
   symlinkSync(external, scopePath, "dir");
   symlinkSync("../../packages/cli", path.join(external, "cli"));
   mkdirSync(userRoot, { recursive: true });

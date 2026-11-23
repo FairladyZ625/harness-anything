@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { canStartExecution } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("explicit preset migration atomically freezes contract, gates and auditable snapshots", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-migration-")),
@@ -123,6 +124,6 @@ test("explicit preset migration atomically freezes contract, gates and auditable
     await reader.drain();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

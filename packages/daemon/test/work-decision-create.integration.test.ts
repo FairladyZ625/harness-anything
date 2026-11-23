@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const guidance =
   "如果这个 task 落实一项方向性裁决（改方案、定预算、定模型、定入口），先立 decision 再关联；评审意见拆出的后续任务可以不关联。";
@@ -231,6 +232,6 @@ test("work create requires an effective Decision and writes implements with task
     assert.doesNotMatch(agenda.summary, /task_work_accepted/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

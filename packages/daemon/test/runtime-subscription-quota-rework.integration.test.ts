@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtim
 import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { openRuntimeProviderHealthStore } from "../src/runtime-engine/runtime-provider-health.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface LoopbackStub {
   readonly baseUrl: string;
@@ -255,7 +256,7 @@ test("QUOTA-09 & QUOTA-16: Codex app-server stages ephemeral CODEX_HOME (zero au
     assert.equal(statAfter2.ino, statBefore.ino);
   } finally {
     await server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -512,7 +513,7 @@ test("QUOTA-18: External account switch outside Harness never inherits old accou
     assert.equal(health.get("copilot-gh-switch").quotaExhaustedUntil, null);
   } finally {
     await server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -656,6 +657,6 @@ test("QUOTA-19: Copilot CLI native plaintext OAuth tokens in config.json honor a
     assert.equal(requestedUrls.length, reqsBeforeMismatch);
   } finally {
     await server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

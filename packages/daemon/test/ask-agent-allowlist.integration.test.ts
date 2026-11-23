@@ -6,7 +6,7 @@ import {
 } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Read-only execution credentials are enforced by the daemon regardless of provider mode or Agent declaration.
 for (const scenario of [
@@ -48,7 +49,7 @@ for (const scenario of [
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     initIngressRepo(root, process.getuid?.() ?? 0);
     execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/main", "HEAD"]);

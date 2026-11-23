@@ -22,6 +22,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
@@ -140,7 +141,7 @@ test("doc sync publishes PNG, JPG, WebP and GIF task artifacts byte-exactly and 
       );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -230,7 +231,7 @@ test("an artifact persisted under the opaque policy at a binary name stays doc-s
     assert.deepEqual(readFileSync(target), Buffer.from(edited));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -265,6 +266,6 @@ test("task artifact add refuses a source that already sits inside a task package
     assert.equal(existsSync(target), true, "the refused add must not consume the worktree file");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

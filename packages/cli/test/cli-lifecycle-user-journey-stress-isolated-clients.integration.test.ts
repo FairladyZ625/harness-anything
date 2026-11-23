@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import test from "node:test";
 import * as shared from "./cli-lifecycle-user-journey-stress.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const { assert, rmSync, clientCount, chainsPerClient, runClient, startClient, stopClient, setup } = shared;
 const lifecycleConcurrency = 2;
@@ -51,7 +52,7 @@ test("eight isolated CLI clients complete 24 lifecycle chains", async (context) 
       } catch (error) {
         stopErrors.push(error);
       } finally {
-        rmSync(fixture.parent, { recursive: true, force: true });
+        removeTempRepository(fixture.parent);
       }
     });
   }

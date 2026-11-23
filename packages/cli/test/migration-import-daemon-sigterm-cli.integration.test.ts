@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { triggerOnFirstWalWrite } from "./fixtures/wal-write-trigger.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +12,7 @@ import { sha256Text, stableStringify } from "@harness-anything/kernel";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { multiSourceFixture, sources } from "../../daemon/test/migration-import.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -181,7 +182,7 @@ test(
     } finally {
       stopWalPoll?.();
       stop(userRoot, interrupted);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

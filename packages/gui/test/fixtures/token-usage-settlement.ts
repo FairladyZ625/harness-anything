@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { tokenUsageProjection } from "../../../daemon/test/token-usage-lifecycle.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { publishExit } from "../../../daemon/test/runtime-spawn-settlement.fixtures.ts";
@@ -10,6 +10,7 @@ import type { ActiveRuntime } from "../../../daemon/src/daemon-host/runtime-spaw
 import type { RuntimeSpawnerContext } from "../../../daemon/src/daemon-host/runtime-spawn-context.ts";
 
 import type { TaskProjection } from "@harness-anything/kernel";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const rows: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"] = [];
 const rootDir = mkdtempSync(path.join(tmpdir(), "token-usage-settlement-"));
@@ -123,5 +124,5 @@ try {
   assert.equal(result.totals.cacheWriteUnreportedDispatches, 1);
   process.stdout.write(JSON.stringify(result));
 } finally {
-  rmSync(rootDir, { recursive: true, force: true });
+  removeTempRepository(rootDir);
 }

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +21,7 @@ import { readSquadRecoveryState } from "../src/daemon-host/squad-run-state.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-scale" }, executor: null } as const,
   runId = "squad_0123456789abcdef01234567",
@@ -80,7 +81,7 @@ test("recovery folds the latest control cut and ACK between transcript windows",
       "a newer unacknowledged terminal state remains recoverable",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -129,7 +130,7 @@ test("active Squad recovery hydration stays flat when a valid ledger event count
         await store.drain();
       }
     } finally {
-      rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(rootDir);
     }
   }
   t.diagnostic(`valid ledger event scale=${JSON.stringify(samples)}`);
@@ -203,7 +204,7 @@ test("recovery cost ignores unrelated archive count and retention preserves unpu
         await store.drain();
       }
     } finally {
-      rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(rootDir);
     }
   }
   t.diagnostic(`retained dispatch archive scale=${JSON.stringify(samples)}`);
@@ -272,7 +273,7 @@ test("repo ready and first durable write stay flat as ledger and archive sizes g
       samples.push({ events, archives, archiveBytes, readyMs, firstWriteMs });
     } finally {
       await cell?.close();
-      rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(rootDir);
     }
   }
   t.diagnostic(`repo ready and first-write archive scale=${JSON.stringify(samples)}`);
@@ -335,7 +336,7 @@ test("retention releases an acknowledged terminal Squad owner archive", async ()
       await store.drain();
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 pgliteIntegrationSuite("runtime unsettled RLS", () => {
   test("the derived current-set table keeps forced RLS and the scope policy", async () => {
@@ -75,7 +76,7 @@ pgliteIntegrationSuite("runtime unsettled RLS", () => {
       await backend.pool.query("RESET ROLE");
     } finally {
       await backend.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(dataDir);
     }
   });
 });

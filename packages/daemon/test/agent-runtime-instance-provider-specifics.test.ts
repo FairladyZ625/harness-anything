@@ -8,7 +8,6 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -23,6 +22,7 @@ import { runAcpProviderSession } from "../src/daemon-host/runtime-worker-acp.ts"
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("ZCode API-key instances materialize one pinned model in their isolated HOME", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-zcode-config-")),
@@ -95,7 +95,7 @@ test("ZCode API-key instances materialize one pinned model in their isolated HOM
       (error: unknown) => codedAs(error, "invalid_command"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -429,7 +429,7 @@ test("DeepSeek Harness API-key instances write secret-free profile patches and i
       (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -515,7 +515,7 @@ test("a Claude installation below the version floor is refused by probe and laun
       "claude-opus-5-5",
     ]);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -571,7 +571,7 @@ test("claude launches carry attribution-off settings and other kinds stay untouc
     assert.equal(codexLaunch.args.includes("--settings"), false);
     assert.equal(codexLaunch.args.includes(settingsJson), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -681,7 +681,7 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
     ]);
     assert.equal(login.env.HOME, "/operator/home");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -746,7 +746,7 @@ test("devin subscription readiness follows the credential file key, not a comman
       basis: "metadata",
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -857,7 +857,7 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
       basis: "metadata",
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -944,7 +944,7 @@ process.exit(9);
     );
     assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -975,7 +975,7 @@ test("agy subscription probes report an unavailable operator environment", async
       hint: "Provider subscription authentication is unavailable in the operator environment.",
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -1041,6 +1041,6 @@ test("an acp launch carries the caller's handshake timeout; other families never
     });
     assert.equal("handshakeTimeoutMs" in claudeLaunch, false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

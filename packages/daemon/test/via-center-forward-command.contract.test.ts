@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { forwardingIntentForAction, forwardingIntentIssue } from "../src/daemon-
 import { decisionProposalAction, taskCreateAction } from "../src/daemon-host/repo-cell-action-parse.ts";
 import type { RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 import { readAgentEntityDeclarationSource } from "../src/daemon-host/agent-entities.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type Command = (typeof daemonProtocolCommands)[number];
 type CliInput = {
@@ -476,7 +477,7 @@ function setupRoot(t: { after(callback: () => void): void }) {
       roster: "Probe",
     }),
   );
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return { root, env: { HARNESS_DAEMON_USER_ROOT: userRoot } };
 }
 

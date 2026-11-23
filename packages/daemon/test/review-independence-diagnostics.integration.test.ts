@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -22,6 +22,7 @@ import {
   writeSettingsFixture,
 } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-review-ci-bin-"));
 const originalPath = process.env.PATH;
@@ -35,7 +36,7 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 // #1541 was filed as "execution review is structurally unreachable on Windows" because one sentence
@@ -143,7 +144,7 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -233,7 +234,7 @@ test("principal review independence rejects a different executor owned by the su
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -588,7 +589,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(consent.code, "actor_unauthorized");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -812,7 +813,7 @@ test("a low-risk child skips automatic review and waits for merge evidence", asy
     assert.equal(denied.code, "invalid_proof", JSON.stringify(denied));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1182,6 +1183,6 @@ test("review binding permits independent runtimes but still rejects the executio
     assert.equal(reviewedByAgent.outcome, "applied", JSON.stringify(reviewedByAgent));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

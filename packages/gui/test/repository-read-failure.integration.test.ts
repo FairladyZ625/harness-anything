@@ -3,13 +3,13 @@ import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { rmSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 import { signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function taskList(rootDir: string, env: NodeJS.ProcessEnv) {
   const child = spawn(
@@ -51,7 +51,7 @@ test("CLI query-only task list and GUI reads reject an unavailable canonical rep
       } finally {
         db.close();
       }
-      rmSync(path.join(rootDir, ".harness/cache"), { recursive: true, force: true });
+      removeTempRepository(path.join(rootDir, ".harness/cache"));
     },
   });
   const previous = { ...process.env };

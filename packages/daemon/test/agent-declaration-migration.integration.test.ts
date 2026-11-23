@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { validateAgentDeclarationV1 } from "@harness-anything/kernel";
 import { migrateAgentDeclarations } from "../src/daemon-host/agent-declaration-migration.ts";
 import { install, run } from "./agent-entities.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = fileURLToPath(new URL("../../cli/src/index.ts", import.meta.url));
 
@@ -115,7 +116,7 @@ test("legacy runtime_type and model declarations convert to runtimes, schema-val
     assert.equal(rerun.converted, 0);
     assert.equal(rerun.current, 3);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -169,7 +170,7 @@ test("unavailable runtime kinds surface the install-time issue without failing c
     assert.equal(unknown.runtimeAvailability, "unknown");
     assert.deepEqual(unknown.runtimeIssues, []);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -232,7 +233,7 @@ test("unconvertible files are rejected per file without aborting the batch", () 
     assert.equal(existsSync(path.join(destination, "good.json")), true);
     assert.equal(existsSync(path.join(destination, "fallback.json")), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -286,7 +287,7 @@ test("converted declarations validate, install, and list as valid through the pr
     assert.equal(devinReport.valid, false);
     assert.equal(devinReport.issues[0]?.code, "agent_runtime_type_unavailable");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -317,6 +318,6 @@ test("the CLI routes migrate agent-declaration through the offline daemon bin", 
     assert.equal(missingDestination.status, 1);
     assert.match(String(missingDestination.receipt.hint), /--destination/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

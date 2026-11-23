@@ -7,7 +7,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   statSync,
   utimesSync,
   writeFileSync,
@@ -31,6 +30,7 @@ import {
   replicaGenerationReaders,
   type ReplicaStagingCheckpoint,
 } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function buildSampleBackup(root: string) {
   initRepo(root);
@@ -61,7 +61,7 @@ async function buildSampleBackup(root: string) {
 
 test("installReplicaGeneration executes off the main thread without stalling the event loop", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-worker-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const archive = await buildSampleBackup(root);
   const replicaRoot = path.join(root, "replica");
@@ -107,7 +107,7 @@ test("installReplicaGeneration executes off the main thread without stalling the
 
 test("resumable staging preserves valid <sha256>.staging across discardStaging and skips existing immutable objects", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-resume-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const baseArchive = await buildSampleBackup(root);
 

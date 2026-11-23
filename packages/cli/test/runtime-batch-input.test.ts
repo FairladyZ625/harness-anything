@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readRuntimeBatchFile } from "../src/cli-runtime-batch-input.ts";
 import type { ThinCommand } from "../src/cli/thin-command.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function command(rootDir: string, batchFile?: string): ThinCommand {
   return {
@@ -18,7 +19,7 @@ function command(rootDir: string, batchFile?: string): ThinCommand {
 
 function fixture(t: { after: (fn: () => void) => void }): string {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-batch-input-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return root;
 }
 

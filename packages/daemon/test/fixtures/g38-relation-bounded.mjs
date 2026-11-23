@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after } from "node:test";
@@ -26,6 +26,7 @@ import { READ_PROBES } from "./g38-read-cost.mjs";
 import { READ_HISTORY_BATCH_SIZE, seedReadLedger } from "./g38-read-ledger.mjs";
 import { installReadProbe, planRowsRead, resetReadProbe, snapshotReadProbe } from "./g38-read-probe.mjs";
 import { createReadFixtureRuntime } from "./g38-read-runtime.mjs";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function collectScanNodes(plan, nodes = []) {
   if (/Scan$/u.test(plan["Node Type"] ?? "")) {
@@ -324,7 +325,7 @@ async function tracePgProbe(dimension, size, probeIds, backend = "pglite") {
     return measurements;
   } finally {
     await runtime?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 

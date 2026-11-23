@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("daemon close waits for managed RBAC resume before stopping its services", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-rbac-close-")),
@@ -42,7 +43,7 @@ test("daemon close waits for managed RBAC resume before stopping its services", 
     assert.deepEqual(events, ["resume-start", "resume-end", "stop"]);
   } finally {
     releaseResume();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -74,7 +75,7 @@ test("daemon startup defers runtime discovery, and a catalog read does not repea
     assert.equal(discoveries, 2, "--probe still refreshes the witness snapshot");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -139,7 +140,7 @@ test(
       center.release();
       await host.close();
       await center.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -190,7 +191,7 @@ test("a failed resume refuses repository writes with the resume's real cause", {
     center.release();
     await host.close();
     await center.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -287,7 +288,7 @@ test(
       center.release();
       await host.close();
       await center.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

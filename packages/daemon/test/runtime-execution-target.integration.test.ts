@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { codexFreshPermissionArgs } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
 import { createObservableCodexProviderScript, git, readProviderTrace } from "./fleet-remote-runtime-control.fixture.ts";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const instanceId = "portable-provider";
 const definition: AgentDefinitionSnapshot = {
@@ -135,7 +136,7 @@ for (const kind of ["local", "cloud"] as const) {
     },
     async (t) => {
       const rootDir = canonicalRoot(mkdtempSync(path.join(tmpdir(), `ha-runtime-target-${kind}-`)));
-      t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+      t.after(() => removeTempRepository(rootDir));
       const repoId = workspaceId(`runtime-target-${kind}`),
         taskId = `task-runtime-target-${kind}`,
         executionId = `execution-runtime-target-${kind}`,

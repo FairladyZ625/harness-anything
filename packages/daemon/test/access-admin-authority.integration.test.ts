@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -17,6 +17,7 @@ import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-confi
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("registered edges read only their current repository's member directory without a local Keycloak center", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-member-directory-"))),
@@ -35,7 +36,7 @@ test("registered edges read only their current repository's member directory wit
     await open.edge?.stop();
     await open.host?.close();
     await owners.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   for (const repoId of repoIds) {
     const canonicalRoot = path.join(root, `center-${repoId}`);
@@ -514,7 +515,7 @@ test("builtin owner reads real local policy and requests but cannot approve its 
     host = await openDaemonHost({ userRoot: root, daemonId: "builtin-admin-authority", oidc: session });
   t.after(async () => {
     await host.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   await session.bootstrapAdmin({
     username: "owner",

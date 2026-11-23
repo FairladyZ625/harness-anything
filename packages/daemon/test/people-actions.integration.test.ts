@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("people.yaml and retired People mutations have no repository authority", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-retired-people-actions-")),
@@ -36,7 +37,7 @@ test("people.yaml and retired People mutations have no repository authority", as
   t.after(async () => {
     await cell.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   });
   realm.keycloak.permit(actor.principal.personId, "retired-people-actions", ["task-create"]);
   const permitted = await cell.run({ kind: "task-create", taskId: "task-permitted", title: "Keycloak grant" }, binding);

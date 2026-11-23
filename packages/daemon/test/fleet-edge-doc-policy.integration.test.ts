@@ -18,6 +18,7 @@ import {
   type FleetMirrorView,
 } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Real shape of the row: valid UTF-8 (a NUL byte decodes) written under the opaque textual policy.
 const persistedBody = Buffer.concat([Buffer.from("report line one\n"), Buffer.from([0x00]), Buffer.from("tail\n")]),
@@ -81,7 +82,7 @@ function scanFixture(
       inapplicable: scan.inapplicablePaths,
     };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }
 
@@ -799,6 +800,6 @@ test("an edge doc-status reports a stray non-member as inapplicable, like the ce
     );
     assert.match(receipt.summary, /inapplicable/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

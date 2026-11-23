@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,6 +25,7 @@ import {
   installationFixture,
   spawnCli,
 } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "daemon ingress persists scrubbed provider JSONL while returning canonical results for both runtime kinds",
@@ -409,7 +410,7 @@ test(
       assert.doesNotMatch(JSON.stringify(structuredRead), new RegExp(secret, "u"));
     } finally {
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -611,7 +612,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", { 
       });
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -754,7 +755,7 @@ test(
       }
     } finally {
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -909,7 +910,7 @@ test("agy consumes only its closed stream-json event protocol", { timeout: 300_0
     assert.equal((rejectedRead.result as Record<string, unknown>).text, "");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1108,7 +1109,7 @@ test(
     } finally {
       await transport.stop();
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -12,6 +12,7 @@ import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result
 import type { SchedulesListResult } from "../src/daemon-host/protocol/schedules-contract.ts";
 import type { RepoCell } from "../src/daemon-host/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-repair-test" }, executor: null }, source: "local" as const },
@@ -126,7 +127,7 @@ test("a canonical Schedule row missing a newly required field stays readable and
     assert.equal(authoredSchedule(root, "legacy-probe").mode, "detect");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

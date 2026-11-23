@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -28,6 +28,7 @@ import { fleetEdgeConfigPath } from "../src/daemon-host/client/fleet-edge-config
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("resolveDaemonMetricsConfig defaults to disabled and rejects invalid ports and reserved probe paths", async () => {
   assert.equal(resolveDaemonMetricsConfig({}), null);
@@ -286,7 +287,7 @@ test(
       assert.equal(await headRes.text(), "");
     } finally {
       if (running && "stop" in running) await running.stop();
-      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(userRoot);
     }
   },
 );
@@ -350,7 +351,7 @@ test(
       );
     } finally {
       if (running && "stop" in running) await running.stop();
-      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(userRoot);
     }
 
     // 2. Lifecycle readiness state transitions: unavailable repo, fleet restore failure, and pending identity -> 503 -> recovery -> 200
@@ -700,7 +701,7 @@ test(
       assert.ok(largeText.includes("ha_daemon_projection_lag_revisions_max 4\n"));
     } finally {
       await edgeCell.close();
-      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(sandbox);
     }
   },
 );
@@ -949,7 +950,7 @@ test(
         `cold HTTP /metrics scrape must perform zero synchronous fs calls, observed: ${JSON.stringify(parsed.fsCalls)}`,
       );
     } finally {
-      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(userRoot);
     }
   },
 );
@@ -1160,7 +1161,7 @@ test(
     } finally {
       for (const close of closers.splice(0)) await close();
       if (running && "stop" in running) await running.stop();
-      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(sandbox);
     }
   },
 );
@@ -1353,7 +1354,7 @@ test(
     } finally {
       await pgHost.close();
       await localHost.close();
-      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(sandbox);
     }
   },
 );
@@ -1583,7 +1584,7 @@ test(
       releaseRpc?.();
       for (const close of closers.splice(0)) await close();
       if (running && "stop" in running) await running.stop();
-      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(sandbox);
     }
   },
 );
@@ -1789,7 +1790,7 @@ test(
       }
 
       // Destroy Pod A ephemeral rootfs; Pod B mounts ONLY the same PVC (pvcRoot + pvcRoot/authority-repo)
-      rmSync(pod1Ephemeral, { recursive: true, force: true });
+      removeTempRepository(pod1Ephemeral);
       assert.equal(
         existsSync(path.join(pvcRoot, "fleet", "state.json")),
         true,
@@ -1877,7 +1878,7 @@ test(
       }
     } finally {
       for (const close of closers.splice(0)) await close();
-      rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(sandbox);
     }
   },
 );

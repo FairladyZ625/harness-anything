@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,13 +12,14 @@ import {
   readPublishedTaskCut,
   workerPushFailureCode,
 } from "../src/daemon-host/runtime-worker-push.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
 
 for (const denialMode of ["permission", "holder", "cas"])
   test(`edge delivery checks permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     const env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
     for (const name of [
       "HARNESS_TASK_BOUND",
@@ -163,7 +164,7 @@ for (const scenario of [
 ] as const)
   test(`holder proof fences ${scenario.name} before publication`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-holder-proof-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     const env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
     for (const name of [
       "HARNESS_TASK_BOUND",

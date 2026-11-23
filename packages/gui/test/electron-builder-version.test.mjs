@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import config from "../electron-builder.config.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const readPackage = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
 
@@ -63,6 +64,6 @@ test("macOS signing ignores data resources while retaining Mach-O binaries and c
     assert.equal(ignore(appPath), false);
     assert.equal(ignore(frameworkPath), false);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeTempRepository(directory);
   }
 });

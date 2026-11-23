@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "../src/cli-task-artifact-run.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("progress append remains text-only and cannot execute or freeze a command", () => {
   const progress = parseThinCommand(["task", "progress", "append", "task-proof", "--text", "zero hits"]);
@@ -37,7 +38,7 @@ test("task artifact add --run publishes the same-run transcript and preserves ch
       ],
       root,
     );
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.ok(invocation);
   let transcript: Record<string, unknown> | undefined;
   const receipt = await runTaskArtifactCommand(invocation, undefined, async (command) => {
@@ -76,7 +77,7 @@ test("task artifact add --run uses task-local coordinates for its generated dest
     });
     assert.equal(receipt.ok, true);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

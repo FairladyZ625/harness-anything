@@ -2,17 +2,18 @@
 // Edge reads stamp a repository read frame whose freshness the GUI protocol validates as whole
 // milliseconds; the replica pointer's mtime carries sub-millisecond precision.
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { FleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { edgeFreshness } from "../src/daemon-host/fleet-edge-task-read.ts";
 import { validateRepositoryReadFrame } from "../src/daemon-host/protocol/repository-read-frame.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("edge read freshness is a valid repository read frame for a sub-millisecond pointer mtime", (t) => {
   const viewDir = mkdtempSync(path.join(tmpdir(), "ha-edge-freshness-"));
-  t.after(() => rmSync(viewDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewDir));
   writeFileSync(path.join(viewDir, "current.json"), "{}");
   utimesSync(path.join(viewDir, "current.json"), 1_000.0004, 1_000.0004);
   const view = { viewDir, revision: 3 } as FleetMirrorView,
@@ -27,7 +28,7 @@ test("edge read freshness is a valid repository read frame for a sub-millisecond
 
 test("a stale edge read warns the reader in words that name the cause", (t) => {
   const viewDir = mkdtempSync(path.join(tmpdir(), "ha-edge-freshness-"));
-  t.after(() => rmSync(viewDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewDir));
   writeFileSync(path.join(viewDir, "current.json"), "{}");
   utimesSync(path.join(viewDir, "current.json"), 1_000, 1_000);
   const view = { viewDir, revision: 3 } as FleetMirrorView;

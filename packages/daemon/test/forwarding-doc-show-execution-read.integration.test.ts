@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A doc-show that carries an execution credential opts into the forwarding port, but only a
 // remote-edge repository has a forwarding target. Local and remote-center cells must serve the
@@ -21,7 +22,7 @@ test(
   { timeout: 120_000 },
   async (t) => {
     const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-forwarding-probe-"));
-    t.after(() => rmSync(probeRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(probeRoot));
     const executablePath = writeProviderExecutable(
       path.join(probeRoot, "codex-probe.mjs"),
       `import fs from "node:fs";

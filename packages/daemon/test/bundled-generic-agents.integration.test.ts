@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "fresh repository installs portable identities and dispatches worker through the CLI",
@@ -34,7 +35,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);

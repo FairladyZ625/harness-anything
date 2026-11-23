@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
 } from "../src/index.ts";
 
 import { write, writePackage } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
   runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("generic list, inspect, check, install, and uninstall actions share the canonical inventory", async () => {
@@ -164,7 +165,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
       (error: unknown) => (error as { code?: string }).code === "unsupported_command",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -215,7 +216,7 @@ test("vertical validation reports builtin success and missing custom sources", a
       ["missing_vertical"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -483,7 +484,7 @@ test("builtin script preparation binds one declared command and rejects undeclar
       (error: unknown) => (error as { code?: string }).code === "script_not_found",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -548,6 +549,6 @@ test("all four declared builtin script assets emit accepted deterministic plans"
     assert.deepEqual(conformance.changes, []);
     assert.equal(conformance.report.decisionCount, 1);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

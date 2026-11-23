@@ -15,6 +15,7 @@ import { createIdentitySession } from "../src/daemon-host/authorization-provider
 import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 import type { RepoCellBinding, RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" };
 
@@ -125,7 +126,7 @@ test("registering a node issues its machine credential once and records who it a
   const { keycloak, run, nodes, journal, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   assert.deepEqual(await nodes(), []);
   const registered = await run({
@@ -175,7 +176,7 @@ test("a first registration puts the credential in the caller's file and keeps it
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential"),
     register = { operation: "node-register", nodeId: "edge-a", personId: "alice" };
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   keycloak.account("bob");
   // A path that is taken, or that the center cannot place, refuses the registration before the intent
@@ -237,7 +238,7 @@ test("the credential is on disk before Keycloak is asked to store it", async (t)
   const { keycloak, root, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   const ordered = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: (async (input, init) => {
@@ -266,7 +267,7 @@ test("a registration whose answer is lost recovers through its file and a reconc
   const { keycloak, journal, registry, root } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   const cutOff = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: (async (input, init) => {
@@ -305,7 +306,7 @@ test("a registration whose intent cannot be journaled releases its reserved file
   const { keycloak, root } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   const silent = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: keycloak.fetch,
@@ -335,7 +336,7 @@ test("creating a node reads nothing back after the write", async (t) => {
   const { keycloak, root, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   let written = false;
   const afterTheWrite: typeof fetch = async (input, init) => {
@@ -374,7 +375,7 @@ test("a credential reservation discards cleanly however keep ended", () => {
     again.discard();
     assert.equal(existsSync(file), false);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeTempRepository(directory);
   }
 });
 
@@ -382,7 +383,7 @@ test("a versioned owner transfer revokes the old session without minting a crede
   const { keycloak, run, nodes, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   keycloak.account("bob");
   await run({ operation: "node-register", nodeId: "edge-a", personId: "alice", credentialFile: file });
@@ -437,7 +438,7 @@ test("two registrations of one node from the same version: one applied, one vers
     firstSession.resolve();
     return session;
   });
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   keycloak.account("bob");
   // Capture each administrator's session before replacing it; the queued writes still overlap.
@@ -494,7 +495,7 @@ test("unregistering a device disables access and retains an immutable tombstone"
   const { keycloak, run, nodes, journal, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     fileFor = (name: string) => path.join(directory, `${name}.credential`);
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   await run({
     operation: "node-register",
@@ -631,7 +632,7 @@ test("a removal that settles applied reports the removed node, and nothing else 
       onNodeRemoved: (nodeId) => removed.push(nodeId),
     }),
     run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request });
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   t.after(user.cleanup);
   keycloak.accessAdmin();
   keycloak.account("alice");
@@ -729,7 +730,7 @@ test("one person gets one answer for one action on one object, through a local s
 test("the answer follows the person a node is registered to, not the node", async (t) => {
   const { keycloak, run, evaluate, nodes, registry, provider } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   keycloak.account("alice");
   keycloak.account("bob");
   await run({ operation: "grant", personId: "alice", groupId: "contributor", resource: "repo-a" });

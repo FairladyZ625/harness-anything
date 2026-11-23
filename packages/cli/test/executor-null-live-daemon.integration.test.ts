@@ -3,7 +3,7 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
@@ -14,6 +14,7 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
 const originalPath = process.env.PATH;
@@ -27,7 +28,7 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 const realm = await spawnKeycloak();

@@ -42,6 +42,7 @@ import {
   MIGRATION_IMPORT_SOURCE,
   type DispatchLifecycleQuery,
 } from "@harness-anything/kernel";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
   const actor = { principal: { personId: "runtime-owner" }, executor: null },
@@ -87,7 +88,7 @@ test("runtime cancellation rejects when descendant processes remain alive", asyn
         (error as Error).message.includes(String(process.pid)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -114,7 +115,7 @@ test("the live index rebuilds exactly from dispatch stream headers", () => {
     const rebuilt = readDispatchLiveIndex(rootDir, ["task-1"]);
     assert.deepEqual(rebuilt, before);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -148,7 +149,7 @@ test("a stream created within the directory's mtime tick is still listed", () =>
       ["dispatch_111111111111111111111111", "dispatch_222222222222222222222222"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -180,7 +181,7 @@ test("terminal streams leave the live directory while point reads remain availab
     assert.equal(readDispatchStreamHeader(rootDir, archivedId)?.dispatchId, archivedId);
     assert.equal(existsSync(dispatchStreamPath(rootDir, archivedId)), true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -205,7 +206,7 @@ test("a point read follows a stream archived after its live path was resolved", 
     assert.equal(increment.bytes.length, increment.size);
     assert.match(increment.bytes.toString("utf8"), /"kind":"process_started","pid":42/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -238,7 +239,7 @@ test("rebuild enumeration and later worker records retain an archived stream", (
       true,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -268,7 +269,7 @@ test("process lifecycle observations remain in the append-only dispatch stream",
       ["process_started", "process_exit"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -316,7 +317,7 @@ test("dispatch summaries skip provider bodies and refresh when lifecycle records
       ["process_started", "workspace_activity", "dispatch_stalled", "process_exit"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -352,7 +353,7 @@ test("dispatch summaries keep a lifecycle record that straddles the head window 
     });
     assert.equal(readDispatchStreamSummary(rootDir, dispatchId)?.providerSessionId, "provider-session-straddle");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -399,7 +400,7 @@ test("ZCode provider frames preserve bounded stream activity observations", (t) 
       ["process_started"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -442,7 +443,7 @@ test("a dispatch observer delivers each pre-exit line once and stops polling at 
     assert.deepEqual(outputs, delivered, "no drain tick may read the stream after process_exit");
     assert.deepEqual(exits, [0]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -508,7 +509,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
     assert.equal(adopted.size, 0, "only the dispatching node may probe or settle its recorded pid");
     assert.deepEqual(activeQueries, ["instance-1"], "adoption reads the node's indexed instance page");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -591,7 +592,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
     assert.equal(receipt.detail, "already-exited");
     assert.deepEqual(settled, [runtimeSessionId]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -629,7 +630,7 @@ test("the dispatch fuse drops unbounded output but preserves terminal records", 
     assert.match(warnings.join("\n"), /dropping unbounded output/u);
   } finally {
     console.warn = warning;
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -682,7 +683,7 @@ test("delegation provenance fields survive a header roundtrip and stay optional 
     assert.ok(legacy, "a header predating the parent-session edge still reads");
     assert.equal(Object.hasOwn(legacy.header, "parentRuntimeSessionId"), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -848,7 +849,7 @@ test("runtime metrics persist in the dispatch stream and read back without chang
     assert.equal(unavailable?.usageUnavailable, true);
     assert.equal(unavailable?.toolCallCount, 160);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -908,7 +909,7 @@ test("incremental stream reads return only the bytes past the caller-held offset
     assert.equal(next.bytes.toString(), "line-two\n");
     assert.equal(readDispatchStreamIncrement(path.join(rootDir, "missing.jsonl"), 0), null);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -941,7 +942,7 @@ test("a held-descriptor appender lands schema-tagged records and reopens after c
       ["runtime-dispatch-stream/v1", "runtime-dispatch-stream/v1", "runtime-dispatch-stream/v1"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -998,7 +999,7 @@ test("a settled runtime_metrics record straddling the backward-probe edge is sti
     assert.ok(statSync(target).size - 128 * 1024 > newestEnd, "the record must sit outside the tail window");
     assert.equal(readDispatchStreamSummary(rootDir, dispatchId)?.runtimeMetrics?.totalTokens, 222);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

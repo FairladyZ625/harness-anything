@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { relayDaemonTerminal } from "../src/daemon-host/client/terminal-relay.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("terminal relay shares one control connection for resize, input, and exit lookup", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-terminal-relay-")),
@@ -105,7 +106,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
   } finally {
     stdin.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

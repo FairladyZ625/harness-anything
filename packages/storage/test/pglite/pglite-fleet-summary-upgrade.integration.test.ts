@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.t
 import { migrateStorage } from "../../src/migration/engine.ts";
 import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 pgliteIntegrationSuite("fleet summary upgrade", () => {
   test("a completed-v5 old database is backfilled by the existing event upgrade call before fleet reads", async () => {
@@ -78,7 +79,7 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 65);
     } finally {
       await backend.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(dataDir);
     }
   });
 
@@ -108,7 +109,7 @@ pgliteIntegrationSuite("fleet summary upgrade", () => {
       assert.equal((await backend.projection.readEventSummaries(0, 100)).events.length, 1);
     } finally {
       await backend.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 });
@@ -143,7 +144,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
       assert.deepEqual(await backend.projection.readEventSummaries(0, 100, "fleet"), before);
     } finally {
       await backend.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -179,7 +180,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
     } finally {
       await source.close();
       await target.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -251,7 +252,7 @@ pgliteIntegrationSuite("fleet summary lifecycle", () => {
       assert.equal((await backend.projection.readEventSummaries(0, 100, "fleet")).events.length, 1);
     } finally {
       await backend.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 });

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import {
   rulingReceiptText,
   runtimeRulingPath,
 } from "../src/runtime-engine/runtime-ruling.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const { question, options, body: rulingBody } = recordedRuling,
   dispatchRecord = recordedStream.find((record) => record.kind === "dispatch")!,
@@ -213,7 +214,7 @@ test("the worker's own filesystem is the read path: a worktree-local artifact is
       null,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

@@ -37,6 +37,7 @@ import {
   validDispatchLifecycleSummary,
   validTaskDispatchAttempt,
 } from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -390,7 +391,7 @@ test("dispatch rows project the latest provider activity from the local stream",
     assert.equal(row.activityObservedAt, observedAt);
     assert.equal(row.activityIdleMinutes, 0);
   } finally {
-    fs.rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -472,7 +473,7 @@ test("resume is derived from canonical provider identity and withdrawn by an acc
 
 test("a canonical fallback successor outranks a stale scheduled stream state", (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-fallback-read-"));
-  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const f = fixture(session("exited", "failed"), {
     successor: {
       ...fixture().event,
@@ -569,7 +570,7 @@ test("canonical archive preserves evidence without becoming the lifecycle author
 
 test("dispatch rows retain advisory evaluation time when another dispatch reuses the result", async (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-advisory-"));
-  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const store = openDecisionAnnotationStore(rootDir),
     advisory = {
       pointId: "dispatch-stop-reason",
@@ -1214,7 +1215,7 @@ test("cut review settlement selects reviewer dispatches of one submission digest
 
 test("the canonical dispatch row carries the executed incident disposition", async (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-decision-action-"));
-  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   openDispatchStream(rootDir, {
     dispatchId,
     taskId,
@@ -1267,7 +1268,7 @@ test("the canonical dispatch row carries the executed incident disposition", asy
 
 test("an incident question settles into the existing awaiting-ruling dispatch classification", async (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-incident-escalation-"));
-  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   openDispatchStream(rootDir, {
     dispatchId,
     taskId,
@@ -1303,7 +1304,7 @@ test("an incident question settles into the existing awaiting-ruling dispatch cl
 
 test("a guard escalation is needs_attention rather than a fabricated awaiting-ruling question", async (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-incident-guard-"));
-  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   openDispatchStream(rootDir, {
     dispatchId,
     taskId,

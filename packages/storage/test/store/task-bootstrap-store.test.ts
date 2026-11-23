@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -14,6 +14,7 @@ import {
   type TaskBootstrapEventV1,
 } from "@harness-anything/kernel";
 import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task bootstrap publishes and rebuilds one exact Task, snapshot, and document cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-bootstrap-"));
@@ -128,7 +129,7 @@ test("task bootstrap publishes and rebuilds one exact Task, snapshot, and docume
     await store.drain();
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -203,7 +204,7 @@ test("a preset snapshot row an older build stored compares in today's normalized
     await store.drain();
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

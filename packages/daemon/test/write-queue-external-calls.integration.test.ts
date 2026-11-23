@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type AddressInfo } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,6 +19,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Each test injects one external command that never answers until the test releases it (or deletes its
 // directory), then proves an unrelated write to the same repository is still accepted.
@@ -123,7 +124,7 @@ test(
     } finally {
       process.env.PATH = originalPath;
       await cell?.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -256,7 +257,7 @@ test("a Keycloak authorization that never answers times out and releases the rep
     hanging.closeAllConnections();
     hanging.close();
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -308,7 +309,7 @@ test("a center-only binding rejects one action without latching the repository",
     rejected.closeAllConnections();
     rejected.close();
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -411,6 +412,6 @@ test("a credential lookup nobody answers fails the spawn and releases the reposi
   } finally {
     writeFileSync(release, "");
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

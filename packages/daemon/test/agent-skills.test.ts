@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { AgentDeclarationV1 } from "@harness-anything/kernel";
 import { mergeRepositorySkills } from "../src/daemon-host/agent-skills.ts";
 import { resolveDispatchAgent } from "../src/daemon-host/runtime-spawn-agent.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const agent = {
   schema: "agent-declaration/v1",
@@ -45,7 +46,7 @@ test("repository skills mount beside a portable Agent declaration", () => {
       [{ id: "test-isolation", skillFile: path.join(rootDir, "harness", "skills", "test-isolation", "SKILL.md") }],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -85,7 +86,7 @@ test("a stale declaration's missing skill names the Agent and the repair command
         /ha agent install --source/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -111,6 +112,6 @@ test("a configured repository skill that is missing still fails the dispatch", (
         /skills\/not-there/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

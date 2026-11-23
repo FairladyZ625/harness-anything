@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task start reports every incomplete plan section in one diagnostic and names a heading outside the template", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-start-plan-readiness-")),
@@ -93,7 +94,7 @@ test("task start reports every incomplete plan section in one diagnostic and nam
     assert.deepEqual(typoRejected.diagnostic?.unexpectedSections, ["Acceptance"]);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -150,7 +151,7 @@ test("a start that judged the canonical plan names the unsynced local body and i
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -247,7 +248,7 @@ test("a fix task without an authored Recurrence Gate is refused at create and ad
     assert.equal(lowRiskFeat.outcome, "applied", JSON.stringify(lowRiskFeat));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -296,6 +297,6 @@ test("task start keeps a conditional template heading out of the outside-templat
     assert.deepEqual(rejected.diagnostic?.unexpectedSections ?? [], []);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

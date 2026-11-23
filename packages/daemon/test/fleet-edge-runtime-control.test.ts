@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -57,6 +57,7 @@ import {
   createFleetEdgeRuntimeControlConsumer,
   type RemoteRuntimeControlEvent,
 } from "../src/daemon-host/fleet-edge-runtime-control.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: null } as const;
 
@@ -589,7 +590,7 @@ test("F4: G38 bounded cursor reads over large active session set and long histor
 
 test("F4: real SQLite partial indexes & watermark advancement avoid scanning non-matching tails and deferred suffixes", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f4-sqlite-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["-C", rootDir, "init", "-q"]);
   execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
   execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);
@@ -804,7 +805,7 @@ test("F4: real SQLite partial indexes & watermark advancement avoid scanning non
 
 test("F4: readRuntimeSteerVersion reads O(1) sidecar without scanning multi-MB dispatch transcript from offset 0", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f4-sidecar-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_000000000000000000000099",
     runtimeSessionId = "runtime_000000000000000000000099";
   const writer = openDispatchStream(rootDir, {
@@ -912,7 +913,7 @@ test("F11/F14: reduceRuntimeSession matches N-1 bb7e55c90 (throws after exit) an
 
 test("F4: bounded pending receipt index and O(1) direct header resolution never open archived or foreign dispatch streams", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f4-bounded-index-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   // Seed 25 archived dispatch streams; make one archived file unreadable (0o000) to prove zero archive reads!
   let unreadableArchivePath = "";
   for (let i = 0; i < 25; i += 1) {
@@ -1003,7 +1004,7 @@ test("F4: bounded pending receipt index and O(1) direct header resolution never 
 
 test("F12: unified durable controlCursorRevision survives daemon restart across >512 steers and recovers stream/sidecar crashes", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f12-restart-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_121212121212121212121212",
     runtimeSessionId = "runtime_121212121212121212121212";
   openDispatchStream(rootDir, {
@@ -1129,7 +1130,7 @@ test("F12: unified durable controlCursorRevision survives daemon restart across 
 
 test("F13: full page of deferred steers never blocks or starves a subsequent cancel event (with SQLite partial index)", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f13-cancel-priority-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["-C", rootDir, "init", "-q"]);
   execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
   execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);
@@ -1316,7 +1317,7 @@ test("F4: readRuntimeDispatchOwner performs O(1) owner lookup with zero liveness
 
 test("F12: pending receipt store retains >512 items without loss, out-of-order backpressure prevents eviction on restart, and rejection persists before cursor advances", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f12-backpressure-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_12f12f12f12f12f12f12f12f",
     runtimeSessionId = "runtime_12f12f12f12f12f12f12f12f";
   openDispatchStream(rootDir, {
@@ -1515,7 +1516,7 @@ test("F12: pending receipt store retains >512 items without loss, out-of-order b
 
 test("F17: legacy stream hydration preserves existing steer version before cursor write, and adopted N-1 worker rejects remote steer while preserving local steer", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f17-rolling-upgrade-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_171717171717171717171717",
     runtimeSessionId = "runtime_171717171717171717171717";
   // Create a legacy stream WITHOUT steerReceiptProtocolVersion and WITHOUT a sidecar file!
@@ -1767,7 +1768,7 @@ test("F18: controlRequest and controlReceipt carrier events preserve exact unkno
 
 test("F19: controlReceipts cursor pagination reaches >500 receipts and requestOpId point lookup uses partial index", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-f19-receipts-page-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   execFileSync("git", ["-C", rootDir, "init", "-q"]);
   execFileSync("git", ["-C", rootDir, "config", "user.name", "Runtime Test"]);
   execFileSync("git", ["-C", rootDir, "config", "user.email", "runtime@example.invalid"]);

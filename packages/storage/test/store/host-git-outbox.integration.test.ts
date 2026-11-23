@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,12 +16,13 @@ import { publishPendingSqliteGitOutbox } from "../../src/store/sqlite-git-outbox
 import { localGitProcessCount } from "../../src/store/local-version-control-system.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
 import { docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_04A9211B073F29F0FC1E1CA573 CH2: authority, restart recovery, and stale-owner negative control.
 test("SQLite acceptance spawns no Git and host recovery publishes the durable outbox exactly once", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "host-git-outbox-")),
     repoId = "host-outbox-recovery";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
   const options = { repoId, rootDir },
@@ -58,7 +59,7 @@ test("SQLite acceptance spawns no Git and host recovery publishes the durable ou
 test("an old writer epoch cannot publish or acknowledge a pending Git outbox", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "host-git-outbox-fence-")),
     repoId = "host-outbox-fence";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
   const epoch = openPersistentWriterEpoch({ stateRoot: path.join(rootDir, "epochs"), holderId: "first" }),
@@ -90,7 +91,7 @@ test("an old writer epoch cannot publish or acknowledge a pending Git outbox", a
 test("host publication resumes after the accepting process exits without draining", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "host-outbox-process-restart-")),
     repoId = "host-outbox-process-restart";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
   const before = git(rootDir, "rev-parse", "HEAD"),
@@ -117,7 +118,7 @@ test("host publication resumes after the accepting process exits without drainin
 test("delegated acceptance rejects an unfrozen write plan before sending it to the Writer", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "host-commit-declaration-")),
     repoId = "host-commit-declaration";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
   const event = eventAt(1),
     store = makeSqliteTaskEventStore({
@@ -142,7 +143,7 @@ test("delegated acceptance rejects an unfrozen write plan before sending it to t
 test("delegated acceptance validates corrupted content at the authoritative storage boundary", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "host-commit-content-")),
     repoId = "host-commit-content";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
   const writer = makeSqliteTaskEventStore({ repoId, rootDir });
   let transported = 0;
@@ -177,7 +178,7 @@ test("delegated acceptance validates corrupted content at the authoritative stor
 test("acknowledging an older Git cut retains newer canonical outbox baselines", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "outbox-baseline-race-")),
     repoId = "outbox-baseline-race";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId });
   mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/context/second.md"), "second");

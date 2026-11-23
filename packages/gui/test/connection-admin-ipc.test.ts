@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
   suggestedRepoId,
   type AdminJsonRpcRequest,
 } from "../src/main/connection-admin-ipc.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /**
  * Settings → 仓库与连接 的 admin IPC 契约(PLT-EdgeGUI-W3):
@@ -152,8 +153,8 @@ test("workspace inspect only reads local .harness presence and never touches the
     assert.equal(absent.hasWorkspace, false);
     assert.equal(admin.calls.length, 0);
   } finally {
-    rmSync(withLedger, { recursive: true, force: true });
-    rmSync(withoutLedger, { recursive: true, force: true });
+    removeTempRepository(withLedger);
+    removeTempRepository(withoutLedger);
   }
 });
 

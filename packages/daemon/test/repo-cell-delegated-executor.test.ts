@@ -2,7 +2,7 @@
 import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { provisionPolicyTestRepository, withPolicyGroup, revokeTestPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -15,10 +15,11 @@ import {
 import { createRepoCellApi } from "../src/daemon-host/repo-cell-api.ts";
 import { failed } from "../src/daemon-host/repo-cell-settlement.ts";
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 provisionPolicyTestRepository("repository");
 const root = mkdtempSync(path.join(tmpdir(), "ha-delegated-executor-"));
-after(() => rmSync(root, { recursive: true, force: true }));
+after(() => removeTempRepository(root));
 
 const now = "2026-09-19T12:00:00.000Z";
 const ownedTaskId = "task-delegation-owned",

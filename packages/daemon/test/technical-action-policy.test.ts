@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -9,6 +9,7 @@ import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { readPolicyMetadata } from "@harness-anything/application/queries";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
 const technicalScopes = ["cli-local-effects", "daemon-local-state", "package-assets-build", "preset-convert-local"];
@@ -28,7 +29,7 @@ const business = {
 
 function builtin(t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-technical-policy-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const adapter = new BuiltinPolicyAdapter({ userRoot: root });
   adapter.addUser({
     username: "owner",

@@ -2,12 +2,13 @@
 // counters. SQLite's extension ABI observes Node's real connections, not a replica.
 import sqlite from "node:sqlite";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { rawSqliteStatementMethods } from "./g1-cost-probe.mjs";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const rawGet = rawSqliteStatementMethods.get,
   rawAll = rawSqliteStatementMethods.all,
@@ -51,7 +52,7 @@ export function installSqliteWorkProbe() {
     ],
     { stdio: "pipe" },
   );
-  if (process.platform !== "win32") process.once("exit", () => rmSync(root, { recursive: true, force: true }));
+  if (process.platform !== "win32") process.once("exit", () => removeTempRepository(root));
   // The bootstrap registers sqlite3_auto_extension. Production opens retain their
   // original constructor, readonly and extension-loading settings.
   const bootstrap = new sqlite.DatabaseSync(":memory:", { allowExtension: true });

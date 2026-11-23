@@ -2,13 +2,14 @@
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { daemonConnLogFileStem } from "../src/daemon-host/conn-log.ts";
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface ConnRecord {
   readonly event: string;
@@ -25,7 +26,7 @@ interface ConnRecord {
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-daemon-conn-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return root;
 }
 

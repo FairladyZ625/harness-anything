@@ -2,7 +2,7 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +13,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "../../daem
 import { isolateDaemonTaskSnapshotRows } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { daemonProtocolError, localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const code of ["repo_unavailable", "authorization_denied", "isolated rows"]) {
   test(`GUI task read preserves the ${code} receipt through a remote-proxy socket`, async (t) => {
@@ -68,7 +69,7 @@ for (const code of ["repo_unavailable", "authorization_denied", "isolated rows"]
       else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
       if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
       else process.env.HARNESS_DAEMON_ID = previous.id;
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 }

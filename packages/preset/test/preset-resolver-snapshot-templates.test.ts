@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import {
 import { createRuntime, decodePresetPackageV3 } from "../src/preset-resolver.ts";
 
 import { git, makeFixture, templateCatalog, write, writePackage } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
   runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("snapshot upgrade atomically replaces the complete snapshot and typed task contract without touching task prose", async () => {
@@ -298,7 +299,7 @@ test("snapshot upgrade atomically replaces the complete snapshot and typed task 
     );
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -602,7 +603,7 @@ test("seed and audit dry-runs report the two-layer inventory without mutation", 
     assert.deepEqual({ mode: seeded.mode, packageCount: seeded.packageCount }, { mode: "apply", packageCount: 13 });
     assert.equal(readdirSync(path.join(userRoot, "active")).length, 13);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -646,6 +647,6 @@ test("a preset document parses the same on a CRLF checkout as on an LF checkout"
     assert.equal(crlf.description, "CRLF package");
     assert.equal(crlf.whenToUse, "Use on a Windows checkout.");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

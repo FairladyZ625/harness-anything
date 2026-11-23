@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { fixtureFence, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { initRepo, actor } from "./task-surface.fixtures.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_04A9211B073F29F0FC1E1CA573 CH2: min(950, ceil(391 * 1.10)) = 431.
 // The same ratchet applies before and after writes; no lazy import can escape it.
@@ -157,6 +158,6 @@ test("five attached writers report comparable mount and post-write working sets"
     }
   } finally {
     await Promise.all(supervisors.map((supervisor) => supervisor.close()));
-    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(parent);
   }
 });

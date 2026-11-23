@@ -12,7 +12,7 @@
 // 落地前本 fixture 的进程级集成测试按预期红在该接线缺失。
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -40,6 +40,7 @@ import { rawPeer } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export const replicationNodes = ["edge-one", "edge-two", "edge-three"] as const;
 export type ReplicationNodeId = (typeof replicationNodes)[number];
@@ -167,7 +168,7 @@ export async function fleetReplicationFixture(
         await host.close();
       } finally {
         await owners.close();
-        rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+        removeTempRepository(root);
       }
     }
   });

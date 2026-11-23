@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import {
   readManagedRbacRelocationBundle,
   writeManagedRbacRelocationBundle,
 } from "../../src/keycloak/managed-rbac-relocation.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("relocation bundle hashes realm credentials, center secret, and optional edge journal", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-relocation-")),
@@ -38,7 +39,7 @@ test("relocation bundle hashes realm credentials, center secret, and optional ed
     for (const name of ["manifest.json", "realm.json", "center-client-secret", "edge-join-journal.json"])
       assert.equal(statSync(path.join(directory, name)).mode & 0o077, 0);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -57,6 +58,6 @@ test("relocation bundle refuses modified data before import can consume it", () 
     );
     assert.throws(() => readManagedRbacRelocationBundle(directory), { code: "rbac_relocation_integrity_failed" });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

@@ -3,7 +3,7 @@ import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/e
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts"
 import { readDaemonSingletonLockPid } from "../src/daemon-host/daemon-singleton.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a cell that never closes forces process exit with a recorded deadline reason", { timeout: 30_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stop-deadline-")),
@@ -54,7 +55,7 @@ test("a cell that never closes forces process exit with a recorded deadline reas
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -165,7 +166,7 @@ for (const { buildSuperseded, rejectDrain } of [
       await daemon.stop().catch((error: unknown) => {
         assert.match(String(error), /injected late drain failure/u);
       });
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 }

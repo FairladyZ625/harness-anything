@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, watch } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, watch } from "node:fs";
 import { createServer } from "node:http";
 import { createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -20,6 +20,7 @@ import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, cli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The model is deterministic; the Codex executable, tool sandbox, relay, CLI, daemon,
 // execution credential and Writer are real. No provider account or host auth is used.
@@ -85,7 +86,7 @@ test(
       await stop();
       await new Promise<void>((resolve, reject) => model.close((error) => (error ? reject(error) : resolve())));
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
     const address = model.address();
@@ -335,8 +336,8 @@ test(
     t.after(async () => {
       await new Promise<void>((resolve) => relayServer.close(() => resolve()));
       await new Promise<void>((resolve, reject) => model.close((error) => (error ? reject(error) : resolve())));
-      rmSync(relayDir, { recursive: true, force: true });
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(relayDir);
+      removeTempRepository(parent);
     });
     await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
     const address = model.address();

@@ -2,7 +2,7 @@
 // dec_42EB7B8F636C12381A447E52A3/CH2: end-to-end headless GUI-FDE domain compilation, HTML sandbox preview,
 // V4 positive/negative gate simulation, rename cross-reference synchronization, and scaffold persistence tests.
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,10 +20,11 @@ import {
   updatePresetInDraft,
   updateProfileInDraft,
 } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function makeTempDir(t: test.TestContext): string {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-gui-fde-test-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(dir));
   return dir;
 }
 

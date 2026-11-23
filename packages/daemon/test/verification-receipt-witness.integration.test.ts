@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("standard-task verified profile blocks missing, stale, folded, and mismatched receipts and passes valid frozen cut", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-verified-receipt-")),
@@ -454,6 +455,6 @@ test("standard-task verified profile blocks missing, stale, folded, and mismatch
     assert.equal(baselineCompleted.outcome, "applied", JSON.stringify(baselineCompleted));
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

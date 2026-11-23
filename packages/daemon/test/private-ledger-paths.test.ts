@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -14,6 +14,7 @@ import {
 } from "../src/daemon-host/private-ledger-paths.ts";
 import { reviewPromptData } from "../src/daemon-host/review-path-matching.ts";
 import { runWorktreeSetup, workerLedgerPath } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const planBody = "# Plan\n",
   // Prompt prose and the reference extractor use forward slashes on every platform; `path.join`
@@ -290,7 +291,7 @@ async function privateWorktree(root: string): Promise<string> {
 function fixture(t: TestContext): string {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-private-ledger-"))),
     root = path.join(base, "canonical");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Private Ledger Test");
   git(root, "config", "user.email", "private@example.invalid");

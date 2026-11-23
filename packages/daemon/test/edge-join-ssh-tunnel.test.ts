@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -12,6 +12,7 @@ import { createEdgeJoinStore } from "../src/daemon-host/fleet/edge-join.ts";
 import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import type { ChildProcess } from "node:child_process";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface FakeProcess {
   readonly process: ChildProcess;
@@ -338,7 +339,7 @@ test("resume derives actual service hosts and an expired invitation releases its
   let now = Date.parse("2026-10-22T00:00:00.000Z"),
     interactiveAuthorityCalls = 0;
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-resume-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   saveFleetCenterConfig(userRoot, "default", {
     bind: "10.211.55.2",
     port: 7545,
@@ -426,7 +427,7 @@ test("resume derives actual service hosts and an expired invitation releases its
 
 test("resume restores consumed SSH invitations without probing the login listener", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-consumed-resume-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   saveFleetCenterConfig(userRoot, "default", {
     bind: "10.211.55.2",
     port: 7545,

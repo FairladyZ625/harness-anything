@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { presetUserRoot } from "@harness-anything/preset/internal/preset-system"
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function writePresetPackage(sourceRoot: string, id: string, extra: Readonly<Record<string, unknown>> = {}): string {
   const packageRoot = path.join(sourceRoot, id);
@@ -56,7 +57,7 @@ function installUnavailablePresets(rootDir: string): readonly string[] {
     });
     return ids;
   } finally {
-    rmSync(sourceRoot, { recursive: true, force: true });
+    removeTempRepository(sourceRoot);
   }
 }
 
@@ -103,6 +104,6 @@ test("a mistyped task-create preset names every selectable preset from the same 
     assert.equal(wrongVertical.code, "missing_vertical");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

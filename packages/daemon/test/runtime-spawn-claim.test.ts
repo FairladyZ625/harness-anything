@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,12 +8,13 @@ import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
 import type { RemoteRuntimePersistence } from "../src/daemon-host/runtime-spawn-types.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const boundary of ["context", "census", "preparation"] as const)
   for (const acquired of [true, false])
     test(`failed remote ${boundary} releases only its own newly acquired claim (acquired=${acquired})`, async (t) => {
       const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-spawn-claim-"));
-      t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+      t.after(() => removeTempRepository(rootDir));
       const packageRoot = path.join(rootDir, "task-claim");
       mkdirSync(packageRoot);
       const failure = new Error(`refused at ${boundary}`);

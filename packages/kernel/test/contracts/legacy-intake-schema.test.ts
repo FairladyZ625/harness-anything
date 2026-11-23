@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +13,7 @@ import {
   taskPackagePath,
 } from "../../src/layout/index.ts";
 import { LegacyCollisionReportSchema, LegacyIndexSchema } from "../../src/schemas/registry.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const legacyIndexValidUrl = new URL("../../fixtures/schemas/legacy-index/valid.json", import.meta.url);
 const legacyIndexInvalidUrl = new URL("../../fixtures/schemas/legacy-index/invalid.json", import.meta.url);
@@ -267,6 +268,6 @@ function withTempRoot<T>(fn: (rootDir: string) => T): T {
   try {
     return fn(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }

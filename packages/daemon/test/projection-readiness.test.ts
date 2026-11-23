@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
 import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
 import { emptyDispatchLifecycleRead } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type TaskRead = ReturnType<TaskProjection["read"]>;
 
@@ -41,7 +42,7 @@ function projectionOf(read: TaskRead): Pick<TaskProjection, "read"> & { readonly
 // fact record resolves its observation commit against a real checkout HEAD.
 const observationRoot = mkdtempSync(path.join(tmpdir(), "ha-projection-readiness-"));
 initRepo(observationRoot);
-test.after(() => rmSync(observationRoot, { recursive: true, force: true }));
+test.after(() => removeTempRepository(observationRoot));
 
 function factCell(read: TaskRead) {
   const projection = projectionOf(read),

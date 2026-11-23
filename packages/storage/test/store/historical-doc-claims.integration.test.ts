@@ -16,7 +16,7 @@
 // revision 1); its raw output is recorded in the task package's `artifacts/evidence/`.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,6 +31,7 @@ import {
   OPAQUE_TEXTUAL_POLICY_ID,
 } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
 import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const fixtureRoot = path.resolve(import.meta.dirname, "../../../kernel/fixtures/historical-doc-claims"),
   pdfPath =
@@ -160,7 +161,7 @@ test("the real cut's persisted PDF claim reads back unchanged through the produc
       projection.close();
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

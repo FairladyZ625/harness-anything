@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const gateFixture = pathToFileURL(path.resolve(import.meta.dirname, "../../../tools/gates/test/helpers.mjs")).href,
   keycloakFixture = pathToFileURL(path.join(import.meta.dirname, "keycloak.fixtures.ts")).href;
@@ -15,7 +16,7 @@ for (const outcome of ["normal", "failure", "timeout"] as const) {
     const root = mkdtempSync(path.join(tmpdir(), "ha-cleanup-control-")),
       temporary = path.join(root, "temporary"),
       script = path.join(root, "control.test.mjs");
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     mkdirSync(temporary);
     writeFileSync(
       script,

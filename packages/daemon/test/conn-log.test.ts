@@ -1,15 +1,16 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { daemonConnLogFileStem, DAEMON_CONN_LOG_SCHEMA, openDaemonConnLog } from "../src/daemon-host/conn-log.ts";
 import { resultErrorDetail } from "../src/daemon-host/protocol/json-rpc-dispatch-support.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-conn-log-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return root;
 }
 function recordsOf(userRoot: string, daemonId = "test-daemon"): Record<string, unknown>[] {
@@ -181,7 +182,7 @@ test("conn log records open/request/close with monotonic ids, active counts, and
     assert.equal(typeof record.pid, "number");
     assert.equal(typeof record.at, "string");
   }
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("conn log rolls over at a UTC day boundary and keeps both day files", async (t) => {
@@ -196,7 +197,7 @@ test("conn log rolls over at a UTC day boundary and keeps both day files", async
   await log.settle();
   const names = readdirSync(path.join(userRoot, "logs")).sort();
   assert.deepEqual(names, ["daemon-day-conn-20260820.jsonl", "daemon-day-conn-20260821.jsonl"]);
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("conn log prunes day files beyond the kept-days horizon", async (t) => {
@@ -219,7 +220,7 @@ test("conn log prunes day files beyond the kept-days horizon", async (t) => {
     "daemon-prune-conn-20260812.jsonl",
     "daemon-prune-conn-20260813.jsonl",
   ]);
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("conn log rotates the day file by size into generation suffixes", async (t) => {
@@ -236,7 +237,7 @@ test("conn log rotates the day file by size into generation suffixes", async (t)
     "daemon-size-conn-20260820.jsonl.1",
     "daemon-size-conn-20260820.jsonl.2",
   ]);
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("conn log size rotation never deletes same-day generations: a busy day keeps every line", async (t) => {
@@ -252,7 +253,7 @@ test("conn log size rotation never deletes same-day generations: a busy day keep
   // generation deletion (canonical 23,959 requests vs 22,131 retained cross-repo).
   assert.equal(opened.length, total);
   for (let index = 0; index < total; index += 1) assert.equal(opened[index]?.conn, `c-${index + 1}`);
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("a failing conn log reports once and never throws into the request path", async (t) => {
@@ -281,7 +282,7 @@ test("a failing conn log reports once and never throws into the request path", a
   log.connectionOpened("b", "unix-socket");
   await log.settle();
   assert.equal(failures.length, 1);
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("conn log drops traffic arriving after settlement without reopening its file", async (t) => {
@@ -316,7 +317,7 @@ test("a close for a connection this sink never saw is ignored instead of corrupt
     ["conn_open", "conn_close"],
   );
   assert.equal((records.at(-1) as { active: number }).active, 0);
-  rmSync(userRoot, { recursive: true, force: true });
+  removeTempRepository(userRoot);
 });
 
 test("a request record carries OpenTelemetry span fields, stage windows, bytes and source node", async (t) => {

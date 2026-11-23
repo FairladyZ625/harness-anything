@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { fact } from "../../storage/test/store/relation-graph-projection.fixture
 import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { readObserveEventTail } from "../src/daemon-host/observe-tail.ts";
 import { planRowsRead } from "./fixtures/g38-read-probe.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function collectScanNodes(plan, nodes = []) {
   if (/Scan$/u.test(plan["Node Type"] ?? "")) {
@@ -342,7 +343,7 @@ test(
       } finally {
         pg.Client.prototype.query = originalQuery;
         pgReader?.close();
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     };
 

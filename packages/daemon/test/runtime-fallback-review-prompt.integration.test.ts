@@ -1,16 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -18,6 +9,7 @@ import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { resolveRuntimeCwd } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "provider fallback rebinds the task review prompt and registers under the successor dispatch",
@@ -289,7 +281,7 @@ test(
       assert.equal(f.launches[1]?.cwd, expectedDecisionCwd);
     } finally {
       await f.close();
-      rmSync(externalParent, { recursive: true, force: true });
+      removeTempRepository(externalParent);
     }
   },
 );
@@ -404,7 +396,7 @@ test(
       assert.equal(f.launches.length, 0, "external RPC must never launch inside symlinked external harness");
     } finally {
       await f.close();
-      rmSync(externalParent, { recursive: true, force: true });
+      removeTempRepository(externalParent);
     }
   },
 );
@@ -445,7 +437,7 @@ test(
       assert.equal(pending.rows[0]?.groupPhase, "waiting_backoff");
 
       // Replace the ordinary directory with a symlink pointing outside the repository during backoff.
-      rmSync(ordinaryDir, { recursive: true, force: true });
+      removeTempRepository(ordinaryDir);
       symlinkSync(outsideParent, ordinaryDir, "dir");
       nowMs += 65_000;
       await f.reopen();
@@ -468,7 +460,7 @@ test(
       assert.match(outcomes.at(-1)?.payload.attempt?.reason ?? "", /Runtime cwd must stay inside the repository/u);
     } finally {
       await f.close();
-      rmSync(outsideParent, { recursive: true, force: true });
+      removeTempRepository(outsideParent);
     }
   },
 );

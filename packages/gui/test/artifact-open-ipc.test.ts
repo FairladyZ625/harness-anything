@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   validateArtifactOpenExternalInput,
   type ArtifactOpenServices,
 } from "../src/main/artifact-open-ipc.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /**
  * 「在默认浏览器打开」的信任边界(task_7e713fee):渲染进程只能报 daemon 报过的
@@ -101,7 +102,7 @@ test("a repo-relative artifact path resolves inside the harness root and is open
     assert.equal(result.openedPath, path.join(harnessRoot, "tasks", "task_a", "artifacts", "report.html"));
     assert.deepEqual(opened, [result.openedPath]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -166,7 +167,7 @@ test("resolution refuses a harness-root escape and a missing file", () => {
       /not present on disk/u,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -190,7 +191,7 @@ test("a failed system open surfaces as an error, not a silent success", async ()
       /failed: no application knows how to open it/u,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -242,7 +243,7 @@ test("a remote-proxy repository materializes a read-only server copy before open
     });
     assert.deepEqual(opened, [expected, expected]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -284,7 +285,7 @@ test("a remote-proxy binary artifact materializes its canonical bytes, not a re-
     // 副本必须与原始字节逐字节相同:UTF-8 重编码会把 0xff 变成替换字符。
     assert.deepEqual(readFileSync(expected), pdf);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -369,6 +370,6 @@ test("a binary artifact above the inline ceiling is refused with its route, not 
     assert.deepEqual(opened, [], "no viewer may be handed a copy that does not hold the artifact bytes");
     assert.equal(existsSync(path.join(cacheRoot, "proxy-repo")), false, "no copy may be materialized at all");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

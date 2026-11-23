@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registr
 import { writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function writeEdgeConfig(
   userRoot: string,
@@ -32,7 +33,7 @@ test("edge rbac-listener omits targetUrl when loginUrl matches browser origin an
     userRoot = path.join(root, "user"),
     edgeRoot = path.join(root, "edge"),
     certificate = "-----BEGIN CERTIFICATE-----\nMIIFixture\n-----END CERTIFICATE-----\n";
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(userRoot, { recursive: true });
   mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
   writeFileSync(path.join(edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
@@ -7,6 +7,7 @@ import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 import { publishExit as publishRuntimeExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
 
@@ -163,7 +164,7 @@ export function workerGitFixture(
     bare = path.join(root, "remote.git"),
     canonical = path.join(root, "project"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   git(canonical, "config", "user.email", "settle-test@example.invalid");

@@ -6,7 +6,7 @@ import { openRemoteProxyManager } from "../src/daemon-host/remote-proxy.ts";
 import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -34,6 +34,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import { createLocalGuiServiceBridge } from "../../gui/src/main/local-composition-root.ts";
 import { fixtureRuntimeProcess, runtimeProcessFixture } from "./fixtures/runtime-process.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "remote-proxy forwards repository frames and streams, reconnects, and fails closed",
@@ -121,7 +122,7 @@ test(
       await tcpB.stop();
       await hostA.close();
       await hostB.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     const rpcA = (method: string, params: Record<string, unknown>) =>
         requestDaemonJsonRpcAt(endpointA, method, params, 2_000, 5_000),
@@ -555,7 +556,7 @@ test(
       await proxyA1?.close();
       await tcpB.stop();
       await hostB.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     workers.push(runtimeProcessFixture(t), runtimeProcessFixture(t));
 

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -10,6 +10,7 @@ import test from "node:test";
 import { _electron as electron, chromium } from "playwright-core";
 import { build } from "vite";
 import { BROKER_ROUTE, createBrokerManager } from "../src/broker.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const require = createRequire(import.meta.url);
 
@@ -75,7 +76,7 @@ test("open here asks once for the default view, keeps the board alive, and share
     await manager.dispose();
     if (server.listening)
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   });
   const entry = path.join(scratch, "fixture.ts");
   writeFileSync(

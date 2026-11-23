@@ -3,7 +3,7 @@ import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -15,6 +15,7 @@ import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/ce
 import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type FleetTestSubject = {
   nodeId: string;
@@ -240,7 +241,7 @@ async function scaleFixture(t: TestContext) {
         await host.close();
       } finally {
         await owners.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     }
   });
@@ -374,7 +375,7 @@ async function scaleFixture(t: TestContext) {
     close: async () => {
       await owned.reclaim();
       await host.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

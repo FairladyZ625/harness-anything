@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { awaitDeviceLogin } from "../src/daemon/device-login.ts";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { receiptExitCode } from "../src/index.ts";
 import { encodeEdgeJoinLink } from "@harness-anything/daemon/internal/fleet/edge-join";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("device polling follows pending replies and ends at the device deadline", async () => {
   let polls = 0;
@@ -742,7 +743,7 @@ test("edge join prepares its workspace root before reaching the daemon", async (
     );
     assert.equal(existsSync(workspaceRoot), true, "edge join creates the missing --root in one command");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

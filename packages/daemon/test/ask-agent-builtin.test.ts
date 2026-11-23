@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
 } from "../src/daemon-host/agent-declaration-resolution.ts";
 import { prepareAgentEntityDelete, prepareAgentEntityInstall } from "../src/daemon-host/agent-entities.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const codexInstances = [
   { instanceId: "codex-api", kindId: "codex", models: ["deepseek-flash", "gpt-6-luna"], enabled: true },
@@ -88,6 +89,6 @@ test("system-bundled agents close their lifecycle: retire and delete are rejecte
       { code: "agent_system_builtin" },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

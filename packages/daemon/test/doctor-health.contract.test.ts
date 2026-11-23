@@ -2,7 +2,7 @@
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } },
   binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
@@ -36,7 +37,7 @@ function initRepo(rootDir: string): void {
 test("doctor health reports the nine checks and degrades to indeterminate without origin/main", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-health-")),
     repoId = workspaceId("doctor-health");
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -102,7 +103,7 @@ test("doctor health reports a stable actionable Fleet build warning", () => {
 
 test("doctor reports active typed relation cycles with type, node chain, and relation ids", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-relation-cycles-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = {
     rootDir,
@@ -154,7 +155,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     runtimeFile = path.join(parent, "dist/daemon/src/runtime.js"),
     marker = path.join(parent, "dist/build-id.txt"),
     edge = path.join(parent, "edge");
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   rosterRepo(rootDir, "doctor-host");
   // Select a Decisions provider whose model the upstream no longer serves; the host-level check
   // must read both the repository setting and the machine-local provider record.
@@ -265,7 +266,7 @@ test("doctor reads beyond 500 tasks and deduplicates ancestry against the captur
     logPath = path.join(rootDir, "git-calls.jsonl"),
     originalPath = process.env.PATH,
     realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const git = (...args: string[]) => execFileSync(realGit, ["-C", rootDir, ...args], { encoding: "utf8" }).trim(),
     tip = git("rev-parse", "HEAD");
@@ -403,7 +404,7 @@ async function openSignedInHost(input: Parameters<typeof openDaemonHost>[0]) {
 
 test("doctor identifies process_exit while canonical dispatch remains running and clears after settlement", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doctor-exited-unsettled-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const dispatchId = "dispatch_454545454545454545454545",
     runtimeSessionId = "runtime_454545454545454545454545";
@@ -462,7 +463,7 @@ test("doctor alerts on residual fleet-edge.json or fleet-center-ca.pem in the re
     rootDir = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "doctor-edge-residue";
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   mkdirSync(rootDir, { recursive: true });
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });

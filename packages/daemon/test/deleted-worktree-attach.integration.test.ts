@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
 import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { definition, installation } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const deletion of ["pr-merge-remove", "direct-rm"] as const) {
   test(`canonical survives ${deletion} of an observed task worktree in the same daemon`, async (t) => {
@@ -55,7 +56,7 @@ for (const deletion of ["pr-merge-remove", "direct-rm"] as const) {
         child.kill();
         await exited;
       }
-      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(parent);
     });
     let cell: Awaited<ReturnType<typeof openRepoCell>>;
     const host = await openDaemonHost({

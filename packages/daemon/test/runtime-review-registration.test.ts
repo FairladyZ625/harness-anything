@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
 } from "../src/daemon-host/runtime-execution-scope.ts";
 import { reviewerArtifactFiles, reviewerArtifactsForReview } from "../src/daemon-host/reviewer-artifact-publication.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const)
   test(`reviewer ${JSON.stringify(source)} can register its own disk packet or carried report`, (t) => {
@@ -238,6 +239,6 @@ test("a dispatched reviewer packet is published from the checkout path the missi
       "a packet outside the workspace is not a reviewer artifact",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

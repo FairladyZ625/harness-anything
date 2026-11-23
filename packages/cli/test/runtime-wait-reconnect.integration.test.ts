@@ -25,6 +25,7 @@ import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { seedSquadWaitState, type SquadRunObservation } from "../../daemon/test/squad-terminal-wait.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect",
@@ -1287,7 +1288,7 @@ async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
           if (!server.listening) resolve();
           else server.close(() => resolve());
         });
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       },
     } satisfies FixtureDaemon;
   await start();

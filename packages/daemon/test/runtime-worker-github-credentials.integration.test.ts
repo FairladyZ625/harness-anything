@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -19,6 +19,7 @@ import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
 
@@ -278,7 +279,7 @@ async function exerciseTaskPush(
     }
   } finally {
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 }
 
@@ -340,7 +341,7 @@ test("two repositories sharing one instance publish with distinct refs without a
         secret: credentials.get(`credential:v1:${repoId}`)!,
       });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

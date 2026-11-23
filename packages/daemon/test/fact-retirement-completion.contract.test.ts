@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const,
   // The lifecycle persona writes and closes; closing a task is the maintainer tier's, so it holds both roles.
@@ -29,7 +30,7 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
     repoId = workspaceId("fact-retirement"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
     eventReader: ReturnType<typeof makeTaskEventReader> | undefined,
     completionReader: ReturnType<typeof makeTaskEventReader> | undefined;
@@ -105,7 +106,7 @@ test("task complete needs no disposition for an upstream Fact that another Fact 
     repoId = workspaceId("fact-retirement-superseded"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -137,7 +138,7 @@ test("task complete rejects malformed and duplicate fact-holds dispositions", as
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-enum-")),
     repoId = workspaceId("fact-retirement-enum"),
     taskId = "task_fact_retirement_enum";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -184,7 +185,7 @@ test("task complete enumerates every undischarged upstream Fact in the blocker",
     repoId = workspaceId("fact-retirement-list"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);

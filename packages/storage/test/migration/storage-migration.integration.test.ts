@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { openSqliteMigrationEndpoint } from "../../src/migration/sqlite-endpoint
 import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.ts";
 import { migrateStorage } from "../../src/migration/engine.ts";
 import { bundle, docBundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "migration",
   scope = { tenantId: "migration-tenant", projectId: "migration-project", readers: [], policyEpoch: 0 };
@@ -139,7 +140,7 @@ test("real PostgreSQL: SQLite roundtrip preserves event/blob bytes, outcomes, cu
   } finally {
     await source?.close();
     await target?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     await fixture.close();
   }
 });

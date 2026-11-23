@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { assessTaskRiskTier } from "../src/daemon-host/task-risk-tier.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const task = {
     taskId: "task-risk-tier",
@@ -58,7 +59,7 @@ test("risk assessment freezes the real diff anchors and path reviewer hits", asy
       },
     ],
   });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const assessment = await assessTaskRiskTier({
     rootDir: root,
@@ -88,7 +89,7 @@ test("script floors and prior effective tiers can only raise the declared tier",
       },
     ],
   });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const assessment = await assessTaskRiskTier({
     rootDir: root,
@@ -103,7 +104,7 @@ test("script floors and prior effective tiers can only raise the declared tier",
 
 test("GUI paths never add GUI-specific policy to an elevated risk assessment", async (t) => {
   const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [] });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const assessment = await assessTaskRiskTier({
     rootDir: root,
@@ -122,7 +123,7 @@ test("GUI paths never add GUI-specific policy to an elevated risk assessment", a
 
 test("missing scripts use the declared tier without GUI-specific assessment fields", async (t) => {
   const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [] });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const assessment = await assessTaskRiskTier({
     rootDir: root,
@@ -140,7 +141,7 @@ test("missing scripts use the declared tier without GUI-specific assessment fiel
 
 test("the retired lowGuiAcceptance manifest switch is rejected", async (t) => {
   const root = rootWithManifest({ schema: "task-risk-manifest/v1", scripts: [], lowGuiAcceptance: true });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   await assert.rejects(
     assessTaskRiskTier({ rootDir: root, task, delivery, matchedPathReviewers: [] }),
@@ -155,7 +156,7 @@ test("failed and malformed configured scripts reject assessment with their own o
       { id: "broken", command: scriptCommand("process.stderr.write('risk script failure'); process.exitCode = 7;") },
     ],
   });
-  t.after(() => rmSync(failed, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(failed));
   await assert.rejects(
     assessTaskRiskTier({ rootDir: failed, task, delivery, matchedPathReviewers: [] }),
     /risk script failure/u,
@@ -165,7 +166,7 @@ test("failed and malformed configured scripts reject assessment with their own o
     schema: "task-risk-manifest/v1",
     scripts: [{ id: "malformed", command: scriptCommand("process.stdout.write(JSON.stringify({ wrong: true }));") }],
   });
-  t.after(() => rmSync(malformed, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(malformed));
   await assert.rejects(
     assessTaskRiskTier({ rootDir: malformed, task, delivery, matchedPathReviewers: [] }),
     /malformed task-risk-tier-result\/v1/u,

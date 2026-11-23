@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import { policyTestRealm, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A durable write's decision answers for the canonical cut its effect lands on. A request admitted
 // while another write is still pending must be decided at the head that write leaves, not at the
@@ -21,7 +22,7 @@ test("a queued write is authorized at the cut its effect lands on, after an earl
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "queued-current-cut" });
   t.after(async () => {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   });
 
   // The policy realm answers every decision over HTTP; the first task-create decision is held at

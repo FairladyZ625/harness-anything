@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,13 +13,14 @@ import { auth } from "./daemon-host-recovery.fixture.ts";
 import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_000000000000000000000007";
 
 for (const role of ["implementation", "reviewer"] as const) {
   test(`${role}: local stream cannot turn a denied canonical settlement into a terminal read`, (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-read-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     let session: RuntimeSession = {
       runtimeSessionId: "runtime-exit-read",
       instanceId: "instance-test",
@@ -132,7 +133,7 @@ test("local runtime claims do not establish a principal after interactive logout
     realm = await serveKeycloak();
   t.after(async () => {
     await realm.close();
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   });
   realm.bind(userRoot);
   realm.keycloak.account("person-runtime-test");

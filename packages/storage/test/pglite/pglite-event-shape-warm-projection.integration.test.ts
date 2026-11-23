@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { applyAttachMigrations } from "../../src/store/attach-migrations.ts";
 import { warmProjectionFixture } from "../store/event-shape-warm-projection.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { assertCrossRepoShapeReplay } from "../postgres/event-shape-warm-replay.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 pgliteIntegrationSuite("PGlite event-shape warm projection", () => {
   test("a low-revision migration replays its repository and retains a higher-revision neighbor", async () => {
@@ -28,7 +29,7 @@ pgliteIntegrationSuite("PGlite event-shape warm projection", () => {
       await assertCrossRepoShapeReplay(backend.pool);
     } finally {
       await backend.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(dataDir);
     }
   });
 
@@ -112,7 +113,7 @@ pgliteIntegrationSuite("PGlite event-shape warm projection", () => {
       assert.deepEqual((await backend.projection.getEntity("settings", "repository"))?.value, fixture.expected);
     } finally {
       await backend.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(dataDir);
     }
   });
 });

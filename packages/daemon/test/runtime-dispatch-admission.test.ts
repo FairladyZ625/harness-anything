@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import type { AgentRuntimeEventV1, DispatchLifecycleRead } from "@harness-anythi
 import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const nodeA = { kind: "node", nodeId: "node-a" } as const,
   nodeB = { kind: "node", nodeId: "node-b" } as const,
@@ -25,7 +26,7 @@ function admission(
   capacity?: number,
 ) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-dispatch-admission-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const prepared = Object.assign(new Error("admission reached the launch port"), { code: "fixture_prepared" }),
     spawner = makeRuntimeSpawner({
       rootDir,

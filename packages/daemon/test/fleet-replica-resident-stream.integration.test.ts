@@ -9,7 +9,7 @@
 // start removes staging a crashed install left; edge sync waits for the center's head on the resident
 // stream, and write waits survive reconnects but fail when their own signal expires or the stream stops.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer, connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -36,6 +36,7 @@ import {
   type FleetReplicationFixture,
 } from "./fleet-replication.fixture.ts";
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const seededTask = { taskId: "task_resident0000000000000000001", executionId: "exe_resident", title: "Resident" };
 
@@ -81,7 +82,7 @@ test("duplicate connection rejection records its cause and avoids ordinary recon
     controller.abort();
     await running;
     t.mock.timers.reset();
-    rmSync(viewRoot, { recursive: true, force: true });
+    removeTempRepository(viewRoot);
   }
 });
 
@@ -113,7 +114,7 @@ test(
         });
     });
     const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-deterministic-failure-"));
-    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRoot));
     const stream = startStream(t, fixture, viewRoot, fake.port);
     await waitForState(() => stream.failures.length === 1, "the first deterministic rejection", 10_000);
     await new Promise<void>((resolve) => setTimeout(resolve, 750));
@@ -131,7 +132,7 @@ test("a service-account edge token completes replication without a human session
   await seedCenterData(fixture, seededTask);
   await fixture.openCenter();
   const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-machine-auth-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
   const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
     fixture.machineAccessToken("edge-one"),
   );
@@ -243,7 +244,7 @@ test("an interactive device token still completes human-authorized replication",
   await seedCenterData(fixture, seededTask);
   await fixture.openCenter();
   const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-human-auth-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
   const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
     fixture.owners.readAccessToken("edge-one")(),
   );
@@ -260,7 +261,7 @@ test("an expired machine token is rejected by replica admission", { timeout: 60_
     viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-expired-machine-")),
     token = await fixture.machineAccessToken("edge-one");
   fixture.expireMachineTokens();
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
   const stream = startStream(t, fixture, viewRoot, center.port, 64 * 1024 * 1024, "edge-one", () => token);
   await waitForState(() => stream.failures.length > 0, "the center rejects the expired machine token", 10_000);
   assert.equal(
@@ -275,7 +276,7 @@ test("a rejected replica identity is retained as the node's last failure without
   const fixture = await fleetReplicationFixture(t),
     center = await fixture.openCenter(),
     viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-wrong-machine-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
   const stream = startStream(t, fixture, viewRoot, center.port, 64 * 1024 * 1024, "edge-one", () =>
     fixture.machineAccessToken("edge-two"),
   );
@@ -291,7 +292,7 @@ test("a machine token fails the human-only replica admission control", { timeout
   const fixture = await fleetReplicationFixture(t, { replicaAdmission: false }),
     center = await fixture.openCenter(),
     viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-human-only-control-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
   const stream = startStream(t, fixture, viewRoot, center.port, 64 * 1024 * 1024, "edge-one", () =>
     fixture.machineAccessToken("edge-one"),
   );
@@ -317,7 +318,7 @@ test("two edges starting together share one first base backup", { timeout: 60_00
     onStart = (message: unknown) => started.push(message);
   fleetBaseBackupTrace.start.subscribe(onStart);
   t.after(() => fleetBaseBackupTrace.start.unsubscribe(onStart));
-  t.after(() => viewRoots.forEach((viewRoot) => rmSync(viewRoot, { recursive: true, force: true })));
+  t.after(() => viewRoots.forEach((viewRoot) => removeTempRepository(viewRoot)));
   const streams = [
     startStream(t, fixture, viewRoots[0]!, fixture.centerPort(), 64 * 1024 * 1024, "edge-one", () =>
       fixture.machineAccessToken("edge-one"),
@@ -357,7 +358,7 @@ test("a legacy base-backup frame ends only its TLS replication session", { timeo
       });
   });
   const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-legacy-backup-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
 
   await assert.rejects(
     runFleetReplicaStream({
@@ -405,7 +406,7 @@ test(
     const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-invalid-frame-")),
       controller = new AbortController(),
       failed = Promise.withResolvers<unknown>();
-    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRoot));
     const running = runFleetReplicaSync({
       hostname: "127.0.0.1",
       port: fake.port,
@@ -518,8 +519,8 @@ test(
     await fixture.openCenter();
     const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-under-quota-")),
       workspaceRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-under-quota-workspace-"));
-    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
-    t.after(() => rmSync(workspaceRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRoot));
+    t.after(() => removeTempRepository(workspaceRoot));
     const stream = startStream(t, fixture, viewRoot, fixture.centerPort(), 1);
     await assert.rejects(
       syncFleetEdgeMirror(
@@ -907,7 +908,7 @@ test(
       if (frame.type === "replica.start") send({ type: "replica.invalid" } as never);
     });
     const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-retry-budget-"));
-    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRoot));
     const controller = new AbortController();
     let failures = 0;
     t.mock.timers.enable({ apis: ["setTimeout"] });

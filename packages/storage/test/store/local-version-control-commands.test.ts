@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeLocalVersionControlCommands } from "../../src/store/local-version-control-commands.ts";
 import { makeLocalVersionControlSystem } from "../../src/store/local-version-control-system.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("currentBranch resolves unborn symbolic HEAD, committed branch, and null on detached HEAD", (t) => {
   const calls: string[][] = [],
@@ -24,7 +25,7 @@ test("currentBranch resolves unborn symbolic HEAD, committed branch, and null on
   assert.deepEqual(calls, [["symbolic-ref", "--quiet", "--short", "HEAD"]]);
 
   const root = mkdtempSync(path.join(tmpdir(), "ha-vcs-unborn-branch-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.join(root, ".git", "objects"), { recursive: true });
   mkdirSync(path.join(root, ".git", "refs", "heads"), { recursive: true });
   writeFileSync(

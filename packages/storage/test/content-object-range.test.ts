@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { objectPath, readContentObjectRange } from "../src/store/content-objects.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("content object range reads are bounded and resume at the requested offset", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-content-range-")),
@@ -19,6 +20,6 @@ test("content object range reads are bounded and resume at the requested offset"
     assert.equal(readContentObjectRange(root, digest, bytes.byteLength, 5)?.byteLength, 0);
     assert.throws(() => readContentObjectRange(root, digest, -1, 5), RangeError);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

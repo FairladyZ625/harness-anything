@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -12,6 +12,7 @@ import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registr
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { fleetEdgeConfigPath, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { fetchWithTlsCa } from "../src/daemon-host/tls-ca-certificate.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface FixtureOptions {
   readonly tokenIssuer?: string;
@@ -79,7 +80,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
       throw new Error(`Unexpected OIDC request ${url}.`);
     }) as typeof fetch,
   });
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return { userRoot, localRoot, localSiblingRoot, edgeRoot, localIssuer, edgeIssuer, legacyFile, service };
 }
 
@@ -169,7 +170,7 @@ test("Fleet identity validation derives the authorized client from the authentic
     JSON.stringify({ url: "https://center.example.test", realm: "harness" }),
   );
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-center-secret");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const service = createIdentitySession(root, {
     now: () => 10_000,
     fetch: (async (input) => {

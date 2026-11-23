@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
@@ -10,6 +10,7 @@ import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
 import { commandInterceptionHook } from "../src/daemon-host/runtime-command-interceptions.ts";
 import { publicConfig } from "../src/daemon-host/agent-runtime-instance-storage.ts";
 import { runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const rules = [
   { id: "no-publish", pattern: "\\bnpm\\s+publish\\b" },
@@ -130,7 +131,7 @@ test("CodeBuddy uses its settings overlay while Kimi refuses whole-config replac
 
 test("file-based native hooks are scoped to a runtime and reclaimed in both isolation modes", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-native-hook-files-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   for (const kindId of ["droid", "auggie", "cursor", "copilot"] as const)
     for (const isolationState of ["enforced", "operator-environment"] as const) {
       let authenticated = false;

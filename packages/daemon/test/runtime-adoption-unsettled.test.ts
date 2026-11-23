@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   sameImportedRuntimeSessionProjection,
 } from "../src/runtime-engine/runtime-imported-settlement.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a recovered imported session still reconciles with its replayed source at a later observation stamp", () => {
   const source = {
@@ -51,7 +52,7 @@ test("a recovered imported session still reconciles with its replayed source at 
 
 test("adoptRuntimes pages terminal stream headers within DISPATCH_LIFECYCLE_PAGE_LIMIT and fails closed on pending pages", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "adopt-runtimes-lifecycle-page-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const totalHeaders = DISPATCH_LIFECYCLE_PAGE_LIMIT + 5;
   const binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const };
   const entries = Array.from({ length: totalHeaders }, (_, index) => {
@@ -174,7 +175,7 @@ test("adoptRuntimes pages terminal stream headers within DISPATCH_LIFECYCLE_PAGE
 
 test("adoptRuntimes overrides stale expired metadata executionPrincipal with fresh authorizationBinding while preserving metadata source", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "adopt-runtimes-expired-cred-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_eeeeeeeeeeeeeeeeeeeeeeee",
     runtimeSessionId = "runtime_eeeeeeeeeeeeeeeeeeeeeeee",
     metadataSource = { kind: "node" as const, nodeId: "edge-adopt-1" },

@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { installPresetPackage } from "../src/index.ts";
 import { createPresetProcessService, waitFor, write } from "./preset-process-service.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const scenario of [
   "applied",
@@ -118,7 +119,7 @@ for (const scenario of [
       assert.equal(released, 1, "closing after settlement does not release twice");
     } finally {
       await service.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }

@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
   {
@@ -333,7 +334,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     assert.equal(stale.code, "revision_conflict", JSON.stringify(stale));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -494,6 +495,6 @@ test("Kind fences are per Kind, and an accepted Kind outlives its worktree mater
     assert.equal(archived.outcome, "applied", JSON.stringify(archived));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

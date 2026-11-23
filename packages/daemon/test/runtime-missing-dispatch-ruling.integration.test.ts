@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-con
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import type { RuntimeBinding } from "../src/daemon-host/runtime-spawn-types.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding: RuntimeBinding = {
   actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "operator" } },
@@ -23,7 +24,7 @@ const now = "2026-11-08T08:00:00.000Z";
 
 function fixture(t: test.TestContext) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-missing-dispatch-ruling-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const session = {
     runtimeSessionId,
     instanceId: definition.instanceId,

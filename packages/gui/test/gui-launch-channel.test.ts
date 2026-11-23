@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -28,6 +28,7 @@ import {
   verifyWindowsDesktopSession,
   verifyWindowsWindowHandleVisible,
 } from "../src/main/gui-launch-channel.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("applyGuiAppIdentity brands Harness Anything and isolates un-packaged userData without overriding --user-data-dir", () => {
   const baseApp = (overrides: { hasSwitch?: boolean; isPackaged?: boolean }) => {
@@ -546,7 +547,7 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
   );
 
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-legacy-mig-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const appData = path.join(root, "AppData");
   const legacyDir = path.join(appData, "Electron");
   const targetDir = path.join(appData, GUI_APP_NAME);
@@ -625,7 +626,7 @@ test("F3: legacy Electron migration copies only Harness localStorage keys idempo
 
 test("F3: partial write failure does not mark migration complete, recovers missing keys on restart without clobbering newer keys, and preserves post-completion deletes", async (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-legacy-mig-retry-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const appData = path.join(root, "AppData");
   const legacyDir = path.join(appData, "Electron");
   const targetDir = path.join(appData, GUI_APP_NAME);
@@ -708,7 +709,7 @@ test("F3: partial write failure does not mark migration complete, recovers missi
 
   // Legacy store with only third-party entries confirms no_harness_entries once and skips later starts.
   const thirdPartyOnlyRoot = mkdtempSync(path.join(os.tmpdir(), "ha-legacy-mig-empty-"));
-  t.after(() => rmSync(thirdPartyOnlyRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(thirdPartyOnlyRoot));
   const tpAppData = path.join(thirdPartyOnlyRoot, "AppData");
   const tpTargetDir = path.join(tpAppData, GUI_APP_NAME);
   mkdirSync(path.join(tpAppData, "Electron", "Local Storage", "leveldb"), { recursive: true });

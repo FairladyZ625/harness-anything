@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { ensureLocalDaemonRunning } from "../src/daemon-host/client/daemon-autos
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { openDaemonJsonRpcClientAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { daemonPidPath, daemonSocketProbe } from "../src/daemon-host/daemon-singleton.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("the real daemon entry serves while its owner lives and drains after the owner exits", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-owner-death-")),
@@ -70,6 +71,6 @@ test("the real daemon entry serves while its owner lives and drains after the ow
         await closed;
       }
     }
-    rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(userRoot);
   }
 });

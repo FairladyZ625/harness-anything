@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type TestContext } from "node:test";
@@ -19,6 +19,7 @@ import {
   registerSettledBootstrappedDaemonRepo,
 } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
 
@@ -151,7 +152,7 @@ export async function fleetNodeClaimFixture(
     // stranding that fixture's host and its replica-sync retry timer. Retry, then report the
     // leftover instead of aborting cleanup; the OS temp cleaner removes what remains.
     try {
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removeTempRepository(root);
     } catch (error) {
       console.warn(`[fleet-lease-fixture] could not remove ${root}: ${String(error)}`);
     }

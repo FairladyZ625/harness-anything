@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
@@ -22,6 +21,7 @@ import {
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { runtimeKindForId } from "../src/runtime-engine/runtime-inventory.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Claude effort defaults and per-launch overrides reach the Claude Code CLI", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-effort-")),
@@ -98,7 +98,7 @@ test("Claude effort defaults and per-launch overrides reach the Claude Code CLI"
         codedAs(error, "invalid_runtime_effort") && error instanceof Error && error.message.includes("turbo"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -160,7 +160,7 @@ test("create takes repeated models with an optional explicit default and dispatc
       (error: unknown) => codedAs(error, "invalid_runtime_model"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -293,7 +293,7 @@ test("persisted schema v2 records normalize permission and isolation fields once
     storeAgain.read("codex-persisted");
     assert.equal(statSync(path.join(userRoot, "runtime-instances.json")).mtimeMs, mtimeFirst);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -361,7 +361,7 @@ test("runtime auth readiness is explicit, safe, and never falls back across mode
     const receipt = await store.command({ kind: "runtime-instance-show", instanceId: "codex-api", probe: true });
     assert.doesNotMatch(JSON.stringify(receipt), /credentialRef|keychain:|executablePath|\/opt\/runtime-test/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -411,7 +411,7 @@ test("subscription probes distinguish authenticated, unauthenticated, and inconc
     ).instance as Record<string, unknown>;
     assert.equal(authenticated.authState, "authenticated");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -477,7 +477,7 @@ test("subscription auth commands use the witnessed executable and instance-only 
       (error: unknown) => codedAs(error, "runtime_auth_mode_mismatch"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -528,7 +528,7 @@ test("credential references accept the backend-agnostic grammar and legacy keych
         (error: unknown) => codedAs(error, "invalid_credential_reference"),
       );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -546,7 +546,7 @@ test("DeepSeek Harness is discovered from PATH without a desktop App", async () 
     assert.equal(installations[0]!.version, "dsh 0.2.1");
     assert.equal(installations[0]!.models, undefined, "DSH has no CLI model catalog");
   } finally {
-    rmSync(bin, { recursive: true, force: true });
+    removeTempRepository(bin);
   }
 });
 
@@ -572,7 +572,7 @@ test("win32 discovery finds DeepSeek Harness dsh.cmd and forwards version argv",
     assert.equal(installations[0]!.version, "dsh 0.2.1");
     assert.deepEqual(JSON.parse(readFileSync(witness, "utf8")), ["--version"]);
   } finally {
-    rmSync(bin, { recursive: true, force: true });
+    removeTempRepository(bin);
   }
 });
 
@@ -598,7 +598,7 @@ test("DeepSeek Harness bundle discovery works with empty PATH and is scoped to d
       assert.deepEqual(JSON.parse(readFileSync(witness, "utf8")), ["--version"]);
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -613,7 +613,7 @@ test("DeepSeek Harness ignores missing bundles and bundles whose version probe f
         assert.deepEqual(await discoverRuntimeInstallations({ env: { PATH: "" }, platform: "darwin" }), []);
       });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -637,7 +637,7 @@ test("DeepSeek Harness retains distinct PATH and bundle installations", async ()
       assert.equal(new Set(installations.map(({ installationId }) => installationId)).size, installations.length);
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -666,7 +666,7 @@ test(
         assert.equal(installations[0]!.installationId, pathOnly[0]!.installationId);
       });
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -717,7 +717,7 @@ test("win32 installation discovery probes PATHEXT suffixes and witnesses the shi
     );
     assert.equal(installations[0]!.executablePath, realpathSync(executablePath));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -773,7 +773,7 @@ test("the shared provider stub fixture forwards probe argv on every platform", a
     assert.equal(prepared.args[0], "exec");
     assert.ok(prepared.args.includes("argv-model"));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -895,7 +895,7 @@ test("runtime instance update edits the base URL of an existing instance", async
       (error: unknown) => codedAs(error, "invalid_runtime_kind_config"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

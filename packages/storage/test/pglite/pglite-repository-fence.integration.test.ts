@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { assertRepositoryMigrationFence } from "../migration/repository-fence.assertions.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 pgliteIntegrationSuite("PGlite repository migration fence", () => {
   test("Node 26: new tuples share the persisted repository fence", async (t) => {
@@ -29,7 +30,7 @@ pgliteIntegrationSuite("PGlite repository migration fence", () => {
     } finally {
       await source.close();
       await target.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 });

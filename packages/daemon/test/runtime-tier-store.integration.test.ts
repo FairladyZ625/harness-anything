@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
 import { openDaemonRuntimePorts } from "../src/daemon-host/daemon-runtime-ports.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("instance tier defaults, persists, updates and rejects invalid input without changing stored configuration", () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-tier-"));
@@ -70,6 +71,6 @@ test("instance tier defaults, persists, updates and rejects invalid input withou
       "daemon restart resets transient recency rather than reading history",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

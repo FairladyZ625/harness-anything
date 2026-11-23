@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
 } from "../src/daemon-host/runtime-handoff-store.ts";
 import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.ts";
 import { buildHandoffPacket } from "@harness-anything/kernel";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = `dispatch_${"a".repeat(24)}`;
 
@@ -35,7 +36,7 @@ test("a center-local repeated export returns the settled checkpoint receipt with
       revokedAt: null,
     },
     local = path.join(rootDir, ".harness", "runtime-handoffs", dispatchId);
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "harness", "harness.yaml"),
@@ -195,7 +196,7 @@ test("handoff claim rejects a self-consistent packet bound to another runtime", 
 
 test("a closed lifecycle does not substitute missing canonical handoff result evidence", (t) => {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "handoff-incomplete-result-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const };
   const cell = {
     rootDir,

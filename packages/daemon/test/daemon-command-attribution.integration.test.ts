@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -11,10 +11,11 @@ import { daemonRequestLogPath, openDaemonRequestLog } from "../src/daemon-host/r
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-command-attribution-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return root;
 }
 

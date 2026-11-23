@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.t
 import { openSqliteMigrationEndpoint } from "../../src/migration/sqlite-endpoint.ts";
 import { migrateStorage } from "../../src/migration/engine.ts";
 import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("real PG: session_user grant prevents claims/run-id spoofing and grants expire; three lossy rollbacks fail before freeze", async () => {
   const fixture = await startManagedPostgresFixture(),
@@ -119,6 +120,6 @@ test("real PG: session_user grant prevents claims/run-id spoofing and grants exp
     }
   } finally {
     await fixture.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

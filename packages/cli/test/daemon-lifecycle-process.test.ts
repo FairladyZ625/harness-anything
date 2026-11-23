@@ -34,6 +34,7 @@ import { registerBootstrappedDaemonRepo, seedSettingsEvent } from "../../daemon/
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { daemonServeEntry } from "../src/daemon/client.ts";
 import { withAutostart } from "../src/daemon/with-autostart.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -88,7 +89,7 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
       "stop must clear the singleton lock it outlived",
     );
   } finally {
-    rmSync(fixture.parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    removeTempRepository(fixture.parent);
   }
 });
 
@@ -276,7 +277,7 @@ test("force refuses to signal a pid the daemon slot no longer claims", async () 
     assert.equal(await alive(innocent.pid), true, "a pid the slot no longer claims must not be signalled");
     innocent.kill("SIGKILL");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -424,7 +425,7 @@ test("a generation that recorded its exit is not read as a starting daemon", () 
     lifecycle.record({ event: "process_exit", outcome: "stop_requested" });
     assert.equal(readDaemonStartProgress(launchSpec(userRoot, daemonId), 0), null);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -467,7 +468,7 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
     assert.equal(receipts.length, 0, "the original request is resent exactly once");
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -529,7 +530,7 @@ test("a daemon handoff that keeps recording attach progress is waited out past t
     assert.equal(progressed, true);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -572,7 +573,7 @@ test("daemon_stopping without autostart resends to the successor and never launc
     assert.equal(calls, 2, "the idempotent request is resent to the successor exactly once");
     assert.equal(launches, 0, "a caller without autostart never launches a daemon");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -607,7 +608,7 @@ test("restart budget exhaustion returns daemon_restarting without resending", as
     });
     assert.equal(calls.length, 1);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -637,7 +638,7 @@ test("daemon lifecycle commands preserve daemon_stopping without waiting or rese
     assert.equal(result.code, "daemon_stopping");
     assert.equal(calls, 1);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -821,7 +822,7 @@ function cleanup(parent: string): void {
   // until then the tree cannot be removed at all, so wait it out instead of failing the test.
   for (let attempt = 0; ; attempt += 1) {
     try {
-      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      removeTempRepository(parent);
       return;
     } catch (error) {
       if (attempt >= 100) throw error;
@@ -1038,7 +1039,7 @@ async function stopCleanup(fixture: StopFixture): Promise<void> {
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
   if (process.platform !== "win32")
     rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
-  rmSync(fixture.parent, { recursive: true, force: true });
+  removeTempRepository(fixture.parent);
 }
 
 interface DrainFixture {
@@ -1246,5 +1247,5 @@ async function drainCleanup(fixture: Fixture): Promise<void> {
   rmSync(daemonPidPath(fixture.userRoot, fixture.daemonId), { force: true });
   if (process.platform !== "win32")
     rmSync(localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId), { force: true });
-  rmSync(fixture.parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  removeTempRepository(fixture.parent);
 }

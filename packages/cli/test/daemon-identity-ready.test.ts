@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/
 import { daemonSingletonLockPath } from "@harness-anything/daemon/internal/daemon-singleton";
 import { openDaemonLifecycleLog } from "@harness-anything/daemon/internal/lifecycle-log";
 import { withAutostart } from "../src/daemon/with-autostart.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const unusedLaunch = (): DaemonLaunchSpec => ({ command: "unused", args: [], env: {} });
 
@@ -50,7 +51,7 @@ async function boundSocketWithLifecycle(
     socketPath,
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      rmSync(socketDir, { recursive: true, force: true });
+      removeTempRepository(socketDir);
     },
   };
 }
@@ -79,7 +80,7 @@ test("a keycloak_unavailable before the write is applied is returned, not replay
     assert.equal(result.code, "keycloak_unavailable");
     assert.equal(calls, 1, "a settled identity refusal is the caller's answer, not a retry trigger");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -125,7 +126,7 @@ test(
       assert.equal(calls, 2, "the pre-apply request is resent exactly once after readiness");
     } finally {
       await server.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -163,7 +164,7 @@ test(
       assert.equal(calls, 2, "a settled identity failure is not replayed");
     } finally {
       await server.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -206,7 +207,7 @@ test(
       assert.equal(calls, 1, "the write is never sent while identity is unsettled");
     } finally {
       await server.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

@@ -26,6 +26,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
   {
@@ -134,7 +135,7 @@ test("two edges at the same entity fence distinguish new intent from an exact re
     assert.equal((await cell.run(deletion, binding)).opId, deleted.opId);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -291,7 +292,7 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
   } finally {
     client?.close();
     await daemon?.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -372,6 +373,6 @@ test("real SQLite writer divergence remains fatal while rejected entity CAS is r
     );
   } finally {
     store.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

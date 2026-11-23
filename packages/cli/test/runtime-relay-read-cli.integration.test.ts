@@ -17,6 +17,7 @@ import {
   runMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const {
   assert,
@@ -241,7 +242,7 @@ describe("host-backed runtime callback relay routes", () => {
     const fixture = await hostRelayPromise;
     await fixture.relay.stop();
     shared.stop(fixture.root, fixture.userRoot);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   });
 
   test("read-only CLI commands route through the runtime callback relay without reading the host registry", async () => {
@@ -306,7 +307,7 @@ test("a relayed remote-edge fleet command forwards through the fixed relay, neve
   } finally {
     await relay.close();
     await rawSocket.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     restoreTemp(previousTemp);
   }
 });
@@ -336,7 +337,7 @@ test("a relayed remote-edge fleet command missing its endpoint is refused before
   } finally {
     await relay.close();
     await rawSocket.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     restoreTemp(previousTemp);
   }
 });
@@ -365,7 +366,7 @@ test("a relayed remote-edge fleet command cannot override the dispatched repo", 
   } finally {
     await relay.close();
     await rawSocket.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     restoreTemp(previousTemp);
   }
 });
@@ -403,7 +404,7 @@ test("an unreadable registry reports a registry failure, not daemon_unavailable"
     assert.match(String(receipt.diagnostic?.expectation), /local daemon registry could not be read/u);
     assert.doesNotMatch(refused.stdout + refused.stderr, /daemon_unavailable/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
     restoreTemp(previousTemp);
   }
 });

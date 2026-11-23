@@ -3,7 +3,7 @@ import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import type { WriterEpochFenceDescriptor } from "@harness-anything/daemon/client";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -34,6 +34,7 @@ import {
   seedRuntime,
   seedSquadRunState,
 } from "./service-bridge.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-gui-submit-ci-"));
 const originalPath = process.env.PATH;
 before(() => {
@@ -45,7 +46,7 @@ before(() => {
 });
 after(() => {
   restoreEnv("PATH", originalPath);
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 test("GUI main reports every isolated task snapshot row with field-level context", () => {
@@ -907,6 +908,6 @@ test("local GUI bridge fails closed without explicit daemon registration and nev
     assert.equal(existsSync(path.join(userRoot, "registry.json")), false);
   } finally {
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

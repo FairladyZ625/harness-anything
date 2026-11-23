@@ -18,7 +18,7 @@ const {
   path,
   readFileSync,
   realizedPlan,
-  rmSync,
+  removeTempRepository,
   run,
   runMaybe,
   runOffline,
@@ -27,6 +27,7 @@ const {
   sha256Bytes,
   startDaemon,
   statSync,
+  stopDaemon,
   tmpdir,
   writeCloseout,
   writeFileSync,
@@ -176,9 +177,9 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     });
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-chain/v1", taskId, executionId, commitSha }));
   } finally {
-    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -396,9 +397,9 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     assert.equal(evidence.task.status, "done");
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-rework/v1", taskId }));
   } finally {
-    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -596,11 +597,10 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, raw
     assert.match(JSON.stringify(restoredFacts), /artifact fixture/u);
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-artifacts/v1", taskId, backupDir, shadowRoot }));
   } finally {
-    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
-    if (existsSync(path.join(parent, "restored-user")))
-      runMaybe(path.join(parent, "restored-repo"), path.join(parent, "restored-user"), ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
+    stopDaemon(path.join(parent, "restored-repo"), path.join(parent, "restored-user"));
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -696,9 +696,9 @@ test("release acceptance: a relative artifact source names the caller's file, an
     );
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-artifact-source/v1", taskId, worktree }));
   } finally {
-    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -822,7 +822,7 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
     assert.equal(descriptor.value?.locator?.value, sourcePath, JSON.stringify(descriptor));
 
     // The source goes away on disk and in Git; owned content must survive from the ledger alone.
-    rmSync(absoluteSource, { recursive: true, force: true });
+    removeTempRepository(absoluteSource);
     git(root, "add", "-A", sourcePath);
     git(root, "commit", "--quiet", "-m", "remove the imported source");
     assert.deepEqual(readFileSync(held("blobs", "binary.bin")), binaryBytes);
@@ -890,8 +890,8 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
     assert.deepEqual(Buffer.from(reader.readContentBlob(binaryBinding.contentSha256) ?? []), binaryBytes);
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-entity/v1", customKind, entityId }));
   } finally {
-    if (existsSync(userRoot)) runMaybe(root, userRoot, ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
     await reader.drain();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

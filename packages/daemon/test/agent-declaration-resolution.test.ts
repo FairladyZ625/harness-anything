@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
   readAgentDeclarationResolution,
 } from "../src/daemon-host/agent-declaration-resolution.ts";
 import { prepareAgentEntityDelete, prepareAgentEntityInstall } from "../src/daemon-host/agent-entities.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const installed: AgentDeclarationV1 = {
   schema: "agent-declaration/v1",
@@ -381,8 +382,8 @@ test("dec_42EB7B8F636C12381A447E52A3/CH1: local vertical agents resolve directly
       "reviewer",
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(pureBuiltinRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(pureBuiltinRoot);
   }
 });
 

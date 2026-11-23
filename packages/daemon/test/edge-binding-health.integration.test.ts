@@ -2,7 +2,7 @@
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -17,13 +17,14 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("edge binding health reads the selected login authority through fleet discovery", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-binding-")),
     userRoot = path.join(root, "user"),
     keyFile = path.join(root, "key.pem"),
     certFile = path.join(root, "cert.pem");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
   writeFileSync(
     path.join(userRoot, "rbac", "config.json"),
@@ -231,7 +232,7 @@ test("edge binding health reads the selected login authority through fleet disco
 
 test("local and center repository health still reads the daemon's managed RBAC binding", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-local-binding-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const realm = createServer((request, response) => {
     assert.equal(request.url, "/realms/local-realm");
     response.writeHead(200, { "x-keycloak-version": "fixture" }).end();
@@ -279,7 +280,7 @@ test("built-in sessions bootstrap and sign in before any repository exists", asy
     host = await openDaemonHost({ userRoot, daemonId: "builtin-first-login", runtimeDiscover: () => [] });
   t.after(async () => {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
   const request = (params: Parameters<typeof host.manageRbac>[0]) => host.manageRbac(params, auth);
   assert.equal(host.status().repos.length, 0);

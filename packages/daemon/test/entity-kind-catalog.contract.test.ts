@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { readEntityLocator, validateEntityLocatorRead } from "../src/daemon-host
 import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
   ISSUE_KIND = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
@@ -331,7 +332,7 @@ test("locator read serves repo files and directories and refuses to escape the r
     assert.equal(oversize.outcome, "too-large");
     assert.equal(oversize.content, null);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

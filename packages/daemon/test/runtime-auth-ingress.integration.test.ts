@@ -14,6 +14,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The provider stub models an interactive CLI: `login` prompts on the terminal, waits for the
 // person to type a token, and only then writes credentials into the isolated CODEX_HOME; the
@@ -256,7 +257,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
     });
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 test("denied runtime auth leaves no installation witness or instance state", async () => {
@@ -324,7 +325,7 @@ test("denied runtime auth leaves no installation witness or instance state", asy
     }
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 function initIngressRepo(root: string, uid: number): void {

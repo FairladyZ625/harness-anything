@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -22,6 +22,7 @@ import type {
   RuntimeAttemptTerminal,
   RuntimeSpawnerContext,
 } from "../src/daemon-host/runtime-spawn-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Health is selection-time information, not chain membership. The chain keeps every declared
 // candidate; when the next candidate is cooling the settle must wait for its recovery, and a
@@ -310,7 +311,7 @@ async function exerciseFallbackContinuation(t: TestContext, abort: boolean) {
     }
   } finally {
     t.mock.timers.reset();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 
@@ -582,7 +583,7 @@ async function settle(options: {
     );
     return { fallback, terminal, recordFailureCalls };
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 

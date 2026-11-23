@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const fault of ["authorization hold", "HEAD timeout", "HEAD signal"] as const) {
   test(
@@ -274,7 +275,7 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
         authorization.resolve();
         if (opening) cell = await opening;
         await cell?.close();
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     },
   );
@@ -429,7 +430,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         "adoption reports recovery errors directly without a second scheduled fallback scan",
       );
       hub.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   }
 });
@@ -521,7 +522,7 @@ test("restart adopts a live worker once through the lifecycle without stopping i
     assert.equal(launches, 0);
   } finally {
     runtime.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -619,6 +620,6 @@ test("missing PID is loss-reconciled before the lifecycle releases its reservati
     assert.equal(launches, 0);
   } finally {
     runtime.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

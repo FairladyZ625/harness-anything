@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { resolveHarnessLayout, sha256Text, type TaskProjectionQueries } from "@h
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import type { ReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import { materializeFleetMirrorView, type FleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface SyntheticDoc {
   path: string;
@@ -277,7 +278,7 @@ test("anti-regression gate: incremental mirror cut never scans unrelated tasks o
     assert.deepEqual(conflict.readPaths, [targetPath], "conflict check must still only touch the changed file");
     assert.equal(readFileSync(path.join(f.layout.authoredRoot, targetPath), "utf8"), tamperedSameLength);
   } finally {
-    rmSync(f.tmpRoot, { recursive: true, force: true });
+    removeTempRepository(f.tmpRoot);
   }
 });
 
@@ -329,6 +330,6 @@ test("anti-regression gate: 10,000-file synthetic mirror incremental confirmatio
     );
     assert.equal(single.hashCalls, 1, "10k-file single update must hash only the 1 changed file");
   } finally {
-    rmSync(f.tmpRoot, { recursive: true, force: true });
+    removeTempRepository(f.tmpRoot);
   }
 });

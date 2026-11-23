@@ -13,6 +13,7 @@ import { scanDocCandidates } from "../src/daemon-host/doc-sync-candidate-scanner
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("doc status reuses unchanged file inputs and observes accepted updates, drafts, conflicts and deletion", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cache-")),
@@ -20,7 +21,7 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     paths = Array.from({ length: 24 }, (_, i) => `context/cache/document-${String(i).padStart(2, "0")}.md`),
     corpus = new Set(paths.map((logical) => path.join(rootDir, "harness", logical)));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   let cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "doc-cache" });
   let store = makeTaskEventReader({ repoId, rootDir }),
@@ -152,7 +153,7 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     projection.close();
     await store.drain();
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -162,7 +163,7 @@ test("discovery preserves unknown files and owners and isolates repositories and
     projections: ReturnType<typeof makeTaskProjection>[] = [],
     cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [];
   t.after(() => {
-    for (const root of roots) rmSync(root, { recursive: true, force: true });
+    for (const root of roots) removeTempRepository(root);
   });
   try {
     for (const [i, rootDir] of roots.entries()) {
@@ -258,6 +259,6 @@ test("discovery preserves unknown files and owners and isolates repositories and
     for (const projection of projections) projection.close();
     for (const store of stores) await store.drain();
     for (const cell of cells) await cell.close();
-    for (const root of roots) rmSync(root, { recursive: true, force: true });
+    for (const root of roots) removeTempRepository(root);
   }
 });

@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { objectPath } from "../../src/store/content-objects.ts";
 import { assertContentBlobRangeContract } from "../content-blob-range.assertions.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("SQLite content blob storage fulfills the shared range-read contract", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-content-range-")),
@@ -36,6 +37,6 @@ test("SQLite content blob storage fulfills the shared range-read contract", asyn
     );
   } finally {
     store.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

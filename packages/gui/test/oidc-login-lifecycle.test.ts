@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { createIdentitySession } from "../../daemon/src/daemon-host/authorizatio
 import { type OidcSessionPorts } from "@harness-anything/kernel";
 import { registerOidcAuthIpc } from "../src/main/oidc-auth-ipc.ts";
 import { OIDC_LOGIN_CHANNEL, OIDC_CANCEL_LOGIN_CHANNEL } from "@harness-anything/authorization/gui/oidc-auth-contract";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const authority = { url: "https://center.example.test", realm: "harness", clientId: "harness-node-fixture" };
 
@@ -103,7 +104,7 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
       return { result, outcome, navigation: navigation.promise };
     },
     cancel: () => handlers.get(OIDC_CANCEL_LOGIN_CHANNEL)!(event),
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(root),
   };
 }
 

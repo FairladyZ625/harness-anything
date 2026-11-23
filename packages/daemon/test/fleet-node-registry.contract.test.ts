@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/daemon
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("the node registry asks Keycloak who a node is and whether its credential is its own", async () => {
   const keycloak = fakeKeycloak(),
@@ -36,7 +37,7 @@ test("the node registry asks Keycloak who a node is and whether its credential i
 
 test("fleet center admission rejects unreadable TLS material before opening a listener", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-material-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   await assert.rejects(
     prepareFleetCenterAdmission({
       host: {} as Parameters<typeof prepareFleetCenterAdmission>[0]["host"],
@@ -58,7 +59,7 @@ test("TLS listener admission requires every configured SAN name", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-san-")),
     keyPath = path.join(root, "tls.key"),
     certPath = path.join(root, "tls.crt");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   execFileSync(
     "openssl",
     [

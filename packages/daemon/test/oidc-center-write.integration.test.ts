@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { serveKeycloak } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a local-center repository still writes after login to an edge center", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-center-write-")),
@@ -21,7 +22,7 @@ test("a local-center repository still writes after login to an edge center", asy
     edge = await serveKeycloak();
   t.after(async () => {
     await Promise.all([local.close(), edge.close()]);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   mkdirSync(localRoot);
   mkdirSync(edgeRoot);

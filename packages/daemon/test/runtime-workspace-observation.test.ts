@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +16,7 @@ import { openRuntimeWorkspaceMonitor } from "../src/runtime-engine/runtime-works
 import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/daemon-host/runtime-spawn-active.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const localWorkspace of [false, true]) {
   test(`watcher thread filters daemon writes (local workspace: ${localWorkspace})`, (t) => {
@@ -32,7 +33,7 @@ for (const localWorkspace of [false, true]) {
     t.after(() => {
       t.mock.restoreAll();
       syncBuiltinESMExports();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     const records: WorkspaceMonitorObservation[] = [],
       monitor = observeRuntimeWorkspace(root, cwd, (record) => records.push(record));
@@ -62,11 +63,11 @@ for (const notification of ["rename", "ENOENT", "EPERM"] as const) {
     t.after(() => {
       t.mock.restoreAll();
       syncBuiltinESMExports();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     const records: WorkspaceMonitorObservation[] = [],
       monitor = observeRuntimeWorkspace(root, cwd, (record) => records.push(record));
-    rmSync(cwd, { recursive: true });
+    removeTempRepository(cwd);
     if (notification === "rename") changed!("rename", null);
     else watcher.emit("error", Object.assign(new Error("workspace removed"), { code: notification }));
     assert.equal(closed, 1);
@@ -89,7 +90,7 @@ test("watcher thread coalesces a burst and retains the last observed timestamp",
   t.after(() => {
     t.mock.restoreAll();
     syncBuiltinESMExports();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const records: WorkspaceMonitorObservation[] = [],
     observed: number[] = [],
@@ -121,7 +122,7 @@ test("watcher fault reports the original error and closes its watcher", (t) => {
   t.after(() => {
     t.mock.restoreAll();
     syncBuiltinESMExports();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const records: WorkspaceMonitorObservation[] = [],
     monitor = observeRuntimeWorkspace(root, root, (record) => records.push(record));
@@ -145,7 +146,7 @@ test("the real watcher thread reports a file change before shutdown", { timeout:
     assert.equal(typeof record.occurredAt, "string");
   } finally {
     await monitor.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -161,7 +162,7 @@ test("a watcher thread startup error reaches the writer with its original code",
     assert.equal(records[0]?.code, "ERR_INVALID_ARG_VALUE");
   } finally {
     await monitor.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -283,7 +284,7 @@ syncBuiltinESMExports();
       ]);
     } finally {
       disposeActiveRuntimeObservations(runtime);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

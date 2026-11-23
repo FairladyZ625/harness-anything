@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runAcpProviderSession } from "../src/daemon-host/runtime-worker-acp.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function fixture() {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
@@ -114,7 +115,7 @@ test("acp worker session drives initialize/authenticate/new/prompt and emits can
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     assert.deepEqual(captured, [{ apiKey: "test-manifest-key", methodId: "devin-browser" }, { mode: "bypass" }]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -157,7 +158,7 @@ test("acp worker session/load keeps replayed history out of finalText and tags i
       [{ load: "prior-session" }],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -218,7 +219,7 @@ test("acp worker resumes through session/resume when the agent advertises only s
     assert.equal(result.type, "acp.result");
     assert.equal(result.finalText, "devin live content");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -251,7 +252,7 @@ test("acp worker prefers session/load when the agent advertises both resume capa
       [{ load: "prior-session" }],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -293,7 +294,7 @@ test("acp worker fails closed when the agent advertises neither resume capabilit
       "no resume request is sent to an agent that advertised neither method",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -333,7 +334,7 @@ test("acp worker session answers request_permission from the permission mode", a
     assert.equal(result.type, "acp.result");
     assert.equal(result.stopReason, "end_turn");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -366,7 +367,7 @@ test("acp worker session reads the provider credential file for subscription ins
       },
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -407,7 +408,7 @@ test("acp worker session sends session/cancel before terminating the child", asy
       { cancel: "devin-acp-session" },
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -468,7 +469,7 @@ for (const kindId of ["devin", "agy-acp"] as const)
         "the steered turn runs on the same provider session",
       );
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 
@@ -500,7 +501,7 @@ test("acp worker session steer after the final turn records the drop instead of 
       [{ prompt: "do work" }],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -549,7 +550,7 @@ test("F5: acp worker steer emits steer_dropped (never steer_resumed) when provid
       `expected correlated steer_dropped record, got: ${JSON.stringify(records)}`,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -585,7 +586,7 @@ test("acp worker session selects the declared auth method and authenticates with
       },
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -639,7 +640,7 @@ test("acp worker session maps the permission mode onto the agent's mode vocabula
       applied: "agent-full-access",
     });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -692,7 +693,7 @@ test("acp worker session reads the model catalog from a configOptions selector",
       currentModelId: "opencode/big-pickle",
     });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -809,7 +810,7 @@ test("acp worker session applies the manifest model through a grouped configOpti
       [{ configOption: { configId: "model", value: '["deepseek-account","deepseek-flash"]' } }],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -848,7 +849,7 @@ test("acp worker session leaves the model alone when it is already the session's
       "no session/set_config_option round trip for a model that is already current",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -888,7 +889,7 @@ test("acp worker session fails closed when the session does not offer the manife
       "nothing is sent to the agent for a model it does not offer",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -923,7 +924,7 @@ test("acp worker session does not emit acp.model when the agent offers no model 
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -961,7 +962,7 @@ test("acp worker session omits model fields when the agent advertises none", asy
       currentMode: "accept-edits",
     });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -984,7 +985,7 @@ test("acp worker session fails closed when the agent rejects the offered credent
     assert.equal(frames[0]!.type, "acp.error");
     assert.match(String(frames[0]!.message), /api key required/i);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1014,7 +1015,7 @@ test("acp worker session fails when the provider exits 0 before the session exis
       { type: "acp.error", message: "ACP provider exited before the session completed (exit 0, signal null)" },
     ]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1051,7 +1052,7 @@ test("acp worker session fails when the provider exits 0 in the middle of the pr
       message: "ACP provider exited before the session completed (exit 0, signal null)",
     });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1089,6 +1090,6 @@ test("the manifest handshake timeout governs the deadline: a silent provider fai
     );
     assert.equal(await closed(child), null);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

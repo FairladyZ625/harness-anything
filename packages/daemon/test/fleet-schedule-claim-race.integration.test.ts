@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -27,6 +27,7 @@ import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-insta
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/daemon-host/fleet/center.ts";
 import { readFleetReceiptClient, runFleetScheduleCommandClient } from "../src/daemon-host/fleet/peer.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "schedule-claim-race",
   scheduleId = "claim-race",
@@ -240,7 +241,7 @@ async function claimRaceFixture(t: TestContext) {
         await host.close();
       } finally {
         await owners.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     }
   });

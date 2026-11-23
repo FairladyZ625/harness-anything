@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const installations: readonly RuntimeInstallationWitness[] = [
   {
@@ -172,7 +173,7 @@ test("Codex injects --ignore-user-config only in operator-environment when mcpPo
     );
     assert.equal(probeArgs.includes("--ignore-user-config"), true);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -219,7 +220,7 @@ test("Claude injects --strict-mcp-config when disabled, omits when inherit, and 
     assert.equal(dispatchOverride.definition.mcpPolicy, "disabled");
     assert.equal(dispatchOverride.args.includes("--strict-mcp-config"), true);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -279,7 +280,7 @@ test("Runtime instance update with cleared mcpPolicy deletes persisted override 
     assert.equal(shownAfterClear.instance.mcpPolicy, "disabled");
     assert.match(shownAfterClear.summary, /mcpPolicy: disabled/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -397,6 +398,6 @@ test("agent-install sets and clears mcpPolicy by source or agentId, updates insp
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

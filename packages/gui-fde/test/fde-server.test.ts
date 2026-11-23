@@ -1,18 +1,19 @@
 // harness-test-tier: contract
 // dec_42EB7B8F636C12381A447E52A3/CH2: loopback HTTP server security, API compilation/simulation/persistence contract.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createDefaultFdeDraft, startFdeStudioServer } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("serves authenticated loopback studio APIs with strict CSP and runs live V4 simulation", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gui-fde-srv-"));
   const distDir = path.join(rootDir, "dist-static");
   mkdirSync(distDir, { recursive: true });
   writeFileSync(path.join(distDir, "index.html"), "<!doctype html><html><body>fde-ok</body></html>", "utf8");
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
 
   const server = await startFdeStudioServer({
     rootDir,

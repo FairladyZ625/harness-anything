@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   recordFact,
   withDecisionFixture,
 } from "./fact-event-service.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 test("Decision list derives E selectors, orders them numerically, filters ranges, and rejects ambiguity", () => {
   withDecisionFixture(({ service, projection }) => {
     const proposed = decisionEvent(1, "decision_proposed");
@@ -230,6 +231,6 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
   } finally {
     projection?.close();
     closeSqliteEventStoresUnder(rootDir);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

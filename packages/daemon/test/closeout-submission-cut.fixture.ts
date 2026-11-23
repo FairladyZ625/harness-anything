@@ -1,12 +1,13 @@
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
 import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export const packagePath = "tasks/task-1";
 export const documentPath = `${packagePath}/closeout.md`;
@@ -28,7 +29,7 @@ export const closeout = (summary: string) =>
 
 export function fixture(t: TestContext, sharedGit = false) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-closeout-cut-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const init = (directory: string) => {
     mkdirSync(directory, { recursive: true });
     git(directory, "init", "-q", "-b", "main");

@@ -9,7 +9,6 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -18,6 +17,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore } from "@harness-anything/storage";
 import { compileTaskBootstrap } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: null } as const;
 
@@ -88,7 +88,7 @@ test("task create materializes preset scripts into artifacts/scripts as byte-ide
     assert.equal(run.status, 0, `node must execute the copied script: ${run.stderr}`);
     assert.match(run.stdout, /preset-script-ok/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
     fixture.cleanup();
   }
 });
@@ -128,7 +128,7 @@ test("a preset without scripts leaves the task package unchanged and creates no 
     await store.settlePendingMaterialization();
     assert.equal(existsSync(path.join(rootDir, "harness", bootstrap.packagePath, "artifacts", "scripts")), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
     fixture.cleanup();
   }
 });
@@ -256,7 +256,7 @@ function makeFixture(scripts: Readonly<Record<string, string>> = {}) {
     userRoot,
     assetsRoot,
     presetRoot,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(root),
   };
 }
 function write(target: string, body: string): void {

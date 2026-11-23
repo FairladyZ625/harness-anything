@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import { initRepo, ownerBinding, standardMigration } from "./doc-sync-slice-a.fi
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { readCanonicalVerticalDeclaration } from "../src/daemon-host/vertical-declaration-action.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("converted historical declaration is accepted, replayed on reopen and permits a relation write", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-declaration-migration-")),
@@ -77,7 +78,7 @@ test("converted historical declaration is accepted, replayed on reopen and permi
     assert.equal(relation.outcome, "applied", JSON.stringify(relation));
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -222,6 +223,6 @@ test("old active pin resolves after explicit migration while templates, scripts,
     assert.equal(readFileSync(pointer, "utf8"), activeBeforeFailure);
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

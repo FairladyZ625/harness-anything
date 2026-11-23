@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const declaration = {
   id: "external-document",
@@ -103,7 +104,7 @@ test("Artifact kind upsert reads one declaration file into the action the daemon
     assert.equal(renamed.ok, true, JSON.stringify(renamed));
     if (renamed.ok) assert.equal(renamed.command.action.kindId, "entity-kind/KND-0123456789abcdef0123456789abcdef");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -171,6 +172,6 @@ test("upsert --from-file resolves from the selected root, defaulting to the call
     assert.equal(fromCallerDirectory.ok ? "ok" : fromCallerDirectory.code, "invalid_field");
     assert.equal(explicitRoot.ok, true, JSON.stringify(explicitRoot));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

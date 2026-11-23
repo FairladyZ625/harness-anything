@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_04A9211B073F29F0FC1E1CA573 CH2 / F2: each mutation lane excludes takeover,
 // while only the append lane reserves the canonical epoch database's writer lock.
@@ -18,7 +19,7 @@ test("follower publication leaves canonical append writable and both lanes fence
   t.after(() => {
     first.close();
     second.close();
-    rmSync(stateRoot, { recursive: true, force: true });
+    removeTempRepository(stateRoot);
   });
   first.withFollowerFence(repoId, lease.epoch, lease.holderId, () => {
     second.withAppendFence(repoId, lease.epoch, lease.holderId, () => assert.deepEqual(second.current(repoId), lease));

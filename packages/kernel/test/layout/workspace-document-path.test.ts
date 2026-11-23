@@ -1,16 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { documentWorkspacePath, resolveWorkspaceDocumentPath } from "@harness-anything/kernel";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function fixture(t: { after: (fn: () => void) => void }): string {
   const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-doc-path-"));
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "harness", "harness.yaml"), "schema: harness-settings/v1\n");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return root;
 }
 

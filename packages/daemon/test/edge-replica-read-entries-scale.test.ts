@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -26,6 +26,7 @@ import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import { makeRepoReadRuntime } from "../src/daemon-host/repo-read-runtime.ts";
 import { readEdgeRuntimeResult } from "../src/daemon-host/runtime-result-read.ts";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/g1-cost-probe.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface EdgeScaleFixture {
   readonly root: string;
@@ -186,8 +187,8 @@ test("non-entry edge replica reads do not scan mirror entries, while negative co
   const small = await makeFixture(2);
   const large = await makeFixture(80);
   t.after(() => {
-    rmSync(small.root, { recursive: true, force: true });
-    rmSync(large.root, { recursive: true, force: true });
+    removeTempRepository(small.root);
+    removeTempRepository(large.root);
   });
 
   const bindingFor = (fixture: EdgeScaleFixture): RepoCellBinding => ({

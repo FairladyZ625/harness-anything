@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { withObservedCommit } from "../src/daemon-host/fact-observed-commit.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a fact record anchors to the task worktree HEAD while the worktree is checked out", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observed-commit-"));
@@ -37,7 +38,7 @@ test("a fact record anchors to the task worktree HEAD while the worktree is chec
       canonical,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -49,6 +50,6 @@ test("a checkout that cannot name a commit records without an anchor", () => {
     git(rootDir, "init", "-q");
     assert.equal("observedCommit" in withObservedCommit(rootDir, { kind: "fact-record" }), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

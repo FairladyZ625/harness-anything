@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { measureCpuWindow } from "./fixtures/diagnostics-cpu-window.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const REGISTRATIONS_PER_SECOND = 100,
   REGISTRATIONS_PER_TICK = REGISTRATIONS_PER_SECOND / 10, // one 100 ms tick
@@ -143,7 +144,7 @@ test(
       assert.ok(periodicRecords.length <= 4, `periodic persistence: ${JSON.stringify(report)}`);
       assert.ok(report.withinBudget, `steady-state CPU budget: ${JSON.stringify(report)}`);
     } finally {
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   },
 );
@@ -184,6 +185,6 @@ test("diagnostics publishes every in-flight phase instead of retaining the first
     assert.deepEqual(status.inFlight, []);
   } finally {
     await diagnostics.close();
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });

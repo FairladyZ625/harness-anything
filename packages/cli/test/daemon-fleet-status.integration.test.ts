@@ -2,11 +2,12 @@
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -93,7 +94,7 @@ test("daemon fleet status renders the shared overview read through a live daemon
       },
     );
     assert.equal(stopped.status, 0, `${stopped.stderr}\n${stopped.stdout}`);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

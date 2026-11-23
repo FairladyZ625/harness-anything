@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
   makeTaskEventStore,
 } from "@harness-anything/storage";
 import { main } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function captureCli(argv: readonly string[]): Promise<{
   readonly exitCode: number;
@@ -258,6 +259,6 @@ test("ha fleet center export, retire, and import route through daemon control, v
     assert.equal(JSON.parse(tampered.stdout[0]!).ok, false);
   } finally {
     closeSqliteEventStoresUnder(root);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

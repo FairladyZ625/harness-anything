@@ -1,7 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
@@ -10,6 +9,7 @@ import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("cold writer open publishes committed cuts before a large projection batch and hot open stays current", async () => {
   await withTempStoreAsync(async (rootDir) => {
@@ -39,7 +39,7 @@ test("cold writer open publishes committed cuts before a large projection batch 
       store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
     await store.drain();
-    rmSync(path.join(rootDir, ".harness/cache"), { recursive: true, force: true });
+    removeTempRepository(path.join(rootDir, ".harness/cache"));
     for (const cold of [true, false]) {
       const phases: string[] = [],
         cuts: number[] = [],

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("daemon status omits projection cuts while a repository close is still settling", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-closing-status-")),
@@ -66,6 +67,6 @@ test("daemon status omits projection cuts while a repository close is still sett
   } finally {
     releaseClose();
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

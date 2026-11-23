@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -9,6 +9,7 @@ import { sha256Bytes } from "@harness-anything/kernel";
 import { deriveCloseoutSubmission } from "./closeout-submission.fixture.ts";
 import { reviewPathHits, reviewPathRules } from "../src/daemon-host/review-path-matching.ts";
 import { packagePath, git, put, commit, fixture, artifactStore, derive } from "./closeout-submission-cut.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /** A moving-main world: sibling PRs land on main before and after this delivery merges. */
 function movingMain(t: TestContext) {
@@ -558,7 +559,7 @@ test("a same-execution amendment at its own merged tip keeps the manifest and it
 test("a public PR delivery refuses a closeout without Chinese summary and verification", async (t) => {
   const { root } = fixture(t),
     origin = mkdtempSync(path.join(tmpdir(), "ha-closeout-public-origin-"));
-  t.after(() => rmSync(origin, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(origin));
   git(origin, "init", "--bare", "-q", "--initial-branch=main");
   git(root, "remote", "add", "origin", "https://github.com/acme/project.git");
   git(root, "config", `url.file://${origin}.insteadOf`, "https://github.com/acme/project.git");
@@ -601,7 +602,7 @@ test("a public PR delivery accepts a closeout carrying both Chinese sections", a
     // `git remote get-url` still names a GitHub host, while the transport rewrite keeps the fetch
     // inside the fixture instead of reaching the network.
     origin = mkdtempSync(path.join(tmpdir(), "ha-closeout-public-origin-"));
-  t.after(() => rmSync(origin, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(origin));
   git(origin, "init", "--bare", "-q", "--initial-branch=main");
   git(root, "remote", "add", "origin", "https://github.com/acme/project.git");
   git(root, "config", `url.file://${origin}.insteadOf`, "https://github.com/acme/project.git");

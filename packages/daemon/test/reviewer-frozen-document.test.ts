@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runDocAction } from "../src/daemon-host/doc-sync-actions.ts";
 import { isFleetTaskAction, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
 import { encodeFleetFrames, FleetTransferAssembler } from "../src/daemon-host/fleet/command-transfer.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("large doc-show evidence uses the generic transfer envelope", async () => {
   const frame: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
@@ -239,7 +240,7 @@ test("implementer doc-show reads repository documents through the live projectio
       assert.equal(other.outcome, "applied");
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -343,6 +344,6 @@ test("pinned range reads reject a same-size document update between windows", ()
       { code: "content_changed" },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

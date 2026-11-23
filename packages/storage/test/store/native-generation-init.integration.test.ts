@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,6 +15,7 @@ import { resolveActiveGeneration, sqliteLedgerPath } from "../../src/store/sqlit
 import { generationThreeUpgradeStatus } from "../../src/store/generation-three-selection.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { eventAt, initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "native-generation-init";
 
@@ -42,7 +43,7 @@ test("a truly empty repository is born on generation 3 and accepts its first wri
       await reader.drain();
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -58,7 +59,7 @@ test("an existing generation 1 ledger is not mistaken for an empty repository", 
     assert.equal(existsSync(sqliteLedgerPath(rootDir, 3)), false);
     assert.equal(existsSync(sqliteLedgerPath(rootDir, 1)), true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -97,7 +98,7 @@ for (const previousGeneration of [1, 2]) {
       }
     } finally {
       await initial.drain();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }

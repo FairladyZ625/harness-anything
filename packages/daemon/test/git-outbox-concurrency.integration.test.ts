@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +29,7 @@ import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { actor } from "./task-surface.fixtures.ts";
 import { docBundle, git, initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_04A9211B073F29F0FC1E1CA573 CH2 / review F2: suspend the actual publication lock,
 // then synchronously await the real canonical Worker before allowing Git to proceed.
@@ -118,7 +119,7 @@ for (const [ordinal, command] of ["update-ref", "update-index"].entries())
         client.close();
         await writer.terminate();
         closeWriterEpochFenceDescriptors();
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     },
   );
@@ -284,7 +285,7 @@ for (const mode of ["incremental", "cold"] as const)
         client.close();
         await writer.terminate();
         closeWriterEpochFenceDescriptors();
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     },
   );
@@ -524,7 +525,7 @@ for (const scenario of ["fast-import", "update-ref", "first-attempt-fails"] as c
         await cellB?.close();
         process.env.PATH = originalPath;
         closeWriterEpochFenceDescriptors();
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     },
   );
@@ -673,7 +674,7 @@ test(
       await lock?.close();
       process.env.PATH = originalPath;
       closeWriterEpochFenceDescriptors();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -763,7 +764,7 @@ test(
       await lock?.close();
       process.env.PATH = originalPath;
       closeWriterEpochFenceDescriptors();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -772,7 +773,7 @@ test("doc status accepts a Git candidate inventory larger than Node's default pi
   const rootDir = canonicalRoot(mkdtempSync(path.join(tmpdir(), "ha-doc-large-status-"))),
     repoId = workspaceId("doc-large-status"),
     binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   provisionPolicyTestRepository(repoId);
   const fence = fixtureFence(repoId, rootDir, path.join(rootDir, ".harness", "epochs"));

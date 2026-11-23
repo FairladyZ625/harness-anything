@@ -24,6 +24,7 @@ import {
 } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("daemon stopping guidance uses independent diagnostics during a blocked drain", () => {
   const { hint } = humanError({ code: "daemon_stopping" });
@@ -54,7 +55,7 @@ test("missing workspace packets identify the root used for relative paths", () =
     assert.throws(() => readWorkspaceText(root, "../outside.json", "fromFile"), /outside the workspace boundary/u);
   } finally {
     rmSync(root, { force: true });
-    rmSync(physicalRoot, { recursive: true, force: true });
+    removeTempRepository(physicalRoot);
   }
 });
 
@@ -365,7 +366,7 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
         "For a task-package-only report or decision, use a task-package-artifact preset declared by this vertical.",
     );
   } finally {
-    rmSync(physicalRoot, { recursive: true, force: true });
+    removeTempRepository(physicalRoot);
   }
 });
 
@@ -413,7 +414,7 @@ test("task-create receipt points next and plan at one workspace-openable package
       customLines.join("\n"),
     );
   } finally {
-    rmSync(physicalRoot, { recursive: true, force: true });
+    removeTempRepository(physicalRoot);
   }
 });
 
@@ -487,7 +488,7 @@ test("receipt layout roots prefer the store's append-resolved layout and fall ba
     }
     assert.equal(workspaceRelativePath(fromStore, "tasks/t/progress.md"), "bench/tasks/t/progress.md");
   } finally {
-    rmSync(physicalRoot, { recursive: true, force: true });
+    removeTempRepository(physicalRoot);
   }
 });
 

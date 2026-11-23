@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import { submitTask } from "../src/daemon-host/repo-cell-submit.ts";
 import { readCloseoutSubmission } from "../src/daemon-host/repo-cell-submit.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const closeoutBody =
   "## Summary\nReport delivered.\n## Verification\nChecked.\n" +
@@ -25,7 +26,7 @@ function fixture(t: TestContext) {
       mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
       writeFileSync(path.join(root, file), body);
     };
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git("init", "-q", "-b", "main");
   git("config", "user.name", "Harness Test");
   git("config", "user.email", "harness@example.test");

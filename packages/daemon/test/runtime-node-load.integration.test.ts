@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const selectionStrategy of ["sticky", "lru"] as const) {
   test(`F1: ${selectionStrategy} counts this node's running instances across repositories and releases settled attempts`, async (t) => {
@@ -146,7 +147,7 @@ for (const selectionStrategy of ["sticky", "lru"] as const) {
       );
     } finally {
       for (const cell of cells) await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }

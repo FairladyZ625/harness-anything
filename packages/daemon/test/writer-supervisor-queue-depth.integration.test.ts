@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/daemon-host
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("writer supervisor observes internal runtime work draining to zero", { timeout: 60_000 }, async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
@@ -175,7 +176,7 @@ test("writer supervisor observes internal runtime work draining to zero", { time
     assert.equal(publishedQueueDepths.at(-1), 0, "the status callback witnesses the drained writer cut");
   } finally {
     await supervisor?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

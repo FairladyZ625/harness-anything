@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
 } from "../src/index.ts";
 
 import { write } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 test("project task scaffold replaces and adds prose while base ownership, anchors, and portable paths fail closed", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-scaffold-")),
     scaffold = path.join(root, "governance/task-scaffold.json"),
@@ -97,7 +98,7 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
     assert.equal(rejected.ok, false);
     if (!rejected.ok) assert.equal(rejected.error.code, "invalid_task_scaffold");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -235,7 +236,7 @@ test("task and repository overlays share replace/add validation while keeping se
     write(scaffold, JSON.stringify(valid));
     assert.throws(compile, (error: unknown) => (error as { code?: string }).code === "required_anchor");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -291,7 +292,7 @@ test("repository init plan consumes the declaration and composes package-local A
         ),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -319,9 +320,9 @@ test("governance scaffold discovery enumerates overlay documents by declared sch
     try {
       assert.deepEqual(listGovernanceScaffoldOverlays(bare), { task: [], repository: [] });
     } finally {
-      rmSync(bare, { recursive: true, force: true });
+      removeTempRepository(bare);
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

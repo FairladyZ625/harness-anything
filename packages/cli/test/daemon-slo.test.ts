@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, ReadStream, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, ReadStream, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { dayWindow, parseDaemonSloOptions, renderDaemonSlo, runDaemonSlo } from "../src/daemon/slo.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function fixture(records: readonly unknown[], probe: readonly unknown[] = []): string {
   const root = mkdtempSync(path.join(tmpdir(), "ha-slo-")),
@@ -69,7 +70,7 @@ test("daily SLO derives availability only from the probe timeline and reports it
     assert.equal((receipt.requests as Record<string, unknown>).count, 1);
     assert.match(renderDaemonSlo(receipt), /availability source=daemon-probe\/v1 status=unobserved/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -122,7 +123,7 @@ test("daily SLO counts per-method p99, errors, bytes and bounded over-threshold 
     assert.equal((availability.downtimeSegments as Record<string, unknown>[])[0]!.durationMs, 5_000);
     assert.match(renderDaemonSlo(receipt), /over threshold >= 1000ms: 1 request/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -149,7 +150,7 @@ test("daily p99 comes from a bounded all-day histogram, not the last retained sa
     assert.equal(method.p99LowerMs, 10_000);
     assert.equal(method.p99Exact, false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -175,7 +176,7 @@ test("the over-threshold list reports truncation and honors --slow-limit", async
     assert.equal((over.requests as Record<string, unknown>[])[0]!.durationMs, 3_000);
     assert.match(renderDaemonSlo(receipt), /showing=2 truncated=true slowLimit=2/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -198,7 +199,7 @@ test("a terminated corrupt line fails the report with file and line; a trailing 
       /daemon-test-daemon-conn-20260101\.jsonl:2/u,
     );
   } finally {
-    rmSync(corrupt, { recursive: true, force: true });
+    removeTempRepository(corrupt);
   }
   const root = mkdtempSync(path.join(tmpdir(), "ha-slo-partial-")),
     dir = path.join(root, "logs");
@@ -222,7 +223,7 @@ test("a terminated corrupt line fails the report with file and line; a trailing 
     assert.equal((receipt.requests as Record<string, unknown>).count, 1);
     assert.match(renderDaemonSlo(receipt), /incompleteLines=1/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -244,7 +245,7 @@ test("a non-ENOENT access error is surfaced instead of being reported as a missi
     );
   } finally {
     chmodSync(file, 0o600);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -298,7 +299,7 @@ test("multi-chunk SLO logs keep bounded listeners and close on EOF or a corrupt 
     assert.ok(maxListeners <= 2, `max listeners per event on error: ${maxListeners}`);
     assert.ok([...streams].every((stream) => stream.destroyed && stream.closed));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

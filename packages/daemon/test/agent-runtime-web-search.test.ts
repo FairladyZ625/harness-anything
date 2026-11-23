@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,6 +24,7 @@ import {
   runtimeWebSearchModelGate,
   runtimeWebSearchPolicyConflict,
 } from "../src/daemon-host/agent-runtime-web-search.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const witness: RuntimeInstallationWitness = {
   installationId: "codex-installation-web-search",
@@ -229,7 +230,7 @@ test("a managed policy that exists but cannot be read is refused, while absence 
       (error: unknown) => codedAs(error, "runtime_web_search_policy_unreadable"),
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -269,7 +270,7 @@ test("prepareLaunch refuses a managed-policy conflict before any credential or p
       );
     }
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -320,7 +321,7 @@ test("the instance write path persists the tier and the read receipt shows it", 
       (error: unknown) => codedAs(error, "invalid_runtime_kind_config"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -385,7 +386,7 @@ test("a custom gateway update proves native search once and the later launch doe
     assert.ok(launch.args.includes('web_search="live"'));
     assert.equal(requests.length, 1);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -417,7 +418,7 @@ test("a custom gateway update that cannot prove native search keeps the default 
     const persisted = store.read("codex-gateway");
     assert.equal(runtimeWebSearchForConfig(persisted!), "disabled");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -479,7 +480,7 @@ test("a failed gateway verification surfaces the original error instead of a rew
       );
       assert.equal(runtimeWebSearchForConfig(store.read("codex-gateway")!), "disabled");
     } finally {
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   }
 });
@@ -558,6 +559,6 @@ test("prepareLaunch refuses a model the witnessed catalog does not mark search-c
       (error: unknown) => codedAs(error, "runtime_web_search_model_unsupported"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

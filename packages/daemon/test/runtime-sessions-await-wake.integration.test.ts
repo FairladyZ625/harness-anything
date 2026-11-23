@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A parked sessions.await re-reads the lifecycle projection on exit signals and outcomes, not on
 // provider activity. The local waiter reads that port directly; public session reads must not grow
@@ -134,6 +135,6 @@ test("a parked sessions.await does not re-read settlement for provider activity 
     assert.equal(receipt.outcome, "succeeded", JSON.stringify(receipt));
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

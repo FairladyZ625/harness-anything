@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { doctorInvocation, extractDoctorCommands, runDoctor } from "../src/cli/thin-command-doctor.ts";
 import { detectCliSource, renderDoctorHealth } from "../src/cli/thin-command-doctor-health.ts";
 import { emit, main } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
@@ -92,7 +93,7 @@ test("doctor reports stale invocations per file:line and accepts the live surfac
     assert.match(reasons[0] ?? "", /runtime run/u);
     assert.match(reasons[1] ?? "", /command domain/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -111,7 +112,7 @@ test("doctor validates placeholder command paths and skips shell substitutions",
     assert.equal(report.checked, 2);
     assert.deepEqual(report.findings, []);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -135,7 +136,7 @@ test("doctor scans preset templates and kernel rejection commands", () => {
       ],
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -181,8 +182,8 @@ test("ha doctor commands exits 0 with the ok line on a clean fixture and 1 with 
     assert.match(bad.lines[0] ?? "", /^docs-release\/old\.md:1 — ha status — command_not_found:/u);
     assert.match(bad.lines[1] ?? "", /^doctor: 1 stale command reference\(s\) \(1 commands checked\)$/u);
   } finally {
-    rmSync(clean, { recursive: true, force: true });
-    rmSync(stale, { recursive: true, force: true });
+    removeTempRepository(clean);
+    removeTempRepository(stale);
   }
 });
 
@@ -303,6 +304,6 @@ test("ha doctor storage measures localRoot breakdown in text and JSON without wr
     assert.match(textRun.lines.join("\n"), /\[derived\] cache/u);
     assert.match(textRun.lines.join("\n"), /\[unrecognized\] runtime.*\[mixed:/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

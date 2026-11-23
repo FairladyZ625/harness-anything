@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import type { DaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function until<T>(read: () => Promise<T | null>): Promise<T> {
   for (;;) {
@@ -103,7 +104,7 @@ test(
         await diagnostics.close();
       }
     } finally {
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   },
 );

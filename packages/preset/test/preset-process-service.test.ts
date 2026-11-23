@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { installPresetPackage } from "../src/index.ts";
 import { createPresetProcessService, waitFor, write } from "./preset-process-service.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("start durably returns admitted before spawn and status exposes every daemon-owned phase", async () => {
   const fixture = scriptedPackage(`console.log(JSON.stringify({ schema: "preset-script-result/v1", produces: [] }));`),
@@ -448,7 +449,7 @@ function scriptedPackage(script: string, entrypoint: Record<string, unknown> = {
   return {
     rootDir,
     userRoot,
-    cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(rootDir),
   };
 }
 // child.pid is visible (open) before its content lands (write); a read racing the

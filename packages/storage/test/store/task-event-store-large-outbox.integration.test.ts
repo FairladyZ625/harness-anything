@@ -2,13 +2,14 @@
 import assert from "node:assert/strict";
 import { constants as bufferConstants } from "node:buffer";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localGitObjectRefStore, localGitProcessCount } from "../../src/store/local-version-control-system.ts";
 import { prepareCommit } from "../../src/store/task-event-store-git-refs.ts";
 import { git, initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "Git outbox publishes a greater-than-600MB batch without constructing one JavaScript payload",
@@ -55,7 +56,7 @@ test(
       }
       assert.equal(git(rootDir, "ls-files", "--stage"), beforeIndex);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );
@@ -76,6 +77,6 @@ test("Git outbox removes its fast-import file when publication fails", () => {
     );
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

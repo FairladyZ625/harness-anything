@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -35,6 +35,7 @@ import {
   incidentContinuationUsed,
   readIncidentActionReceipt,
 } from "../src/daemon-host/decision-incident-receipt.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   pointId = "dispatch-stop-reason",
@@ -199,7 +200,7 @@ const provider = {
 
 test("an unset or stale binding leaves settlement dormant without a provider call", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let calls = 0;
   const executor = openTestExecutor({
     rootDir,
@@ -223,7 +224,7 @@ test("an unset or stale binding leaves settlement dormant without a provider cal
 
 test("an unset local provider selects the first enabled provider for active decision points", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   const requests: Array<{ readonly providerId: string }> = [],
     executor = openTestExecutor({
@@ -251,7 +252,7 @@ test("an unset local provider selects the first enabled provider for active deci
 
 test("a configured but unavailable provider records a typed failure without changing settlement", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   const unavailable = { ...provider, enabled: false };
   const executor = openTestExecutor({
@@ -271,7 +272,7 @@ test("a configured but unavailable provider records a typed failure without chan
 
 test("empty, explicitly truncated and fallback-scheduled reports do not call the provider", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   let calls = 0;
   const executor = openTestExecutor({
@@ -299,7 +300,7 @@ test("empty, explicitly truncated and fallback-scheduled reports do not call the
 
 test("two concurrent callbacks for one settlement reserve once and record the exact external projection", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const binding = `${pointId}@${decisionPointBindingDigest(pointId, point, question).slice(0, 12)}`;
   let calls = 0;
   const requests: Array<{ providerId: string; state: readonly [string] }> = [];
@@ -407,7 +408,7 @@ test("incident projection keeps missing tool metrics distinct and carries the co
 
 test("annotation de-duplication retains remaining dispatch links when one is removed", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const store = openDecisionAnnotationStore(rootDir),
     advisory = decisionAdvisoryFromProvider(answer, {
       pointId,
@@ -742,7 +743,7 @@ const providerChoiceResponse = (choice: string) => ({
 
 test("an admissible resume choice launches one successor through the existing spawn port", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const requests: string[] = [],
@@ -806,7 +807,7 @@ test("an admissible resume choice launches one successor through the existing sp
 
 test("a provider fault uses the existing incident continuation and its shared budget", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor({
       rootDir,
@@ -833,7 +834,7 @@ test("a provider fault uses the existing incident continuation and its shared bu
 
 test("provider faults obey the declared incident filter instead of bypassing an older binding", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const oldPoint: DecisionPointDeclaration = {
       ...incidentPoint,
@@ -869,7 +870,7 @@ test("provider faults obey the declared incident filter instead of bypassing an 
 
 test("an automatic resume refuses a local session owned by a different person", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor(
       {
@@ -890,7 +891,7 @@ test("an automatic resume refuses a local session owned by a different person", 
 
 test("an automatic resume without a local operator session escalates instead of launching", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor(
       {
@@ -913,7 +914,7 @@ test("an automatic resume without a local operator session escalates instead of 
 
 test("a transient Decisions rate limit retries in the provider and settles the real incident choice", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const decisionProvider = openTestDecisionProvider(rootDir, async () => {
@@ -939,7 +940,7 @@ test("a transient Decisions rate limit retries in the provider and settles the r
 
 test("an exhausted Decisions rate limit applies the deterministic rerun instead of awaiting a ruling", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const decisionProvider = openTestDecisionProvider(rootDir, async () => {
@@ -983,7 +984,7 @@ test("an exhausted Decisions rate limit applies the deterministic rerun instead 
 
 test("an exhausted rate limit resumes a resumable dispatch before falling back to a rerun", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const decisionProvider = openTestDecisionProvider(rootDir, async () => {
@@ -1013,7 +1014,7 @@ test("an exhausted rate limit resumes a resumable dispatch before falling back t
 
 test("a delivered cut retains a terminal provider cause while defaulting to no_action", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const decisionProvider = openTestDecisionProvider(rootDir, async () => {
     throw Object.assign(new Error("Invalid URL"), {
@@ -1049,7 +1050,7 @@ test("a delivered cut retains a terminal provider cause while defaulting to no_a
 
 test("a removed model keeps the model and its update command in the settled receipt", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const providerMessage =
     "This model is unavailable for free. The paid version is available now - use this slug instead: baseten/elephant-1";
@@ -1114,7 +1115,7 @@ test("HA10-02: executable incident fallback reasons never leak upstream error co
       server.close(() => resolve());
       server.closeAllConnections();
     });
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   });
   seedIncidentStream(rootDir);
   const secrets = new Map<string, string>();
@@ -1169,7 +1170,7 @@ test("HA10-02: executable incident fallback reasons never leak upstream error co
 
 test("the deterministic default still escalates when a guard forbids every automatic action", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   // Budget already spent by an earlier automatic disposition: the fallback may not silently
   // borrow another slot just because the provider is down.
@@ -1217,7 +1218,7 @@ test("the deterministic default still escalates when a guard forbids every autom
 });
 test("two concurrent outcome callbacks reserve once, ask once and launch once", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const executor = openTestExecutor({
@@ -1241,7 +1242,7 @@ test("two concurrent outcome callbacks reserve once, ask once and launch once", 
 
 test("an exhausted provider-fault incident budget escalates instead of launching", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   // The prior automatic disposition is evidence on the dispatch's own stream, the surface the
   // budget fence counts; the local annotation copy is deliberately absent here.
@@ -1284,7 +1285,7 @@ test("an exhausted provider-fault incident budget escalates instead of launching
 
 test("consecutive HEAD-changing stops stop auto-continuing on the fourth stop", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   // Three applied redispatches that each followed a measured HEAD change. The reported defect
   // reset the allowance to zero on that measurement, so the sequence could repeat forever. The
@@ -1349,7 +1350,7 @@ test("consecutive HEAD-changing stops stop auto-continuing on the fourth stop", 
 
 test("a measured HEAD change consumes the next continuation slot instead of resetting it", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const priorId = "dispatch_00000000000000000000d001";
   seedAppliedIncidentAction(rootDir, priorId, { used: 1, limit: 3, source: "daemon" }, "2026-10-18T00:00:01.000Z");
@@ -1391,7 +1392,7 @@ test("a measured HEAD change consumes the next continuation slot instead of rese
 
 test("the repository review-return budget does not gate automatic continuation", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const priorId = "dispatch_00000000000000000000c001";
   seedAppliedIncidentAction(
@@ -1488,7 +1489,7 @@ test("the continuation allowance reads the newest recorded disposition", () => {
 
 test("a disabled provider takes the deterministic default instead of waiting for a ruling", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const executor = openTestExecutor({
@@ -1518,7 +1519,7 @@ test("a disabled provider takes the deterministic default instead of waiting for
 
 test("a disabled provider with nothing automatic to do still escalates", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor({
       rootDir,
@@ -1540,7 +1541,7 @@ test("a disabled provider with nothing automatic to do still escalates", async (
 
 test("a submitted cut turns no_action into the receipt and launches nothing", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor({
       rootDir,
@@ -1561,7 +1562,7 @@ test("a submitted cut turns no_action into the receipt and launches nothing", as
 
 test("a succeeded worker-stop settlement stays out of the incident decision point", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const executor = openTestExecutor({
@@ -1579,7 +1580,7 @@ test("a succeeded worker-stop settlement stays out of the incident decision poin
 
 test("a switch choice on a worker-stop incident is inadmissible and escalates", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor({
       rootDir,
@@ -1597,7 +1598,7 @@ test("a switch choice on a worker-stop incident is inadmissible and escalates", 
 
 test("a failed launch escalates to the owner and records the launch failure", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor({
       rootDir,
@@ -1647,7 +1648,7 @@ test("incident projection scrubs worker prose before it leaves the daemon", () =
 
 test("a later settlement observation after the first action lands never acts twice", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   let calls = 0;
   const executor = openTestExecutor({
@@ -1678,7 +1679,7 @@ test("a later settlement observation after the first action lands never acts twi
 
 test("an unknown worktree HEAD makes an automatic restart inadmissible and escalates", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   const executor = openTestExecutor({
       rootDir,
@@ -1702,7 +1703,7 @@ test("an unknown worktree HEAD makes an automatic restart inadmissible and escal
 
 test("the automatic budget counts durable dispatch receipts after the annotation store evicts them", async (t) => {
   const rootDir = isolatedRoot();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedIncidentStream(rootDir);
   // A retired dispatch whose applied receipt survives on its stream while the annotation store has
   // already rotated past it. The file below is exactly the shape retention leaves behind: the

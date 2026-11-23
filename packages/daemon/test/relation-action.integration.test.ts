@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
     {
@@ -302,7 +303,7 @@ test("immediate relate observes all newly created endpoints across twenty writer
   } finally {
     projection.close();
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -372,7 +373,7 @@ test("derives rejects a whole-decision source before writing and names its claus
     assert.equal(valid.outcome, "applied", JSON.stringify(valid));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -517,7 +518,7 @@ test("supersedes-fact relation create and final retirement publish current Fact 
   } finally {
     await cell.close();
     projection.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -541,7 +542,7 @@ test("Relation triples read projects the canonical registry with endpoint filter
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -816,7 +817,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -894,7 +895,7 @@ test("a task created in this turn is relatable at once, and a misspelled endpoin
     assert.ok(lookupCutOf(absent.rejectionExplanation));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -944,7 +945,7 @@ test("a depends-on cycle at the end of a long chain is rejected, and converging 
     assert.equal(cycle.code, "relation_cycle");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

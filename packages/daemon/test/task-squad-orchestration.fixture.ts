@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after } from "node:test";
@@ -19,6 +19,7 @@ import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
 
@@ -99,8 +100,8 @@ after(async () => {
   const failures: unknown[] = [];
   await Promise.all(suiteClosers.map((close) => tryCleanup(failures, close)));
   const template = gitTemplate;
-  if (template !== null) await tryCleanup(failures, () => rmSync(template.dir, { recursive: true, force: true }));
-  await tryCleanup(failures, () => rmSync(identityRoot, { recursive: true, force: true }));
+  if (template !== null) await tryCleanup(failures, () => removeTempRepository(template.dir));
+  await tryCleanup(failures, () => removeTempRepository(identityRoot));
   if (failures.length > 0) throw failures[0];
 });
 
@@ -247,7 +248,7 @@ async function createOrchestrationHost(
     cell = null;
     await tryCleanup(failures, () => taskProjection?.close());
     await tryCleanup(failures, () => openCell?.close());
-    await tryCleanup(failures, () => rmSync(parent, { recursive: true, force: true }));
+    await tryCleanup(failures, () => removeTempRepository(parent));
   };
   const close = async () => {
     const failures: unknown[] = [];

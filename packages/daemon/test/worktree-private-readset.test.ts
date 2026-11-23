@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import { actor } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { workerLedgerPath } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as const }, "contributor"),
   definition: AgentDefinitionSnapshot = {
@@ -52,7 +53,7 @@ const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as con
 test("a real worktree dispatch hands the worker an openable path for every private file it names", async (t) => {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-worktree-private-")));
   let prepared: { readonly cwd: string; readonly prompt: string } | undefined;
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   repositoryWithPrivateLedger(root);
   const cell = await openRepoCell({
     repoId: workspaceId("worktree-private"),

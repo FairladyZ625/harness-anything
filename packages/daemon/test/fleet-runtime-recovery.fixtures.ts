@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type TestContext } from "node:test";
@@ -22,6 +22,7 @@ import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { scheduleRepositoryDocument } from "./schedule-actions.fixtures.ts";
 import { reclaimer } from "./fleet-tls-session.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 type FleetTestSubject = {
   nodeId: string;
   repoId: string;
@@ -117,7 +118,7 @@ export async function fleetFixture(
         await host.close();
       } finally {
         await owners.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     }
   });
@@ -257,7 +258,7 @@ export async function fleetFixture(
     close: async () => {
       await owned.reclaim();
       await host.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

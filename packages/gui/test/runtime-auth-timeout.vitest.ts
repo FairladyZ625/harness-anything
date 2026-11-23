@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import { afterEach, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registr
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const previous = {
   root: process.env.HARNESS_DAEMON_USER_ROOT,
@@ -141,7 +142,7 @@ it.each([
       vi.useRealTimers();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   },
 );

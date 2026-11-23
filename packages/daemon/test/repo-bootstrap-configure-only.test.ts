@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
 } from "../src/daemon-host/repo-bootstrap.ts";
 import { openRepoCell } from "../src/daemon-host/repo-cell-open.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "configure-only";
 const auth = {
@@ -76,7 +77,7 @@ test("init --configure-only reapplies ledger maintenance without writing the wor
     assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), head);
     assert.equal(init(rootDir, true).outcome, "noop");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -89,7 +90,7 @@ test("init --configure-only refuses a workspace that was never initialized", () 
       (error: Error & { code?: string }) => error.code === "workspace_not_initialized",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -127,7 +128,7 @@ test("init --name on an initialized workspace rewrites only the top-level name a
     assert.deepEqual([repeat.created, repeat.updated, repeat.drifted], [[], [], []]);
     assert.equal(git(ledgerRoot, "rev-parse", "HEAD"), head, "an equal-name rerun writes nothing");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -151,7 +152,7 @@ test("bootstrap resolves zero-argument identity at the daemon boundary", () => {
     );
     assert.doesNotMatch(harness ?? "", /walFlush|adaptive|milliseconds/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -176,7 +177,7 @@ test("bootstrap reports an actionable identity error without git user.name", () 
       else process.env.GIT_CONFIG_SYSTEM = previousSystem;
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -195,7 +196,7 @@ test("init does not append a rule an existing .gitignore glob already covers", (
     );
     assert.equal(git(rootDir, "check-ignore", "--no-index", ".harness/__probe__"), ".harness/__probe__");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -209,7 +210,7 @@ test("init leaves .gitignore byte-identical when existing rules already ignore e
     assert.equal(init(rootDir, false).publication.ok, true);
     assert.equal(readFileSync(ignorePath, "utf8"), ignore);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -225,7 +226,7 @@ test("init still writes the durable rule when only this clone's .git/info/exclud
       "a clone-local exclude does not travel to clones or CI, so .gitignore must still carry the rules",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -247,6 +248,6 @@ test("init ignores the task worktrees directory and undoing it removes only the 
     removeHarnessIgnoreRules(rootDir, layout.authoredRoot, layout.localRoot);
     assert.equal(readFileSync(ignorePath, "utf8"), "user-rule\n");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

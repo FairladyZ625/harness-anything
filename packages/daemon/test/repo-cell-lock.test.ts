@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
-import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +16,7 @@ import {
   daemonSingletonLockPath,
 } from "../src/daemon-host/daemon-singleton.ts";
 import { acquireWorkspaceLock, staleWriterLock } from "../src/daemon-host/repo-cell-lock.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const signal of ["alive", "EPERM"] as const) {
   for (const creation of [1000, 2000, 3000, "failed", "empty"] as const) {
@@ -40,7 +41,7 @@ for (const signal of ["alive", "EPERM"] as const) {
         syncBuiltinESMExports();
       });
       const dir = mkdtempSync(path.join(tmpdir(), "ha-lock-identity-"));
-      t.after(() => rmSync(dir, { recursive: true, force: true }));
+      t.after(() => removeTempRepository(dir));
       const lock = path.join(dir, "writer.lock");
       writeFileSync(lock, `${process.pid}\n`);
       utimesSync(lock, new Date(2000), new Date(2000));
@@ -69,7 +70,7 @@ for (const platformName of ["linux", "darwin"] as const) {
       syncBuiltinESMExports();
     });
     const dir = mkdtempSync(path.join(tmpdir(), "ha-posix-lock-"));
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(dir));
     const lock = path.join(dir, "writer.lock");
     writeFileSync(lock, `${process.pid}\n`);
     utimesSync(lock, new Date(2000), new Date(2000));
@@ -79,7 +80,7 @@ for (const platformName of ["linux", "darwin"] as const) {
 
 test("all lock paths retain live holders and have one concurrent claimant", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-live-locks-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(dir));
   fs.mkdirSync(path.join(dir, "repo"));
   const root = canonicalRoot(path.join(dir, "repo"));
   const lock = await acquireWorkspaceLock(root);
@@ -132,7 +133,7 @@ for (const kind of ["workspace", "singleton", "autostart"] as const) {
       syncBuiltinESMExports();
     });
     const dir = mkdtempSync(path.join(tmpdir(), "ha-shared-rule-"));
-    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(dir));
     fs.mkdirSync(path.join(dir, "repo"));
     const root = canonicalRoot(path.join(dir, "repo"));
     const target =
@@ -161,7 +162,7 @@ for (const kind of ["workspace", "singleton", "autostart"] as const) {
 
 test("concurrent dead-holder recovery must have one singleton winner", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-stale-race-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(dir));
   t.mock.method(process, "kill", (pid) => {
     if (pid === 4242) throw Object.assign(new Error("dead holder"), { code: "ESRCH" });
     return true;
@@ -178,9 +179,9 @@ test("concurrent dead-holder recovery must have one singleton winner", async (t)
 
 test("an open failure is reported by the filesystem and cannot enter stale lock recovery", async (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), "ha-lock-no-parent-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   const missing = canonicalRoot(path.join(directory, "repo"), true);
-  rmSync(directory, { recursive: true, force: true });
+  removeTempRepository(directory);
   await assert.rejects(acquireWorkspaceLock(missing), { code: "ENOENT" });
 });
 
@@ -208,7 +209,7 @@ test("a separate writer process keeps its workspace lock during candidate attach
       child.stdin.end("close");
       await exited;
     }
-    rmSync(dir, { recursive: true, force: true });
+    removeTempRepository(dir);
   });
   await once(child.stdout, "data");
   await assert.rejects(acquireWorkspaceLock(root), /writer lock is held/);

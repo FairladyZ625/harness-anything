@@ -7,7 +7,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   chmodSync,
   symlinkSync,
   writeFileSync,
@@ -36,6 +35,7 @@ import { fakeKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import type { DaemonLifecycleEntry } from "../src/daemon-host/lifecycle-log.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function generateLocalhostCert(keyPath: string, certPath: string): void {
   execFileSync(
@@ -75,7 +75,7 @@ async function fixture(t: TestContext) {
   const hosts: Awaited<ReturnType<typeof openDaemonHost>>[] = [];
   t.after(async () => {
     for (const host of hosts) await host.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const open = async (
     daemonId: string,
@@ -313,7 +313,7 @@ test("a save failure rejects start and closes its unrecorded listener", { timeou
     /not listening.*EISDIR|not listening.*ENOTEMPTY|not listening.*EPERM/u,
   );
   await assert.rejects(handshake(port, f.certPath), { code: "ECONNREFUSED" });
-  rmSync(file, { recursive: true });
+  removeTempRepository(file);
   const retry = await host.fleet.startCenter({ ...f.request, port }, auth);
   assert.equal(retry.ok, true);
   await handshake(port, f.certPath);
@@ -671,7 +671,7 @@ async function managedRbacLifecycleFixture(t: TestContext) {
   t.after(async () => {
     globalThis.fetch = originalFetch;
     for (const host of hosts) await host.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const open = async (daemonId: string, records: DaemonLifecycleEntry[] = []) => {
     const managedRbac = createManagedRbacFixture(userRoot, keycloak.fetch),

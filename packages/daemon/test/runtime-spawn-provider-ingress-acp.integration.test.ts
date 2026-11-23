@@ -14,6 +14,7 @@ import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { initIngressRepo, rpc, eventuallyValue } from "./fixtures/runtime-ingress.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "runtime-acp-ingress",
   uid = process.getuid?.() ?? 0,
@@ -77,7 +78,7 @@ async function withAcpDaemon(
     await body({ host, root, capture, executablePath });
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 }
 

@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "a launcher can exit while its detached runtime host continues",
@@ -39,7 +40,7 @@ test(
     } finally {
       launcher.kill("SIGKILL");
       if (workerPid) terminateWorker(workerPid);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

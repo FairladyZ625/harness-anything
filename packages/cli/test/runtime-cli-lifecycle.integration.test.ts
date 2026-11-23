@@ -1,15 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -41,13 +32,14 @@ import {
   seedTask,
   workerWorktreeBoundary,
 } from "./runtime-cli.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("dispatch JSONL reads ignore only an unterminated tail record", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-tail-")),
     dispatchId = "dispatch-tail",
     stream = path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`),
     record = JSON.stringify({ kind: "provider_event", event: { type: "thread.started" } });
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   mkdirSync(path.dirname(stream), { recursive: true });
 
   writeFileSync(stream, record.slice(0, -1));

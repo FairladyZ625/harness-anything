@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   runtimeProgressSnapshot,
 } from "../src/daemon-host/runtime-continuation-context.ts";
 import { continuationMission } from "../src/daemon-host/runtime-spawn-fallback.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const outcome = {
   classification: "provider_fault",
@@ -62,7 +63,7 @@ test("host snapshot counts a large porcelain file list without including filenam
     assert.ok(Buffer.byteLength(snapshot, "utf8") <= 2048);
     assert.doesNotMatch(snapshot, /private-name|do not inline/u);
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTempRepository(cwd);
   }
 });
 

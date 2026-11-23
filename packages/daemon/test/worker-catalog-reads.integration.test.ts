@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The dispatched implementer's catalog reads (dec_9DFDC635180975FDFC0CDB33D7): the real daemon,
 // Keycloak fixture, spawned runtime credential, and CLI binary drive preset list/inspect,
@@ -36,7 +37,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     initIngressRepo(root, process.getuid?.() ?? 0);
     execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });

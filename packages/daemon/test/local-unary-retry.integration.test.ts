@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import { startBrowserGuiFixture } from "../../cli/test/gui-browser-broker.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_89D06D7360CBEC09795F7B12EC/CH3: lose an applied receipt at the socket, after the
 // real writer accepted it. Every entry point retransmits the same request to that writer.
@@ -27,7 +28,7 @@ test("CLI, Electron composition, and Browser broker replay one committed write a
     daemonId = "local-retry",
     repoId = workspaceId("local-retry"),
     socketPath = localUserDaemonEndpoint(userRoot, daemonId);
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   mkdirSync(rootDir);
   mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
   initRepo(rootDir);

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -15,6 +15,7 @@ import {
 } from "@harness-anything/kernel";
 import { inspectScheduleProjection } from "@harness-anything/application/queries";
 import { readSchedulesGui } from "../src/daemon-host/schedules-gui-read.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Original accepted bytes from the Owner's eight counterexamples, before S8 rewrote current fixtures.
 const samples = JSON.parse(
@@ -122,7 +123,7 @@ for (const sample of samples) {
     } finally {
       projection?.close();
       store.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }

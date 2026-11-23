@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("real Entity import survives gen3 CLI conversion, retained content and a fresh gen3 backup restore", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gen2-entity-")),
@@ -82,7 +83,7 @@ test("real Entity import survives gen3 CLI conversion, retained content and a fr
       });
     }
     await active.drain();
-    rmSync(path.join(root, ".harness/store/generations/3"), { recursive: true, force: true });
+    removeTempRepository(path.join(root, ".harness/store/generations/3"));
     historical.close();
     createLedgerBackup({ rootInput: root, backupDir, generation: 1 });
     const run = spawnSync(
@@ -125,9 +126,9 @@ test("real Entity import survives gen3 CLI conversion, retained content and a fr
     const manifest = createLedgerBackup({ rootInput: destination, backupDir: secondBackup, generation: 3 });
     assert.equal(manifest.sqlite.generation, 3);
     assert.equal(manifest.files.filter((file) => file.method === "vacuum-into").length, 2);
-    rmSync(root, { recursive: true });
-    rmSync(destination, { recursive: true });
-    rmSync(backupDir, { recursive: true });
+    removeTempRepository(root);
+    removeTempRepository(destination);
+    removeTempRepository(backupDir);
     const restore = drillLedgerBackup({ backupDir: secondBackup, shadowParent: path.join(parent, "restore") });
     assert.equal(existsSync(root), false);
     const restored = openSqliteEventStore({ rootInput: restore.shadowRoot, generation: 3, readOnly: true });
@@ -138,6 +139,6 @@ test("real Entity import survives gen3 CLI conversion, retained content and a fr
     }
   } finally {
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

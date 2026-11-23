@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import {
   type VerticalScaffoldReport,
   type VerticalSimulateReport,
 } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function makeWorkspace(prefix: string): string {
   return mkdtempSync(path.join(tmpdir(), prefix));
@@ -153,7 +154,7 @@ test("vertical-init + preset-init produce a zero-manual-edit vertical that passe
     assert.equal(existsSync(path.join(rootDir, "harness")), false);
     assert.equal(existsSync(path.join(rootDir, ".harness")), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -261,6 +262,6 @@ test("broken legacy user preset pointers (e.g. unknown field checkerProfile) emi
       ),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -17,6 +17,7 @@ import {
 } from "../src/daemon-host/fleet/command-protocol.ts";
 import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type FleetTestSubject = {
   nodeId: string;
@@ -148,7 +149,7 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
       await opened.close();
     } finally {
       await owners.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
   await opened.attachmentsSettled();

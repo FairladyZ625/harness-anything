@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { eventually } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a repository whose open never settles is bounded by an attach budget while the rest attach and serve", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-attach-budget-")),
@@ -80,7 +81,7 @@ test("a repository whose open never settles is bounded by an attach budget while
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -191,7 +192,7 @@ test("a disabled repository is not resurrected by its in-flight attach landing l
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -270,6 +271,6 @@ test("an attach that lands after its registration changed mode is discarded and 
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

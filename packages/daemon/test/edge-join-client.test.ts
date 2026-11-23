@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -19,12 +19,13 @@ import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/daemon-host/flee
 import { reportFleetDeviceLogin } from "../src/daemon-host/fleet/peer.ts";
 import { normalizeFleetGitRemote, readFleetCenterGitMetadata } from "../src/daemon-host/fleet-edge-git-preflight.ts";
 import { fetchWithTlsCa } from "../src/daemon-host/tls-ca-certificate.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-join-client-")),
     certFile = path.join(temp, "center.crt"),
     keyFile = path.join(temp, "center.key");
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(temp));
   execFileSync(
     "openssl",
     [
@@ -388,7 +389,7 @@ test("SSH-reverse sign-in exposes the center browser's Keycloak device page sepa
 
 test("join validates origin before creating directories and reuses a matching checkout", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-join-origin-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const certFile = path.join(root, "center.pem"),
     centerRoot = path.join(root, "center"),
     origin = path.join(root, "origin.git"),
@@ -642,7 +643,7 @@ test("join validates origin before creating directories and reuses a matching ch
 
 test("ssh-reverse writes the login authority before the first sync", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-join-login-before-sync-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const certFile = path.join(root, "center.pem");
   execFileSync(
     "openssl",
@@ -807,7 +808,7 @@ test("login address probing preserves an authority path prefix", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-login-prefix-")),
     keyFile = path.join(root, "login.key"),
     certFile = path.join(root, "login.pem");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   execFileSync(
     "openssl",
     [
@@ -901,7 +902,7 @@ test("ssh-reverse IP servername verifies X.509 iPAddress SAN without sending an 
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-ip-sni-")),
     keyFile = path.join(root, "ip.key"),
     certFile = path.join(root, "ip.pem");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   execFileSync(
     "openssl",
     [

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Issue #4257: a low effective tier closes the Review gate. The submit and complete receipts must
 // say so on their own, because nothing else in the flow tells a single session that review was
@@ -34,7 +35,7 @@ test("low-tier submit and complete receipts announce the waived review while med
   const cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "review-waiver" });
   t.after(async () => {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
 
   const applied = async (action: Record<string, unknown> & { kind: string }, binding = worker) => {

@@ -2,7 +2,7 @@
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -34,6 +34,7 @@ import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 import { center, principal, executionLifecycle } from "./runtime-execution-credential.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("built-in execution credentials use the identity provider without a Keycloak request", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "builtin-execution-credential-"));
@@ -103,7 +104,7 @@ test("built-in execution credentials use the identity provider without a Keycloa
       { code: "identity_plugin_required" },
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -1188,6 +1189,6 @@ test("execution credentials keep validator sources inside the dispatched reposit
       "applied",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

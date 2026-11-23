@@ -1,16 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { prepareLegacyAudit } from "./fixtures/g38-read-legacy.mjs";
 import { runLedgerReconcileAction } from "../src/daemon-host/repo-cell-migration-actions.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("ledger-reconcile audits generation 1 even when the canonical generation has advanced", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-reconcile-gen1-")),
     context = { rootDir };
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   prepareLegacyAudit(context, "source-events", 2);
   const report = await runLedgerReconcileAction(
     {

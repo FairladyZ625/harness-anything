@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runGuiLaunch } from "../src/cli/gui-launch.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const currentCommit = "1111111111111111111111111111111111111111",
   staleCommit = "0000000000000000000000000000000000000000";
@@ -46,7 +47,7 @@ test("ha gui rebuilds a GUI bundle older than the source commit before launching
     assert.equal(spawned, 1);
     assert.equal(receipts.at(-1)?.rebuilt, true);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -75,7 +76,7 @@ test("a missing dist marker in a source checkout counts as stale and is rebuilt"
     assert.deepEqual(rebuilds, [fixture.guiRoot]);
     assert.equal(receipts.at(-1)?.rebuilt, true);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -105,13 +106,13 @@ test("a fresh dist marker launches without rebuilding", async () => {
     assert.equal(spawned, 1);
     assert.equal("rebuilt" in (receipts.at(-1) ?? {}), false);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
 test("an installed GUI package without a src tree never triggers a rebuild", async () => {
   const fixture = guiSourceFixture();
-  rmSync(path.join(fixture.guiRoot, "src"), { recursive: true, force: true });
+  removeTempRepository(path.join(fixture.guiRoot, "src"));
   writeMarker(fixture.checkoutRoot, staleCommit);
   try {
     let spawned = 0;
@@ -134,7 +135,7 @@ test("an installed GUI package without a src tree never triggers a rebuild", asy
     assert.equal(status, 0);
     assert.equal(spawned, 1);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -161,7 +162,7 @@ test("an unresolvable source build id skips the staleness check", async () => {
     assert.equal(status, 0);
     assert.equal(spawned, 1);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -195,7 +196,7 @@ test("a failed rebuild rejects with the manual command and never starts the daem
     assert.match(expectation, /npm run build --workspace @harness-anything\/gui/u);
     assert.equal(daemonAcquisitions, 0, "a failed rebuild must not start the daemon");
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -232,7 +233,7 @@ test("the default rebuild path runs the package's build script in the GUI packag
     assert.equal(spawned, 1);
     assert.equal(receipts.at(-1)?.rebuilt, true);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -267,7 +268,7 @@ test("a lockfile dependency the installed tree lacks rejects the rebuild with th
     assert.doesNotMatch(expectation, /npm run build/u);
     assert.equal(daemonAcquisitions, 0, "a stale-dependency rejection must not start the daemon");
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -292,7 +293,7 @@ test("an installed dependency at a version the lockfile outdates rejects the reb
     assert.equal(status, 1);
     assert.equal((receipts.at(-1) ?? {}).code, "gui_dependencies_stale");
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -321,7 +322,7 @@ test("a lockfile the installed tree satisfies does not block the rebuild", async
     assert.equal(status, 0);
     assert.equal(spawned, 1);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -354,7 +355,7 @@ test("an optional lockfile entry the installed tree skips never blocks the rebui
     assert.equal(status, 0);
     assert.equal(spawned, 1);
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 
@@ -390,7 +391,7 @@ test("ha gui passes one explicit parent origin to its browser broker", async () 
       assert.equal(launched, 1);
     }
   } finally {
-    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.checkoutRoot);
   }
 });
 

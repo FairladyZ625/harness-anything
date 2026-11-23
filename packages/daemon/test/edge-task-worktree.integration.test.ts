@@ -1,16 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -26,6 +17,7 @@ import {
   emptyDispatchLifecycleRead,
   lifecycleEvent,
 } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_57370FF2021DADF04E3B21724D: an edge node holds no ledger, so the center delivers the task's worktree binding
 // (CH1), the edge dispatch works in that worktree (CH2), and a node that takes a task over continues the branch the
@@ -135,7 +127,7 @@ test("edge dispatch cwd follows its worktree or artifact package, including the 
 
 test("a Git-less edge has no worktree to give and works in its workspace root", async (t) => {
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-gitless-"));
-  t.after(() => rmSync(gitless, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(gitless));
   const edge = edgeSpawner(gitless, binding);
   await assert.rejects(
     edge.spawn({ taskId, runtimeInstanceId: "edge-instance", dispatchKey: "edge-gitless" }),
@@ -624,7 +616,7 @@ function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA
     seed = path.join(base, "seed"),
     nodeA = path.join(base, "node-a"),
     nodeB = path.join(base, "node-b");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "--bare", "-q", "-b", "main", remote);
   git(base, "init", "-q", "-b", "main", seed);
   identify(seed);

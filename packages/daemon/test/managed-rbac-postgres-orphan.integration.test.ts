@@ -12,6 +12,7 @@ import {
   type ManagedPostgresBinaries,
 } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function freeLoopbackPort(): Promise<number> {
   const server = createServer();
@@ -167,7 +168,7 @@ test(
           if (binaries && existsSync(path.join(foreignData, "postmaster.pid")))
             stopPostgres(binaries.pgCtl, foreignData);
         } finally {
-          rmSync(userRoot, { recursive: true, force: true });
+          removeTempRepository(userRoot);
         }
       }
     }

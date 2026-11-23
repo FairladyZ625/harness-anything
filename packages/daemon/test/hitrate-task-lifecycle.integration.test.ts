@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task start, closeout submit, review, and completion reuse daemon-known lifecycle state", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-hitrate-lifecycle-")),
@@ -329,6 +330,6 @@ test("task start, closeout submit, review, and completion reuse daemon-known lif
     assert.equal(events().length, beforeTerminalAmend, "terminal amend must not publish dirty closeout");
   } finally {
     await cell.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openTerminalHost } from "../src/daemon-host/terminal-host.ts";
 import type { TmuxController } from "../src/daemon-host/terminal-tmux.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "daemon terminal host spawns, echoes, attaches, resizes, detaches, and terminates",
@@ -45,7 +46,7 @@ test(
       assert.equal(host.terminate({ sessionId: spawned.sessionId!, confirmed: true }).state, "exited");
       await host.close();
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -114,7 +115,7 @@ test("trusted runtime auth terminal executes an exact non-platform fixture witho
     assert.doesNotMatch(listed, /RUNTIME_AUTH_MARKER/u);
     await host.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -151,7 +152,7 @@ test("runtime auth terminals are bounded and cancelled sessions release their sl
     assert.equal(launch("auth-3").ok, true);
   } finally {
     await host?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -183,7 +184,7 @@ test("runtime auth deadline aborts the provider process with a failure exit", { 
     assert.equal(session?.exitCode, 124);
   } finally {
     await host?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -219,7 +220,7 @@ test("direct terminals receive the cached login shell environment", async () => 
     });
     await host.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -280,7 +281,7 @@ test("windows terminals preserve SystemRoot and pass command shims to node-pty a
   } finally {
     if (previousSystemRoot === undefined) delete process.env.SystemRoot;
     else process.env.SystemRoot = previousSystemRoot;
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -341,7 +342,7 @@ test("a terminal child that exits on its own still gets its pty released on wind
     await host.close();
     assert.deepEqual(kills, [0], "terminate and close after a natural exit must not kill again");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -383,7 +384,7 @@ test("a terminal child that exits on its own is not killed again on posix", asyn
     await host.close();
     assert.deepEqual(kills, []);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -426,7 +427,7 @@ test("closing a running windows terminal does not kill it twice", async () => {
     assert.deepEqual(kills, [0], "close must release the pty exactly once");
     assert.equal(await pending, null, "a direct PTY ends with its daemon");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -490,7 +491,7 @@ test("selecting TMUX spawns its exact command and confirmed terminate kills the 
     await host.close();
     assert.equal(await attachment.next(), null, "a terminated tmux session has no reconnect to offer");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -538,7 +539,7 @@ test("an unavailable TMUX request visibly falls back to direct PTY", async () =>
     );
     await host.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -641,7 +642,7 @@ test("a TMUX registry restores a live session and attach uses the existing names
     assert.deepEqual(JSON.parse(readFileSync(registry, "utf8")).sessions, []);
     await restored.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -673,7 +674,7 @@ test("daemon close interrupts both waiting and active attachments to a live tmux
     await rejection;
     await assert.rejects(active.next(), { code: "daemon_stopping" });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -712,7 +713,7 @@ test("TMUX activity persistence is throttled while termination persists immediat
     assert.deepEqual(JSON.parse(readFileSync(registry, "utf8")).sessions, [], "termination must persist immediately");
     await host.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

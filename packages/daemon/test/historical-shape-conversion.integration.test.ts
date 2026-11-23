@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +26,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { initRepo } from "./migration-import.fixtures.ts";
 import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../src/daemon-host/task-query-read.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function sourceStore(events: readonly CanonicalEventV1[], content: ReadonlyMap<string, Buffer>): CanonicalEventStore {
   return {
@@ -116,7 +117,7 @@ test("inactive generation preserves upsert content and materializes task disposi
     assert.equal(readFileSync(snapshotPath, "utf8"), original);
     assert.equal(JSON.stringify(events), before);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -186,6 +187,6 @@ test("legacy relation carriers are isolated before missing pinned fields are nor
       /relations not present at its historical cut/,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

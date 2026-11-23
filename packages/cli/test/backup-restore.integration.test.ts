@@ -3,11 +3,12 @@ import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/e
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 const repoId = "center-restore-probe";
@@ -111,7 +112,7 @@ test("center bootstrap chain: backup, offline restore, remote-center register, r
   t.after(() => {
     run(source, ["daemon", "stop"]);
     run(center, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
   await signInProcessPolicyTestUser(source.userRoot, "center-restore-owner", [repoId], "admin");
   mkdirSync(source.root, { recursive: true });
@@ -267,7 +268,7 @@ test("restore refuses an existing center root and a tampered backup", async (t) 
     freshRoot = path.join(parent, "fresh");
   t.after(() => {
     run(source, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
   await signInProcessPolicyTestUser(source.userRoot, "center-restore-owner", [repoId], "admin");
   mkdirSync(source.root, { recursive: true });

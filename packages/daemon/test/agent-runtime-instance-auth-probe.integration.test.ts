@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-insta
 import { runProcessExitAsync } from "../src/daemon-host/process-port.ts";
 import { observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const fakeToken = "agt_code_fake_probe_token";
 
@@ -211,7 +212,7 @@ async function makeScenario(response: ProviderResponse, refreshToken = "fake-ref
     instanceRoot,
     close: async () => {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

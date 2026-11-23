@@ -33,6 +33,7 @@ import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/ta
 import { assertAuthorizedReplacements } from "../../src/store/task-event-store-replacement-authorization.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
 import { decisionProposal, docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "sqlite-canonical-contract";
 const writerFence = () => ({ repoId, holderId: "contract-writer", epoch: 1 });
@@ -741,7 +742,7 @@ test("corrupt accepted content cannot be certified by publishing the same corrup
 
 function fixture(name: string, t?: TestContext): string {
   const root = mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`));
-  t?.after(() => rmSync(root, { recursive: true, force: true }));
+  t?.after(() => removeTempRepository(root));
   return root;
 }
 
@@ -874,7 +875,7 @@ test("a path-scoped materialization refuses a path the canonical cut cannot rest
 
 test("a decision write on a still-unclaimed path uses the durable document-head index", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replacement-authorization-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId: replacementRepoId, rootInput: rootDir });
   const store = openSqliteEventStore({ repoId: replacementRepoId, rootInput: rootDir });

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, renameSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A host Git configured with core.checkStat=minimal plus core.trustctime=false compares only the
 // whole-second mtime and the file size. `rsync -a` restores mtime and an equal-length edit keeps
@@ -31,8 +32,8 @@ test("doc status sees a same-size rewrite with the original mtime restored under
   t.after(() => {
     if (previousGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
     else process.env.GIT_CONFIG_GLOBAL = previousGlobal;
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(configRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(configRoot);
   });
   initRepo(rootDir);
   write(rootDir, logical, first);

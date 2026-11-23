@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import test from "node:test";
 import * as shared from "./cli-lifecycle-user-journey-stress.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const {
   assert,
@@ -59,7 +60,7 @@ test("eight CLI clients share one center while completing each task", async (con
     );
   } finally {
     await stopClient(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 
@@ -252,7 +253,7 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
     );
   } finally {
     await stopClient(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 
@@ -348,7 +349,7 @@ test("CLI accepted receipt and daemon restart recover an in-flight task", async 
     );
   } finally {
     await stopClient(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 
@@ -433,7 +434,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
     );
   } finally {
     await stopClient(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 
@@ -503,7 +504,7 @@ test("a locally edited task plan blocks a CLI retitle until doc sync submits the
     );
   } finally {
     await stopClient(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 
@@ -581,7 +582,7 @@ test("a restored task plan preserves local prose that CLI discard-local and reso
     );
   } finally {
     await stopClient(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 

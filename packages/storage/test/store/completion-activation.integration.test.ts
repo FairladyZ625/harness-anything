@@ -3,7 +3,7 @@ import { localRuntimeStateFileSystem as files } from "@harness-anything/kernel/i
 import { createLedgerBackup } from "../../src/store/ledger-backup.ts";
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import {
 import { resolveActiveGeneration, sqliteLedgerPath, openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection-factory.ts";
 import { completionConversionStream } from "../../src/store/completion-conversion-stream.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const interrupt of ["verified", "source-retired", "derived-invalidated", "published"] as const) {
   test(`generation 2 active execution retirement resumes after ${interrupt}`, () => {
@@ -70,7 +71,7 @@ for (const interrupt of ["verified", "source-retired", "derived-invalidated", "p
       }
       console.log("ACTIVATION_RESUME_EVIDENCE=" + JSON.stringify({ interrupt, active: result.active, calls }));
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 }
@@ -88,7 +89,7 @@ for (const failure of ["unfinished-retirement", "changed-source"] as const) {
           "DELETE FROM event_query_entity WHERE revision>2; DELETE FROM event WHERE revision>2; DELETE FROM command_outcome WHERE first_revision>2; UPDATE ledger_meta SET revision=2",
         );
         database.close();
-        rmSync(path.join(f.destinationRoot, ".harness", "cache"), { recursive: true, force: true });
+        removeTempRepository(path.join(f.destinationRoot, ".harness", "cache"));
       }
       assert.throws(
         () =>
@@ -116,7 +117,7 @@ for (const failure of ["unfinished-retirement", "changed-source"] as const) {
       assert.equal(existsSync(sqliteLedgerPath(f.destinationRoot, 2)), true);
       assert.equal(existsSync(`${sqliteLedgerPath(f.destinationRoot, 3)}.activation.json`), false);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 }
@@ -149,7 +150,7 @@ for (const generation of [1, 2] as const)
           store.close();
         }
       } finally {
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     });
   }
@@ -172,7 +173,7 @@ test("offline backup accepts the retired shape but conversion rejects an invalid
     );
     assert.equal(existsSync(`${sqliteLedgerPath(f.destinationRoot, 3)}.activation.json`), false);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -196,6 +197,6 @@ test("resuming a complete certificate linked before directory fsync finishes its
     assert.equal(syncs, 2);
   } finally {
     files.syncDirectory = sync;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

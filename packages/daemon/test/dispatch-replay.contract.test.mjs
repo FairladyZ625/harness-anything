@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import {
   validateObserveTailPayload,
   validateObserveTailResult,
 } from "../src/daemon-host/protocol/daemon-protocol-results.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const fixture = new URL("../fixtures/runtime/dispatch-replay-ended.jsonl", import.meta.url);
 const dispatchId = "dispatch_96e06fd9ca6917fc922e6d58";
@@ -65,7 +66,7 @@ test("ended dispatch replay exposes sanitized provider turns and can continue fr
     );
     assert.equal(followed.done, true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -115,7 +116,7 @@ test("dispatch replay shares newest-first history pagination and reports a missi
     assert.deepEqual(missing.items, []);
     assert.equal(missing.done, true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

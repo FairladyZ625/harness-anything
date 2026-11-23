@@ -3,13 +3,14 @@ import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { DecisionProjectionRow } from "@harness-anything/kernel";
 import { dispatchRead } from "../src/daemon-host/repo-cell-command.ts";
 import type { DecisionListFilters } from "@harness-anything/kernel";
 import { createRepoCellApi } from "../src/daemon-host/repo-cell-api.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function decision(decisionId: string): DecisionProjectionRow {
   return {
@@ -27,7 +28,7 @@ function decision(decisionId: string): DecisionProjectionRow {
 
 test("full decision lists reuse Git calculation across unrelated cuts and invalidate every readiness input", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-cache-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: rootDir, encoding: "utf8" }).trim();
   git("init", "-q");
   git("config", "user.name", "Fixture");

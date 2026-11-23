@@ -1,12 +1,13 @@
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export const IdentitySessionPort = createIdentitySession;
 
@@ -858,7 +859,7 @@ export function keycloakUserRoot(
   writeFileSync(path.join(root, "rbac", "center-client-secret"), "fixture-secret");
   signIn(personId, roles);
   // Callers hand this to their test lifecycle hook; t.after keeps cleanup running after a timeout.
-  return { root, signIn, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+  return { root, signIn, cleanup: () => removeTempRepository(root) };
 }
 
 /**

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -21,6 +21,7 @@ import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function waitStarted(barrier: Int32Array, count: number): Promise<void> {
   for (let observed = Atomics.load(barrier, 1); observed < count; observed = Atomics.load(barrier, 1))
@@ -351,7 +352,7 @@ test(
       Atomics.notify(barrier, 2);
       await Promise.allSettled(pending);
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -434,11 +435,11 @@ test("closing a real reader releases SQLite handles before reusing its isolate a
       await Promise.all([first.close(), second.close()]);
     }
     assert.equal(Atomics.load(handles, 0), Atomics.load(handles, 1), "both clients drain every native handle");
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     t.diagnostic(`native reader handles opened=${Atomics.load(handles, 0)} closed=${Atomics.load(handles, 1)}`);
     t.diagnostic(`reader first-query ms: cold=${timings[0]!.toFixed(1)} warm=${timings[1]!.toFixed(1)}`);
   } finally {
     await Promise.all(workers.map((worker) => worker.terminate()));
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

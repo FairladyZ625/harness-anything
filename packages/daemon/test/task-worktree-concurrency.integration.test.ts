@@ -7,7 +7,6 @@ import {
   mkdtempSync,
   readFileSync,
   renameSync,
-  rmSync,
   utimesSync,
   unlinkSync,
   writeFileSync,
@@ -21,6 +20,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const holder = withPolicyGroup(
   { actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "worker" } }, source: "local" },
@@ -107,7 +107,7 @@ for (const shape of ["current", "legacy-copy", "legacy-hardlink"] as const) {
             renameSync(`${canonicalRuling}.tmp`, canonicalRuling);
             await sync([rulingPath], center);
             if (shape !== "current") {
-              rmSync(taskWorktreeDocumentBase(workerRoot, ""), { recursive: true, force: true });
+              removeTempRepository(taskWorktreeDocumentBase(workerRoot, ""));
               writeFileSync(workerReport, "# Updated worker report\n");
             }
             assert.equal(readFileSync(workerRuling, "utf8"), original);
@@ -149,7 +149,7 @@ for (const shape of ["current", "legacy-copy", "legacy-hardlink"] as const) {
             assert.equal(readFileSync(canonicalRuling, "utf8"), supplemented);
           } finally {
             await cell.close();
-            rmSync(rootDir, { recursive: true, force: true });
+            removeTempRepository(rootDir);
           }
         });
       }

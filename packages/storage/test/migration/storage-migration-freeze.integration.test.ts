@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/t
 import { openSqliteMigrationEndpoint } from "../../src/migration/sqlite-endpoint.ts";
 import { appendRuntimeQueryFixtures } from "../postgres/pg-runtime-query-parity.fixture.ts";
 import { initRepo } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const reason of ["lease", "runtime"] as const)
   test(`freeze refuses an unreleased ${reason} before taking the writer epoch`, async () => {
@@ -46,6 +47,6 @@ for (const reason of ["lease", "runtime"] as const)
       }
     } finally {
       await store.drain();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });

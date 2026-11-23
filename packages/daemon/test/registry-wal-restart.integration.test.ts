@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { reproduceRegistrySqliteRestart } from "./registry-wal-restart.repro.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const arm of ["graceful-stop", "sigkill"] as const) {
   test(`daemon preserves acknowledged SQLite writes after ${arm}`, async () => {
@@ -24,7 +25,7 @@ for (const arm of ["graceful-stop", "sigkill"] as const) {
       assert.equal(result.after.taskId, result.after.expectedTaskId);
       assert.equal(result.after.factId, result.after.expectedFactId);
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(fixtureRoot);
     }
   });
 }

@@ -6,7 +6,7 @@
  *  bundled reviewer through a controlled runtime until its report is readable and bound to the cut. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const auth = {
     transportKind: "unix-socket",
@@ -305,7 +306,7 @@ test(
       assert.equal(shown.reviews[0]!.executionId, executionId, "the report is bound to the submitted cut");
     } finally {
       await cell?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );

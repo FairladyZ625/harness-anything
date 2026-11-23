@@ -2,7 +2,7 @@
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { createServer } from "node:net";
 import { createInterface } from "node:readline";
 import { tmpdir } from "node:os";
@@ -10,10 +10,11 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { runDaemonRepoControl } from "../src/daemon/repo-control.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("daemon repo update sends --root as a workspace root migration", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-daemon-repo-update-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const userRoot = path.join(root, "user"),
     socketPath = localUserDaemonEndpoint(userRoot),
     requests: Array<{ readonly method: string; readonly params?: Record<string, unknown> }> = [],

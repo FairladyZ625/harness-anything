@@ -42,6 +42,7 @@ async function stopFixtureGroup(child: ReturnType<typeof spawn>): Promise<void> 
   await exited;
 }
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -620,7 +621,7 @@ test(
       }
     } finally {
       if (fixtureChild) await stopFixtureGroup(fixtureChild);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -786,7 +787,7 @@ test(
       }
     } finally {
       if (fixtureChild) await stopFixtureGroup(fixtureChild);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -1218,7 +1219,7 @@ test(
         } catch (error) {
           consumeKnownError(error);
         }
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -1386,7 +1387,7 @@ test(
         } catch (error) {
           consumeKnownError(error);
         }
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -1430,7 +1431,7 @@ test("runtime exit notification records a bounded timeout", { timeout: 300_000 }
     );
     assert.equal(finished.occurredAt, "2026-08-23T00:00:00.000Z");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1604,7 +1605,7 @@ test(
         await cell.close();
       }
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

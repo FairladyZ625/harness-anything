@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import fs, { linkSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import fs, { linkSync, mkdirSync, mkdtempSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { watchLinuxWorkspace } from "../src/runtime-engine/runtime-workspace-watch-linux.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "Linux workspace watch follows a symlinked root, directory changes, and file links",
@@ -48,7 +49,7 @@ test(
       await change("moved/file", () => writeFileSync(path.join(root, "moved", "file"), "updated again"));
     } finally {
       monitor.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -68,7 +69,7 @@ for (const code of ["ENOENT", "EACCES"] as const) {
     t.after(() => {
       t.mock.restoreAll();
       syncBuiltinESMExports();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     if (code === "ENOENT") watchLinuxWorkspace(root, () => undefined).close();
     else
@@ -88,7 +89,7 @@ test("a native watcher error retains the original failure", (t) => {
   t.after(() => {
     t.mock.restoreAll();
     syncBuiltinESMExports();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const monitor = watchLinuxWorkspace(root, () => undefined),
     errors: Error[] = [];

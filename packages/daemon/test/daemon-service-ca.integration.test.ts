@@ -2,19 +2,20 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { daemonServiceUnit, daemonServiceUnitContent } from "../src/daemon-host/client/daemon-service.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const exec = promisify(execFile);
 
 test("service CA environments retain HTTPS verification across fresh Node processes", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-service-ca-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const certFile = path.join(root, "R&D ca 100% $HOME.pem"),
     keyFile = path.join(root, "key.pem");
   // Same temporary certificate recipe as fleet-tls-session.fixture.ts, without opening a daemon/store.

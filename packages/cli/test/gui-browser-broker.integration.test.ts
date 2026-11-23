@@ -1,16 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { createServer as createSocketServer } from "node:net";
 import { createInterface } from "node:readline";
@@ -35,6 +26,7 @@ import {
   seedSettingsEvent,
   startDaemon,
 } from "./release-cli-acceptance.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_89D06D7360CBEC09795F7B12EC/CH3: a real browser reads the socket hub through the authenticated
 // loopback broker, and aborting the fetch tears down the underlying subscriber.
@@ -203,7 +195,7 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previousDaemonId;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -274,7 +266,7 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
     assert.equal(admittedWrite.headers["access-control-allow-origin"], undefined);
   } finally {
     await broker.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -349,7 +341,7 @@ test("browser GUI embedding requires an explicit matching parent without changin
   } finally {
     await browser?.close();
     await new Promise<void>((resolve, reject) => parent.close((error) => (error ? reject(error) : resolve())));
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -450,7 +442,7 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previousDaemonId;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -526,7 +518,7 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previousDaemonId;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

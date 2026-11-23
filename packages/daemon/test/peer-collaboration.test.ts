@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { acceptedWorkDecision, openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { evidence, initRepo } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const aliceBinding = withPolicyGroup(
   { actor: { principal: { personId: "person_alice" }, executor: null }, source: "local" as const },
@@ -265,6 +266,6 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
     assert.equal(promotedData.request.promotedTaskId, promotedData.promotedTaskId);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

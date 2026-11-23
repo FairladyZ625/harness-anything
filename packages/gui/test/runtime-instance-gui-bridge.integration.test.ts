@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.
 import { addLocalMainControls } from "../src/main/local-main-controls.ts";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import { buildRuntimeInstanceUpdatePayload, runtimeInstanceEditForm } from "../src/renderer/runtime-instance-form.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime instance", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-runtime-instance-")),
@@ -329,7 +330,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
     await host.close();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
     restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

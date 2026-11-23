@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,10 +16,11 @@ import {
 import { readBeforeWriteQueue } from "../src/daemon-host/write-queue-external-reads.ts";
 import type { RepoCellApiContext } from "../src/daemon-host/repo-cell-types.ts";
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("worker delivery is witnessed only on its bound task branch with commits above the baseline", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-squad-witness-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main", "repo");
   const repo = path.join(root, "repo");
   git(repo, "config", "user.email", "squad-test@example.invalid");
@@ -42,7 +43,7 @@ test("worker delivery is witnessed only on its bound task branch with commits ab
 
 test("a stacked squad checkout counts only where its own branch was cut", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-squad-stacked-witness-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main", "repo");
   const repo = path.join(root, "repo"),
     commander = path.join(root, "commander"),
@@ -82,7 +83,7 @@ test("worker push publishes only the dispatched task's own branch with force-wit
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -114,7 +115,7 @@ for (const cleanup of [false, true])
       canonical = path.join(root, "project"),
       worker = path.join(root, "worker"),
       taskId = "task_ignored_ledger";
-    context.after(() => rmSync(root, { recursive: true, force: true }));
+    context.after(() => removeTempRepository(root));
     git(root, "init", "--bare", bare);
     git(root, "init", "-q", "-b", "main", canonical);
     git(canonical, "config", "user.email", "push-test@example.invalid");
@@ -145,7 +146,7 @@ test("worker push refuses the first commit outside the conventional identity and
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-identity-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -197,7 +198,7 @@ test("worker push validates only the commits above the published remote cut", as
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-published-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -251,7 +252,7 @@ test("worker push still refuses a personal-identity commit above the published r
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-above-cut-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -318,7 +319,7 @@ test("worker push after a rebase checks only the worker's commits, not the defau
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-rebased-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -363,7 +364,7 @@ test("worker push refuses when the canonical repository resolves no git identity
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-identity-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -414,7 +415,7 @@ test("worker push refuses when the canonical repository resolves no git identity
 test("worker push refuses when no default branch can bound the worker commits", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-main-")),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
   git(canonical, "config", "user.email", "push-test@example.invalid");
@@ -437,7 +438,7 @@ test(
     const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-read-")),
       bare = path.join(root, "remote.git"),
       worker = path.join(root, "worker");
-    context.after(() => rmSync(root, { recursive: true, force: true }));
+    context.after(() => removeTempRepository(root));
     git(root, "init", "--bare", "-b", "main", bare);
     git(root, "init", "-q", "-b", "main", "project");
     const canonical = path.join(root, "project");
@@ -472,7 +473,7 @@ test("a lease read from this node's own published cut still refuses to replace a
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker"),
     other = path.join(root, "other");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", "-b", "main", bare);
   git(root, "init", "-q", "-b", "main", "project");
   const canonical = path.join(root, "project");
@@ -520,7 +521,7 @@ test("a lease read from this node's own published cut still refuses to replace a
 test("worker push leaves a checkout on any branch but the dispatched task's own", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-other-branch-")),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
   git(canonical, "config", "user.email", "push-test@example.invalid");
@@ -537,7 +538,7 @@ test("worker push records a single failure without retrying", async (context) =>
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-failure-")),
     bare = path.join(root, "remote.git"),
     canonical = path.join(root, "project");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   git(canonical, "config", "user.email", "push-test@example.invalid");
@@ -571,7 +572,7 @@ test("a worker push that never answers ends as a timed-out push failure", async 
     release = path.join(root, "release");
   context.after(() => {
     writeFileSync(release, "");
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
@@ -619,7 +620,7 @@ test("worker commits take the GitLab repository identity, never a stale GitHub n
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-env-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -679,7 +680,7 @@ test("worker commits take the GitLab repository identity, never a stale GitHub n
 test("a repository with no identity falls back to a provider-neutral person identity", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-fallback-")),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
   // The fixture commit states its identity inline; the repository itself declares none.
@@ -729,7 +730,7 @@ test("a repository with no identity falls back to a provider-neutral person iden
 test("a user-declared canonical worktree identity survives and does not become the push expectation", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-canonical-")),
     worker = path.join(root, "worker");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
   git(canonical, "config", "user.name", "Repo Identity");
@@ -761,7 +762,7 @@ test("a user-declared canonical worktree identity survives and does not become t
 
 test("a runtime at the canonical root keeps a user-declared worktree identity when the repo has one", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-same-root-repo-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
   git(canonical, "config", "user.name", "Repo Identity");
@@ -785,7 +786,7 @@ test("a runtime at the canonical root keeps a user-declared worktree identity wh
 
 test("a runtime at the canonical root does not overwrite a user identity with the fallback", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-same-root-fallback-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
   // The fixture commit states its identity inline; the repository itself declares none.
@@ -823,7 +824,7 @@ test("a workflow-scope rejection reports the dedicated code and the CEO handoff 
     canonical = path.join(root, "project"),
     worker = path.join(root, "worker"),
     receivePack = path.join(root, "receive-pack");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   git(canonical, "config", "user.email", "push-test@example.invalid");
@@ -868,7 +869,7 @@ test("a workflow-scope rejection reports the dedicated code and the CEO handoff 
 test("the queued task-push receipt defers PR publication until submission", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-receipt-")),
     bare = path.join(root, "remote.git");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
@@ -923,7 +924,7 @@ test("the queued task-push receipt defers PR publication until submission", asyn
 test("the task-push entry supplies the dispatching person to the missing-identity fallback", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-person-")),
     bare = path.join(root, "remote.git");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   git(root, "init", "--bare", bare);
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");

@@ -3,7 +3,7 @@ import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +13,7 @@ import { requestDaemonShutdownAt } from "@harness-anything/daemon/internal/clien
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { daemonPidPath, daemonSingletonLockPath } from "@harness-anything/daemon/internal/daemon-singleton";
 import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A failed hello must dominate every later side effect, including host control fallbacks.
 async function fixture(stopOk: boolean) {
@@ -57,7 +58,7 @@ async function fixture(stopOk: boolean) {
     close: async () => {
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     },
   };
 }

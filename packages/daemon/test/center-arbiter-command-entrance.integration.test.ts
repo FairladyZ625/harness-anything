@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -31,6 +31,7 @@ import {
 } from "./review-independence.fixtures.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type Receipt = {
   readonly outcome: string;
@@ -53,7 +54,7 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 const person = (
@@ -235,7 +236,7 @@ test("a center-local arbiter reviews, overrides and rejects a Decision while its
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -312,7 +313,7 @@ test("a center-local reviewer records an Execution Review while the submitting e
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -420,6 +421,6 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
   } finally {
     await owners.close();
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

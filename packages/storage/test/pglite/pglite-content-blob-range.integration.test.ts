@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import type { PostgresTaskEventStoreRequest } from "../../src/postgres/pg-task-e
 import type { PostgresEventStoreScope } from "../../src/postgres/pg-event-store.ts";
 import { assertContentBlobRangeContract } from "../content-blob-range.assertions.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const scope: PostgresEventStoreScope = {
   tenantId: "tenant-content-range",
@@ -50,7 +51,7 @@ pgliteIntegrationSuite("PGlite content blob range contract", () => {
       );
     } finally {
       await backend.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(dataDir);
     }
   });
 });

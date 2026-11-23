@@ -8,7 +8,6 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   statSync,
   symlinkSync,
   utimesSync,
@@ -30,6 +29,7 @@ import {
   updateDaemonRepo,
 } from "@harness-anything/kernel/daemon-registry";
 import { registerDaemonRepo } from "../../src/index.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const localConnection = { id: "local", kind: "local", displayName: "This device", state: "enabled" } as const;
 
@@ -502,7 +502,7 @@ function withTempDir<T>(fn: (root: string) => T): T {
   try {
     return fn(root);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }
 

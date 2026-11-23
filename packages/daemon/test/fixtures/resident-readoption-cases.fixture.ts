@@ -3,17 +3,7 @@ import { waitForArrival, watchDirectoryArrival } from "../../../../tools/fixture
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import {
-  chmodSync,
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  watch,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -29,6 +19,7 @@ import {
 } from "../../src/daemon-host/daemon-singleton.ts";
 import { registerBootstrappedDaemonRepo } from "../repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./runtime-stub.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function killIfAlive(pid: number, signal: NodeJS.Signals): void {
   try {
@@ -373,8 +364,8 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         if (workerPid) killIfAlive(-workerPid, "SIGKILL");
         await oldExit;
         if (successor && successor.exitCode === null && successor.signalCode === null) await once(successor, "exit");
-        rmSync(parent, { recursive: true, force: true });
-        rmSync(buildRoot, { recursive: true, force: true });
+        removeTempRepository(parent);
+        removeTempRepository(buildRoot);
       }
     },
   };

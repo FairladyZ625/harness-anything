@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -36,6 +36,7 @@ import {
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sha256 = (value: string | Buffer): string => createHash("sha256").update(value).digest("hex");
 
@@ -90,7 +91,7 @@ test(
     t.after(async () => {
       releasePendingQueue();
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
 
     const owner = withPolicyGroup(
@@ -590,7 +591,7 @@ console.log(JSON.stringify({
     const cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "custom-owner" });
     t.after(async () => {
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     const owner = withPolicyGroup(
       { actor: { principal: { personId: "custom-owner" }, executor: null }, source: "local" as const },
@@ -849,7 +850,7 @@ test(
     const cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "office-owner" });
     t.after(async () => {
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     const owner = withPolicyGroup(
       { actor: { principal: { personId: "office-owner" }, executor: null }, source: "local" as const },

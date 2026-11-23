@@ -2,7 +2,7 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +12,7 @@ import { registerDaemonConnection } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "../../daemon/test/repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The incident: a GUI bundle built before 9737f8f784 reads an Agent catalog from a daemon
 // that already carries hostAccess/hostAccessSource. The client-inbound read must deliver the
@@ -84,7 +85,7 @@ test("a GUI read survives additive daemon fields and keeps the unknown field out
     else process.env.HARNESS_DAEMON_ID = previous.id;
     if (previous.endpoint === undefined) delete process.env.HARNESS_DAEMON_ENDPOINT;
     else process.env.HARNESS_DAEMON_ENDPOINT = previous.endpoint;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -161,6 +162,6 @@ test("a GUI reads Agent list and detail payloads from a previous daemon that omi
     else process.env.HARNESS_DAEMON_ID = previous.id;
     if (previous.endpoint === undefined) delete process.env.HARNESS_DAEMON_ENDPOINT;
     else process.env.HARNESS_DAEMON_ENDPOINT = previous.endpoint;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

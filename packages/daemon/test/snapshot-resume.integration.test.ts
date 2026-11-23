@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   seedCenterData,
   waitForState,
 } from "./fleet-replication.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const seededTask = { taskId: "task_snapres000000000000000000001", executionId: "exe_snapres", title: "Resume" };
 
@@ -115,7 +116,7 @@ function makeTestArchive(
 
 test("walsender and walreceiver resume interrupted snapshot transfer from persisted byte offset", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-snap-resume-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_BINARY_CHUNK_BYTES * 3 + 1234);
   const snapshotId = "snap-pinned-001";
@@ -276,7 +277,7 @@ test("walsender and walreceiver resume interrupted snapshot transfer from persis
 
 test("resume-only admission rejection preserves the existing replica", async (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), "ha-repoint-resume-reject-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   const position = { history: "a".repeat(64), sequence: 4, revision: 2 };
   let resetCount = 0,
     revokeCount = 0,
@@ -318,7 +319,7 @@ test("resume-only admission rejection preserves the existing replica", async (t)
 
 test("walsender falls back to offset 0 with new snapshotId when requested snapshot is missing/expired", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-snap-fallback-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_CHUNK_BYTES + 500);
   const staleSnapshotId = "snap-expired-999";

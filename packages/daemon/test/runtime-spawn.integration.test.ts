@@ -3,7 +3,7 @@ import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -37,6 +37,7 @@ import {
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -160,7 +161,7 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -278,7 +279,7 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -815,7 +816,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     );
   } finally {
     await cell.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -988,7 +989,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
     assert.equal(Object.hasOwn(header, "delegatedByAgentId"), false);
   } finally {
     await cell.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1104,7 +1105,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
     context.diagnostic(`FINAL_RUNTIME_PROMPT_BEGIN\n${String(item?.final_prompt)}\nFINAL_RUNTIME_PROMPT_END`);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1224,7 +1225,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       await cell.close();
     }
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1365,7 +1366,7 @@ test("a dispatch whose launch carries no GitHub login reports it on the receipt 
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

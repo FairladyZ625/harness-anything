@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -17,6 +17,7 @@ import { taskBootstrapWritePlan } from "@harness-anything/kernel/internal/domain
 import { deriveRelationId } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function fixture(schema: string, name = "accepted.json") {
   return JSON.parse(
@@ -169,6 +170,6 @@ test("cold generation3 replay preserves historical bootstrap, execution, documen
   } finally {
     projection?.close();
     await reader?.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

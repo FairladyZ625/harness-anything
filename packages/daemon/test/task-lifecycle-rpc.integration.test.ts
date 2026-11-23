@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { createUnixSocketTransportServer } from "../src/daemon-host/transport/un
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function fixture(t: test.TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-rpc-")),
@@ -31,7 +32,7 @@ async function fixture(t: test.TestContext) {
   const host = await openDaemonHost({ daemonId: "lifecycle-rpc", userRoot, runtimeDiscover: () => [] });
   t.after(async () => {
     await host.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   await host.attachmentsSettled();
   const transport = createUnixSocketTransportServer({

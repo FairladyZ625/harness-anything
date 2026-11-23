@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -20,6 +20,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
 const originalPath = process.env.PATH;
@@ -33,7 +34,7 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
@@ -1384,7 +1385,7 @@ async function withCell(
     await run(cell, rootDir);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 function decisionProposal() {

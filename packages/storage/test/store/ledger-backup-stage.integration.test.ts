@@ -12,6 +12,7 @@ import {
   type LedgerBackupCapture,
 } from "../../src/store/ledger-backup.ts";
 import { flatLedgerFixture } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 // The scheduled backup holds the single writer queue only for its capture. A capture that re-copies
 // every ledger file holds it for minutes on a production-sized ledger (2026-11-08: 03:17-03:27 UTC,
@@ -79,7 +80,7 @@ test("a staged capture copies only changed sources and yields the same payload a
     assert.equal(existsSync(path.join(payload, "deleted.md")), false);
     assert.deepEqual(readVerifiedLedgerBackup(stagedDir), staged);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -92,7 +93,7 @@ test("a stage is bound to its own backup directory", () => {
       /backup stage belongs to another directory/u,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

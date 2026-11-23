@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc
 import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const filtered of [false, true]) {
   for (const leadingBlank of [false, true]) {
@@ -47,7 +48,7 @@ for (const filtered of [false, true]) {
           filtered ? [] : leadingBlank ? [1] : [0, 1],
         );
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     });
   }
@@ -131,6 +132,6 @@ test("an aligned dispatch history request leaves an isolated daemon responsive t
   } finally {
     release.resolve();
     await daemon?.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

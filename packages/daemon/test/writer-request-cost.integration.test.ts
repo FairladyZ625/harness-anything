@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 import { probedOrchestrationHost } from "./fixtures/orchestration-probe.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const openProbe = new URL("./fixtures/writer-epoch-open-probe.mjs", import.meta.url).href;
 
@@ -102,7 +103,7 @@ test("production writer requests open the epoch database once and never block on
     }
   } finally {
     await supervisor?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -213,6 +214,6 @@ test("host sync capability round trips reuse one shared buffer pair for the orch
     assert.equal(sabAllocations.filter((byteLength) => byteLength === 1024 * 1024).length, 1);
   } finally {
     await supervisor?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

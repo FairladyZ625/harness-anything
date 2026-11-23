@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
 import test from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/storage";
@@ -21,6 +21,7 @@ import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/daemon-host/cl
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";
 import { eventuallyValue } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "remote-edge startup IPC reads contain center refusal before and after attachment",
@@ -48,7 +49,7 @@ test(
     // No listening center or OpenSSL dependency is needed for transport-refused reads.
     const root = mkdtempSync(path.join(tmpdir(), "ha-startup-read-")),
       repo = path.join(root, "seed");
-    t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+    t.after(() => removeTempRepository(root));
     mkdirSync(path.join(repo, "harness"), { recursive: true });
     writeFileSync(
       path.join(repo, "harness/harness.yaml"),

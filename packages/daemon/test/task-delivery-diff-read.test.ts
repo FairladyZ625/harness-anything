@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseGitDiffPatch, readTaskDeliveryDiff } from "../src/daemon-host/task-delivery-diff-read.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -64,7 +65,7 @@ test("marks a patch as truncated at the explicit line budget", () => {
 
 test("reads the frozen delivery baseline through the daemon Git boundary", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-diff-read-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Test");
   git(root, "config", "user.email", "test@example.com");

@@ -2,7 +2,7 @@
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-insta
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { definition, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "Fleet rejects a missing or retired Schedule Agent before leaving an active claim",
@@ -246,7 +247,7 @@ test(
       edge?.close();
       await center?.close();
       await host?.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

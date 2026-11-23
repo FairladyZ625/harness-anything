@@ -27,6 +27,7 @@ import { realizedTaskPlan, sizedTaskPlan } from "../../../tools/fixtures/task-pl
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
 import { cliDaemonServeLaunch, daemonServeEntry } from "../src/daemon/client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   quotaBytes = 64 * 1024 * 1024;
@@ -457,7 +458,7 @@ test(
           stop(fixture, "edge");
         } finally {
           realm.close();
-          rmSync(fixture.root, { recursive: true, force: true });
+          removeTempRepository(fixture.root);
         }
       }
     }
@@ -693,7 +694,7 @@ test(
           stop(fixture, "edge");
         } finally {
           realm.close();
-          rmSync(fixture.root, { recursive: true, force: true });
+          removeTempRepository(fixture.root);
         }
       }
     }
@@ -1101,7 +1102,7 @@ test("fleet edge sync and daemon connection failures return receipts instead of 
     assert.doesNotMatch(unreachable.stderr, /Node\.js v\d/u, unreachable.stderr);
     assert.equal((JSON.parse(unreachable.stdout) as Record<string, unknown>).code, "daemon_unavailable");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1229,7 +1230,7 @@ test("daemon control reports Git follower failure while SQLite keeps accepting c
     assert.equal(stopped.status, 0, `${stopped.stdout}\n${stopped.stderr}`);
     assert.equal(stopped.receipt.ok, true);
     assert.equal(stopped.receipt.draining, undefined);
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 

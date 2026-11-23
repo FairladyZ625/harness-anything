@@ -6,7 +6,7 @@ import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
 import { adoptRuntimes } from "../src/daemon-host/runtime-spawn-adoption.ts";
 import { scheduleFallbackContinuation } from "../src/daemon-host/runtime-spawn-fallback.ts";
 import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-con
 import type { RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active } from "./runtime-spawn-settlement.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const replayDispatchId = "dispatch_0123456789abcdef01234567",
   replayRuntimeSessionId = "runtime_replay00000000000000000000",
@@ -197,7 +198,7 @@ for (const outcome of ["stopped", "failed"] as const) {
       assert.equal(terminals[0]?.runtimeSessionId, replayRuntimeSessionId);
       assert.equal(terminals[0]?.endedAt, "2026-10-16T23:20:04.290Z");
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }
@@ -321,7 +322,7 @@ test("a replayed terminal behind a scheduled fallback keeps settlement for the c
       "the transcript retains the raw observation for replay",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -429,7 +430,7 @@ test("a replayed terminal whose exit is already published does not re-notify set
     assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
     assert.equal(terminals.length, 0, "an already-settled exit must not be settled again");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -472,13 +473,13 @@ test("settlement ignores a replayed terminal whose occurrence is already settled
     });
     assert.deepEqual(run, [], "an already-settled claim must not be re-linked or re-settled");
   } finally {
-    rmSync(cell.rootDir, { recursive: true, force: true });
+    removeTempRepository(cell.rootDir);
   }
 });
 
 test("interrupted reviewer exhaustion replays the frozen terminal, releases its snapshot and notifies its Schedule claim", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "reviewer-exhaustion-replay-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
   git("init", "-q");
   git("config", "user.name", "Reviewer Replay Test");
@@ -620,7 +621,7 @@ test("interrupted reviewer exhaustion replays the frozen terminal, releases its 
 // A spool is replay evidence, never a replacement for a missing center schedule.
 test("fallback refuses a local stream plan when the canonical schedule is missing", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fallback-no-local-plan-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const stream = openDispatchStream(rootDir, {
     dispatchId: replayDispatchId,

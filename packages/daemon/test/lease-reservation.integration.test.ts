@@ -2,7 +2,7 @@
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -15,6 +15,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -177,7 +178,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
     assert.equal(execution?.entity_id, executionId);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { serializeFleetAction, materializeCommandFileInputs } from "../src/daemon/fleet-payload-serializer.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("runtime steer accepts --prompt-file and materializes it into the steer prompt", () => {
   const root = mkdtempSync(path.join(tmpdir(), "steer-prompt-file-"));
@@ -21,7 +22,7 @@ test("runtime steer accepts --prompt-file and materializes it into the steer pro
     assert.equal(materialized.action.prompt, "continue the plan");
     assert.equal(materialized.action.promptFile, undefined);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -44,7 +45,7 @@ test("runtime steer --prompt-file steers a dispatch target and stays inside the 
         /must stay within the selected repository/u.test(String((error as Error).message)),
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -63,7 +64,7 @@ test("runtime steer --prompt-file rejects file and parent symlinks that leave th
   symlinkSync(outside, path.join(root, "directory-link"), "dir");
   writeFileSync(path.join(root, "inside.md"), "inside prompt");
   symlinkSync(path.join(root, "inside.md"), path.join(outside, "back-inside.md"));
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
 
   for (const requested of ["file-link.md", "directory-link/prompt.md", "directory-link/back-inside.md"]) {
     const parsed = parseThinCommand(["runtime", "steer", "runtime_session1", "--prompt-file", requested], root);
@@ -168,7 +169,7 @@ test("file codecs resolve a selected repository root symlink before checking an 
   mkdirSync(root);
   symlinkSync(root, alias, "dir");
   writeFileSync(path.join(root, "prompt.md"), "inside prompt");
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   const parsed = parseThinCommand(
     ["runtime", "steer", "runtime_session1", "--prompt-file", path.join(alias, "prompt.md")],
     alias,

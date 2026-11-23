@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("repository vertical migration, upsert conflict, and retirement fence on the kind's own revision", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-vertical-declaration-")),
@@ -109,7 +110,7 @@ test("repository vertical migration, upsert conflict, and retirement fence on th
     assert.equal(retiredRow?.origin, "vertical");
   } finally {
     projection.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -170,7 +171,7 @@ test("declaration read round-trips every materialized kind field through unchang
     assert.deepEqual(JSON.parse(readFileSync(path.join(rootDir, "harness", "vertical.json"), "utf8")), materialized);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -245,6 +246,6 @@ test("declaration read revision drives create, catalog read, and retirement", as
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

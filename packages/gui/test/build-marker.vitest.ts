@@ -1,9 +1,10 @@
 // harness-test-tier: fast
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const writeScript = new URL("../scripts/write-build-id.mjs", import.meta.url);
 
@@ -17,7 +18,7 @@ describe("gui build marker", () => {
       });
       expect(readFileSync(path.join(root, "dist/build-id.txt"), "utf8")).toBe("stamped-commit\n");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -31,7 +32,7 @@ describe("gui build marker", () => {
       execFileSync(process.execPath, ["scripts/write-build-id.mjs"], { cwd: root, env });
       expect(readFileSync(path.join(root, "dist/build-id.txt"), "utf8")).toBe("source-archive\n");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 });

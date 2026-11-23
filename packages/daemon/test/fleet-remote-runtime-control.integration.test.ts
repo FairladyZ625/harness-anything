@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
@@ -37,6 +37,7 @@ import {
   setupEdgeNode,
   waitForProviderBound,
 } from "./fleet-remote-runtime-control.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Exact frozen agentRuntimeEventTypes allowlist from N-1 baseline (bb7e55c90d7bd8f15ffba849e0326c153716c8d9).
 const N_MINUS_1_AGENT_RUNTIME_EVENT_TYPES = new Set([
@@ -781,7 +782,7 @@ test(
     //    (d) A fresh Edge hydrated from that seed continues ordinary WAL replication cleanly!
     const ledger = openSqliteEventStore({ rootInput: f.repo, repoId, readOnly: true });
     const seedRoot = mkdtempSync(path.join(tmpdir(), "ha-g8-seed-compat-"));
-    t.after(() => rmSync(seedRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(seedRoot));
     try {
       const position = ledger.replicationPosition();
       const allEvents = ledger.events();
@@ -891,7 +892,7 @@ test(
     // Boot a fresh Edge C after cancel & steer control events exist in Center and confirm it catches up cleanly!
     await edgeA.host.close();
     const freshViewRoot = mkdtempSync(path.join(tmpdir(), "ha-g8-edge-c-view-"));
-    t.after(() => rmSync(freshViewRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(freshViewRoot));
     await catchUpReplica({
       ...f.peer("node-one"),
       ca: readFileSync(path.join(f.root, "tls.crt")),

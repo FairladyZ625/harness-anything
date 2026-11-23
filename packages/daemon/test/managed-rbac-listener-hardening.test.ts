@@ -31,6 +31,7 @@ import { managedRbacVersions } from "@harness-anything/authorization/keycloak/ma
 import type { ListenerWriteStage } from "../../authorization/src/keycloak/managed-rbac-listener-certificate.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface HardeningFixtureOptions {
   readonly userRoot?: string;
@@ -173,7 +174,7 @@ function createHardeningFixture(options: HardeningFixtureOptions = {}) {
     version: async () => String((await service.run({ operation: "listener" })).version),
     close: async () => {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }
@@ -380,8 +381,8 @@ test("directory symlinks inside rbac/listener do not delete external targets dur
     assert.equal(readFileSync(path.join(externalTarget, "keep.key"), "utf8"), "external-key\n");
     assert.equal(lstatSync(path.join(listenerDir, "uploaded-symlink-trap")).isSymbolicLink(), true);
   } finally {
-    rmSync(externalTarget, { recursive: true, force: true });
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(externalTarget);
+    removeTempRepository(sources);
     await managed.close();
   }
 });
@@ -467,12 +468,12 @@ test("symlinked rbac or rbac/listener roots refuse writes without chmodding or d
       assert.equal(readFileSync(path.join(externalRbacDir, "secret.txt"), "utf8"), "keep-me\n");
       assert.equal(statSync(externalRbacDir).mode & 0o777, 0o755);
     } finally {
-      rmSync(parentWithSymlinkRbac, { recursive: true, force: true });
-      rmSync(externalRbacDir, { recursive: true, force: true });
+      removeTempRepository(parentWithSymlinkRbac);
+      removeTempRepository(externalRbacDir);
     }
   } finally {
-    rmSync(externalListenerTarget, { recursive: true, force: true });
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(externalListenerTarget);
+    removeTempRepository(sources);
     await managed.close();
   }
 });
@@ -615,7 +616,7 @@ test("failed replacement from a broken previous listener kills the newly spawned
     await new Promise<void>((resolve) => probe.listen(portB, "127.0.0.1", resolve));
     await new Promise<void>((resolve) => probe.close(() => resolve()));
   } finally {
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(sources);
     await managed.close();
   }
 });
@@ -695,14 +696,14 @@ test("legacy listener migration publishes an intact pair without post-rename chm
     assert.notEqual(listener.certificateFile, source.certFile);
     assert.deepEqual(readFileSync(listener.certificateFile), readFileSync(source.certFile));
     assert.deepEqual(readFileSync(listener.certificateKeyFile), readFileSync(source.keyFile));
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(sources);
     await managed.service.stop();
     await managed.service.start();
     assert.equal((await managed.service.health()).ready, true);
   } finally {
     chmod.mock.restore();
     syncBuiltinESMExports();
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(sources);
     await managed.close();
   }
 });
@@ -762,7 +763,7 @@ test("listener upload and self-signed rotation survive a symlinked userRoot pare
     }
   } finally {
     await managed.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -836,7 +837,7 @@ test("omitting certificateMode and listenAddress binds firstReachableAddress whi
     assert.equal(explicitListen.ok, true);
     assert.equal(managed.config().listener.address, "127.0.0.1");
   } finally {
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(sources);
     await managed.close();
   }
 });
@@ -1018,7 +1019,7 @@ test("uploaded certificate validation enforces chain dates, issuer CA basic cons
     writeFileSync(activeCert, expiredLeaf.pem);
     assert.equal(managedListenerProblem(managed.root, validateCertificateNames), "invalid_material");
   } finally {
-    rmSync(caDir, { recursive: true, force: true });
+    removeTempRepository(caDir);
     await managed.close();
   }
 });
@@ -1079,7 +1080,7 @@ test("FIFO paths in listener uploads or stored config fail fast without blocking
     assert.equal(recovered.ok, true);
     assert.equal(recovered.listener, null);
   } finally {
-    rmSync(sources, { recursive: true, force: true });
+    removeTempRepository(sources);
     await managed.close();
   }
 });
