@@ -90,8 +90,7 @@ export async function fetchWithTlsCa(
 ): Promise<Response> {
   const protocol = URL.parse(input instanceof Request ? input.url : input)?.protocol;
   if (protocol === "http:") return fetcher(input, init);
-  if (protocol !== "https:")
-    throw new UnsupportedHttpProtocolError("Expected an HTTP(S) request URL.");
+  if (protocol !== "https:") throw new UnsupportedHttpProtocolError("Expected an HTTP(S) request URL.");
   const dispatcher = new Agent({
     connect: {
       ca: typeof ca === "string" ? ca : [...ca],

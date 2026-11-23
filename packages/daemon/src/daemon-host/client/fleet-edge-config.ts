@@ -53,18 +53,35 @@ export function fleetEdgeConfigPath(userRoot: string, repoId: string): string {
 export function fleetEdgeCaPath(userRoot: string, repoId: string): string {
   return path.join(fleetEdgeConfigDir(userRoot, repoId), "fleet-center-ca.pem");
 }
-export function locateFleetEdgeConfig(userRoot: string, repoId: string, rootDir?: string): string | null {
+export interface FleetEdgeWorkspaceResidue {
+  readonly code: "fleet_edge_config_workspace_residue";
+  readonly message: string;
+}
+
+export function fleetEdgeWorkspaceResidue(
+  userRoot: string,
+  repoId: string,
+  rootDir: string,
+): FleetEdgeWorkspaceResidue | null {
   const destination = fleetEdgeConfigPath(userRoot, repoId);
-  if (existsSync(destination)) return destination;
-  if (rootDir === undefined) return null;
+  if (existsSync(destination)) return null;
   const source = path.join(rootDir, "fleet-edge.json");
   if (lstatSync(source, { throwIfNoEntry: false }) === undefined) return null;
   const sourceCa = path.join(rootDir, "fleet-center-ca.pem"),
     destinationCa = fleetEdgeCaPath(userRoot, repoId);
-  throw new FleetEdgeConfigError(
-    "fleet_edge_config_workspace_residue",
-    `Move ${JSON.stringify(source)} to ${JSON.stringify(destination)}. If present, move ${JSON.stringify(sourceCa)} to ${JSON.stringify(destinationCa)} and set caPath in the moved config to that absolute CA path. Then rerun ha daemon fleet edge sync.`,
-  );
+  return {
+    code: "fleet_edge_config_workspace_residue",
+    message: `Move ${JSON.stringify(source)} to ${JSON.stringify(destination)}. If present, move ${JSON.stringify(sourceCa)} to ${JSON.stringify(destinationCa)} and set caPath in the moved config to that absolute CA path. Then rerun ha daemon fleet edge sync.`,
+  };
+}
+
+export function locateFleetEdgeConfig(userRoot: string, repoId: string, rootDir?: string): string | null {
+  const destination = fleetEdgeConfigPath(userRoot, repoId);
+  if (existsSync(destination)) return destination;
+  if (rootDir === undefined) return null;
+  const residue = fleetEdgeWorkspaceResidue(userRoot, repoId, rootDir);
+  if (residue !== null) throw new FleetEdgeConfigError(residue.code, residue.message);
+  return null;
 }
 
 export function readFleetEdgeConfig(userRoot: string, repoId: string, remoteEdgeRoot?: string): FleetEdgeConfig | null {

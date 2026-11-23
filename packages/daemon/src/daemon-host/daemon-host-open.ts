@@ -48,6 +48,7 @@ import { observeDaemonBuild } from "./build-identity.ts";
 import {
   FleetEdgeConfigError,
   fleetEdgeConfigDir,
+  fleetEdgeWorkspaceResidue,
   readFleetEdgeConfig,
   readFleetEdgeConfigForRoot,
 } from "./client/fleet-edge-config.ts";
@@ -1664,22 +1665,22 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       activeRemoteEdges = new Set<string>();
     for (const repo of registered) {
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
-      const rootDir = repo.canonicalRoot;
-      let config: ReturnType<typeof readFleetEdgeConfig> = null;
-      try {
-        config = readFleetEdgeConfig(input.userRoot, repo.repoId, rootDir);
-      } catch (error) {
-        if (!(error instanceof FleetEdgeConfigError) || error.code !== "fleet_edge_config_workspace_residue")
-          throw error;
-        consumeKnownError(error);
-        input.recordLifecycle?.({
-          event: "replica_sync_failed",
-          repoId: repo.repoId,
-          code: error.code,
-          error: error.message,
-        });
+      const rootDir = repo.canonicalRoot,
+        config = readFleetEdgeConfig(input.userRoot, repo.repoId);
+      if (!config) {
+        const residue = fleetEdgeWorkspaceResidue(input.userRoot, repo.repoId, rootDir);
+        if (residue) {
+          input.recordLifecycle?.({
+            event: "replica_sync_failed",
+            repoId: repo.repoId,
+            code: residue.code,
+            error: residue.message,
+          });
+        }
+        fleetVersionWarnings.delete(repo.repoId);
+        continue;
       }
-      if (!config || config.repoId !== repo.repoId) {
+      if (config.repoId !== repo.repoId) {
         fleetVersionWarnings.delete(repo.repoId);
         continue;
       }
