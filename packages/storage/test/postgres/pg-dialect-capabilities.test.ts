@@ -26,6 +26,7 @@ import {
 import { postgresStorageMigrationSchema } from "../../src/migration/postgres-schema.ts";
 import { projectionDdl } from "../../src/pg/pg-projection-schema.ts";
 import { readPgProjectionStoredRows } from "../../src/pg/pg-projection-stored-rows.ts";
+import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 
 const STANDARD_PG16_PROBE = {
   version_text: "PostgreSQL 16.4 on x86_64-pc-linux-gnu",
@@ -364,4 +365,48 @@ test("readPgProjectionStoredRows uses row_to_json on openGauss and strips/resolv
     assert.match(sql, /row_to_json\(projection\)/u);
     assert.doesNotMatch(sql, /\bto_jsonb\b|\bjsonb_build_object\b/u);
   }
+});
+
+test("readDecisions preserves first-occurrence ordering for duplicate decision IDs", async () => {
+  const decisionRows = [
+    { decision_id: "dec_B", value: { title: "Decision B", state: "proposed" } },
+    { decision_id: "dec_A", value: { title: "Decision A", state: "proposed" } },
+  ];
+  const mockClient = {
+    on() {
+      return this;
+    },
+    removeListener() {
+      return this;
+    },
+    release() {},
+    async query(sql: string) {
+      if (sql.includes("FROM ha_projection_meta")) return { rows: [{ watermark: "0", schema_version: 5 }] };
+      if (sql.includes("FROM ha_decisions")) return { rows: decisionRows };
+      return { rows: [] };
+    },
+  } as unknown as PoolClient;
+  const mockPool = {
+    async connect() {
+      return mockClient;
+    },
+  } as unknown as Pool;
+  const source = createPgTaskProjectionSource({
+    pool: mockPool,
+    scope: { tenantId: "t1", projectId: "p1", policyEpoch: 1 },
+    repoId: "repo-1",
+    ownsPool: false,
+  });
+
+  const aFirst = await source.readDecisions(["dec_A", "dec_B", "dec_A"], false);
+  assert.deepEqual(
+    aFirst.decisions.map((decision) => decision.decisionId),
+    ["dec_A", "dec_B"],
+  );
+
+  const bFirst = await source.readDecisions(["dec_B", "dec_A", "dec_B"], false);
+  assert.deepEqual(
+    bFirst.decisions.map((decision) => decision.decisionId),
+    ["dec_B", "dec_A"],
+  );
 });

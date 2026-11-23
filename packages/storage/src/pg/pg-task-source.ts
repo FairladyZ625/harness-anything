@@ -489,7 +489,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")}`,
           values,
         );
-        const order = new Map(decisionIds.map((id, index) => [id, index]));
+        const order = new Map<string, number>();
+        for (const [index, id] of decisionIds.entries()) if (!order.has(id)) order.set(id, index);
         const orderedRows = [...result.rows].sort(
           (left, right) => (order.get(left.decision_id) ?? Infinity) - (order.get(right.decision_id) ?? Infinity),
         );
