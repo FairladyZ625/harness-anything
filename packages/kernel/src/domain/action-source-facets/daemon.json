@@ -6562,6 +6562,20 @@
         "order": 424
       }
     ],
+    "peer-accept-handoff": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2:2",
+        "route": "peer-accept-handoff",
+        "role": "effect",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#materializeHandoffBundle:26f52d7e9bbf0f85bc5a4f69a850165e",
+        "route": "peer-accept-handoff",
+        "role": "effect",
+        "order": 2
+      }
+    ],
     "peer-ask": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#commitBatch:3026cfab2e7274a19f0149669c0d0919",

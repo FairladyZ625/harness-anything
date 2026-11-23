@@ -16,6 +16,7 @@ import {
 
 export const PEER_REQUEST_MODEL_VERSION = 1;
 export const PEER_REQUEST_PAGE_LIMIT = 200;
+export const DEFAULT_OFFLINE_TAKEOVER_THRESHOLD_MS = 15 * 60_000;
 
 export const peerRequestStates = ["OPEN", "CLAIMED", "ANSWERED", "DONE", "REJECTED", "PROMOTED"] as const;
 export type PeerRequestState = (typeof peerRequestStates)[number];
@@ -206,6 +207,141 @@ export function matchesPeerWatchFilter(
     return filter.workId !== undefined && filter.workId === item.workId;
   }
   return filter.lane === (item.lane ?? "default");
+}
+
+export interface StewardshipFenceInput {
+  readonly executionId: string;
+  readonly currentStewardshipEpoch: number;
+  readonly currentStewardPersonId: string;
+  readonly currentStewardNodeId?: string;
+  readonly actingPersonId: string;
+  readonly actingNodeId?: string;
+  readonly expectedStewardshipEpoch?: number;
+}
+
+export type StewardshipFenceVerdict =
+  | { readonly ok: true; readonly currentEpoch: number }
+  | { readonly ok: false; readonly errorCode: "execution_handed_off"; readonly message: string };
+
+/** Fence writes carrying a stale stewardshipEpoch or arriving from a superseded steward/node. */
+export function assertExecutionStewardshipFence(input: StewardshipFenceInput): StewardshipFenceVerdict {
+  const currentEpoch =
+    Number.isSafeInteger(input.currentStewardshipEpoch) && input.currentStewardshipEpoch >= 1
+      ? input.currentStewardshipEpoch
+      : 1;
+  if (
+    input.expectedStewardshipEpoch !== undefined &&
+    (!Number.isSafeInteger(input.expectedStewardshipEpoch) || input.expectedStewardshipEpoch < currentEpoch)
+  ) {
+    return {
+      ok: false,
+      errorCode: "execution_handed_off",
+      message:
+        `Execution ${input.executionId} has been handed off to stewardshipEpoch ${currentEpoch} ` +
+        `(caller supplied stale epoch ${String(input.expectedStewardshipEpoch)}).`,
+    };
+  }
+  if (currentEpoch > 1 && input.actingPersonId !== input.currentStewardPersonId) {
+    return {
+      ok: false,
+      errorCode: "execution_handed_off",
+      message:
+        `Execution ${input.executionId} was handed off to ${input.currentStewardPersonId} ` +
+        `at stewardshipEpoch ${currentEpoch}; writes from ${input.actingPersonId} are fenced.`,
+    };
+  }
+  if (
+    currentEpoch > 1 &&
+    input.currentStewardNodeId !== undefined &&
+    input.actingNodeId !== undefined &&
+    input.actingNodeId !== input.currentStewardNodeId
+  ) {
+    return {
+      ok: false,
+      errorCode: "execution_handed_off",
+      message:
+        `Execution ${input.executionId} is stewarded by node ${input.currentStewardNodeId} ` +
+        `at stewardshipEpoch ${currentEpoch}; writes from node ${input.actingNodeId} are fenced.`,
+    };
+  }
+  return { ok: true, currentEpoch };
+}
+
+export interface OfflineTakeoverAdmissionInput {
+  readonly fleetStreamConnected: boolean;
+  readonly hasWritePermission: boolean;
+  readonly holderNodeOnline: boolean;
+  readonly disconnectedForMs: number | null;
+  readonly takeoverThresholdMs?: number;
+  readonly humanConfirmed: boolean;
+}
+
+export type OfflineTakeoverAdmissionVerdict =
+  | { readonly allowed: true; readonly thresholdMs: number }
+  | {
+      readonly allowed: false;
+      readonly errorCode:
+        | "peer_replication_disconnected"
+        | "authorization_missing"
+        | "execution_holder_online"
+        | "takeover_threshold_not_met"
+        | "peer_local_human_confirmation_required";
+      readonly message: string;
+    };
+
+/** Enforce offline takeover prerequisites: disconnected > threshold + repo write permission + local L1 confirmation. */
+export function evaluateOfflineTakeoverAdmission(
+  input: OfflineTakeoverAdmissionInput,
+): OfflineTakeoverAdmissionVerdict {
+  if (!input.fleetStreamConnected) {
+    return {
+      allowed: false,
+      errorCode: "peer_replication_disconnected",
+      message: "Fleet replication stream (7545) is disconnected; offline takeover fails closed until reconnected.",
+    };
+  }
+  if (!input.hasWritePermission) {
+    return {
+      allowed: false,
+      errorCode: "authorization_missing",
+      message: "Offline takeover requires repository write permission from the center AuthorizationPort.",
+    };
+  }
+  if (input.holderNodeOnline) {
+    return {
+      allowed: false,
+      errorCode: "execution_holder_online",
+      message:
+        "The current steward node is still online; silent lock-stealing is forbidden. Request an explicit `ha peer handoff` instead.",
+    };
+  }
+  const thresholdMs =
+    input.takeoverThresholdMs !== undefined &&
+    Number.isSafeInteger(input.takeoverThresholdMs) &&
+    input.takeoverThresholdMs >= 0
+      ? input.takeoverThresholdMs
+      : DEFAULT_OFFLINE_TAKEOVER_THRESHOLD_MS;
+  if (
+    input.disconnectedForMs === null ||
+    !Number.isFinite(input.disconnectedForMs) ||
+    input.disconnectedForMs < thresholdMs
+  ) {
+    return {
+      allowed: false,
+      errorCode: "takeover_threshold_not_met",
+      message:
+        `Holder node disconnect duration (${input.disconnectedForMs ?? "unknown"}ms) has not exceeded ` +
+        `the offline takeover threshold (${thresholdMs}ms).`,
+    };
+  }
+  if (!input.humanConfirmed) {
+    return {
+      allowed: false,
+      errorCode: "peer_local_human_confirmation_required",
+      message: "Offline takeover requires explicit local human L1 confirmation (--human-confirmed).",
+    };
+  }
+  return { allowed: true, thresholdMs };
 }
 
 export function isPeerFrameCausallyReady(input: {
@@ -776,6 +912,48 @@ export const peerActionDefinitions = [
       peerIdempotencyField,
     ],
   },
+  {
+    id: "accept-handoff",
+    read: false,
+    summary: "Atomically transfer an active Execution lease and stewardshipEpoch from a peer handoff request.",
+    fields: [
+      peerRequestIdField,
+      peerText("nodeId", false, "--node-id"),
+      peerFlagBool("materializeWorktree", "--materialize-worktree"),
+      peerFlagNum("ttlMs", "--ttl-ms"),
+      peerIdempotencyField,
+    ],
+  },
+  {
+    id: "takeover",
+    read: false,
+    summary:
+      "Force-takeover an active Execution from a disconnected node with stewardshipEpoch fencing and L1 confirmation.",
+    fields: [
+      peerText("targetId", true),
+      peerText("reason", true, "--reason"),
+      peerFlagBool("humanConfirmed", "--human-confirmed"),
+      peerText("nodeId", false, "--node-id"),
+      peerFlagNum("thresholdMs", "--threshold-ms"),
+      peerFlagNum("ttlMs", "--ttl-ms"),
+      peerIdempotencyField,
+    ],
+  },
+  {
+    id: "checkpoint",
+    read: false,
+    summary:
+      "Record a lightweight milestone WIP commit/bundle checkpoint on an active Execution under stewardshipEpoch fencing.",
+    fields: [
+      peerText("targetId", true),
+      peerText("wipCommitSha", false, "--wip-commit-sha"),
+      peerText("bundlePath", false, "--bundle-path"),
+      peerText("receiptRef", false, "--receipt-ref"),
+      peerFlagNum("stewardshipEpoch", "--stewardship-epoch"),
+      peerText("nodeId", false, "--node-id"),
+      peerIdempotencyField,
+    ],
+  },
 ] as const;
 
 export function createPeerActionCatalog(baseAction: (id: string) => EntityActionContract) {
@@ -804,7 +982,7 @@ export function createPeerActionCatalog(baseAction: (id: string) => EntityAction
           read,
           implementation: "catalog-runtime",
           topology: "center-forward-write",
-          targetIdField: id === "handoff" ? "targetId" : "requestId",
+          targetIdField: id === "handoff" || id === "takeover" || id === "checkpoint" ? "targetId" : "requestId",
         },
       }),
     ),
@@ -836,6 +1014,25 @@ export const peerJudgments = [
         candidateId:
           "judgment:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#validatePeerRequestEvent:57ccd6886015e975aaa0ce75d002f61d",
         route: "validatePeerRequestEvent",
+      },
+    ],
+  },
+  {
+    id: "stewardship-epoch-fence",
+    symbol: "packages/kernel/src/domain/peer-collaboration.ts#assertExecutionStewardshipFence",
+    inputs: ["execution stewardship epoch, steward identity, acting principal/node, expected epoch"],
+    output: "StewardshipFenceVerdict",
+    failureCodes: ["execution_handed_off"],
+    explain: "Fence execution writes carrying a stale stewardshipEpoch or arriving from a superseded steward/node.",
+    consumers: [
+      "packages/daemon/src/daemon-host/peer-action.ts",
+      "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts",
+    ],
+    sources: [
+      {
+        candidateId:
+          "judgment:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#assertExecutionStewardshipFence:ccaa947cec8dddfc2b958059f897292d",
+        route: "assertExecutionStewardshipFence",
       },
     ],
   },
@@ -940,6 +1137,101 @@ export const peerPolicies = [
         candidateId:
           "policy:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#prepareHandoffBundle.created.timeoutMs:08ce959d3673db2be6251563546f9a16",
         route: "peer-handoff",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#materializeHandoffBundle.unbundled.timeoutMs:08ce959d3673db2be6251563546f9a16",
+        route: "peer-accept-handoff",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.payload.admission:0434b29be0266d9440715451ee9874bd:2",
+        route: "peer-accept-handoff",
+      },
+    ],
+  },
+  {
+    id: "execution-stewardship-takeover",
+    ownerRef: "peer-request",
+    unit: "epoch / ms",
+    bounds:
+      "Execution stewardshipEpoch starts at 1 and increments monotonically on accept-handoff or offline takeover; offline takeover requires 7545 connectivity, repository write permission, holder node disconnected past threshold (default 15m), and local human L1 confirmation.",
+    defaultValue: 900000,
+    version: 1,
+    scope: "Cross-principal Execution lease transfer, offline takeover admission, and stewardshipEpoch validation",
+    reason:
+      "Prevent silent lock-stealing against online peers and guarantee split-brain writes from awakened offline nodes fail with execution_handed_off.",
+    fixtures: ["packages/kernel/test/peer-collaboration.test.ts", "packages/daemon/test/peer-collaboration.test.ts"],
+    sources: [
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.allowed:f0ce3ef598574b1ebe708af042563f87",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.allowed:f0ce3ef598574b1ebe708af042563f87:2",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.allowed:f0ce3ef598574b1ebe708af042563f87:3",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.thresholdMs:f51277016dd7398e0d3acc9349ad7d60",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.allowed:f0ce3ef598574b1ebe708af042563f87:4",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.allowed:f0ce3ef598574b1ebe708af042563f87:5",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluateOfflineTakeoverAdmission.allowed:d3583fbbe4fa23918ff42c68ae84c60d",
+        route: "evaluateOfflineTakeoverAdmission",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.nextLease:6dcd9900c158a24ed0ed384556c97b6f",
+        route: "peer-accept-handoff",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.disconnectedForMs:430b5e30bdc598adebcc33350138ca3c",
+        route: "peer-takeover",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.verdict:d3a415759adc1ecd048a0df4c51f5b7e",
+        route: "peer-takeover",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.nextLease:894af39d3a83fe4b1775457b54032feb",
+        route: "peer-takeover",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionV1:acc96a411afd684183141c7e2b4b0d70",
+        route: "validateExecutionV1",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/execution.ts#validateLeaseV1:29eadbf262d72397fa66f914f416ecad",
+        route: "validateLeaseV1",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields:69081aa1d8594a46bc2fae95207c6bd4",
+        route: "validateTaskEventFields",
       },
     ],
   },

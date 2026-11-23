@@ -401,11 +401,60 @@ const peerProtocolCommands = (
         peerCliIdempotency,
       ],
     },
+    {
+      id: "accept-handoff",
+      read: false,
+      summary: "Atomically transfer an active Execution lease and stewardshipEpoch from a peer handoff request.",
+      fields: [
+        peerCliRequestId,
+        peerCliText("nodeId", false, "--node-id"),
+        peerCliBool("materializeWorktree", "--materialize-worktree"),
+        peerCliNum("ttlMs", "--ttl-ms"),
+        peerCliIdempotency,
+      ],
+    },
+    {
+      id: "takeover",
+      read: false,
+      summary:
+        "Force-takeover an active Execution from a disconnected node with stewardshipEpoch fencing and L1 confirmation.",
+      fields: [
+        peerCliText("targetId", true),
+        peerCliText("reason", true, "--reason"),
+        peerCliBool("humanConfirmed", "--human-confirmed"),
+        peerCliText("nodeId", false, "--node-id"),
+        peerCliNum("thresholdMs", "--threshold-ms"),
+        peerCliNum("ttlMs", "--ttl-ms"),
+        peerCliIdempotency,
+      ],
+    },
+    {
+      id: "checkpoint",
+      read: false,
+      summary:
+        "Record a lightweight milestone WIP commit/bundle checkpoint on an active Execution under stewardshipEpoch fencing.",
+      fields: [
+        peerCliText("targetId", true),
+        peerCliText("wipCommitSha", false, "--wip-commit-sha"),
+        peerCliText("bundlePath", false, "--bundle-path"),
+        peerCliText("receiptRef", false, "--receipt-ref"),
+        peerCliNum("stewardshipEpoch", "--stewardship-epoch"),
+        peerCliText("nodeId", false, "--node-id"),
+        peerCliIdempotency,
+      ],
+    },
   ] as const
 ).map(({ id, read, summary, fields }) => {
-  const hasPositional = id === "reply" || id === "promote" || id === "handoff",
-    positionalName = id === "handoff" ? "<target-id>" : "<request-id>",
-    positionalField = id === "handoff" ? "targetId" : "requestId";
+  const hasPositional =
+      id === "reply" ||
+      id === "promote" ||
+      id === "handoff" ||
+      id === "accept-handoff" ||
+      id === "takeover" ||
+      id === "checkpoint",
+    isTargetPositional = id === "handoff" || id === "takeover" || id === "checkpoint",
+    positionalName = isTargetPositional ? "<target-id>" : "<request-id>",
+    positionalField = isTargetPositional ? "targetId" : "requestId";
   const command = {
     id: `peer-${id}`,
     phase: "W3",

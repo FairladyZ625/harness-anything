@@ -409,6 +409,21 @@ export function reduceTaskEvent(
         : [...snapshot.executions, event.payload.execution],
       lease: event.payload.lease,
     };
+  else if (event.type === "execution_stewardship_transferred")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+      lease: event.payload.lease,
+    };
+  else if (event.type === "execution_wip_checkpointed")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+    };
   else if (event.type === "lease_renewed")
     next = {
       ...snapshot,

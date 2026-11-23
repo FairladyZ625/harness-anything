@@ -90,6 +90,9 @@ export const executionSchema: EntityDocumentJsonSchema = {
     deliveryBaseline: opaqueObject(),
     amendedBy: opaqueObject(),
     annotations: { type: "array", items: opaqueObject(), minItems: 1 },
+    stewardshipEpoch: { type: "integer" },
+    stewardNodeId: { type: "string", minLength: 1 },
+    wipCheckpoint: opaqueObject(),
     gateRuns: { type: "array", items: opaqueObject() },
   },
   required: [

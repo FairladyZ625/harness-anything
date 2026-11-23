@@ -34,7 +34,13 @@ export interface LifecycleContentBlob {
 // stays unpublished and takes its first H1 from its first prose sync, so the claim list —
 // and therefore this replay invariant — only names the plan when the event actually claims it.
 export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string): readonly string[] {
-  if (event.type === "task_created" || event.type === "lease_renewed") return [];
+  if (
+    event.type === "task_created" ||
+    event.type === "lease_renewed" ||
+    event.type === "execution_stewardship_transferred" ||
+    event.type === "execution_wip_checkpointed"
+  )
+    return [];
   const base = mutationDocumentPaths(event, packagePath);
   if (!("execution" in event.payload)) {
     const plan = retitledTaskPlanPath(event, packagePath);
@@ -66,7 +72,13 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
 // write: it probes the retitled plan even when the event does not (yet) claim it, so the compile
 // step can decide claim inclusion from whether the plan is published.
 export function lifecycleDocumentFetchPaths(event: TaskEventV1, packagePath: string): readonly string[] {
-  if (event.type === "task_created" || event.type === "lease_renewed") return [];
+  if (
+    event.type === "task_created" ||
+    event.type === "lease_renewed" ||
+    event.type === "execution_stewardship_transferred" ||
+    event.type === "execution_wip_checkpointed"
+  )
+    return [];
   const base = mutationDocumentPaths(event, packagePath);
   if ("execution" in event.payload) return lifecycleDocumentPaths(event, packagePath);
   const plan = retitledTaskPlanPath(event, packagePath);
@@ -213,6 +225,8 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
     );
   if (event.type === "execution_started")
     targets.push(lease(event.taskId, "reserve"), lease(event.taskId, "activate"), lease(event.taskId, "release"));
+  if (event.type === "execution_stewardship_transferred")
+    targets.push(lease(event.taskId, "release"), lease(event.taskId, "activate"));
   if (
     (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
     event.type === "lease_released" ||

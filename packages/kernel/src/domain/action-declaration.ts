@@ -44,6 +44,21 @@ export const actionPresentation = {
     name: "跨节点 CEO 主动交班",
     description: "打包半成品代码与回执上下文移交对端主理人并释放本机租约。",
   },
+  "peer-accept-handoff": {
+    domain: "peer",
+    name: "原子接受跨节点交班过户",
+    description: "在内核单事务中将活跃执行租约与纪元原子过户给接手主理人并保留交付基线。",
+  },
+  "peer-takeover": {
+    domain: "peer",
+    name: "失联节点纪元围栏强制接管",
+    description: "经失联阈值校验与本机 L1 人类确认后递增纪元强制接管活跃执行租约。",
+  },
+  "peer-checkpoint": {
+    domain: "peer",
+    name: "记录里程碑 WIP 指针检查点",
+    description: "在纪元围栏保护下向中心更新轻量级半成品提交与 Bundle 指针。",
+  },
 
   "fleet-overview-read": { domain: "fleet", name: "查看舰队", description: "查看获授权仓库的节点会话与复制状态。" },
   "repository-read": { domain: "repository", name: "读取仓库", description: "查看获授权仓库中的内容。" },
@@ -540,6 +555,9 @@ export const actionDeclarations = Object.freeze([
   canonical("peer-reply", "peer-request/reply", "repo-write"),
   canonical("peer-promote", "peer-request/promote", "repo-write"),
   canonical("peer-handoff", "peer-request/handoff", "repo-write"),
+  canonical("peer-accept-handoff", "peer-request/accept-handoff", "repo-write"),
+  canonical("peer-takeover", "peer-request/takeover", "repo-write"),
+  canonical("peer-checkpoint", "peer-request/checkpoint", "repo-write"),
   canonical("schedule-claim", "schedule/claim", "repo-write"),
   canonical("schedule-assign", "schedule/assign", "repo-write"),
   canonical("schedule-create", "schedule/create", "repo-write"),

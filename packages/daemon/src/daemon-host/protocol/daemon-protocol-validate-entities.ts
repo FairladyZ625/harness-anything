@@ -413,7 +413,14 @@ export function execution(value: unknown): boolean {
       "submission",
       "gateRuns",
     ],
-    executionV1Optional = ["deliveryBaseline", "amendedBy", "annotations"];
+    executionV1Optional = [
+      "deliveryBaseline",
+      "amendedBy",
+      "annotations",
+      "stewardshipEpoch",
+      "stewardNodeId",
+      "wipCheckpoint",
+    ];
   if (
     recordWith(value, executionV1Required) &&
     Object.keys(value).every((field) => [...executionV1Required, ...executionV1Optional].includes(field))

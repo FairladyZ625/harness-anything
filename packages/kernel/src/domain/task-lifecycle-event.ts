@@ -1,13 +1,23 @@
 import {
+  executionStewardshipEpoch,
   isNativeCommitSha,
   isSubmissionId,
   submissionDigest,
+  validExecutionWipCheckpoint,
   validateExecutionAnnotationV1s,
   validateExecutionV1,
   validateLeaseHolder,
   validateLeaseV1,
 } from "./execution.ts";
-import type { ExecutionAnnotationV1, ExecutionV1, LeaseHolder, LeaseV1, SubmissionV1 } from "./execution.ts";
+import type {
+  ExecutionAnnotationV1,
+  ExecutionV1,
+  ExecutionWipCheckpointV1,
+  LeaseHolder,
+  LeaseV1,
+  SubmissionV1,
+} from "./execution.ts";
+import { isOrphanRuntimeRecoveryAudit, type OrphanRuntimeRecoveryAudit } from "./orphan-runtime-recovery.ts";
 import {
   validateAdmittedReviewV1,
   validateReviewConsentV1,
@@ -51,6 +61,8 @@ export const taskEventTypes = [
   "task_assigned",
   "task_unassigned",
   "execution_started",
+  "execution_stewardship_transferred",
+  "execution_wip_checkpointed",
   "lease_renewed",
   "execution_submitted",
   "submission_forwarded",
@@ -119,6 +131,31 @@ export type ExecutionStartedEvent = TaskEventEnvelope<
     readonly previousHolder: LeaseHolder | null;
     readonly leaseExpiresAt: string;
     readonly reason: LeaseChangeReason;
+  }
+>;
+export type StewardshipTransferMode = "accept_handoff" | "offline_takeover";
+export type ExecutionStewardshipTransferredEvent = TaskEventEnvelope<
+  "execution_stewardship_transferred",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly lease: LeaseV1;
+    readonly previousHolder: LeaseHolder | null;
+    readonly previousStewardshipEpoch: number;
+    readonly stewardshipEpoch: number;
+    readonly mode: StewardshipTransferMode;
+    readonly peerRequestId?: string;
+    readonly reason: string;
+    readonly leaseExpiresAt: string;
+    readonly orphanRecovery?: OrphanRuntimeRecoveryAudit;
+  }
+>;
+export type ExecutionWipCheckpointedEvent = TaskEventEnvelope<
+  "execution_wip_checkpointed",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly checkpoint: ExecutionWipCheckpointV1;
   }
 >;
 export type LeaseRenewedEvent = TaskEventEnvelope<
@@ -309,6 +346,8 @@ export type TaskMutationEventType = Exclude<
   TaskEventType,
   | "task_created"
   | "execution_started"
+  | "execution_stewardship_transferred"
+  | "execution_wip_checkpointed"
   | "lease_renewed"
   | "execution_submitted"
   | "submission_forwarded"
@@ -367,6 +406,8 @@ export function supersededTaskState(task: TaskV2, supersededBy: string | null): 
 export type TaskEventV1 =
   | TaskCreatedEvent
   | ExecutionStartedEvent
+  | ExecutionStewardshipTransferredEvent
+  | ExecutionWipCheckpointedEvent
   | LeaseRenewedEvent
   | ExecutionSubmittedEvent
   | SubmissionForwardedEvent
@@ -479,6 +520,12 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       Object.hasOwn(payload, "azp")
         ? ["azp"]
         : []),
+      ...(value.type === "execution_stewardship_transferred" && Object.hasOwn(payload, "peerRequestId")
+        ? ["peerRequestId"]
+        : []),
+      ...(value.type === "execution_stewardship_transferred" && Object.hasOwn(payload, "orphanRecovery")
+        ? ["orphanRecovery"]
+        : []),
     ],
     claims = payload.documentClaims;
   const claimlessFields =
@@ -557,6 +604,8 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   if (
     [
       "execution_started",
+      "execution_stewardship_transferred",
+      "execution_wip_checkpointed",
       "lease_renewed",
       "execution_submitted",
       "submission_forwarded",
@@ -602,6 +651,48 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
         (payload.previousHolder === null || payload.reason !== "same_principal_reconnect"))
     )
       issues.push(invalidEventPayloadIssue("lease event history is invalid"));
+  }
+  if (value.type === "execution_stewardship_transferred") {
+    issues.push(...validateLeaseV1(payload.lease, allowUnknownFields));
+    if (payload.previousHolder !== null)
+      issues.push(...validateLeaseHolder(payload.previousHolder, allowUnknownFields));
+    if (payload.orphanRecovery !== undefined && !isOrphanRuntimeRecoveryAudit(payload.orphanRecovery))
+      issues.push(invalidEventPayloadIssue("execution stewardship transfer orphanRecovery audit is invalid"));
+    const prevEpoch = payload.previousStewardshipEpoch,
+      nextEpoch = payload.stewardshipEpoch,
+      exec = isRecord(payload.execution) ? (payload.execution as unknown as ExecutionV1) : null,
+      lease = isRecord(payload.lease) ? (payload.lease as unknown as LeaseV1) : null;
+    if (
+      !Number.isSafeInteger(prevEpoch) ||
+      Number(prevEpoch) < 1 ||
+      !Number.isSafeInteger(nextEpoch) ||
+      Number(nextEpoch) !== Number(prevEpoch) + 1 ||
+      (payload.mode !== "accept_handoff" && payload.mode !== "offline_takeover") ||
+      !isNonEmptyString(payload.reason) ||
+      !timestamp(payload.leaseExpiresAt) ||
+      (payload.peerRequestId !== undefined && !isNonEmptyString(payload.peerRequestId)) ||
+      !exec ||
+      !lease ||
+      executionStewardshipEpoch(exec) !== nextEpoch ||
+      lease.stewardshipEpoch !== nextEpoch ||
+      lease.executionId !== exec.executionId ||
+      lease.taskId !== value.taskId ||
+      lease.phase !== "held"
+    )
+      issues.push(
+        invalidEventPayloadIssue(
+          "execution stewardship transfer must advance stewardshipEpoch monotonically with held lease",
+        ),
+      );
+  }
+  if (value.type === "execution_wip_checkpointed") {
+    const exec = isRecord(payload.execution) ? (payload.execution as unknown as ExecutionV1) : null;
+    if (
+      !validExecutionWipCheckpoint(payload.checkpoint) ||
+      !exec ||
+      payload.checkpoint.stewardshipEpoch !== executionStewardshipEpoch(exec)
+    )
+      issues.push(invalidEventPayloadIssue("execution WIP checkpoint must match the execution stewardshipEpoch"));
   }
   if (value.type === "execution_executor_declared") {
     const previousActor = payload.previousActor,
@@ -783,6 +874,18 @@ function lifecyclePayloadFields(
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
+  if (type === "execution_stewardship_transferred")
+    return [
+      ...common,
+      "lease",
+      "previousHolder",
+      "previousStewardshipEpoch",
+      "stewardshipEpoch",
+      "mode",
+      "reason",
+      "leaseExpiresAt",
+    ];
+  if (type === "execution_wip_checkpointed") return [...common, "checkpoint"];
   if (type === "execution_submitted")
     return [...common, ...(edge ? ["edge"] : []), ...(supersedesSubmissionId ? ["supersedesSubmissionId"] : [])];
   if (type === "submission_forwarded") return [...common, "reason"];

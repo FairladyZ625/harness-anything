@@ -100,6 +100,8 @@ const projection = (
 
 const taskProjectionEventTypes = [
   "execution_started",
+  "execution_stewardship_transferred",
+  "execution_wip_checkpointed",
   "lease_renewed",
   "execution_submitted",
   "submission_forwarded",

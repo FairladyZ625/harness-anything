@@ -438,8 +438,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId && !input.remote
           ? (admissionTaskRead ?? requireCurrentTaskProjection(projection!, taskId, "runtime.run")).snapshot
           : null,
-      leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null,
-      // A reviewer dispatch binds to the submitted cut under review — never to the task's active
+      leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null;
+    if (taskSnapshot && !reviewerBinding) {
+      const activeExec = taskSnapshot.executions.findLast(
+        (entry): entry is Extract<typeof entry, { readonly schema: "execution/v1" }> =>
+          entry.schema === "execution/v1" &&
+          entry.iteration === taskSnapshot.task?.iteration &&
+          (entry.state === "active" || entry.state === "changes_requested"),
+      );
+      if (activeExec && (activeExec.stewardshipEpoch ?? 1) > 1) {
+        if (activeExec.actor.principal.personId !== binding.actor.principal.personId) {
+          throw runtimeSpawnError(
+            "execution_handed_off",
+            `Execution ${activeExec.executionId} was handed off to ${activeExec.actor.principal.personId} ` +
+              `at stewardshipEpoch ${String(activeExec.stewardshipEpoch)}; dispatch from ${binding.actor.principal.personId} is fenced.`,
+          );
+        }
+      }
+    }
+    const // A reviewer dispatch binds to the submitted cut under review — never to the task's active
       // implementation execution or lease — so it cannot observe, open, or mutate an implementation
       // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
       // enforces the same invariant.

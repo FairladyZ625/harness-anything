@@ -111,6 +111,13 @@ export const EXECUTION_DELIVERY_BASELINE_NOTE =
   "the comparison cut frozen at execution start, before the first submission — not the delivery head; " +
   "advancing main or --amend never refreshes it";
 
+export interface ExecutionWipCheckpointV1 {
+  readonly commitSha: string;
+  readonly bundleBlobSha256?: `sha256:${string}`;
+  readonly receiptRefs: readonly string[];
+  readonly recordedAt: string;
+  readonly stewardshipEpoch: number;
+}
 export interface ExecutionV1 {
   readonly schema: "execution/v1";
   readonly gateRuns: readonly GateRun[];
@@ -129,6 +136,12 @@ export interface ExecutionV1 {
   readonly amendedBy?: ActorAxes;
   /** Append-only correction/superseded-by notes projected back into the rendered Execution record. */
   readonly annotations?: readonly ExecutionAnnotationV1[];
+  /** Monotonic stewardship epoch incremented on cross-principal handoff acceptance or offline takeover. */
+  readonly stewardshipEpoch?: number;
+  /** Node currently stewarding this execution when explicitly bound across fleet nodes. */
+  readonly stewardNodeId?: string;
+  /** Latest lightweight milestone WIP pointer checkpoint for crash/disconnect recovery. */
+  readonly wipCheckpoint?: ExecutionWipCheckpointV1;
 }
 export interface ArchivedExecutionOutputV0 {
   readonly migratedFrom: string;
@@ -175,6 +188,13 @@ export interface LeaseV1 extends LeaseHolder {
   readonly expiresAt: string;
   readonly ttlMs: number;
   readonly version: number;
+  readonly stewardshipEpoch?: number;
+}
+export function executionStewardshipEpoch(value: Pick<ExecutionV1, "stewardshipEpoch"> | null | undefined): number {
+  return value?.stewardshipEpoch ?? 1;
+}
+export function leaseStewardshipEpoch(value: Pick<LeaseV1, "stewardshipEpoch"> | null | undefined): number {
+  return value?.stewardshipEpoch ?? 1;
 }
 /**
  * A lease fences its round only while held or reserving. The time-aware projection derives
@@ -324,6 +344,26 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
 }
 
+export function validExecutionWipCheckpoint(value: unknown): value is ExecutionWipCheckpointV1 {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(
+      value,
+      value.bundleBlobSha256 === undefined
+        ? ["commitSha", "receiptRefs", "recordedAt", "stewardshipEpoch"]
+        : ["commitSha", "bundleBlobSha256", "receiptRefs", "recordedAt", "stewardshipEpoch"],
+    ) &&
+    typeof value.commitSha === "string" &&
+    /^[0-9a-f]{7,64}$/u.test(value.commitSha) &&
+    (value.bundleBlobSha256 === undefined ||
+      (typeof value.bundleBlobSha256 === "string" && /^sha256:[0-9a-f]{64}$/u.test(value.bundleBlobSha256))) &&
+    stringArray(value.receiptRefs) &&
+    timestamp(value.recordedAt) &&
+    Number.isSafeInteger(value.stewardshipEpoch) &&
+    Number(value.stewardshipEpoch) >= 1
+  );
+}
+
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||
@@ -331,7 +371,15 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
       ? hasRequiredFields(value, EXECUTION_V1_SCHEMA.required)
       : hasRequiredFields(value, EXECUTION_V1_SCHEMA.required) &&
         Object.keys(value).every((field) =>
-          [...EXECUTION_V1_SCHEMA.required, "deliveryBaseline", "amendedBy", "annotations"].includes(field),
+          [
+            ...EXECUTION_V1_SCHEMA.required,
+            "deliveryBaseline",
+            "amendedBy",
+            "annotations",
+            "stewardshipEpoch",
+            "stewardNodeId",
+            "wipCheckpoint",
+          ].includes(field),
         ))
   )
     return [{ code: "invalid_execution", message: "Execution/v1 fields are incomplete or unknown" }];
@@ -369,6 +417,15 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
     issues.push(...validateExecutionAnnotationV1s(value.annotations, allowUnknownFields));
   if (value.deliveryBaseline !== undefined && !validExecutionDeliveryBaseline(value.deliveryBaseline))
     issues.push({ code: "invalid_execution", message: "execution delivery baseline is invalid" });
+  if (
+    value.stewardshipEpoch !== undefined &&
+    (!Number.isSafeInteger(value.stewardshipEpoch) || Number(value.stewardshipEpoch) < 1)
+  )
+    issues.push({ code: "invalid_execution", message: "execution stewardshipEpoch must be a positive integer" });
+  if (value.stewardNodeId !== undefined && !isNonEmptyString(value.stewardNodeId))
+    issues.push({ code: "invalid_execution", message: "execution stewardNodeId must be a non-empty string" });
+  if (value.wipCheckpoint !== undefined && !validExecutionWipCheckpoint(value.wipCheckpoint))
+    issues.push({ code: "invalid_execution", message: "execution wipCheckpoint is invalid" });
   if (value.submission !== null) issues.push(...validateSubmissionV1(value.submission, allowUnknownFields));
   return issues;
 }
@@ -437,7 +494,11 @@ export function validateArchivedExecutionV0(
   return [];
 }
 export function validateLeaseV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, LEASE_V1_SCHEMA.required))
+  const allowedLeaseFields =
+    value && isRecord(value) && value.stewardshipEpoch !== undefined
+      ? [...LEASE_V1_SCHEMA.required, "stewardshipEpoch"]
+      : LEASE_V1_SCHEMA.required;
+  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, allowedLeaseFields))
     return [{ code: "invalid_lease", message: "Lease/v1 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
   if (value.schema !== "lease/v1") issues.push({ code: "invalid_schema", message: "Lease must use lease/v1" });
@@ -451,6 +512,8 @@ export function validateLeaseV1(value: unknown, allowUnknownFields = false): rea
     !Number.isInteger(value.version) ||
     typeof value.version !== "number" ||
     value.version < 0 ||
+    (value.stewardshipEpoch !== undefined &&
+      (!Number.isSafeInteger(value.stewardshipEpoch) || Number(value.stewardshipEpoch) < 1)) ||
     !["reserving", "held", "orphaned", "released"].includes(String(value.phase)) ||
     validateWriteSource(value.source, allowUnknownFields).length > 0
   )

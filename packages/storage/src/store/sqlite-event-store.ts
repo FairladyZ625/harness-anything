@@ -52,7 +52,12 @@ import {
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
+import {
+  replayClaim,
+  replayRelease,
+  replayRenew,
+  replayStewardshipTransfer,
+} from "../projection/rebuildable-task-projection-runtime.ts";
 import {
   canonicalEventEntityRefs,
   TaskEventStoreError,
@@ -976,6 +981,7 @@ function eventIdentityFromRow(row: SqliteRow | undefined): SqliteEventIdentity |
 function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
   if (event.schema !== "task-event/v1") return;
   if (event.type === "execution_started") replayClaim(db, event);
+  if (event.type === "execution_stewardship_transferred") replayStewardshipTransfer(db, event);
   if (event.type === "lease_renewed") replayRenew(db, event);
   if (
     (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||

@@ -142,7 +142,7 @@ export const taskLeasePolicyJudgments = [
     sources: [
       {
         candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#decideRawTaskLease:561967bda3d86b4abc151b5cde28515c",
+          "judgment:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#decideRawTaskLease:2049ff966907cb3de3dfbe97c1eff8ab",
         route: "task-lease-policy",
       },
     ],
@@ -171,7 +171,8 @@ export const taskLeasePolicyJudgments = [
 /** Raw CAS versions remain visible after the lifecycle snapshot clears a released lease. */
 export function decideRawTaskLease(previous: LeaseV1 | null, event: TaskEventV1): LeaseV1 | null {
   let rawLease = previous;
-  if (event.type === "execution_started") rawLease = { ...event.payload.lease, phase: "held" };
+  if (event.type === "execution_started" || event.type === "execution_stewardship_transferred")
+    rawLease = { ...event.payload.lease, phase: "held" };
   else if (event.type === "lease_renewed") rawLease = event.payload.lease;
   else if (
     ((event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||

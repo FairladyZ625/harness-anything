@@ -4,7 +4,9 @@ import test from "node:test";
 import { baseEntityPolicyActions, requireEntityKindContract } from "../src/domain/entity-kind-registry.ts";
 import { parseEntityJsonSchema } from "../src/domain/entity-json-schema.ts";
 import {
+  assertExecutionStewardshipFence,
   classifyPeerIntentRiskTier,
+  evaluateOfflineTakeoverAdmission,
   evaluatePeerExecutionCeiling,
   isPeerFrameCausallyReady,
   matchesPeerWatchFilter,
@@ -69,7 +71,7 @@ test("PeerRequest has a canonical state store and one registered lifecycle vocab
   assert.deepEqual(kind.statusVocabulary?.[0]?.words, statusWords("PeerRequest", "state"));
   assert.deepEqual(
     kind.actionCatalog?.actions.map(({ id }) => id),
-    ["ask", "reply", "watch", "inbox", "promote", "handoff"],
+    ["ask", "reply", "watch", "inbox", "promote", "handoff", "accept-handoff", "takeover", "checkpoint"],
   );
   assert.ok(!baseEntityPolicyActions.includes("peer-request/pin"));
 });
@@ -285,4 +287,81 @@ test("L2 is always draft_only and unknown operations fail closed", () => {
       tier: "L2",
       ceiling: "draft_only",
     });
+});
+
+test("stewardship epoch fence rejects stale epoch, superseded principal, and superseded node with execution_handed_off", () => {
+  assert.deepEqual(
+    assertExecutionStewardshipFence({
+      executionId: "exe_1",
+      currentStewardshipEpoch: 2,
+      currentStewardPersonId: "person_bob",
+      currentStewardNodeId: "node_bob",
+      actingPersonId: "person_bob",
+      actingNodeId: "node_bob",
+      expectedStewardshipEpoch: 2,
+    }),
+    { ok: true, currentEpoch: 2 },
+  );
+
+  const staleEpoch = assertExecutionStewardshipFence({
+    executionId: "exe_1",
+    currentStewardshipEpoch: 2,
+    currentStewardPersonId: "person_bob",
+    actingPersonId: "person_bob",
+    expectedStewardshipEpoch: 1,
+  });
+  assert.equal(staleEpoch.ok, false);
+  if (!staleEpoch.ok) assert.equal(staleEpoch.errorCode, "execution_handed_off");
+
+  const oldPrincipal = assertExecutionStewardshipFence({
+    executionId: "exe_1",
+    currentStewardshipEpoch: 2,
+    currentStewardPersonId: "person_bob",
+    actingPersonId: "person_alice",
+  });
+  assert.equal(oldPrincipal.ok, false);
+  if (!oldPrincipal.ok) assert.equal(oldPrincipal.errorCode, "execution_handed_off");
+
+  const oldNode = assertExecutionStewardshipFence({
+    executionId: "exe_1",
+    currentStewardshipEpoch: 2,
+    currentStewardPersonId: "person_bob",
+    currentStewardNodeId: "node_bob",
+    actingPersonId: "person_bob",
+    actingNodeId: "node_alice",
+  });
+  assert.equal(oldNode.ok, false);
+  if (!oldNode.ok) assert.equal(oldNode.errorCode, "execution_handed_off");
+});
+
+test("offline takeover admission enforces 7545 connectivity, write auth, offline threshold, and L1 human confirmation", () => {
+  const base = {
+    fleetStreamConnected: true,
+    hasWritePermission: true,
+    holderNodeOnline: false,
+    disconnectedForMs: 20 * 60_000,
+    takeoverThresholdMs: 15 * 60_000,
+    humanConfirmed: true,
+  };
+  assert.deepEqual(evaluateOfflineTakeoverAdmission(base), { allowed: true, thresholdMs: 15 * 60_000 });
+
+  const disconnected7545 = evaluateOfflineTakeoverAdmission({ ...base, fleetStreamConnected: false });
+  assert.equal(disconnected7545.allowed, false);
+  if (!disconnected7545.allowed) assert.equal(disconnected7545.errorCode, "peer_replication_disconnected");
+
+  const noAuth = evaluateOfflineTakeoverAdmission({ ...base, hasWritePermission: false });
+  assert.equal(noAuth.allowed, false);
+  if (!noAuth.allowed) assert.equal(noAuth.errorCode, "authorization_missing");
+
+  const holderOnline = evaluateOfflineTakeoverAdmission({ ...base, holderNodeOnline: true });
+  assert.equal(holderOnline.allowed, false);
+  if (!holderOnline.allowed) assert.equal(holderOnline.errorCode, "execution_holder_online");
+
+  const belowThreshold = evaluateOfflineTakeoverAdmission({ ...base, disconnectedForMs: 5 * 60_000 });
+  assert.equal(belowThreshold.allowed, false);
+  if (!belowThreshold.allowed) assert.equal(belowThreshold.errorCode, "takeover_threshold_not_met");
+
+  const noHuman = evaluateOfflineTakeoverAdmission({ ...base, humanConfirmed: false });
+  assert.equal(noHuman.allowed, false);
+  if (!noHuman.allowed) assert.equal(noHuman.errorCode, "peer_local_human_confirmation_required");
 });
