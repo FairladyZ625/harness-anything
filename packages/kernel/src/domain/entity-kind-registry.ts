@@ -30,6 +30,7 @@ import {
 import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
+import { createPeerActionCatalog } from "./peer-action-contract.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,
@@ -1682,7 +1683,9 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
         route: "reducePeerRequestEvent",
       }],
     }],
-    actionCatalog: noActionCatalog("kernel/peer-request/v1", "Pure event aggregate pending transport and write ingress."),
+    actionCatalog: createPeerActionCatalog((id) =>
+      entityAction("peer-request", requireEntityTypeContract("peer-request").id, id),
+    ),
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,

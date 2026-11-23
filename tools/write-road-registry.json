@@ -35,6 +35,7 @@
       "evidence": [
         "packages/daemon/src/daemon-host/daemon-host.ts",
         "packages/authorization/src/keycloak/managed-rbac-service.ts",
+        "packages/daemon/src/daemon-host/peer-handoff-bundle.ts",
         "packages/daemon/src/daemon-host/repo-bootstrap.ts",
         "packages/daemon/src/daemon-host/schedule-action-runtime.ts",
         "packages/daemon/src/daemon-host/schedule-builtin-executor.ts",
@@ -50,7 +51,8 @@
       "authority": "packages/daemon/src/daemon-host/runtime.ts",
       "evidence": [
         "packages/cli/src/daemon/control.ts",
-        "packages/daemon/src/daemon-host/runtime.ts",
+        "packages/daemon/src/daemon-host/peer-handoff-bundle.ts",
+    "packages/daemon/src/daemon-host/runtime.ts",
         "packages/daemon/src/daemon-host/transport/unix-socket.ts"
       ]
     },
@@ -144,6 +146,7 @@
     "packages/daemon/src/daemon-host/request-log.ts",
     "packages/daemon/src/daemon-host/runtime-callback-relay.ts",
     "packages/daemon/src/runtime-engine/runtime-provider-health.ts",
+    "packages/daemon/src/daemon-host/peer-handoff-bundle.ts",
     "packages/daemon/src/daemon-host/runtime.ts",
     "packages/daemon/src/daemon-host/skill-eval-production.ts",
     "packages/daemon/src/daemon-host/schedule-builtin-executor.ts",

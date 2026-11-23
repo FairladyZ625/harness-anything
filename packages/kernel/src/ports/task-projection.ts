@@ -19,6 +19,7 @@ import type { LeaseV1 } from "../domain/execution.ts";
 import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import type { DispatchLifecycleQuery, DispatchLifecycleRead } from "../domain/dispatch-lifecycle.ts";
 import type { InboxQuery, InboxRead } from "../domain/inbox.ts";
+import type { PeerRequestQuery, PeerRequestRead } from "../domain/peer-collaboration.ts";
 import type { FrozenWritePlan } from "../domain/write-chain.contract.ts";
 import type {
   ArtifactTimelineQuery,
@@ -425,6 +426,8 @@ export interface TaskProjection {
   ) => DispatchLifecycleRead;
   /** The single Inbox read port (dec_7CE3162BF9BFB157DAB9F9B6C0 CH1): item, dedupe, and ordered queues. */
   readonly readInbox: (query: InboxQuery) => InboxRead;
+  /** Cross-principal PeerRequestV1 read port (dec_2B573FD17D82C9ADDE2FC69C5D CH2). */
+  readonly readPeerRequests: (query: PeerRequestQuery) => PeerRequestRead;
   readonly admitFact: (event: FactEventV1) => void;
   readonly readFact: (factId: string) => FactProjectionRead;
   readonly searchFacts: (filters: FactSearchFilters) => FactProjectionSearchRead;

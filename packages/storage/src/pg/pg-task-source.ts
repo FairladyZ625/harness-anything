@@ -20,6 +20,7 @@ import { checkedPageLimit } from "./pg-query-page.ts";
 import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
 import { pgDispatchLifecycleQueries, type PgDispatchLifecycleQueries } from "./pg-dispatch-lifecycle.ts";
 import { pgInboxQueries } from "./pg-inbox.ts";
+import { pgPeerRequestQueries } from "./pg-peer-request.ts";
 import type { Pool } from "pg";
 import { pgEventQueries, pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
 import type {
@@ -598,6 +599,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     ...pgRuntimeDispatchQueries(options),
     ...pgDispatchLifecycleQueries(options),
     ...pgInboxQueries(options),
+    ...pgPeerRequestQueries(options),
     ...pgTaskIndexQueries(options, { read, list }, now),
     ...pgRelationPortQueries(options),
     ...pgTaskEventQueries(options),

@@ -449,6 +449,7 @@ export function makeTaskProjectionReader(
       readProgress: taskQueries.readProgress,
       readDispatchLifecycle: taskQueries.readDispatchLifecycle,
       readInbox: taskQueries.readInbox,
+      readPeerRequests: taskQueries.readPeerRequests,
       readFact: knowledgeQueries.readFact,
       searchFacts: knowledgeQueries.searchFacts,
       listFactDomainTypes: knowledgeQueries.listFactDomainTypes,

@@ -12,6 +12,7 @@ import {
 import type { EntityActionContract } from "@harness-anything/kernel";
 import { dossierContentMaxBytes } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { todoProtocolCommands } from "./daemon-protocol-commands-todo.ts";
+import { peerProtocolCommands } from "./daemon-protocol-commands-peer.ts";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
 import { assignmentProtocolCommands } from "./daemon-protocol-commands-assignment.ts";
 import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
@@ -309,6 +310,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
   ...todoProtocolCommands,
+  ...peerProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,

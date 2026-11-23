@@ -35,6 +35,7 @@ import { validateCurrentVerticalDeclarationEvent, validateVerticalDeclarationEve
 import { validateRetiredPeopleEvent } from "./people-event.ts";
 import { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
+import { validateCurrentPeerRequestEvent, validatePeerRequestEvent } from "./peer-collaboration.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
 
@@ -161,6 +162,12 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     owner: "relation",
     validate: validateRelationEvent,
     validateCurrent: validateCurrentRelationEvent,
+  },
+  {
+    schema: "peer-request-event/v1",
+    owner: "peer-request",
+    validate: validatePeerRequestEvent,
+    validateCurrent: validateCurrentPeerRequestEvent,
   },
   {
     schema: "migration-import-event/v1",

@@ -6,8 +6,11 @@ import {
 } from "./entity-json-schema.ts";
 import { validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope } from "./write-chain.contract.ts";
 
+export const PEER_REQUEST_MODEL_VERSION = 1;
+export const PEER_REQUEST_PAGE_LIMIT = 200;
+
 export const peerRequestStates = ["OPEN", "CLAIMED", "ANSWERED", "DONE", "REJECTED", "PROMOTED"] as const;
-type PeerRequestState = (typeof peerRequestStates)[number];
+export type PeerRequestState = (typeof peerRequestStates)[number];
 
 export const peerRequestEventTypes = [
   "peer_request_opened",
@@ -18,39 +21,53 @@ export const peerRequestEventTypes = [
   "peer_request_promoted",
 ] as const;
 
-const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff"] as const;
+export const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff"] as const;
+export type PeerRequestKind = (typeof peerRequestKinds)[number];
 
-interface PeerStructuredBody {
+export interface PeerStructuredBody {
   readonly claim: string;
   readonly rootCause?: string;
   readonly requestedAction: string;
   readonly verification?: string;
 }
 
-interface PeerAttachment {
+export interface PeerAttachment {
   readonly sha256: `sha256:${string}`;
   readonly mediaType: string;
   readonly access: "read-only";
+  readonly size?: number;
+}
+
+export interface ContinuationPacket {
+  readonly anchorRef: string;
+  readonly wipCommitSha: string;
+  readonly wipBundleBlobSha256?: `sha256:${string}`;
+  readonly prNumber?: number;
+  readonly verifiedReceipts: readonly string[];
+  readonly inFlightDispatches: readonly string[];
+  readonly blockingGate: string | null;
+  readonly nextAction: string;
 }
 
 export interface PeerRequestInput {
   readonly requestId: string;
   readonly from: { readonly personId: string; readonly nodeId: string; readonly sessionHint?: string };
   readonly to: { readonly personId: string; readonly workId?: string; readonly lane?: string };
-  readonly kind: (typeof peerRequestKinds)[number];
+  readonly kind: PeerRequestKind;
   readonly anchorRef?: string;
   readonly summary: string;
   readonly structuredBody: PeerStructuredBody;
   readonly attachments: readonly PeerAttachment[];
+  readonly continuationPacket?: ContinuationPacket;
 }
 
-interface PeerReply {
+export interface PeerReply {
   readonly structuredBody: PeerStructuredBody;
   readonly attachments: readonly PeerAttachment[];
   readonly minRevision: number;
 }
 
-interface PeerClaim {
+export interface PeerClaim {
   readonly claimId: string;
   readonly expiresAt: string;
 }
@@ -83,7 +100,7 @@ interface PeerEventPayloads {
   };
 }
 
-type PeerEventType = (typeof peerRequestEventTypes)[number];
+export type PeerEventType = (typeof peerRequestEventTypes)[number];
 export type PeerRequestEventV1 = {
   [T in PeerEventType]: EventEnvelope<
     "peer-request-event/v1",
@@ -93,7 +110,7 @@ export type PeerRequestEventV1 = {
   >;
 }[PeerEventType];
 
-type PeerRequestErrorCode =
+export type PeerRequestErrorCode =
   | "peer_request_invalid_input"
   | "peer_request_transition_invalid"
   | "peer_request_revision_gap"
@@ -106,7 +123,7 @@ type PeerRequestErrorCode =
   | "peer_request_promotion_task_required"
   | "peer_sender_spoofing_denied";
 
-class PeerRequestDomainError extends Error {
+export class PeerRequestDomainError extends Error {
   readonly code: PeerRequestErrorCode;
 
   constructor(code: PeerRequestErrorCode, message: string) {
@@ -131,7 +148,7 @@ const peerIntentTiers = Object.freeze({
   merge: "L1",
   "host-privileged": "L2",
 } as const);
-type PeerIntentRiskTier = (typeof peerIntentTiers)[keyof typeof peerIntentTiers];
+export type PeerIntentRiskTier = (typeof peerIntentTiers)[keyof typeof peerIntentTiers];
 
 /** Classify the operation selected by the receiver's trusted action catalog. */
 export function classifyPeerIntentRiskTier(operation: string): PeerIntentRiskTier {
@@ -209,14 +226,32 @@ const structuredBody = objectFields(
   { claim: textField, rootCause: textField, requestedAction: textField, verification: textField },
   ["claim", "requestedAction"],
 );
+const sha256Field = { type: "string", pattern: "^sha256:[0-9a-f]{64}$" } as const;
 const attachments = {
   type: "array",
-  items: objectFields({
-    sha256: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
-    mediaType: textField,
-    access: { type: "string", const: "read-only" },
-  }),
+  items: objectFields(
+    {
+      sha256: sha256Field,
+      mediaType: textField,
+      access: { type: "string", const: "read-only" },
+      size: { type: "integer", integer: true, minimum: 0 },
+    },
+    ["sha256", "mediaType", "access"],
+  ),
 } as const;
+const continuationPacketFields = objectFields(
+  {
+    anchorRef: textField,
+    wipCommitSha: { type: "string", pattern: "^[0-9a-f]{7,64}$" },
+    wipBundleBlobSha256: sha256Field,
+    prNumber: { type: "integer", integer: true, minimum: 1 },
+    verifiedReceipts: { type: "array", items: textField },
+    inFlightDispatches: { type: "array", items: textField },
+    blockingGate: nullableText,
+    nextAction: textField,
+  },
+  ["anchorRef", "wipCommitSha", "verifiedReceipts", "inFlightDispatches", "blockingGate", "nextAction"],
+);
 const replyFields = objectFields({
   structuredBody,
   attachments,
@@ -232,6 +267,7 @@ const requestFields = objectFields(
     summary: { ...textField, pattern: "^[^\\r\\n\\u2028\\u2029]{1,240}$(?![\\s\\S])" },
     structuredBody,
     attachments,
+    continuationPacket: continuationPacketFields,
   },
   ["requestId", "from", "to", "kind", "summary", "structuredBody", "attachments"],
 );
@@ -423,6 +459,15 @@ function openPeerRequest(input: PeerRequestInput, eventId: string): PeerRequestV
     ...freezePeerContent(input),
     from: Object.freeze({ ...input.from }),
     to: Object.freeze({ ...input.to }),
+    ...(input.continuationPacket === undefined
+      ? {}
+      : {
+          continuationPacket: Object.freeze({
+            ...input.continuationPacket,
+            verifiedReceipts: Object.freeze([...input.continuationPacket.verifiedReceipts]),
+            inFlightDispatches: Object.freeze([...input.continuationPacket.inFlightDispatches]),
+          }),
+        }),
     schema: "peer-request/v1",
     state: "OPEN",
     revision: 1,
@@ -442,4 +487,94 @@ function freezePeerContent(input: PeerReply | PeerRequestInput): PeerReply | Pee
     structuredBody: Object.freeze({ ...input.structuredBody }),
     attachments: Object.freeze(input.attachments.map((attachment) => Object.freeze({ ...attachment }))),
   }) as PeerReply | PeerRequestInput;
+}
+
+export function isPeerRequestEventType(type: string): type is PeerEventType {
+  return (peerRequestEventTypes as readonly string[]).includes(type);
+}
+
+export function isPeerRequestEvent(event: { readonly schema: string; readonly type: string }): event is PeerRequestEventV1 {
+  return event.schema === "peer-request-event/v1" && isPeerRequestEventType(event.type);
+}
+
+export function peerRequestEventRequestId(event: PeerRequestEventV1): string {
+  return event.type === "peer_request_opened" ? event.payload.request.requestId : event.payload.requestId;
+}
+
+export function isTerminalPeerRequestState(state: PeerRequestState): boolean {
+  return state === "ANSWERED" || state === "DONE" || state === "REJECTED" || state === "PROMOTED";
+}
+
+export function validatePeerRequestEvent(value: unknown): readonly string[] {
+  if (!isRecord(value) || value.schema !== "peer-request-event/v1" || !isPeerRequestEventType(String(value.type)))
+    return ["Invalid PeerRequest event schema or type."];
+  const envelopeIssues = validateEventEnvelopeIdentity(value);
+  if (envelopeIssues.length > 0) return envelopeIssues;
+  return eventContractIssues(value as unknown as PeerRequestEventV1);
+}
+
+export function validateCurrentPeerRequestEvent(value: unknown): readonly string[] {
+  return validatePeerRequestEvent(value);
+}
+
+export function peerRequestEventContentClaims(event: PeerRequestEventV1): readonly {
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}[] {
+  const list =
+    event.type === "peer_request_opened"
+      ? event.payload.request.attachments
+      : event.type === "peer_request_answered"
+        ? event.payload.reply.attachments
+        : [];
+  return list.flatMap((attachment) =>
+    attachment.size === undefined
+      ? []
+      : [
+          {
+            sha256: attachment.sha256.slice("sha256:".length),
+            size: attachment.size,
+            mediaType: attachment.mediaType,
+          },
+        ],
+  );
+}
+
+export type PeerRequestQuery =
+  | { readonly by: "id"; readonly requestId: string }
+  | {
+      readonly by: "list";
+      readonly recipientPersonId?: string;
+      readonly senderPersonId?: string;
+      readonly state?: PeerRequestState;
+      readonly kind?: PeerRequestKind;
+      readonly workId?: string;
+      readonly lane?: string;
+      readonly limit?: number;
+      readonly cursor?: string;
+    };
+
+export type PeerRequestRead =
+  | { readonly status: "pending"; readonly watermark: number; readonly sourceRevision: number }
+  | {
+      readonly status: "ready";
+      readonly watermark: number;
+      readonly sourceRevision: number;
+      readonly requests: readonly PeerRequestV1[];
+      readonly nextCursor: string | null;
+    };
+
+export function peerRequestPageLimit(limit: number | undefined): number {
+  return Math.min(Math.max(1, Math.trunc(limit ?? PEER_REQUEST_PAGE_LIMIT)), PEER_REQUEST_PAGE_LIMIT);
+}
+
+export function peerRequestCursor(cursor: string | undefined): number {
+  if (cursor === undefined) return 0;
+  if (!/^(?:0|[1-9][0-9]{0,15})$/u.test(cursor)) throw new Error(`peer request cursor is invalid: ${cursor}`);
+  return Number(cursor);
+}
+
+export function peerRequestNextCursor(rows: readonly { readonly openedRevision: number }[], limit: number): string | null {
+  return rows.length > limit ? String(rows[limit - 1]!.openedRevision) : null;
 }

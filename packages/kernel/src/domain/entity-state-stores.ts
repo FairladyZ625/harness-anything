@@ -174,6 +174,8 @@ const taskProjectionTables = Object.freeze(
     "dispatch_lifecycle_cursor",
     "inbox_item",
     "inbox_cursor",
+    "peer_request",
+    "peer_request_cursor",
     "fact",
     "fact_fts",
     "fact_domain_type",

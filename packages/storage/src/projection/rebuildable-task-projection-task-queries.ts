@@ -51,6 +51,7 @@ import { readRelationProjectionRow } from "./relation-entity-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 import { readDispatchLifecycleRows } from "./dispatch-lifecycle-projection.ts";
 import { readInboxRows } from "./inbox-projection.ts";
+import { readPeerRequestRows } from "./peer-request-projection.ts";
 export type {
   ProjectionPage,
   TaskProjectionListQuery,
@@ -161,6 +162,7 @@ export function taskQueryApi(
   | "readProgress"
   | "readDispatchLifecycle"
   | "readInbox"
+  | "readPeerRequests"
 > {
   const { eventStore, limit, now, projectionPath, readHead } = context;
   return {
@@ -429,6 +431,13 @@ export function taskQueryApi(
         const cut = readProjectionCut(db, readHead);
         return cut.status === "ready"
           ? readInboxRows(db, query, cut)
+          : { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
+      }),
+    readPeerRequests: (query) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return cut.status === "ready"
+          ? readPeerRequestRows(db, query, cut)
           : { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
       }),
     readProgress: (taskId) =>

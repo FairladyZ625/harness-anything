@@ -281,6 +281,23 @@ export function parseRouted(
       route.method,
     );
   }
+  if (rootCommand === "peer") {
+    const hasPositional = route.id === "peer-reply" || route.id === "peer-promote" || route.id === "peer-handoff";
+    const field = route.id === "peer-handoff" ? "targetId" : "requestId";
+    const positional = hasPositional ? { [field]: args[2] } : {};
+    if (hasPositional && !nonEmpty(args[2])) return rejected("missing_field", `Use ${route.usage}.`, json);
+    return parseProjected(
+      route.id,
+      args.slice(hasPositional ? 3 : 2),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      positional,
+      {},
+      route.method,
+    );
+  }
   if (rootCommand === "fact") return parseFact(route.id, args, rootDir, repoId, json, inputs);
   if (rootCommand === "decision") return parseDecision(route, args, rootDir, repoId, json, inputs);
   if (route.id === "distill-candidate" || route.id === "distill-promote")
