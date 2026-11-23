@@ -32,6 +32,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "codex-unattended-turn",
     "create-agent",
     "create-skill",
+    "easytier-ha-mesh",
     "gate-customization",
     "harness-ceo",
     "harness-contributing",
@@ -51,6 +52,7 @@ test("repository skills are discoverable with agent metadata", () => {
   for (const skillName of [
     "create-agent",
     "create-skill",
+    "easytier-ha-mesh",
     "harness-ceo",
     "harness-download",
     "harness-dsh-install",

@@ -1,0 +1,4 @@
+interface:
+  display_name: "EasyTier × HA 组网与接入"
+  short_description: "用 EasyTier v2.6.4 打通 HA Center 与跨平台 Edge 的 P2P 直连组网与接入"
+  default_prompt: "使用 $easytier-ha-mesh 在当前机器部署或排查 EasyTier v2.6.4 虚拟网，并完成 HA Center 启用或 Edge 直连接入验收。"

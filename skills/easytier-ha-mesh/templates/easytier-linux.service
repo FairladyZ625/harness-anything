@@ -1,0 +1,14 @@
+[Unit]
+Description=EasyTier Mesh Service for Harness Anything
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/easytier-core -c /etc/easytier/config.toml --multi-thread true --bind-device true
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

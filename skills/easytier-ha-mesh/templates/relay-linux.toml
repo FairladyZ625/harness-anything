@@ -1,0 +1,22 @@
+instance_name = "ha-relay"
+hostname = "ha-relay"
+ipv4 = "10.144.144.1"
+listeners = [
+  "tcp://0.0.0.0:11010",
+  "udp://0.0.0.0:11010",
+]
+mapped_listeners = [
+  "tcp://<RELAY_PUBLIC_IP>:11010",
+  "udp://<RELAY_PUBLIC_IP>:11010",
+]
+
+[network_identity]
+network_name = "<NETWORK_NAME>"
+network_secret = "<NETWORK_SECRET>"
+
+[flags]
+private_mode = true
+latency_first = true
+multi_thread = true
+enable_kcp_proxy = true
+data_compress_algo = 2

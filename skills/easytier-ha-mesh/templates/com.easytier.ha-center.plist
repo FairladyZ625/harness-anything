@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.easytier.ha-center</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/&lt;USER&gt;/.local/bin/easytier-core</string>
+    <string>-c</string>
+    <string>/Users/&lt;USER&gt;/.config/easytier/config.toml</string>
+    <string>--multi-thread</string>
+    <string>true</string>
+    <string>--bind-device</string>
+    <string>true</string>
+  </array>
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>65536</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>65536</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/&lt;USER&gt;/.harness/logs/easytier-ha-center.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/&lt;USER&gt;/.harness/logs/easytier-ha-center.log</string>
+</dict>
+</plist>
