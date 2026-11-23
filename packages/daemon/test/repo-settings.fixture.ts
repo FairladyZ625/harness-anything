@@ -16,6 +16,7 @@ import {
   registerDaemonRepo as registerProductDaemonRepo,
   readDaemonStorageConfig,
 } from "@harness-anything/storage";
+import { makeSqliteTaskEventStore } from "@harness-anything/storage/sqlite";
 import { daemonRegistryPaths } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -121,14 +122,28 @@ export function seedSettingsEvent(input: {
     rootDir = canonicalRoot(input.rootDir),
     fixtureKey = `${rootDir}\0${repoId}`;
   if (seededSettings.has(fixtureKey)) return undefined;
-  const store = makeTaskEventStore({
-      storage: input.storage,
-      repoId,
-      rootDir,
-      activationPreflight: activateEmptyCanonicalGeneration,
-      ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
-      ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
-    }),
+  // Synchronous callers that drop the seeded store (`!keepOpen`) only need the durable SQLite
+  // settings record; attaching a detached async Git follower here leaves `void store.drain()`
+  // racing `removeTempRepository` -> `closeSqliteEventStoresUnder` (`Error: database is not open`).
+  const usePureSqliteSeed = !input.keepOpen && (!input.storage || input.storage.backend === "sqlite");
+  const store = usePureSqliteSeed
+      ? makeSqliteTaskEventStore({
+          storage: input.storage,
+          repoId,
+          rootDir,
+          generation: 3,
+          activationPreflight: activateEmptyCanonicalGeneration,
+          ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
+          ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
+        })
+      : makeTaskEventStore({
+          storage: input.storage,
+          repoId,
+          rootDir,
+          activationPreflight: activateEmptyCanonicalGeneration,
+          ...(input.writerEpochFence ? { writerFence: () => input.writerEpochFence! } : {}),
+          ...(input.authoredBranch ? { authoredBranch: input.authoredBranch } : {}),
+        }),
     stream = store.read();
   if (stream.events.some((event) => event.schema === "settings-event/v1")) {
     return settleSeeded(store, fixtureKey, input.keepOpen);

@@ -1241,7 +1241,8 @@ export function createRepoCellApi(
     context.runtimeSpawner.close();
     context.runtimeStream.close();
     await context.presetProcess.close();
-    await context.tail;
+    if (context.drainBackgroundWork) await context.drainBackgroundWork();
+    else await context.tail;
     try {
       await context.store.drain();
     } finally {

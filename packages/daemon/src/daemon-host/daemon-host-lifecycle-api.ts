@@ -726,7 +726,7 @@ export function createDaemonHostLifecycleApi(
           } finally {
             context.closeDaemonWriterEpoch();
           }
-          for (const runtime of context.edgeRuntimeOwners.values()) runtime.close();
+          await Promise.allSettled([...context.edgeRuntimeOwners.values()].map((runtime) => runtime.close()));
           context.edgeRuntimeOwners.clear();
           context.remoteProxy.close();
         })(),

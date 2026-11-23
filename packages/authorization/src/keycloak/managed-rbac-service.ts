@@ -50,6 +50,7 @@ import {
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
+import { fetchManagedArtifactResource } from "./managed-artifact-download.ts";
 import {
   MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
   ManagedRbacRelocationService,
@@ -114,6 +115,8 @@ export interface ManagedRbacPorts {
   readonly fetch: typeof fetch;
   readonly spawn: typeof spawn;
   readonly now: () => string;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly random?: () => number;
   readonly platform: NodeJS.Platform;
   readonly arch: string;
   /** Accepted repository declarations projected to Policy scopes; [] when no repo host is wired. */
@@ -774,19 +777,28 @@ export class ManagedRbacService {
         `${artifact.name}.${artifact.archive === "jar-txz" ? "jar" : artifact.archive === "zip" ? "zip" : "tar.gz"}`,
       ),
       temporary = `${archive}.partial`;
-    const [payload, publishedChecksum] = await Promise.all([
-      this.#ports.fetch(artifact.url),
-      this.#ports.fetch(artifact.checksumUrl),
-    ]);
-    if (!payload.ok || !payload.body)
-      throw managedRbacError("rbac_download_failed", `${artifact.name} download returned HTTP ${payload.status}.`);
-    if (!publishedChecksum.ok)
-      throw managedRbacError(
-        "rbac_checksum_unavailable",
-        `${artifact.name} checksum returned HTTP ${publishedChecksum.status}.`,
-      );
+    const payload = await fetchManagedArtifactResource({
+      url: artifact.url,
+      label: `${artifact.name} download`,
+      errorCode: "rbac_download_failed",
+      requireBody: true,
+      fetch: this.#ports.fetch,
+      now: this.#ports.now,
+      sleep: this.#ports.sleep,
+      random: this.#ports.random,
+    });
+    const publishedChecksum = await fetchManagedArtifactResource({
+      url: artifact.checksumUrl,
+      label: `${artifact.name} checksum`,
+      errorCode: "rbac_checksum_unavailable",
+      requireBody: false,
+      fetch: this.#ports.fetch,
+      now: this.#ports.now,
+      sleep: this.#ports.sleep,
+      random: this.#ports.random,
+    });
     await pipeline(
-      payload.body,
+      payload.body!,
       /* @gate-identity non-state/environment-io.9c7724b3aea98a89 */ createWriteStream(temporary, { mode: 0o600 }),
     );
     const checksumBody = await publishedChecksum.text(),

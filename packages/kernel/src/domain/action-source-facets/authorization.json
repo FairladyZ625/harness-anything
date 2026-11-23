@@ -251,6 +251,20 @@
         "order": 295
       },
       {
+        "candidateId": "action:packages/authorization:packages/authorization/src/keycloak/managed-artifact-download.ts#downloadError:af9049cbe2cb34cb8a268e514d59abaf",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
+        "order": 9998
+      },
+      {
+        "candidateId": "action:packages/authorization:packages/authorization/src/keycloak/managed-artifact-download.ts#fetchManagedArtifactResource:8f7f9465288f93fb1758d2ad64e58a72",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.dom.d.ts#ReadableStream.cancel",
+        "order": 9999
+      },
+      {
         "candidateId": "action:packages/authorization:packages/authorization/src/keycloak/managed-rbac-listener-certificate.ts#ensureSelfSignedCertificate:0cc4038485d35bf82057035377606eb2",
         "route": "daemon-local-state",
         "role": "technical-port",

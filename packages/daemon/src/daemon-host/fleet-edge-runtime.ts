@@ -255,6 +255,7 @@ export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => voi
   };
   return {
     schedule,
+    drain: () => tail,
     close: () => {
       closed = true;
     },
@@ -1288,18 +1289,31 @@ export function openFleetEdgeRuntime(input: {
   });
   let ready: Promise<void> | null = null;
   let adoptedOnce = false;
+  let closed = false;
+  let adoptInFlight: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
-        void spawner.adopt().then(
-          (recovered) => {
-            if (!runtimeRecoveryError(recovered)) adoptedOnce = true;
-            void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
-            if (hasPendingSteerReceipts(input.resolveLocation().workspaceRoot)) triggerReceiptFlush();
-            schedule(() => squad.reconcile());
-          },
-          (error: unknown) => console.error("[runtime-recovery]", error),
-        );
+        if (closed) return;
+        const adoption = spawner
+          .adopt()
+          .then(
+            (recovered) => {
+              if (closed) return;
+              if (!runtimeRecoveryError(recovered)) adoptedOnce = true;
+              void remoteControl.drain().catch((error: unknown) => console.error("[runtime-remote-control]", error));
+              if (hasPendingSteerReceipts(input.resolveLocation().workspaceRoot)) triggerReceiptFlush();
+              schedule(() => squad.reconcile());
+            },
+            (error: unknown) => {
+              if (!closed || (error as { readonly code?: unknown } | null)?.code !== "daemon_closed")
+                console.error("[runtime-recovery]", error);
+            },
+          )
+          .finally(() => {
+            if (adoptInFlight === adoption) adoptInFlight = null;
+          });
+        adoptInFlight = adoption;
       });
       ready = attempt.catch((error: unknown) => {
         ready = null;
@@ -1540,10 +1554,12 @@ export function openFleetEdgeRuntime(input: {
         connectionSignal,
       })) as JsonObject;
     },
-    close: () => {
+    close: async () => {
+      closed = true;
       receiptPump.close();
       workQueue.close();
       spawner.close();
+      await Promise.allSettled([adoptInFlight, workQueue.drain()]);
     },
   };
 
