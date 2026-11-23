@@ -435,6 +435,8 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
     },
   });
 
+  const pulseSlot = codingSlots.get("project-pulse")!;
+
   // Monotonic floor: afterWatermark < expectedWatermark clamps scanAfter to expectedWatermark for concurrent realignment
   const clampedCtx = readDossierContext(
     makeReader("software/coding", "project-pulse"),
@@ -448,7 +450,6 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
   assert.equal(clampedCtx.afterWatermark, 64);
 
   // Negative control: lagging projection fails closed with projection_pending
-  const pulseSlot = codingSlots.get("project-pulse")!;
   assert.throws(
     () =>
       readDossierContext(
