@@ -264,9 +264,11 @@ export async function resolveTaskReadAuthorizationScopes(
 export function makeOpaqueTaskAncestorReader(
   cell: Pick<RepoCell, "readTaskAuthorizationMetadata">,
   signal?: AbortSignal,
-): (taskId: string) => Promise<TaskAncestorAuthorizationMetadata | null> {
+): ((taskId: string) => Promise<TaskAncestorAuthorizationMetadata | null>) | undefined {
+  if (typeof cell.readTaskAuthorizationMetadata !== "function") return undefined;
+  const readMetadata = cell.readTaskAuthorizationMetadata.bind(cell);
   return async (taskId) => {
-    const [row] = await cell.readTaskAuthorizationMetadata([taskId], signal);
+    const [row] = await readMetadata([taskId], signal);
     return row === undefined ? null : { taskClass: row.taskClass, metadata: { parentTaskId: row.parentTaskId } };
   };
 }
@@ -286,12 +288,13 @@ export async function authorizeTaskScopedRepositoryRead(input: {
   readonly signal?: AbortSignal;
 }): Promise<AuthorizationDecision> {
   const scopes = await resolveTaskReadAuthorizationScopes(input.cell, input.target, input.signal),
+    readTask = makeOpaqueTaskAncestorReader(input.cell, input.signal),
     authorize = (entityRef?: EntityRef) =>
       requireAuthorizedHostAction({
         kind: input.kind,
         repoId: input.repoId,
         ...(entityRef === undefined ? {} : { entityRef }),
-        ...(entityRef === undefined ? {} : { readTask: makeOpaqueTaskAncestorReader(input.cell, input.signal) }),
+        ...(entityRef === undefined || readTask === undefined ? {} : { readTask }),
         ...(input.target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
         binding: input.binding,
         actionId:

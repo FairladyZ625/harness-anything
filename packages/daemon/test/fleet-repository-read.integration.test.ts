@@ -489,6 +489,7 @@ test("G11 authorization ancestry reads only projected task identity, never assem
           : [],
     );
   const readAncestor = makeOpaqueTaskAncestorReader({ readTaskAuthorizationMetadata });
+  assert.ok(readAncestor);
 
   assert.deepEqual(await readAncestor("child-task"), {
     taskClass: "task",
@@ -499,6 +500,7 @@ test("G11 authorization ancestry reads only projected task identity, never assem
     metadata: { parentTaskId: null },
   });
   assert.equal(await readAncestor("missing-task"), null);
+  assert.equal(makeOpaqueTaskAncestorReader({}), undefined);
 });
 
 test(

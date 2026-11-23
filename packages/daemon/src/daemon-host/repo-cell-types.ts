@@ -464,7 +464,7 @@ export interface RepoCell {
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
   /** O(1) projection lookup mapping an authored document path to its owning taskId, if any. */
   readonly taskIdForDocumentPath?: (logicalPath: string, signal?: AbortSignal) => Promise<string | null>;
-  readonly readTaskAuthorizationMetadata: (
+  readonly readTaskAuthorizationMetadata?: (
     taskIds: readonly string[],
     signal?: AbortSignal,
   ) => Promise<readonly TaskAuthorizationMetadata[]>;

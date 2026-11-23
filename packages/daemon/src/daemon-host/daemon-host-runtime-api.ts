@@ -369,7 +369,8 @@ export function createDaemonHostRuntimeApi(
                 actionId: entityRef === undefined ? `${kind}:${repoId}` : `${kind}:${repoId}:${entityRef}`,
                 evaluatedAtCut: `repository:${repoId}:current`,
                 repoId,
-                ...(entityRef === undefined ? {} : { entityRef, readTask }),
+                ...(entityRef === undefined ? {} : { entityRef }),
+                ...(entityRef === undefined || readTask === undefined ? {} : { readTask }),
                 ...(target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
               })
             : taskId !== undefined
@@ -380,7 +381,7 @@ export function createDaemonHostRuntimeApi(
                   repoId,
                   revision: cell.status().ledgerRevision ?? 0,
                   now: new Date().toISOString(),
-                  readTask,
+                  ...(readTask === undefined ? {} : { readTask }),
                 })
               : await evaluateFleetAction({
                   kind,
