@@ -1,5 +1,4 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
-import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -326,6 +325,44 @@ export async function readDaemonServiceState(unit: DaemonServiceUnit): Promise<D
   const [command, ...args] = daemonServiceCommands(unit).state;
   return parseDaemonServiceState(unit.manager, await runProcessExitAsync(command, args));
 }
+type ServiceCommandAttemptOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly transient: boolean; readonly failure: Error };
+
+async function executeServiceCommandOnce(
+  runner: typeof runProcessExitAsync,
+  command: DaemonServiceCommand,
+  effectiveTimeoutMs: number | undefined,
+  timeoutSignal: "SIGTERM" | "SIGKILL",
+  runCount: number,
+  multiRun: boolean,
+): Promise<ServiceCommandAttemptOutcome> {
+  try {
+    const result = await runner(
+      command[0],
+      command.slice(1),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      effectiveTimeoutMs === undefined ? {} : { timeoutMs: effectiveTimeoutMs, timeoutSignal },
+    );
+    if (result.exitCode === 0) return { ok: true };
+    const failure = formatServiceCommandFailure(
+      command,
+      { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      runCount,
+      multiRun,
+    );
+    return { ok: false, transient: true, failure };
+  } catch (error) {
+    const details = extractProcessErrorDetails(error);
+    const failure = formatServiceCommandFailure(command, details, runCount, multiRun);
+    const transient = details.code === null || !PERMANENT_SPAWN_ERROR_CODES.has(details.code);
+    return { ok: false, transient, failure };
+  }
+}
+
 export async function runDaemonServiceCommand(
   command: DaemonServiceCommand,
   timeoutMs?: number,
@@ -344,36 +381,16 @@ export async function runDaemonServiceCommand(
 
   for (let index = 0; index < maxRuns; index += 1) {
     const runCount = index + 1;
-    const isFinalRun = runCount >= maxRuns;
-    try {
-      const result = await runner(
-        command[0],
-        command.slice(1),
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        effectiveTimeoutMs === undefined
-          ? {}
-          : {
-              timeoutMs: effectiveTimeoutMs,
-              timeoutSignal: clientPolicy.serviceTimeoutSignal,
-            },
-      );
-      if (result.exitCode === 0) return;
-      const failure = formatServiceCommandFailure(
-        command,
-        { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
-        runCount,
-        index > 0,
-      );
-      if (isFinalRun) throw failure;
-    } catch (error) {
-      const details = extractProcessErrorDetails(error);
-      const failure = formatServiceCommandFailure(command, details, runCount, index > 0);
-      if (isFinalRun || (details.code !== null && PERMANENT_SPAWN_ERROR_CODES.has(details.code))) throw failure;
-      consumeKnownError(error);
-    }
+    const outcome = await executeServiceCommandOnce(
+      runner,
+      command,
+      effectiveTimeoutMs,
+      clientPolicy.serviceTimeoutSignal,
+      runCount,
+      index > 0,
+    );
+    if (outcome.ok) return;
+    if (!outcome.transient || runCount >= maxRuns) throw outcome.failure;
     const jitterMs = Math.floor(random() * baseDelayMs);
     await sleep(baseDelayMs * runCount + jitterMs);
   }
