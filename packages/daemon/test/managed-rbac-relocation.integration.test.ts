@@ -46,6 +46,15 @@ async function managedRoot(userRoot: string): Promise<void> {
   );
 }
 
+async function measured<T>(label: string, operation: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  try {
+    return await operation();
+  } finally {
+    console.log(`[relocation-timing] ${label} ${(performance.now() - started).toFixed(0)}ms`);
+  }
+}
+
 async function centerAccessToken(url: string, secret: string): Promise<string> {
   const response = await fetch(`${url}/realms/harness/protocol/openid-connect/token`, {
     method: "POST",
@@ -147,7 +156,7 @@ test(
       removeTempRepository(root);
     });
 
-    await source.run({ operation: "bootstrap", mode: "managed" });
+    await measured("source-bootstrap", () => source.run({ operation: "bootstrap", mode: "managed" }));
 
     const sourceConfig = JSON.parse(readFileSync(path.join(sourceRoot, "rbac", "config.json"), "utf8")) as {
         readonly url: string;
@@ -214,11 +223,13 @@ test(
     assert.equal(sourceDecision.outcome, "allowed");
     assert.equal(await sourcePolicy.authenticateNode(node.id, node.credential), true);
 
-    await source.run({
-      operation: "relocation-export",
-      backupDir: bundleDir,
-      accessAdminJournal: journal.entries,
-    });
+    await measured("relocation-export", () =>
+      source.run({
+        operation: "relocation-export",
+        backupDir: bundleDir,
+        accessAdminJournal: journal.entries,
+      }),
+    );
     // Stop the source PostgreSQL + Keycloak instance before bootstrapping the target so CI runners
     // never host two managed Keycloak JVMs simultaneously.
     await source.stop();
@@ -226,7 +237,7 @@ test(
     cpSync(path.join(sourceRoot, "rbac", "runtime"), path.join(targetRoot, "rbac", "runtime"), { recursive: true });
     await managedRoot(targetRoot);
     const target = (targetForCleanup = createIdentityManagement(targetRoot) as ManagedRbacService);
-    await target.run({ operation: "bootstrap", mode: "managed" });
+    await measured("target-bootstrap", () => target.run({ operation: "bootstrap", mode: "managed" }));
     const targetConfig = JSON.parse(readFileSync(path.join(targetRoot, "rbac", "config.json"), "utf8")) as {
         readonly url: string;
       },
@@ -280,14 +291,16 @@ test(
     assert.equal((await centerAccessToken(targetUrl, targetSecretBeforeImport.trim())).length > 0, true);
     writeFileSync(path.join(bundleDir, "realm.json"), realmBytes);
 
-    const imported = await target.run({
-      operation: "relocation-import",
-      backupDir: bundleDir,
-      loginUrl: `https://relocated.example.test:${loginPort}`,
-      listenAddress: "127.0.0.1",
-      certificateFile,
-      certificateKeyFile,
-    });
+    const imported = await measured("relocation-import", () =>
+      target.run({
+        operation: "relocation-import",
+        backupDir: bundleDir,
+        loginUrl: `https://relocated.example.test:${loginPort}`,
+        listenAddress: "127.0.0.1",
+        certificateFile,
+        certificateKeyFile,
+      }),
+    );
     assert.deepEqual(imported.edgeJoinJournal, journal);
     assert.equal(imported.loginUrl, `https://relocated.example.test:${loginPort}`);
     const finalConfig = JSON.parse(readFileSync(path.join(targetRoot, "rbac", "config.json"), "utf8")) as {

@@ -440,6 +440,17 @@ function windowsFixtureHost(): ManagedRbacHost {
   };
 }
 
+async function withImmediateReadinessIntervals<T>(operation: () => Promise<T>): Promise<T> {
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = ((callback: TimerHandler, delay = 0, ...args: unknown[]) =>
+    originalSetTimeout(callback, delay === 250 ? 0 : delay, ...args)) as typeof setTimeout;
+  try {
+    return await operation();
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+}
+
 test("managed RBAC resume waits through a transient realm health connection refusal", async () => {
   const keycloak = fakeKeycloak();
   let healthAttempts = 0;
@@ -457,6 +468,51 @@ test("managed RBAC resume waits through a transient realm health connection refu
   try {
     await managed.service.resume();
     assert.equal(healthAttempts, 2, "resume retries realm readiness after a connection refusal");
+  } finally {
+    await managed.close();
+  }
+});
+
+test("managed RBAC resume waits through realm HTTP 503 responses beyond the Unix readiness budget", async () => {
+  const keycloak = fakeKeycloak();
+  let healthAttempts = 0;
+  const managed = managedFixture(
+    () => true,
+    async (input, init) => {
+      if (new URL(String(input)).pathname === "/realms/harness" && healthAttempts++ < 120)
+        return new Response("Keycloak is still initializing", { status: 503 });
+      return keycloak.fetch(input, init);
+    },
+  );
+  writeFileSync(path.join(managed.root, "rbac", "center-client-secret"), "fixture-secret");
+  try {
+    await withImmediateReadinessIntervals(() => managed.service.resume());
+    assert.equal(healthAttempts, 121, "realm readiness accepts 200 after more than the old 30-second budget");
+  } finally {
+    await managed.close();
+  }
+});
+
+test("managed RBAC readiness fails closed with an HTTP 503 diagnostic after the full Unix budget", async () => {
+  let healthAttempts = 0;
+  const managed = managedFixture(
+    () => true,
+    async (input) => {
+      if (new URL(String(input)).pathname === "/realms/harness") {
+        healthAttempts += 1;
+        return new Response("Keycloak is still initializing", { status: 503 });
+      }
+      return Response.json({});
+    },
+  );
+  try {
+    await withImmediateReadinessIntervals(() =>
+      assert.rejects(managed.service.resume(), (error: unknown) => {
+        assert.match(error instanceof Error ? error.message : String(error), /HTTP 503 after 180000ms/u);
+        return true;
+      }),
+    );
+    assert.equal(healthAttempts, 720, "persistent 503 remains bounded by the 3-minute Unix budget");
   } finally {
     await managed.close();
   }
