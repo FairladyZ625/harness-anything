@@ -76,10 +76,15 @@ export type FleetFieldState = FleetOverviewNode["owner"];
 export type AgentRuntimeOverviewPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.overview"];
 export type AgentRuntimeSessionPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.sessions.read"];
 export type AgentRuntimeEventsPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"];
+export type DossierStatusRead = DaemonGuiReadResultMap["repo.dossier.status"];
+export type DossierContentRead = DaemonGuiReadResultMap["repo.dossier.read"];
+export type DossierContextRead = DaemonGuiReadResultMap["repo.dossier.context.read"];
 export type GuiActionResult = DaemonGuiActionResult;
 export type { GuiSubmissionV1 };
 
 export {
+  DOSSIER_PAGE_SIZE,
+  synthesizeDossierDocument,
   daemonControlPhaseWords,
   repoCellStateWords,
   repoRegistrationStateWords,

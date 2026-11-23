@@ -211,6 +211,20 @@ export const daemonActionRoutes = Object.freeze([
     shape({ decisionId: "string", expectedDigest: "string" }),
   ),
   actionRpc("doc.show", "repo.doc.show", "doc-show", shape({ path: "string" }), { read: true }),
+  actionRpc(
+    "dossier.synthesize",
+    "repo.dossier.synthesize",
+    "dossier-synthesize",
+    shape({
+      slotId: "string",
+      expectedWatermark: "number",
+      watermark: "number",
+      body: "string",
+      scheduleId: "string?",
+      claimFence: "string?",
+      idempotencyKey: "string?",
+    }),
+  ),
   ...todoActionRoutes,
   ...entityImportRoutes,
   // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs

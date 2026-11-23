@@ -1405,8 +1405,9 @@ test("all live non-main GUI client and daemon-local-state sources pass source pr
   const localState = inputs.constants.actionDeclarations.find((action) => action.kind === "daemon-local-state");
   const guiLocalSources = (localState?.ontology?.sources ?? []).filter((source) => isNonMainGui(source.candidateId));
   // dec_89D06D7360CBEC09795F7B12EC/CH3 binds renderer clients directly to the declared routes.
-  assert.equal(guiClientPairs.length, 244);
-  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 86);
+  // dec_4276A0CEACD4D402F122295925/CH1 adds 4 living-dossier client callsites (+1 action kind: dossier-synthesize).
+  assert.equal(guiClientPairs.length, 248);
+  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 87);
   // Stream cancellation adds two local support sites, with source proof for every entry.
   assert.equal(guiLocalSources.length, 113);
 

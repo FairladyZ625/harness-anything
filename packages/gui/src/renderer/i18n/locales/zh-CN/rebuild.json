@@ -140,6 +140,7 @@
   "shell.nav.tokenUsage": "Token 消耗",
   "shell.nav.schedules": "定时计划",
   "shell.nav.artifacts": "产物",
+  "shell.nav.dossier": "项目活档案",
   "accessControl.tagline": "查看成员在各作用域的角色；就地授予或撤销权限。",
   "accessControl.tab.service": "服务与会话",
   "accessControl.tab.groups": "角色说明",

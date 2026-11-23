@@ -1178,3 +1178,6 @@ export const daemonAuthorizationReceiptContractPolicy = {
 
 /** Shared transport and write-boundary limit for one living dossier document. */
 export const dossierContentMaxBytes = 512 * 1024;
+
+/** Maximum workspace revisions advanced per bounded living-dossier synthesis window. */
+export const DOSSIER_PAGE_SIZE = 64;

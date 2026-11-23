@@ -32,8 +32,10 @@ import { BrowserView } from "../src/renderer/views/BrowserView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
 import { ArtifactsView } from "../src/renderer/views/ArtifactsView.tsx";
+import { LivingDossierView } from "../src/renderer/views/LivingDossierView.tsx";
 import { EntitiesView } from "../src/renderer/views/EntitiesView.tsx";
 import { artifactsClient } from "../src/renderer/artifacts-client.ts";
+import { dossierClient } from "../src/renderer/dossier-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
@@ -439,6 +441,52 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     watermark: 1,
     sourceRevision: 1,
   });
+  vi.spyOn(dossierClient, "status").mockResolvedValue({
+    schema: "dossier-status/v1",
+    verticalId: "software/coding",
+    currentWatermark: 10,
+    slots: [
+      {
+        id: "project-atlas",
+        path: "project-atlas.html",
+        documentPath: "dossiers/software+coding/project-atlas.html",
+        kind: "html",
+        title: "Project Atlas",
+        summary: "System architecture topology and entity map.",
+        entityKinds: ["task", "decision", "fact"],
+        requiredAnchors: ["atlas-topology", "entity-map", "change-ledger"],
+        watermarkMetadata: "required",
+        triggers: [{ kind: "event-watermark", minimumDelta: 5 }],
+        lastSynthesizedWatermark: 10,
+        synthesizedAt: "2026-11-22T10:00:00.000Z",
+        stalenessDelta: 0,
+        dueTriggers: [],
+      },
+    ],
+  });
+  vi.spyOn(dossierClient, "read").mockResolvedValue({
+    schema: "dossier-content/v1",
+    slot: {
+      id: "project-atlas",
+      path: "project-atlas.html",
+      kind: "html",
+      title: "Project Atlas",
+      summary: "System architecture topology and entity map.",
+      entityKinds: ["task", "decision", "fact"],
+      requiredAnchors: ["atlas-topology", "entity-map", "change-ledger"],
+      watermarkMetadata: "required",
+      triggers: [{ kind: "event-watermark", minimumDelta: 5 }],
+    },
+    state: {
+      verticalId: "software/coding",
+      slotId: "project-atlas",
+      lastSynthesizedWatermark: 10,
+      synthesizedAt: "2026-11-22T10:00:00.000Z",
+      path: "dossiers/software+coding/project-atlas.html",
+    },
+    mediaType: "text/html",
+    body: '<!doctype html><html><head><meta name="dossier-watermark" content="10"></head><body><main><section id="atlas-topology"><p>Active topology snapshot.</p></section></main></body></html>',
+  });
   // Schedules fixture carries routable session/agent refs so the behavioral scan
   // covers the new plane's deep-link exits (the ids must stay activatable).
   vi.spyOn(schedulesClient, "list").mockResolvedValue({
@@ -823,6 +871,7 @@ const VIEW_RENDERERS = {
       onBack: noop,
     }),
   artifacts: () => createElement(ArtifactsView, { repoId: REPO_ID, onNavigateTask: noop }),
+  dossier: () => createElement(LivingDossierView, { repoId: REPO_ID }),
   // Token 消耗页:行 id 是 daemon 聚合行的归因文本(非可导航实体链接),fixture 用
   // 非 needle id,死 ID 扫描按文本处理。
   tokenUsage: () =>

@@ -1866,7 +1866,8 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
   // dec_89D06D7360CBEC09795F7B12EC unifies the routes: 27 net client sites and
   // two net daemon-local-state sites raise the registered census from 343 to 372.
-  assert.equal(nonMainGuiActions.length, 372);
+  // dec_4276A0CEACD4D402F122295925/CH1 adds 4 dossier-client routes, raising the census to 376.
+  assert.equal(nonMainGuiActions.length, 376);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],

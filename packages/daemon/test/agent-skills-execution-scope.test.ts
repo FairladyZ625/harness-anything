@@ -68,12 +68,16 @@ test("opening one GUI read does not open the GUI read family", () => {
         }
       })
       .map(({ method }) => method);
-  // The already-open repository reads are retained deliberately; the skills catalog is the
-  // only addition. A new GUI read entering this list is a policy change, not an accident.
+  // The already-open repository reads are retained deliberately (including V2 dossier reads
+  // promoted into daemonReadRoutes for the Living Dossier GUI tab); the skills catalog is the
+  // only execution-scope addition. A new GUI read entering this list is a policy change, not an accident.
   assert.deepEqual(admitted.sort(), [
     "repo.agenda.read",
     "repo.agent.skills.list",
     "repo.agentRuntime.overview",
+    "repo.dossier.context.read",
+    "repo.dossier.read",
+    "repo.dossier.status",
     "repo.entity.actions.explain",
     "repo.settings.read",
     "repo.task.dispatches",
