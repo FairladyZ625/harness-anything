@@ -178,7 +178,7 @@ describe("LivingDossierView", () => {
     expect(document.querySelector("[data-testid='dossier-markdown-status']")?.textContent).toBe("r10 / r18");
   });
 
-  it("paginates incremental synthesis across 64-revision pages from an unsynthesized slot", async () => {
+  it("folds multiple bounded context pages in memory and commits a single synthesis write", async () => {
     let synthesizedWatermark = 0;
     let storedBody: string | null = null;
 
@@ -219,56 +219,59 @@ describe("LivingDossierView", () => {
       }),
     );
 
-    const contextSpy = vi.spyOn(dossierClient, "context").mockImplementation(async (): Promise<DossierContextRead> => {
-      if (synthesizedWatermark === 0) {
+    const contextSpy = vi
+      .spyOn(dossierClient, "context")
+      .mockImplementation(async (_repoId, _slotId, _maxWatermark, options): Promise<DossierContextRead> => {
+        if (!options?.afterWatermark) {
+          return {
+            schema: "dossier-context/v1",
+            slotId: "project-atlas",
+            expectedWatermark: 0,
+            currentWatermark: 100,
+            nextWatermark: 64,
+            done: false,
+            kindMap: {},
+            changes: [
+              {
+                eventId: "evt_p1",
+                schema: "decision-event/v1",
+                type: "decision_accepted",
+                occurredAt: "2026-11-22T09:00:00.000Z",
+                workspaceRevision: 40,
+                source: "local",
+                actor: { principal: { personId: "person_alice" } },
+                payload: { title: "Approve Q4 brief" },
+                entityRefs: ["decision/dec_p1"],
+                matchedKinds: ["decision"],
+              },
+            ],
+          };
+        }
         return {
           schema: "dossier-context/v1",
           slotId: "project-atlas",
           expectedWatermark: 0,
+          afterWatermark: options.afterWatermark,
           currentWatermark: 100,
-          nextWatermark: 64,
-          done: false,
+          nextWatermark: 100,
+          done: true,
           kindMap: {},
           changes: [
             {
-              eventId: "evt_p1",
-              schema: "decision-event/v1",
-              type: "decision_accepted",
-              occurredAt: "2026-11-22T09:00:00.000Z",
-              workspaceRevision: 40,
+              eventId: "evt_p2",
+              schema: "task-event/v1",
+              type: "task_completed",
+              occurredAt: "2026-11-22T10:00:00.000Z",
+              workspaceRevision: 92,
               source: "local",
-              actor: { principal: { personId: "person_alice" } },
-              payload: { title: "Approve Q4 brief" },
-              entityRefs: ["decision/dec_p1"],
-              matchedKinds: ["decision"],
+              actor: { executor: { id: "contributor" } },
+              payload: { title: "Complete launch handoff" },
+              entityRefs: ["task/task_p2"],
+              matchedKinds: ["task"],
             },
           ],
         };
-      }
-      return {
-        schema: "dossier-context/v1",
-        slotId: "project-atlas",
-        expectedWatermark: 64,
-        currentWatermark: 100,
-        nextWatermark: 100,
-        done: true,
-        kindMap: {},
-        changes: [
-          {
-            eventId: "evt_p2",
-            schema: "task-event/v1",
-            type: "task_completed",
-            occurredAt: "2026-11-22T10:00:00.000Z",
-            workspaceRevision: 92,
-            source: "local",
-            actor: { executor: { id: "contributor" } },
-            payload: { title: "Complete launch handoff" },
-            entityRefs: ["task/task_p2"],
-            matchedKinds: ["task"],
-          },
-        ],
-      };
-    });
+      });
 
     const synthSpy = vi.spyOn(dossierClient, "synthesize").mockImplementation(async (_repoId, payload) => {
       synthesizedWatermark = payload.watermark;
@@ -294,9 +297,8 @@ describe("LivingDossierView", () => {
     await settle(client);
 
     expect(contextSpy).toHaveBeenCalledTimes(2);
-    expect(synthSpy).toHaveBeenCalledTimes(2);
-    expect(synthSpy.mock.calls[0]?.[1]).toMatchObject({ expectedWatermark: 0, watermark: 64 });
-    expect(synthSpy.mock.calls[1]?.[1]).toMatchObject({ expectedWatermark: 64, watermark: 100 });
+    expect(synthSpy).toHaveBeenCalledTimes(1);
+    expect(synthSpy.mock.calls[0]?.[1]).toMatchObject({ expectedWatermark: 0, watermark: 100 });
     expect(document.querySelector("[data-testid='dossier-feedback']")?.textContent).toContain("r100");
     const iframe = document.querySelector<HTMLIFrameElement>("[data-testid='dossier-html-frame']");
     expect(iframe?.getAttribute("srcdoc")).toContain("Approve Q4 brief");
@@ -692,10 +694,10 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
     expect(serverBody).toContain("Window 129..192 deliverable");
   });
 
-  it("re-reads latest body when another writer advances r64->r128 between page 1 synthesize and page 2 context", async () => {
+  it("re-reads latest body when another writer advances r0->r128 between page 1 and page 2 in-memory fold", async () => {
     let serverWatermark = 0;
     let serverBody: string | null = null;
-    let injectedBetweenPages = false;
+    let contextCalls = 0;
 
     const readSpy = vi.spyOn(dossierClient, "read").mockImplementation(
       async (): Promise<DossierContentRead> => ({
@@ -717,7 +719,8 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
     );
 
     const contextSpy = vi.spyOn(dossierClient, "context").mockImplementation(async (): Promise<DossierContextRead> => {
-      if (serverWatermark === 0) {
+      contextCalls += 1;
+      if (contextCalls === 1) {
         return {
           schema: "dossier-context/v1",
           slotId: "context",
@@ -742,13 +745,33 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
           ],
         };
       }
-      // Concurrent writer jumps r64 -> r128 before GUI's page 2 context call!
-      if (serverWatermark === 64 && !injectedBetweenPages) {
-        injectedBetweenPages = true;
+      // Concurrent writer jumps r0 -> r128 before GUI's page 2 context call!
+      if (contextCalls === 2) {
+        const p1Body = synthesizeDossierDocument({
+          verticalId: "software/coding",
+          slot: contextSlot,
+          previousBody: null,
+          expectedWatermark: 0,
+          targetWatermark: 64,
+          changes: [
+            {
+              eventId: "evt_p1_r40",
+              schema: "task-event/v1",
+              type: "task_completed",
+              occurredAt: "2026-11-22T08:00:00.000Z",
+              workspaceRevision: 40,
+              taskId: "task_p1",
+              actor: { executor: { id: "worker" } },
+              payload: { title: "Page 1 r1..r64 work" },
+              entityRefs: ["task/task_p1"],
+            },
+          ],
+          synthesizedAt: "2026-11-22T08:00:00.000Z",
+        });
         serverBody = synthesizeDossierDocument({
           verticalId: "software/coding",
           slot: contextSlot,
-          previousBody: serverBody,
+          previousBody: p1Body,
           expectedWatermark: 64,
           targetWatermark: 128,
           changes: [
@@ -772,6 +795,7 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
         schema: "dossier-context/v1",
         slotId: "context",
         expectedWatermark: serverWatermark,
+        afterWatermark: 128,
         currentWatermark: 192,
         nextWatermark: 192,
         done: true,
@@ -815,15 +839,14 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
     expect(outcome).toEqual({
       ok: true,
       slotId: "context",
-      pagesApplied: 2,
+      pagesApplied: 1,
       reachedWatermark: 192,
       remaining: false,
     });
     expect(readSpy).toHaveBeenCalledTimes(2);
-    expect(contextSpy).toHaveBeenCalledTimes(3);
-    expect(synthSpy).toHaveBeenCalledTimes(2);
-    expect(synthSpy.mock.calls[0]?.[1]).toMatchObject({ expectedWatermark: 0, watermark: 64 });
-    expect(synthSpy.mock.calls[1]?.[1]).toMatchObject({ expectedWatermark: 128, watermark: 192 });
+    expect(contextSpy).toHaveBeenCalledTimes(2);
+    expect(synthSpy).toHaveBeenCalledTimes(1);
+    expect(synthSpy.mock.calls[0]?.[1]).toMatchObject({ expectedWatermark: 128, watermark: 192 });
     expect(serverBody).toContain("Page 1 r1..r64 work");
     expect(serverBody).toContain("Interleaved r65..r128 chronicler decision");
     expect(serverBody).toContain("Page 3 r129..r192 work");
@@ -948,5 +971,117 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
     expect(submittedBody.split("\n", 1)[0]).toBe("<!-- dossier-watermark: 16 -->");
     expect(submittedBody.slice(submittedBody.indexOf("\n"))).toBe(chroniclerBody.slice(chroniclerBody.indexOf("\n")));
     expect(submittedBody).not.toContain("<!-- dossier-state:v1 ");
+  });
+
+  it("auto-bootstraps severely lagging slots (> 8,192 revisions) in 1 projection-seeded read and 1 synthesize write", async () => {
+    const staleManagedAt64 = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: contextSlot,
+      previousBody: null,
+      expectedWatermark: 0,
+      targetWatermark: 64,
+      changes: [
+        {
+          eventId: "evt_stale_block",
+          schema: "task-event/v1",
+          type: "task_transitioned",
+          occurredAt: "2026-11-20T00:00:00.000Z",
+          workspaceRevision: 30,
+          taskId: "task_old_resolved_at_r5000",
+          actor: { executor: { id: "worker" } },
+          payload: { title: "Obsolete r30 blocker", taskStatus: "blocked" },
+          entityRefs: ["task/task_old_resolved_at_r5000"],
+        },
+      ],
+      synthesizedAt: "2026-11-20T00:00:00.000Z",
+    });
+
+    vi.spyOn(dossierClient, "read").mockResolvedValue({
+      schema: "dossier-content/v1",
+      slot: contextSlot,
+      state: {
+        verticalId: "software/coding",
+        slotId: "context",
+        lastSynthesizedWatermark: 64,
+        synthesizedAt: "2026-11-20T00:00:00.000Z",
+        path: contextSlot.documentPath,
+      },
+      mediaType: "text/markdown",
+      body: staleManagedAt64,
+    });
+
+    const contextSpy = vi
+      .spyOn(dossierClient, "context")
+      .mockImplementation(async (_repoId, _slotId, _maxWatermark, options): Promise<DossierContextRead> => {
+        if (options?.bootstrap) {
+          return {
+            schema: "dossier-context/v1",
+            slotId: "context",
+            expectedWatermark: 64,
+            currentWatermark: 290_000,
+            nextWatermark: 290_000,
+            done: true,
+            bootstrapped: true,
+            kindMap: {},
+            changes: [
+              {
+                eventId: "boot-dec-1",
+                schema: "decision-event/v1",
+                type: "decision_accepted",
+                occurredAt: "2026-11-23T02:00:00.000Z",
+                workspaceRevision: 289_900,
+                decisionId: "dec_head_1",
+                actor: { principal: { personId: "person_zeyu" } },
+                payload: { decisionAction: "accepted", title: "Projection-seeded turbo catchup" },
+                entityRefs: ["decision/dec_head_1"],
+              },
+            ],
+          };
+        }
+        return {
+          schema: "dossier-context/v1",
+          slotId: "context",
+          expectedWatermark: 64,
+          currentWatermark: 290_000,
+          nextWatermark: 576,
+          done: false,
+          kindMap: {},
+          changes: [],
+        };
+      });
+
+    let submittedBody = "";
+    const synthSpy = vi.spyOn(dossierClient, "synthesize").mockImplementation(async (_repoId, payload) => {
+      submittedBody = payload.body;
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "dossier-synthesize",
+        outcome: "applied",
+        opId: "op_290000",
+      };
+    });
+
+    const outcome = await refreshDossierSlot({
+      repoId: "repo-1",
+      verticalId: "software/coding",
+      slot: contextSlot,
+      now: () => "2026-11-23T02:20:00.000Z",
+    });
+
+    expect(outcome).toEqual({
+      ok: true,
+      slotId: "context",
+      pagesApplied: 1,
+      reachedWatermark: 290_000,
+      remaining: false,
+    });
+    expect(contextSpy).toHaveBeenCalledTimes(2);
+    expect(contextSpy.mock.calls[1]?.[3]).toEqual({ bootstrap: true });
+    expect(synthSpy).toHaveBeenCalledTimes(1);
+    expect(synthSpy.mock.calls[0]?.[1]).toMatchObject({ expectedWatermark: 64, watermark: 290_000 });
+    expect(submittedBody).toContain("<!-- dossier-watermark: 290000 -->");
+    expect(submittedBody).toContain("Projection-seeded turbo catchup");
+    expect(submittedBody).not.toContain("Obsolete r30 blocker");
   });
 });

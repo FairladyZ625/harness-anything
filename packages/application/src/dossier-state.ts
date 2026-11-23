@@ -6,9 +6,16 @@ import {
 } from "@harness-anything/kernel/internal/domain/living-dossier.ts";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 
+export type DossierBootstrapProjection = Partial<
+  Pick<
+    TaskProjection,
+    "readCut" | "readTaskIndex" | "listDecisions" | "searchFacts" | "readRelationQuery" | "listEntities"
+  >
+>;
+
 export type DossierReader = {
   readonly store: Pick<CanonicalEventStore, "readHead" | "readEvent" | "readEventAtRevision" | "readEventWindow">;
-  readonly projection: Pick<TaskProjection, "readDocumentMetadata" | "readDocument">;
+  readonly projection: Pick<TaskProjection, "readDocumentMetadata" | "readDocument"> & DossierBootstrapProjection;
 };
 
 export function dossierError(code: string, message: string): never {

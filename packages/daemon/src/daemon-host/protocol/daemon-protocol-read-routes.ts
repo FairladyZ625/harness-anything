@@ -593,7 +593,7 @@ export const daemonReadRoutes = Object.freeze([
     requiresRepo: true,
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ slotId: "string", maxWatermark: "number?" }),
+      payload: shape({ slotId: "string", maxWatermark: "number?", afterWatermark: "number?", bootstrap: "boolean?" }),
     }),
     commandClass: "repo-read",
   },

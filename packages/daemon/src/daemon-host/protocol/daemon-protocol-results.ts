@@ -609,7 +609,12 @@ export type DaemonGuiReadPayloadMap = {
   };
   readonly "repo.dossier.status": Readonly<Record<string, never>>;
   readonly "repo.dossier.read": { readonly slotId: string };
-  readonly "repo.dossier.context.read": { readonly slotId: string; readonly maxWatermark?: number };
+  readonly "repo.dossier.context.read": {
+    readonly slotId: string;
+    readonly maxWatermark?: number;
+    readonly afterWatermark?: number;
+    readonly bootstrap?: boolean;
+  };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.reckoning.signals.read": { readonly generatedAt?: string; readonly windowHours?: number };
   readonly "repo.policy.metadata.read": Readonly<Record<string, never>>;

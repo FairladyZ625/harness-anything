@@ -29,8 +29,11 @@ export function dossierReads(cell: RepoCellOperationalContext) {
     slot,
     status: () => readDossierStatus(cell, definition, cell.now()),
     read: (id: unknown) => readDossierContent(cell, definition.id, slot(id)),
-    context: (id: unknown, maxWatermark: unknown) =>
-      readDossierContext(cell, definition.id, slot(id), maxWatermark, definition.entityKinds),
+    context: (
+      id: unknown,
+      maxWatermark: unknown,
+      options?: { readonly afterWatermark?: unknown; readonly bootstrap?: unknown },
+    ) => readDossierContext(cell, definition.id, slot(id), maxWatermark, definition.entityKinds, options),
   };
 }
 
@@ -42,7 +45,12 @@ export function runDossierAction(
   const reads = dossierReads(cell);
   if (action.kind === "dossier-status" || action.kind === "dossier-context") {
     const result =
-      action.kind === "dossier-status" ? reads.status() : reads.context(action.slotId, action.maxWatermark);
+      action.kind === "dossier-status"
+        ? reads.status()
+        : reads.context(action.slotId, action.maxWatermark, {
+            afterWatermark: action.afterWatermark,
+            bootstrap: action.bootstrap,
+          });
     const revision = cell.store.readHead()?.revision ?? 0;
     return cell.readResult(cell.operationId(action, binding, cell.input.repoId, revision), result, revision, null);
   }

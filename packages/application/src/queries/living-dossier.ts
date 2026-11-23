@@ -11,6 +11,7 @@ import {
 import { canonicalEventEntityRefs } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { CanonicalEventV1, VerticalDefinition } from "@harness-anything/kernel";
 import { dossierError, dossierSourceCut, readDossierState, type DossierReader } from "../dossier-state.ts";
+import { buildDossierBootstrapChanges } from "./living-dossier-bootstrap.ts";
 
 const DOSSIER_TEXT_MAX_CHARS = 280;
 const MAX_DOSSIER_TAGS = 6;
@@ -61,13 +62,24 @@ export function readDossierContent(reader: DossierReader, verticalId: string, sl
   };
 }
 
-/** One page per call. The scanned revision, including irrelevant events, is the next write fence. */
+export interface DossierContextCursorOptions {
+  readonly afterWatermark?: unknown;
+  readonly bootstrap?: unknown;
+}
+
+/**
+ * Bounded context read for a dossier slot.
+ * - Normal incremental scan reads one DOSSIER_PAGE_SIZE window starting after `max(expectedWatermark, afterWatermark)`.
+ * - When `bootstrap: true` and the remaining delta exceeds one page, seeds from bounded TaskProjection snapshots
+ *   plus the tail event window so cold or severely lagging repositories reach `sourceWatermark` in O(1).
+ */
 export function readDossierContext(
   reader: DossierReader,
   verticalId: string,
   slot: DossierSlot,
   upper?: unknown,
   declaredKinds: VerticalDefinition["entityKinds"] = [],
+  cursorOptions?: DossierContextCursorOptions,
 ) {
   const expectedWatermark = readDossierState(reader, verticalId, slot.id)?.lastSynthesizedWatermark ?? 0;
   const sourceWatermark = dossierSourceCut(reader).watermark;
@@ -81,9 +93,24 @@ export function readDossierContext(
       "invalid_command",
       "Dossier context upper watermark must be between the current slot and source watermarks.",
     );
+
+  const rawAfter = cursorOptions?.afterWatermark;
+  if (rawAfter !== undefined && (!isDossierWatermark(rawAfter) || rawAfter > currentWatermark)) {
+    dossierError("invalid_command", "Dossier context afterWatermark must be an integer up to the upper watermark.");
+  }
+  const scanAfter = rawAfter === undefined ? expectedWatermark : Math.max(expectedWatermark, rawAfter);
+
+  const rawBootstrap = cursorOptions?.bootstrap;
+  if (rawBootstrap !== undefined && typeof rawBootstrap !== "boolean") {
+    dossierError("invalid_command", "Dossier context bootstrap flag must be a boolean.");
+  }
+  if (rawBootstrap === true && currentWatermark < sourceWatermark) {
+    dossierError("invalid_command", "Dossier bootstrap context cannot target a historical maxWatermark.");
+  }
+
   const readPage = reader.store.readEventWindow;
   if (!readPage) dossierError("invalid_store", "The dossier requires an indexed canonical event window.");
-  const page = readPage({ afterRevision: expectedWatermark, maxRevision: currentWatermark, limit: DOSSIER_PAGE_SIZE });
+
   const entityKinds = new Set(slot.entityKinds);
   const kindMap: Record<string, string> = {};
   for (const kind of declaredKinds) {
@@ -93,13 +120,49 @@ export function readDossierContext(
       if (entityKinds.has(kind.id)) entityKinds.add(opaqueKind);
     }
   }
+
+  const shouldBootstrap = rawBootstrap === true && currentWatermark - scanAfter > DOSSIER_PAGE_SIZE;
+  if (shouldBootstrap) {
+    const projected = buildDossierBootstrapChanges({
+      reader,
+      slot,
+      sourceWatermark: currentWatermark,
+      entityKinds,
+      kindMap,
+    });
+    const tailAfter = Math.max(scanAfter, currentWatermark - DOSSIER_PAGE_SIZE);
+    const tailPage = readPage({
+      afterRevision: tailAfter,
+      maxRevision: currentWatermark,
+      limit: DOSSIER_PAGE_SIZE,
+    });
+    const tailChanges = tailPage.events.flatMap((event) =>
+      dossierChange(event, entityKinds, kindMap, slot.entityKinds),
+    );
+    return {
+      schema: "dossier-context/v1" as const,
+      slotId: slot.id,
+      expectedWatermark,
+      ...(rawAfter !== undefined ? { afterWatermark: scanAfter } : {}),
+      currentWatermark,
+      nextWatermark: currentWatermark,
+      done: true,
+      bootstrapped: true as boolean,
+      kindMap,
+      changes: [...projected, ...tailChanges],
+    };
+  }
+
+  const page = readPage({ afterRevision: scanAfter, maxRevision: currentWatermark, limit: DOSSIER_PAGE_SIZE });
   return {
     schema: "dossier-context/v1" as const,
     slotId: slot.id,
     expectedWatermark,
+    ...(rawAfter !== undefined ? { afterWatermark: scanAfter } : {}),
     currentWatermark,
     nextWatermark: page.lastScannedRevision,
     done: page.done,
+    ...(rawBootstrap !== undefined ? { bootstrapped: false as boolean } : {}),
     kindMap,
     changes: page.events.flatMap((event) => dossierChange(event, entityKinds, kindMap, slot.entityKinds)),
   };

@@ -325,7 +325,7 @@ export const dossierSynthesisPolicy = {
   ownerRef: "document",
   unit: "canonical source revision / Schedule occurrence",
   bounds:
-    "Each publication advances one slot within a bounded revision page and the observed source cut. Scheduled runtimes must own the active occurrence claim. The dossier owns its document and cursor paths.",
+    "Each publication advances one slot strictly above its expected watermark up to the observed source cut. Scheduled runtimes must own the active occurrence claim. The dossier owns its document and cursor paths.",
   defaultValue: { writer: "canonical-repository-writer", scheduled: "active-occurrence-claim" },
   version: 1,
   scope: "Markdown and HTML living dossier publications",
@@ -338,7 +338,7 @@ export const dossierSynthesisPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/dossier-actions.ts#assertScheduleClaim:6a5ae52649e37c97d33d052242234a4a",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#daemonActionRoutes.claimFence:2b39eedf9916382139b7ccdbdb8f3a10",
     "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:22b9c22a41880415864574a8cce45de5",
-    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:2ff89fbe31cc575e8b5c327852f0f6b2",
+    "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:3dd8dc40e1fa47589663d075b9898d5e",
     "policy:packages/kernel:packages/kernel/src/domain/dossier-synthesis-event.ts#validateDossierSynthesisEventFields:d78394ff063590c638fe7fbf7d222639",
   ].map((candidateId) => ({ candidateId, route: "living dossier synthesis fence" })),
 } as const satisfies OntologyPolicyDeclaration;

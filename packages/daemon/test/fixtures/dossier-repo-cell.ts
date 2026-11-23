@@ -101,6 +101,16 @@ export async function assertDossierRepoCell(root: string, storage: StorageBacken
     }
     const unauthorized = await cell.run({ ...operation, body, idempotencyKey: "no-writer" }, contributor);
     assert.equal(unauthorized.code, "authorization_denied", JSON.stringify(unauthorized));
+    const beyondCut = await cell.run(
+      {
+        ...operation,
+        watermark: page.nextWatermark + 1,
+        body: html(page.nextWatermark + 1, '<main id="decision-log"><p>Future cut.</p></main>'),
+        idempotencyKey: "beyond-cut",
+      },
+      binding,
+    );
+    assert.equal(beyondCut.code, "invalid_command", JSON.stringify(beyondCut));
     const staleClaim = await cell.run(
       {
         ...operation,
