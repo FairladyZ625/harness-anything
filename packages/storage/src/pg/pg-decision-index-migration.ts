@@ -20,8 +20,24 @@ export function decisionIndexDdl(
     secondary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[1]).join("");
   const literal = (value: string) => `'${value.replaceAll("'", "''")}'`,
     addCol = (col: string, def: string) => dialectAddColumnIfNotExistsSql(capabilities, "ha_decisions", col, def),
-    buildObject = capabilities.supportsExtendedJsonb ? "jsonb_build_object" : "json_build_object",
-    buildCast = capabilities.supportsExtendedJsonb ? "" : "::jsonb";
+    listSummarySql = capabilities.supportsExtendedJsonb
+      ? `SELECT jsonb_build_object(
+          'title',value->'title','question',value->'question','state',value->'state',
+          'riskTier',value->'riskTier','urgency',value->'urgency','proposedAt',value->'proposedAt',
+          'appliesTo',value->'appliesTo','chosen',value->'chosen','rejected',value->'rejected')`
+      : `SELECT (
+          '{' ||
+          '"title":' || COALESCE((value->'title')::text, 'null') ||
+          ',"question":' || COALESCE((value->'question')::text, 'null') ||
+          ',"state":' || COALESCE((value->'state')::text, 'null') ||
+          ',"riskTier":' || COALESCE((value->'riskTier')::text, 'null') ||
+          ',"urgency":' || COALESCE((value->'urgency')::text, 'null') ||
+          ',"proposedAt":' || COALESCE((value->'proposedAt')::text, 'null') ||
+          ',"appliesTo":' || COALESCE((value->'appliesTo')::text, 'null') ||
+          ',"chosen":' || COALESCE((value->'chosen')::text, 'null') ||
+          ',"rejected":' || COALESCE((value->'rejected')::text, 'null') ||
+          '}'
+        )::jsonb`;
   return [
     addCol("decision_state", "text"),
     addCol("legacy_group", "smallint"),
@@ -31,10 +47,7 @@ export function decisionIndexDdl(
     addCol("review_summary", "jsonb"),
     `CREATE OR REPLACE FUNCTION ha_decision_list_summary(value jsonb) RETURNS jsonb
       LANGUAGE sql IMMUTABLE AS $function$
-        SELECT ${buildObject}(
-          'title',value->'title','question',value->'question','state',value->'state',
-          'riskTier',value->'riskTier','urgency',value->'urgency','proposedAt',value->'proposedAt',
-          'appliesTo',value->'appliesTo','chosen',value->'chosen','rejected',value->'rejected')${buildCast}
+        ${listSummarySql}
       $function$`,
     `CREATE OR REPLACE FUNCTION ha_decision_index_fields() RETURNS trigger
       LANGUAGE plpgsql AS $function$

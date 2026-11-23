@@ -236,7 +236,12 @@ export async function executePostgresAppend(
       if (!capabilities.supportsOnConflict) {
         // MERGE INTO skips BEFORE triggers when ha_repo_heads already exists; acquire the
         // repository-wide authority SHARE lock first so append and migration keep authority -> head order.
-        await client.query("SELECT public.ha_acquire_repo_writer_epoch_share($1)", [repoId]);
+        await client.query("SELECT public.ha_acquire_repo_writer_epoch_share($1, $2, $3, $4)", [
+          scope.tenantId,
+          scope.projectId,
+          scope.policyEpoch,
+          repoId,
+        ]);
       }
       await client.query(
         dialectUpsertValuesSql(capabilities, {

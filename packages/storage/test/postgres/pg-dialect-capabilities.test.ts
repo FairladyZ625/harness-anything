@@ -253,6 +253,7 @@ test("openGauss event-ledger and projection DDL omit unsupported PG 10-16 syntax
   assert.doesNotMatch(projDdl, /\bWITH ORDINALITY\b/u);
   assert.doesNotMatch(projDdl, /\bGENERATED ALWAYS AS IDENTITY\b/u);
   assert.doesNotMatch(projDdl, /\bxid8\b/u);
+  assert.doesNotMatch(projDdl, /ha_decision_list_summary[\s\S]{0,200}json_build_object/u);
   assert.match(projDdl, /memory_class text GENERATED ALWAYS AS \(value->>'memoryClass'\) STORED/u);
   assert.match(projDdl, /CREATE INDEX IF NOT EXISTS ha_facts_memory_class/u);
 
@@ -283,9 +284,24 @@ test("migration schema installs authority-first share lock helper only on non-ON
 
   const og = capabilitiesFromProbeRow(OPENGAUSS_503_PG_PROBE);
   const ogSchema = postgresStorageMigrationSchema(og).join("\n");
-  assert.match(ogSchema, /CREATE OR REPLACE FUNCTION public\.ha_acquire_repo_writer_epoch_share/u);
+  assert.match(ogSchema, /DROP FUNCTION IF EXISTS public\.ha_acquire_repo_writer_epoch_share\(text\)/u);
+  assert.match(ogSchema, /CREATE OR REPLACE FUNCTION public\.ha_acquire_repo_writer_epoch_share\(/u);
+  assert.match(ogSchema, /target_tenant_id text/u);
+  assert.match(ogSchema, /target_project_id text/u);
+  assert.match(ogSchema, /target_policy_epoch bigint/u);
+  assert.match(ogSchema, /target_repo_id text/u);
+  assert.doesNotMatch(ogSchema, /LANGUAGE plpgsql STRICT SECURITY DEFINER/u);
   assert.match(ogSchema, /has_table_privilege\(session_user, 'public\.ha_repo_heads', 'INSERT'\)/u);
+  assert.match(ogSchema, /r\.rolsuper OR r\.rolsystemadmin/u);
+  assert.match(ogSchema, /public\.ha_current_setting\('ha\.tenant_id'\)/u);
+  assert.match(ogSchema, /public\.ha_current_setting\('ha\.project_id'\)/u);
+  assert.match(ogSchema, /public\.ha_current_setting\('ha\.policy_epoch'\)/u);
+  assert.match(ogSchema, /ERRCODE = '42501'/u);
   assert.match(ogSchema, /FROM public\.ha_repo_writer_epochs WHERE repo_id = target_repo_id FOR SHARE/u);
+  assert.match(
+    ogSchema,
+    /GRANT EXECUTE ON FUNCTION public\.ha_acquire_repo_writer_epoch_share\(text, text, bigint, text\) TO PUBLIC/u,
+  );
 });
 
 test("readPgProjectionStoredRows uses row_to_json on openGauss and strips/resolves columns identically", async () => {

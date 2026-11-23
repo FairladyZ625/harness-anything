@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Pool } from "pg";
+import { compileDecisionWrite } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { compileFactWrite, type FactMemoryClass } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel/internal/domain/task-graph.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
@@ -34,6 +35,7 @@ import { createMigrationGrant } from "../../src/migration/postgres-grant.ts";
 import { openSqliteMigrationEndpoint } from "../../src/migration/sqlite-endpoint.ts";
 import { initRepo } from "../store/task-event-store.fixtures.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
+import { realizedDecisionBody } from "../../../../tools/fixtures/task-plan.mjs";
 
 const ADMIN_URL = process.env.HARNESS_OPENGAUSS_ADMIN_URL;
 const RUNTIME_URL = process.env.HARNESS_OPENGAUSS_RUNTIME_URL;
@@ -124,6 +126,58 @@ function makeFactBundle(
       },
     },
   });
+}
+
+function makeDecisionBundle(decisionId: string, opId: string, revision: number): CanonicalWriteBundle {
+  return compileDecisionWrite({
+    event: {
+      schema: "decision-event/v1",
+      eventId: `evt_${opId}`,
+      workspaceRevision: revision,
+      opId,
+      decisionId,
+      type: "decision_proposed",
+      actor,
+      source: "local",
+      occurredAt: "2026-11-23T08:02:00.000Z",
+      payload: {
+        title: `OpenGauss lock-order decision ${decisionId}`,
+        question: "Does warm append acquire authority before head?",
+        riskTier: "medium",
+        urgency: "medium",
+        vertical: "test",
+        preset: "default",
+        appliesTo: { modules: ["storage"], productLines: [] },
+        decisionClass: "ordinary",
+        chosen: [{ id: "CH1", text: "Acquire authority SHARE before touching ha_repo_heads." }],
+        rejected: [{ id: "RJ1", text: "Acquire head first.", whyNot: "Deadlocks with migration freeze." }],
+        body: realizedDecisionBody(`OpenGauss lock-order decision ${decisionId}`),
+        claims: [],
+        fulfillments: [],
+        relations: [],
+        provenance: [
+          {
+            runtime: "unavailable",
+            sessionId: null,
+            transcriptReachability: "unavailable",
+            boundAt: "2026-11-23T08:02:00.000Z",
+          },
+        ],
+      },
+    },
+    currentDecision: null,
+    currentRelations: [],
+    currentDocument: null,
+    decisionReviewRequirement: "off",
+  });
+}
+
+async function assertNoAuthorityRow(adminPool: Pool, targetRepoId: string, message: string): Promise<void> {
+  const rows = await adminPool.query<{ repo_id: string }>(
+    "SELECT repo_id FROM public.ha_repo_writer_epochs WHERE repo_id = $1",
+    [targetRepoId],
+  );
+  assert.equal(rows.rows.length, 0, message);
 }
 
 test(
@@ -523,14 +577,31 @@ test(
       assert.equal(afterRelease?.phase, "released");
       assert.equal(afterRelease?.version, released.version);
 
-      // 7. G9-02 & G9-03: Authority->head lock order on warm append vs migration freeze, readStateDigest, and full cold migration export + auditPgProjectionRows
-      // 7a. Read-only migration grant role must be denied ha_acquire_repo_writer_epoch_share and ha_inherit_repo_writer_epoch
+      // 7. G9-02, G9-03, G9-05 & G9-06: Scoped authority-share guard, deterministic pre-head-UPDATE authority->head lock order, readStateDigest, and cold migration
+      // 7a. G9-05: ha_acquire_repo_writer_epoch_share must fail closed (42501) and leave zero authority rows for read-only, unscoped, or mismatched-scope sessions
       const checkGrant = await createMigrationGrant(adminPool, `grant_check_${suffix}`, [tenantA]);
       try {
-        await assert.rejects(
-          checkGrant.pool.query("SELECT public.ha_acquire_repo_writer_epoch_share($1)", [repoId]),
-          (error: unknown) => (error as { code?: string }).code === "42501",
-          "read-only migration grant role must not invoke ha_acquire_repo_writer_epoch_share",
+        const roRepoId = `repo_ro_denied_${suffix}`;
+        await withPostgresTransaction(
+          checkGrant.pool,
+          async (client) => {
+            await assert.rejects(
+              client.query("SELECT public.ha_acquire_repo_writer_epoch_share($1, $2, $3, $4)", [
+                tenantA.tenantId,
+                tenantA.projectId,
+                tenantA.policyEpoch,
+                roRepoId,
+              ]),
+              (error: unknown) => (error as { code?: string }).code === "42501",
+              "read-only migration grant role must not invoke ha_acquire_repo_writer_epoch_share even with matching scope GUCs",
+            );
+          },
+          tenantA,
+        );
+        await assertNoAuthorityRow(
+          adminPool,
+          roRepoId,
+          "read-only migration grant denial must not leave an authority row",
         );
         await assert.rejects(
           checkGrant.pool.query("SELECT public.ha_inherit_repo_writer_epoch()"),
@@ -542,6 +613,81 @@ test(
       await assert.rejects(
         runtimePool.query("SELECT public.ha_inherit_repo_writer_epoch()"),
         (error: unknown) => (error as { code?: string }).code === "42501",
+      );
+      // Legacy 1-arg unguarded overload must not exist
+      await assert.rejects(
+        runtimePool.query("SELECT public.ha_acquire_repo_writer_epoch_share($1)", [repoId]),
+        (error: unknown) => (error as { code?: string }).code === "42883",
+        "legacy 1-arg ha_acquire_repo_writer_epoch_share(text) must not exist",
+      );
+      // Unscoped runtime session (no ha.* GUCs) must be rejected with 42501 and leave zero authority rows
+      const unscopedRepoId = `repo_unscoped_${suffix}`;
+      const unscopedFenceClient = await runtimePool.connect();
+      try {
+        await assert.rejects(
+          unscopedFenceClient.query("SELECT public.ha_acquire_repo_writer_epoch_share($1, $2, $3, $4)", [
+            tenantA.tenantId,
+            tenantA.projectId,
+            tenantA.policyEpoch,
+            unscopedRepoId,
+          ]),
+          (error: unknown) => (error as { code?: string }).code === "42501",
+          "unscoped runtime session must fail closed with 42501",
+        );
+        await assert.rejects(
+          unscopedFenceClient.query("SELECT public.ha_acquire_repo_writer_epoch_share($1, $2, $3, $4)", [
+            null,
+            null,
+            null,
+            unscopedRepoId,
+          ]),
+          (error: unknown) => (error as { code?: string }).code === "42501",
+          "null scope arguments must fail closed with 42501 instead of returning NULL via STRICT",
+        );
+      } finally {
+        unscopedFenceClient.release();
+      }
+      await assertNoAuthorityRow(
+        adminPool,
+        unscopedRepoId,
+        "unscoped runtime denial must not create a ha_repo_writer_epochs row",
+      );
+      // Scoped runtime session (tenantB) with mismatched tenant/project/policy_epoch or blank repo_id must fail closed with 42501 and leave zero authority rows
+      const crossTenantRepoId = `repo_cross_tenant_${suffix}`;
+      const crossProjectRepoId = `repo_cross_project_${suffix}`;
+      const crossEpochRepoId = `repo_cross_epoch_${suffix}`;
+      for (const [label, args] of [
+        ["mismatched tenant_id", [tenantA.tenantId, tenantA.projectId, tenantA.policyEpoch, crossTenantRepoId]],
+        ["mismatched project_id", [tenantB.tenantId, "proj_other", tenantB.policyEpoch, crossProjectRepoId]],
+        ["mismatched policy_epoch", [tenantB.tenantId, tenantB.projectId, tenantB.policyEpoch + 1, crossEpochRepoId]],
+        ["blank target_repo_id", [tenantB.tenantId, tenantB.projectId, tenantB.policyEpoch, "   "]],
+      ] as const) {
+        await withPostgresTransaction(
+          runtimePool,
+          async (client) => {
+            await assert.rejects(
+              client.query("SELECT public.ha_acquire_repo_writer_epoch_share($1, $2, $3, $4)", [...args]),
+              (error: unknown) => (error as { code?: string }).code === "42501",
+              `${label} must fail closed with 42501`,
+            );
+          },
+          tenantB,
+        );
+      }
+      await assertNoAuthorityRow(
+        adminPool,
+        crossTenantRepoId,
+        "mismatched tenant denial must not create a ha_repo_writer_epochs row",
+      );
+      await assertNoAuthorityRow(
+        adminPool,
+        crossProjectRepoId,
+        "mismatched project denial must not create a ha_repo_writer_epochs row",
+      );
+      await assertNoAuthorityRow(
+        adminPool,
+        crossEpochRepoId,
+        "mismatched policy_epoch denial must not create a ha_repo_writer_epochs row",
       );
 
       // 7b. readStateDigest matches across online materialization vs full rebuild
@@ -576,7 +722,7 @@ test(
       );
       assert.equal(await sourceA.readStateDigest(), digestBefore, "readStateDigest must be stable across rebuild");
 
-      // 7c. Warm append (existing ha_repo_heads row) vs concurrent migration freeze: must block cleanly on authority -> head order with ZERO deadlock
+      // 7c. G9-06: Warm append (existing ha_repo_heads row) vs concurrent migration freeze staged BEFORE UPDATE ha_repo_heads (zero wall-clock timers)
       const migrationRoot = mkdtempSync(path.join(tmpdir(), "ha-og-migration-"));
       try {
         initRepo(migrationRoot);
@@ -588,12 +734,7 @@ test(
           scope: tenantA,
         });
         try {
-          const warmBundle = makeFactBundle(
-            `F-${(Number(suffix.slice(-8)) + 2).toString().padStart(8, "0")}`,
-            `op_og_warm_${suffix}`,
-            5,
-            "semantic",
-          );
+          const warmBundle = makeDecisionBundle(`dec_OG_${suffix}`, `op_og_warm_${suffix}`, 5);
           let warmCommitted = false;
           await assert.rejects(
             migrateStorage({
@@ -605,51 +746,132 @@ test(
                 ...ogSource,
                 async change(expected, next, activate) {
                   if (next.phase !== "freezing") return ogSource.change(expected, next, activate);
-                  const entered = Promise.withResolvers<void>();
-                  const release = Promise.withResolvers<void>();
+                  const enteredBeforeHeadUpdate = Promise.withResolvers<void>();
+                  const releaseBeforeHeadUpdate = Promise.withResolvers<void>();
                   const warmStore = makePostgresTaskEventStore({
                     pool: runtimePool,
                     repoId,
                     scope: tenantA,
+                    async readAuthoredDocument() {
+                      // Runs inside authorizeReplacements: AFTER authority SHARE + SELECT ha_repo_heads FOR UPDATE,
+                      // and STRICTLY BEFORE INSERT ha_events / UPDATE ha_repo_heads.
+                      enteredBeforeHeadUpdate.resolve();
+                      await releaseBeforeHeadUpdate.promise;
+                      return null;
+                    },
                     async project(client, value) {
                       await materializePgProjectionEvents(client, tenantA, {
                         ...value,
                         readContentBlob: readBlob(client),
                       });
-                      entered.resolve();
-                      await release.promise;
                     },
                   });
                   const warmAppend = warmStore.append(warmBundle, 4, fence).then((res) => {
                     warmCommitted = true;
                     return res;
                   });
-                  await entered.promise;
-                  let freezeFinished = false;
-                  const freezing = ogSource.change(expected, next, activate).then(
-                    () => {
-                      freezeFinished = true;
-                      return null;
-                    },
-                    (error: unknown) => {
-                      freezeFinished = true;
-                      return error;
-                    },
-                  );
+                  await enteredBeforeHeadUpdate.promise;
+
+                  let freezing: Promise<unknown> | null = null;
+                  let released = false;
+                  let failed = false;
+                  const releaseWarmAppend = () => {
+                    if (released) return;
+                    released = true;
+                    releaseBeforeHeadUpdate.resolve();
+                  };
                   try {
-                    // Give the freeze transaction time to attempt locking authority; it must remain blocked on authority (no deadlock, no early completion)
-                    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+                    // Deterministic zero-timer proof #1: BEFORE UPDATE ha_repo_heads runs, warmAppend must already hold
+                    // BOTH ha_repo_heads FOR UPDATE and ha_repo_writer_epochs FOR SHARE (under head-first order,
+                    // ha_repo_writer_epochs FOR UPDATE NOWAIT would succeed here instead of throwing 55P03).
+                    const probeClient = await adminPool.connect();
+                    try {
+                      await probeClient.query("BEGIN");
+                      try {
+                        await assert.rejects(
+                          probeClient.query(
+                            "SELECT repo_id FROM public.ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE NOWAIT",
+                            [tenantA.tenantId, tenantA.projectId, repoId],
+                          ),
+                          (error: unknown) => (error as { code?: string }).code === "55P03",
+                          "warm append must hold ha_repo_heads FOR UPDATE before UPDATE ha_repo_heads",
+                        );
+                      } finally {
+                        await probeClient.query("ROLLBACK");
+                      }
+                      await probeClient.query("BEGIN");
+                      try {
+                        await assert.rejects(
+                          probeClient.query(
+                            "SELECT repo_id FROM public.ha_repo_writer_epochs WHERE repo_id=$1 FOR UPDATE NOWAIT",
+                            [repoId],
+                          ),
+                          (error: unknown) => (error as { code?: string }).code === "55P03",
+                          "warm append must already hold ha_repo_writer_epochs FOR SHARE before UPDATE ha_repo_heads",
+                        );
+                      } finally {
+                        await probeClient.query("ROLLBACK");
+                      }
+                    } finally {
+                      probeClient.release();
+                    }
+
+                    // Deterministic zero-timer proof #2: Start migration freeze BEFORE UPDATE ha_repo_heads and observe
+                    // via pg_locks + pg_stat_activity that freeze blocks on ha_repo_writer_epochs
+                    // (never acquiring authority and blocking on ha_repo_heads, which would deadlock on resume).
+                    let freezeFinished = false;
+                    freezing = ogSource.change(expected, next, activate).then(
+                      () => {
+                        freezeFinished = true;
+                        return null;
+                      },
+                      (error: unknown) => {
+                        freezeFinished = true;
+                        return error;
+                      },
+                    );
+                    let blockedOnAuthority = false;
+                    let blockedOnHead = false;
+                    for (let attempt = 0; attempt < 500 && !freezeFinished && !blockedOnAuthority; attempt += 1) {
+                      const waiting = await adminPool.query<{ query: string }>(
+                        `SELECT a.query
+                         FROM pg_catalog.pg_stat_activity a
+                         JOIN pg_catalog.pg_locks l ON l.pid = a.pid
+                         WHERE a.datname = current_database()
+                           AND a.pid <> pg_backend_pid()
+                           AND NOT l.granted`,
+                      );
+                      blockedOnAuthority = waiting.rows.some((row) => row.query.includes("ha_repo_writer_epochs"));
+                      blockedOnHead = waiting.rows.some((row) => row.query.includes("ha_repo_heads"));
+                      assert.equal(
+                        blockedOnHead,
+                        false,
+                        "lock inversion: freeze acquired authority and blocked on ha_repo_heads before head UPDATE",
+                      );
+                    }
+                    assert.equal(
+                      blockedOnAuthority,
+                      true,
+                      "migration freeze must be deterministically observed blocked on ha_repo_writer_epochs in pg_locks",
+                    );
                     assert.equal(
                       freezeFinished,
                       false,
                       "migration freeze must wait for in-flight warm append holding authority SHARE lock",
                     );
+                  } catch (error) {
+                    failed = true;
+                    throw error;
                   } finally {
-                    release.resolve();
-                    const res = await warmAppend;
-                    assert.equal(res.revision, 5);
+                    releaseWarmAppend();
+                    const res = await warmAppend.catch((error: unknown) => {
+                      if (!failed) throw error;
+                      return null;
+                    });
+                    if (!failed) assert.equal(res?.revision, 5);
+                    if (failed) await freezing?.catch(() => undefined);
                   }
-                  const freezeError = await freezing;
+                  const freezeError = await freezing!;
                   assert.ok(freezeError, "freeze must reject stale preflight cut after warm append commits");
                   throw freezeError;
                 },

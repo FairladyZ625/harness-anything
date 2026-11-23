@@ -486,12 +486,16 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           where.push(`decision_id = ANY($${values.length}::text[])`);
         }
         const result = await client.query<{ decision_id: string; value: Record<string, unknown> }>(
-          `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")} ORDER BY array_position($5::text[], decision_id)`,
+          `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")}`,
           values,
+        );
+        const order = new Map(decisionIds.map((id, index) => [id, index]));
+        const orderedRows = [...result.rows].sort(
+          (left, right) => (order.get(left.decision_id) ?? Infinity) - (order.get(right.decision_id) ?? Infinity),
         );
         return {
           status: cut.status,
-          decisions: await readPgDecisionRows(client, options.scope, repoId, result.rows, withBody),
+          decisions: await readPgDecisionRows(client, options.scope, repoId, orderedRows, withBody),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
