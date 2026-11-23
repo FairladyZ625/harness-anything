@@ -1117,7 +1117,7 @@ test("migration truth-gap archives remain queryable after a cold projection rebu
 
 test("replica replay indexes future events, degrades unknown entities and rebuilds a newer cache", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-forward-replay-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const repoId = "forward-replay-edge",
     seed = makeTaskEventStore({ repoId, rootDir });

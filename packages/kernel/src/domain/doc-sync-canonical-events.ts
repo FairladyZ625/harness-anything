@@ -217,7 +217,7 @@ export interface PersistedCanonicalEventCodecOptions {
 }
 
 /** Returns true only when a registered event schema has a type this runtime does not recognize. */
-export function isUnknownForwardCanonicalEventType(value: unknown): boolean {
+export function forwardCanonicalEventTypeIsUnknown(value: unknown): boolean {
   if (!isRecord(value) || typeof value.schema !== "string" || typeof value.type !== "string") return false;
   switch (value.schema) {
     case "task-event/v1":
@@ -256,7 +256,7 @@ export function serializePersistedCanonicalEvent(
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
     schemaErrors = entry?.validate(normalized) ?? ["canonical event schema is unknown"],
     errors =
-      options.allowUnknownForwardFields && (entry === undefined || isUnknownForwardCanonicalEventType(normalized))
+      options.allowUnknownForwardFields && (entry === undefined || forwardCanonicalEventTypeIsUnknown(normalized))
         ? forwardUnknownTypeEnvelopeErrors(normalized)
         : schemaErrors;
   if (errors.length) throw new Error(errors.join("; "));
@@ -279,7 +279,7 @@ export function parseCanonicalEvent(
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
     schemaErrors = entry?.validate(validationValue) ?? ["canonical event schema is unknown"],
     errors =
-      options.allowUnknownForwardFields && (entry === undefined || isUnknownForwardCanonicalEventType(validationValue))
+      options.allowUnknownForwardFields && (entry === undefined || forwardCanonicalEventTypeIsUnknown(validationValue))
         ? forwardUnknownTypeEnvelopeErrors(validationValue)
         : schemaErrors;
   if (errors.length) throw new Error(errors.join("; "));
