@@ -106,8 +106,9 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
         }
       } finally {
         sqliteProj.close();
+        await sqliteStore.drain();
         pgProj.close();
-        await (pgStore as { close?: () => Promise<void> | void }).close?.();
+        await pgStore.drain();
       }
 
       const backend = await createPGliteStorageBackend({ repoId, storage });
@@ -171,7 +172,7 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
         }
       } finally {
         reopenedProj.close();
-        await (reopenedStore as { close?: () => Promise<void> | void }).close?.();
+        await reopenedStore.drain();
       }
     });
   });
