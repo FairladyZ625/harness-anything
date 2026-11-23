@@ -69,7 +69,7 @@ test("PeerRequest has a canonical state store and one registered lifecycle vocab
   assert.deepEqual(kind.statusVocabulary?.[0]?.words, statusWords("PeerRequest", "state"));
   assert.deepEqual(
     kind.actionCatalog?.actions.map(({ id }) => id),
-    ["ask", "reply", "watch", "inbox", "promote", "handoff", "pin", "unpin"],
+    ["ask", "reply", "watch", "inbox", "promote", "handoff"],
   );
   assert.ok(!baseEntityPolicyActions.includes("peer-request/pin"));
 });

@@ -23,7 +23,7 @@ export const peerJudgments = [
     sources: [
       {
         candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#validatePeerRequestEvent:baa19e452234659610d744dd8a54e964",
+          "judgment:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#validatePeerRequestEvent:57ccd6886015e975aaa0ce75d002f61d",
         route: "validatePeerRequestEvent",
       },
     ],
@@ -129,26 +129,6 @@ export const peerPolicies = [
         candidateId:
           "policy:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#prepareHandoffBundle.created.timeoutMs:08ce959d3673db2be6251563546f9a16",
         route: "peer-handoff",
-      },
-      {
-        candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/peer-action-routes.ts#peerActionRoutes.claim:2ecc1900d3cdd568d4544074ba01121c",
-        route: "peer.ask",
-      },
-      {
-        candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/peer-action-routes.ts#peerActionRoutes.claim:9047fa86b908836530ffc75975d0e53d",
-        route: "peer.reply",
-      },
-      {
-        candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/peer-action-routes.ts#peerActionRoutes.timeoutMs:d02b1e232b41987e44ddd45121bbdb3a",
-        route: "peer.watch",
-      },
-      {
-        candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/peer-action-routes.ts#peerActionRoutes.limit:01756949446e0e6666f8f2734b5d34fc",
-        route: "peer.inbox",
       },
     ],
   },

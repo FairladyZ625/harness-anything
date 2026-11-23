@@ -4,8 +4,7 @@ import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
-import { runPeerAction } from "./peer-action.ts";
-import { prepareHandoffBundle } from "./peer-handoff-bundle.ts";
+import { dispatchPeerAction } from "./peer-action.ts";
 import { runTaskWitnessAction } from "@harness-anything/application/internal/commands/task-witness-action.ts";
 import { readTaskWitnessRequest } from "./task-witness-request.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
@@ -291,27 +290,7 @@ export function executeRepoAction(
     const sourceRevision = actionContract.execution.read
       ? cell.projection.readCut().sourceRevision
       : (cell.store.readHead()?.revision ?? 0);
-    const run = (preparedHandoff?: Awaited<ReturnType<typeof prepareHandoffBundle>>) =>
-      cell.entityActionExecutor.run(
-        action,
-        binding,
-        cell.operationId(action, binding, cell.input.repoId, sourceRevision),
-        {
-          entity: {
-            "peer-request": (_contract, intent, actor, opId) =>
-              runPeerAction(cell, intent, actor, opId, { ...(preparedHandoff ? { preparedHandoff } : {}) }),
-          },
-        },
-      );
-    if (action.kind === "peer-handoff" && typeof action.targetId === "string" && action.targetId.trim().length > 0) {
-      return prepareHandoffBundle({
-        rootDir: cell.rootDir,
-        targetId: action.targetId.trim(),
-        ...(typeof action.wipCommitSha === "string" ? { explicitCommitSha: action.wipCommitSha } : {}),
-        ...(typeof action.bundlePath === "string" ? { explicitBundlePath: action.bundlePath } : {}),
-      }).then((preparedHandoff) => run(preparedHandoff));
-    }
-    return run();
+    return dispatchPeerAction(cell, action, binding, sourceRevision);
   }
   if (actionContract?.target.kind === "task" && actionContract.execution) {
     if (action.kind === "task-create") {

@@ -661,8 +661,12 @@ const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contract
       const existing = new Set(actionCatalog.actions.map(({ id }) => id)),
         actions = [
           ...actionCatalog.actions,
-          ...(existing.has("pin") ? [] : [baseEntityAction(contract.kind, contract.id, "pin")]),
-          ...(existing.has("unpin") ? [] : [baseEntityAction(contract.kind, contract.id, "unpin")]),
+          ...(existing.has("pin") || !contract.baseActions.includes("pin")
+            ? []
+            : [baseEntityAction(contract.kind, contract.id, "pin")]),
+          ...(existing.has("unpin") || !contract.baseActions.includes("unpin")
+            ? []
+            : [baseEntityAction(contract.kind, contract.id, "unpin")]),
         ];
       return Object.freeze({
         ...contract,

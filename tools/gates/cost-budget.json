@@ -1541,16 +1541,6 @@
             "repo.tasks.wip"
           ]
         },
-        "method:repo.peer.inbox": {
-          "measurements": [
-            "peer-inbox"
-          ]
-        },
-        "method:repo.peer.watch": {
-          "measurements": [
-            "peer-watch"
-          ]
-        },
         "method:repo.todo.list": {
           "measurements": [
             "repo.todo.list"

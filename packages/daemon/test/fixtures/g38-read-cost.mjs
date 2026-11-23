@@ -133,7 +133,7 @@ export const READ_PROBES = Object.freeze({
     },
   },
   "peer-inbox": {
-    reads: ["command:peer-inbox", "method:repo.peer.inbox"],
+    reads: ["command:peer-inbox"],
     dimensions: ["task-history"],
     run: ({ projection }) => {
       const read = projection.readPeerRequests({ by: "list", recipientPersonId: "person_peer", limit: 20 });
@@ -143,7 +143,7 @@ export const READ_PROBES = Object.freeze({
     size: (value) => value.requests.length,
   },
   "peer-watch": {
-    reads: ["command:peer-watch", "method:repo.peer.watch"],
+    reads: ["command:peer-watch"],
     dimensions: ["task-history"],
     run: ({ projection }) => {
       const read = projection.readInbox({

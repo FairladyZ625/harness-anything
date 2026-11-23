@@ -41,7 +41,9 @@ test("immutable canonical event families retain historical assignment identities
     const directory = path.join(root, entry.schema.replaceAll("/", "-"));
     for (const name of readdirSync(directory).filter((name) => name.endsWith(".json"))) {
       const body = readFileSync(path.join(directory, name), "utf8");
-      const file = path.relative(path.resolve(import.meta.dirname, "../../../.."), path.join(directory, name));
+      const file = path
+        .relative(path.resolve(import.meta.dirname, "../../../.."), path.join(directory, name))
+        .replaceAll("\\", "/");
       const original = completionGenerationFixtures.has(file)
         ? convertFrozenCompletionSample(body, file)
         : JSON.parse(body);

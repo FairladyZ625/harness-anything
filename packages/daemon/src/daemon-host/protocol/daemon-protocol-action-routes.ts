@@ -7,7 +7,6 @@ import { actionRpc, optionalEnum, shape, type RpcShape } from "./daemon-protocol
 import { decisionProviderVendorWords } from "./daemon-protocol-vocabulary.ts";
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { todoActionRoutes } from "./todo-action-routes.ts";
-import { peerActionRoutes } from "./peer-action-routes.ts";
 import { entityDeclarationRoutes, entityImportRoutes } from "./entity-action-routes.ts";
 import { taskCompletionRoutes, taskReworkRoutes } from "./entity-action-routes.ts";
 import {
@@ -227,7 +226,6 @@ export const daemonActionRoutes = Object.freeze([
     }),
   ),
   ...todoActionRoutes,
-  ...peerActionRoutes,
   ...entityImportRoutes,
   // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs
   // (repo-cell-api → waitForReceiptAcceptance); `ha` settles every write through them.

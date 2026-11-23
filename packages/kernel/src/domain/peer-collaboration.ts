@@ -2,6 +2,7 @@ import { isNonEmptyString, isRecord } from "./contract-validation.ts";
 import {
   validateEntityJsonSchema,
   type EntityDocumentJsonSchema,
+  type EntityJsonObjectSchema,
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
 import {
@@ -335,11 +336,31 @@ const peerPayloadFields = {
   peer_request_promoted: { ...terminalFields, promotedTaskId: idField },
 } satisfies Record<PeerEventType, Readonly<Record<string, EntityJsonSchemaNode>>>;
 
-function eventContractIssues(event: PeerRequestEventV1): readonly string[] {
-  const schema = {
+function relaxObjectSchema(node: EntityJsonObjectSchema): EntityJsonObjectSchema {
+  return {
+    ...node,
+    additionalProperties: true,
+    properties: Object.fromEntries(
+      Object.entries(node.properties).map(([key, value]) => [key, relaxSchemaNode(value)]),
+    ),
+  };
+}
+
+function relaxSchemaNode(node: EntityJsonSchemaNode): EntityJsonSchemaNode {
+  if (node.type === "object" && node.properties) return relaxObjectSchema(node);
+  if (node.type === "array" && node.items) return { ...node, items: relaxSchemaNode(node.items) };
+  return node;
+}
+
+function eventContractIssues(event: PeerRequestEventV1, allowUnknownFields = false): readonly string[] {
+  const baseSchema: EntityJsonObjectSchema = objectFields({
+    requestRevision: revisionField,
+    ...peerPayloadFields[event.type],
+  });
+  const schema: EntityDocumentJsonSchema<unknown> = {
     $schema: schemaDialect,
     $id: "peer-request-event/v1",
-    ...objectFields({ requestRevision: revisionField, ...peerPayloadFields[event.type] }),
+    ...(allowUnknownFields ? relaxObjectSchema(baseSchema) : baseSchema),
   };
   const issues = validateEntityJsonSchema(schema, event.payload, "PeerRequest event payload");
   if (issues.length > 0) return issues;
@@ -513,16 +534,16 @@ export function isTerminalPeerRequestState(state: PeerRequestState): boolean {
   return state === "ANSWERED" || state === "DONE" || state === "REJECTED" || state === "PROMOTED";
 }
 
-export function validatePeerRequestEvent(value: unknown): readonly string[] {
+export function validatePeerRequestEvent(value: unknown, allowUnknownFields = true): readonly string[] {
   if (!isRecord(value) || value.schema !== "peer-request-event/v1" || !isPeerRequestEventType(String(value.type)))
     return ["Invalid PeerRequest event schema or type."];
-  const envelopeIssues = validateEventEnvelopeIdentity(value);
+  const envelopeIssues = validateEventEnvelopeIdentity(value, allowUnknownFields);
   if (envelopeIssues.length > 0) return envelopeIssues;
-  return eventContractIssues(value as unknown as PeerRequestEventV1);
+  return eventContractIssues(value as unknown as PeerRequestEventV1, allowUnknownFields);
 }
 
 export function validateCurrentPeerRequestEvent(value: unknown): readonly string[] {
-  return validatePeerRequestEvent(value);
+  return validatePeerRequestEvent(value, false);
 }
 
 export function peerRequestEventContentClaims(event: PeerRequestEventV1): readonly {

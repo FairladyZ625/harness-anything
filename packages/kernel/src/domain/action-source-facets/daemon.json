@@ -6581,18 +6581,6 @@
         "route": "peer-ask",
         "role": "effect",
         "order": 2
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts#executeRepoAction.run:db744652bb1541da2384953ce4ca28b1",
-        "route": "peer-ask",
-        "role": "effect",
-        "order": 3
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts#executeRepoAction:973c6c969683351bc4fdb5c8534d57f0",
-        "route": "peer-ask",
-        "role": "effect",
-        "order": 4
       }
     ],
     "peer-handoff": [
@@ -6609,10 +6597,26 @@
         "order": 2
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts#executeRepoAction:e2150eae17aa350198e089fbdc2397d4",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:c7fea9ced024d293674c16207b62d9f6",
         "route": "peer-handoff",
         "role": "effect",
         "order": 3
+      }
+    ],
+    "peer-promote": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2",
+        "route": "peer-promote",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "peer-reply": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction.execute:db744652bb1541da2384953ce4ca28b1",
+        "route": "peer-reply",
+        "role": "effect",
+        "order": 1
       }
     ],
     "people-delegate": [

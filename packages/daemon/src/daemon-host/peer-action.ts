@@ -32,7 +32,7 @@ import { canonicalEventWritePlan } from "@harness-anything/kernel/internal/ports
 import { reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 import { applyPreparedTaskCreate, prepareTaskCreateAt, type PreparedTaskCreate } from "./repo-cell-task-create.ts";
 import type { RepoCellBinding, RepoCellOperationalContext, RepoTaskAction } from "./repo-cell-types.ts";
-import type { PreparedHandoffBundle } from "./peer-handoff-bundle.ts";
+import { prepareHandoffBundle, type PreparedHandoffBundle } from "./peer-handoff-bundle.ts";
 
 const DEFAULT_CLAIM_LEASE_MS = 5 * 60_000;
 
@@ -634,4 +634,33 @@ export function runPeerAction(
   }
 
   reject("unsupported_command", `Unsupported peer action: ${action.kind}.`);
+}
+
+export function dispatchPeerAction(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  sourceRevision: number,
+): WriteReceiptDraft | Promise<WriteReceiptDraft> {
+  const execute = (preparedHandoff?: PreparedHandoffBundle) =>
+    cell.entityActionExecutor.run(
+      action,
+      binding,
+      cell.operationId(action, binding, cell.input.repoId, sourceRevision),
+      {
+        entity: {
+          "peer-request": (_contract, intent, actor, opId) =>
+            runPeerAction(cell, intent, actor, opId, { ...(preparedHandoff ? { preparedHandoff } : {}) }),
+        },
+      },
+    );
+  if (action.kind === "peer-handoff" && typeof action.targetId === "string" && action.targetId.trim().length > 0) {
+    return prepareHandoffBundle({
+      rootDir: cell.rootDir,
+      targetId: action.targetId.trim(),
+      ...(typeof action.wipCommitSha === "string" ? { explicitCommitSha: action.wipCommitSha } : {}),
+      ...(typeof action.bundlePath === "string" ? { explicitBundlePath: action.bundlePath } : {}),
+    }).then((preparedHandoff) => execute(preparedHandoff));
+  }
+  return execute();
 }
