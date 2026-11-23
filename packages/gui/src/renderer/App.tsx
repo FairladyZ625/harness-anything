@@ -188,6 +188,7 @@ function AppShell() {
     void workspaceSummaryQuery.refetch();
   }, [tasksQuery, workspaceSummaryQuery]);
   const lastLedgerCut = useRef<string | null>(null);
+  const lastRecoveredCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
   const decisionActions = useDecisionActions(projectId);
@@ -458,16 +459,29 @@ function AppShell() {
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
     const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}`;
-    // 首次水合只是建立比较基准,不是「台账变化」。把它当变化会让刚完成的
-    // workspace summary / 三元切面立刻再读一遍;后续 cut 才失效挂载中的读面。
-    if (lastLedgerCut.current === null) {
+    // 首次水合只是建立比较基准,避免健康冷启动把刚完成的读面再读一遍;但若常驻读面此前因
+    // replica_syncing / 预热停在错误态,首轮健康 cut 必须触发一次恢复重读进入正常业务视图。
+    const needsRecovery =
+      isLedgerUnavailableError(workspaceSummaryQuery.error) || isLedgerUnavailableError(agendaQuery.error);
+    if (lastLedgerCut.current === null || lastLedgerCut.current === cut) {
       lastLedgerCut.current = cut;
+      if (needsRecovery && lastRecoveredCut.current !== cut) {
+        lastRecoveredCut.current = cut;
+        void invalidateLedgerDependents(queryClient, activeRepoId);
+      }
       return;
     }
-    if (lastLedgerCut.current === cut) return;
     lastLedgerCut.current = cut;
+    lastRecoveredCut.current = cut;
     void invalidateLedgerDependents(queryClient, activeRepoId);
-  }, [activeRepoId, queryClient, tasksQuery.data?.sourceRevision, tasksQuery.data?.watermark]);
+  }, [
+    activeRepoId,
+    agendaQuery.error,
+    queryClient,
+    tasksQuery.data?.sourceRevision,
+    tasksQuery.data?.watermark,
+    workspaceSummaryQuery.error,
+  ]);
 
   useEffect(() => {
     if (!systemQuery.isSuccess || !tasksQuery.isSuccess) return;

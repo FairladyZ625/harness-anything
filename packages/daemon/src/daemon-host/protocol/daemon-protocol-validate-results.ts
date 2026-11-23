@@ -1,7 +1,10 @@
 import { validateReceiptAcceptance } from "@harness-anything/kernel/internal/domain/receipt-acceptance.ts";
 import type { SquadControlResult } from "../squad-control-result.ts";
+import {
+  parseReplicaSyncProgress,
+  type ReplicaSyncProgress,
+} from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 import { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
-import { parseReplicaSyncProgress, type ReplicaSyncProgress } from "../../fleet-sync/fleet/replica-health.ts";
 import { validateObserveTailResult, type DaemonProtocolErrorResult } from "./daemon-protocol-results.ts";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
 import {

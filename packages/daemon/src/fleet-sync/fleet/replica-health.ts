@@ -3,18 +3,14 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { writeFileDurably } from "@harness-anything/storage";
+import {
+  parseReplicaSyncProgress,
+  replicaBootstrapSteps,
+  type ReplicaBootstrapStep,
+  type ReplicaSyncProgress,
+} from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 
-export const replicaBootstrapSteps = ["basebackup", "objects", "installing", "projecting"] as const;
-export type ReplicaBootstrapStep = (typeof replicaBootstrapSteps)[number];
-
-export interface ReplicaSyncProgress {
-  readonly step: ReplicaBootstrapStep;
-  readonly receivedBytes: number;
-  readonly totalBytes: number | null;
-  readonly receivedObjects?: number;
-  readonly totalObjects?: number;
-  readonly updatedAt: string;
-}
+export { parseReplicaSyncProgress, replicaBootstrapSteps, type ReplicaBootstrapStep, type ReplicaSyncProgress };
 
 interface ReplicaHealth {
   readonly rebuildCount: number;
@@ -45,44 +41,6 @@ export function subscribeReplicaHealthChange(viewDir: string, listener: () => vo
 
 export function notifyReplicaHealthChange(viewDir: string): void {
   healthEvents.emit(path.resolve(viewDir));
-}
-
-export function parseReplicaSyncProgress(value: unknown): ReplicaSyncProgress | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const candidate = value as Record<string, unknown>;
-  const step = candidate.step as ReplicaBootstrapStep;
-  if (!replicaBootstrapSteps.includes(step)) return null;
-  if (!Number.isSafeInteger(candidate.receivedBytes) || Number(candidate.receivedBytes) < 0) return null;
-  const receivedBytes = Number(candidate.receivedBytes);
-  if (
-    candidate.totalBytes !== null &&
-    (!Number.isSafeInteger(candidate.totalBytes) || Number(candidate.totalBytes) < receivedBytes)
-  ) {
-    return null;
-  }
-  const totalBytes = candidate.totalBytes === null ? null : Number(candidate.totalBytes);
-  if (
-    candidate.receivedObjects !== undefined &&
-    (!Number.isSafeInteger(candidate.receivedObjects) || Number(candidate.receivedObjects) < 0)
-  ) {
-    return null;
-  }
-  if (
-    candidate.totalObjects !== undefined &&
-    (!Number.isSafeInteger(candidate.totalObjects) ||
-      Number(candidate.totalObjects) < Number(candidate.receivedObjects ?? 0))
-  ) {
-    return null;
-  }
-  if (typeof candidate.updatedAt !== "string" || !Number.isFinite(Date.parse(candidate.updatedAt))) return null;
-  return {
-    step,
-    receivedBytes,
-    totalBytes,
-    ...(candidate.receivedObjects !== undefined ? { receivedObjects: Number(candidate.receivedObjects) } : {}),
-    ...(candidate.totalObjects !== undefined ? { totalObjects: Number(candidate.totalObjects) } : {}),
-    updatedAt: candidate.updatedAt,
-  };
 }
 
 /** Missing observations are unknown; malformed observations are errors, never a healthy zero. */
