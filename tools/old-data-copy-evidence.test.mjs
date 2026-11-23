@@ -765,6 +765,17 @@ test("remote-edge workspace resolves fleet-basebackup/v3 replica store without l
       createConvenienceLinks: false,
     });
     const edgeConfigDir = path.join(edgeUser, "fleet", "edge", "canonical");
+    const residue = path.join(edgeRoot, "fleet-edge.json");
+    writeFileSync(residue, "fixture residue that must never be read");
+    assert.throws(
+      () => resolveSourceDataRoot(edgeRoot, edgeLocal, edgeUser),
+      (error) => {
+        assert.equal(error.code, "fleet_edge_config_workspace_residue");
+        assert.ok(error.message.includes(JSON.stringify(residue)));
+        assert.ok(error.message.includes(JSON.stringify(path.join(edgeConfigDir, "fleet-edge.json"))));
+        return true;
+      },
+    );
     mkdirSync(edgeConfigDir, { recursive: true });
     writeFileSync(
       path.join(edgeConfigDir, "fleet-edge.json"),

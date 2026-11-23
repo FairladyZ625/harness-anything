@@ -11,6 +11,7 @@ import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { fleetEdgeConfigPath, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { fetchWithTlsCa } from "../src/daemon-host/tls-ca-certificate.ts";
 
 interface FixtureOptions {
   readonly tokenIssuer?: string;
@@ -86,6 +87,54 @@ async function signIn(service: IdentitySessionPort, root: string): Promise<void>
   const pending = await service.begin("http://127.0.0.1:43123/callback", root);
   await service.complete("authorization-code", String(pending.state));
 }
+
+test("a fresh remote-edge registration on a builtin daemon binds without contacting an OIDC center", async (t) => {
+  const active = fixture(t),
+    repoId = "edge-repo",
+    auth = { transportKind: "unix-socket" as const };
+  mkdirSync(path.join(active.edgeRoot, "harness"));
+  writeFileSync(path.join(active.edgeRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: active.userRoot,
+    canonicalRoot: active.edgeRoot,
+    repoId,
+    mode: "remote-edge",
+    authoredBranch: "main",
+    createConvenienceLinks: false,
+  });
+  writeFileSync(
+    path.join(active.userRoot, "rbac", "config.json"),
+    JSON.stringify({ mode: "builtin", url: "builtin://local/identity", realm: "harness" }),
+  );
+  const service = createIdentitySession(active.userRoot);
+  assert.deepEqual(await service.bind(auth, active.edgeRoot), auth);
+  await assert.rejects(service.begin("http://127.0.0.1:43123/callback", active.edgeRoot), {
+    code: "oidc_center_required",
+  });
+
+  const residue = path.join(active.edgeRoot, "fleet-edge.json");
+  writeFileSync(residue, "invalid JSON that must never be parsed");
+  await assert.rejects(service.bind(auth, active.edgeRoot), {
+    code: "fleet_edge_config_workspace_residue",
+  });
+});
+
+test("TLS fetch rejects non-HTTP URLs before invoking the underlying fetcher", async () => {
+  let requests = 0;
+  const fetcher: typeof fetch = async () => {
+    requests += 1;
+    return new Response();
+  };
+  for (const input of [
+    "builtin://local/identity",
+    new URL("ftp://example.test"),
+    new Request("data:text/plain,fixture"),
+  ])
+    await assert.rejects(fetchWithTlsCa(fetcher, [], input), { code: "unsupported_http_protocol" });
+  assert.equal(requests, 0);
+  await fetchWithTlsCa(fetcher, [], "http://example.test");
+  assert.equal(requests, 1);
+});
 
 test("logging into an edge center leaves local-center repository authorization on its own session", async (t) => {
   const active = fixture(t);

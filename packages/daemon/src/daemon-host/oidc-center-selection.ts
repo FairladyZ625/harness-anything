@@ -26,13 +26,23 @@ function persistedSelection(selection: OidcCenterSelection): OidcCenterSelection
   return stored;
 }
 
+function isHttpUrl(url: string): boolean {
+  const protocol = URL.parse(url)?.protocol;
+  return protocol === "http:" || protocol === "https:";
+}
+
 /** Discovery identifies a binding once; persisted selection lets a restarted daemon use sessions while its center is offline. */
 export function oidcCenterSelections(userRoot: string) {
   const directory = path.join(userRoot, "rbac", "oidc-centers");
   const binding = (target?: string, identityOverride?: Readonly<Record<string, unknown>>): string => {
     const configFile = path.join(userRoot, "rbac", "config.json"),
       edge = !identityOverride && target ? readFleetEdgeConfigForRoot(userRoot, target) : null,
-      config = edge ?? (existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null),
+      localConfig =
+        !identityOverride && !edge && existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : null,
+      config =
+        localConfig?.mode === "builtin" || (typeof localConfig?.url === "string" && !isHttpUrl(localConfig.url))
+          ? null
+          : localConfig,
       targetIdentity = edge ? edgeIdentity(edge) : null;
     const rawIdentity =
       identityOverride ??
@@ -101,7 +111,13 @@ export function oidcCenterSelections(userRoot: string) {
         file = path.join(directory, `${key}.json`);
       if (!existsSync(file)) return undefined;
       const selection = JSON.parse(readFileSync(file, "utf8")) as OidcCenterSelection | null;
-      return selection === null ? undefined : selection;
+      if (
+        !selection ||
+        !isHttpUrl(selection.authority.url) ||
+        (selection.authority.browserUrl !== undefined && !isHttpUrl(selection.authority.browserUrl))
+      )
+        return undefined;
+      return selection;
     },
     write,
   };

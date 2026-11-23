@@ -24,8 +24,57 @@ import { waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { readFleetOperationalClient, readFleetRepositoryMetadataClient } from "../src/daemon-host/fleet/peer.ts";
-import { runtimeForwardingContext } from "../src/daemon-host/fleet/forwarding-port.ts";
+import { resolveRuntimeLocation, runtimeForwardingContext } from "../src/daemon-host/fleet/forwarding-port.ts";
 import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
+
+test(
+  "workspace edge config residue is reported during replica startup and RPC preauthorization",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t),
+      code = "fleet_edge_config_workspace_residue",
+      failures: string[] = [],
+      edge = await fleetEdgeHostFixture(t, f, {
+        writeEdgeConfig: false,
+        humanSession: false,
+        useConfiguredIdentity: true,
+        beforeOpen: (workspace, userRoot) => {
+          writeFileSync(
+            path.join(userRoot, "rbac", "config.json"),
+            JSON.stringify({
+              schema: "harness-managed-rbac/v1",
+              mode: "builtin",
+              url: "builtin://local/identity",
+              realm: "harness",
+            }),
+          );
+          writeFileSync(path.join(workspace, "fleet-edge.json"), "test residue with invalid JSON");
+        },
+        recordLifecycle: (entry) => {
+          if (entry.event === "replica_sync_failed" && entry.code === code) failures.push(String(entry.error));
+        },
+      });
+    const residue = path.join(edge.edgeRoot, "fleet-edge.json"),
+      response = await edge.rpc.handle({
+        jsonrpc: "2.0",
+        id: 801,
+        method: "repo.fleet.overview.read",
+        params: { repo: { repoId: edge.config.repoId } },
+      });
+    assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+    const result = response.result as Record<string, unknown>;
+    assert.equal(result.code, code, JSON.stringify(response));
+    assert.ok(failures.length > 0, "background replica startup records the migration failure");
+    for (const message of [String(result.rejectionExplanation), ...failures]) {
+      assert.ok(message.includes(JSON.stringify(residue)), message);
+      assert.ok(message.includes(JSON.stringify(edge.edgeConfigPath)), message);
+      assert.match(message, /caPath/u);
+    }
+    assert.throws(() => resolveRuntimeLocation(edge.edgeUser, edge.config.repoId), { code });
+    assert.equal(readFileSync(residue, "utf8"), "test residue with invalid JSON");
+    assert.equal(existsSync(edge.edgeConfigPath), false);
+  },
+);
 
 async function listenFleetLoginProxy(
   t: TestContext,

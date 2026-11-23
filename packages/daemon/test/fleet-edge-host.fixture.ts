@@ -43,6 +43,7 @@ export async function fleetEdgeHostFixture(
     readonly viewRoot?: string;
     readonly personId?: string;
     readonly humanSession?: boolean;
+    readonly useConfiguredIdentity?: boolean;
     readonly nodeId?: string;
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
@@ -155,12 +156,12 @@ export async function fleetEdgeHostFixture(
   };
   if (options.writeEdgeConfig !== false) writeFleetEdgeConfig(edgeUser, config.repoId, config);
   await options.beforeOpen?.(edgeRoot, edgeUser);
-  if (authority.url)
+  if (!options.useConfiguredIdentity && authority.url)
     await createIdentitySession(edgeUser, {
       fetch,
       loginAuthority: fixtureLoginAuthority,
     }).status(edgeRoot);
-  else
+  else if (!options.useConfiguredIdentity)
     oidcCenterSelections(edgeUser).write(edgeRoot, {
       issuer,
       authority: selectedAuthority,
@@ -176,7 +177,7 @@ export async function fleetEdgeHostFixture(
     oidc: createIdentitySession(edgeUser, {
       fetch,
       ...options.oidcPorts,
-      loginAuthority: fixtureLoginAuthority,
+      ...(!options.useConfiguredIdentity ? { loginAuthority: fixtureLoginAuthority } : {}),
     }),
   });
   let closePromise: Promise<void> | null = null;
