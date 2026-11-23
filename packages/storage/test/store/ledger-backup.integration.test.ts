@@ -34,6 +34,7 @@ import {
 import { objectPath } from "../../src/store/content-objects.ts";
 import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { event, flatLedgerFixture } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("backup, verification, restore and drill digest files above the whole-file read limit", (t) => {
   const root = fixture("bounded-read"),
@@ -66,7 +67,7 @@ test("backup, verification, restore and drill digest files above the whole-file 
       assert.deepEqual(readFileSync(path.join(destination, "harness/large.bin")), body);
   } finally {
     t.mock.restoreAll();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -101,7 +102,7 @@ test("failed capture and manifest publication remove only the new backup and ret
     }
   } finally {
     t.mock.restoreAll();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -137,9 +138,9 @@ test("generation-aware backup preserves legacy sources and does not create an ab
     writeFileSync(path.join(backupDir, "payload", eventFile.path), "corrupt");
     assert.throws(() => drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }), /digest differs/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(interruptedDir, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(backupDir);
+    removeTempRepository(interruptedDir);
   }
 });
 
@@ -190,8 +191,8 @@ test("backup includes tracked files, untracked drafts and Git metadata on every 
       false,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(backupDir);
   }
 });
 
@@ -230,9 +231,9 @@ test(
       assert.equal(lstatSync(path.join(drilled.shadowRoot, "harness/context/linked-external")).isSymbolicLink(), true);
       assert.equal(lstatSync(path.join(drilled.shadowRoot, "harness/context/dangling")).isSymbolicLink(), true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(backupDir, { recursive: true, force: true });
-      rmSync(external, { recursive: true, force: true });
+      removeTempRepository(root);
+      removeTempRepository(backupDir);
+      removeTempRepository(external);
     }
   },
 );
@@ -275,8 +276,8 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
       /generation metadata differs/u,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(backupDir);
   }
 });
 
@@ -354,7 +355,7 @@ test("backup and restore reject missing or wrong-sized accepted content in gener
   } finally {
     t.mock.restoreAll();
     store.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -410,8 +411,8 @@ test("capture boundary freezes SQLite, authored bytes and legacy events before v
       assert.equal(readFileSync(note, "utf8"), "after cut\n");
     } finally {
       store?.close();
-      rmSync(root, { recursive: true, force: true });
-      rmSync(backupDir, { recursive: true, force: true });
+      removeTempRepository(root);
+      removeTempRepository(backupDir);
     }
   }
 });
@@ -450,8 +451,8 @@ test("restore drill rolls shadows by retention, preserves unrelated directories 
     );
     assert.equal(single.removedShadowRoots.length, 2);
   } finally {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(backupDir);
   }
 });
 
@@ -511,8 +512,8 @@ test("backup skips entries that vanish after enumeration instead of failing", as
     readVerifiedLedgerBackup(backupDir);
   } finally {
     await worker?.terminate();
-    rmSync(root, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(backupDir);
   }
 });
 

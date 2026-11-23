@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +17,7 @@ import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/versio
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function deferred() {
   let resolve!: () => void;
@@ -111,7 +112,7 @@ for (const execution of [false, true]) {
         client.close();
         await daemon.stop();
         await center.close();
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     },
   );
@@ -197,7 +198,7 @@ for (const phase of ["authentication", "read"]) {
       reset.resolve();
       server.close();
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 }
@@ -277,7 +278,7 @@ test(
       publish.resolve();
       await bootstrap?.catch(() => undefined);
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -377,7 +378,7 @@ test("a failed remount releases warming and exposes the existing unavailable sta
     assert.equal(host.status().repos.find((repo) => repo.repoId === repoId)?.state, "unavailable");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

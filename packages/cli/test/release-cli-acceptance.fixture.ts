@@ -6,27 +6,21 @@ import assert from "node:assert/strict";
 
 import { execFileSync, spawnSync } from "node:child_process";
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 
 import { tmpdir } from "node:os";
 
 import path from "node:path";
 
+import { readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForDaemonProcessExitSync } from "./daemon-cleanup.fixture.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -198,6 +192,14 @@ function docStatusRows(receipt: Record<string, unknown>): ReadonlyArray<Record<s
   return scan.rows;
 }
 
+function stopDaemon(root: string, userRoot: string): void {
+  if (!existsSync(userRoot)) return;
+  const pid = readDaemonPid(userRoot, daemonId);
+  if (pid === null) return;
+  runMaybe(root, userRoot, ["daemon", "stop", "--daemon-id", daemonId]);
+  waitForDaemonProcessExitSync(pid);
+}
+
 export {
   assert,
   execFileSync,
@@ -206,7 +208,7 @@ export {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
+  removeTempRepository,
   statSync,
   writeFileSync,
   tmpdir,
@@ -223,6 +225,7 @@ export {
   gitHasPath,
   environment,
   startDaemon,
+  stopDaemon,
   run,
   runMaybe,
   runOffline,

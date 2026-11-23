@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import { tokenUsageProjection } from "./token-usage-lifecycle.fixtures.ts";
-import fs, { mkdtempSync, rmSync } from "node:fs";
+import fs, { mkdtempSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -27,6 +27,7 @@ import {
 } from "../src/daemon-host/agent-runtime-token-usage.ts";
 import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const NOW = "2026-09-14T12:00:00.000Z",
   CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 };
@@ -183,7 +184,7 @@ test("archived settlements retain usage without a projected outcome", () => {
       1,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -231,7 +232,7 @@ test("settled dispatches without metrics are unavailable while live dispatches r
       1,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -353,7 +354,7 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
       "since is local midnight on the daemon clock",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -389,7 +390,7 @@ test("today slices hourly buckets and the multi-day ranges widen the window mono
     const month = read(rootDir, NOW, "30d");
     assert.ok(month.totals.totalTokens >= week.totals.totalTokens);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -421,7 +422,7 @@ test("token history pagination stops on reader done, not cursor presence", () =>
     assert.equal(result.totals.totalTokens, 0);
     assert.equal(reads, 2, "a terminal page may carry a cursor and must not trigger a third read");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -451,7 +452,7 @@ test("agent runtime token usage rows sort by total tokens descending", () => {
       ["big", "mid", "small"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -512,7 +513,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       "dispatch_00000000000000000000aa04",
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -555,7 +556,7 @@ test("validateAgentRuntimeTokenUsage accepts the aggregate and rejects corrupted
       "agent runtime token usage detail is invalid",
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -632,7 +633,7 @@ test("runtime token usage queries use the canonical repository-scoped read descr
     );
     assert.equal(parsedDetail.ok, true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -955,7 +956,7 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
     assert.deepEqual(result.unreported, [{ kindId: "claude", instanceId: "claude-main", dispatchCount: 1 }]);
     assert.equal(result.totals.usageUnavailableDispatches, 1);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1015,7 +1016,7 @@ test("every analysis group is capped and the trend folds the tail into one serie
       result.totals.totalTokens,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1044,7 +1045,7 @@ test("an empty window yields zeroed, valid analysis groups", () => {
     });
     assert.ok(result.outcomes.every(({ sessionCount, totalTokens }) => sessionCount === 0 && totalTokens === 0));
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1105,7 +1106,7 @@ test("validateAgentRuntimeTokenUsage rejects analysis groups outside their shape
       "the unmodified aggregate passes the GUI read result gate",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1198,7 +1199,7 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
         );
         assert.ok(!summary.outcomes.some(({ outcome }) => outcome === "aborted"), "aborted is not a registered word");
       } finally {
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     });
 
@@ -1323,14 +1324,14 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
           "the member detail totals carry the same provenance",
         );
       } finally {
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     });
 
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
     assert.deepEqual(detail.sessions.map(({ outcome }) => outcome).sort(), ["cancelled", "succeeded"]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1474,7 +1475,7 @@ test("edge-settled dispatches without center-local streams consume canonical out
     assert.equal(unavailableRow.usage, "unavailable");
     assert.equal(unavailableRow.toolCallCount, 2);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1625,7 +1626,7 @@ test("out-of-window unarchived dispatch streams do not grow per-read filesystem 
     fs.openSync = originalOpenSync;
     fs.readdirSync = originalReaddirSync;
     syncBuiltinESMExports();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1746,6 +1747,6 @@ test("readAgentRuntimeTokenUsageDetail paginates deterministically with limit + 
       (error: unknown) => (error as { code?: string })?.code === "invalid_cursor",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

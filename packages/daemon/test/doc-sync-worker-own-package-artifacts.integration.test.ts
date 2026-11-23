@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Agenda B13/B22: a dispatched worker updates an artifact that already exists in its own task
 // package, and the update reaches the center through the one authorized doc channel. The worktree
@@ -219,7 +220,7 @@ test("runtime doc sync writes a granted non-task surface with the execution leas
     assert.equal(submittedEvent?.payload.executionId, executionId);
     assert.equal(submittedBody, "# Granted surface\n\nWorker update.\n");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -265,7 +266,7 @@ test("a worker materializes an owner-declared non-task document surface", async 
     assert.deepEqual(selected.paths, ["skills/test-isolation/dispatch-isolated-test.mjs"]);
     assert.throws(() => runDocAction(input([])), { code: "execution_credential_rejected" });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -291,7 +292,7 @@ test("doc sync carries a worker's atomic replacement of an existing own-package 
       assert.equal(event.payload.changes[0]?.path, fixture.artifactPath, "the tracked task-package path is rewritten");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -326,7 +327,7 @@ test("artifact add refuses an existing destination and names the base-sha doc ch
     assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), body);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -396,7 +397,7 @@ test("a worker's path selection that leaves its task package stays a cross-task 
       { code: "execution_credential_rejected" },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -436,7 +437,7 @@ test("accepted worktree documents advance their bases across edits and an acknow
     assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Third edit\n");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -457,7 +458,7 @@ test("a missing worktree base recovers this task execution's accepted version fo
     assert.equal(readFileSync(fixture.workerArtifact, "utf8"), "# Edited without a known base\n");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -499,7 +500,7 @@ for (const selection of ["task", "paths"] as const) {
         assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), canonicalEdit);
       } finally {
         await fixture.cell.close();
-        rmSync(fixture.rootDir, { recursive: true, force: true });
+        removeTempRepository(fixture.rootDir);
       }
     });
   }
@@ -521,7 +522,7 @@ for (const document of ["artifact", "bootstrap"] as const) {
       assert.equal(readFileSync(canonical, "utf8"), original);
     } finally {
       await fixture.cell.close();
-      rmSync(fixture.rootDir, { recursive: true, force: true });
+      removeTempRepository(fixture.rootDir);
     }
   });
 }
@@ -544,6 +545,6 @@ test("a task's accepted canonical write acknowledges later worker edits while it
     assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Continued from worker\n");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });

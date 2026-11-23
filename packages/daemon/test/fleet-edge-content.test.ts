@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
 import { openFleetDocContentSink, readFleetDocContentMetadata } from "../src/daemon-host/fleet-edge-content.ts";
 import { runFleetDocShowRange } from "../src/daemon-host/fleet-edge-task.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
@@ -193,5 +194,5 @@ test("Fleet doc-show streams a 70 MiB object with chunk budget and durable resum
       resumedFromDurableOffset: true,
     }),
   );
-  rmSync(root, { recursive: true, force: true });
+  removeTempRepository(root);
 });

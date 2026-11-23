@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   effectiveProviderBlockedUntil,
   openRuntimeProviderHealthStore,
 } from "../src/runtime-engine/runtime-provider-health.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("provider health persists bounded cooldowns and freezes after the configured streak", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-"));
@@ -45,7 +46,7 @@ test("provider health persists bounded cooldowns and freezes after the configure
     assert.equal(reset.failureStreak, 0);
     assert.equal(reset.frozen, false);
   } finally {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -78,7 +79,7 @@ test("provider supplied reset time is preserved and auth failures freeze permane
     assert.equal(row.frozen, true);
     assert.equal(row.frozenUntil, null);
   } finally {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -93,7 +94,7 @@ test("separately opened node stores merge updates instead of overwriting another
     assert.equal(first.get("codex-b").failureStreak, 1);
     assert.equal(second.list().length, 2);
   } finally {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -110,7 +111,7 @@ test("provider health fallback cooldown reads the shared policy default", () => 
     assert.equal(row.cooldownUntil, "2026-10-12T00:00:07.000Z");
   } finally {
     daemonRuntimePolicy.defaultValue.health.cooldownBaseSeconds = previousBase;
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -316,6 +317,6 @@ test("quota health transitions are orthogonal to transport failures and manual f
     );
     assert.equal(store.recordSuccess("account-wide-quota", "2026-11-28T00:00:00.000Z").quotaExhaustedUntil, null);
   } finally {
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });

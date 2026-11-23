@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import {
   writeFleetEdgeConfig,
 } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { daemonProtocolCommands } from "../src/daemon-host/protocol/daemon-protocol-commands.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("forwarding intent binds command identity, method and execution context", () => {
   const action = { kind: "fact-record", executionId: "execution-one", statement: "evidence" },
@@ -55,7 +56,7 @@ test("registration without an edge stays local; a registered edge requires a val
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-role-"))),
     userRoot = path.join(root, "user"),
     workspace = path.join(root, "workspace");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(userRoot);
   mkdirSync(workspace);
   const invoke = (intent: Parameters<typeof forward>[0]["intent"]) =>
@@ -110,7 +111,7 @@ test("forwarding resolves workspace, view and CA again after registration moves"
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-location-"))),
     userRoot = path.join(root, "user"),
     workspaces = [path.join(root, "old"), path.join(root, "new")];
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(userRoot);
   for (const workspace of workspaces) mkdirSync(workspace);
   const register = (index: number, workspace: string) => {
@@ -191,7 +192,7 @@ test("runtime forwarding resolves the live workspace and rejects non-local ingre
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-runtime-location-"))),
     userRoot = path.join(root, "user"),
     workspaces = [path.join(root, "old"), path.join(root, "new")];
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(userRoot);
   for (const workspace of workspaces) mkdirSync(workspace);
   const register = (index: number, workspace: string) => {
@@ -284,7 +285,7 @@ test("runtime forwarding carries the daemon lifetime into a started request and 
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-forward-runtime-lifetime-"))),
     userRoot = path.join(root, "user"),
     workspace = path.join(root, "workspace");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(userRoot);
   mkdirSync(workspace);
   writeFleetEdgeConfig(userRoot, "repo", {
@@ -348,7 +349,7 @@ test("runtime forwarding carries the daemon lifetime into a started request and 
 // dec_2C49A4516E540906721AF01840: routing is derived from the complete descriptor catalog.
 test("every declared center-forward command reaches the port and rejected commands stop before routing", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-forward-catalog-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   let forwarded = 0,
     rejected = 0;
   for (const descriptor of daemonProtocolCommands) {

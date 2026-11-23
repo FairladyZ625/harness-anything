@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import electronPath from "electron";
 import { resolveE2EProbeElectronForTest } from "../../../tools/e2e-probe.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "../../..");
 
@@ -231,7 +232,7 @@ test(
     t.after(runtime.close);
 
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-upgrade-mig-"));
-    t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(tempRoot));
 
     const appDataDir = path.join(tempRoot, "AppData");
     const legacyDir = path.join(appDataDir, "Electron");
@@ -305,7 +306,7 @@ test(
     t.after(runtime.close);
 
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-upgrade-mig-retry-"));
-    t.after(() => rmSync(tempRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(tempRoot));
 
     const appDataDir = path.join(tempRoot, "AppData");
     const targetDir = path.join(appDataDir, "Harness Anything");

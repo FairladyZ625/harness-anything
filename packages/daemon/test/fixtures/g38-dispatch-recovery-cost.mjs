@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const taskId = "task-dispatch-recovery-cost",
   executionId = "execution-dispatch-recovery-cost";
@@ -137,7 +138,7 @@ export async function measureTaskDispatchAdmission(rootDir, size) {
     assert.equal(admitted.kind, "spawn", "the measurement must reach the admitted dispatch");
     assert.equal(admitted.recovery.sourceDispatchId, source);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
   assert.ok(counts.dispatchRowsExamined >= size, "admission must examine the execution's dispatch rows");
   return { size, counts };

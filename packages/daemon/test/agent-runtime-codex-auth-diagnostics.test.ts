@@ -1,12 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instances.ts";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Codex subscription probes stay strictly read-only (`codex login status` + read-only quota
 // routes): a missing/signed-out login reports `runtime_subscription_required`, while a locally
@@ -92,6 +93,6 @@ process.exit(9);
     }
     assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

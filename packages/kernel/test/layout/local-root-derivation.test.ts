@@ -2,12 +2,13 @@
 // Every piece of local ledger state is derived from layout.localRoot, so a repository that renames
 // its local root keeps the default `.harness` directory untouched.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveHarnessLayout } from "../../src/layout/index.ts";
 import { defaultLifecycleTaskProjectionPath } from "../../../storage/src/projection/rebuildable-task-projection.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function repoWithLocalRoot(localRoot: string): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-root-"));
@@ -32,7 +33,7 @@ test("a renamed local root moves every derived local path off the default direct
     assert.equal(layout.settingsLocalPath, path.join(localRoot, "settings.local.json"));
     assert.equal(defaultLifecycleTaskProjectionPath(rootDir), layout.taskProjectionPath);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -49,7 +50,7 @@ test("a directory that belongs to no layout resolves upward, so callers there mu
     assert.equal(layout.taskProjectionPath, path.join(rootDir, ".harness.nosync", "cache", "task.sqlite"));
     assert.notEqual(layout.taskProjectionPath, path.join(generationDir, "cache", "task.sqlite"));
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -61,6 +62,6 @@ test("a repository without a layout declaration keeps the default local root and
     assert.equal(layout.taskProjectionPath, path.join(rootDir, ".harness", "cache", "task.sqlite"));
     assert.equal(defaultLifecycleTaskProjectionPath(rootDir), layout.taskProjectionPath);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

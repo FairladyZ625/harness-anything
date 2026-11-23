@@ -28,6 +28,7 @@ import type { ManagedRbacHost } from "../../authorization/src/keycloak/managed-h
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function selectIdentityMode(root: string, mode: "external" | "managed"): void {
   const rbacRoot = path.join(root, "rbac");
@@ -99,7 +100,7 @@ test("external Keycloak writes the connection contract only after probing the re
     );
     assert.deepEqual(config.versions, managedRbacVersions);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -138,7 +139,7 @@ for (const failure of ["token", "malformed", "missing", "admin"] as const) {
       assert.equal(readFileSync(configFile, "utf8"), before);
       assert.equal(readFileSync(path.join(root, "rbac", "center-client-secret"), "utf8") === "original-secret", true);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }
@@ -164,7 +165,7 @@ test("health propagates a realm transport failure", async () => {
     });
     await assert.rejects(service.run({ operation: "health" }), (error) => error === failure);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -186,7 +187,7 @@ test("external health without a configured endpoint reports rbac_not_configured"
     await assert.rejects(service.run({ operation: "health" }), { code: "rbac_not_configured" });
     assert.equal(fetches, 0);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -210,7 +211,7 @@ test("failed external Keycloak probe does not replace the active configuration",
     );
     assert.equal(existsSync(path.join(root, "rbac", "config.json")), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -230,7 +231,7 @@ test("external Keycloak rejects a non-loopback cleartext authority", async () =>
       (error: unknown) => (error as { code?: string }).code === "rbac_external_url_insecure",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -262,7 +263,7 @@ test("managed bootstrap rejects a changed archive before extraction", async () =
       (error: unknown) => (error as { code?: string }).code === "rbac_checksum_mismatch",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -424,7 +425,7 @@ function managedFixture(
     version: async () => String((await service.run({ operation: "listener" })).version),
     close: async () => {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }
@@ -990,7 +991,7 @@ test("a failed listener replacement restores the previous managed certificate an
     );
     assert.equal(uploadedDirs.length, 1);
   } finally {
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.close();
   }
 });
@@ -1032,7 +1033,7 @@ test("managed bootstrap keeps Keycloak on loopback until a listener is explicitl
     assert.equal(existsSync(path.join(rbac, "listener", "self-signed.pem")), false);
     assert.equal((await service.run({ operation: "listener" })).listener, null);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1064,7 +1065,7 @@ test("managed bootstrap keys PostgreSQL with a daemon-generated scram password",
     assert.match(password, /^[A-Za-z0-9_-]{32}$/u);
     assert.equal(statSync(passwordFile).mode & 0o077, 0);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1198,7 +1199,7 @@ test("uploaded listener certificates survive deletion of the external source dir
     const managedCert = installedListener.certificateFile,
       managedKey = installedListener.certificateKeyFile;
     // Deleting the external source directory must not affect subsequent stop/start cycles.
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.service.stop();
     await managed.service.start();
     assert.equal(managed.keycloakLaunches().at(-1)!.env.KC_HTTPS_CERTIFICATE_FILE, managedCert);
@@ -1245,7 +1246,7 @@ test("uploaded listener certificates survive deletion of the external source dir
       false,
     );
   } finally {
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.close();
   }
 });
@@ -1305,7 +1306,7 @@ test("legacy external listener config migrates into rbac/listener on start and f
         2,
       )}\n`,
     );
-    rmSync(unmigratedDir, { recursive: true, force: true });
+    removeTempRepository(unmigratedDir);
     await assert.rejects(unmigrated.service.start(), { code: "rbac_listener_key_exposed" });
 
     // Exposed legacy private keys must be rejected before copying into managed storage.
@@ -1318,13 +1319,13 @@ test("legacy external listener config migrates into rbac/listener on start and f
     assertManagedUploadedPair(managed.root, managed.config().listener);
     const managedCert = managed.config().listener.certificateFile;
 
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.service.stop();
     await managed.service.start();
     assert.equal(managed.keycloakLaunches().at(-1)!.env.KC_HTTPS_CERTIFICATE_FILE, managedCert);
   } finally {
-    rmSync(externalDir, { recursive: true, force: true });
-    rmSync(unmigratedDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
+    removeTempRepository(unmigratedDir);
     await managed.close();
     await unmigrated.close();
   }
@@ -1363,7 +1364,7 @@ test("legacy symlinks inside rbac/listener pointing outside are migrated into re
     assertManagedUploadedPair(managed.root, managed.config().listener);
     assert.equal(existsSync(linkCert), false);
     assert.equal(existsSync(linkKey), false);
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.service.stop();
     await managed.service.start();
     assert.equal(
@@ -1371,7 +1372,7 @@ test("legacy symlinks inside rbac/listener pointing outside are migrated into re
       managed.config().listener.certificateFile,
     );
   } finally {
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.close();
   }
 });
@@ -1410,7 +1411,7 @@ test("uploaded listener validation rejects mismatched keys and malformed PEM cha
     }
     assert.equal(existsSync(path.join(managed.root, "rbac", "listener")), false);
   } finally {
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.close();
   }
 });
@@ -1524,7 +1525,7 @@ test("same-endpoint rotation advances version, stale versions conflict, and part
     assert.equal(statSync(rotatedKey).mode & 0o777, 0o644);
     await assert.rejects(managed.service.start(), { code: "rbac_listener_key_exposed" });
   } finally {
-    rmSync(externalDir, { recursive: true, force: true });
+    removeTempRepository(externalDir);
     await managed.close();
   }
 });

@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readFileSync,
   renameSync,
-  rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -25,6 +24,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture, realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { runWorktreeSetup, taskWorktreeDocumentBase } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task submit refreshes worker artifacts and carries new worktree artifacts", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-worktree-docs-")),
@@ -182,7 +182,7 @@ test("task submit refreshes worker artifacts and carries new worktree artifacts"
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -343,7 +343,7 @@ for (const external of [false, true])
       assert.equal(readFileSync(canonicalPlan, "utf8"), planV3, "CAS conflict must keep canonical v3 intact");
     } finally {
       await cell.close();
-      rmSync(temporaryRoot, { recursive: true, force: true });
+      removeTempRepository(temporaryRoot);
     }
   });
 
@@ -458,6 +458,6 @@ test("task submit and amend automatically refresh stale managed submission facts
     assert.equal(readFileSync(workerCloseout, "utf8"), afterAmend, "worktree closeout matches canonical after amend");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

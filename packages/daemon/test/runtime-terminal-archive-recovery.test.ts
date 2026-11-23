@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,11 +12,12 @@ import {
 } from "../src/daemon-host/dispatch-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const state of ["dead", "foreign", "fallback"] as const) {
   test(`terminal archive reconciliation is idempotent and preserves ${state} ownership`, async (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "terminal-archive-recovery-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const dispatchId = "dispatch_111111111111111111111111",
       runtimeSessionId = "runtime-terminal-archive",
       binding = { actor: { principal: { personId: "owner" }, executor: null }, source: "local" as const },

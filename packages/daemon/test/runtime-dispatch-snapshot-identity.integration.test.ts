@@ -1,16 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,6 +16,7 @@ import { waitForArrival, watchDirectoryArrival, watchFileArrival } from "../../.
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/u;
 
@@ -449,7 +441,7 @@ test("dispatch seals Agent/Skill snapshot digests, isolates post-launch tamperin
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

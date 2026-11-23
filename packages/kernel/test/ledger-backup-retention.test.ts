@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   planLedgerBackupRetention,
   type LedgerBackupRetentionEntryV1,
 } from "../../storage/src/store/ledger-backup-retention.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const policy = { keepDays: 3, keepMonthly: true };
 
@@ -118,7 +119,7 @@ test("apply removes only identified executor-named backups and skips everything 
     assert.equal(existsSync(path.join(root, agentMade)), true);
     assert.equal(existsSync(path.join(root, unidentified)), true);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

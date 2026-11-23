@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,13 +9,14 @@ import { replicationCommitChunks } from "@harness-anything/storage";
 import { openReplicationCommitFile } from "../src/fleet-sync/fleet/commit-file.ts";
 import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
 import { parseReplicationCommit, type ReplicationFrame } from "../src/fleet-sync/fleet/protocol.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const position = { history: "history", sequence: 1, revision: 0 };
 const commit = { position, events: [], outcome: null, writer: null };
 
 test("stream parsing retains claimed and retired paths without replaying staged rows", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-commit-paths-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const digest = `sha256:${"a".repeat(64)}`,
     claim = { sha256: "a".repeat(64), size: 1, mediaType: "text/markdown" },
     row = {
@@ -67,7 +68,7 @@ test("stream parsing retains claimed and retired paths without replaying staged 
 
 test("record-wise encoding preserves the N-1 envelope byte for byte; staging accepts arbitrary byte boundaries", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-commit-file-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const unicode = {
     ...commit,
     outcome: {
@@ -99,7 +100,7 @@ test("record-wise encoding preserves the N-1 envelope byte for byte; staging acc
 
 test("staged envelopes retain the protocol shape boundary", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-commit-invalid-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   for (const [index, wire] of [
     JSON.stringify({ ...commit, events: null }),
     JSON.stringify({ ...commit, extra: true }),
@@ -122,7 +123,7 @@ test("staged envelopes retain the protocol shape boundary", (t) => {
 
 test("quota, truncated transfer and malformed commit carry context and leave no staged files or apply", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-commit-abort-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   for (const mode of ["quota", "truncated", "malformed", "cancelled"] as const) {
     const signal = new AbortController();
     const frames: ReplicationFrame[] = [
@@ -180,7 +181,7 @@ test("quota, truncated transfer and malformed commit carry context and leave no 
 
 test("uncoded apply and projection errors retain a deterministic failure code on both peers", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-commit-apply-failure-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   for (const stage of ["apply", "project"]) {
     const bytes = Buffer.from(JSON.stringify(commit));
     const frames: ReplicationFrame[] = [

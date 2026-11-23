@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -15,6 +15,7 @@ import {
   resolveDispatchCwd,
 } from "../src/daemon-host/runtime-resume-admission.ts";
 import { resolveManagedReviewWorktreePath } from "../src/daemon-host/task-worktree.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("an unbound runtime inherits its spawning daemon route and runtime actor", async () => {
   const prepared = {
@@ -134,7 +135,7 @@ test("runtime CLI bin resolves from the nearest daemon installation", (context) 
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-bin-")),
     modulePath = path.join(root, "packages", "daemon", "dist", "runtime-spawn-context.js"),
     binDirectory = path.join(root, "node_modules", ".bin");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   mkdirSync(path.dirname(modulePath), { recursive: true });
   mkdirSync(binDirectory, { recursive: true });
   writeFileSync(path.join(binDirectory, "ha"), "#!/usr/bin/env node\n");
@@ -144,7 +145,7 @@ test("runtime CLI bin resolves from the nearest daemon installation", (context) 
 test("an artifact task resume discards an inherited canonical cwd and any explicit override", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-cwd-")),
     taskPackage = path.join(root, "task-package");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   mkdirSync(taskPackage);
   for (const request of [{}, { cwd: { scope: "repo-root" } }]) {
     assert.deepEqual(resolveDispatchCwd(root, request, root, null, taskPackage), {
@@ -157,7 +158,7 @@ test("an artifact task resume discards an inherited canonical cwd and any explic
 
 test("an artifact task rooted at the repository uses the repo-root cwd scope", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-root-cwd-"));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   assert.equal(resolveDispatchCwd(root, {}, root, null, root).cwd, realpathSync.native(root));
 });
 
@@ -170,7 +171,7 @@ test(
       externalLedger = path.join(parent, "private-ledger"),
       externalOutside = path.join(parent, "outside"),
       taskPackage = path.join(externalLedger, "tasks", "task_1");
-    context.after(() => rmSync(parent, { recursive: true, force: true }));
+    context.after(() => removeTempRepository(parent));
     mkdirSync(root, { recursive: true });
     mkdirSync(taskPackage, { recursive: true });
     mkdirSync(externalOutside, { recursive: true });
@@ -202,7 +203,7 @@ test(
     const ordinarySub = path.join(root, "ordinary-dir");
     mkdirSync(ordinarySub, { recursive: true });
     assert.equal(resolveDispatchCwd(root, {}, ordinarySub, null).cwd, realpathSync.native(ordinarySub));
-    rmSync(ordinarySub, { recursive: true, force: true });
+    removeTempRepository(ordinarySub);
     symlinkSync(externalOutside, ordinarySub, "dir");
     assert.throws(
       () => resolveDispatchCwd(root, {}, ordinarySub, null),
@@ -316,7 +317,7 @@ test("resolveManagedReviewWorktreePath matches realpath containment under symlin
     reviewCheckout = path.join(externalWorktrees, ".review", "task_1", "a".repeat(40)),
     implWorktree = path.join(externalWorktrees, "task_1"),
     outsideDir = path.join(parent, "outside");
-  context.after(() => rmSync(parent, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(parent));
   mkdirSync(root, { recursive: true });
   mkdirSync(reviewCheckout, { recursive: true });
   mkdirSync(implWorktree, { recursive: true });
@@ -339,7 +340,7 @@ test("resolveManagedReviewWorktreePath matches realpath containment under symlin
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-missing-")),
     modulePath = path.join(root, "node_modules", "@harness-anything", "daemon", "dist", "runtime-spawn-context.js");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   mkdirSync(path.dirname(modulePath), { recursive: true });
   assert.equal(daemonCliBinDirectory(pathToFileURL(modulePath).href), undefined);
 });

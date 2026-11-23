@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The repository writer runs in a worker thread and the read path runs on the main thread; both
 // rewrite a task's live index, and threads of one process share process.pid.
@@ -72,6 +73,6 @@ test("two threads writing one task's live index do not collide on the temporary 
     }
     assert.deepEqual({ main: mainError, worker: await workerError }, { main: null, worker: null });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

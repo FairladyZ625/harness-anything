@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "writer bridge reclaims a terminal run while a parallel run stays live and reclaims failed launches",
@@ -117,7 +118,7 @@ test(
           : [],
       reclaimRuntimeTempDirectory: (_instanceId, id) => {
         reclaimed.push(id);
-        rmSync(path.join(root, "temp", id), { recursive: true, force: true });
+        removeTempRepository(path.join(root, "temp", id));
         return reclaimed.length === 2
           ? Object.assign(new Error("EBUSY: bridge reclaim refusal"), { code: "EBUSY" })
           : null;
@@ -238,7 +239,7 @@ test(
       );
     } finally {
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

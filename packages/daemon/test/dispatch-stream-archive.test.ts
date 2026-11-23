@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import {
   scheduleArchivedDispatchStreamCompaction,
 } from "../src/daemon-host/dispatch-stream-archive.ts";
 import { scheduleLocalRootReclamation } from "../src/daemon-host/local-root-storage.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ROOT = tmpdir();
 
@@ -105,7 +106,7 @@ test("archiving merges provider deltas, marks once, and preserves lifecycle read
     archiveDispatchStream(rootDir, dispatchId);
     assert.deepEqual(readFileSync(archivedPath), archiveBytes);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -166,7 +167,7 @@ test("startup compaction queues only local archives and leaves live streams alon
     assert.equal(readDispatchStream(rootDir, liveId)?.header.transcriptCompactionVersion, undefined);
     assert.deepEqual(readFileSync(livePath), liveBefore);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -230,7 +231,7 @@ test("retention ages a compacted stream by its header, not by the rewrite mtime"
     pruneDispatchStreamArchive(rootDir, { retentionDays: 60, retentionBytes: 0 }, [], now);
     assert.equal(existsSync(archived), false, "the header still says the stream is 120 days old");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -260,7 +261,7 @@ test("retention deletes archived streams past the day limit, keeps the boundary,
     assert.equal(existsSync(fresh.file), true);
     assert.equal(existsSync(dispatchStreamPath(rootDir, liveId)), true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -275,7 +276,7 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
     assert.equal(existsSync(oldest.file), false, "the oldest stream is evicted to reach the cap");
     assert.equal(existsSync(newest.file), true, "the newest stream fits under the cap and stays");
   } finally {
-    rmSync(capRoot, { recursive: true, force: true });
+    removeTempRepository(capRoot);
   }
 
   const emptyRoot = mkdtempSync(path.join(ROOT, "ha-dispatch-archive-prune-empty-"));
@@ -292,7 +293,7 @@ test("retention evicts oldest archived streams past the byte cap, emptying the a
     assert.equal(existsSync(lone.file), false, "a cap no single stream satisfies empties the archive");
     assert.equal(existsSync(newer.file), false, "the remaining stream also exceeds that cap");
   } finally {
-    rmSync(emptyRoot, { recursive: true, force: true });
+    removeTempRepository(emptyRoot);
   }
 });
 
@@ -326,7 +327,7 @@ test("retention never deletes an archived stream that immutable fact evidence na
     assert.equal(existsSync(globbed.file), true, "a glob evidence reference keeps the matching id");
     assert.equal(existsSync(expired.file), false, "unreferenced streams still follow the limit");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -354,7 +355,7 @@ test("an archived Fact still protects the stream its evidence names after its do
     assert.equal(existsSync(archivedFactsStream.file), true, "an archived Fact's evidence is still immutable");
     assert.equal(existsSync(unnamed.file), false, "other streams keep following the limit");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -371,7 +372,7 @@ test("a pending Fact projection refuses to authorise a prune instead of reading 
     assert.throws(() => readFactEvidenceSources(pending), /not at the canonical cut/u);
     assert.equal(existsSync(stream.file), true, "the prune never ran, so nothing was deleted");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -392,7 +393,7 @@ test("a fact evidence glob keeps the last id it names, where the wildcard sits",
     assert.equal(existsSync(first.file), true, "every id inside the braces is named");
     assert.equal(existsSync(last.file), true, "the id the trailing wildcard touches is still a named id");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -407,7 +408,7 @@ test("a bare prefix glob without braces also protects the streams it names", () 
 
     assert.equal(existsSync(named.file), true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -425,7 +426,7 @@ test("the byte cap skips a fact-protected stream and evicts the unprotected rema
     assert.equal(existsSync(protectedStream.file), true, "protected bytes stay even though they are oldest");
     assert.equal(existsSync(victim.file), false, "unprotected streams are evicted to approach the cap");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -443,7 +444,7 @@ test("summary readers treat a pruned archive as expired instead of failing", () 
       "replay enumerates what remains and treats the missing stream as expired",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -476,7 +477,7 @@ test("retention removes stored sidecars with their stream and preserves pending 
     assert.equal(existsSync(pendingStream), true, "pending evidence is never pruned");
     assert.equal(existsSync(pendingSidecar), true, "the pending disposition stays with its stream");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -505,7 +506,7 @@ test("archive maintenance keeps a pending record that outlived a stale not-requi
     );
     assert.deepEqual(readFileSync(file), before);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -575,7 +576,7 @@ test("a Fact recorded between expiry turns protects the remaining archive withou
     assert.deepEqual(survivors(), remaining);
     assert.equal(factReads, 1);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -587,6 +588,6 @@ test("retention with both limits disabled keeps every archived stream", () => {
     pruneDispatchStreamArchive(rootDir, { retentionDays: 0, retentionBytes: 0 }, [], now);
     assert.equal(existsSync(ancient.file), true);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

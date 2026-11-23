@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import fs, { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import fs, { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveHarnessLayout, sha256Text } from "@harness-anything/kernel";
 import { applyCanonicalTree } from "../../src/canonical-tree-materialization.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function captureAuthoredReads<T>(authoredRoot: string, fn: () => T): { result: T; readPaths: string[] } {
   const normalizedRoot = path.resolve(authoredRoot) + path.sep;
@@ -66,7 +67,7 @@ test("applyCanonicalTree skips disk reads when changedPaths is empty and revisio
     assert.deepEqual(result.settlements, []);
     assert.deepEqual(readPaths, [], "empty changedPaths must perform 0 readFileSync on materialized files");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -168,7 +169,7 @@ test("applyCanonicalTree detects immediate and post-racy-window same-byte-length
     );
     assert.equal(readFileSync(filePath, "utf8"), tamperedSameLength);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -221,6 +222,6 @@ test("applyCanonicalTree incremental pass reads only selected paths and leaves u
     assert.equal(existsSync(path.join(layout.authoredRoot, "tasks/task_three")), false);
     assert.ok(existsSync(path.join(layout.authoredRoot, "tasks/task_two/task_plan.md")));
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

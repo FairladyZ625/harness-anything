@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { actor, initRepo, legacyFixture, sources } from "./migration-import.fixtures.ts";
 import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const sourceCount of [1, 2])
   test(`shutdown before ${sourceCount}-source migration acceptance rejects without publishing a partial interval`, async () => {
@@ -51,6 +52,6 @@ for (const sourceCount of [1, 2])
       assert.ok(outcome.memberOpIds.length > 1);
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });

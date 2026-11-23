@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rmSync } from "node:fs";
 import { readDaemonRegistry, registerDaemonConnection } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "../../daemon/test/repo-settings.fixture.ts";
 import { isRemoteProxyRepo, resolveRepoScopedTarget } from "../src/main/repo-scoped-target.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /**
  * remote-proxy 仓的 repo 作用域 target 解析(PLT-EdgeGUI-W3):
@@ -104,6 +104,6 @@ test("resolveRepoScopedTarget routes an enabled remote-proxy row to the global s
     );
     assert.equal(target.socketPath, "/global/daemon.sock");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

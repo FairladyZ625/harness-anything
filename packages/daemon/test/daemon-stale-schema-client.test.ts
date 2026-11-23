@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { requestLocalDaemonJsonRpcForTarget } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a request reaches a draining stale daemon and carries its build warning", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stale-schema-client-")),
@@ -55,6 +56,6 @@ test("a request reaches a draining stale daemon and carries its build warning", 
     assert.deepEqual(methods, ["protocol.hello", "repo.agentRuntime.spawn"]);
   } finally {
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

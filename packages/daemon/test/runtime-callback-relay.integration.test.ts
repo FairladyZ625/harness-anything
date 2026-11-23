@@ -39,6 +39,7 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { serveJsonRpcStream } from "../src/daemon-host/transport/json-rpc-stream.ts";
 import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /** Real relay sockets share one per-user namespace across concurrently running test files,
  * so every live-socket test mints its own dispatch id instead of reusing a fixed one. */
@@ -184,7 +185,7 @@ test(
     } finally {
       await runtime?.terminateTree?.();
       await new Promise<void>((resolve) => privateServer.close(() => resolve()));
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -283,7 +284,7 @@ test(
     } finally {
       await relay.stop();
       await new Promise<void>((resolve) => privateServer.close(() => resolve()));
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -331,7 +332,7 @@ test(
     } finally {
       await relay.stop();
       await new Promise<void>((resolve) => privateServer.close(() => resolve()));
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -383,7 +384,7 @@ test(
       await relay.stop();
       await new Promise<void>((resolve) => privateServer.close(() => resolve()));
       assert.equal(existsSync(spec.path), false);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -425,7 +426,7 @@ test(
       await new Promise<void>((resolve) => privateServer.close(() => resolve()));
       assert.equal(existsSync(firstSpec.path), false);
       assert.equal(existsSync(secondSpec.path), false);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -547,7 +548,7 @@ for (const forceTerminate of [false, true])
         await runtime?.terminateTree?.();
         await new Promise<void>((resolve) => privateServer.close(() => resolve()));
         assert.equal(existsSync(spec.path), false);
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     },
   );
@@ -566,7 +567,7 @@ test(
       dispatchId = "dispatch_abcdef0123456789abcdef01",
       spec = runtimeCallbackRelaySpec(dispatchId, route),
       mismatch = { ...route, endpoint: localUserDaemonEndpoint(path.join(root, "other-user"), route.daemonId) };
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     mkdirSync(userRoot, { recursive: true });
     try {
       assert.throws(
@@ -601,7 +602,7 @@ test(
         /daemon_target_conflict/u,
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
     // A symlinked socket file at the relay path is refused at materialization instead of
     // being unlinked or bound through.
@@ -617,7 +618,7 @@ test(
       );
     } finally {
       rmSync(symlinkSpec.path, { force: true });
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { taskCreateAction } from "../src/daemon-host/repo-cell-action-parse.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task creation rejects retired legacy inputs through direct and structured sources", () => {
   for (const fields of [{ fromLegacyId: "legacy-1" }, { title: "New task", fromLegacyId: "legacy-1" }]) {
@@ -68,6 +69,6 @@ test("task creation resolves the plan file into the plan body on the same action
       /unsupported task create fields: plan/u,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

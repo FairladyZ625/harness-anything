@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { gitPathRejectionReason } from "@harness-anything/kernel/internal/domain
 import { validateCanonicalWriteBundle } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { docBundle, initRepo, repoLinkBundle } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 // Use update-index --cacheinfo, the publication boundary, without requiring the host filesystem
 // to create NTFS streams or HFS-aliased filenames. Both protections are explicit, not host config.
@@ -95,7 +96,7 @@ test("Git's real index agrees with the portable Git metadata restrictions", () =
       assert.notEqual(gitPathRejectionReason(logical), null, "portable admission also protects Windows peers");
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -126,6 +127,6 @@ test("invalid preceding document rejects the whole bundle before event, blob or 
       );
   } finally {
     await store.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

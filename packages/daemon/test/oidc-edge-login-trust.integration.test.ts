@@ -1,16 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("edge device login trusts only the invitation's self-signed Keycloak certificate", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-login-trust-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(
     path.join(root, "rbac", "config.json"),

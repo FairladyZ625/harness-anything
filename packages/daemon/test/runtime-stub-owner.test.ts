@@ -2,10 +2,11 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A dispatched stub runs under a detached worker host that no daemon stop reaches, so a stub
 // that holds is only ever ended by its own test. When that test dies first, the stub has to go
@@ -41,6 +42,6 @@ test("a holding provider stub exits once the test process that wrote it is gone"
       stub.kill("SIGKILL");
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

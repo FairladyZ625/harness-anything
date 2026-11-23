@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { TestContext } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Pool } from "pg";
@@ -8,6 +8,7 @@ import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { migrateStorage } from "../../src/migration/engine.ts";
 import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.ts";
 import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 /** Exercise the ordinary accepting port, including tuple creation, on both sides of every cut. */
 export async function assertRepositoryMigrationFence(
@@ -112,7 +113,7 @@ export async function assertRepositoryMigrationFence(
           `DM1_${input.backend} ${boundary}: unseen source/target denied; audit exact; active target fresh epoch accepted\n`,
         );
       } finally {
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     });
   }
@@ -172,7 +173,7 @@ export async function assertRepositoryMigrationFence(
         `DM1_${input.backend} abort: abandoned new tuple denied; resumed source epoch floor preserved\n`,
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }

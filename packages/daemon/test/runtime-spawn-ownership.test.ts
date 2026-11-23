@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import type { RuntimeBinding } from "../src/daemon-host/runtime-spawn-types.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import { createRuntimeInstanceDispatchState } from "../src/daemon-host/runtime-instance-selection.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const owner = { nodeId: "node-one" };
 const binding = (source: RuntimeBinding["source"]): RuntimeBinding => ({
@@ -38,7 +39,7 @@ test("F2: recovery counts local attempts before asynchronous session reads and r
     dispatchState = createRuntimeInstanceDispatchState(),
     entered = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const lifecycle = lifecycleReadFor([
       { runtimeSessionId: "local-resume", dispatchId: "local-dispatch", instanceId: "local-a", process: "alive" },
       {
@@ -95,7 +96,7 @@ for (const alreadyProven of [true, false])
       dispatchState = createRuntimeInstanceDispatchState(),
       published: string[] = [],
       ownerBinding = binding("local");
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     dispatchState.activate(runtimeSessionId, "local-a");
     const context = {
       dispatchState,
@@ -145,7 +146,7 @@ for (const alreadyProven of [true, false])
 for (const source of ["local", { kind: "node", nodeId: "request-origin" }] as const) {
   test(`local recovery replays an exited DeepSeek host's terminal stream (source=${typeof source === "string" ? source : "node"})`, async (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-node-origin-recovery-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const dispatchId = "dispatch_333333333333333333333333",
       runtimeSessionId = "runtime-node-origin",
       dispatchBinding = binding(source),
@@ -241,7 +242,7 @@ for (const source of ["local", { kind: "node", nodeId: "request-origin" }] as co
 for (const authorized of [true, false]) {
   test(`explicit owner cancel recovers a node-origin durable terminal without borrowing the operator (authorized=${authorized})`, async (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-node-owner-cancel-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const dispatchId = "dispatch_555555555555555555555555",
       runtimeSessionId = "runtime-node-cancel",
       ownerBinding = binding({ kind: "node", nodeId: "original-edge" }),
@@ -390,7 +391,7 @@ test("execution host ownership is independent of write source and rejects a fore
 
 test("node-origin recovery observes a living local worker without settling it", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-node-live-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_444444444444444444444444",
     runtimeSessionId = "runtime-live-node",
     ownerBinding = binding({ kind: "node", nodeId: "request-origin" }),

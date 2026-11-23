@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protoc
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
   {
@@ -242,7 +243,7 @@ test("stated attributes are judged against the version the instance is pinned to
     assert.deepEqual(second.attributes, { region: "east", fiscalYear: 2026 });
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -364,7 +365,7 @@ test("the same source imported into a second Kind is a separate import intent", 
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -411,7 +412,7 @@ test("owned content is readable by entity identity after the source is gone", as
     const entityId = String(imported.entityId);
 
     // The source is gone; the accepted bytes must stay readable.
-    rmSync(path.join(rootDir, "shared"), { recursive: true });
+    removeTempRepository(path.join(rootDir, "shared"));
 
     const root = (await cell.read("repo.entity.content.read", { entityKind: dossierRef, entityId }, binding)) as {
       readonly outcome: string;
@@ -490,7 +491,7 @@ test("owned content is readable by entity identity after the source is gone", as
     assert.equal(afterDelete.outcome, "missing", JSON.stringify(afterDelete));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

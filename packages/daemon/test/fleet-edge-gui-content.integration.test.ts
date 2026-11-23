@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { repositoryReadData } from "../src/daemon-host/protocol/repository-read-frame.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The actual GUI JSON-RPC methods; the edge workspace deliberately has no task files.
 test(
@@ -52,7 +53,7 @@ test(
     );
     assert.equal(imported.outcome, "applied", JSON.stringify(imported));
     const entityId = JSON.parse(String(imported.evidence)).preview.entityId as string;
-    rmSync(source, { recursive: true });
+    removeTempRepository(source);
     const expectedContent = await f.host.read(
       "lease-repo",
       "repo.entity.content.read",

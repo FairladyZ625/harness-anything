@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { tailRuntimeSteerCommands } from "../src/daemon-host/runtime-worker-control.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const record = (value: Readonly<Record<string, unknown>>): string =>
   `${JSON.stringify({ schema: "runtime-dispatch-stream/v1", ...value })}\n`;
@@ -37,7 +38,7 @@ test("the steer tail skips the records already in the stream and dispatches only
     assert.deepEqual(prompts, ["first", "second"]);
     tail.stop();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -58,7 +59,7 @@ test("the steer tail holds back a partial trailing line until its newline arrive
     assert.deepEqual(prompts, ["split"]);
     tail.stop();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -77,7 +78,7 @@ test("a steer record whose prompt is not a string is skipped, and records after 
     await eventually(() => readSize(target) > 0);
     assert.deepEqual(prompts, [], "a stopped tail dispatches nothing");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -92,7 +93,7 @@ test("the steer tail starts at zero for a stream that does not exist yet", async
     assert.deepEqual(prompts, ["created later"]);
     tail.stop();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

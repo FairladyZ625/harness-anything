@@ -25,6 +25,7 @@ import {
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
 } from "../src/daemon-host/schedule-builtin-executor.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type WriteReceipt = { readonly outcome: string; readonly opId: string; readonly revision: number };
 
@@ -306,7 +307,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -431,7 +432,7 @@ test("a partially written backup of the same occurrence is retaken, a verified o
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -496,7 +497,7 @@ test(
         await host.close();
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -528,7 +529,7 @@ test("an unsigned attach does not seed schedules as an implicit system principal
     }
   } finally {
     await host?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -590,7 +591,7 @@ test(
     } finally {
       await cell?.close();
       await host?.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -637,7 +638,7 @@ test(
       assert.equal(terminates, 1, "the lingering worker must be terminated once its result settled");
     } finally {
       for (const worker of spawned) await worker.terminate();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

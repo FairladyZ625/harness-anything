@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import type {
   RuntimeAttemptTerminal,
   RuntimeSpawnerContext,
 } from "../src/daemon-host/runtime-spawn-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A drained reconnect now labels some attempts provider_fault, including attempts the settlement
 // later accepts as delivered. Delivery must keep its success disposition: re-running a delivered
@@ -31,7 +32,7 @@ test("a delivered attempt never schedules a fallback, even when its tail is prov
     assert.equal(terminal.outcome, "succeeded");
     assert.deepEqual(terminal.plannedFallbacks, [], "a delivered attempt must not be re-dispatched");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -41,7 +42,7 @@ test("an undelivered provider_fault still schedules the next declared runtime", 
     const terminal = await sink(rootDir, { delivered: false });
     assert.deepEqual(terminal.plannedFallbacks, ["provider-b"]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -61,7 +62,7 @@ test("delivery records provider health as success, not failure", async () => {
     assert.deepEqual(successes, ["provider-a"]);
     assert.equal(terminal.outcome, "succeeded");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

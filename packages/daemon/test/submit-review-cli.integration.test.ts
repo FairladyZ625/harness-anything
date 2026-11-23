@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { createMultiVendorHarness, latestReviewerDispatchFor } from "./fixtures/reviewer-cross-vendor-lru.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_6A77D43B8523823ABA1F5E4D3C CH1: a matching path reviewer *replaces* the default seat. The
 // old contract dispatched both and demanded two dispatches; a cut now holds exactly one seat, so
@@ -222,7 +223,7 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
   } finally {
     await transport.stop();
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

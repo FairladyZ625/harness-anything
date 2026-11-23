@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/daemon-h
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { daemonPidPath, daemonSingletonLockPath } from "../src/daemon-host/daemon-singleton.ts";
 import { readDaemonLifecycleGeneration } from "../src/daemon-host/lifecycle-log.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The public runner builds the daemon used by cli/src/index.ts before this file starts.
 for (const entry of [
@@ -128,7 +129,7 @@ for (const entry of [
         child.kill("SIGKILL");
         await exited;
       }
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   });
 
@@ -178,7 +179,7 @@ for (const entry of [
         child.kill("SIGKILL");
         await exited;
       }
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   });
 }

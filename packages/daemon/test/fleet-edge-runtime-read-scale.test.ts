@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ import {
   locateFleetMirrorView,
   scanFleetMirrorWorktree,
 } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface Fixture {
   readonly root: string;
@@ -156,8 +157,8 @@ test("edge runtime task reads keep SQL row access independent of mirror document
   const small = await makeFixture(2);
   const large = await makeFixture(20);
   t.after(() => {
-    rmSync(small.root, { recursive: true, force: true });
-    rmSync(large.root, { recursive: true, force: true });
+    removeTempRepository(small.root);
+    removeTempRepository(large.root);
   });
   const smallRows = readRows(small);
   const largeRows = readRows(large);
@@ -170,8 +171,8 @@ test("dispatched task-package lookup keeps SQL row access independent of unrelat
   const small = await makeFixture(2, true);
   const large = await makeFixture(20, true);
   t.after(() => {
-    rmSync(small.root, { recursive: true, force: true });
-    rmSync(large.root, { recursive: true, force: true });
+    removeTempRepository(small.root);
+    removeTempRepository(large.root);
   });
   const smallRead = readPackageRows(small);
   const largeRead = readPackageRows(large);
@@ -195,7 +196,7 @@ test("dispatched task-package lookup keeps SQL row access independent of unrelat
 
 test("legacy materialization marker without a base does not classify center differences as local edits", async (t) => {
   const fixture = await makeFixture(1);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(fixture.root));
   const localPath = path.join(fixture.workspaceRoot, "harness/tasks/task-scale/artifacts/doc-0.md");
   mkdirSync(path.dirname(localPath), { recursive: true });
   writeFileSync(localPath, "legacy local bytes\n");
@@ -221,7 +222,7 @@ test("legacy materialization marker without a base does not classify center diff
 
 test("an unmarked worktree does not report unmaterialized center documents as deletions", async (t) => {
   const fixture = await makeFixture(1);
-  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(fixture.root));
   const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId, fixture.nodeId);
   assert.ok(view);
   const scan = scanFleetMirrorWorktree(view, fixture.workspaceRoot);

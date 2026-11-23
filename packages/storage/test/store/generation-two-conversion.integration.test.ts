@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { makeSqliteTaskEventStoreWithGitFollower as makeSqliteTaskEventStore } f
 import { event, initRepo } from "./task-event-store.fixtures.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("generation 1 Git follower converts and certifies generation 2 from a backup", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-gen1-to-gen2-source-")),
@@ -21,9 +22,9 @@ test("generation 1 Git follower converts and certifies generation 2 from a backu
     repoId = "generation-one-conversion",
     fence = { repoId, holder: "generation-one-fixture", epoch: 1 } as const;
   t.after(() => {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(backupDir, { recursive: true, force: true });
-    rmSync(destinationRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(backupDir);
+    removeTempRepository(destinationRoot);
   });
   initRepo(rootDir);
   const source = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 1 });

@@ -34,6 +34,7 @@ import {
   waitForFileContent,
   waitForProcessExit,
 } from "./daemon-autostart-cli.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("status reports a draining old process until its terminal exit record, then lets its successor answer", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-status-processes-")),
@@ -72,7 +73,7 @@ test("status reports a draining old process until its terminal exit record, then
     if (old.exitCode === null && old.signalCode === null) old.kill("SIGKILL");
     await exited;
     if (daemon && "stop" in daemon) await daemon.stop();
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -119,7 +120,7 @@ test(
     } finally {
       release();
       await stopping;
-      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(userRoot);
     }
   },
 );
@@ -146,7 +147,7 @@ test("status ignores a stale exit record whose pid now belongs to another proces
     assert.equal(result.code, "daemon_unavailable", JSON.stringify(result));
     assert.deepEqual(result.shuttingDownProcesses, []);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -182,7 +183,7 @@ test(
       assert.match(String(result.summary), /unknown_field/u);
     } finally {
       await fake.close();
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   },
 );
@@ -206,7 +207,7 @@ test(
       assert.equal(result.state, "running");
     } finally {
       await fake.close();
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   },
 );

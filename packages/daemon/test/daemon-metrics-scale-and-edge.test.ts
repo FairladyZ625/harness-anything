@@ -16,6 +16,7 @@ import { resolveDaemonMetricsConfig } from "../src/daemon-host/metrics-http-serv
 import { startDaemon } from "../src/daemon-host/runtime.ts";
 import type { RepoCell, RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
 import { recordReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function makeAttachedStatus(repoId: string, queueDepth: number, lag = 0): RepoCellStatus {
   return {
@@ -159,7 +160,7 @@ test("F-G7-46 & F-G7-48(a): health-only mode (HARNESS_DAEMON_METRICS_EXPOSED=0) 
     );
   } finally {
     if ("stop" in disabledDaemon) await disabledDaemon.stop();
-    rmSync(probeRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(probeRoot);
   }
 
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-health-only-daemon-"));
@@ -195,7 +196,7 @@ test("F-G7-46 & F-G7-48(a): health-only mode (HARNESS_DAEMON_METRICS_EXPOSED=0) 
     assert.equal(metricsRes.status, 404);
   } finally {
     if ("stop" in running) await running.stop();
-    rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -348,6 +349,6 @@ test("F-G7-47: replica-only Edge publishes bidirectional unavailable <-> ready t
     assert.equal(observed.probe.ready, false);
   } finally {
     await edgeCell.close();
-    rmSync(sandbox, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(sandbox);
   }
 });

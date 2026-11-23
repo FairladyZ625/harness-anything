@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/daemon-host/runtime-spawn-types.ts";
 import { emptyDispatchLifecycleRead, lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding: RepoCellBinding = {
   actor: { principal: { personId: "person-owner" }, executor: null },
@@ -140,7 +141,7 @@ test("a launch refused after preparation returns the temp scope prepareLaunch mi
       },
       reclaimRuntimeTempDirectory: (_instanceId, runtimeSessionId) => {
         reclaimed.push(runtimeSessionId);
-        rmSync(path.join(tempRoot, runtimeSessionId), { recursive: true, force: true });
+        removeTempRepository(path.join(tempRoot, runtimeSessionId));
         return null;
       },
       now: () => "2026-10-25T00:00:00.000Z",
@@ -161,7 +162,7 @@ test("a launch refused after preparation returns the temp scope prepareLaunch mi
     assert.deepEqual(reclaimed, [runtimeSessionId], "the refusal still hands the minted scope back");
     assert.equal(existsSync(path.join(tempRoot, runtimeSessionId)), false);
   } finally {
-    rmSync(tempRoot, { recursive: true, force: true });
+    removeTempRepository(tempRoot);
   }
 });
 
@@ -203,7 +204,7 @@ test("a failed launch's temp reclaim surfaces its refusal instead of swallowing 
 
 test("the startup sweep treats only settled sessions as reclaimable and reports failures", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-sweep-settled-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const settled = "runtime_0123456789abcdef01234567",
     live = "runtime_89abcdef0123456789abcdef",
     adopted = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -275,7 +276,7 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
 
 test("the startup sweep point-reads only local temp directories regardless of session history", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-sweep-local-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const local = ["runtime_0123456789abcdef01234567", "runtime_89abcdef0123456789abcdef"],
     pointReads: string[] = [],
     snapshot = path.join(rootDir, ".harness", "runtime", "sealed-skills", local[1]!);
@@ -315,7 +316,7 @@ test("the startup sweep point-reads only local temp directories regardless of se
 
 test("the startup sweep leaves every directory alone when the center read fails", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-sweep-center-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let reclaimCalled = false;
   const runtimeSessionId = "runtime_0123456789abcdef01234567",
     context = {
@@ -372,6 +373,6 @@ test("settled temp maintenance is independent of runtime adoption", async () => 
     await adoptRuntimes(context as never);
     assert.deepEqual(sweeps, [0], "cancel's mid-operation adoption must not sweep");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

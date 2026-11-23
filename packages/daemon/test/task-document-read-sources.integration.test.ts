@@ -28,6 +28,7 @@ import {
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
 
@@ -181,7 +182,7 @@ test("canonical V1 and worker V2 reads each label the source that owns their byt
     }
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -217,7 +218,7 @@ test("an execution observation without an effective lease is unobservable", asyn
     assert.equal(foreign.unobservableReason, "execution_not_found");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -249,7 +250,7 @@ test("a missing authored copy is unobservable, not a clean workspace", async () 
     assert.equal(authored.blobSha256, null);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -275,7 +276,7 @@ test("a remote lease never relabels the center's local worktree as its observati
     assert.equal(observed.blobSha256, null);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -352,7 +353,7 @@ test("a stale or missing worktree execution marker is unobservable", async () =>
     assert.equal(missing.unobservableReason, "execution_workspace_unbound");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -383,7 +384,7 @@ test("a rejected competing start cannot overwrite the holder's marker", async ()
     assert.equal(observed.body, fixture.v2Body);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -454,7 +455,7 @@ test("same-holder renewal preserves execution document observation without repub
     assert.equal(observed.execution?.leaseExpiresAt, renewed.expiresAt);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -485,7 +486,7 @@ test("renewal followed by release and failed same-execution re-entry rejects the
     assert.equal(observed.execution, null);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -523,7 +524,7 @@ test("a same-execution re-entry publishes a marker for the new lease generation"
     assert.equal(observed.body, fixture.v2Body);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -641,7 +642,7 @@ syncBuiltinESMExports();
     Atomics.notify(barrier, 0);
     await pending;
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -672,7 +673,7 @@ test("a same-execution checkout failure cannot reuse the previous lease's marker
     assert.equal(observed.blobSha256, null);
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -706,7 +707,7 @@ test("a failed marker write cannot publish even complete new bytes over the old 
     assert.deepEqual(readdirSync(markerDirectory), [path.basename(markerPath)], "temporary proof is cleaned up");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 
@@ -816,7 +817,7 @@ test("a marker write failure keeps the applied start and leaves observation unob
     assert.equal(observed.body, "");
   } finally {
     await fixture.cell.close();
-    rmSync(fixture.rootDir, { recursive: true, force: true });
+    removeTempRepository(fixture.rootDir);
   }
 });
 

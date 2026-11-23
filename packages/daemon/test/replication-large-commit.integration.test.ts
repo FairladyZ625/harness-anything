@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // harness-test-file-timeout: 180000
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { eventAt, initRepo } from "../../storage/test/store/task-event-store.fix
 import { runWalSender } from "../src/daemon-host/fleet/walsender.ts";
 import { runWalReceiver } from "../src/daemon-host/fleet/walreceiver.ts";
 import type { ReplicationFrame, ReplicationPeer } from "../src/fleet-sync/fleet/protocol.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function streamEnvelope(
   megabytes: number,
@@ -251,7 +252,7 @@ async function streamEnvelope(
     model.close();
     replica.close();
     center.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }
 

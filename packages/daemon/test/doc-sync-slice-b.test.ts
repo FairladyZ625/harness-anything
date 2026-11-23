@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 import { realizeTaskPlanFixture, realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const policyId = "markdown-body-replaceable/v1";
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
@@ -638,7 +639,7 @@ test("task artifact json and log files ride doc sync under the held task lease",
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -704,7 +705,7 @@ test("a runtime reviewer cannot publish reviewed task prose after submit release
     assert.equal(refused.code, "lease_conflict");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -746,7 +747,7 @@ test("the authored walls manifest can be created and edited through doc sync", a
     });
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -789,7 +790,7 @@ test("closeout prose quoting a foreign-namespace artifact ref does not block doc
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -807,7 +808,7 @@ async function docCell(repoId: string, now?: () => string) {
     cell,
     close: async () => {
       await cell.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     },
   };
 }
@@ -919,5 +920,5 @@ function rbacFixture() {
   );
   git(rootDir, "add", "harness");
   git(rootDir, "commit", "--quiet", "-m", "rbac");
-  return { rootDir, userRoot, ids, close: () => rmSync(parent, { recursive: true, force: true }) };
+  return { rootDir, userRoot, ids, close: () => removeTempRepository(parent) };
 }

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TaskLifecycleKillpoint } from "../src/task-lifecycle-service.ts";
@@ -13,6 +13,7 @@ import {
 import { reviewDigest } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "../../storage/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };
 export const reviewer = {
@@ -119,7 +120,7 @@ export function lifecycleHarness() {
       try {
         await eventStore.drain();
       } finally {
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     },
     kill: (point: TaskLifecycleKillpoint | EventPublicationKillpoint) => {

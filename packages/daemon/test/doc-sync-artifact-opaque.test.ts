@@ -144,7 +144,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
     }
     const reader = makeTaskEventReader({ repoId, rootDir }),
       beforeMaterialize = reader.readHead();
-    rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
+    removeTempRepository(path.join(rootDir, "harness", "tasks"));
     const materialized = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
     assert.equal(materialized.status, "settled_no_write");
@@ -817,7 +817,7 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
       }
     }
     const beforeMaterialize = reader.readHead();
-    rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
+    removeTempRepository(path.join(rootDir, "harness", "tasks"));
     const materialized = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(materialized.outcome, "applied", JSON.stringify(materialized));
     assert.deepEqual(reader.readHead(), beforeMaterialize, "restore must not admit a new command");

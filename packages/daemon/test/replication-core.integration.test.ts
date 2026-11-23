@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,10 +29,11 @@ import {
   type ReplicationFrame,
   type ReplicationPeer,
 } from "../src/fleet-sync/fleet/protocol.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("real backup worker installs a generation readable by the common projection reader", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-basebackup-core-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   initRepo(root);
   activateEmptyCanonicalGeneration({ repoId: "backup-core", rootInput: root });
   const ledger = openSqliteEventStore({ repoId: "backup-core", rootInput: root });
@@ -155,7 +156,7 @@ test("real backup worker installs a generation readable by the common projection
 
 test("slots persist ACKs and fence an older connection", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-slot-core-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const file = path.join(root, "slots.sqlite"),
     key = { repoId: "repo", nodeId: "node" };
   let slots = openReplicationSlots(file);
@@ -211,7 +212,7 @@ test("retention keeps the slowest slot's suffix within the cap and each active b
 
 test("the slot floor is the slowest durable ACK on the current history", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-slot-floor-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
   try {
     assert.equal(slots.minimumAck("repo", "h1"), null);
@@ -243,7 +244,7 @@ test("decoder accepts many complete frames per chunk and rejects oversized remai
 
 test("sender streams eventless commits to the real replica and records an applied ACK", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-stream-core-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const center = openSqliteEventStore({ repoId: "stream", databasePath: path.join(root, "center.sqlite") });
   const sourceDb = new DatabaseSync(center.databasePath, { readOnly: true });
   const replicaPath = path.join(root, "replica.sqlite");
@@ -361,7 +362,7 @@ test("sender streams eventless commits to the real replica and records an applie
 
 test("receiver reports an apply failure to the sender before closing the stream", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-stream-failure-core-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const slots = openReplicationSlots(path.join(root, "slots.sqlite")),
     abort = new AbortController(),
     position = { history: "failure-history", sequence: 0, revision: 0 },

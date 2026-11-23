@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -55,6 +55,7 @@ import { READ_PROBES, measureReadScale } from "./fixtures/g38-read-cost.mjs";
 import { READ_HISTORY_BATCH_SIZE, seedReadLedger } from "./fixtures/g38-read-ledger.mjs";
 import { installReadProbe, planRowsRead, resetReadProbe, snapshotReadProbe } from "./fixtures/g38-read-probe.mjs";
 import { createReadFixtureRuntime } from "./fixtures/g38-read-runtime.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function collectScanNodes(plan, nodes = []) {
   if (/Scan$/u.test(plan["Node Type"] ?? "")) {
@@ -311,7 +312,7 @@ if (!isMainThread) {
       }
       await worker.terminate();
       port1.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   }
 
@@ -994,7 +995,7 @@ if (!isMainThread) {
       sqlite?.close();
       await pgFixture.pool.end();
       await pgFixture.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -1491,7 +1492,7 @@ if (!isMainThread) {
         pgReader?.close();
         await pgFixture.pool.end();
         await pgFixture.close();
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     },
   );
@@ -1732,7 +1733,7 @@ if (!isMainThread) {
         } finally {
           pg.Client.prototype.query = originalQuery;
           pgReader?.close();
-          rmSync(rootDir, { recursive: true, force: true });
+          removeTempRepository(rootDir);
         }
       };
 

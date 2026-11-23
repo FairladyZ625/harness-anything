@@ -17,6 +17,7 @@ import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/versio
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("the first-admin window closes and later listener changes require fleet policy", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-rbac-listener-auth-")),
@@ -154,7 +155,7 @@ test("the first-admin window closes and later listener changes require fleet pol
     assert.equal(readFileSync(configFile, "utf8"), before);
   } finally {
     await host.close();
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -262,7 +263,7 @@ test("local socket owner recovers a managed listener whose private key was delet
     expectedVersion: String((await managedRbac.run({ operation: "listener" })).version),
   });
   // External deletion no longer breaks restarts because the listener cert/key were copied into rbac/listener/.
-  rmSync(externalDir, { recursive: true, force: true });
+  removeTempRepository(externalDir);
   await managedRbac.stop();
 
   const managedConfig = JSON.parse(readFileSync(configFile, "utf8")) as {
@@ -452,7 +453,7 @@ test("local socket owner recovers a managed listener whose private key was delet
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -696,7 +697,7 @@ test("listener recovery rechecks authorization after both queues (RBAC-14)", { t
     }
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -867,7 +868,7 @@ test("post-commit authority sync failures defer cleanly without RPC error or mem
   } finally {
     if (existsSync(selectionsDir) && process.platform !== "win32") chmodSync(selectionsDir, 0o700);
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -983,6 +984,6 @@ test("daemon host diagnoses and recovers a FIFO listener certificate without blo
     assert.equal(recovered.listener, null);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

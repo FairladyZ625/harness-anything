@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { installPresetPackage } from "../src/index.ts";
 import { createPresetProcessService, waitFor, write } from "./preset-process-service.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("an inherited entrypoint stages its declaring package and detects post-admission changes", async () => {
   const fixture = inheritedScriptPackage(),
@@ -117,6 +118,6 @@ function inheritedScriptPackage() {
     rootDir,
     userRoot,
     parentObject: path.join(userRoot, "preset-objects", installed.digest),
-    cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(rootDir),
   };
 }

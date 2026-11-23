@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   runtimeExecutionLifetimeMs,
 } from "../src/daemon-host/runtime-execution-credential.ts";
 import { requireExecutionRequestScope } from "../src/daemon-host/runtime-execution-scope.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const principal = () => ({
     personId: "person-skills",
@@ -119,7 +120,7 @@ test("a revoked execution credential is rejected before the skill catalog read",
     );
     assert.equal(reachedCatalog, false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -150,7 +151,7 @@ test("the execution catalog keeps only project skills with repository-relative p
       "an execution catalog never carries a host path",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -176,7 +177,7 @@ test(
       );
       assert.deepEqual(execution.skills, []);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -212,6 +213,6 @@ test("the repo cell applies the execution projection from the read binding", () 
     assert.equal(gui.skills[0]?.path, realpathSync(skillDir));
     assert.deepEqual(execution.skills, [{ id: "repo-review", path: "skills/repo-review", source: "project" }]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

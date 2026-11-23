@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
@@ -12,6 +12,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("runtime dispatch matches a custom node provider without a repository allowlist", () => {
   assert.deepEqual(
@@ -141,6 +142,6 @@ test("project A admits codex-api while project B refuses it without changing eit
     t.diagnostic(`project-b-rejection ${JSON.stringify(rejected)}`);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

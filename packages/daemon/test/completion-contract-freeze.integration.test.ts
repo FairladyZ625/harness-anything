@@ -2,7 +2,7 @@
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/versio
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const worker = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } }, source: "local" },
@@ -200,7 +201,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
     assert.deepEqual(submittedContracts(rootDir, repoId), [frozen, frozen]);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -217,7 +218,7 @@ test("an override naming an undeclared source stops submit before any cut is rec
     assert.deepEqual(submittedContracts(rootDir, repoId), []);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -259,7 +260,7 @@ test("declaring settings.gates after bootstrap unblocks submit through the setti
     assert.equal(contracts[0]?.gates[0]?.witness.adapterId, "manual-attest");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -274,7 +275,7 @@ test("the frozen vertical declaration supplies the source when the repository ha
     assert.equal(contracts[0]!.gates.length, 1, "the retired code/doc gate never enters a frozen contract");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -358,6 +359,6 @@ test("attestation replays retain one durable witness across revisions, nodes and
   } finally {
     await (reopened ?? cell).close();
     await reader.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

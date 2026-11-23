@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // A mutating center round trip settles when the single-writer queue applies the operation, so the
 // edge's write sessions carry the configured center wait budget instead of the read path's flat
@@ -188,6 +189,6 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     await center?.close();
     await host?.close();
     await owners?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

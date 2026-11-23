@@ -2,7 +2,7 @@
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/inter
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("daemon backup and restore drill read historical task events with a retired fact override", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-backup-legacy-closeout-")),
@@ -67,7 +68,7 @@ test("daemon backup and restore drill read historical task events with a retired
     assert.throws(() => serializeCanonicalEvent(historicalEvent as never), /closeoutOverrides/u);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

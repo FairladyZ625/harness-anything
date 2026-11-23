@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Pool } from "pg";
@@ -19,6 +19,7 @@ import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { makePostgresTaskEventStore } from "../../src/postgres/pg-task-event-store.ts";
 import { materializePgProjectionEvents } from "../../src/pg/pg-task-event-materialize.ts";
 import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("real PostgreSQL repository migration fence covers new tuples", async (t) => {
   const fixture = await startManagedPostgresFixture();
@@ -136,7 +137,7 @@ test("real PostgreSQL repository migration fence covers new tuples", async (t) =
         );
       } finally {
         await inspector.end();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     });
   } finally {

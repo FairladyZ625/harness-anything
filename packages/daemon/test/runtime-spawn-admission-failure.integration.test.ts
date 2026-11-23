@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawner.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { policyTestRealm, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const taskBound of [false, true])
   for (const fault of ["credential issuance", "lost receipt", "unavailable acceptance"] as const)
@@ -63,7 +64,7 @@ for (const taskBound of [false, true])
       t.after(async () => {
         await resources.spawner?.close();
         await cell.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       });
       let task: { taskId: string; executionId: string; packageRoot: string; claimOpId: string } | null = null;
       if (taskBound) {
@@ -256,7 +257,7 @@ for (const sameOperation of [true, false])
     });
     t.after(async () => {
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     const artifact = runtimeDefinitionSnapshotArtifact(definition),
       identity = runtimeDispatchIdentity(repoId, "existing"),

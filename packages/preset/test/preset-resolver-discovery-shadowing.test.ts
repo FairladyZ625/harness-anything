@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import {
 } from "../src/index.ts";
 
 import { write, writePackage } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 const runPresetAction = (input: Parameters<typeof runProjectedPresetAction>[0]) =>
   runProjectedPresetAction({ ...input, settings: INITIAL_SETTINGS_V1 });
 test("template and script discovery expose builtin content with typed vertical execution", async () => {
@@ -107,7 +108,7 @@ test("template and script discovery expose builtin content with typed vertical e
       (error: unknown) => (error as { code?: string }).code === "unsupported_command",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -254,7 +255,7 @@ test("user shadow lifecycle dry-runs mutation, blocks invalid content, and revea
     })) as Array<{ id: string; layer: string }>;
     assert.equal(revealed.find(({ id }) => id === "standard-task")?.layer, "bundled");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -302,7 +303,7 @@ test("profile precedence is explicit action, then projected settings", () => {
     assert.equal(compile(), "baseline");
     assert.equal(compile("relaxed"), "relaxed");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -320,6 +321,6 @@ test("default settings resolve the standard task without hosted CI completion so
     assert.deepEqual(witnessless.profile.completionGateIds, []);
     assert.equal(Object.hasOwn(witnessless.completion.sources, "github-actions"), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

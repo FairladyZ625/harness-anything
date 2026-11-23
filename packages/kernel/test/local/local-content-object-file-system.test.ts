@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import fs, { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { localContentObjectFileSystem } from "../../src/local/local-layout-file-system.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a content-object batch fsyncs every file and each shared directory once", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-content-batch-")),
@@ -13,7 +14,7 @@ test("a content-object batch fsyncs every file and each shared directory once", 
     first = path.join(directory, "first"),
     second = path.join(directory, "second"),
     original = fs.fsyncSync;
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   let syncs = 0;
   const spy = t.mock.method(fs, "fsyncSync", (descriptor) => {
     syncs += 1;

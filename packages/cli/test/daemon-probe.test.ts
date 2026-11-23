@@ -20,6 +20,7 @@ import { pingDaemon, runProbeLoop, takeProbeSample } from "../src/daemon/probe/p
 import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
 import { createTimelineWriter, readProbeTimeline } from "../src/daemon/probe/probe-timeline.ts";
 import { createTriggerTracker, type TriggerSample } from "../src/daemon/probe/probe-trigger.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type FakeMode = "normal" | "status-hang" | "hang";
 
@@ -85,7 +86,7 @@ async function startFakeDaemon(
     close: async () => {
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      rmSync(dir, { recursive: true, force: true });
+      removeTempRepository(dir);
     },
   };
 }
@@ -379,7 +380,7 @@ test("unresponsive loop captures one scene and writes a capture record", async (
   const dir = mkdtempSync(path.join(tmpdir(), "ha-probe-loop-"));
   t.after(async () => {
     await fake.close();
-    rmSync(dir, { recursive: true, force: true });
+    removeTempRepository(dir);
   });
   fake.setMode("hang");
   let clock = 0;
@@ -469,7 +470,7 @@ test("takeProbeSample records metrics and tolerates a failing pid read", async (
 
 test("timeline writer recovers after a transient directory failure", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-probe-recover-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const dir = path.join(root, "logs"),
     at = Date.parse("2026-11-03T10:00:00.000Z");
   writeFileSync(dir, "not a directory");
@@ -486,7 +487,7 @@ test("timeline writer recovers after a transient directory failure", async (t) =
 
 test("timeline rolls by day and streams only the requested range", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-probe-timeline-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(dir));
   const day1 = Date.parse("2026-11-03T10:00:00.000Z");
   let now = day1;
   const writer = createTimelineWriter({ dir, daemonId: "default", keptDays: 7, now: () => new Date(now) });
@@ -616,7 +617,7 @@ test("JS stack is captured only when hello advertises the method", async (t) => 
   const dir = mkdtempSync(path.join(tmpdir(), "ha-probe-stack-"));
   t.after(async () => {
     await fake.close();
-    rmSync(dir, { recursive: true, force: true });
+    removeTempRepository(dir);
   });
   const captured = await probeJsStack(fake.socketPath, "daemon.diagnostics.stack", 1_000, dir);
   assert.equal(captured.status, "captured");
@@ -636,7 +637,7 @@ test("JS stack probe reports unreachable when hello times out", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-probe-stack-down-"));
   t.after(async () => {
     await fake.close();
-    rmSync(dir, { recursive: true, force: true });
+    removeTempRepository(dir);
   });
   fake.setMode("hang");
   const result = await probeJsStack(fake.socketPath, "daemon.diagnostics.stack", 100, dir);

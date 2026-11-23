@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
 import { readFileSync } from "node:fs";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 const adminBinding = withPolicyGroup({ actor, source: "local" as const }, "admin");
@@ -44,7 +45,7 @@ test("repository todos: concurrent completion, archive and recovery", async () =
     assert.equal(empty.outcome, "op_rejected", JSON.stringify(empty));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -116,7 +117,7 @@ test("todos relate both ways, promote atomically once, publish and survive reope
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -165,6 +166,6 @@ test("todo add keeps writing past the soft limit and only the receipt advises cl
     assert.equal((evidence(await cell.run({ kind: "todo-list" }, binding)) as { todos: unknown[] }).todos.length, 3);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

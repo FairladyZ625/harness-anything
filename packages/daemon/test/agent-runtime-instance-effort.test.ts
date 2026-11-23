@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/daemon-host/agent-runtime-instances.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "claude-installation-test",
@@ -179,7 +180,7 @@ test("effort rides the create and update write paths for every kind that declare
       (error: unknown) => codedAs(error, "invalid_runtime_effort"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -269,7 +270,7 @@ test("stored effort reaches launch flags for agy and config.toml for codex when 
     );
     assert.equal(codexLaunch.definition.reasoningEffort, "high");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -310,7 +311,7 @@ test("Codex instances without a declared effort preserve the provider default", 
     assert.equal(explicit.definition.reasoningEffort, "low");
     assert.ok(explicit.args.includes('model_reasoning_effort="low"'));
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -353,7 +354,7 @@ test("codex-acp stored and requested effort reach the ACP launch manifest", asyn
     assert.equal(overridden.definition.reasoningEffort, "max");
     assert.equal(store.read("codex-acp-effort")?.["codex-acp"].reasoningEffort, "high");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -8,6 +8,7 @@ import { OidcSessionService } from "@harness-anything/authorization/keycloak";
 import { managedRbacSessionStore } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function selectExternalProvider(root: string, config: Readonly<Record<string, string>> = {}): void {
   mkdirSync(path.join(root, "rbac"), { recursive: true });
@@ -39,7 +40,7 @@ function edgeSession(t: TestContext) {
     resetRequests: boolean[] = [];
   mkdirSync(root, { recursive: true });
   writeFileSync(edge.caPath, "test CA");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   let stored: string | undefined;
   const store = {
     read: () => stored,
@@ -118,7 +119,7 @@ function edgeSession(t: TestContext) {
 
 test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-session-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   selectExternalProvider(root, { url: "http://127.0.0.1:8080", realm: "harness" });
   const calls: Request[] = [];
   let now = 0,
@@ -187,7 +188,7 @@ test("Device login without verification_uri_complete keeps secrets private and b
 
 test("invited login authority supplies a request-scoped TLS CA", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-ca-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   selectExternalProvider(root, { url: "http://127.0.0.1:8080", realm: "harness" });
   let dispatcher: unknown,
     userInfoDispatcher: unknown,
@@ -260,7 +261,7 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
 
 test("SSH device authorization uses the loopback login endpoint and hands the browser to the canonical center URL", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-ssh-browser-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   selectExternalProvider(root);
   let now = 0;
   const requests: string[] = [],
@@ -308,7 +309,7 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
 
 test("device login survives transient transport loss and replaces a code invalidated by Keycloak restart", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-restart-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   selectExternalProvider(root, { url: "http://127.0.0.1:8080", realm: "harness" });
   let now = 0,
     deviceRequests = 0,
@@ -386,7 +387,7 @@ test("device login survives transient transport loss and replaces a code invalid
 
 test("device authorization signs in as harness-gui even when the rbac config names the resource server", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-login-client-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   // A managed install writes the resource server into config.clientId; the login client stays harness-gui.
   selectExternalProvider(root, {
     url: "http://127.0.0.1:8080",
@@ -418,7 +419,7 @@ test("device authorization signs in as harness-gui even when the rbac config nam
 
 test("first device authorization reports an unreachable authority with the same code as polling", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-begin-transport-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   selectExternalProvider(root);
   const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8443"), { code: "ECONNREFUSED" });
   const service = createIdentitySession(root, {

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   overlappingWorkerPaths,
   parseWorkerOwnedPaths,
 } from "../src/daemon-host/squad-worker-ownership.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("ownership declarations retain canonical files and directories and remove exact duplicates", () => {
   assert.deepEqual(parseWorkerOwnedPaths(["src/", "README.md", "src/", "docs/设计.md"]), [
@@ -70,7 +71,7 @@ test("ownership overlap respects directory boundaries and folds cross-platform a
 
 test("a repository without remotes retains the original ownership behavior", async (context) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "ha-squad-ownership-"));
-  context.after(() => rmSync(cwd, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(cwd));
   git(cwd, "init", "-q");
   git(cwd, "config", "user.name", "Ownership Test");
   git(cwd, "config", "user.email", "ownership@example.invalid");
@@ -195,7 +196,7 @@ test("ownership ignores fetched upstream commits merged into the worker branch",
 
 function ownershipRepository(context: test.TestContext): string {
   const cwd = mkdtempSync(path.join(tmpdir(), "ha-squad-ownership-"));
-  context.after(() => rmSync(cwd, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(cwd));
   git(cwd, "init", "-q", "-b", "main");
   git(cwd, "config", "user.name", "Ownership Test");
   git(cwd, "config", "user.email", "ownership@example.invalid");

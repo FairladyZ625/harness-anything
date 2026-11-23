@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ensureLocalDaemonRunning } from "../src/daemon-host/client/daemon-autostart.ts";
 import { daemonServiceUnit } from "../src/daemon-host/client/daemon-service.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function terminateFakeManager(pidPath: string): void {
   if (!existsSync(pidPath)) return;
@@ -65,7 +66,7 @@ test(
       if (originalHome === undefined) delete process.env.HOME;
       else process.env.HOME = originalHome;
       terminateFakeManager(pidPath);
-      rmSync(directory, { recursive: true, force: true });
+      removeTempRepository(directory);
     }
   },
 );

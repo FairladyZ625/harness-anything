@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
@@ -15,6 +15,7 @@ import {
   revokeFleetMirrorTree,
 } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const { gitFollower, materialize } of [
   { gitFollower: undefined, materialize: true },
@@ -42,7 +43,7 @@ for (const { gitFollower, materialize } of [
         await pg.pool.end();
         await pg.close();
       });
-      if (!materialize) rmSync(path.join(fixture.repo, "harness"), { recursive: true, force: true });
+      if (!materialize) removeTempRepository(path.join(fixture.repo, "harness"));
       const applied = async (action: Record<string, unknown>) => {
         const result = await fixture.centerRun(action);
         assert.equal(result.outcome, "applied", JSON.stringify(result));

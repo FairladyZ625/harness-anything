@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  rmSync,
   rmdirSync,
   unlinkSync,
   utimesSync,
@@ -17,6 +16,7 @@ import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { withDirLock } from "./pg-cluster-template.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function findOwnerFile(lockDir: string): string | undefined {
   return readdirSync(lockDir).find((name) => name.startsWith("owner-") && name.endsWith(".json"));
@@ -24,7 +24,7 @@ function findOwnerFile(lockDir: string): string | undefined {
 
 test("live holder cannot be displaced by aged mtime or waiter timeout and releases for the next waiter", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-pg-lock-live-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const lockDir = path.join(root, "binaries.lock");
   const enteredA = Promise.withResolvers<void>();
   const releaseA = Promise.withResolvers<void>();
@@ -94,7 +94,7 @@ test("live holder cannot be displaced by aged mtime or waiter timeout and releas
 
 test("live child process holding the lock cannot be displaced across processes and releases on exit", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-pg-lock-child-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const lockDir = path.join(root, "template.lock");
   const fixtureUrl = pathToFileURL(path.resolve(import.meta.dirname, "pg-cluster-template.fixture.ts")).href;
   const script = `
@@ -169,7 +169,7 @@ test("live child process holding the lock cannot be displaced across processes a
 
 test("old holder eventual release does not delete a successor replacement lock", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-pg-lock-successor-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const lockDir = path.join(root, "binaries.lock");
   const enteredA = Promise.withResolvers<void>();
   const releaseA = Promise.withResolvers<void>();
@@ -221,7 +221,7 @@ test("old holder eventual release does not delete a successor replacement lock",
 
 test("reclaims a lock left by a demonstrably dead owner without overlapping concurrent waiters", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-pg-lock-dead-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const lockDir = path.join(root, "binaries.lock");
 
   const deadSpawn = spawnSync(process.execPath, ["-e", ""]);
@@ -270,7 +270,7 @@ test("reclaims a lock left by a demonstrably dead owner without overlapping conc
 
 test("respects emptyGraceMs for in-flight lock directories and reclaims abandoned empty dirs", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-pg-lock-empty-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const lockDir = path.join(root, "binaries.lock");
   mkdirSync(lockDir, { mode: 0o700 });
 

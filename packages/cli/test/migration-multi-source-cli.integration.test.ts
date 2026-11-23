@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -10,6 +10,7 @@ import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-any
 import { sha256Text, stableStringify } from "@harness-anything/kernel";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -115,7 +116,7 @@ test("CLI imports two immutable legacy Git Harness repositories into a SQLite ce
     );
   } finally {
     stop(userRoot, center);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

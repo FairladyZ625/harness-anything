@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createScheduleV1, type DaemonRepoMode, type ScheduleV1 } from "@harness-anything/kernel";
 import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
 import type { RepoCell } from "../src/daemon-host/repo-cell.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "schedule-scheduler-test" }, executor: null } as const;
 const localBinding = () => ({ actor, source: "local" as const });
@@ -803,7 +804,7 @@ test("the repository admission window decides whether a late wake is claimed or 
     return { fired: repo.fired, missed: repo.missed.map(({ count, reason }) => ({ count, reason })), armedDelayMs };
   };
   const tenMinuteRoot = mkdtempSync(path.join(tmpdir(), "schedule-admission-window-"));
-  t.after(() => rmSync(tenMinuteRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(tenMinuteRoot));
   mkdirSync(path.join(tenMinuteRoot, "harness"));
   writeFileSync(
     path.join(tenMinuteRoot, "harness", "harness.yaml"),

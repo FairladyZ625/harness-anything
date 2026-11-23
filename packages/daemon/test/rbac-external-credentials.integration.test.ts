@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,6 +12,7 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Real CLI, local socket and HTTP; the authority implements only this test's OIDC/Admin REST calls.
 test("external credentials enter through CLI stdin, failed replacement preserves them and first-admin closes", async () => {
@@ -181,6 +182,6 @@ test("external credentials enter through CLI stdin, failed replacement preserves
     await transport.stop();
     await host.close();
     await new Promise<void>((resolve, reject) => authority.close((error) => (error ? reject(error) : resolve())));
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

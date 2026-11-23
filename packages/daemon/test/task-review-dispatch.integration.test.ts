@@ -33,6 +33,7 @@ import {
 } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
 const overGuiWire = (receipt: object) =>
@@ -211,7 +212,7 @@ test(
           ),
         "invalid_command",
       );
-      rmSync(outsideRoot, { recursive: true, force: true });
+      removeTempRepository(outsideRoot);
       const reportPath = registrationPath.replace(/\.json$/u, ".md"),
         missionPair = reviewerArtifactFiles({
           rootDir: f.root,

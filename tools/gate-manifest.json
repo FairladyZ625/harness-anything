@@ -98,6 +98,7 @@
         "canonical-event-compat",
         "scan-forbidden-symbols",
         "check-self-repo-path-literals",
+        "check-test-temp-cleanup",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -156,6 +157,7 @@
         "canonical-event-compat",
         "scan-forbidden-symbols",
         "check-self-repo-path-literals",
+        "check-test-temp-cleanup",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -176,7 +178,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 46
+      "harnessLeafGateCount": 47
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2953,6 +2955,63 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/check-self-repo-path-literals.test.mjs"]
+      }
+    },
+    {
+      "id": "check-test-temp-cleanup",
+      "command": "npm run harness:check-test-temp-cleanup",
+      "failureHint": "Replace bare recursive rmSync(...) in packages/*/test with removeTempRepository(...) from tools/fixtures/remove-temp-repository.ts.",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/*/test/**",
+        "tools/check-test-temp-cleanup.mjs",
+        "tools/fixtures/remove-temp-repository.ts"
+      ],
+      "authoritySource": ["task_a2ba7aef2e2d8be61678e4641d", "tools/check-test-temp-cleanup.mjs"],
+      "consumerScope": ["recursive rmSync temp-directory cleanup calls under packages/*/test/**/*.{ts,tsx,js,mjs}"],
+      "githubContext": {
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Test temp-directory cleanup has zero exemptions; every recursive directory removal in packages/*/test must route through removeTempRepository."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-test-temp-cleanup.mjs",
+          "package.json:scripts.harness:check-test-temp-cleanup",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-test-temp-cleanup"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["quick-gates"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/check-test-temp-cleanup.test.mjs"]
       }
     },
     {

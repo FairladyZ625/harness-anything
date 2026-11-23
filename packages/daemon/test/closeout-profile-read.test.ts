@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { repoCellTaskQueryJudgmentsFor } from "../src/daemon-host/repo-cell.ts";
 import { readCompletionContext, readCompletionDeliveryStatus } from "../src/daemon-host/task-completion-read.ts";
 import { EMPTY_TREE_SHA } from "../src/daemon-host/task-delivery-containment.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -280,7 +281,7 @@ test("changing repository closeout settings leaves the submitted contract frozen
 
 test("delivery merge reads distinguish merged, unmerged, and unavailable Git evidence", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-completion-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Test");
   git(root, "config", "user.email", "test@example.com");
@@ -333,7 +334,7 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
 
 test("delivery merge evidence proves the annotated commit contains the frozen delivery", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-containment-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Test");
   git(root, "config", "user.email", "test@example.com");
@@ -459,7 +460,7 @@ test("delivery merge evidence proves the annotated commit contains the frozen de
 for (const largePatch of [false, true]) {
   test(`equivalent ${largePatch ? "large" : "small"} rebases bind completion when main changed the same file`, (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-rebase-equivalent-completion-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     git(root, "init", "-q", "-b", "main");
     git(root, "config", "user.name", "Test");
     git(root, "config", "user.email", "test@example.com");
@@ -526,7 +527,7 @@ for (const largePatch of [false, true]) {
 
 test("an explicit local delivery ref verifies a local-only repository baseline", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-local-only-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Test");
   git(root, "config", "user.email", "test@example.com");
@@ -556,7 +557,7 @@ test("an explicit local delivery ref verifies a local-only repository baseline",
 
 test("an empty-tree delivery baseline proves an identical root tree without commit ancestry", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-empty-tree-baseline-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Test");
   git(root, "config", "user.email", "test@example.com");

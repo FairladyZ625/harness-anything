@@ -1,12 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readDaemonStorageConfig } from "../src/storage-daemon-composition.ts";
 import { makeTaskEventReader } from "../src/store/task-event-store.ts";
 import { makeTaskProjectionReader } from "../src/projection/rebuildable-task-projection.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const valid = {
   backend: "postgres" as const,
@@ -31,7 +32,7 @@ test("embedded daemon deployment requires a durable directory and the same expli
       assert.throws(() => readDaemonStorageConfig(root), TypeError);
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -45,7 +46,7 @@ test("absent deployment config preserves SQLite; explicit PG config preserves it
     writeFileSync(path.join(root, "daemon-storage.json"), JSON.stringify({ repo: valid }));
     assert.deepEqual(readDaemonStorageConfig(root), { repo: valid });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -61,7 +62,7 @@ test("node task materialization policy is validated from the Ontology vocabulary
     );
     assert.throws(() => readDaemonStorageConfig(root), /must be one of none, in_flight, include_done/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -91,6 +92,6 @@ test("malformed external PG scope is rejected before any connection or local fal
       assert.throws(() => readDaemonStorageConfig(root), TypeError);
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

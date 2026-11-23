@@ -2,7 +2,7 @@
 import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const method = "repo.entity.actions.explain" as const,
   requestSchema = "entity-action-explain-request/v1" as const,
@@ -198,12 +199,12 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
       assert.equal(edgeFirst.subjects[0]!.actions[0]!.available, edgeSecond.subjects[0]!.actions[0]!.available);
       assert.equal(edgeFirst.evaluatedAtCut, edgeSecond.evaluatedAtCut);
     } finally {
-      rmSync(edgeUserRoot, { recursive: true, force: true });
+      removeTempRepository(edgeUserRoot);
     }
   } finally {
     await cell?.close();
     await realm.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

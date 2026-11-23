@@ -5,7 +5,7 @@ import { readSubmissionArtifact } from "@harness-anything/application/commands";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
@@ -31,6 +31,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { policyTestRealm, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The fixture's owner writes and closes: closing a task is the maintainer tier's, so it holds both roles.
 export const owner = withPolicyGroup(
@@ -132,7 +133,7 @@ function getReviewRepoTemplate(): string {
   git(templateRoot, "commit", "-qm", "docs: fixture delivery");
   cachedReviewRepoTemplate = templateRoot;
   process.once("exit", () => {
-    rmSync(templateRoot, { recursive: true, force: true });
+    removeTempRepository(templateRoot);
   });
   return templateRoot;
 }
@@ -257,10 +258,7 @@ export async function fixture(
         endpoint: path.join(root, "user.sock"),
       },
       reclaimRuntimeTempDirectory: (instanceId, runtimeSessionId) => {
-        rmSync(path.join(root, "user", "runtime-instances", instanceId, "tmp", runtimeSessionId), {
-          recursive: true,
-          force: true,
-        });
+        removeTempRepository(path.join(root, "user", "runtime-instances", instanceId, "tmp", runtimeSessionId));
         return null;
       },
       runtimeInstances: () =>
@@ -936,7 +934,7 @@ export async function fixture(
         if (event.type === "runtime_dispatch_requested")
           policyTestRealm.keycloak.nodeClients.delete(`harness-execution-${event.payload.dispatchId}`);
       await eventsReader?.drain();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

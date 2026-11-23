@@ -2,13 +2,14 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { readDaemonPid, startDaemon, type RunningDaemon } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("GUI worktree stays attach-only when absent then reuses a canonical resident", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-host-root-")),
@@ -70,7 +71,7 @@ test("GUI worktree stays attach-only when absent then reuses a canonical residen
     restoreEnv("HARNESS_DAEMON_ENDPOINT", previousEndpoint);
     restoreEnv("TMPDIR", previousTmp);
     await daemon.stop().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

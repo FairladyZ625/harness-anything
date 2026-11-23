@@ -3,7 +3,7 @@ import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-re
 // #4372 compare-and-steer: a caller's stated expectation (repo, task/execution or taskless, dispatch
 // leaf, steer version) is compared with the target in the same section that appends the steer.
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { openDispatchStream, readDispatchStream } from "../src/daemon-host/dispa
 import { validateDaemonGuiCommandReceipt } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 import { steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 const A = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
@@ -54,7 +55,7 @@ function live(dispatchId: string, runtimeSessionId: string, pid = process.pid) {
 /** Taskless conversation: round A (exited) resumed into leaf B (live); plus a live task-bound dispatch T. */
 function fixture(t: { after: (fn: () => void) => void }) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-steer-compare-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   openStream(rootDir, A, sessionA, {});
   openStream(rootDir, B, sessionB, { resumedFrom: A });
   openStream(rootDir, T, sessionT, { task: { taskId: "task_x", executionId: "execution_x" } });

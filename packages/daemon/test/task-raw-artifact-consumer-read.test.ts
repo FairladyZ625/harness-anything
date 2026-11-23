@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import {
   workspaceId,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const,
   RAW_MEDIA_TYPE = "application/octet-stream";
@@ -158,7 +159,7 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
         bytes,
         `${destination}: the ledger Git cut holds the same bytes`,
       );
-    rmSync(path.join(rootDir, "harness", "tasks"), { recursive: true, force: true });
+    removeTempRepository(path.join(rootDir, "harness", "tasks"));
     const beforeRestore = (await cell.read("repo.tasks.document.read", {
       taskId: "task-consumer",
       path: "artifacts/reports/dossier.pdf",
@@ -201,7 +202,7 @@ test("raw task artifacts read back with true metadata and canonical bytes, never
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -264,7 +265,7 @@ test("a binary file in a task's artifacts tree is listed and routed, not hidden 
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -320,7 +321,7 @@ test("an edited canonical binary serves the live worktree bytes with that copy's
     assert.equal(strictCanonical.worktreeBody, null);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

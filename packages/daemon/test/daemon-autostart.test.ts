@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -24,6 +24,7 @@ import {
 import { startDetachedProcess, startDetachedProcessChecked } from "../src/daemon-host/process-port.ts";
 import { daemonSingletonLockPath } from "../src/daemon-host/daemon-singleton.ts";
 import { canonicalPath } from "../src/daemon-host/canonical-path.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function coded(code: string): Error & { code: string } {
   const error = Object.assign(new Error(`connect ${code}`), { code });
@@ -106,7 +107,7 @@ test("a worktree is refused before spawn while the registered canonical checkout
     assert.equal(result.attempts, 0);
     assert.equal(spawns, 0);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -161,7 +162,7 @@ test("concurrent callers share one autostart flight and wait for the same socket
     );
     assert.equal(spawns, 1, "one CLI owns the launch; every concurrent follower only waits");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -191,7 +192,7 @@ test("a GUI/CLI peer that already owns the daemon singleton is awaited, not resp
     assert.equal(result.attempts, 0);
     assert.equal(spawns, 0, "the existing singleton holder is the only writer candidate");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -249,7 +250,7 @@ test("a live process with lifecycle attach progress reports starting instead of 
       true,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -294,7 +295,7 @@ test("a bound socket waits for the managed identity resume before reporting writ
       "the caller is told which startup stage is still running",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -323,7 +324,7 @@ test("a failed managed identity resume settles startup so the real refusal is no
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.attempts, 0, "no new daemon is spawned for a settled identity failure");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -353,7 +354,7 @@ test("a startup whose managed identity never settles times out naming that stage
     assert.match(result.hint, /managed identity services are starting/u);
     assert.match(result.hint, /has not become write-ready/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -381,7 +382,7 @@ test("a lifecycle control may stop at the bound socket without waiting for ident
     });
     assert.equal(result.ok, true, JSON.stringify(result));
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -431,7 +432,7 @@ test("a missing spawn cwd is classified as the workspace root being missing, not
     assert.doesNotMatch(result.hint, /launcher binary was not found/u);
     assert.match(result.hint, new RegExp(missingRoot.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -478,7 +479,7 @@ test("a registered root that no longer exists keeps the missing spawn root diagn
     assert.equal(result.attempts, 1);
     assert.doesNotMatch(result.hint, /workspace link/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -591,7 +592,7 @@ test("start progress stages report the last repository, attach timeouts, prunes,
       /all repositories settled \(1 unavailable\) \(1 pruned\); daemon completing startup after attach/u,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -662,7 +663,7 @@ test("a readiness probe parses only the current lifecycle generation, not retain
     assert.equal(await parsedBy(500), 3, "one readiness check parses the three current-generation records");
     assert.equal(await parsedBy(5_000), 3, "the parsed count stays independent of retained history length");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -688,7 +689,7 @@ test("detached stdout, stderr, and a fatal stack land in the daemon output log",
     assert.match(output, /Error: fatal witness/u);
     assert.match(output, new RegExp(`cwd witness ${escapeRegExp(realpathSync.native(root))}`, "u"));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -712,7 +713,7 @@ test("startDetachedProcess returns the child whose output lands in the output lo
     assert.match(output, /stderr witness/u);
     assert.match(output, /Error: fatal witness/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

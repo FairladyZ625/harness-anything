@@ -27,6 +27,7 @@ import {
 } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import { nodeModulesSetupAdapter } from "../src/daemon-host/worktree-setup-node-modules.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const contents of ["empty", "managed links", "user file"] as const) {
   for (const dirty of [false, true]) {
@@ -123,7 +124,7 @@ test("detect occurrences use the canonical root without creating a worktree", as
     assert.equal(workspace.cwd, root);
     assert.equal(workspace.runtime.worktree, undefined);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -231,7 +232,7 @@ test("remediate occurrences start from the default branch and clean empty worktr
     assert.equal(existsSync(workspace.cwd), false);
     assert.throws(() => git(fixture.root, "rev-parse", "occ-occurrence-clean"));
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -248,7 +249,7 @@ test("remediate occurrences retain a dirty worktree and name its path", async (t
     assert.equal(detail, `Occurrence worktree retained at ${workspace.cwd} (uncommitted changes).`);
     assert.equal(existsSync(workspace.cwd), true);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -273,7 +274,7 @@ test("remediate occurrences keep unmerged commits at an archive tag before remov
     assert.equal(git(fixture.root, "rev-parse", "archive/wt-occ-occurrence-commit^{commit}"), head);
     assert.throws(() => git(fixture.root, "rev-parse", "--verify", "refs/heads/occ-occurrence-commit"));
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -296,7 +297,7 @@ test("the node-modules setup resolves workspace packages in the worktree and sha
     assert.equal(existsSync(path.join(store, "sentinel-pkg", "index.js")), true);
     assert.equal(existsSync(path.join(store, "@fixture", "pkg", "index.js")), true);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -314,7 +315,7 @@ test("the mirrored store is removed at reclaim even where node_modules is not ig
     assert.equal(existsSync(workspace.cwd), false);
     assert.equal(existsSync(path.join(store, "sentinel-pkg", "index.js")), true);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -330,7 +331,7 @@ test("a repository that declares no setup gets a bare worktree, even with a root
     assert.equal(existsSync(path.join(workspace.cwd, "node_modules")), false);
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -345,7 +346,7 @@ test("a failing setup step fails the occurrence workspace and names the step and
       /setup step 1 \(run: exit 3\) failed: exit code 3\. Log: .*harness-setup\/step-1\.log\./u,
     );
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -365,7 +366,7 @@ test(
       assert.equal(lstatSync(path.join(worktree, "node_modules")).isDirectory(), true);
     } finally {
       chmodSync(worktree, 0o755);
-      rmSync(fixture.base, { recursive: true, force: true });
+      removeTempRepository(fixture.base);
     }
   },
 );
@@ -385,7 +386,7 @@ function repositoryFixture(
   const base = mkdtempSync(path.join(tmpdir(), "ha-schedule-workspace-")),
     remote = path.join(base, "remote.git"),
     root = path.join(base, "canonical");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "--bare", "-q", remote);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Schedule Test");

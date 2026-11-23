@@ -2,7 +2,7 @@
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import {
   runtimeInvariantEvidence,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -145,7 +146,7 @@ test("real CLI signs in interactively, refreshes through login, runs real provid
       assert.equal(JSON.stringify(receipt).includes("operator-token"), false);
   } finally {
     runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

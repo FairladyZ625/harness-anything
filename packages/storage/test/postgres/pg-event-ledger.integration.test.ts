@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -26,6 +26,7 @@ import { explainNodes, pgTableRowsVisited, tracedPgReads } from "./pg-explain.fi
 import { readPgEventWindow } from "../../src/postgres/pg-event-window.ts";
 import { POSTGRES_EVENT_OCCURRED_MS_SCHEMA_STATEMENTS } from "../../src/postgres/event-ledger-schema.ts";
 import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const scope: PostgresEventStoreScope = {
   tenantId: "tenant-a",
@@ -109,7 +110,7 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
             },
           });
         } finally {
-          rmSync(documentRoot, { recursive: true, force: true });
+          removeTempRepository(documentRoot);
         }
       },
     );
@@ -694,6 +695,6 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
     await runtime?.end();
     await admin?.end();
     await fixture.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

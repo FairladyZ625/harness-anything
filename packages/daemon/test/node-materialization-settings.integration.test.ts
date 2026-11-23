@@ -25,6 +25,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { nodeMaterializationStorage } from "../src/daemon-host/node-materialization-settings.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "materialization-owner" }, executor: null } as const;
 
@@ -208,7 +209,7 @@ test("local policy changes reconcile done packages without canonical writes and 
   } finally {
     await cell.close();
     await reader.drain();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -248,6 +249,6 @@ test("a live storage policy observes independent preference replacements and del
     rmSync(localPath);
     assert.equal(storage.nodeTaskMaterializationPolicy, "in_flight", "deletion restores this node's role default");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

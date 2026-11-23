@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const mode of ["managed", "external"] as const) {
   for (const status of [200, 503, "rpc-error"] as const) {
@@ -19,7 +20,7 @@ for (const mode of ["managed", "external"] as const) {
         userRoot = path.join(root, "user"),
         endpoint = localUserDaemonEndpoint(userRoot, "default"),
         requests: Array<{ method: string; params: Record<string, unknown> }> = [];
-      t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+      t.after(() => removeTempRepository(root));
       mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
       writeFileSync(
         path.join(userRoot, "rbac", "config.json"),

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   run,
   setup,
 } from "./daemon-autostart-cli.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("autostart fixture stops its daemon even when the owning test throws", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-cleanup-")),
@@ -58,9 +59,9 @@ test("intentional failure after daemon launch", () => {
     if (fixture) {
       stop(fixture.root, fixture.userRoot);
       await waitForProcessExit(fixture.pid);
-      rmSync(fixture.parent, { recursive: true, force: true });
+      removeTempRepository(fixture.parent);
     }
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -106,9 +107,9 @@ test("directly-run test file owns the daemon it starts", () => {
     if (fixture) {
       stop(fixture.root, fixture.userRoot);
       await waitForProcessExit(fixture.pid);
-      rmSync(fixture.parent, { recursive: true, force: true });
+      removeTempRepository(fixture.parent);
     }
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -154,9 +155,9 @@ test("daemon owner", () => {
     if (fixture) {
       stop(fixture.root, fixture.userRoot);
       await waitForProcessExit(fixture.pid);
-      rmSync(fixture.parent, { recursive: true, force: true });
+      removeTempRepository(fixture.parent);
     }
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

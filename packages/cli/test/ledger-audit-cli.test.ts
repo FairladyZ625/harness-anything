@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { runLedgerAuditExport, runLedgerAuditVerify, runTaskDeliveryCertificate } from "../src/cli-audit-commands.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
@@ -89,7 +90,7 @@ test("thin command parser routes ledger audit-export and task delivery-certifica
 
 test("audit-export CLI rejects an out-of-range first page before staging output", async (t) => {
   const directory = mkdtempSync(path.join(tmpdir(), "ha-audit-cli-window-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(directory));
   for (const utcDate of [null, "2026-11-21"]) {
     const outputDir = path.join(directory, utcDate ?? "revisions");
     const parsed = parseThinCommand([
@@ -854,6 +855,6 @@ test("CLI multi-page streaming audit-export, atomic staging, pinned anchors, mix
       assert.equal(verifyCursor.status, 0, JSON.stringify(verifyCursor.body));
     }
   } finally {
-    rmSync(workDir, { recursive: true, force: true });
+    removeTempRepository(workDir);
   }
 });

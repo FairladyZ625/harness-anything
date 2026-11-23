@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const route of ["doc-submit", "task-submit", "task-artifact-add"] as const) {
   test(`${route} rejects Git metadata paths before accepting any package bytes`, async () => {
@@ -98,7 +99,7 @@ for (const route of ["doc-submit", "task-submit", "task-artifact-add"] as const)
         assert.deepEqual(reader.readHead(), before, "rejection must not append a partial event");
         assert.equal(reader.readContentBlob(sha256Text(body)), null, "rejection must not persist content");
         if (route !== "task-artifact-add")
-          rmSync(path.join(workerLedger, packagePath, "artifacts/nested"), { recursive: true });
+          removeTempRepository(path.join(workerLedger, packagePath, "artifacts/nested"));
       }
       const accepted = await cell.run(
         route === "task-artifact-add"
@@ -114,7 +115,7 @@ for (const route of ["doc-submit", "task-submit", "task-artifact-add"] as const)
     } finally {
       await reader.drain();
       await cell.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }

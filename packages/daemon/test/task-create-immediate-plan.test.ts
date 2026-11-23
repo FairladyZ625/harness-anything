@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("create then immediately replace and submit a plan five times", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-immediate-"));
@@ -45,7 +46,7 @@ test("create then immediately replace and submit a plan five times", async () =>
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -87,7 +88,7 @@ test("a replayed task-create receipt still names the task", async () => {
     assert.match(childReplay.summary ?? "", /work: task-replay-work Replay work/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -134,6 +135,6 @@ test("create reports pending materialization when a concurrent edit prevents set
     assert.equal(receipt.proof?.worktreeVisible, false);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

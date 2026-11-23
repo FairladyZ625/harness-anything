@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
 import { validateAgentHistory, validateAgentVersion } from "../src/daemon-host/protocol/agent-entity-contract.ts";
 import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import { appendLegacyAgentDeclaration, initRepo } from "./agent-entities.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /**
  * The ledger is already the version history. These tests pin the three things the read surface is
@@ -89,7 +90,7 @@ function ports(f: Fixture) {
 function dispose(f: Fixture): void {
   f.projection.close();
   closeSqliteEventStoresUnder(f.rootDir);
-  rmSync(f.rootDir, { recursive: true, force: true });
+  removeTempRepository(f.rootDir);
 }
 
 test("history lists every version newest-first with the body digest the content object holds", () => {
@@ -221,7 +222,7 @@ test("a stored declaration this cut cannot interpret is unavailable, not missing
   } finally {
     projection?.close();
     closeSqliteEventStoresUnder(rootDir);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

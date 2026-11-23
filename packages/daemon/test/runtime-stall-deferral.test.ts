@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-con
 import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 import { active as runtimeFixture } from "./runtime-spawn-settlement.fixtures.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /** Fake clock + timer queue: the watchdog test must decide deadline behavior without wall time. */
 function installFakeClock(startMs: number) {
@@ -162,7 +163,7 @@ test("live descendants defer the stall regardless of provider frame activity", a
     disposeActiveRuntimeObservations(runtime);
   } finally {
     clock.restore();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -189,7 +190,7 @@ test("a provider frame is not required to keep an active child command alive", a
     disposeActiveRuntimeObservations(runtime);
   } finally {
     clock.restore();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -213,7 +214,7 @@ test("no live child process still triggers the stall at the base deadline", asyn
     disposeActiveRuntimeObservations(runtime);
   } finally {
     clock.restore();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

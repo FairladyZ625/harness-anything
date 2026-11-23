@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { actor, initRepo, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The acceptance form of the unified coordinate: a path printed by `ha doc status` can be pasted
 // straight into `ha doc show --path` (and every other doc --path command) from the same root.
@@ -53,7 +54,7 @@ test("a doc status row path pastes back into doc show --path from the same works
     assert.equal(shown.evidence, body);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -73,7 +74,7 @@ test("the old authored-relative spelling is rejected at the CLI boundary", async
     assert.match(JSON.stringify(receipt), /outside the authored ledger root/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -94,7 +95,7 @@ test("a zero-hit selection names the workspace path the caller typed", async () 
     assert.doesNotMatch(String(missing.rejectionExplanation), /(?:^|\s)context\/missing\.md/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -131,6 +132,6 @@ test("a doc-synced closeout keeps the task submit next after coordinate translat
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

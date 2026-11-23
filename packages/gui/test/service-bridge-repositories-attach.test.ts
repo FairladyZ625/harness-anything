@@ -5,7 +5,7 @@ import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,6 +20,7 @@ import { seedTriadicEvents, seedTriadicReviewAwait, writeTriadicLedger } from ".
 
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 test("GUI bridge switches between two enabled RepoCells without leaking task rows", async () => {
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task-repo-a", title: "Repo A task" },
@@ -209,7 +210,7 @@ test(
       detach?.();
       server.close();
       await once(server, "close");
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

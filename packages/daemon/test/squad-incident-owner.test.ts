@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import { validTaskDispatchRow } from "../src/daemon-host/protocol/daemon-protoco
 import type { TaskDispatchRow } from "../src/daemon-host/protocol/task-dispatch-contract.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
 import type { RepoCell } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   squadRunId = "squad_0123456789abcdef01234567",
@@ -64,7 +65,7 @@ for (const scenario of [
 ] as const) {
   test(`settlement preserves the lifecycle owner for ${scenario.name}`, async (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-incident-owner-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const pointId = "worker-stop",
       question: DecisionQuestionDeclaration = {
         version: scenario.executable ? incidentDispositionQuestionVersion : "squad-advisory/v1",

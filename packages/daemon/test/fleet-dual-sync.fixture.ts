@@ -5,7 +5,7 @@
 // single-round control plus the mirror materializer.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
@@ -21,6 +21,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
 // wait for materialized commits, so pin the test-local idle timer to a fast interval.
@@ -300,7 +301,7 @@ export async function dualSyncFixture(
       await center.close();
       await host.close();
       await owners.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

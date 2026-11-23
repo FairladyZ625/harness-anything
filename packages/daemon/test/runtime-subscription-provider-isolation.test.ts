@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { codedAs } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_DA1602487428A58E8B446ECE38 CH1: only pairs verified against native credential storage are enabled.
 const providers = ["codex", "codex-acp", "claude", "claude-acp", "devin", "opencode", "minimax-code"] as const;
@@ -120,7 +121,7 @@ for (const kindId of providers) {
       const list = cold.command({ kind: "runtime-instance-list", all: true });
       assert.equal((list.instances as unknown[]).length, 2, "cold list --all must accept enforced subscriptions");
     } finally {
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   });
 
@@ -281,7 +282,7 @@ test("ACP account probes use native login status and record catalogs from the is
       assert.deepEqual(store.read(kindId)?.availableModels, ["test-model"]);
     }
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -343,7 +344,7 @@ for (const kindId of ["devin", "minimax-code"] as const) {
         assert.equal((await store.authStatus(`${kindId}-one`)).code, "runtime_subscription_expired");
       }
     } finally {
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   });
 }
@@ -382,7 +383,7 @@ for (const kindId of ["codex-acp", "claude-acp"] as const) {
         (error: unknown) => codedAs(error, "runtime_installation_ambiguous"),
       );
     } finally {
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   });
 }

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-insta
 import { sweepSettledRuntimeTempDirectories } from "../src/daemon-host/runtime-spawn-adoption.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sessionA = "runtime_0123456789abcdef01234567",
   sessionB = "runtime_89abcdef0123456789abcdef",
@@ -56,7 +57,7 @@ test("a launch scoped to a runtime session gets its own temp directory under the
     });
     assert.equal(sharedRootLaunch.env.TMPDIR, path.join(userRoot, "runtime-instances", "codex-run-temp", "tmp"));
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -99,7 +100,7 @@ test("reclaim removes exactly one session's temp tree and leaves siblings plus i
     store.reclaimRuntimeTempDirectory("codex-reclaim", sessionA);
     assert.equal(existsSync(sessionTemp(userRoot, "codex-reclaim", sessionA)), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -138,7 +139,7 @@ test("operator-environment instances never mint or reclaim a per-run temp direct
     // An unknown instance has no state root to reclaim; the call stays a no-op.
     store.reclaimRuntimeTempDirectory("codex-missing", sessionA);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -178,7 +179,7 @@ test("a session id outside the spawner-minted shape never reaches the temp path 
       assert.equal(existsSync(path.join(userRoot, "runtime-instances", "codex-temp-shape", "tmp", forged)), false);
     }
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -226,7 +227,7 @@ test("a reclaim the filesystem refuses returns the failure instead of swallowing
     // Unlock for the cleanup below.
     chmodSync(sessionTemp(userRoot, "codex-reclaim-refused", sessionA), 0o700);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -305,7 +306,7 @@ test("the settled-session sweep reclaims only settled per-run directories it own
     // Unlock for the cleanup below.
     chmodSync(sessionTemp(userRoot, "codex-sweep", sessionA), 0o700);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -391,6 +392,6 @@ test("a repository sweep preserves another repository's live, settled and unregi
         "B reclaims only its settled session; both repositories' live and orphan stay",
       );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

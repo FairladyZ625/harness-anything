@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { readNodeAutoClaimDiagnostics, writeNodeAutoClaimPolicy } from "../src/d
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { eventually, eventuallyValue } from "./fixtures/runtime-ingress.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Fleet replies own disconnects while awaiting drain (30 controlled interleavings each)", () => {
   const fixture = fileURLToPath(new URL("./node-auto-claim-disconnect.fixture.ts", import.meta.url));
@@ -37,7 +38,7 @@ test("two same-owner nodes auto-claim through one canonical task lease", { timeo
   const fixture = await fleetNodeClaimFixture(t),
     userRoots = ["node-one", "node-two"].map((nodeId) => mkdtempSync(path.join(tmpdir(), `ha-auto-claim-${nodeId}-`))),
     taskId = "task-auto-claim-race";
-  t.after(() => userRoots.forEach((userRoot) => rmSync(userRoot, { recursive: true, force: true })));
+  t.after(() => userRoots.forEach((userRoot) => removeTempRepository(userRoot)));
   assert.equal(
     (await fixture.command("node-one", { kind: "settings-update", fleetClaimScope: "reserved" })).outcome,
     "applied",

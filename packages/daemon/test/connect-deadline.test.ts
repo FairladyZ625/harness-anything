@@ -2,7 +2,7 @@
 import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import test from "node:test";
 import { Worker } from "node:worker_threads";
 import { connectSocket, requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const transport of ["local", "tcp"] as const) {
   test(`${transport}: an accepted connection survives a caller stalled before polling connect`, async (context) => {
@@ -76,7 +77,7 @@ for (const transport of ["local", "tcp"] as const) {
       assert.equal(Atomics.load(accepted, 2), 1, "the command is sent exactly once");
     } finally {
       await worker.terminate();
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   });
 }
@@ -100,7 +101,7 @@ test("a missing local endpoint preserves its native connection error", async () 
       code: "ENOENT",
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

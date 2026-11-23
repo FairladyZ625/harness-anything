@@ -3,7 +3,7 @@ import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/e
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { parseDaemonActionResult } from "../src/daemon-host/protocol/daemon-resu
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "task-dispatch-recovery",
   definition: AgentDefinitionSnapshot = {
@@ -484,7 +485,7 @@ async function recoveryScenario(budgetCase: boolean | string): Promise<void> {
     }
   } finally {
     for (const launch of launches) stopFixtureGroup(launch.child);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }
 

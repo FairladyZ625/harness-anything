@@ -4,7 +4,7 @@ import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-execut
 import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { createUnixSocketTransportServer } from "../src/daemon-host/transport/un
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { definition, initIngressRepo, installation, rpc } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "post-tool transient fault retries same-session resume up to 2 times without repeating tools and never cold-replays",
@@ -476,7 +477,7 @@ test(
     } finally {
       await transport.stop();
       await host.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

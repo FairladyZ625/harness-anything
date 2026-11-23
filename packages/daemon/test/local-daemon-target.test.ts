@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
   resolveLocalDaemonTarget,
 } from "../src/daemon-host/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/daemon-host/request-log.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("local daemon target resolves a v1 workspace after the shared registry reader upgrades it", async () => {
   const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-v1-")),
@@ -49,7 +50,7 @@ test("local daemon target resolves a v1 workspace after the shared registry read
     assert.equal(persisted.schema, "harness-daemon-registry/v2");
     assert.equal(persisted.repos[0]?.connectionId, "local");
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -72,7 +73,7 @@ test("local daemon target resolves a registered workspace from its subdirectory"
     assert.equal(target.repoId, "workspace");
     assert.equal(target.canonicalRoot, canonicalWorkspaceRoot);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -97,7 +98,7 @@ test("local daemon target chooses the deepest nested registered workspace", asyn
     assert.equal(target.repoId, "inner");
     assert.equal(target.canonicalRoot, canonicalInnerRoot);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -122,7 +123,7 @@ test("local daemon target rejects a disabled nested workspace instead of falling
       /workspace is blocked by disabled repoId "inner" at .*ha repo unbind inner to remove it/u,
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -149,7 +150,7 @@ test("local daemon target honors an explicit root instead of the process working
     assert.equal(target.repoId, "outer");
     assert.equal(target.canonicalRoot, canonicalOuterRoot);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -178,7 +179,7 @@ test("local daemon target ignores an environment repo id from another registered
     assert.equal(target.repoId, "first");
     assert.equal(target.canonicalRoot, canonicalFirstRoot);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -213,7 +214,7 @@ test("local daemon relay rejects a root outside the dispatched canonical root", 
       },
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -250,7 +251,7 @@ for (const remoteEdge of [false, true]) {
         ...(remoteEdge ? { remoteEdge: true } : {}),
       });
     } finally {
-      rmSync(fixtureRoot, { recursive: true, force: true });
+      removeTempRepository(fixtureRoot);
     }
   });
 }
@@ -285,7 +286,7 @@ test("local daemon relay rejects a route missing its repo id or canonical root",
         },
       );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -317,7 +318,7 @@ test("local daemon relay rejects a repo id override outside the dispatched scope
       },
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -343,7 +344,7 @@ test("local daemon target keeps a matching injected repo id", async () => {
     assert.equal(target.repoId, "runtime-worker");
     assert.equal(target.canonicalRoot, canonicalWorkspaceRoot);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -368,7 +369,7 @@ test("local daemon target keeps an explicit repo id override authoritative", asy
     assert.equal(target.repoId, "second");
     assert.equal(target.canonicalRoot, canonicalSecondRoot);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -391,7 +392,7 @@ test("local daemon target rejects a path outside every registered workspace", as
       /workspace is not registered/u,
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -436,7 +437,7 @@ test("local daemon target routes a repository worktree to the canonical workspac
     assert.notEqual(layout.localRoot, path.join(realpathSync.native(worktreeRoot), ".harness"));
     assert.equal(existsSync(path.join(worktreeRoot, ".harness")), false);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -463,7 +464,7 @@ test("local daemon target keeps a matching injected endpoint across an isolated 
     });
     assert.equal(target.socketPath, endpoint);
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -500,7 +501,7 @@ test("workspace relay resolves a worktree under the dispatched canonical root", 
       socketPath: endpoint,
     });
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -540,7 +541,7 @@ test("workspace relay rejects a missing endpoint instead of deriving a fallback 
       },
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -572,7 +573,7 @@ test("workspace relay rejects an endpoint that is not this dispatch's relay sock
       },
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -594,7 +595,7 @@ test("local daemon target reports an unreadable registry instead of an unavailab
       },
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 
@@ -636,7 +637,7 @@ test("local daemon target rejects an injected endpoint owned by another user roo
       },
     );
   } finally {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeTempRepository(fixtureRoot);
   }
 });
 

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -30,6 +30,7 @@ import {
 } from "../src/daemon-host/task-wip-settings.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor: ActorIdentity = { principal: { personId: "person-wip" }, executor: null } as const;
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
@@ -154,7 +155,7 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
     if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV];
     else process.env[TASK_WIP_LIMIT_ENV] = previous;
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -219,7 +220,7 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
     if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV];
     else process.env[TASK_WIP_LIMIT_ENV] = previous;
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -314,7 +315,7 @@ test("a standard task becomes a visible structure-derived root without rewriting
     if (previousThreshold === undefined) delete process.env[TASK_ROOT_THRESHOLD_ENV];
     else process.env[TASK_ROOT_THRESHOLD_ENV] = previousThreshold;
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -380,7 +381,7 @@ test("task list exposes active package metadata and excludes archived packages f
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -458,7 +459,7 @@ test("a released active task returns to planned while held leases and stale writ
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -533,7 +534,7 @@ test("taskClass=long_running work never occupies the execution worktable, even m
     if (previous === undefined) delete process.env[TASK_WIP_LIMIT_ENV];
     else process.env[TASK_WIP_LIMIT_ENV] = previous;
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -747,6 +748,6 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

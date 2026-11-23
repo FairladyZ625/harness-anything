@@ -16,6 +16,7 @@ import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/versio
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const codexWitness: RuntimeInstallationWitness = {
   installationId: "codex_read_path",
@@ -103,7 +104,7 @@ test("runtime instance list serves the recorded observations instead of re-witne
     assert.equal(discoveries, 1, "--probe still refreshes the witness snapshot");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -215,7 +216,7 @@ test("runtime instance list scopes its node identity to the selected Fleet edge 
     assert.equal(receipt.nodeId, "edge-runtime-node");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -270,7 +271,7 @@ test("a config-only update reuses the recorded witness; only an installation bin
     assert.equal(discoveries, 1, "an installation binding still observes the machine");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -319,7 +320,7 @@ test("the first update on a machine with no recorded witness still observes the 
     assert.equal(discoveries, 0, "a recorded witness makes later config-only updates cheap");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -367,7 +368,7 @@ test("a steady-state list starts no provider process, and a probe still does", a
     assert.ok(existsSync(marker), "--probe still observes the machine");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -436,6 +437,6 @@ test("the store reads recorded installations without discovering or probing", as
     assert.equal(probes, 1, "--probe still verifies authentication");
     assert.equal(probed.instances[0]!.authReadiness.code, null);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

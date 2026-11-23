@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "an abnormal dispatch keeps its evidence readable after the dispatches cache is purged",
@@ -192,7 +193,7 @@ test(
       assert.equal(readFileSync(tracePath, "utf8"), traceBody);
     } finally {
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

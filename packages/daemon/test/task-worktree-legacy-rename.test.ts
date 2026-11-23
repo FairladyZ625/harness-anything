@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -10,6 +10,7 @@ import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-re
 import { renameLegacyTaskWorktrees } from "../src/daemon-host/task-worktree-legacy-rename.ts";
 import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
@@ -46,7 +47,7 @@ test("migrate renames an old-name worktree and its branch to the task id, and th
     // Nothing is left to rename.
     assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, true, []), []);
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -70,7 +71,7 @@ test("migrate leaves an old-name worktree with uncommitted work or a live worker
     assert.equal(existsSync(busyTree), true);
     assert.equal(git(busyTree, "branch", "--show-current"), "codex/busy-55555555");
   } finally {
-    rmSync(fixture.base, { recursive: true, force: true });
+    removeTempRepository(fixture.base);
   }
 });
 
@@ -123,7 +124,7 @@ function commit(cwd: string, file: string): void {
 function repositoryFixture(t: TestContext): { readonly base: string; readonly root: string } {
   const base = mkdtempSync(path.join(tmpdir(), "ha-legacy-worktree-")),
     root = path.join(base, "canonical");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Legacy Test");
   git(root, "config", "user.email", "legacy@example.invalid");

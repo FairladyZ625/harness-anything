@@ -1,11 +1,12 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
 import { Pool } from "pg";
 import { ManagedRbacService } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { cloneOrInitPostgresCluster, ensureCachedPostgresBinaries } from "./pg-cluster-template.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 export interface ManagedPostgresFixture {
   readonly adminPool: Pool;
@@ -53,7 +54,7 @@ export async function startManagedPostgresFixture(): Promise<ManagedPostgresFixt
         } catch (error) {
           cleanupErrors.push(error);
         }
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
         if (cleanupErrors.length > 0)
           throw new AggregateError(cleanupErrors, "Could not clean up the temporary PostgreSQL fixture.");
       },
@@ -73,7 +74,7 @@ export async function startManagedPostgresFixture(): Promise<ManagedPostgresFixt
     } catch (error) {
       cleanupErrors.push(error);
     }
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
     const detail = cause instanceof Error ? cause.message : String(cause);
     throw new Error(
       `PG_TEST_NOT_EXECUTED: Could not install or start managed PostgreSQL 18.3: ${detail}` +

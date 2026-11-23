@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScheduleV1, type CanonicalEventV1, type ScheduleV1 } from "@harness-anything/kernel";
@@ -42,6 +42,7 @@ import {
   type ScheduleGuiRowDto,
   type SchedulesListResult,
 } from "../src/daemon-host/protocol/schedules-contract.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 const now = "2026-08-27T08:00:00.000Z";
 const actor = { principal: { personId: "schedule-gui" }, executor: null } as const;
 
@@ -638,7 +639,7 @@ test("a remote-edge read resolves viewer node without a roster", () => {
     assert.equal(claimed.actions.delete.code, "schedule_single_flight_active");
     assert.equal(claimed.actions.runNow.code, "schedule_single_flight_active");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -672,7 +673,7 @@ test("remote-edge reads propagate invalid edge configuration", () => {
       /not valid JSON/u,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

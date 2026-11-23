@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 // dec_DA1602487428A58E8B446ECE38/CH2: account observations never author dispatch intent.
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { compatibleRuntimeInstances, runtimeInstanceModel } from "../src/daemon-
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import type { RuntimeInstanceSummary } from "../src/daemon-host/agent-runtime-instance-types.ts";
 import { runtimeInstanceDispatchModels } from "@harness-anything/kernel/internal/domain/runtime-instance-contract.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const hydrogen = "gemini-4-hydrogen-low",
   carbon = "gemini-4-carbon-high";
@@ -90,7 +91,7 @@ function fixture() {
     create,
     rows,
     candidates,
-    close: () => rmSync(root, { recursive: true, force: true }),
+    close: () => removeTempRepository(root),
   };
 }
 
@@ -280,6 +281,6 @@ test("empty Codex bootstrap refreshes native account models without inventing a 
       false,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +21,7 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function fixture(t: test.TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-studio-rpc-")),
@@ -52,7 +53,7 @@ async function fixture(t: test.TestContext) {
     if (listener.listening)
       await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())));
     await host.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   await host.attachmentsSettled();
   if (process.platform !== "win32") mkdirSecurely(path.dirname(endpoint));

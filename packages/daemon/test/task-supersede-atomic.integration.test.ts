@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("supersede with a new task accepts both events atomically and retries after rollback", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-supersede-atomic-")),
@@ -116,7 +117,7 @@ test("supersede with a new task accepts both events atomically and retries after
     await afterReplay.drain();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -208,7 +209,7 @@ test("supersede lands an active task in cancelled and points the receipt at the 
     await reader.drain();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -263,6 +264,6 @@ test("supersede refuses while a task dispatch is unsettled", async () => {
     assert.equal(shown.task.supersededBy ?? null, null);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

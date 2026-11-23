@@ -3,7 +3,7 @@ import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/e
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { readDaemonPid, readDaemonSingletonLockPid } from "../src/daemon-host/da
 import { readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("stop retains ownership until a timed-out attach has really closed", { timeout: 30_000 }, async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-stop-attach-")),
@@ -73,7 +74,7 @@ test("stop retains ownership until a timed-out attach has really closed", { time
     if (child.connected) child.send("release");
     if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     await exited;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -120,7 +121,7 @@ test(
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
       await exited;
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

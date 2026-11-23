@@ -3,7 +3,7 @@ import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import net from "node:net";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +32,7 @@ import {
   parseDaemonRpcParams,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { isJsonObject, rejectSecretKeys } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The `--wait` reader keeps one daemon connection alive for a whole wait and issues one read round
 // per poll. The line client used to attach a fresh readline interface per request and abandon it at
@@ -74,7 +75,7 @@ function lineServer(
         socketPath,
         close: async () => {
           await closeServer(server);
-          rmSync(parent, { recursive: true, force: true });
+          removeTempRepository(parent);
         },
       }),
     );
@@ -296,7 +297,7 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
     }
   } finally {
     await closeServer(server);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -342,7 +343,7 @@ test("a close after the daemon answered marks the rejection as an answered conne
     }
   } finally {
     await closeServer(server);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -375,7 +376,7 @@ test("a close before the daemon answered any frame leaves the rejection unmarked
     }
   } finally {
     await closeServer(server);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -556,7 +557,7 @@ async function rpcServer(
     socketPath,
     close: async () => {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     },
   };
 }
@@ -659,7 +660,7 @@ async function measuredGateSetNullKinds(commit: string): Promise<readonly string
       )
       .map(({ kind }) => kind);
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeTempRepository(directory);
   }
 }
 

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /**
  * issue #4267: 同一个 Electron 主进程在旧项目根被删掉后打开/切到新项目,台账桥、在跑的任务、
@@ -130,7 +131,7 @@ describe("repo-scoped GUI reads after the startup root disappears", () => {
       authoredBranch: "main",
     });
     // The reported sequence: the previous project directory is gone while Electron stays alive.
-    rmSync(oldRoot, { recursive: true, force: true });
+    removeTempRepository(oldRoot);
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     process.env.HARNESS_DAEMON_ID = daemonId;
     delete process.env.HARNESS_DAEMON_ENDPOINT;
@@ -150,7 +151,7 @@ describe("repo-scoped GUI reads after the startup root disappears", () => {
     else process.env.HARNESS_DAEMON_ENDPOINT = previous.endpoint;
     if (previous.guiRoot === undefined) delete process.env.HARNESS_GUI_ROOT;
     else process.env.HARNESS_GUI_ROOT = previous.guiRoot;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   it("reads the ledger bridge, running tasks and work brief from the newly opened project", async () => {

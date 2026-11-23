@@ -19,6 +19,7 @@ import {
   recordFact,
   withFixture,
 } from "./fact-event-service.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 test("recorded Fact is durable and immediately searchable through the canonical projection", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-service-"));
   let projection: ReturnType<typeof makeTaskProjection> | undefined;
@@ -166,7 +167,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
   } finally {
     projection?.close();
     closeSqliteEventStoresUnder(rootDir);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -315,6 +316,6 @@ test("Fact admission never appends against a projection more than one catch-up r
     assert.equal(store.readHead()?.revision, 4097, "collision must be found before append");
   } finally {
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

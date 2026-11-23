@@ -2,13 +2,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { managedShutdownFixture } from "./managed-rbac-shutdown.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function availablePort() {
   const server = createServer();
@@ -120,7 +121,7 @@ test(
       await resumed;
       await predecessor.service.stop();
       await successor.service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 import { fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("create with a plan file lands the authored plan in the same write and stays startable", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-plan-"));
@@ -46,7 +47,7 @@ test("create with a plan file lands the authored plan in the same write and stay
     assert.match(String(shown.evidence ?? ""), /Plan authored at create/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -103,7 +104,7 @@ test("create rejects a plan file missing a template section", async () => {
     assert.match(String(typoCreated.diagnostic?.expectation), /Sections not in the template: Acceptance/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -10,6 +10,7 @@ import { observeDeliveryBaseline } from "../src/daemon-host/repo-cell-proof.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a declared local delivery ref cuts the task from main when origin/main has unrelated history", async (t) => {
   const root = repository(t),
@@ -72,7 +73,7 @@ function repository(t: TestContext): string {
   const base = mkdtempSync(path.join(tmpdir(), "ha-declared-base-")),
     root = path.join(base, "repo"),
     remote = path.join(base, "origin.git");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "--bare", "-q", "-b", "main", remote);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Baseline Test");

@@ -1,17 +1,18 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { escapesWorkerWorktree, strayWriteWarning } from "../src/runtime-engine/runtime-write-boundary.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const rootDir = mkdtempSync(path.join(tmpdir(), "ha-write-boundary-"));
 const workerRoot = path.join(rootDir, ".worktrees", "task_aaaaaaaaaaaaaaaaaaaaaaaa");
 const ledgerRoot = path.join(rootDir, "harness");
 const boundary = { rootDir, workerRoot, ledgerRoot };
 
-test.after(() => rmSync(rootDir, { recursive: true, force: true }));
+test.after(() => removeTempRepository(rootDir));
 
 test("an absolute canonical path is a stray write; worktree, ledger, runtime and relative paths are not", () => {
   assert.equal(escapesWorkerWorktree(path.join(rootDir, "packages/cli/src/index.ts"), boundary), true);

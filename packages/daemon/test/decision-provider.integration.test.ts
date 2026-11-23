@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import { openDecisionProviderService } from "../src/daemon-host/decision-provider.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Decisions provider CRUD, probe, and port keep credentials private and return advisory distributions", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-")),
@@ -128,7 +129,7 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
     assert.equal(credentials.has(references[0]!), false);
     assert.deepEqual(service.list(), []);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -254,7 +255,7 @@ test("Decisions provider probe exercises the same decisions endpoint as a real d
       code: "decision_transport",
     });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -268,7 +269,7 @@ test("Decisions provider returns an empty list only when its file is absent", ()
     const corrupt = openDecisionProviderService({ userRoot: parent });
     assert.throws(() => corrupt.read(), SyntaxError);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -324,7 +325,7 @@ test("Decisions provider maps credential unavailability and propagates other vau
       (error: unknown) => error === unexpected,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -374,7 +375,7 @@ test("DecisionPort rejects malformed distributions as protocol failures", async 
         typeof error === "object" && error !== null && "code" in error && error.code === "decision_protocol_invalid",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -426,7 +427,7 @@ test("DecisionPort retries a transient rate limit and returns the later real dec
     assert.equal(calls.length, 2);
     assert.deepEqual(delays, [250]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -483,7 +484,7 @@ test("DecisionPort exhausts transient retries without hiding the rate-limit reas
     assert.equal(calls.length, 4);
     assert.deepEqual(delays, [250, 500, 1_000]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -574,7 +575,7 @@ test("DecisionPort reports controlled HTTP status and diagnostic codes of termin
         // 401/402/404 are terminal: the controlled classification is visible, upstream prose is not, and nothing retries.
         assert.equal(calls.length, 1);
       } finally {
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     });
   }
@@ -651,7 +652,7 @@ test("a model removed from the free tier is a configuration fault with an operat
     };
     assert.deepEqual(persisted.providers[0]?.probe, expectedProbe);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -699,7 +700,7 @@ test("a provider model update changes the model the next decision sends", async 
     await service.port.decide(request);
     assert.deepEqual(models, ["model-a", "model-b"]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -745,7 +746,7 @@ test("a decision failure does not mark a newer provider configuration as failed"
     assert.equal(current?.model, "model-b");
     assert.deepEqual(current?.probe, { state: "unknown" });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -832,7 +833,7 @@ test("a failure from a deleted configuration does not overwrite a recreated prov
     assert.deepEqual(current?.probe, { state: "ready", checkedAt: "2026-11-01T00:00:00.000Z" });
   } finally {
     releaseFailure();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -886,7 +887,7 @@ test("DecisionPort retries only failures with transient evidence and never echoe
       assert.equal(calls.length, 4);
       assert.deepEqual(delays, [250, 500, 1_000]);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 
@@ -926,7 +927,7 @@ test("DecisionPort retries only failures with transient evidence and never echoe
       );
       assert.equal(calls.length, 1);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 
@@ -968,7 +969,7 @@ test("DecisionPort retries only failures with transient evidence and never echoe
           error.message.includes("code=http_401"),
       );
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 });

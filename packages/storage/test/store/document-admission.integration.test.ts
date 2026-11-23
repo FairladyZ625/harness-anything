@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts"
 import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { assertDocumentAdmission, admissionSettingsBase } from "./document-admission.assertions.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("SQLite document admission: stateful replacement, preceding heads, rollback and exact replay", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-document-admission-"));
@@ -48,6 +49,6 @@ test("SQLite document admission: stateful replacement, preceding heads, rollback
     });
   } finally {
     await store.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

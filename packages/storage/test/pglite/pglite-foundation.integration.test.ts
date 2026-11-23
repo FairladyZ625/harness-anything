@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { resolveStorageBackend } from "../../src/storage-backend.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const claims = { tenantId: "tenant-a", projectId: "project-a", policyEpoch: 7 } as const;
 
@@ -57,7 +58,7 @@ pgliteIntegrationSuite("PGlite foundation", () => {
       assert.deepEqual((await reopened.db.query("SELECT payload FROM pglite_probe")).rows, [{ payload: "committed" }]);
     } finally {
       await reopened.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -180,8 +181,9 @@ pgliteIntegrationSuite("PGlite foundation", () => {
       });
     } finally {
       await backend.close();
-      rmSync(root, { recursive: true, force: true });
-      rmSync(dataDir, { recursive: true, force: true });
+      await sqlite.drain();
+      removeTempRepository(root);
+      removeTempRepository(dataDir);
     }
   });
 });

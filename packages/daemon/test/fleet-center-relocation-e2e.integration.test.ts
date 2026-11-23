@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, X509Certificate } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { createServer as createHttpsServer } from "node:https";
 import path from "node:path";
@@ -37,6 +37,7 @@ import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { relocateFleetCenter } from "../src/daemon-host/fleet/center-relocation-command.ts";
 import { waitForFleetReplicaReady, waitForFleetReplicaSequence } from "../src/daemon-host/fleet/replica-sync.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "M1-M4 relocation exports, activates, repoints, and manually promotes a complete edge replica",
@@ -682,7 +683,7 @@ test(
       if (restartedOldHost) await restartedOldHost.close();
       if (promotedHost) await promotedHost.close();
       closeSqliteEventStoresUnder(root);
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removeTempRepository(root);
     }
   },
 );

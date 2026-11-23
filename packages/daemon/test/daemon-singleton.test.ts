@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
   daemonSingletonLockPath,
   releaseDaemonSingletonLock,
 } from "../src/daemon-host/daemon-singleton.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const endpoint = "/tmp/ha-singleton-probe.sock";
 
@@ -30,7 +31,7 @@ test("a free slot is claimed atomically and released by its holder only", async 
     held.release();
     assert.equal(existsSync(daemonSingletonLockPath(userRoot, "default")), false, "release is idempotent");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -56,7 +57,7 @@ test("a live holder pid defers the candidate without touching its claim", async 
     );
   } finally {
     holder.kill("SIGKILL");
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -76,7 +77,7 @@ test("a dead holder pid is replaced so a crashed daemon never wedges the slot", 
     assert.equal(readFileSync(daemonSingletonLockPath(userRoot, "default"), "utf8"), "5252\n");
     held.release();
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -93,7 +94,7 @@ test("external cleanup removes only the dead holder's singleton lock", () => {
     releaseDaemonSingletonLock(userRoot, "default", 4242);
     assert.equal(existsSync(daemonSingletonLockPath(userRoot, "default")), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -111,7 +112,7 @@ test("an unparsable lock body is treated as abandoned and replaced", async () =>
     assert.equal(held.claim, "acquired");
     held.release();
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -133,7 +134,7 @@ test("a socket that answers is a live incumbent even before the lock is consulte
       "a deferring candidate must not leave a lock behind",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -156,7 +157,7 @@ test("a socket that starts answering after the claim makes the candidate stand d
       "the fresh claim must be rolled back when an older daemon owns the socket",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

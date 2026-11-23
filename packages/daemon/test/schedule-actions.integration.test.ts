@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
@@ -550,7 +551,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -938,7 +939,7 @@ test(
       await center?.close();
       await host?.close();
       await owners?.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -1145,6 +1146,6 @@ test("scheduled single-agent runs honor declared permissionMode ceilings across 
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,13 +10,14 @@ import {
   readAgentRuntimeTokenUsageDetail,
 } from "../src/daemon-host/agent-runtime-token-usage.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("usage outcomes and pending receipts follow canonical lifecycle despite contradictory local evidence", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-usage-canonical-")),
     dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
     runtimeSessionId = "runtime-usage",
     now = "2026-11-12T00:00:00.000Z";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   openDispatchStream(rootDir, {
     dispatchId,
     runtimeSessionId,

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { parseClientRpcResponse } from "../src/daemon-host/protocol/daemon-resul
 import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { openRuntimeProviderHealthStore } from "../src/runtime-engine/runtime-provider-health.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface HttpStub {
   readonly baseUrl: string;
@@ -342,7 +343,7 @@ test("AGY quota probe parses multi-group buckets, caches for O(1) list/show, coo
       ["agy-healthy-argon"],
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -577,7 +578,7 @@ test("Codex read-only quota probe via app-server RPC never invokes codex exec in
       "codex exec must NEVER be invoked on 429/RPC failure",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -704,7 +705,7 @@ test("Codex OAuth wham/usage preserves isolated config.toml chatgpt_base_url, re
     );
   } finally {
     await server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -893,7 +894,7 @@ test("Claude OAuth pins https://api.anthropic.com, supports macOS Keychain fallb
     assert.doesNotMatch(JSON.stringify(rateLimited), new RegExp(`${fileToken}|${keychainToken}`, "u"));
   } finally {
     await server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1116,7 +1117,7 @@ test("Copilot quota pins https://api.github.com, aligns account precedence, and 
     assert.equal(requestedUrls.length, requestsBeforeFailClosed);
   } finally {
     await server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1515,6 +1516,6 @@ test("Security, sanitization, same-instance re-login, out-of-order probes, healt
     assert.ok(requestCounter > 0);
   } finally {
     await Promise.all([server.close(), redirectTarget.close()]);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

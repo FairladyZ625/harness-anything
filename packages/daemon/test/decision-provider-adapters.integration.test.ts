@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
@@ -11,6 +11,7 @@ import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential
 import { openDecisionProviderService } from "../src/daemon-host/decision-provider.ts";
 import { decisionProviderAdapterRegistry, redactDecisionSecret } from "../src/daemon-host/decision-providers/index.ts";
 import { validTaskDispatchRow } from "../src/daemon-host/protocol/daemon-protocol-validate-relation-query.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface CapturedRequest {
   readonly method: string;
@@ -167,7 +168,7 @@ test("multi-vendor DecisionProvider adapter registry covers google, perplexity, 
 
   t.after(async () => {
     await mock.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   // Legacy decision-providers.json without `vendor` remains readable as `openrouter`.
@@ -548,7 +549,7 @@ test("HA10-01: all HTTP adapters (including openrouter) reject 302/307 redirects
   t.after(async () => {
     await redirectServer.close();
     await targetServer.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   const delays: number[] = [];
@@ -696,7 +697,7 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
   t.after(async () => {
     for (const socket of openSockets) socket.destroy();
     await mock.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   const delays: number[] = [];
@@ -855,7 +856,7 @@ test("HA10-03 & HA10-04: rejects bad probability sums, truncated completions, in
 
   t.after(async () => {
     await mock.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   const service = openDecisionProviderService({
@@ -1104,7 +1105,7 @@ test("HA10-03 & HA10-07: openrouter uses the shared direct HTTP pipeline for URL
 
   t.after(async () => {
     await mock.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   const service = openDecisionProviderService({
@@ -1305,7 +1306,7 @@ test("HA10-07: persisted legacy OpenRouter custom proxy prefixes (including /gat
 
   t.after(async () => {
     await mock.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   const credRef = vault.issue();

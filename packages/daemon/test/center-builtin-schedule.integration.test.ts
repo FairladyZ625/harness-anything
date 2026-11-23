@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ import {
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
 import { initHarnessRepo } from "./schedule-actions.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type Receipt = { readonly outcome: string; readonly code?: string };
 type ScheduleRow = {
@@ -125,7 +126,7 @@ async function fireDueOccurrences(mode: DaemonRepoMode, identityDrift = false) {
     };
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 }
 
@@ -258,6 +259,6 @@ test("a remote-center cell admits the daemon scheduler only on builtin occurrenc
     assert.equal((await show("agent-probe")).status.activeRun, null);
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { observeDeliveryBaseline } from "../src/daemon-host/repo-cell-proof.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -24,7 +25,7 @@ function commitAll(root: string) {
 
 test("a repository with commits freezes HEAD as the baseline", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-head-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   const head = commitAll(root);
@@ -33,7 +34,7 @@ test("a repository with commits freezes HEAD as the baseline", (t) => {
 
 test("an unborn repository freezes the empty tree without committing user files", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-unborn-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "untracked.txt"), "user work\n");
   assert.deepEqual(observeDeliveryBaseline(root), { kind: "empty-tree" });
@@ -42,7 +43,7 @@ test("an unborn repository freezes the empty tree without committing user files"
 
 test("a nested path inside a parent repository uses the parent's HEAD", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-parent-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   const head = commitAll(root),
@@ -53,7 +54,7 @@ test("a nested path inside a parent repository uses the parent's HEAD", (t) => {
 
 test("a repository with history but no readable HEAD fails closed", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-history-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   commitAll(root);
@@ -64,7 +65,7 @@ test("a repository with history but no readable HEAD fails closed", (t) => {
 
 test("a path outside any repository fails closed", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-none-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.throws(() => observeDeliveryBaseline(root), /project Git repository/u);
   assert.throws(() => observeDeliveryBaseline(root, undefined, "repository-diff"), /project Git repository/u);
   assert.deepEqual(observeDeliveryBaseline(root, undefined, "task-package-artifact"), { kind: "empty-tree" });
@@ -72,7 +73,7 @@ test("a path outside any repository fails closed", (t) => {
 
 test("a delivery branch freezes its fork point, not the advanced default branch", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-fork-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   const fork = commitAll(root);
@@ -88,7 +89,7 @@ test("a delivery branch freezes its fork point, not the advanced default branch"
 
 test("a delivery branch without its own commits freezes the branch tip it was cut at", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-cut-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   const cut = commitAll(root);
@@ -100,7 +101,7 @@ test("a delivery branch without its own commits freezes the branch tip it was cu
 
 test("a missing or option-shaped delivery branch falls back to the project HEAD", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-absent-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   const head = commitAll(root);
@@ -110,7 +111,7 @@ test("a missing or option-shaped delivery branch falls back to the project HEAD"
 
 test("a detached main checkout has no fork anchor, so a delivery branch falls back to HEAD", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-detached-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   init(root);
   writeFileSync(path.join(root, "a.txt"), "a\n");
   const base = commitAll(root);

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
-import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import {
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const operator = withPolicyGroup(
   { actor: { principal: { personId: "center-operator" }, executor: null }, source: "local" as const },
@@ -96,7 +97,7 @@ test("an authenticated center-local principal writes a remote-center ledger", as
     assert.equal(progress.outcome, "applied", JSON.stringify(progress));
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -167,7 +168,7 @@ test("the center admits no unauthenticated source and the edge admits no local l
     assert.equal(runNow.code, "repo_mode_requires_center_ingress");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -250,7 +251,7 @@ test("the authorized Schedule creator and an operator write a remote-center cell
     }
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -337,6 +338,6 @@ test("a center-local write and an edge write race through one queue under expect
   } finally {
     await owners.close();
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

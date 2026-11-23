@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -8,11 +8,12 @@ import { createIdentitySession } from "../src/daemon-host/authorization-provider
 import { type OidcSessionPorts } from "@harness-anything/kernel";
 import { identitySessionLifetimePolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import { localDefaultBinding } from "../src/daemon-host/daemon-host-binding.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_F01770FD0DCF72683B7C4C7A47/CH6: the provider owns offline idle expiration.
 function offlineFixture(refreshExpiresIn: number, t: TestContext) {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-oidc-offline-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
   writeFileSync(
     path.join(userRoot, "rbac", "config.json"),

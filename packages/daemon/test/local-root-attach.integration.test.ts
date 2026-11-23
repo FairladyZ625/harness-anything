@@ -2,7 +2,7 @@
 // Attaching a repository whose layout.localRoot is not `.harness` must keep every local ledger
 // artifact under that root: no code may recreate the default `.harness` directory.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-local-root" }, executor: null } as const;
 
@@ -20,7 +21,7 @@ function entries(directory: string): readonly string[] {
 
 test("attach and write a task under a renamed local root without creating .harness", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-root-attach-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(

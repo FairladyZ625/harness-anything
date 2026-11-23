@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { cmdShellInvocation } from "@harness-anything/storage";
 
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The only environment that can adjudicate cmd.exe's two parsing layers (cmd /c plus the
 // batch %* re-parse inside an npm-style shim) is real Windows; the encoder's contract is
@@ -48,7 +49,7 @@ test(
       assert.deepEqual(argv, ["--prompt", hostile]);
       assert.equal(existsSync(marker), false, "no part of the prompt may execute as a cmd command");
     } finally {
-      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(parent);
     }
   },
 );

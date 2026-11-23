@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readDaemonStoppedAt, writeDaemonStoppedMarker } from "../src/daemon-host/client/daemon-autostart.ts";
 import { daemonPidPath } from "../src/daemon-host/daemon-singleton.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const entry = fileURLToPath(new URL("../src/daemon-host/bin.ts", import.meta.url));
 
@@ -26,6 +27,6 @@ test("a supervised entry leaves an operator stop standing and exits zero so the 
     assert.equal(readDaemonStoppedAt(userRoot, daemonId), stoppedAt, "only an explicit start clears the marker");
     assert.equal(existsSync(daemonPidPath(userRoot, daemonId)), false, "no daemon claimed the slot");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(userRoot);
   }
 });

@@ -6,14 +6,15 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, readDaemonRegistry } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
-import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { ownDaemonFixture, waitForDaemonProcessExitSync } from "./daemon-cleanup.fixture.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -36,7 +37,7 @@ export async function setup(
   beta: string;
 }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
     userRoot = sharedUserRoot ?? path.join(root, "user");
@@ -50,7 +51,7 @@ export async function setupEmpty(
   sharedUserRoot?: string,
 ): Promise<{ root: string; userRoot: string; repo: string }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const repo = path.join(root, "repo"),
     userRoot = sharedUserRoot ?? path.join(root, "user");
   mkdirSync(repo);
@@ -197,6 +198,7 @@ export async function register(root: string, userRoot: string, repoId: string, e
     seeded = seedSettingsEvent({
       rootDir: root,
       repoId,
+      keepOpen: true,
       writerEpochFence: {
         schema: "harness-writer-epoch-fence/v1",
         stateRoot,
@@ -297,8 +299,11 @@ export function runNoop(root: string, userRoot: string, entry: string): { status
   return { status: result.status };
 }
 export function stop(root: string, userRoot: string, entry = cli): void {
-  spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop"], {
+  const pid = readDaemonPid(userRoot, "default");
+  if (pid === null) return;
+  spawnSync(process.execPath, [entry, "--root", root, "--json", "daemon", "stop", "--daemon-id", "default"], {
     encoding: "utf8",
     env: { ...process.env, HARNESS_DAEMON_USER_ROOT: userRoot },
   });
+  waitForDaemonProcessExitSync(pid);
 }

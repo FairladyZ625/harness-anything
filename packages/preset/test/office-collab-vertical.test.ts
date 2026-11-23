@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +26,7 @@ import {
   validatePresetPackage,
   validateVerticalSource,
 } from "../src/preset-resolver.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sha256 = (value: string | Buffer): string => createHash("sha256").update(value).digest("hex");
 
@@ -193,7 +194,7 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
       assert.ok(scaffold.documents.some((doc) => doc.path === "CLAUDE.md"));
     }
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -915,7 +916,7 @@ test("deliverable-contract check passes valid deliverables and rejects missing f
       }
     }
   } finally {
-    rmSync(sandbox, { recursive: true, force: true });
+    removeTempRepository(sandbox);
   }
 });
 
@@ -1368,7 +1369,7 @@ test("upstream-fresh check passes aligned frozen artifact baselines and fails cl
       }
     }
   } finally {
-    rmSync(sandbox, { recursive: true, force: true });
+    removeTempRepository(sandbox);
   }
 });
 
@@ -1494,6 +1495,6 @@ test("handoff-completeness check passes four-element handoffs and blocks wheneve
       assert.match(result.diagnostic, item.expected, item.name);
     }
   } finally {
-    rmSync(sandbox, { recursive: true, force: true });
+    removeTempRepository(sandbox);
   }
 });

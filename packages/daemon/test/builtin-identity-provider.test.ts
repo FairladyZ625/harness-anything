@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,10 +17,11 @@ import {
   createIdentitySession,
 } from "../src/daemon-host/authorization-provider.ts";
 import { createEdgeJoinStore } from "../src/daemon-host/fleet/edge-join.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("clean user roots select built-in identity without a managed runtime", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-identity-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const management = createIdentityManagement(root);
   assert.ok(management instanceof BuiltinIdentityManagement);
   assert.deepEqual(await management.run({ operation: "health" }), await management.health());
@@ -148,7 +149,7 @@ test("clean user roots select built-in identity without a managed runtime", asyn
 
 test("built-in password change replaces the login secret and declares account reset unsupported", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-password-change-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const session = new BuiltinIdentitySession(root);
   await session.bootstrapAdmin({
     username: "owner",
@@ -192,7 +193,7 @@ test("built-in password change replaces the login secret and declares account re
 
 test("configured built-in session lifetime is used at the expiry boundary", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-session-lifetime-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const session = new BuiltinIdentitySession(root);
   await session.bootstrapAdmin({
     username: "owner",
@@ -223,7 +224,7 @@ test("configured built-in session lifetime is used at the expiry boundary", asyn
 
 test("external mode remains an explicit Keycloak plugin selection", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-switch-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const fakeFetch = (async (input: string | URL, init?: RequestInit) => {
     const url = new URL(input),
       pathName = url.pathname;
@@ -335,7 +336,7 @@ test("external mode remains an explicit Keycloak plugin selection", async (t) =>
 
 test("expired built-in owner sessions cannot change authority", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-expired-owner-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const session = new BuiltinIdentitySession(root);
   await session.bootstrapAdmin({
     username: "owner",
@@ -374,7 +375,7 @@ test("expired built-in owner sessions cannot change authority", async (t) => {
 
 test("built-in policy accepts live Artifact scopes and rejects unknown or unclaimed repositories", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-artifact-policy-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const artifactImport = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94/import",
     session = new BuiltinIdentitySession(root, async () => [artifactImport]);
   await session.bootstrapAdmin({
@@ -426,8 +427,8 @@ test("builtin sessions reject remote edge targets at the identity boundary", asy
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-remote-target-")),
     edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-target-"));
   t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(edgeRoot, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(edgeRoot);
   });
   const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
   mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
@@ -466,8 +467,8 @@ test("legacy Keycloak edges keep their session port until an explicit selector i
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-edge-")),
     edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-workspace-"));
   t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(edgeRoot, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(edgeRoot);
   });
   const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
   const { writeFleetEdgeConfig } = await import("../src/daemon-host/client/fleet-edge-config.ts");
@@ -505,7 +506,7 @@ test("legacy Keycloak edges keep their session port until an explicit selector i
 
 test("legacy edge roots reopen through Keycloak without a selector and preserve their session file", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-reopen-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   const { writeDaemonRegistryRepo } = await import("@harness-anything/kernel/daemon-registry");
   const { writeFleetEdgeConfig } = await import("../src/daemon-host/client/fleet-edge-config.ts");
@@ -560,7 +561,7 @@ test("legacy edge roots reopen through Keycloak without a selector and preserve 
 
 test("builtin owner membership reads are empty while team administration still requires the plugin", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-owner-teams-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const session = new BuiltinIdentitySession(root);
   await session.bootstrapAdmin({
     username: "owner",
@@ -580,7 +581,7 @@ test("builtin owner membership reads are empty while team administration still r
 
 test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-collaboration-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const center = new BuiltinIdentitySession(root);
   await center.bootstrapAdmin({
     username: "owner",
@@ -640,7 +641,7 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
 test("local sign-in pages are bilingual, reject expiry and deliver readable results", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-device-pages-")),
     session = new BuiltinIdentitySession(root);
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   await session.bootstrapAdmin({
     username: "owner",
     email: "owner@example.invalid",
@@ -738,8 +739,8 @@ test("builtin root routes edge browser complete and device poll to external OIDC
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-complete-")),
     edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-repo-"));
   t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(edgeRoot, { recursive: true, force: true });
+    removeTempRepository(root);
+    removeTempRepository(edgeRoot);
   });
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(

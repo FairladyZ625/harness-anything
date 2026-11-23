@@ -3,7 +3,7 @@ import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protoc
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { daemonRequestLogPath, openDaemonRequestLog } from "../src/daemon-host/request-log.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = { principal: { personId: "person-observer" }, executor: null };
 const binding = withPolicyGroup({ actor, source: "local" }, "admin");
@@ -178,8 +179,8 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -261,8 +262,8 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
     assert.doesNotThrow(() => parseDaemonReadResult("observe.tail", afterRetention));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -303,8 +304,8 @@ test("observe.tail opens a 5000-line JSONL source at the latest page and pages b
     assert.equal(seen.at(-1).seq, 5_000);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -416,8 +417,8 @@ test("observe.tail replays persisted ZCode transcript records", async () => {
       ],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -499,8 +500,8 @@ test("observe.tail replays persisted ACP transcript records and drops bookkeepin
       ],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -567,8 +568,8 @@ test("observe.tail reads the lifecycle sink while the daemon's raw stdio stays o
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -675,8 +676,8 @@ test("observe.tail respects scan budget on large JSONL files and pages backward 
     assert.equal(allItems.at(-1).seq, 20_000);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(userRoot);
   }
 });
 

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtim
 import { openDaemonRuntimePorts } from "../src/daemon-host/daemon-runtime-ports.ts";
 import { codedAs } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const agyArgumentBoundary = `
   const args = process.argv.slice(2);
@@ -92,7 +93,7 @@ test("subscription credential sources default to operator and isolate instance c
     assert.throws(() => lstatSync(instanceCredential), { code: "ENOENT" });
     assert.equal(readFileSync(operatorCredential, "utf8"), "test-operator-credential");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -164,7 +165,7 @@ test("switching an enforced operator account to instance credentials detaches sh
     assert.equal(store.runtimeProviderHealth.get("agy-transition").failureStreak, 0);
     assert.equal(store.listPublic()[0]?.authReadiness.code, "runtime_auth_not_checked");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -196,7 +197,7 @@ test("account login for a direct provider uses the instance-bound installation",
     });
     assert.equal(store.prepareAuthCommand("codex-bound", "login").executablePath, second.executablePath);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -268,7 +269,7 @@ test("AGY login, catalog and quota probes, and launch use the same bound install
         .every(({ home }) => home !== boundHome && existsSync(home) === false),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -304,7 +305,7 @@ test("ACP credential-command account login fails closed when its CLI witness is 
       (error: unknown) => codedAs(error, "runtime_installation_ambiguous"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -354,7 +355,7 @@ test("a delayed AGY quota result cannot update health after the account cut chan
     assert.equal(store.listPublic()[0]?.authReadiness.code, "runtime_auth_not_checked");
   } finally {
     writeFileSync(quotaRelease, "release");
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -414,7 +415,7 @@ test("a delayed launch model probe cannot publish readiness or return an old acc
     assert.equal(store.list()[0]?.installationId, second.installationId);
   } finally {
     writeFileSync(modelProbeRelease, "release");
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -495,8 +496,8 @@ test("cold reads reject duplicate legacy operator subscriptions while valid disa
     });
     assert.equal(valid.list().length, 2);
   } finally {
-    rmSync(duplicateRoot, { recursive: true, force: true });
-    rmSync(validRoot, { recursive: true, force: true });
+    removeTempRepository(duplicateRoot);
+    removeTempRepository(validRoot);
   }
 });
 
@@ -655,7 +656,7 @@ test("AGY account probes persist separate model catalogs and quota cooldowns per
       assert.equal(sshConnection, "127.0.0.1 0 127.0.0.1 22");
     }
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

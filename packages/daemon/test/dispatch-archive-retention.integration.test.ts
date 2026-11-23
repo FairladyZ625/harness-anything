@@ -4,7 +4,7 @@
 import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { dispatchStreamPath, openDispatchStream } from "../src/daemon-host/dispa
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
 
@@ -93,7 +94,7 @@ test("opening a repository prunes archived dispatch streams past the default 60-
     assert.equal(existsSync(liveFile), true, "a still-live stream is never touched");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -143,6 +144,6 @@ test("a Fact archived before attach still protects the expired stream its eviden
     assert.equal(existsSync(protectedStream), true, "an archived Fact's evidence still holds its stream back");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

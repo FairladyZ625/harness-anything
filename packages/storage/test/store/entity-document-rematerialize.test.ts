@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { compileEntityDocumentRematerialization } from "@harness-anything/kernel
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "entity-document-rematerialize",
   writerFence = () => ({ repoId, holderId: "rematerialize-writer", epoch: 1 }),
@@ -90,6 +91,6 @@ test("rematerialized document claims land on disk, project, and survive cold rep
       assert.deepEqual(event.payload.entityRefs, ["decision/dec_REMAT", "fact/F-00000001"]);
   } finally {
     await replayStore.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

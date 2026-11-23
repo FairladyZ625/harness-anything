@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { presetDocumentBody } from "../src/preset-runtime.ts";
 import { createRuntime } from "../src/preset-runtime.ts";
 import { waitFor } from "./preset-process-service.fixtures.ts";
 import { write, writePackage } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const verticalId = "science/experiment";
 const capability = { id: "completion-witness", kind: "checker", version: "1" };
@@ -96,7 +97,7 @@ function fixture() {
     userRoot,
     action,
     create,
-    cleanup: () => rmSync(rootDir, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(rootDir),
   };
 }
 
@@ -313,7 +314,7 @@ test("upgrade compatibility: pre-existing local office/collab vertical shadows b
       code: "duplicate_vertical",
     });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

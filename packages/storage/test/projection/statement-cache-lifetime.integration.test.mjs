@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setImmediate } from "node:timers/promises";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -15,6 +15,7 @@ import {
   withDatabase,
   withQueryOnlyDatabaseSession,
 } from "../../src/projection/rebuildable-task-projection-database.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 async function retainedDatabases() {
   // Statements first release native owner references; a later GC collects their database wrappers.
@@ -49,7 +50,7 @@ test("a live projection connection reuses its prepared statement across garbage 
     assert.equal(preparations, 1, "GC must not add prepare work to a live connection");
   } finally {
     closeQueryOnlyReader(file);
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -86,7 +87,7 @@ for (const kind of ["query-only", "writer"]) {
     } finally {
       closeQueryOnlyReader(file);
       closeDatabase(file, readHead);
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   });
 }

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -18,6 +18,7 @@ import {
   sweepUntilProvenStopped,
   type ProcessGroupReconcilerDeps,
 } from "../src/daemon-host/runtime/process-group-reconciler.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function scripted(
   signals: Array<{ signal: NodeJS.Signals | 0; error?: string }>,
@@ -145,7 +146,7 @@ test("Windows legacy recovery persists one uptime witness and proves only an obs
     uptimeMs = 1_000;
     assert.equal(reconcileProcessGroup(identity, deps), "proven_stopped");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -173,7 +174,7 @@ test("Windows binds the containment witness to the exact runtime root", () => {
     assert.equal(probeProcessGroup({ pid: 43, dispatch: { rootDir, dispatchId } }, deps), "unknown_unreachable");
     assert.equal(probeProcessGroup({ pid: 42, dispatch: { rootDir, dispatchId } }, deps), "proven_stopped");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -246,6 +247,6 @@ test("observeRecordedProcessGroup trusts Windows containment stop proof and othe
     assert.equal(observeRecordedProcessGroup({ pgid: 42 }, scripted([{ signal: 0, error: "EPERM" }])), "running");
     assert.equal(observeRecordedProcessGroup(1, scripted([])), "unknown_unreachable");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

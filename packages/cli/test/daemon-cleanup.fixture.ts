@@ -46,3 +46,13 @@ export function ownDaemonFixture(
   if (context) context.after(cleanup);
   else after(cleanup);
 }
+
+/** Block synchronously until a stopped fixture daemon has exited before removing its files on Windows. */
+export function waitForDaemonProcessExitSync(pid: number, timeoutMs = 10_000): void {
+  const deadline = Date.now() + timeoutMs;
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+  while (daemonProcessAlive(pid)) {
+    assert.ok(Date.now() < deadline, `fixture daemon ${pid} did not exit within ${timeoutMs}ms`);
+    Atomics.wait(waitBuffer, 0, 0, 20);
+  }
+}

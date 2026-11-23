@@ -2,7 +2,7 @@
 import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import type { RuntimeStreamCursor } from "../src/daemon-host/protocol/stream-con
 import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { createInterface } from "node:readline";
 import { makeAgentRuntimeStreamHub, runtimeCursor } from "./fixtures/runtime-stream.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "a hub shutdown sends a retryable end and resumes the applied cursor on its successor",
@@ -103,7 +104,7 @@ test(
       first.close();
       successor.close();
       await transport.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -168,7 +169,7 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
       server.close();
     }
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -204,6 +205,6 @@ test("a new stream client never sends attach to a 1.0 resident", async () => {
     assert.deepEqual(methods, ["protocol.hello"]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

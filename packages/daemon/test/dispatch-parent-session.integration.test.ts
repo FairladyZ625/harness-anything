@@ -3,7 +3,7 @@ import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/e
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const bindingSessionId = "runtime_89abcdef0123456789abcdef",
   personBinding = withPolicyGroup(
@@ -92,7 +93,7 @@ test(
       assert.equal(stream.header.parentRuntimeSessionId, bindingSessionId);
     } finally {
       await cell.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -231,7 +232,7 @@ test(
       );
     } finally {
       await cell.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

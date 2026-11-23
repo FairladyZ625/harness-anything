@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import { verifyFleetHuman, verifyFleetReplica } from "@harness-anything/authorization/keycloak/oidc-fleet-principal";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const claims = {
   active: true,
@@ -174,7 +175,7 @@ test("OidcSessionService binds a machine token through the fake Keycloak authori
     served = await serveKeycloak();
   t.after(async () => {
     await served.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   served.bind(root);
   served.keycloak.account("person-a");
@@ -189,7 +190,7 @@ test("OidcSessionService binds a machine token through the fake Keycloak authori
 
 test("the center's local session never supplies a missing edge human credential", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-session-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.join(root, "rbac"));
   writeFileSync(
     path.join(root, "rbac/config.json"),

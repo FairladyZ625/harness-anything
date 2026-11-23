@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -32,6 +32,7 @@ import { clientLocalCommands } from "../src/cli/thin-command-help.ts";
 import { projectRuntimeSpawnRpcPayload } from "../src/cli/thin-command-runtime.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("permission request CLI parses self-request inputs and directs decisions to the GUI", () => {
   const parsed = parseThinCommand([
@@ -1047,7 +1048,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
     );
     assert.equal(replayOutput, "reused task task-one for the supplied idempotency key");
   } finally {
-    rmSync(receiptRoot, { recursive: true, force: true });
+    removeTempRepository(receiptRoot);
   }
 });
 
@@ -1398,7 +1399,7 @@ test("thin parser exposes task push as a task-bound daemon action", () => {
 test("task push parses workspace-relative body files without reading them", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-push-body-")),
     other = path.join(root, "other");
-  context.after(() => rmSync(root, { recursive: true, force: true }));
+  context.after(() => removeTempRepository(root));
   mkdirSync(other, { recursive: true });
   const file = path.join(other, "body.md"),
     body = "# Repo convention\n\nLiteral `$()` and Unicode 交付.\n";

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-accept
 import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function assertValidWriteReceipt(value: unknown): void {
   assert.equal(typeof value, "object");
@@ -104,6 +105,6 @@ test("RepoCell accepts in SQLite before independently verified Git and worktree 
     assert.equal(existsSync(path.join(rootDir, "harness/events/head.json")), false);
   } finally {
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

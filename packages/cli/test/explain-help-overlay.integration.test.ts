@@ -3,15 +3,18 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
+import { readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForDaemonProcessExitSync } from "./daemon-cleanup.fixture.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -146,8 +149,8 @@ for (let repetition = 1; repetition <= repetitions; repetition += 1) {
           [],
         );
       } finally {
-        if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
-        rmSync(parent, { recursive: true, force: true });
+        stopDaemon(root, userRoot);
+        removeTempRepository(parent);
       }
     },
   );
@@ -210,8 +213,8 @@ test("ha explain reports submit availability for the same actor that can submit"
     assert.equal(submitted.value.outcome, "applied", JSON.stringify(submitted.value));
     assert.equal(submit?.available, true, JSON.stringify(submit));
   } finally {
-    if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
+    stopDaemon(root, userRoot);
+    removeTempRepository(parent);
   }
 });
 
@@ -288,6 +291,14 @@ function initialize(root: string): void {
   git(root, "commit", "--quiet", "-m", "fixture");
 }
 
+function stopDaemon(root: string, userRoot: string): void {
+  if (!existsSync(userRoot)) return;
+  const pid = readDaemonPid(userRoot, repoId);
+  if (pid === null) return;
+  runText(root, userRoot, ["daemon", "stop", "--daemon-id", repoId]);
+  waitForDaemonProcessExitSync(pid);
+}
+
 function startDaemon(root: string, userRoot: string): void {
   const started = runJson(root, userRoot, ["daemon", "start", "--service"]);
   if (started.status === 0) return;
@@ -344,7 +355,7 @@ function runText(
   } finally {
     closeSync(stdoutFd);
     closeSync(stderrFd);
-    rmSync(output, { recursive: true, force: true });
+    removeTempRepository(output);
   }
 }
 

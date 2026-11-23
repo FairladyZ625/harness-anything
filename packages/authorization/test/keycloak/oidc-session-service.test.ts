@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { OidcSessionService } from "../../src/keycloak/oidc-session-service.ts";
 import type { OidcLoginAuthority, OidcSessionPorts } from "@harness-anything/kernel";
 import type { KeycloakEdgeLogin, KeycloakSessionHost } from "../../src/keycloak/session-host.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 interface RefreshRequest {
   readonly clientId: string | null;
@@ -33,7 +34,7 @@ test("center discovery publishes the TLS name and browser login route", (t) => {
       },
     }),
   );
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const authority = new OidcSessionService(root, {} as KeycloakSessionHost).discovery("node-a");
   assert.deepEqual(authority, {
@@ -67,7 +68,7 @@ function renewalFixture(
     requests: RefreshRequest[] = [];
   mkdirSync(root, { recursive: true });
   writeFileSync(path.join(root, "fleet-edge.json"), JSON.stringify(edge));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   let stored: string | undefined = JSON.stringify({
     schema: "harness-oidc-session/v3",

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { readHomeOverview } from "../src/daemon-host/home/home-overview-read.ts";
@@ -10,6 +10,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonHostRegistryContext } from "../src/daemon-host/daemon-host-open.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 import type { RepoCell, RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function createRepoRow(
   repoId: string,
@@ -251,7 +252,7 @@ test("home overview: aggregates repos, calculates 3 numbers, top matters and han
     assert.equal(disabledOverview.registrationState, "disabled");
   } finally {
     try {
-      rmSync(tempUserRoot, { recursive: true, force: true });
+      removeTempRepository(tempUserRoot);
     } catch (error) {
       consumeKnownError(error);
     }
@@ -299,7 +300,7 @@ test("home overview: timeout gracefully degrades slow repo without blocking othe
     );
   } finally {
     try {
-      rmSync(tempUserRoot, { recursive: true, force: true });
+      removeTempRepository(tempUserRoot);
     } catch (error) {
       consumeKnownError(error);
     }

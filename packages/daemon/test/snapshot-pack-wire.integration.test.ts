@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,6 +26,7 @@ import {
 } from "../src/fleet-sync/fleet/protocol.ts";
 import { runWalReceiver, type ReplicationTarget } from "../src/daemon-host/fleet/walreceiver.ts";
 import { runWalSender, type ReplicationSource } from "../src/daemon-host/fleet/walsender.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function createWirePeerPair(
   options: {
@@ -119,7 +120,7 @@ function makeTestArchive(dir: string, sizeBytes: number) {
 
 test("snapshot-binary-wire/v1 streams 256 KiB binary frames with zero base64 overhead and supports offset resume", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-bin-wire-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_BINARY_CHUNK_BYTES * 2 + 777);
   const snapshotId = "snap-bin-001";
@@ -255,7 +256,7 @@ test("snapshot-binary-wire/v1 streams 256 KiB binary frames with zero base64 ove
 
 test("legacy edge without Phase 3 capabilities receives JSON base64 replica.data and monolithic backup", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-legacy-compat-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_CHUNK_BYTES + 500);
   const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
@@ -323,7 +324,7 @@ test("legacy edge without Phase 3 capabilities receives JSON base64 replica.data
 
 test("snapshot-object-pack/v1 deduplicates existing local objects and streams missing objects in packs", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-obj-pack-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const obj1 = Buffer.from("already-present-object-content-1");
   const sha1 = createHash("sha256").update(obj1).digest("hex");

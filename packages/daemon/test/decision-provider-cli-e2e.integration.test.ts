@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -14,6 +14,7 @@ import {
   createUnixSocketTransportServer,
   openDaemonHost,
 } from "../src/daemon-host/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function createMemoryVault(): CredentialPort {
   const store = new Map<string, string>();
@@ -134,7 +135,7 @@ test("HA10-06: real CLI provider create/probe flows through isolated daemon RPC 
       server.close(() => resolve());
       server.closeAllConnections();
     });
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
 
   const cliEnv: NodeJS.ProcessEnv = {

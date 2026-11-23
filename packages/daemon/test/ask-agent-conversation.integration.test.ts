@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, watch } from "node:fs";
+import { mkdirSync, mkdtempSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 
 import { grantTestPolicyGroups, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The ask-agent conversation slice: an unbound read-only agent dispatch carries an allowlist
 // execution credential, later rounds resume the same provider session, and the caller keeps
@@ -39,7 +40,7 @@ test(
       };
     const launchRequests: { readonly prompt: string; readonly providerSessionId: string | undefined }[] = [],
       launchCredentials: readonly (string | undefined)[] = [];
-    t.after(() => rmSync(parent, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(parent));
     mkdirSync(root, { recursive: true });
     for (const args of [
       ["init", "-q"],

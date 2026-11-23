@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { reduceTaskEvent, type TaskEventV1, type FrozenGateRequirement } from "@harness-anything/kernel";
@@ -11,6 +11,7 @@ import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures
 import type { RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
 import type { RepoCellBinding } from "../src/daemon-host/repo-cell-types.ts";
 import { centerWitnessAction, runTaskWitnessAction } from "@harness-anything/application/commands";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const requirement: FrozenGateRequirement = {
   gateId: "lint",
@@ -25,7 +26,7 @@ const requirement: FrozenGateRequirement = {
 function fixture(t: TestContext) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-witness-binding-"));
   const now = "2026-10-18T00:00:00.000Z";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: rootDir, encoding: "utf8" }).trim();
   git("init", "-q");
   git("config", "user.name", "Witness Binding Fixture");

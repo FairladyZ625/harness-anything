@@ -1,13 +1,14 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { INITIAL_SETTINGS_V1, resolveCompletionContract } from "@harness-anything/kernel";
 import { createRuntime, validatePresetPackage, validateVerticalSource } from "../src/preset-resolver.ts";
 import { defaultAssets, defaultBundled } from "../src/preset-resolver-common.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("software/coding vertical and standard-task verified profile pass validation and preserve baseline", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-verified-preset-contract-"));
@@ -75,7 +76,7 @@ test("software/coding vertical and standard-task verified profile pass validatio
     assert.match(presetDoc, /--profile verified/u);
     assert.match(presetDoc, /artifacts\/verification-receipt\.json/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -335,6 +336,6 @@ test("verify-receipt script rejects missing, archive-only, malformed, and invali
       "pass",
     );
   } finally {
-    rmSync(sandbox, { recursive: true, force: true });
+    removeTempRepository(sandbox);
   }
 });

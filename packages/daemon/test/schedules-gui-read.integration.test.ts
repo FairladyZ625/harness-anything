@@ -5,7 +5,7 @@ import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import {
 import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/daemon-host/protocol/schedules-contract.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = withPolicyGroup(
   { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
@@ -336,7 +337,7 @@ test(
         await cell.close();
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -431,7 +432,7 @@ test(
     } finally {
       await host?.close();
       await owners?.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

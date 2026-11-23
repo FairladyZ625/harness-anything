@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { createCanonicalPresetResolver, installPresetPackage } from "../src/index.ts";
 import { decodePresetPackageV3, presetDocumentBody } from "../src/preset-resolver.ts";
 
 import { makeFixture, write, writePackage } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 test("canonical resolver decodes one complete bundled package into a content-addressed snapshot", async () => {
   const fixture = makeFixture();
   try {
@@ -586,12 +587,7 @@ test("a symbolic-link active inventory root fails closed", async () => {
     outsideActive = path.join(path.dirname(fixture.userRoot), "outside-active");
   try {
     mkdirSync(outsideActive, { recursive: true });
-    rmSync(path.join(fixture.userRoot, "active"), {
-      recursive: true,
-      force: true,
-      maxRetries: 5,
-      retryDelay: 20,
-    });
+    removeTempRepository(path.join(fixture.userRoot, "active"));
     symlinkSync(
       outsideActive,
       path.join(fixture.userRoot, "active"),

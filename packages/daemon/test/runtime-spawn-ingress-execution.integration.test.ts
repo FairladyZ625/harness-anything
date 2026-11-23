@@ -4,7 +4,7 @@ import { seedBuiltinSchedules } from "../src/daemon-host/schedule-builtin-execut
 import { signInPolicyTestUser, withPolicyGroup, policyTestDeviceToken } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { createRealizedTaskPlanFixture, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { definition, installation, initIngressRepo, rpc, spawnCli } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("daemon ingress preserves executor-scoped task-bound runtime execution", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-spawn-ingress-")),
@@ -656,7 +657,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       // return scenario publishes a second cut through that same worktree; remove the seed before
       // later subtests create independent tasks so their publication wait is not held by the
       // intentionally unrelated untracked directory.
-      rmSync(path.join(workerRoot, "packages"), { recursive: true, force: true });
+      removeTempRepository(path.join(workerRoot, "packages"));
     });
     await t.test("an owner return continues the review it returned, not the entity-id-last verdict", async () => {
       const taskId = "task-runtime-owner-return-order",
@@ -1611,6 +1612,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
   } finally {
     await transport.stop();
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

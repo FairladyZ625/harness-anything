@@ -2,7 +2,7 @@
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { withPolicyGroup, revokeTestPolicyGroup } from "./keycloak-policy.fixtur
 import { readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "default host proxy ends an already parked wait and refuses attach after archive authorization is revoked",
@@ -218,7 +219,7 @@ test(
     } finally {
       writeFileSync(release, "exit");
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

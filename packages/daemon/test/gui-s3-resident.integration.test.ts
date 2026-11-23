@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import net from "node:net";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { streamDaemonFacetAt } from "../src/daemon-host/client/local-json-rpc-stream.ts";
@@ -23,6 +23,7 @@ import { createUnixSocketTransportServer } from "../src/daemon-host/transport/un
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { appendRuntimeWorkerRecord } from "../src/daemon-host/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "a caller that names a response deadline gets a classified failure instead of an open-ended silent socket",
@@ -61,7 +62,7 @@ test(
       );
     } finally {
       server.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -90,7 +91,7 @@ test(
       );
     } finally {
       server.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -389,7 +390,7 @@ test(
       await transport.stop();
       await host.close();
       await locked.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

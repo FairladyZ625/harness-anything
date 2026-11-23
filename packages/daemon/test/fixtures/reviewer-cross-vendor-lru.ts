@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader } from "@harness-anything/storage";
@@ -18,6 +18,7 @@ import {
 } from "../keycloak-policy.fixtures.ts";
 import { acceptedWorkDecision, openBootstrappedRepoCell, waitForFixturePublication } from "../repo-settings.fixture.ts";
 import { fixtureRuntimeProcess } from "./runtime-process.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const REWORK_REVIEWER_PERSON = "cross-vendor-rework-reviewer";
 
@@ -134,10 +135,7 @@ export async function createMultiVendorHarness() {
       endpoint: path.join(root, "user.sock"),
     },
     reclaimRuntimeTempDirectory: (instanceId, runtimeSessionId) => {
-      rmSync(path.join(root, "user", "runtime-instances", instanceId, "tmp", runtimeSessionId), {
-        recursive: true,
-        force: true,
-      });
+      removeTempRepository(path.join(root, "user", "runtime-instances", instanceId, "tmp", runtimeSessionId));
       return null;
     },
     runtimeInstances: () => [
@@ -487,7 +485,7 @@ export async function createMultiVendorHarness() {
           policyTestRealm.keycloak.nodeClients.delete(`harness-execution-${event.payload.dispatchId}`);
       }
       await eventsReader?.drain();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

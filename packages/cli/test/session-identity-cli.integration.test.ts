@@ -3,12 +3,13 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -185,7 +186,7 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
     assert.deepEqual(mixed.createdBy, { principal: { personId: "owner" }, executor: null });
   } finally {
     stop(fixture);
-    rmSync(fixture.parent, { recursive: true, force: true });
+    removeTempRepository(fixture.parent);
   }
 });
 

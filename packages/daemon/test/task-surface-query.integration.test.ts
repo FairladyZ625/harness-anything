@@ -11,6 +11,7 @@ import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/stora
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("wide task reads keep byte-identical unparameterized results and serve narrow pages through the cell", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-query-real-"));
@@ -450,7 +451,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -551,7 +552,7 @@ test("fact surface serves controlled types, GUI vocabulary, reclassify, and show
     assert.deepEqual((reclassified.fact as { domainTypes: string[] }).domainTypes, ["architecture", "custom-3"]);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -822,7 +823,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     replay.close();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -985,7 +986,7 @@ test("a lapsed lease stays readable through task show and releasable through tas
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1108,7 +1109,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
     replay.close();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1139,6 +1140,6 @@ test("read commands report projection readiness instead of asserting canonical v
     assert.match(String((listed as Record<string, unknown>).summary), /status=ready/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

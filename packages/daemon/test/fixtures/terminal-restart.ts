@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { waitForArrival, watchDirectoryArrival } from "../../../../tools/fixtures/event-arrival.ts";
@@ -11,6 +11,7 @@ import { startDaemon } from "../../src/daemon-host/runtime.ts";
 import { openTerminalHost } from "../../src/daemon-host/terminal-host.ts";
 import { createWriterRequestQueue } from "../../src/daemon-host/writer-request-queue.ts";
 import { rosterRepo } from "../daemon-host-recovery.fixture.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 export { fetch as daemonFixtureFetch } from "undici";
 
@@ -180,7 +181,7 @@ export async function startTerminalRestartFixture(repoId: string) {
         try {
           await active.stop();
         } finally {
-          rmSync(parent, { recursive: true, force: true });
+          removeTempRepository(parent);
         }
       }
     },

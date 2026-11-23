@@ -11,6 +11,7 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "GUI reads bind the configured node view and doc previews bind each edge workspace while offline",
@@ -93,7 +94,7 @@ test(
         }
       }
       // A node whose own view is gone answers unavailable; it never falls back to another node's view.
-      rmSync(locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!.viewDir, { recursive: true, force: true });
+      removeTempRepository(locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!.viewDir);
       await assert.rejects(read(a), { code: "replica_unavailable" });
       assert.equal((await read(b)).rows.length, 2);
       // Background replica retries run in their own async context while cold readers start.

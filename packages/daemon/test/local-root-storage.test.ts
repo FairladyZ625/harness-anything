@@ -52,6 +52,7 @@ import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.t
 import { admitHandoffDispatch, runRuntimeHandoffAction } from "../src/daemon-host/runtime-handoff-store.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dirLinkType = process.platform === "win32" ? "junction" : "dir";
 
@@ -62,7 +63,7 @@ function createTestRepo(prefix: string): { readonly rootDir: string; readonly cl
     path.join(rootDir, "harness", "harness.yaml"),
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  return { rootDir, cleanup: () => rmSync(rootDir, { recursive: true, force: true }) };
+  return { rootDir, cleanup: () => removeTempRepository(rootDir) };
 }
 
 function writeDummyFile(target: string, bytes: number): void {
@@ -861,7 +862,7 @@ test("F4 regression: root and intermediate directory symlinks never traverse or 
     writeDummyFile(path.join(external.rootDir, ".harness", "requests", "requests.jsonl"), 256);
 
     // 1. Root localRoot (.harness) is itself a symlink to external/.harness
-    rmSync(path.join(rootSymRepo.rootDir, ".harness"), { recursive: true, force: true });
+    removeTempRepository(path.join(rootSymRepo.rootDir, ".harness"));
     symlinkSync(path.join(external.rootDir, ".harness"), path.join(rootSymRepo.rootDir, ".harness"), dirLinkType);
 
     // 2. Intermediate directories under midSymRepo/.harness are symlinks to external/.harness/*

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { openDecisionAnnotationStore } from "../src/daemon-host/decision-annotat
 import { openDecisionPointExecutor } from "../src/daemon-host/decision-point-executor.ts";
 import { openDecisionProviderService } from "../src/daemon-host/decision-provider.ts";
 import type { RepoCell } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_live_smoke_20261019",
   pointId = "dispatch-stop-reason",
@@ -32,7 +33,7 @@ test(
     assert.ok(decisions && point && question, "software-coding vertical must declare the smoke point and question");
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-point-live-smoke-")),
       credentials = new Map<string, string>();
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     let referenceNumber = 0;
     const vault: CredentialPort = {
       issue: () => `credential:v1:decision-smoke-${++referenceNumber}`,

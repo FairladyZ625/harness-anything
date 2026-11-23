@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { serializeFleetAction } from "../src/daemon/fleet-payload-serializer.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const command = (rootDir: string, action: Record<string, unknown>) =>
   ({
@@ -16,7 +17,7 @@ const command = (rootDir: string, action: Record<string, unknown>) =>
 
 test("the declaration serializer sends file contents and rejects undeclared JSON fields", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-serializer-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   writeFileSync(
     path.join(root, "proposal.json"),
     JSON.stringify({
@@ -83,7 +84,7 @@ test("the declaration serializer sends file contents and rejects undeclared JSON
 
 test("a contract-omitted planFile leaves the fleet action and only the plan body crosses", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-plan-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   writeFileSync(path.join(root, "plan.md"), "# Edge plan\n\n## Brief\n\nAuthored on the edge.\n");
   const action = serializeFleetAction(
     command(root, { kind: "task-create", title: "Edge authored plan", planFile: "plan.md" }),
@@ -94,7 +95,7 @@ test("a contract-omitted planFile leaves the fleet action and only the plan body
 
 test("line-list declarations become content arrays and missing packet fields fail closed", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-lines-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   writeFileSync(path.join(root, "ids.txt"), "# local note\nF-0001\n\nF-0002\n");
   const action = serializeFleetAction(command(root, { kind: "fact-archive", idsFile: "ids.txt", reason: "Finished." }));
   assert.deepEqual(action.factIds, ["F-0001", "F-0002"]);
@@ -107,7 +108,7 @@ test("line-list declarations become content arrays and missing packet fields fai
 
 test("ordinary required declarations fail before a Fleet action is emitted", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-required-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.throws(
     () => serializeFleetAction(command(root, { kind: "task-progress-append", taskId: "task-one" })),
     (error: unknown) => (error as { readonly code?: string }).code === "invalid_field",
@@ -140,8 +141,8 @@ test(
     const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-symlink-"));
     const outside = mkdtempSync(path.join(tmpdir(), "fleet-payload-outside-"));
     t.after(() => {
-      rmSync(root, { recursive: true, force: true });
-      rmSync(outside, { recursive: true, force: true });
+      removeTempRepository(root);
+      removeTempRepository(outside);
     });
     writeFileSync(
       path.join(outside, "proposal.json"),
@@ -166,7 +167,7 @@ test(
 
 test("decision JSON arrays obey the same shape and row bound as center admission", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "fleet-payload-wire-rows-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const base = {
     title: "Edge proposal",
     question: "Which writer?",

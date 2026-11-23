@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/daemon-host/agent-runtime-instances.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const installation: RuntimeInstallationWitness = {
   installationId: "codex-github-worker-installation",
@@ -172,7 +173,7 @@ test("hosting credentials stay daemon-side and only configured provider reaches 
         /credential:v1:gitlab-worker|githubCredentialRef|hostingCredentialRefs/u,
       );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -290,7 +291,7 @@ test("scoped refs isolate repositories and providers, rotate immediately and per
       /must be an object/u,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

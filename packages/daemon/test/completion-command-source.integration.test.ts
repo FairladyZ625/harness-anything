@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, cpSync, readFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,6 +21,7 @@ import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { researchPackage } from "./completion-command-source.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("declared command checks submitted CSV/PNG/JSON without code: seed red, amended seed green, cold replay retains both runs", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-command-")),
@@ -250,7 +251,7 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     assert.equal(currentGateRun(final.payload.execution, "version-pinned")?.result, "pass");
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -417,6 +418,6 @@ predicate: metadata, diagnostic: "Seed verified"}}]}));`;
     releaseHeldRun?.();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

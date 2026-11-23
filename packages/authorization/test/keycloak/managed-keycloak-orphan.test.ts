@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ManagedRbacHost } from "../../src/keycloak/managed-host.ts";
 import { stopManagedKeycloakOrphan } from "../../src/keycloak/managed-keycloak-orphan.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function windowsOrphanHost(input: {
   readonly java: string;
@@ -48,7 +49,7 @@ test("Windows orphan reclamation resolves kc.bat /bin/.. home properties while r
     quarkusJar = path.join(keycloakHome, "lib", "quarkus-run.jar"),
     taskkillCalls: string[][] = [],
     listeners = new Set<number>([732]);
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(path.dirname(java), { recursive: true });
   mkdirSync(keycloakHome, { recursive: true });
   mkdirSync(keycloakToolsHome, { recursive: true });

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForArrival, watchDirectoryArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Explicit submission settles an eligible authored edit and status highlights blocked candidates", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-doc-sync-"));
@@ -42,7 +43,7 @@ test("Explicit submission settles an eligible authored edit and status highlight
     await cell.close();
     assert.equal(git(rootDir, "diff", "--name-only"), "harness/harness.yaml");
     assert.match(git(rootDir, "status", "--porcelain", "--", "harness/harness.yaml"), /^M harness\/harness\.yaml$/mu);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -78,7 +79,7 @@ test("doc status stays clean while the git outbox publication is still pending",
     assert.equal(git(rootDir, "show", "HEAD:harness/context/window.md"), "# Settled before the outbox");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -135,7 +136,7 @@ test("Explicit submission keeps forbidden and unresolved candidates out of an el
     assert.equal(readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8"), "schema: hand-edited\n");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -170,7 +171,7 @@ test("a repeated authored write target settles to the latest accepted claim", as
       assert.equal(events.at(-1).payload.changes[0]?.candidate?.sha256, sha256Text(latestBody));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -205,7 +206,7 @@ test("closing drains an explicitly submitted authored document", async () => {
     assert.equal(git(rootDir, "diff", "--name-only"), "");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

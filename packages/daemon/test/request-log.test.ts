@@ -8,7 +8,6 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -40,10 +39,11 @@ import {
   type DaemonRequestLogEntry,
   type DaemonRequestLogRecord,
 } from "../src/daemon-host/request-log.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function tempRoot(t: TestContext): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "harness-request-log-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return root;
 }
 

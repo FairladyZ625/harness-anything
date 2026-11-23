@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -29,6 +29,7 @@ import {
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const method = "repo.task.witness.run";
 const script = `import {readFileSync} from 'node:fs';
@@ -263,6 +264,6 @@ test("real host RPC runs only the declared gate, rejects forged results and unau
     await host.close();
     console.log("WITNESS_RPC_SETUP=closed-host");
     await reader.drain();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

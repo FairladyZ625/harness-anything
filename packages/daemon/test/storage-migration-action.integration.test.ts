@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { initRepo } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { makeTaskEventStore } from "@harness-anything/storage";
 import { openSqliteEventStore } from "../../storage/src/store/sqlite-event-store.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("storage migration is authorized at the current cut before opening locations and runs through the writer", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-migrate-action-")),
@@ -66,6 +67,6 @@ test("storage migration is authorized at the current cut before opening location
     await freshWriter.drain();
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

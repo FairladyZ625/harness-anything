@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -13,6 +13,7 @@ import {
   restateLegacyTaskEvents,
   restateTaskContractBody,
 } from "../src/daemon-host/migration-import-task-restatement.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Fragment from migration-import-oracle.test.ts. Block-scoped so its `actor` fixture stays separate
 // from the task-restatement fragment below.
@@ -46,7 +47,7 @@ import {
           /Rebuilt projection watermark 0.*head 7/u.test(error.message),
       );
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -144,7 +145,7 @@ import {
         sourceDatabase.close();
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -159,7 +160,7 @@ import {
       assert.equal(oracle.eventHeadRevision, null);
       assert.equal(oracle.formatObservations.length, 0);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 
@@ -280,7 +281,7 @@ import {
       assert.equal(contract.packagePath, "tasks/task-new-migrated-task");
       assert.equal(contract.presetSnapshotDigest, digest);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -307,7 +308,7 @@ import {
       assert.equal(restated.presetSnapshotDigest, digest);
       assert.equal(contract.presetSnapshotDigest, digest);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -328,7 +329,7 @@ import {
         restated.presetSnapshotDigest,
       );
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -347,7 +348,7 @@ import {
         /cannot derive presetSnapshotDigest from task contract metadata/u,
       );
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -380,7 +381,7 @@ import {
       assert.equal(contract.taskClass, "standard");
       assert.equal(contract.presetSnapshotDigest, restated.presetSnapshotDigest);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -406,7 +407,7 @@ import {
       assert.equal(restated.repair?.disposition, "retired-preset-to-standard-task");
       assert.equal(restated.repair?.presetId, "standard-task");
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -438,7 +439,7 @@ import {
       assert.equal(contract.presetId, "create-work");
       assert.equal(contract.taskClass, "work");
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -461,7 +462,7 @@ import {
         /cannot derive presetSnapshotDigest from task contract metadata/u,
       );
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -500,7 +501,7 @@ import {
       assert.equal(conflict.repair?.disposition, "renamed-preset");
       assert.equal(conflict.repair?.taskClass, "work");
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -533,7 +534,7 @@ import {
       assert.equal(contract.presetId, "standard-task");
       assert.equal(contract.documents[0]?.path, "closeout.md");
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 

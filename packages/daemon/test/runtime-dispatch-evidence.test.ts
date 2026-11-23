@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { zstdCompressSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ import test from "node:test";
 import { dispatchForensicsRequired } from "../src/daemon-host/dispatch-evidence-state.ts";
 import { dispatchStreamPath, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { captureDispatchForensics, type DispatchForensicsInput } from "../src/daemon-host/runtime-dispatch-evidence.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_0123456789abcdef01234567",
   runtimeSessionId = "runtime-forensics",
@@ -133,7 +134,7 @@ test("an abnormal settlement snapshots the stream, provider rollout and correlat
     assert.deepEqual(trace.response.passthroughTurnIds, ["turn-passthrough"]);
     assert.deepEqual(trace.capture.providerRollout.truncated, false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -151,7 +152,7 @@ test("a normal success and an owner-ruling wait keep no evidence snapshot", () =
     assert.equal(dispatchForensicsRequired("failed", "awaiting_ruling"), true);
     assert.equal(dispatchForensicsRequired("cancelled", "worker_stop"), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -168,7 +169,7 @@ test("an explicit evidence marker captures an otherwise normal terminal", () => 
       ),
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -194,7 +195,7 @@ test("a deepseek-harness transcript keeps its native turn namespaced by provider
     assert.ok(trace.response.turnIds.includes(`deepseek-harness:${providerSessionId}:turn:1`));
     assert.deepEqual(trace.capture.providerRollout.truncated, false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -214,7 +215,7 @@ test("a high-ratio multi-frame deepseek transcript is bounded before it reaches 
     assert.ok(forensics!.providerRollout!.length <= 4 * 1024 * 1024 + 512);
     assert.match(forensics!.providerRollout!, /runtime-dispatch-evidence-truncated\/v1/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -260,7 +261,7 @@ test("a huge request prompt is truncated inside the request trace budget", () =>
     assert.equal(trace.request.promptBytes, Buffer.byteLength(prompt));
     assert.ok(Buffer.byteLength(forensics!.requestTrace) <= 512 * 1024);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -279,7 +280,7 @@ test("a truncated provider line still redacts Basic authorization before the evi
     assert.equal(forensics.stream.includes(basic), false, "the truncated line must not retain the Basic credential");
     assert.match(forensics.stream, /\[REDACTED\]/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -301,7 +302,7 @@ test("a large single-line provider record still redacts Basic authorization in t
     );
     assert.match(forensics.stream, /\[REDACTED\]/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -327,7 +328,7 @@ test("a 5 MiB single line whose tail starts inside Basic credentials publishes n
     assert.match(forensics.stream, /"truncated":true/u);
     assert.match(forensics.stream, /"kind":"dispatch-stream-snapshot"/u);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -365,6 +366,6 @@ test("a stream past the snapshot budget keeps both ends and records the truncati
     assert.match(forensics.stream, /runtime-dispatch-evidence-truncated\/v1/u);
     assert.match(forensics.stream, /tail marker/u, "the tail keeps the terminal provider record");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

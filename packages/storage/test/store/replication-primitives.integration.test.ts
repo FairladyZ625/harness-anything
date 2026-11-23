@@ -1,16 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { openReplicaStore } from "../../src/store/replica-store.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a restored replica recycles backup log rows without waiting for another commit", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-restored-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const repoId = "replication-test",
     databasePath = path.join(root, "center.sqlite"),
     replicaPath = path.join(root, "replica.sqlite"),
@@ -61,7 +62,7 @@ test("a restored replica recycles backup log rows without waiting for another co
 
 test("online backup preserves pinned ledger and projection snapshots while another connection commits", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-primitives-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const writers: DatabaseSync[] = [],
     readers: DatabaseSync[] = [];
   try {
@@ -108,7 +109,7 @@ test("online backup preserves pinned ledger and projection snapshots while anoth
 
 test("a rejected eventless commit advances replication and reaches a restored replica without changing event revision", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-outcome-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const repoId = "replication-test",
     databasePath = path.join(root, "center.sqlite"),
     replicaPath = path.join(root, "replica.sqlite"),
@@ -185,7 +186,7 @@ test("a rejected eventless commit advances replication and reaches a restored re
 
 test("replication pages obey a byte budget while one oversized commit remains indivisible", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-byte-page-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const repoId = "page-budget",
     center = openSqliteEventStore({ repoId, databasePath: path.join(root, "ledger.sqlite") }),
     fence = { repoId, holder: "center", epoch: 1 };
@@ -219,7 +220,7 @@ test("replication pages obey a byte budget while one oversized commit remains in
 
 test("streamed replica rows roll back the complete transaction on a late interval failure", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-rollback-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const repoId = "rollback",
     center = openSqliteEventStore({ repoId, databasePath: path.join(root, "center.sqlite") }),
     fence = { repoId, holder: "center", epoch: 1 };

@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { bindWriterGenerationToken, readSettingsFacet } from "@harness-anything/kernel";
 import { bootstrapRepo, resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "worktree-setup-init";
 const auth = {
@@ -41,7 +42,7 @@ test("init writes the node-modules setup for an npm workspaces repository and sa
         );
       else assert.doesNotMatch(receipt.summary, /worktree setup/u);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   }
 });

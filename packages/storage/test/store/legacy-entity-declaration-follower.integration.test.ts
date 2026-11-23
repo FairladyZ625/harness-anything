@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-e
 import { readCertifiedGitFollower } from "../../src/store/task-event-store-factory.ts";
 import { makeSqliteTaskEventStoreWithGitFollower as makeSqliteTaskEventStore } from "../../src/store/sqlite-git-outbox-publisher.ts";
 import { git, initRepo } from "./task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoId = "legacy-entity-declaration",
   fence = { repoId, holder: "legacy-import", epoch: 1 } as const;
@@ -44,7 +45,7 @@ test("an offline generation-1 conversion holding a pre-manifest entity declarati
     // history, so a ledger holding one has to stay readable — materializing it is how the repository opens.
     { ownedContent, ...legacyPayload } = current.event.payload,
     legacyEvent = { ...current.event, payload: legacyPayload } as unknown as CanonicalEventV1;
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   // The recovered manifest is the one the writer of that same claim recorded, not a fresh reading of today's
   // registry: a derived manifest that differed here would be describing a different event.

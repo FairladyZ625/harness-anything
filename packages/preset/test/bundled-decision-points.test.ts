@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { validatePresetSnapshotV1, type PresetSnapshotV1 } from "../src/preset.c
 import { loadCanonicalAssets } from "../src/preset-assets.ts";
 import { createCanonicalPresetResolver } from "../src/preset-resolver.ts";
 import { defaultAssets } from "../src/preset-resolver-common.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /** The point as it shipped before a ruling stop was a settled outcome (`stopped`). */
 const previousPoint: DecisionPointDeclaration = {
@@ -77,7 +78,7 @@ test("a repository that enables the point gets the new filter through the real r
       `resolved snapshot ${resolved.snapshot.digest} must classify a ruling stop`,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parseVerticalDeclarationDocument } from "@harness-anything/kernel/schemas";
 import { decodePresetPackageV3 } from "../src/preset-package.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const samples = new URL("../fixtures/completion-migration/", import.meta.url);
 const sample = (name: string) => readFileSync(new URL(`${name}.json`, samples), "utf8");
@@ -58,7 +59,7 @@ test("offline CLI converts the historical declaration without changing the sourc
     writeFileSync(source, "{");
     assert.equal(invoke("--source", source, "--mode", "dry-run").status, 1);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -93,7 +94,7 @@ test("offline CLI converts an installed profile that still overrides codeDoc", (
     );
     assert.equal(invoke("--source", destination, "--mode", "dry-run").receipt.changed, false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -111,6 +112,6 @@ test("offline CLI converts an old repository declaration that still stores codeD
     assert.deepEqual(JSON.parse(readFileSync(destination, "utf8")), JSON.parse(sample("repository-after")));
     assert.deepEqual(JSON.parse(readFileSync(source, "utf8")), historical);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

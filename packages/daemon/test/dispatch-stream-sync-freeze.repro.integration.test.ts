@@ -1,13 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const here = path.resolve(import.meta.dirname, "..");
 test("repro: synchronous dispatch scans defer timers and hold queued repo-cell reads", async (context) => {
@@ -44,7 +45,7 @@ test("repro: synchronous dispatch scans defer timers and hold queued repo-cell r
     );
   } finally {
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -55,7 +56,7 @@ function measurePrimitiveCurve(parent: string): readonly ProbeSample[] {
     mkdirSync(rootDir);
     writeStreams(rootDir, count, { payloadBytes: 0 });
     samples.push(measureInProbe(rootDir, "headers", count, false), measureInProbe(rootDir, "summaries", count, false));
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
   const rootDir = path.join(parent, "primitive-4000-large");
   mkdirSync(rootDir);
@@ -63,7 +64,7 @@ function measurePrimitiveCurve(parent: string): readonly ProbeSample[] {
   samples.push(measureInProbe(rootDir, "headers", 4_000, false), measureInProbe(rootDir, "summaries", 4_000, false));
   archiveStreams(rootDir, 200);
   samples.push(measureInProbe(rootDir, "headers", 3_800, true), measureInProbe(rootDir, "summaries", 4_000, true));
-  rmSync(rootDir, { recursive: true, force: true });
+  removeTempRepository(rootDir);
   return samples;
 }
 

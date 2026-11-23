@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { openDispatchStream, readDispatchStreamSummary } from "../src/daemon-hos
 import { launchNative } from "../src/daemon-host/runtime-spawn-process.ts";
 import { runtimePidIsAlive } from "../src/runtime-engine/runtime-process-liveness.ts";
 import { probeProcessGroup, reconcileProcessGroup } from "../src/daemon-host/runtime/process-group-reconciler.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const stop of ["sweep", "host-exit"] as const)
   test(
@@ -82,7 +83,7 @@ for (const stop of ["sweep", "host-exit"] as const)
           await runtime.terminateTree?.();
           runtime.release?.();
         }
-        rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+        removeTempRepository(rootDir);
       }
     },
   );

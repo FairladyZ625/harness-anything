@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("task archive accepts two members atomically and retries after pre-outcome failure", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-maintenance-batch-")),
@@ -90,7 +91,7 @@ test("task archive accepts two members atomically and retries after pre-outcome 
   } finally {
     await crashed?.close();
     await recovered?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -133,6 +134,6 @@ test("queued command retains acceptance when receipt assembly fails after the st
     await reader.drain();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

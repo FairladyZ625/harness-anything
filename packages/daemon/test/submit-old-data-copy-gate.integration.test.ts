@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -10,6 +10,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo, writeCloseout, writeSettingsFixture } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const migrationFile = "packages/storage/src/store/schema.ts",
   receiptTarget = (packagePath: string) =>
@@ -27,7 +28,7 @@ async function fixture(t: TestContext, options: { readonly pathReviewers: boolea
   const opened: { cell?: RepoCell } = {};
   t.after(async () => {
     await opened.cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   });
   initRepo(rootDir);
   writeSettingsFixture(rootDir, "strict");

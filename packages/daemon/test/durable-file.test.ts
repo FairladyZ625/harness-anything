@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { syncFile, writeFileDurably, writeFileDurablyFrom } from "@harness-anything/storage";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../storage/src");
 
@@ -18,7 +19,7 @@ function sourceFiles(directory: string): string[] {
 
 test("a durable write lands the whole body and leaves no temporary behind", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const target = path.join(root, "nested", "state.json");
   writeFileDurably(target, `${JSON.stringify({ revision: 1 })}\n`);
   assert.equal(readFileSync(target, "utf8"), '{"revision":1}\n');
@@ -31,7 +32,7 @@ test("a durable write lands the whole body and leaves no temporary behind", (t) 
 
 test("an interrupted incremental durable write leaves the original target intact", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const target = path.join(root, "archive.jsonl");
   writeFileSync(target, "original archive\n");
   assert.throws(
@@ -50,7 +51,7 @@ test("an interrupted incremental durable write leaves the original target intact
 
 test("takeover after byte preparation refuses publication and removes the staged file", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-fenced-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const target = path.join(root, "state.json"),
     stale = new Error("writer epoch changed");
   let prepared = false;
@@ -84,7 +85,7 @@ test("takeover after byte preparation refuses publication and removes the staged
 // temporary is already on disk, which is the same shape as a failing write.
 test("a durable write that cannot rename takes its own temporary with it", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const target = path.join(root, "state.json");
   mkdirSync(target, { recursive: true });
   writeFileSync(path.join(target, "occupant"), "x");
@@ -113,7 +114,7 @@ test("#1586: a read-only handle is opened for flushing in exactly one module", (
 
 test("#1586: flushing a file uses a writable handle, which Windows requires", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   const target = path.join(root, "chunk.bin");
   writeFileDurably(target, new Uint8Array([1, 2, 3]));
   syncFile(target);

@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { registerDaemonRepo } from "@harness-anything/storage";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("handoff CLI routes explicit export, claim and revoke through the shared RPC", () => {
   const dispatchId = `dispatch_${"a".repeat(24)}`;
@@ -107,7 +108,7 @@ test("handoff RPC preserves orchestration inputs until the daemon builds its Fle
       assert.deepEqual(sent?.params.payload as Record<string, unknown>, expected);
     }
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

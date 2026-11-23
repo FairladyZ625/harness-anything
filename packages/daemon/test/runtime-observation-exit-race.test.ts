@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import workerThreads from "node:worker_threads";
 import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/daemon-host/runtime-spawn-active.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const ordering of ["fault-before-exit", "exit-before-fault"] as const) {
   for (const channel of ["worker-error", "observation-record"] as const) {
@@ -87,7 +88,7 @@ for (const ordering of ["fault-before-exit", "exit-before-fault"] as const) {
         disposeActiveRuntimeObservations(runtime);
         t.mock.restoreAll();
         syncBuiltinESMExports();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     });
   }

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import { backfillRestatedContractDocuments } from "../src/daemon-host/migration-
 import { withBackfilledContractDocuments } from "../src/daemon-host/repo-cell-task-maintenance.ts";
 import { taskMutation } from "../src/daemon-host/repo-cell-task-mutation.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function compileCurrentContract(rootDir: string): { readonly body: string; readonly digest: `sha256:${string}` } {
   const compiled = compileRepoTaskPackage({
@@ -145,7 +146,7 @@ test("contract migrate upgrades a current verdict to a repair that backfills mis
     );
     assert.equal(drifted.status, "current", "a preset digest that no longer compiles is the preset-upgrade route");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -183,7 +184,7 @@ test("contract restatement preserves the risk-tier explainer materialization dec
     );
     assert.equal(row.status, "current", "same digest must restate the same tier-governed document set");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -217,6 +218,6 @@ test("contract migrate mutation accepts a repair body on a current contract and 
       (error: unknown) => (error as { readonly code?: string }).code === "contract_current",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, watch, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "an asynchronous workspace fault cannot kill the canonical writer or a sibling runtime",
@@ -90,7 +91,7 @@ syncBuiltinESMExports();
       await resources.cell?.close();
       t.mock.restoreAll();
       syncBuiltinESMExports();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
     const survive = <T>(work: Promise<T>): Promise<T> =>
       Promise.race([

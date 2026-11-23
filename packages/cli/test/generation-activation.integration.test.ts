@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import {
   sha256Bytes,
   type DocEventV1,
 } from "../../storage/test/store/canonical-generation.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url)),
   repoId = "activation-test";
@@ -110,7 +111,7 @@ test("a destination that fails verification is left without an activation certif
     assert.equal(run(["events", "tail", "--root", f.destination]).status, 1);
     console.log("GEN3_REFUSED_ACTIVATION_EVIDENCE=" + JSON.stringify(refused.receipt));
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -190,6 +191,6 @@ test("activation reports the real state and writer, reader, offline commands and
     assert.equal(backup.receipt.accepted.revision, 3);
     console.log("GEN3_RESTART_EVIDENCE=" + JSON.stringify({ tail: tail.receipt, backup: backup.receipt }));
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });

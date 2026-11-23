@@ -16,6 +16,7 @@ import {
   workspaceId,
 } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
     {
@@ -194,7 +195,7 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -262,7 +263,7 @@ test("same-repo writes advance while a vertical script is running", { timeout: 3
     if (previousBlocker === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE");
     else process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = previousBlocker;
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -314,7 +315,7 @@ test(
       if (previousProbe === undefined) Reflect.deleteProperty(process.env, "HARNESS_TEST_VERTICAL_SCRIPT_ENV_PROBE");
       else process.env.HARNESS_TEST_VERTICAL_SCRIPT_ENV_PROBE = previousProbe;
       await cell?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );

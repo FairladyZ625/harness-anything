@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -34,6 +34,7 @@ import {
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function git(root: string, ...args: string[]): void {
   execFileSync("git", ["-C", root, ...args]);
@@ -425,14 +426,14 @@ test("effective permission mode and source are snapshotted at admission across a
 
       // Close cell, wipe projection SQLite to force cold rebuild on restart, then reopen and verify immutability.
       await cell.close();
-      rmSync(path.join(resolveHarnessLayout(root).localRoot, "projections"), { recursive: true, force: true });
+      removeTempRepository(path.join(resolveHarnessLayout(root).localRoot, "projections"));
       cell = await openConfiguredCell();
       await verifyReads(cell, "after-restart-cold-rebuild");
     } finally {
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -578,7 +579,7 @@ test("historical runtime_dispatch_requested without permission fields projects a
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -721,6 +722,6 @@ test("dispatch overrides and scheduled Squads never exceed declared Agent permis
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

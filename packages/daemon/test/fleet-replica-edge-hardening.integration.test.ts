@@ -4,7 +4,7 @@
 // the retired cut/pull layout starts a fresh replica instead of failing on the old pointer; content
 // objects larger than the in-memory envelope bound stream to staging files and are digest-checked.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { open } from "node:fs/promises";
 import { TLSSocket } from "node:tls";
@@ -38,6 +38,7 @@ import {
   waitForState,
   type FleetReplicationFixture,
 } from "./fleet-replication.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const seededTask = { taskId: "task_harden00000000000000000000001", executionId: "exe_harden", title: "Harden" };
 let pressureCounter = 0;
@@ -156,7 +157,7 @@ test("stop joins the active confirmation and drops queued confirmations", { time
   } finally {
     release.resolve();
     await stream.stop();
-    rmSync(viewRoot, { recursive: true, force: true });
+    removeTempRepository(viewRoot);
   }
 });
 
@@ -171,7 +172,7 @@ test(
       streamController = new AbortController(),
       shutdownController = new AbortController(),
       entered = Promise.withResolvers<void>();
-    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRoot));
     const running = runFleetReplicaSync({
       hostname: "127.0.0.1",
       port: fixture.centerPort(),
@@ -236,7 +237,7 @@ test(
       assert.deepEqual(stream.failures, [], "shutdown does not report a reconnect failure");
     } finally {
       await stream.stop();
-      rmSync(viewRoot, { recursive: true, force: true });
+      removeTempRepository(viewRoot);
     }
   },
 );
@@ -583,8 +584,8 @@ test(
     const workspace = mkdtempSync(path.join(tmpdir(), "ha-harden-workspace-")),
       doctorUserRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-user-"));
     t.after(() => {
-      rmSync(workspace, { recursive: true, force: true });
-      rmSync(doctorUserRoot, { recursive: true, force: true });
+      removeTempRepository(workspace);
+      removeTempRepository(doctorUserRoot);
     });
     writeFleetEdgeConfig(doctorUserRoot, replicationRepoId, {
       repoId: replicationRepoId,
@@ -706,7 +707,7 @@ test(
     await seedCenterData(fixture, seededTask);
     await fixture.openCenter();
     const viewRootTimeout = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-timeout-"));
-    t.after(() => rmSync(viewRootTimeout, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRootTimeout));
 
     let timeoutCalls = 0,
       timeoutSecondConfirmed = false;
@@ -741,7 +742,7 @@ test(
     await seedCenterData(fixture, seededTask);
     await fixture.openCenter();
     const viewRootDrop = mkdtempSync(path.join(tmpdir(), "ha-harden-confirm-drop-"));
-    t.after(() => rmSync(viewRootDrop, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRootDrop));
 
     const liveSockets = new Set<Socket>(),
       relayServer = createServer((client) => {
@@ -953,7 +954,7 @@ test(
 
     // Positive control 1: deterministic divergence across commits + keepalive heartbeats.
     const viewRootDet = mkdtempSync(path.join(tmpdir(), "ha-harden-det-divergence-"));
-    t.after(() => rmSync(viewRootDet, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRootDet));
     const watch = openRuntimeRecoveryWatch(),
       confirmFailureEvents: unknown[] = [];
     let diverged = true,
@@ -1031,7 +1032,7 @@ test(
 
     // Positive control 2: transient confirmation error recovers automatically via single retry backoff port.
     const viewRootTransient = mkdtempSync(path.join(tmpdir(), "ha-harden-transient-confirm-"));
-    t.after(() => rmSync(viewRootTransient, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(viewRootTransient));
     const transientFailureEvents: unknown[] = [];
     let transientCalls = 0,
       callsAtFirstRecovery = 0,

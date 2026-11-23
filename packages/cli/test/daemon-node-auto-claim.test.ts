@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   writeNodeAutoClaimPolicy,
 } from "@harness-anything/daemon/internal/node-auto-claim-config";
 import { applyNodeAutoClaimControl, parseNodeAutoClaimControl } from "../src/daemon/node-auto-claim.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("node auto-claim CLI configures local policy and wakes without exposing credentials", async () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-"));
@@ -59,7 +60,7 @@ test("node auto-claim CLI configures local policy and wakes without exposing cre
     assert.equal(offline.activation, "next-attach");
     assert.equal(readNodeAutoClaimPolicy(userRoot).policy.enabled, false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

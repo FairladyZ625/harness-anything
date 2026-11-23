@@ -17,6 +17,7 @@ import {
 } from "../../daemon/test/repo-settings.fixture.ts";
 import { runGuiLaunch, type GuiLaunchDependencies } from "../src/cli/gui-launch.ts";
 import { emit } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -50,7 +51,7 @@ test("daemon-missing write rejects without autostart or local fallback", () => {
       "an unregistered workspace must not launch a daemon",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -87,7 +88,7 @@ test("daemon-missing doc submit is explicitly rejected without a local Git or sc
       "an unregistered workspace must not launch a daemon",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -124,7 +125,7 @@ test("daemon-missing preset run rejects promptly without child or direct fallbac
       "an unregistered workspace must not launch a daemon",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -177,7 +178,7 @@ test("GUI launch reports a missing Electron runtime with its one-line remedy", a
     assert.equal(receipt.diagnostic.kind, "validation");
     assert.match(receipt.diagnostic.expectation, /node \/electron\/install\.js/u);
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -215,7 +216,7 @@ test("GUI launch reports a missing renderer bundle before daemon acquisition", a
     assert.match(receipt.diagnostic.expectation, /reinstall @harness-anything\/gui/u);
     assert.equal(daemonAcquisitions, 0, "a missing GUI bundle must not start the daemon");
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -245,7 +246,7 @@ test("GUI launch rejects unknown modes and a missing root before side effects", 
     }
     assert.equal(sideEffects, 0, "invalid GUI arguments must be rejected before probing Electron, build, or daemon");
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -278,7 +279,7 @@ test("GUI launch refuses a GUI package whose preload bundle is missing", async (
     assert.equal(receipt.diagnostic.kind, "validation");
     assert.match(receipt.diagnostic.expectation, /[\\/]dist-electron[\\/]electron-preload\.cjs/u);
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -304,7 +305,7 @@ test("GUI launch refuses a GUI package whose bundled main process is missing", a
     assert.equal(receipt.code, "gui_build_failed");
     assert.match(receipt.diagnostic.expectation, /[\\/]dist-electron[\\/]electron-main\.js/u);
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -389,8 +390,8 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     delete process.env.ELECTRON_RENDERER_URL;
     delete process.env.ELECTRON_RUN_AS_NODE;
     delete process.env.HARNESS_DAEMON_USER_ROOT;
-    rmSync(fixture.root, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -431,8 +432,8 @@ test("GUI launch rejects when Electron exits before opening a visible window and
     assert.match(String(receipt.diagnostic?.expectation ?? ""), /Fatal GUI init error/u);
   } finally {
     delete process.env.HARNESS_DAEMON_USER_ROOT;
-    rmSync(fixture.root, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -476,8 +477,8 @@ test("GUI launch surfaces Session 0 or window-visibility failures reported over 
     assert.match(String(receipt.diagnostic?.expectation ?? ""), /non-interactive Windows Session 0/u);
   } finally {
     delete process.env.HARNESS_DAEMON_USER_ROOT;
-    rmSync(fixture.root, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
+    removeTempRepository(userRoot);
   }
 });
 
@@ -524,9 +525,9 @@ test("GUI launch reports activated existing window pid on second-instance signal
     assert.equal(observedExplicit, "1");
   } finally {
     delete process.env.HARNESS_DAEMON_USER_ROOT;
-    rmSync(fixture.root, { recursive: true, force: true });
-    rmSync(userRoot, { recursive: true, force: true });
-    rmSync(explicitRepo, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
+    removeTempRepository(userRoot);
+    removeTempRepository(explicitRepo);
   }
 });
 
@@ -553,7 +554,7 @@ test("GUI launch rejects when the spawned Electron never yields a pid", async ()
     assert.equal(receipt.ok, false);
     assert.equal(receipt.code, "gui_launch_failed");
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -593,7 +594,7 @@ test("GUI launch does not spawn Electron when CLI daemon acquisition is refused"
     assert.match(receipt.diagnostic.expectation, /fixture canonical-only refusal/u);
     assert.equal(electronSpawns, 0);
   } finally {
-    rmSync(fixture.root, { recursive: true, force: true });
+    removeTempRepository(fixture.root);
   }
 });
 
@@ -612,7 +613,7 @@ test("the gui command reaches the launcher through the CLI entry", () => {
     const receipt = JSON.parse(result.stdout) as { command: string };
     assert.equal(receipt.command, "gui", "argv routing must reach the launcher, not the daemon command parser");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -759,7 +760,7 @@ test("a CLI write returns its daemon receipt after one command round trip and ke
     assert.deepEqual(methods, ["repo.task.create"]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -946,7 +947,7 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

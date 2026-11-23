@@ -4,7 +4,7 @@ import { registerDaemonRepo } from "@harness-anything/storage";
 import { once } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 import { copyHarnessLedgerWithCow, copyHarnessRuntimeLedgerWithCow } from "../../gui/test-support/harness-copy.mjs";
-import { constants, cpSync, mkdtempSync, rmSync } from "node:fs";
+import { constants, cpSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -19,6 +19,7 @@ import { holdRead } from "./fixtures/read-p99-gate.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "paired socket p99 detects the same slow read on the entry thread and passes in the read pool",
@@ -58,7 +59,7 @@ test(
       assert.equal(after.readTimeouts, 0, "all probes, including writes, must finish before releasing the slow read");
       assert.ok(after.write! < before.write!, JSON.stringify({ before, after }));
     } finally {
-      if (frozenRoot) rmSync(frozenRoot, { recursive: true, force: true });
+      if (frozenRoot) removeTempRepository(frozenRoot);
     }
   },
 );
@@ -74,7 +75,7 @@ async function measure(entryThread: boolean, frozenRoot?: string, slowReadMs = 0
   Atomics.store(barrier, 4, slowReadMs);
   initIngressRepo(root, process.getuid?.() ?? 0);
   if (frozenRoot) {
-    rmSync(path.join(root, "harness"), { recursive: true, force: true });
+    removeTempRepository(path.join(root, "harness"));
     copyHarnessLedgerWithCow(path.join(frozenRoot, "harness"), path.join(root, "harness"));
     cpSync(path.join(frozenRoot, ".harness"), path.join(root, ".harness"), {
       recursive: true,
@@ -150,6 +151,6 @@ async function measure(entryThread: boolean, frozenRoot?: string, slowReadMs = 0
     await probe?.terminate();
     await transport.stop();
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 }

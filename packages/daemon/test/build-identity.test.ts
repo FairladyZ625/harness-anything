@@ -2,11 +2,12 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const moduleUrl = new URL("../src/daemon-host/build-identity.ts", import.meta.url).href;
 
@@ -44,7 +45,7 @@ test("a source-tree run reports the serving tree's HEAD commit", async () => {
     assert.equal(fresh.observeDaemonBuild(path.join(root, "daemon-host/build-identity.ts")).status().entry, "source");
   } finally {
     restore(previous);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -89,7 +90,7 @@ test("a loaded dist marker overrides both inherited environment and later disk r
     });
   } finally {
     restore(previous);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

@@ -2,10 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { hostingProviderFromRemote, detectHostingProvider } from "../src/daemon-host/hosting-provider.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("detects GitHub HTTPS and SSH remotes", async () => {
   assert.deepEqual(hostingProviderFromRemote("https://github.com/acme/project.git"), {
@@ -31,7 +32,7 @@ test("detects a known provider when the repository has no authored settings file
       repository: "acme/project",
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -74,6 +75,6 @@ test("public PR capability follows a recognized hosting origin", async () => {
     execFileSync("git", ["-C", root, "remote", "set-url", "origin", path.join(root, "upstream.git")]);
     assert.equal(Boolean(await detectHostingProvider(root, undefined, true)), false, "a local path is not a PR host");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { canonicalEventCut, canonicalLedgerCut } from "@harness-anything/kernel";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Worker, MessageChannel, receiveMessageOnPort } from "node:worker_threads";
@@ -8,6 +8,7 @@ import { makeTaskEventStore, makeTaskEventReader, makeTaskProjection } from "@ha
 import { initRepo } from "../../../storage/test/store/task-event-store.fixtures.ts";
 import { seedReadLedger, READ_HISTORY_BATCH_SIZE } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe } from "./g38-read-probe.mjs";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 // The wait below covers fixture construction, including the 34k-output seed, not a query:
 // the 34k seed alone builds in ~49s locally. CI steps for this shard succeeded at
@@ -66,12 +67,12 @@ export async function openReadBackend(backend, dimension, size, { lowVisibility 
         close: async () => {
           projection.close();
           await store.drain();
-          rmSync(rootDir, { recursive: true, force: true });
+          removeTempRepository(rootDir);
         },
       };
     } catch (error) {
       await store.drain();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
       throw error;
     }
   }
@@ -143,14 +144,14 @@ export async function openReadBackend(backend, dimension, size, { lowVisibility 
         } finally {
           port1.close();
           await worker.terminate();
-          rmSync(rootDir, { recursive: true, force: true });
+          removeTempRepository(rootDir);
         }
       },
     };
   } catch (error) {
     port1.close();
     await worker.terminate();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
     throw error;
   }
 }

@@ -1,10 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const moduleUrl = new URL("../scripts/npm-command.mjs", import.meta.url).href;
 
@@ -35,6 +36,6 @@ test("npm commands preserve arguments, cwd and failures through the JS lifecycle
     assert.notEqual(missing.status, 0);
     assert.match(missing.stderr, /must run through npm run package:prepare/);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

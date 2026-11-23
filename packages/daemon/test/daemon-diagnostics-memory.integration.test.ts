@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { openDaemonDiagnostics } from "../src/daemon-host/daemon-diagnostics.ts"
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "diagnostic socket includes its own worker and nested worker isolates, then removes exits",
@@ -67,7 +68,7 @@ test(
       console.log("MEMORY_STEP closing diagnostics");
       await diagnostics.close();
       console.log("MEMORY_STEP diagnostics closed");
-      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(userRoot);
     }
   },
 );

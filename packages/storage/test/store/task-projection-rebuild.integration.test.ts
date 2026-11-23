@@ -62,6 +62,7 @@ import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-h
 import { sqliteContentObjectPath, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("cold rebuild reads a real ledger containing all four retired event shapes", async () => {
   await withTempStoreAsync(async (rootDir) => {
@@ -713,7 +714,7 @@ test("closing a projection through a filesystem alias releases every handle on i
       aliased.close();
       rmSync(canonical.path, { force: true });
     } finally {
-      rmSync(aliasRoot, { recursive: true, force: true });
+      removeTempRepository(aliasRoot);
     }
   });
 });

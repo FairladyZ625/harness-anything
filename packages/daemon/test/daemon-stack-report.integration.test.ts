@@ -2,10 +2,11 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 for (const mode of ["javascript", "native"]) {
   test(
     `report-on-signal interruption experiment: ${mode}`,
@@ -63,7 +64,7 @@ for (const mode of ["javascript", "native"]) {
           child.send("close");
           await exit;
         }
-        rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+        removeTempRepository(root);
       }
     },
   );

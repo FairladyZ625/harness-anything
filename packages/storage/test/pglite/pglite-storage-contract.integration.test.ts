@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -39,6 +39,7 @@ import { appendGatedLifecycleFixture, assertLifecycleParity } from "../postgres/
 import { assertSingleSessionLedger, assertWriterFencing } from "../postgres/pg-ledger.assertions.ts";
 import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
 import { relation } from "../store/relation-graph-projection.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const scope: PostgresEventStoreScope = {
   tenantId: "tenant-pglite",
@@ -116,8 +117,8 @@ pgliteIntegrationSuite("PGlite storage contract", () => {
     } finally {
       await backend.close();
       await sqlite.drain();
-      rmSync(rootDir, { recursive: true, force: true });
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
+      removeTempRepository(dataDir);
     }
   });
 
@@ -326,8 +327,8 @@ pgliteIntegrationSuite("PGlite storage contract", () => {
       sqliteProjection.close();
       await backend.close();
       await sqliteEvents.drain();
-      rmSync(rootDir, { recursive: true, force: true });
-      rmSync(dataDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
+      removeTempRepository(dataDir);
     }
   });
 });

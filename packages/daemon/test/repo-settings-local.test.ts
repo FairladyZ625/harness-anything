@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import { nodeMaterializationStorage } from "../src/daemon-host/node-materializat
 import { makeRepoCellSettingsState } from "../src/daemon-host/repo-cell-settings-state.ts";
 import { applyLocalAgentBinding } from "../src/daemon-host/runtime-spawn-agent.ts";
 import { resolveRuntimeInstanceCandidates } from "../src/daemon-host/runtime-spawn-mission.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function settingsStateFor(rootDir: string, appended: { count: number } = { count: 0 }) {
   const repository = {
@@ -59,7 +60,7 @@ test("local state stays local and does not append a settings event", () => {
       gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000, terminalBrowser: "embedded" },
     });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -131,7 +132,7 @@ test("local provider and Agent bindings overlay the shared capability and decisi
       ["local-backup", "local-codex"],
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -150,7 +151,7 @@ test("a local file written before the gui fields existed reads back with their d
     assert.equal(local.gui.requestTimeoutMs, 30_000);
     assert.equal(local.gui.terminalBrowser, "embedded");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -168,7 +169,7 @@ test("a gui deadline update keeps the machine's current locale and takes effect 
     // Writing the same value again is no change.
     assert.equal(settings.writeLocal(raised), false);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -192,7 +193,7 @@ test("role defaults survive old preference files and local policy updates reach 
     assert.equal(center.nodeTaskMaterializationPolicy, "include_done");
     assert.equal(otherNode.nodeTaskMaterializationPolicy, "in_flight");
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(other, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(other);
   }
 });

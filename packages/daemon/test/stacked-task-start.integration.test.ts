@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
@@ -14,6 +14,7 @@ import { assertTaskDispatchPrerequisites } from "../src/daemon-host/task-dispatc
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { fixture as reviewFixture, taskId as upstreamTaskId } from "./task-completion-review.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const owner = withPolicyGroup(
   { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
@@ -42,7 +43,7 @@ test("stack start checks out the approved delivery and freezes that exact baseli
   t.after(async () => {
     projection.close();
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const packages = new Map<string, string>();
   for (const taskId of ["task_stack_base", "task_stack_work", "task_stack_negative"]) {

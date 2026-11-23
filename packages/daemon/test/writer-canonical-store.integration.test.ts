@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openWriterSupervisor } from "../src/daemon-host/writer-supervisor.ts";
 import type { RepoWriterCapabilityCallV1 } from "../src/daemon-host/repo-writer-protocol.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("RepoWriter sends complete PG operations asynchronously and drains before returning the borrowed pool", async () => {
   const fixture = await startManagedPostgresFixture(),
@@ -123,6 +124,6 @@ test("RepoWriter sends complete PG operations asynchronously and drains before r
   } finally {
     await supervisor?.close();
     await fixture.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

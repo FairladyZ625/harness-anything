@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,10 +20,11 @@ import { makeRuntimeRecoveryWork } from "../src/daemon-host/runtime-recovery-wor
 import { makeRuntimeSpawner } from "../src/daemon-host/runtime-spawn.ts";
 import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { lifecycleReadFor } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise<void>) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-isolation-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const ids = ["dispatch_111111111111111111111111", "dispatch_222222222222222222222222"],
     sessions = ids.map((dispatchId, index) => ({
       runtimeSessionId: `runtime-${index}`,
@@ -149,7 +150,7 @@ test("recovery releases its temporary process when the aggregate settles during 
 
 test("recovery records a missing dispatch as a per-runtime failure", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-residual-dispatch-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let sessions: Array<{
     runtimeSessionId: string;
     instanceId: string;
@@ -227,7 +228,7 @@ test("recovery records a missing dispatch as a per-runtime failure", async (t) =
 
 test("a failed recovery for an exited owner without a local process is recorded", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-exited-failed-recovery-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
     recoveryError = new Error("terminal publication unavailable"),
     session = {
@@ -295,7 +296,7 @@ test("a failed recovery for an exited owner without a local process is recorded"
 
 test("an exited session with a process still owned locally retains instance capacity", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-exited-process-owner-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const runtimeSessionId = "runtime-exited-process-owner",
     dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
     session = {
@@ -344,7 +345,7 @@ test("an exited session with a process still owned locally retains instance capa
 
 test("an exited owner session with a dispatch but no stream header settles", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-missing-header-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
   const session = {
     runtimeSessionId: "runtime-missing-header",
@@ -436,7 +437,7 @@ test("a missing dispatch stream cannot settle a live or foreign runtime", async 
   const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
     published: string[] = [],
     rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-negative-control-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const makeContext = (
     session: {
       readonly runtimeSessionId: string;

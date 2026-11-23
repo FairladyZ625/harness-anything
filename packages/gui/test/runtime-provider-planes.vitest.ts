@@ -1,6 +1,6 @@
 import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 // harness-test-tier: contract
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -35,6 +35,7 @@ import {
 } from "../src/renderer/runtime-provider-planes.ts";
 import { squadChartLayout } from "../src/renderer/components/runtime/SquadCard.tsx";
 import { subscriptionCreationNeedsLogin } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const form: CreateInstanceFormState = {
   instanceId: "one",
@@ -535,7 +536,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       );
     } finally {
       vi.unstubAllGlobals();
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   });
   it("opens the subscription login path only after the daemon reports unauthenticated", () => {
@@ -773,7 +774,7 @@ describe("runtime capability flows declaration -> install -> daemon state -> GUI
         expect({ ...renamedProvider, providerId: edit.providerId }).toEqual(edit);
       } finally {
         vi.unstubAllGlobals();
-        rmSync(userRoot, { recursive: true, force: true });
+        removeTempRepository(userRoot);
       }
     },
   );
@@ -854,7 +855,7 @@ describe("connected daemon account capability projection", () => {
         expect(kinds.includes("agy-acp")).toBe(platform === "darwin");
         expect(kinds).not.toContain("cursor");
       } finally {
-        rmSync(userRoot, { recursive: true, force: true });
+        removeTempRepository(userRoot);
       }
     }
   });

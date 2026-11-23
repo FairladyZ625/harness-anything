@@ -3,13 +3,14 @@ import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("bootstrap CLI sends the password file contents only in transient local RPC params", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-rpc-")),
@@ -149,7 +150,7 @@ test("bootstrap CLI sends the password file contents only in transient local RPC
       server.close();
       await closed;
     }
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -241,7 +242,7 @@ test("access password CLI sends file and stdin contents only in transient local 
       server.close();
       await closed;
     }
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });
 
@@ -332,7 +333,7 @@ for (const memberDevice of [false, true])
         server.close();
         await closed;
       }
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   });
 
@@ -408,6 +409,6 @@ test("edge join CLI sends its quota and exits with the daemon's initial sync fai
       server.close();
       await closed;
     }
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(root);
   }
 });

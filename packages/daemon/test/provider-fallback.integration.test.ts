@@ -3,7 +3,7 @@ import { waitForArrival, waitForDurableValue, watchDirectoryArrival } from "../.
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,6 +29,7 @@ import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-con
 import type { RuntimeAttemptTerminal } from "../src/daemon-host/runtime-spawn-types.ts";
 import { RuntimeBoundaryError } from "../src/daemon-host/runtime/model-slot-queue.ts";
 import { dispatchLifecycleReadOf } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
   {
@@ -877,7 +878,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(health["provider-acp-protocol-first"], undefined, JSON.stringify(health));
   } finally {
     await cell.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1146,7 +1147,7 @@ async function verifyFallbackAdoption(coordinated: boolean, rejectLifecycleProbe
     assert.equal(lifecycle.rows[0]?.controlLeafDispatchId, continuation?.header.dispatchId);
   } finally {
     spawner.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }
 
@@ -1333,7 +1334,7 @@ for (const recovery of ["reconcile", "adoption", "timer"] as const) {
     } finally {
       t.mock.timers.reset();
       await cell.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }

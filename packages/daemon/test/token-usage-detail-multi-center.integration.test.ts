@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { StatementSync } from "node:sqlite";
@@ -23,6 +23,7 @@ import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result
 import { installModelPricingCatalog, modelPricingVersion } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
 import builtinPricingCatalog from "../src/runtime-engine/model-pricing-catalog.json" with { type: "json" };
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const DEFINITION_SNAPSHOT = {
   schema: "agent-definition-snapshot/v1" as const,
@@ -130,7 +131,7 @@ test(
       installModelPricingCatalog(builtinPricingCatalog);
       canonicalRepo.projection.close();
       for (const dir of [canonicalRepo.rootDir, mountRootA, mountRootB, stateRootA, stateRootB, stateRootWrong]) {
-        rmSync(dir, { recursive: true, force: true });
+        removeTempRepository(dir);
       }
     });
 
@@ -624,7 +625,7 @@ test(
         return sqliteRowsRead;
       } finally {
         repo.projection.close();
-        rmSync(repo.rootDir, { recursive: true, force: true });
+        removeTempRepository(repo.rootDir);
       }
     };
 
@@ -803,7 +804,7 @@ test(
       );
     } finally {
       repo.projection.close();
-      rmSync(repo.rootDir, { recursive: true, force: true });
+      removeTempRepository(repo.rootDir);
     }
   },
 );
@@ -991,7 +992,7 @@ test(
         return sqliteRowsRead;
       } finally {
         repo.projection.close();
-        rmSync(repo.rootDir, { recursive: true, force: true });
+        removeTempRepository(repo.rootDir);
       }
     };
     const live20 = measureLiveRunningContinuation(20),
@@ -1189,7 +1190,7 @@ test(
       );
     } finally {
       cancelRepo.projection.close();
-      rmSync(cancelRepo.rootDir, { recursive: true, force: true });
+      removeTempRepository(cancelRepo.rootDir);
     }
   },
 );
@@ -1214,7 +1215,7 @@ test(
     t.after(() => {
       if (prevEnvSecret === undefined) delete process.env[FLEET_CURSOR_SECRET_ENV];
       else process.env[FLEET_CURSOR_SECRET_ENV] = prevEnvSecret;
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     });
 
     const tlsA = generateTlsCert(scratch, "f20-a"),
@@ -1223,7 +1224,7 @@ test(
       nowIso = "2026-11-21T16:00:00.000Z";
     t.after(() => {
       canonicalRepo.projection.close();
-      rmSync(canonicalRepo.rootDir, { recursive: true, force: true });
+      removeTempRepository(canonicalRepo.rootDir);
     });
     for (let i = 1; i <= 3; i += 1) {
       const dispatchId = `dispatch_00000000000000000000f20${i}`,

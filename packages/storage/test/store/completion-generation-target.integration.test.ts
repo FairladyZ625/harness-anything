@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -17,6 +17,7 @@ import { writeCompletionGeneration, verifyCompletionGeneration } from "../../src
 import { completionConversionStream } from "../../src/store/completion-conversion-stream.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection-factory.ts";
 import { selectGenerationThree } from "../../src/store/generation-three-selection.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("offline target preserves missing-snapshot acceptance, every outcome, and exact op replay while remaining unselectable", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-completion-target-"));
@@ -124,6 +125,6 @@ test("offline target preserves missing-snapshot acceptance, every outcome, and e
     }
   } finally {
     source.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

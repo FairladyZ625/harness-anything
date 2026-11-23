@@ -2,13 +2,14 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { readDaemonPid, startDaemon, type RunningDaemon } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 interface Failure {
   readonly ok: boolean;
@@ -66,7 +67,7 @@ test("GUI bridge is attach-only even when its first request finds no daemon", as
     restoreEnv("HARNESS_DAEMON_ENDPOINT", previousEndpoint);
     restoreEnv("TMPDIR", previousTmp);
     await daemon.stop().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -120,7 +121,7 @@ test("GUI bridge reuses a resident daemon and does not respawn it after an expli
     restoreEnv("HARNESS_DAEMON_ENDPOINT", previousEndpoint);
     restoreEnv("TMPDIR", previousTmp);
     await daemon.stop().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

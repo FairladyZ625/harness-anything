@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, symlinkSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   createUnixSocketTransportServer,
   type UnixSocketTransportServer,
 } from "../src/daemon-host/transport/unix-socket.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The per-user socket root lives under sticky /tmp, so any local user can pre-create the
 // directory name before the daemon does. A real foreign owner needs root to arrange for, so
@@ -88,7 +89,7 @@ test(
       assert.equal(existsSync(path.join(link, "daemon.sock")), false);
     } finally {
       await stopIfBound(transport);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -109,7 +110,7 @@ test(
       assert.equal(existsSync(transport.endpoint), false);
     } finally {
       await stopIfBound(transport);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -134,7 +135,7 @@ test(
       });
     } finally {
       await transport.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -152,7 +153,7 @@ test(
     try {
       await assert.rejects(connectSocket(path.join(socketRoot, "daemon.sock"), 75), /socket directory is unsafe/u);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -172,7 +173,7 @@ test(
     try {
       await assert.rejects(connectSocket(path.join(link, "daemon.sock"), 75), /socket directory is unsafe/u);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -195,7 +196,7 @@ test(
     } finally {
       client?.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -212,7 +213,7 @@ test(
     try {
       await assert.rejects(connectSocket(path.join(parent, "absent", "daemon.sock"), 75), { code: "ENOENT" });
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

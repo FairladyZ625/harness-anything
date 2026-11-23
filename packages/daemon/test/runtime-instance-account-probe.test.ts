@@ -9,6 +9,7 @@ import { findExhaustedSubscriptionQuotaWindow } from "@harness-anything/kernel";
 import { createRuntimeInstanceAccountProbe } from "../src/daemon-host/runtime-instance-account-probe.ts";
 import { parseAgyQuotaResponse } from "../src/daemon-host/runtime-subscription-quota-probe.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("AGY account model probes are bounded and abort while waiting for a slot", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-account-probe-")),
@@ -59,7 +60,7 @@ test("AGY account model probes are bounded and abort while waiting for a slot", 
     );
     assert.ok(events.every(({ home }) => home === "/runtime/ultra/home"));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -120,7 +121,7 @@ test("AGY models and quota use HOME or USERPROFILE without ACP directory flags, 
       assert.equal(existsSync(stagedHome), false, `ephemeral AGY probe home was not cleaned up: ${stagedHome}`);
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -440,6 +441,6 @@ test("AGY quota probe prefers native /usage SUCCESS envelope, falls back on top-
     );
     assert.throws(() => readFileSync(browserMarker, "utf8"), /ENOENT/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

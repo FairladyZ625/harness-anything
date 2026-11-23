@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,6 +22,7 @@ import {
   resolveRuntimeResume,
   runtimeResumeAdmission,
 } from "../src/daemon-host/runtime-resume-admission.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("GUI resume spawn uses the dispatchId route", () => {
   const params = {
@@ -126,7 +127,7 @@ test("an archived resume source is rejected when the canonical projection record
         error.message === `Dispatch ${dispatchId} was already resumed as ${resumedDispatchId}.`,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -169,7 +170,7 @@ test("resuming a conversation follows its resume chain to the current leaf", () 
     assert.equal(resumed?.header.dispatchId, third);
     assert.equal(resumed?.providerSessionId, `provider-${third}`);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

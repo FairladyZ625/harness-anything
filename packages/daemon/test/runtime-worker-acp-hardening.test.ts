@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runAcpProviderSession } from "../src/daemon-host/runtime-worker-acp.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 function collect() {
   const records: Record<string, unknown>[] = [];
   return { records, append: (value: Readonly<Record<string, unknown>>) => records.push({ ...value }) };
@@ -67,7 +68,7 @@ async function continuationForRulingTool(
     assert.equal(await closed(child), 0, JSON.stringify(records));
     return records.some((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.continuation");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 }
 test("acp worker selects the declaration's api-key auth method when the instance route is api-key", async () => {
@@ -102,7 +103,7 @@ test("acp worker selects the declaration's api-key auth method when the instance
       { apiKey: "api-key-test", methodId: "api-key" },
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -133,7 +134,7 @@ test("acp worker fails closed when the declared auth method is not advertised", 
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -179,7 +180,7 @@ test("acp worker applies a thought_level effort selector and preserves extended 
       thoughtTokens: 5,
     });
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -213,7 +214,7 @@ test("acp worker fails closed when the effort selector does not offer the reques
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -249,7 +250,7 @@ test("acp worker leaves an effort request alone when no effort selector is adver
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -292,7 +293,7 @@ test("acp worker does not send an effort RPC when the selector is already curren
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -359,7 +360,7 @@ test("acp worker negotiates effort against the options returned by model selecti
       "max",
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -414,7 +415,7 @@ test("acp worker follows the model response when its effort selector disappears"
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -473,7 +474,7 @@ test("acp worker observes an effort selector first advertised after model select
       ],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -528,7 +529,7 @@ test("acp worker rejects an effort value removed by the selected model", async (
       [{ configId: "model", value: "model-b" }],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -581,7 +582,7 @@ test("acp worker applies catalog effort value mappings to the advertised selecto
       },
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -617,7 +618,7 @@ test("acp worker continues a declared task turn after command work ends without 
       [],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -650,7 +651,7 @@ test("acp worker ignores settlement and ruling mentions in completed command out
       records.some((record) => (record.event as Record<string, unknown> | undefined)?.type === "acp.continuation"),
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -684,7 +685,7 @@ test("acp worker treats a completed write to a ruling artifact as settlement evi
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -749,7 +750,7 @@ test("acp worker does not continue command work that never completed", async () 
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -784,7 +785,7 @@ test("acp worker does not continue a command turn that already attempted settlem
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -819,7 +820,7 @@ test("acp worker does not continue a turn with only non-command tool work", asyn
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -854,7 +855,7 @@ test("acp worker stops after the declared continuation limit", async () => {
       [1, 2],
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -888,7 +889,7 @@ test("acp result usage normalizes cache-exclusive input while retaining provider
       },
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -922,7 +923,7 @@ test("acp worker does not continue an ACP kind without a continuation declaratio
       false,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -948,7 +949,7 @@ test("acp worker rejects a structured upstream error disguised as end_turn", asy
       .find((frame) => frame.type === "acp.error");
     assert.match(String(error?.message), /model_not_found/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -983,7 +984,7 @@ test("acp worker preserves end_turn when an upstream error payload follows a too
     assert.equal(frames.at(-1)!.type, "acp.result");
     assert.equal(frames.at(-1)!.stopReason, "end_turn");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1010,6 +1011,6 @@ test("acp worker rejects an explicit ACP protocol error update", async () => {
     assert.equal(frames.at(-1)!.type, "acp.error");
     assert.match(String(frames.at(-1)!.message), /provider_protocol_error/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

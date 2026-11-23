@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
@@ -14,6 +14,7 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { materializePacketStdin, rawDocumentBody, rawTemplateBody } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Fact CLI exposes record, controlled types, and show while keeping local errors closed", () => {
   const record = parseThinCommand([
@@ -825,7 +826,7 @@ test("Decision file-flag help and the workspace read rejection state one shared 
       },
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

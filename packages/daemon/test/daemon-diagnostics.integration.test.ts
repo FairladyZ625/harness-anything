@@ -2,13 +2,14 @@
 import assert from "node:assert/strict";
 import { fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The fixture announces actual transport readiness. Only connect has a watchdog; response waits
 // follow JSON-RPC arrival and the enclosing node:test timeout is their hang guard.
@@ -62,7 +63,7 @@ async function fixture(mode: string) {
         if (code !== 0) throw childFailure(code, signal);
         if (sendError) throw sendError;
       } finally {
-        rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+        removeTempRepository(userRoot);
       }
     },
   };

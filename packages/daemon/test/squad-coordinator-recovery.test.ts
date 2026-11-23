@@ -3,7 +3,7 @@ import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-re
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import { appendFileSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, truncateSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -27,6 +27,7 @@ import {
 } from "../src/daemon-host/dispatch-stream.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const SQUAD_RUN_ID = "squad_0123456789abcdef01234567",
   TASK_ID = "task-squad-recovery",
@@ -543,7 +544,7 @@ async function withRootDir(use: (rootDir: string) => Promise<void>): Promise<voi
   try {
     await use(rootDir);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 
@@ -1458,7 +1459,7 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
       },
     ]);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -1,13 +1,14 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { eventObjectTarget, type AgentRuntimeEventV1, type FrozenWritePlan } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "../src/daemon-host/agent-runtime-read.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("runtime lifecycle cursors stay at the projection cut while the canonical stream is ahead", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-read-cut-"));
@@ -79,7 +80,7 @@ test("runtime lifecycle cursors stay at the projection cut while the canonical s
   } finally {
     await store?.drain();
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -122,7 +123,7 @@ test("dispatch short-id resolution uses indexed lookups instead of the dispatch 
   } finally {
     await store?.drain();
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -246,7 +247,7 @@ async function overviewDispatchReads(
   } finally {
     await store?.drain();
     projection?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 

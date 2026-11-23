@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   prepareDispatchSkillSnapshot,
   reclaimSessionSkillSnapshot,
 } from "../src/daemon-host/agent-skill-snapshot.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function scaffoldRepo(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -65,7 +66,7 @@ test("prepareDispatchSkillSnapshot reads only referenced skills and ignores unre
     assert.equal(existsSync(prepared.snapshotRoot), false);
     assert.deepEqual(listLocalSkillSnapshotSessionIds(root), []);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -108,7 +109,7 @@ test("prepareDispatchSkillSnapshot fails closed on broken symlinks and directory
     );
     assert.deepEqual(listLocalSkillSnapshotSessionIds(root), []);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -133,7 +134,7 @@ test("prepareDispatchSkillSnapshot limits links to the selected skill directory"
       { code: "agent_skill_snapshot_invalid", message: /outside its directory/u },
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -164,6 +165,6 @@ test("linked worktree snapshots materialize inside worktree localRoot and prune 
     reclaimSessionSkillSnapshot(root, "runtime_wt_1", worktree);
     assert.equal(existsSync(path.join(worktree, ".harness", "runtime")), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

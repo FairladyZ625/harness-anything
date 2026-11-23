@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { effectiveCatalog } from "../src/preset-catalog.ts";
 import { defaultAssets, defaultBundled, key } from "../src/preset-resolver-common.ts";
 
 import { git } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 test("every bundled catalog body exists and contains its required anchors", () => {
   const source = loadCanonicalAssets(defaultAssets).catalog;
   for (const document of source.catalog.documents)
@@ -108,7 +109,7 @@ test("bundled candidates are decoded once per process while user packages stay l
       (error: unknown) => (error as { code?: string }).code === "preset_not_found",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 test("all thirteen bundled packages resolve through one valid catalog", async () => {
@@ -393,7 +394,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
     assert.equal(auditEntrypoint.ok, false);
     if (!auditEntrypoint.ok) assert.equal(auditEntrypoint.error.code, "entrypoint_not_found");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -489,10 +490,7 @@ for (const sample of [
       await store.settlePendingMaterialization();
       for (const document of preview.documents)
         assert.equal(readFileSync(path.join(rootDir, "harness", document.path), "utf8"), document.body);
-      rmSync(path.join(rootDir, "harness", preview.packagePath), {
-        recursive: true,
-        force: true,
-      });
+      removeTempRepository(path.join(rootDir, "harness", preview.packagePath));
       const accepted = store.read(),
         restored = store.materialize();
       assert.deepEqual(
@@ -505,6 +503,6 @@ for (const sample of [
         assert.equal(Buffer.from(store.readContentBlob(sha256Text(document.body))!).toString("utf8"), document.body);
       }
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });

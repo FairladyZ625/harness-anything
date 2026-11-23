@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { connect } from "node:tls";
@@ -12,6 +12,7 @@ import { nodeAutoClaimConfigPath } from "../src/daemon-host/node-auto-claim-conf
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("center start uses the signed-in person's authority repository permission without a people roster", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-s6-host-auth-")),
@@ -22,7 +23,7 @@ test("center start uses the signed-in person's authority repository permission w
   t.after(async () => {
     await host?.close();
     await realm.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   mkdirSync(repo);
   execFileSync("git", ["init", "--quiet", repo]);
@@ -118,7 +119,7 @@ test("node auto-claim policy is writable by the daemon socket owner only", async
     };
   t.after(async () => {
     await host.close();
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   });
 
   const configured = await host.configureNodeAutoClaim(policy, auth);

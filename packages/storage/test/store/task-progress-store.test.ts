@@ -21,6 +21,7 @@ import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/i
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { validateTaskProgressEvent } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = {
     principal: { personId: "person-progress" },
@@ -282,7 +283,7 @@ test("three progress bundles preserve every old byte and ordered duplicate evide
     );
     projection.close();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -329,7 +330,7 @@ test("progress publication survives an interruption after SQLite commit and retr
     replay?.close();
     initialProjection?.close();
     await store?.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

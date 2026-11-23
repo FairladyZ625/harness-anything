@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,6 +19,7 @@ import { publishExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { runtimeSpawnError } from "../src/runtime-engine/runtime-spawn-errors.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -87,7 +88,7 @@ test(
         "runtime_session_outcome_observed",
       ]);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );
@@ -156,7 +157,7 @@ test(
     } finally {
       child.stdin!.end();
       await exited;
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );
@@ -348,7 +349,7 @@ test(
       assert.equal(repeated.detail, "already-exited");
       assert.equal(published.filter((entry) => entry.type === "runtime_session_outcome_observed").length, 1);
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );
@@ -571,7 +572,7 @@ for (const scheduled of [false, true])
         assert.equal(repeated.detail, "already-exited");
         assert.equal(published.length, 1);
       } finally {
-        rmSync(rootDir, { recursive: true, force: true });
+        removeTempRepository(rootDir);
       }
     },
   );
@@ -583,7 +584,7 @@ function unsettledWithoutLiveStream(
   recordedGroupPid: number | null,
 ) {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-cancel-${stream}-unsettled-`));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_969696969696969696969696",
     runtimeSessionId = "runtime_969696969696969696969696",
     ids = { dispatchId, instanceId: "instance-1", source: "local" as const },

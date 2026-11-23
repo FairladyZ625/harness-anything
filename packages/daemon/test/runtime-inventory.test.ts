@@ -11,6 +11,7 @@ import { launchArgs } from "../src/daemon-host/agent-runtime-launch-config.ts";
 import { providerConfigDirectory } from "../src/daemon-host/agent-runtime-instance-storage.ts";
 import { runtimeAuthArgs, runtimeKinds } from "../src/runtime-engine/runtime-inventory.ts";
 import { prepareBoundRuntimeLaunch } from "../src/daemon-host/runtime-spawn-context.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("runtime executable commands are bare names; platform paths belong in bundledEntries", () => {
   for (const { kindId, executable } of runtimeKinds) {
@@ -103,7 +104,7 @@ test("minimax-code declares the data directory, sign-in argv and login-state pro
     });
     assert.notDeepEqual(kind.auth.subscriptionProbe, ["--version"]);
   } finally {
-    rmSync(home, { recursive: true, force: true });
+    removeTempRepository(home);
   }
 });
 
@@ -476,7 +477,7 @@ function codexProbeEnvironment(): NodeJS.ProcessEnv {
 }
 const probeHomes: string[] = [];
 test.after(() => {
-  for (const home of probeHomes) rmSync(home, { recursive: true, force: true });
+  for (const home of probeHomes) removeTempRepository(home);
   probeHomes.length = 0;
 });
 
@@ -759,7 +760,7 @@ test("Codex and Codex ACP launches declare full tool environment inheritance wit
       (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_launch",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -860,7 +861,7 @@ test(
       model = await startDeterministicToolDumpModelServer(envOutFile, customBinDir);
     t.after(async () => {
       await model.close();
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+      removeTempRepository(root);
     });
     mkdirSync(workdir, { recursive: true });
     mkdirSync(customBinDir, { recursive: true });
@@ -1027,7 +1028,7 @@ test(
         }
       } finally {
         await model.close();
-        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+        removeTempRepository(root);
       }
     });
     mkdirSync(workdir, { recursive: true });

@@ -29,6 +29,7 @@ import {
 import { discoverRuntimeModelCatalog } from "../src/daemon-host/agent-runtime-installation-discovery.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a blocked credential backend keeps the daemon runtime-instance caller responsive", async (context) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-credential-block-"));
@@ -70,7 +71,7 @@ test("a blocked credential backend keeps the daemon runtime-instance caller resp
     context.diagnostic(`daemon-runtime-heartbeats-during-credential-command=${heartbeats}`);
     assert.ok(heartbeats > 0, `expected a responsive daemon caller, observed ${heartbeats} heartbeats`);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -107,7 +108,7 @@ test("runtime installation identity survives an upgrade behind the same PATH ent
     assert.equal(after.installationId, before.installationId);
     assert.match(after.installationId, /^claude_[0-9a-f]{24}$/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -153,7 +154,7 @@ test("runtime installation discovery projects each provider's detected model cat
     );
     assert.deepEqual(rows.find((row) => row.kindId === "codex")?.searchCapableModels, ["gpt-sol"]);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -182,7 +183,7 @@ test("discovery keeps a below-floor Claude witness but advertises no model catal
     assert.equal(below?.defaultModel, undefined);
     assert.deepEqual(atFloor?.models, ["fable", "sonnet", "opus"]);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -215,7 +216,7 @@ test("model catalog discovery reads each account environment without a shared ca
       { models: ["claude-opus-5"], defaultModel: "claude-opus-5" },
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -266,7 +267,7 @@ test("runtime installation probes are asynchronous and parallel across providers
     );
   } finally {
     for (const probe of probes) probe.finish();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -330,7 +331,7 @@ test("launch reuses the witnessed installation and refreshes only when its PATH 
     assert.equal(refreshes, 1);
     assert.equal(subscriptionChecks, 2);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -421,7 +422,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
       ...["home", "tmp", "run"].map((name) => path.join(stateRoot, name)),
     ]);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -470,7 +471,7 @@ test("same-instance API-key launches retain the previous bearer during lookup an
     assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "worker-secret"/u);
     assert.doesNotMatch(readFileSync(configPath, "utf8"), /experimental_bearer_token = "instance-secret"/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -526,7 +527,7 @@ test("runtime kinds receive prompt-injected skills without native discovery moun
     const codex = launches.find(({ kindId }) => kindId === "codex")!.launch;
     assert.equal(existsSync(path.join(codex.env.CODEX_HOME!, "skills")), false);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -568,7 +569,7 @@ test("API-key launch fails closed on a missing key or installation without check
     );
     assert.equal(subscriptionChecks, 0);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -648,7 +649,7 @@ test("subscription launch fails closed without provider-native readiness and nev
     assert.deepEqual(readinessEnvironment, launch.env);
     assert.equal(credentialCalls, 0);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -681,7 +682,7 @@ test("subscription probes distinguish a rejected status command from an unspawna
     assert.equal((await store.authStatus(rejected.installationId)).code, "runtime_subscription_required");
     assert.equal((await store.authStatus(unspawnable.installationId)).code, "runtime_auth_probe_failed");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -740,7 +741,7 @@ process.exit(9);
     });
     assert.equal(launch.args.includes("--skip-git-repo-check"), false);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -790,7 +791,7 @@ process.exit(9);
     );
     assert.throws(() => readFileSync(execMarker, "utf8"), /ENOENT/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -831,7 +832,7 @@ test("a probe terminated at its deadline is an infrastructure failure, not an au
     assert.equal((await store.authStatus(terminated.installationId)).code, "runtime_auth_probe_failed");
     assert.equal((await store.authStatus(signalDeath.installationId)).code, "runtime_auth_probe_failed");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -875,7 +876,7 @@ test("one enabled instance dispatches two supported models without reauth", asyn
         codedAs(error, "invalid_runtime_model") && error.message.includes("gpt-5.6-sol, gpt-5.6-terra"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -907,7 +908,7 @@ test("explicit launch resolves a case-insensitive declaration to the instance ca
     assert.equal(prepared.definition.model, "Deepseek-V4.1-Flash");
     assert.equal(prepared.args[prepared.args.indexOf("--model") + 1], "Deepseek-V4.1-Flash");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -949,7 +950,7 @@ test("explicit launch rejects an unavailable model with an actionable instance h
     );
     assert.equal(credentialReads, 0, "model rejection must happen before credential work");
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -983,7 +984,7 @@ test("explicit launch rejects a different model with a shared version prefix", a
         codedAs(error, "invalid_runtime_model") && error.message.includes("Supported models: gpt-5.6-sol"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -1025,7 +1026,7 @@ test("Codex effort is a per-launch override and never mutates the instance", asy
       (error: unknown) => codedAs(error, "invalid_runtime_effort"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -1140,7 +1141,7 @@ test("Codex fast reaches its CLI, per-run false overrides its default, and unsup
       (error: unknown) => codedAs(error, "invalid_runtime_fast"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

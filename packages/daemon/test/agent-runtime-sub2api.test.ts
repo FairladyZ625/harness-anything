@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/daemon-host/agent-runtime-instances.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",
@@ -53,7 +54,7 @@ test("Codex private HTTP API-key launch writes the credential only to its contra
     assert.doesNotMatch(configText, /experimental_bearer_token/u);
     assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -108,7 +109,7 @@ test("Codex private HTTP and credential-header configuration preserves its trust
       (error: unknown) => codedAs(error, "invalid_runtime_http_headers"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

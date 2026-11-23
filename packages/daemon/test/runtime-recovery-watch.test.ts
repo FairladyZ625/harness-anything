@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   mirrorPathsFingerprint,
   pullBlockedMirrorError,
 } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const reworkCandidate: NodeAutoDispatchCandidate = {
   repoId: "repo-edge",
@@ -62,7 +63,7 @@ function unadoptableRuntimeContext(rootDir: string, lifecycle: unknown[]): Runti
 
 test("an unadoptable runtime does not stop the same confirmed round from dispatching a pending rework", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-watch-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   t.mock.method(console, "error", () => undefined);
   const lifecycle: unknown[] = [],
     observed: (readonly RuntimeRecoveryFailure[] | null)[] = [],
@@ -241,7 +242,7 @@ test("a deterministic mirror failure is isolated from reconcile and auto-dispatc
 
 test("mirrorPathsFingerprint reflects only edits on the tracked conflicting paths", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "mirror-fingerprint-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   assert.equal(mirrorPathsFingerprint(rootDir, []), "");
   const missing = mirrorPathsFingerprint(rootDir, ["tasks/task_1/task_plan.md"]);
   assert.match(missing, /:missing$/u);

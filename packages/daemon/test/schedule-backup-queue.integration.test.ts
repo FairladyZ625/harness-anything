@@ -1,16 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before, describe, mock } from "node:test";
@@ -35,6 +26,7 @@ import {
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
 } from "../src/daemon-host/schedule-builtin-executor.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
   { actor: { principal: { personId: "backup-test" }, executor: null }, source: "local" as const },
@@ -104,7 +96,7 @@ for (const mode of ["manifest", "drill", "failure", "cleanup", "deadline", "capt
             await cell?.close();
           } finally {
             restoreMocks();
-            if (root) rmSync(root, { recursive: true, force: true });
+            if (root) removeTempRepository(root);
           }
         }
       },
@@ -354,7 +346,7 @@ test("a barrier preserves release received before hold", { timeout: 15_000 }, as
   });
   t.after(async () => {
     await worker.terminate();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   assert.deepEqual(await once(worker, "exit"), [0]);
   assert.equal(Atomics.load(control, 0), 2);

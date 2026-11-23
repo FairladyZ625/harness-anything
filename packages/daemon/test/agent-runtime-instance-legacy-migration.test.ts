@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,
 } from "../src/daemon-host/agent-runtime-instances.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",
@@ -49,7 +50,7 @@ test("legacy runtime instance records migrate once to schema v2 on read", async 
       2,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -94,7 +95,7 @@ test("one same-kind witness automatically migrates a legacy installation binding
     assert.equal(readFileSync(target, "utf8"), firstContents);
     assert.equal(statSync(target).mtimeMs, firstMtime);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -172,7 +173,7 @@ test("legacy installation migration refuses zero or multiple same-kind witnesses
         );
       }
     } finally {
-      rmSync(userRoot, { recursive: true, force: true });
+      removeTempRepository(userRoot);
     }
   }
 });
@@ -192,7 +193,7 @@ test("flat schema v2 runtime config normalizes into its kind section on read", a
     assert.equal("reasoningEffort" in persisted, false);
     assert.equal("baseUrl" in persisted, false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -217,7 +218,7 @@ test("flat Claude effort from schema v2 migrates into Claude configuration", asy
     assert.equal("reasoningEffort" in persisted, false);
     assert.equal("codex" in persisted, false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

@@ -13,6 +13,7 @@ import { signInProcessPolicyTestUser } from "./keycloak-process-policy.fixtures.
 import { daemonProcessAlive } from "../src/daemon-host/daemon-singleton.ts";
 import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repoRoot = path.resolve("packages/daemon/test/../../..");
 
@@ -195,7 +196,7 @@ test(
     } finally {
       rmSync(release, { force: true });
       cliMaybe(repo, env, ["daemon", "stop", "--force"]);
-      rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(scratch);
     }
   },
 );

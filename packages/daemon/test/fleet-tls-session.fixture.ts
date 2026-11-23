@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
@@ -21,6 +21,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/daemon-host/fleet/command-protocol.ts";
 import { FleetTransferAssembler } from "../src/daemon-host/fleet/command-transfer.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type FleetTestSubject = {
   nodeId: string;
@@ -124,7 +125,7 @@ export async function fleetFixture(
         await host.close();
       } finally {
         await owners.close();
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     }
   });
@@ -312,7 +313,7 @@ export async function fleetFixture(
     close: async () => {
       await owned.reclaim();
       await host.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

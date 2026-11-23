@@ -1,16 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -33,6 +24,7 @@ import {
   withPolicyGroup,
 } from "./keycloak-policy.fixtures.ts";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "doc-only task review fallback on a symlinked authoredRoot preserves task-package cwd and completes review registration",
@@ -129,7 +121,7 @@ test(
       );
     } finally {
       await f.close();
-      rmSync(externalParent, { recursive: true, force: true });
+      removeTempRepository(externalParent);
     }
   },
 );
@@ -200,7 +192,7 @@ test(
       assert.equal(firstStream?.header.trustedManagedCwd, undefined);
       await f.awaitOutcome(String(spawned.runtimeSessionId));
 
-      rmSync(callerDir, { recursive: true, force: true });
+      removeTempRepository(callerDir);
       symlinkSync(externalSneakyTarget, callerDir, "dir");
       nowMs += 65_000;
       await f.reopen();
@@ -226,7 +218,7 @@ test(
       assert.match(outcomes.at(-1)?.payload.attempt?.reason ?? "", /Runtime cwd must stay inside the repository/u);
     } finally {
       await f.close();
-      rmSync(outsideParent, { recursive: true, force: true });
+      removeTempRepository(outsideParent);
     }
   },
 );
@@ -916,7 +908,7 @@ test(
       );
     } finally {
       await f.close();
-      rmSync(outsideParent, { recursive: true, force: true });
+      removeTempRepository(outsideParent);
     }
   },
 );

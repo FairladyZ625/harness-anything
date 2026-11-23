@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,10 +10,11 @@ import { registerDaemonRepo } from "@harness-anything/storage";
 import type { DaemonHostRegistryContext } from "../src/daemon-host/daemon-host-context.ts";
 import type { RepoCell, RepoCellStatus } from "../src/daemon-host/repo-cell-types.ts";
 import { refreshRegistry } from "../src/daemon-host/daemon-host-registry.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("registry refresh reopens a migrated edge repo at its new workspace root", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-root-migration-"));
-  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(temp));
   const userRoot = path.join(temp, "user-harness"),
     oldRoot = createHarnessRepo(path.join(temp, "old-workspace")),
     newRoot = createHarnessRepo(path.join(temp, "new-workspace"));

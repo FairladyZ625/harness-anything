@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const interrupted of [false, true])
   test(`self escalation resolves and redispatches${interrupted ? " after an interrupted resolution" : ""}`, async (t) => {
@@ -27,7 +28,7 @@ for (const interrupted of [false, true])
         "admin",
       ),
       worker = fixtureRuntimeProcess(t);
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     initIngressRepo(root, 0);
     let credential: string | undefined,
       continuedPrompt = "",
@@ -329,7 +330,7 @@ for (const interrupted of [false, true])
 test("dispatch and session creation commit together and an invalid start publishes neither", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-session-atomic-")),
     repoId = "dispatch-session-atomic";
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   initIngressRepo(root, 0);
   const ceo = withPolicyGroup(
       { actor: { principal: { personId: "person-atomic" }, executor: null }, source: "local" as const },

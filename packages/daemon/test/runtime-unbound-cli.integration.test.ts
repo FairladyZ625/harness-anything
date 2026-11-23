@@ -2,7 +2,7 @@
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -21,6 +21,7 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import type { PreparedRuntimeLaunch } from "../src/daemon-host/agent-runtime-instances.ts";
 import type { RuntimeCallbackRelay } from "../src/daemon-host/runtime-spawn-types.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "unbound runtime CLI uses the spawning daemon and person without a task lease",
@@ -39,7 +40,7 @@ test(
       for (const relay of relays) await relay.stop();
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     initIngressRepo(root, process.getuid?.() ?? 0);
     execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/main", "HEAD"]);

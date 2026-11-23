@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "writer epoch acquisition recovers when its prior holder dies before publishing",
@@ -42,7 +43,7 @@ test(
       assert.equal(recovered.status, 0, recovered.stderr);
       assert.deepEqual(JSON.parse(recovered.stdout.trim()), { epoch: 1, holderId: "recovery" });
     } finally {
-      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(root);
     }
   },
 );

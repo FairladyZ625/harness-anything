@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import {
   readDaemonLifecycleGeneration,
   readDaemonLifecycleRecords,
 } from "../src/daemon-host/lifecycle-log.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function lifecycleLine(daemonId: string, entry: Readonly<Record<string, unknown>>): string {
   return JSON.stringify({
@@ -35,7 +36,7 @@ test("one long-lived recorder rechecks the size cap before every append", (t) =>
       keptFiles: 2,
       now: () => new Date("2026-09-13T00:00:00.000Z"),
     });
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   for (let index = 0; index < 200; index += 1)
     log.record({ event: "runtime_spawn", runtimeSessionId: `session-${index}` });
 
@@ -54,7 +55,7 @@ test("one long-lived recorder rechecks the size cap before every append", (t) =>
 
 test("diagnostics uses the lifecycle rotation policy in a separate schema and file", (t) => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-diag-log-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const log = openDaemonLifecycleLog({
     userRoot,
     daemonId: "test",
@@ -108,7 +109,7 @@ test("the current generation is read from the tail across one rotation boundary"
     );
     assert.deepEqual(readDaemonLifecycleGeneration(userRoot, "absent"), []);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -146,6 +147,6 @@ test("a multi-chunk current generation is returned whole and in order", () => {
       Array.from({ length: 600 }, (_, index) => `current-${index}`),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

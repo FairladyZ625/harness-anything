@@ -2,7 +2,7 @@
 import { lifecycleReadForSync } from "./dispatch-lifecycle-read.fixtures.ts";
 import assert from "node:assert/strict";
 import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -35,6 +35,7 @@ import {
   taskContractProjection,
   type ProjectionCut,
 } from "./task-query-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const secondEventEdge = {
   ...eventEdge,
@@ -869,7 +870,7 @@ test("agenda restart rows take the complete completion next, including contract 
 
 test("agenda projects incident escalation receipts, including a rejected owner write", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incident-agenda-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const taskId = "task_incident_agenda",
     executionId = "execution_incident_agenda",
     dispatchId = "dispatch_0123456789abcdef01234567",
@@ -997,7 +998,7 @@ test("agenda projects incident escalation receipts, including a rejected owner w
 
 test("agenda labels a guard escalation as needs-handling instead of an owner question", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incident-guard-agenda-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const taskId = "task_incident_guard",
     executionId = "execution_incident_guard",
     dispatchId = "dispatch_aa3456789abcdef012345678",
@@ -1081,7 +1082,7 @@ test("agenda labels a guard escalation as needs-handling instead of an owner que
 
 test("terminal dispatch receipts leave the awaiting-ruling queue", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-incident-terminal-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const submission = { schema: "submission/v1", submissionDigest: `sha256:${"a".repeat(64)}` },
     dispatchOf = (suffix: string, taskId: string, executionId: string, at: string) => ({
       event: {
@@ -1626,7 +1627,7 @@ test("task reads conclude active when event truth never stated packageDispositio
 
 test("task WIP read returns daemon-counted leaves and root assessments", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "task-wip-read-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const projection = projectionStub({
       taskRows: [
         protocolTaskRow("task_leaf", [], { status: "active" }),
@@ -1651,7 +1652,7 @@ test("task WIP read returns daemon-counted leaves and root assessments", (t) => 
 
 test("the real WIP producer output passes the protocol validator, with or without roots", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "task-wip-contract-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const wipOf = (taskRows: readonly unknown[]) =>
     readTaskWipSnapshot({
       rootDir,
@@ -1709,7 +1710,7 @@ function queryRead(rootDir: string, projection: TaskProjection) {
 
 function legacyRoot(t: TestContext): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), "g3b-read-truth-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   seedRelationProjection(path.join(rootDir, ".harness/cache/projections.sqlite"));
   return rootDir;
 }

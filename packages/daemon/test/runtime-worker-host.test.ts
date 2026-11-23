@@ -22,6 +22,7 @@ import { applyGithubLaunchCredential } from "../src/daemon-host/runtime-github-c
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const operatorBinding = { actor: { principal: { personId: "operator" }, executor: null }, source: "local" as const };
 
@@ -196,7 +197,7 @@ test(
       globalThis.setTimeout = originalSetTimeout;
       globalThis.clearTimeout = originalClearTimeout;
       await nativeProcess?.terminateTree?.();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -404,7 +405,7 @@ test("DeepSeek drops shell-side Git credentials before its environment scrub", (
     assert.equal(before.status, 128);
     assert.match(before.stderr, /missing config key GIT_CONFIG_KEY_0/u);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -458,7 +459,7 @@ test(
         new Set(["IdentityAgent=none", "IdentityFile=/dev/null", "IdentitiesOnly=yes"]),
       );
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -523,7 +524,7 @@ test(
     );
     t.after(async () => {
       await runtimeProcess.terminateTree?.();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     await eventually(
       () =>
@@ -634,7 +635,7 @@ test("queued steer is discarded when cancellation reaches the worker host", { ti
   );
   t.after(async () => {
     await runtimeProcess.terminateTree?.();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
   await eventually(
     () =>
@@ -716,7 +717,7 @@ test(
     );
     t.after(async () => {
       await runtimeProcess.terminateTree?.();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     await eventually(
       () =>
@@ -893,7 +894,7 @@ async function driveCodexWorker(
       .split(/\r?\n/u)
       .map((line) => JSON.parse(line) as { args: string[]; prompt: string }),
     records: readDispatchStream(rootDir, dispatchId)!.records,
-    cleanup: () => rmSync(parent, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(parent),
   };
 }
 

@@ -29,6 +29,7 @@ import {
   worktreeAuthoredRelative,
 } from "../src/daemon-host/worktree-setup.ts";
 import { taskWorktreeCandidateInventory } from "../src/daemon-host/task-worktree-candidates.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const taskId = "task-x",
   packageName = `${taskId}-fixture`,
@@ -185,13 +186,13 @@ test("a missing or replaced worker mirror is recreated without following its rep
   await addManagedWorktree(root, worktree);
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
 
-  rmSync(mirror, { recursive: true, force: true });
+  removeTempRepository(mirror);
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
   assert.equal(lstatSync(path.join(mirror, "tasks", packageName)).isDirectory(), true);
 
   mkdirSync(external);
   writeFileSync(sentinel, "keep\n");
-  rmSync(mirror, { recursive: true, force: true });
+  removeTempRepository(mirror);
   symlinkDirectory(external, mirror);
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
 
@@ -367,7 +368,7 @@ function repositoryFixture(t: TestContext): string {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-worktree-ledger-"))),
     remote = path.join(base, "remote.git"),
     root = path.join(base, "canonical");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "--bare", "-q", remote);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Worktree Test");
@@ -413,7 +414,7 @@ for (const retired of [false, true]) {
         ["ruling-v1", Buffer.from("ruling v1\n")],
         ["ruling-v2", Buffer.from("CEO supplement\n")],
       ]);
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     mkdirSync(path.join(root, "harness"));
     mkdirSync(path.dirname(path.join(worker, "harness", report)), { recursive: true });
     mkdirSync(path.join(worker, ".git"));
@@ -631,7 +632,7 @@ test("review setup materializes fresh packages but preserves existing copies and
 
 test("declared custom authoredRoot mirrors inside the worktree and returns candidate inventory", async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-ext-ledger-"));
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   const root = path.join(parent, "repo"),
     extLedger = path.join(root, "ledger-data"),
     pkg = path.join(extLedger, "tasks", packageName),

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,11 +8,12 @@ import { BuiltinPolicyAdapter } from "@harness-anything/authorization/builtin";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak";
 import { effectivePolicyGroupScopes, type AuthorizationProvider } from "@harness-anything/kernel";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const kind of ["builtin", "keycloak"] as const) {
   test(`${kind}: single-person directory and policy administration obey the same contract`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-identity-parity-"));
-    t.after(() => rmSync(root, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(root));
     const realm = fakeKeycloak();
     let provider: AuthorizationProvider, token: string, userToken: string;
     if (kind === "builtin") {

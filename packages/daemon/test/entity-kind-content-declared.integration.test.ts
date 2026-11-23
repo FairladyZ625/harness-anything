@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
     {
@@ -135,8 +136,8 @@ test("Two Kinds declared at runtime carry file and directory content through the
     await waitForFixturePublication(cell, ledgerImport.opId, binding);
 
     // Every read below is of published state; the sources are gone.
-    rmSync(path.join(rootDir, "surveys"), { recursive: true });
-    rmSync(path.join(rootDir, "ledgers"), { recursive: true });
+    removeTempRepository(path.join(rootDir, "surveys"));
+    removeTempRepository(path.join(rootDir, "ledgers"));
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", surveyRoot, "raw/scan.pdf")), binary);
     assert.equal(readFileSync(path.join(rootDir, "harness", surveyRoot, "raw/draft.txt"), "utf8"), "draft\n");
     assert.ok(statSync(path.join(rootDir, "harness", surveyRoot, "unfiled")).isDirectory());
@@ -198,7 +199,7 @@ test("Two Kinds declared at runtime carry file and directory content through the
     assert.deepEqual(Buffer.from(store.readContentBlob(scan.contentSha256) ?? []), binary);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -262,7 +263,7 @@ test("A source object above the per-object ceiling is refused and the exact boun
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -315,7 +316,7 @@ test("Publishing a Kind schema version is refused for a caller with no repositor
     assert.equal((JSON.parse(String(allowed.evidence)) as { kindVersion: number }).kindVersion, 2);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,6 +10,7 @@ import {
   readDispatchStream,
 } from "../../daemon/src/daemon-host/dispatch-stream.ts";
 import { sessionTranscriptTurns, toolCallGroups } from "../src/renderer/session-transcript-model.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type Fixture = {
   readonly dispatchId: string;
@@ -49,7 +50,7 @@ function archiveAndProject(fixture: Fixture) {
       compacted: after.header.transcriptCompactionVersion === 1,
     };
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 }
 

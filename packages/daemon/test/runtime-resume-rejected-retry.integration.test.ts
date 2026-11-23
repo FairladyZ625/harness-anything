@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a provider-rejected local resume leaves its source available for another admission", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-resume-rejected-retry-"));
@@ -113,7 +114,7 @@ test("a provider-rejected local resume leaves its source available for another a
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -264,6 +265,6 @@ test("a rejected task resume keeps its primary error when lease stop proof is un
       await cell.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

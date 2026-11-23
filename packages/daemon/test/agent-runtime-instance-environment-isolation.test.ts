@@ -22,6 +22,7 @@ import {
 import { ensureSharedAuthFile } from "../src/daemon-host/agent-runtime-instance-storage.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("claude isolation defaults to the operator environment and stays enforced on request", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-claude-isolation-")),
@@ -207,7 +208,7 @@ test("claude isolation defaults to the operator environment and stays enforced o
       (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -304,7 +305,7 @@ test("codex-acp preserves enforced subscription instances on disk while enforcin
       (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -402,7 +403,7 @@ test("macOS Claude operator probes use the OS username and report the probed env
       hint: "Provider subscription authentication is unavailable in this instance state root.",
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -490,7 +491,7 @@ test(
       assert.equal(readlinkSync(claudeCredentials), path.join(operatorHome, ".claude", ".credentials.json"));
       for (const receipt of [launch, login]) assert.doesNotMatch(JSON.stringify(receipt), /operator-login/u);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -512,7 +513,7 @@ test("auth sharing rejects a source that is also its destination without replaci
     assert.equal(lstatSync(authFile).isSymbolicLink(), false, "the credential must remain a regular file");
     assert.equal(readFileSync(authFile, "utf8"), contents, "the rejected link must not mutate the credential");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -592,7 +593,7 @@ test("api-key instances never receive the operator's shared provider credentials
     );
     assert.equal(claudeLaunch.env.ANTHROPIC_API_KEY, "instance-secret");
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -646,7 +647,7 @@ test(
       await store.authStatus("codex-auth-refresh");
       assert.equal(readlinkSync(instanceAuth), operatorAuth);
     } finally {
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -684,7 +685,7 @@ test("a missing operator auth file links nothing and leaves an instance-local lo
     assert.equal(lstatSync(instanceAuth).isSymbolicLink(), false);
     assert.equal(readFileSync(instanceAuth, "utf8"), `{"tokens":"instance-local-login"}`);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -723,7 +724,7 @@ test("operator-environment codex accepts prompt-injected skills without writing 
     assert.equal(launch.args.includes("--plugin-dir"), false);
     assert.equal(launch.args.includes("--add-dir"), false);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -785,7 +786,7 @@ test("win32 instances derive USERPROFILE/TEMP/APPDATA isolation without POSIX va
     assert.equal("XDG_RUNTIME_DIR" in launch.env, false);
     assert.equal(Object.values(launch.env).includes("host-secret"), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -838,7 +839,7 @@ test("linux instances keep the POSIX isolation shape distinct from the host", as
     assert.equal("USERPROFILE" in command.env, false);
     assert.equal(Object.values(command.env).includes("host-secret"), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -914,7 +915,7 @@ test("two same-binary same-model instances never share state roots or credential
     assert.equal(secrets.includes("secret-a"), true);
     assert.equal(secrets.includes("secret-b"), true);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

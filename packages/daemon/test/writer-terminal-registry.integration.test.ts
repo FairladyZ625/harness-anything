@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import { openWriterSupervisor, WRITER_IDLE_TIMEOUT_MS } from "../src/daemon-host
 import { policyTestCenter, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
 import { fixtureFence, settleSettingsEvent } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "writer retirement and drain preserve the host's newer durable terminal sessions",
@@ -126,7 +127,7 @@ test(
     } finally {
       await supervisor?.close();
       await host?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   },
 );

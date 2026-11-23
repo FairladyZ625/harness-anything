@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,6 +33,7 @@ import {
 import { archiveRuntimeDispatch } from "../src/daemon-host/doc-sync-publication.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { modelPriceOf, usageCostUsd } from "../src/runtime-engine/agent-runtime-model-pricing.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const DEFINITION_SNAPSHOT = {
   schema: "agent-definition-snapshot/v1" as const,
@@ -285,7 +286,7 @@ test("F10: unpaginated tokenUsageDetail returns >500 sessions in exact baseline 
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(paged), []);
   } finally {
     repo.projection.close();
-    rmSync(repo.rootDir, { recursive: true, force: true });
+    removeTempRepository(repo.rootDir);
   }
 });
 
@@ -497,7 +498,7 @@ test("F12: two-step expand-and-contract keeps canonical events baseline 6-key + 
       assert.equal(coldSource.complete, true, "cold rebuild must complete cleanly");
       assert.deepEqual(coldSource.issues, [], "cold rebuild must decode all newly written events with zero issues");
     } finally {
-      rmSync(legacyRoot, { recursive: true, force: true });
+      removeTempRepository(legacyRoot);
     }
 
     // 4) F17: Verify Edge local stream root AND Center canonical-only root report IDENTICAL cacheWriteTokens & USD!
@@ -694,11 +695,11 @@ test("F12: two-step expand-and-contract keeps canonical events baseline 6-key + 
         );
       }
     } finally {
-      rmSync(edgeLocalRoot, { recursive: true, force: true });
+      removeTempRepository(edgeLocalRoot);
     }
   } finally {
     repo.projection.close();
-    rmSync(repo.rootDir, { recursive: true, force: true });
+    removeTempRepository(repo.rootDir);
   }
 });
 
@@ -1028,7 +1029,7 @@ test("F13: detail cursor pins [sinceMs, untilMs] and projection cut across local
     assert.equal(dbQueryCountOnInvalidCursor, 0, "F14: invalid/forged cursors must reject before querying SQLite/PG");
   } finally {
     repo.projection.close();
-    rmSync(repo.rootDir, { recursive: true, force: true });
+    removeTempRepository(repo.rootDir);
   }
 });
 
@@ -1228,7 +1229,7 @@ test("F11: stateless cold second-reader continuation seeks O(pageSize) with 0 st
       syncBuiltinESMExports();
       coldProjection?.close();
       repo.projection.close();
-      rmSync(repo.rootDir, { recursive: true, force: true });
+      removeTempRepository(repo.rootDir);
     }
   };
 

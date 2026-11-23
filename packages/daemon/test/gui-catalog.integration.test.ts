@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,6 +16,7 @@ import {
   validateCatalogRereadReceipt,
   validateCatalogSnapshot,
 } from "../src/daemon-host/gui-s3-control.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const write = (target: string, body: string) => {
   mkdirSync(path.dirname(target), { recursive: true });
@@ -196,6 +197,6 @@ test("GUI catalog carries the settings selector value faces: preset profiles and
     ((badProfileRow.presets as Record<string, unknown>[])[0]!.profiles as Record<string, unknown>[])[0]!.extra = true;
     assert.ok(validateCatalogSnapshot(badProfileRow).some((error) => error.includes("catalog preset profile")));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../src/daemon-host/dispatch-stream.ts";
 import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
@@ -18,6 +18,7 @@ import {
   stopFixtureProcess,
   type HostBootstrapProbe,
 } from "./task-squad-orchestration.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const suiteHost = createSuiteHost("boundaries-shared");
 
@@ -283,7 +284,7 @@ test(
         const relock = await acquireWorkspaceLock(probe.root);
         await relock.close();
       } finally {
-        rmSync(probe.parent, { recursive: true, force: true });
+        removeTempRepository(probe.parent);
       }
     };
 

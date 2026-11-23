@@ -15,6 +15,7 @@ import {
   readFleetCenterGitMetadata,
   FleetEdgeGitPreflightError,
 } from "../src/daemon-host/fleet-edge-git-preflight.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -100,7 +101,7 @@ test("edge Git preflight verifies center history instead of requiring matching r
       code: "edge_origin_missing",
     });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -116,7 +117,7 @@ test("center Git metadata exposes a copyable origin without URL credentials", as
     assert.equal(JSON.stringify(metadata).includes("fake-token"), false);
     assert.equal(metadata.originUrl, "git-remote://example.invalid/team/repo");
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -159,7 +160,7 @@ test("center local-only Git mode is explicit and unreadable center facts fail cl
     git(edge, "remote", "add", "origin", origin);
     await assertFleetEdgeRepositoryGit({ rootDir: edge, center: localOnly, operation: "runtime dispatch" });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -169,7 +170,7 @@ test("edge Git preflight distinguishes a behind checkout from unsafe Git state",
     center = path.join(root, "center"),
     edge = path.join(root, "edge"),
     origin = path.join(root, "origin.git");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   git(root, "init", "--bare", "-b", "main", "-q", origin);
   git(root, "init", "-b", "main", "-q", center);
   git(center, "remote", "add", "origin", origin);

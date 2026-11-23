@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { resolveRepoBootstrap } from "../src/daemon-host/repo-bootstrap.ts";
 import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/auth-context.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 type OpenedCell = Awaited<ReturnType<typeof openFencedRepoCell>>;
 
@@ -631,7 +632,7 @@ test("office/collab end-to-end lifecycle: init --vertical -> work create -> task
     assert.equal(finalShow.task.metadata.presetId, "deliverable-task");
   } finally {
     await env.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -778,7 +779,7 @@ test("pure custom vertical finance/audit (zero coding presets/agents): full life
     assert.equal(brokenEntry.validity, "blocked");
   } finally {
     await env.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 
   // 7. Negative control: custom vertical WITHOUT a `taskClass=work` preset reports missing taskClass=work preset (never `create-work`)
@@ -816,7 +817,7 @@ test("pure custom vertical finance/audit (zero coding presets/agents): full life
     assert.doesNotMatch(explanation, /create-work/u);
   } finally {
     await noWorkEnv.close();
-    rmSync(noWorkRoot, { recursive: true, force: true });
+    removeTempRepository(noWorkRoot);
   }
 });
 
@@ -910,8 +911,8 @@ test("repo bootstrap default preset preserves standard-task for software/coding,
     // 5. Custom vertical with an alphabetically earlier process-action audit preset + regular preset + missing-provider preset
     seedCustomAuditVertical(rootDir, { verticalId: "finance/custom-default", includeWorkPreset: true });
     const customDir = path.join(rootDir, "verticals", "finance-custom-default");
-    rmSync(path.join(customDir, "presets", "audit-policy-patch"), { recursive: true, force: true });
-    rmSync(path.join(customDir, "presets", "audit-review"), { recursive: true, force: true });
+    removeTempRepository(path.join(customDir, "presets", "audit-policy-patch"));
+    removeTempRepository(path.join(customDir, "presets", "audit-review"));
     writeFile(
       path.join(customDir, "presets", "alpha-audit", "preset.json"),
       JSON.stringify({
@@ -1017,6 +1018,6 @@ test("repo bootstrap default preset preserves standard-task for software/coding,
       (error: unknown) => (error as { code?: string }).code === "missing_provider",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

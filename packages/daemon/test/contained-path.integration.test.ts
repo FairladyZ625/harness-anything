@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { resolveContainedPath } from "../src/daemon-host/contained-path.ts";
 import { resolveRuntimeCwd } from "../src/daemon-host/runtime-spawn-mission.ts";
 import { openTerminalHost } from "../src/daemon-host/terminal-host.ts";
 import type { TmuxController } from "../src/daemon-host/terminal-tmux.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const symlinkTests = { skip: process.platform === "win32" ? "requires POSIX file-symbolic-link semantics" : false };
 
@@ -27,7 +28,7 @@ test("contained paths canonicalize valid paths and reject symlink escapes", syml
     assert.equal(resolveContainedPath(root, "link"), null);
     assert.equal(resolveContainedPath(root, "link/nested"), null);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -47,7 +48,7 @@ test("runtime cwd rejects symlink escapes", symlinkTests, () => {
       );
     }
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -63,7 +64,7 @@ test("runtime cwd reports a missing directory separately from a containment esca
         error.message === "Runtime cwd directory does not exist.",
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -105,7 +106,7 @@ test("terminal cwd rejects symlink escapes before spawning", symlinkTests, async
       await host.close();
     }
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -149,7 +150,7 @@ test("terminal session restore rejects a symlink escape", symlinkTests, () => {
       /invalid terminal session registry cwd/u,
     );
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

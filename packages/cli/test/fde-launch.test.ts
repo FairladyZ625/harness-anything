@@ -1,16 +1,17 @@
 // harness-test-tier: fast
 // dec_42EB7B8F636C12381A447E52A3/CH2: headless CLI contract tests for `ha fde`.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runFdeLaunch } from "../src/cli/fde-launch.ts";
 import { cliCapabilities, clientLocalCommands, declaredCommandDomains } from "../src/cli/thin-command-help.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function makeBuiltFdeFixture(t: test.TestContext): string {
   const dir = mkdtempSync(path.join(tmpdir(), "ha-fde-cli-"));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(dir));
   mkdirSync(path.join(dir, "dist"), { recursive: true });
   mkdirSync(path.join(dir, "dist-electron"), { recursive: true });
   writeFileSync(path.join(dir, "dist/index.html"), "<html></html>", "utf8");

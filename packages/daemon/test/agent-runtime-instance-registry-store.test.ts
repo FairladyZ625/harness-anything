@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,7 @@ import {
 } from "../src/runtime-engine/runtime-inventory.ts";
 import { providerFrameParsers } from "../src/daemon-host/runtime-spawn-provider-frames.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("ZCode inventory declares API-key configuration isolation", () => {
   const zcode = runtimeKinds.find(({ kindId }) => kindId === "zcode");
@@ -97,7 +98,7 @@ test("a synthetic declaration can extend isolated copies without mutating shared
       outcome: "succeeded",
     });
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -150,7 +151,7 @@ test("machine runtime instance CRUD binds a witnessed installation and enforces 
     assert.equal(store.read(config.instanceId), null);
     assert.equal(existsSync(stateRoot), false);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -541,7 +542,7 @@ test("runtime instance command receipts expose readiness metadata without creden
       "codex-safe",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -585,7 +586,7 @@ test("runtime catalog reads and auth probes reuse one installation discovery sna
     store.command({ kind: "runtime-instance-update", instanceId: "codex-discovery-snapshot", enabled: false });
     assert.equal(discoveries, 0);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -601,8 +602,8 @@ test("runtime instance create filters auto-resolution by kind and rejects same-k
     },
     codex = { ...observed, installationId: "codex-first", version: "codex 1.0.0" },
     secondClaude = { ...claude, installationId: "claude-second", version: "2.1.305 (Claude Code)" };
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
-  t.after(() => rmSync(ambiguousRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
+  t.after(() => removeTempRepository(ambiguousRoot));
   try {
     const automatic = openRuntimeInstanceStore({ userRoot, discover: () => [claude, codex] }),
       created = automatic.command({
@@ -637,8 +638,8 @@ test("runtime instance create filters auto-resolution by kind and rejects same-k
         error.message.includes(secondClaude.installationId),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
-    rmSync(ambiguousRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
+    removeTempRepository(ambiguousRoot);
   }
 });
 
@@ -664,7 +665,7 @@ test("runtime instance command adapter rejects ambiguous or unknown auth modes",
       (error: unknown) => codedAs(error, "invalid_runtime_auth"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -742,7 +743,7 @@ test("public instance projections expose one generic provider configuration", as
       true,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -809,7 +810,7 @@ test("kind-specific runtime config fails closed across adapters and rejects secr
       (error: unknown) => codedAs(error, "invalid_runtime_http_headers"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -901,7 +902,7 @@ test("runtime instance update changes metadata and models without touching crede
       (error: unknown) => codedAs(error, "runtime_installation_not_found"),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 

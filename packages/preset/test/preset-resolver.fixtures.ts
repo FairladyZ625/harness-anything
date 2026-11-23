@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export function makeFixture() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-preset-resolver-")),
@@ -48,7 +49,7 @@ export function makeFixture() {
     bundledRoot,
     userRoot,
     assetsRoot,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    cleanup: () => removeTempRepository(root),
   };
 }
 export function writePackage(root: string, id: string, extra: Record<string, unknown> = {}): void {

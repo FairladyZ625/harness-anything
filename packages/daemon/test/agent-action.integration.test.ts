@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   prepareAgentEntityDelete,
   readAgentDeclaration,
 } from "../src/daemon-host/agent-entities.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const binding = withPolicyGroup(
   {
@@ -385,7 +386,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     assert.deepEqual(JSON.parse(String(listed.evidence)).agents, []);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -428,7 +429,7 @@ test("Agent install accepts a single declaration file as the package source", as
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -582,7 +583,7 @@ test("Agent retire publishes lifecycle state, is idempotent by operation, and bl
     assert.deepEqual(JSON.parse(String(replayed.evidence)).agent, agent);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -678,7 +679,7 @@ test("inspect and list answer a stored declaration the current schema rejects wi
     ]);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -786,7 +787,7 @@ test("owned-content objects preserve raw bytes and reject absent or oversized co
     assert.equal(store.revision(), 2);
   } finally {
     store.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -810,7 +811,7 @@ test("RepoCell fixtures preserve an unnamed local caller's missing authority", a
   } finally {
     await reader.drain();
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -861,7 +862,7 @@ test("an explicit same-kind instance pool does not report an ambiguous Agent ins
     assert.deepEqual(installed.warnings ?? [], []);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -932,6 +933,6 @@ test("agent list and inspect state the effective host access and whether it is d
     }
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

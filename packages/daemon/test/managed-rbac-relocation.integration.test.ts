@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import { ManagedRbacService, managedRbacVersions } from "@harness-anything/autho
 import { effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function freeLoopbackPort(): Promise<number> {
   const server = createServer();
@@ -143,7 +144,7 @@ test(
     let targetForCleanup: ManagedRbacService | undefined;
     t.after(async () => {
       await Promise.all([source.stop(), targetForCleanup?.stop()]);
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     });
 
     await source.run({ operation: "bootstrap", mode: "managed" });

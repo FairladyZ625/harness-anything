@@ -1,12 +1,13 @@
 // harness-test-tier: fast
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { guiBuildStamp } from "../src/main/gui-build-identity.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => roots.splice(0).forEach((root) => removeTempRepository(root)));
 
 it("freezes the loaded bundle identity when the dist marker is rebuilt on disk", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gui-build-id-"));

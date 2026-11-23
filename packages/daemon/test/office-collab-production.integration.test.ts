@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -27,6 +27,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "CLI vertical list enumerates builtin verticals, links to preset list, and office/collab dispatches bundled roles through production daemon and GUI catalog",
@@ -45,7 +46,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);
@@ -469,7 +470,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);
@@ -478,7 +479,7 @@ test(
     // under verticals/legacy-office/agents/{reviewer,analyst}.json.
     const localOffice = path.join(root, "verticals", "legacy-office");
     cpSync(new URL("../../preset/assets/software-coding/", import.meta.url), localOffice, { recursive: true });
-    rmSync(path.join(localOffice, "agents"), { recursive: true, force: true });
+    removeTempRepository(path.join(localOffice, "agents"));
     mkdirSync(path.join(localOffice, "agents"), { recursive: true });
     writeFileSync(
       path.join(localOffice, "agents", "reviewer.json"),
@@ -722,7 +723,7 @@ test(
     const writeLegacyLocalOfficeVertical = (repoDir: string, commit: boolean) => {
       const localOffice = path.join(repoDir, "verticals", "legacy-office");
       cpSync(new URL("../../preset/assets/software-coding/", import.meta.url), localOffice, { recursive: true });
-      rmSync(path.join(localOffice, "agents"), { recursive: true, force: true });
+      removeTempRepository(path.join(localOffice, "agents"));
       mkdirSync(path.join(localOffice, "agents"), { recursive: true });
       writeFileSync(
         path.join(localOffice, "agents", "reviewer.json"),
@@ -982,7 +983,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(home);
     mkdirSync(promptDir);
@@ -1271,7 +1272,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);
@@ -1415,7 +1416,7 @@ for (const frame of [
     // Simulate upgrade: stop daemon, remove pre-upgrade shadow so bundled office/collab ships live, then cold-start.
     await daemon1.stop();
     stop = async () => {};
-    rmSync(path.join(root, "verticals"), { recursive: true, force: true });
+    removeTempRepository(path.join(root, "verticals"));
 
     const daemon2 = await launchDaemon();
     const rpc2 = (method: string, params: JsonObject) =>
@@ -1592,7 +1593,7 @@ test(
     t.after(async () => {
       await stop();
       await realm.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(home);
     initIngressRepo(root, process.getuid?.() ?? 0);

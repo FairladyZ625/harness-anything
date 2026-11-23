@@ -2,7 +2,7 @@
 import { scopedRpcParams } from "@harness-anything/daemon/protocol";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +16,7 @@ import {
   DEFAULT_GUI_REQUEST_TIMEOUT_MS,
   guiRequestTimeouts,
 } from "../src/main/gui-local-settings.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cases = [
   {
@@ -89,7 +90,7 @@ for (const scenario of cases) {
         else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
         if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
         else process.env.HARNESS_DAEMON_ID = previous.id;
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       });
       mkdirSync(path.dirname(socketPath), { recursive: true });
       server.listen(socketPath);
@@ -155,7 +156,7 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
       else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
       if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
       else process.env.HARNESS_DAEMON_ID = previous.id;
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     });
     mkdirSync(path.dirname(socketPath), { recursive: true });
     server.listen(socketPath);
@@ -200,7 +201,7 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
 
 test("guiRequestTimeouts: a root without settings.local.json reads the declared defaults", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-gui-timeouts-absent-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.deepEqual(guiRequestTimeouts(root), {
     connectTimeoutMs: DEFAULT_GUI_CONNECT_TIMEOUT_MS,
     requestTimeoutMs: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
@@ -212,7 +213,7 @@ test("guiRequestTimeouts: a corrupt settings.local.json fails naming the file in
     file = path.join(root, ".harness/settings.local.json");
   mkdirSync(path.join(root, ".harness"), { recursive: true });
   writeFileSync(file, "{ not json\n");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.throws(() => guiRequestTimeouts(root), /settings\.local\.json is not valid JSON/u);
   assert.throws(() => guiRequestTimeouts(root), new RegExp(file.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
 });
@@ -222,7 +223,7 @@ test("guiRequestTimeouts: valid JSON that is not a local settings document fails
     file = path.join(root, ".harness/settings.local.json");
   mkdirSync(path.join(root, ".harness"), { recursive: true });
   writeFileSync(file, `${JSON.stringify({ schema: "settings-local/v2", gui: { connectTimeoutMs: 1 } })}\n`);
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   assert.throws(() => guiRequestTimeouts(root), /settings\.local\.json/u);
   assert.throws(() => guiRequestTimeouts(root), new RegExp(file.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
 });
@@ -270,7 +271,7 @@ test("runtime bridge rejects malformed quota without echoing untrusted secret st
     else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
     if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
     else process.env.HARNESS_DAEMON_ID = previous.id;
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
   mkdirSync(path.dirname(socketPath), { recursive: true });
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));

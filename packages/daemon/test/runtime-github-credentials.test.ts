@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,6 +15,7 @@ import {
   resolveOperatorGithubToken,
 } from "../src/daemon-host/runtime-github-credentials.ts";
 import { scrubProviderValue } from "../src/runtime-engine/secret-scrub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const installation: RuntimeInstallationWitness = {
   installationId: "codex-github-inheritance",
@@ -93,7 +94,7 @@ test("both isolation states receive the operator token and the github.com gh hel
       false,
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -109,7 +110,7 @@ test("a missing operator login still launches and reports the notice without the
     assert.match(launch.githubCredentialNotice!, /cannot push, open a pull request, or read CI logs/u);
     assert.equal(launch.env.HOME, path.join(userRoot, "runtime-instances", "codex-no-login", "home"));
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -131,13 +132,13 @@ test("the token reaches only the child environment, never a persisted artifact o
       "pushed with [REDACTED]",
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
 test("an inherited token wins, and both absences are ordinary answers rather than errors", async (t) => {
   const bin = mkdtempSync(path.join(tmpdir(), "ha-runtime-github-bin-"));
-  t.after(() => rmSync(bin, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(bin));
   writeFileSync(path.join(bin, "gh"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   let spawned = 0;
   const inherited = await resolveOperatorGithubToken(
@@ -228,7 +229,7 @@ test(
       assert.equal(existsSync(ghMarker), true, "git must reach the injected gh helper");
       assert.equal(existsSync(staleMarker), false, "an instance home's stale helper must not be consulted");
     } finally {
-      rmSync(workspace, { recursive: true, force: true });
+      removeTempRepository(workspace);
     }
   },
 );

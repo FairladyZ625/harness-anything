@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
@@ -14,6 +14,7 @@ import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
 const originalPath = process.env.PATH;
@@ -27,7 +28,7 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 const owner = withPolicyGroup(
@@ -236,7 +237,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     assert.ok(denied.authorizationDecision.nextActions.length > 0);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -394,7 +395,7 @@ test("holding every action in Keycloak does not lift self-review, lease, or huma
   } finally {
     await cell?.close();
     await served.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -434,7 +435,7 @@ test("post-accept response loss remains operational and never invents an Action 
     assert.doesNotMatch(JSON.stringify(receipt), /criteria\/publication_indeterminate/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

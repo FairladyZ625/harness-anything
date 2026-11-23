@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,7 @@ import {
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import { runGitHistoryLog, runProcessText } from "../src/daemon-host/process-port.ts";
 import { makeWorkspaceGitHistoryPort } from "../src/daemon-host/repo-cell-trace-view.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const TASK_A = "task_aaaaaaaaaaaaaaaaaaaaaaaaaa",
   TASK_C = "task_cccccccccccccccccccccccccc",
@@ -34,7 +35,7 @@ function withDir(run: (dir: string) => void): void {
   try {
     run(dir);
   } finally {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    removeTempRepository(dir);
   }
 }
 

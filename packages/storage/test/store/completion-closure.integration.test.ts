@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -18,6 +18,7 @@ import { makeTaskProjection } from "../../src/projection/rebuildable-task-projec
 import { submissionDigest, submissionId } from "@harness-anything/kernel/internal/domain/execution.ts";
 import { reviewDigest } from "@harness-anything/kernel/internal/domain/review.ts";
 import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("R2: two snapshots collapse, two amendments retain every review cut, disposition, consent, packet and original outcome", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-closure-")),
@@ -122,7 +123,7 @@ test("R2: two snapshots collapse, two amendments retain every review cut, dispos
     }
   } finally {
     source.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -169,7 +170,7 @@ test("generation-two conversion rejects retired closeout overrides before target
     console.log(`GENERATION_TWO_RETIRED_CLOSEOUT_REJECTED=${mutatedEvents}`);
   } finally {
     source.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -219,7 +220,7 @@ for (const omitted of [
       console.log("R2_OMISSION_REJECTED=" + omitted);
     } finally {
       source.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   });
 }

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +11,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a submit without --task or --path is refused and lists its candidates grouped by task", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-submit-scope-"));
@@ -63,7 +64,7 @@ test("a submit without --task or --path is refused and lists its candidates grou
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -102,7 +103,7 @@ test("the local --all shape rides the same scope refusal", async () => {
     );
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -152,7 +153,7 @@ test("--task submits only that task's candidates while the other task's files st
     assert.match(git(rootDir, "status", "--porcelain", "-uall"), /context\/shared\.md/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -178,7 +179,7 @@ test("a scopeless submit over a clean workspace still names the missing scope", 
     assert.match(rejected.summary, /next: rerun ha doc sync --submit with --task <task-id> or --path <path>/u);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

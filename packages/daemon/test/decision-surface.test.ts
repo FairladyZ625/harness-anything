@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import { assembleTaskCausalContext } from "../src/daemon-host/dispatch-causal-co
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const proposer = withPolicyGroup(
     {
@@ -470,7 +471,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.equal(decisionEvents.filter((event) => event.type === "decision_repinned").length, 2);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -493,7 +494,7 @@ test("decision propose rejects its heading-only default body", async () => {
     assert.equal(proposed.code, "body_placeholder");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -596,7 +597,7 @@ test("decision accept preserves the proposal fulfillments and dry-run uses admis
     assert.equal(rejectedPreview.code, "invalid_transition");
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -666,7 +667,7 @@ test("Evidence relations reject non-claim sources before writing and identify th
     assert.equal(related.outcome, "applied", JSON.stringify(related));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -718,7 +719,7 @@ test("the decisions readiness cache key never reserializes the decision rows", a
     assert.ok(updated.decisions.every(({ readiness }) => readiness));
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -791,7 +792,7 @@ test("Decision validation preserves Proxy query methods and reads dematerialized
   } finally {
     reader.close();
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

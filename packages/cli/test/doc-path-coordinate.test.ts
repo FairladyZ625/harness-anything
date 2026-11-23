@@ -1,16 +1,17 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function fixture(t: { after: (fn: () => void) => void }): { root: string; ledgerRoot: string } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-doc-path-coordinate-"));
   mkdirSync(path.join(root, "harness"), { recursive: true });
   writeFileSync(path.join(root, "harness", "harness.yaml"), "schema: harness-settings/v1\n");
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   return { root, ledgerRoot: path.join(root, "harness") };
 }
 

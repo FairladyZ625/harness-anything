@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readDispatchContextOccupancy, occupancyOfStreamRecord } from "../src/daemon-host/context-occupancy.ts";
 import { dispatchStreamPath } from "../src/daemon-host/dispatch-stream.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -81,7 +82,7 @@ test("ACP usage_update frames report the fill the provider measured, not a cumul
       windowTokens: 1_000_000,
     });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -97,7 +98,7 @@ test("a stream whose provider reports no window yields no occupancy instead of a
   try {
     assert.equal(readDispatchContextOccupancy(rootDir, dispatchId), null);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -136,7 +137,7 @@ test("a torn or foreign line never fabricates a reading", () => {
     assert.equal(readDispatchContextOccupancy(rootDir, "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb"), null);
     assert.equal(readDispatchContextOccupancy(rootDir, "dispatch-not-an-id"), null);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -151,6 +152,6 @@ test("the newest usage frame wins when it straddles a backward-probe chunk edge"
       windowTokens: 1_000_000,
     });
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

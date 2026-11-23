@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { readDaemonLifecycleRecords } from "../src/daemon-host/lifecycle-log.ts"
 import { startDaemon, type RunningDaemon } from "../src/daemon-host/runtime.ts";
 import { openBootstrappedRepoCell, registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function deferred<T = void>() {
   const { promise, resolve } = Promise.withResolvers<T>();
@@ -229,7 +230,7 @@ test("a parked await observes drift without a completed RPC and the CLI reconnec
     await old?.stop();
     await successorStart;
     await replacement?.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -316,6 +317,6 @@ test("observed drift rechecks a queued write without another request or status n
     client?.close();
     await daemon?.stop();
     context.mock.timers.reset();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });

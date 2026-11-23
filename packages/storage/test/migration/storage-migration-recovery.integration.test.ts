@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
   assertSqliteMigrationScope,
   storageMigrationVersions,
 } from "../../src/migration/manifest.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const scope = { tenantId: "migration-tenant", projectId: "migration-project", policyEpoch: 0, readers: [] },
   repoId = "migration";
@@ -57,7 +58,7 @@ async function fixture(seedTarget = false) {
     async close() {
       await source.close();
       await target.close();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     },
   };
 }

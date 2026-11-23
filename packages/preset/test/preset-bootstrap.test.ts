@@ -14,6 +14,7 @@ import {
 } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const PR_TEMPLATE_FIXTURE = `# English
 
@@ -306,10 +307,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     for (const document of standard.documents)
       assert.equal(projection.readDocument(document.path).document?.body, document.body);
     await store.settlePendingMaterialization();
-    rmSync(path.join(rootDir, "harness", standard.packagePath), {
-      recursive: true,
-      force: true,
-    });
+    removeTempRepository(path.join(rootDir, "harness", standard.packagePath));
     const restored = store.materialize();
     assert.deepEqual(
       restored.settlements.map(({ path: settledPath, action }) => [settledPath, action]),
@@ -354,7 +352,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     }
     projection.close();
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -429,7 +427,7 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       },
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -528,7 +526,7 @@ test("reopen recovers bootstrap machine views while preserving bootstrap prose a
     assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).cut.revision, 3);
   } finally {
     await reopened.drain();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -652,7 +650,7 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
       "a whitespace-only plan falls back to the scaffold body",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -785,7 +783,7 @@ test("fix plans must author a Recurrence Gate while other work kinds may omit it
       "a fix task cannot take the gateless lightweight profile even with an authored gate",
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { residentReadoptionScenarios, residentReadoptionCase } from "./fixtures/resident-readoption-cases.fixture.ts";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { readDaemonPid } from "../src/daemon-host/daemon-singleton.ts";
 import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function eventually(predicate: () => boolean | Promise<boolean>, _message: string): Promise<void> {
   while (!(await predicate())) await new Promise<void>((resolve) => setTimeout(resolve, 25));
@@ -137,8 +138,8 @@ for (const supervised of [true, false])
             );
           }
         }
-        rmSync(parent, { recursive: true, force: true });
-        rmSync(buildRoot, { recursive: true, force: true });
+        removeTempRepository(parent);
+        removeTempRepository(buildRoot);
       }
     },
   );

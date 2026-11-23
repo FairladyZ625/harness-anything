@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { IdentitySessionPort, OidcLoginAuthority } from "@harness-anything/kernel";
 import { BuiltinIdentitySession } from "../../src/builtin/index.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 test("builtin edge sessions delegate device login, transient poll retries, and bind before fleet-edge.json exists", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-delegate-")),
@@ -16,7 +17,7 @@ test("builtin edge sessions delegate device login, transient poll retries, and b
       clientId: "harness-gui",
       certificate: "stub-cert",
     };
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
   mkdirSync(edgeTarget, { recursive: true });
 
   const isolated = new BuiltinIdentitySession(root);

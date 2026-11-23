@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,10 +12,11 @@ import {
 } from "../src/daemon-host/dispatch-stream.ts";
 import { cancelRejectedSquadChildren } from "../src/daemon-host/squad-run-state.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("owner orphan cancellation recovers the latest local control state from archived streams", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-orphan-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   const dispatchId = "dispatch_000000000000000000000001",
     squadRunId = "squad_000000000000000000000001",
     binding = { actor: { principal: { personId: "person-test" }, executor: null }, source: "local" },

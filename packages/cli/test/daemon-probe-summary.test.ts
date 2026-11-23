@@ -19,6 +19,7 @@ import {
   summarizeProbeTimeline,
 } from "../src/daemon/probe/probe-summary.ts";
 import { createTimelineWriter } from "../src/daemon/probe/probe-timeline.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const HOUR = 3_600_000;
 
@@ -191,7 +192,7 @@ test("duration summaries use nearest-rank percentiles and keep max", () => {
 
 test("log history streams both conn generations and derives starts, attach, and downtime", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-logs-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const logDir = path.join(userRoot, "logs");
   mkdirSync(logDir, { recursive: true });
   const lifecycleLines = [
@@ -334,7 +335,7 @@ test("probe_start/probe_stop bound observed time and leave the rest unobserved",
 
 test("summary reports unobserved rather than zero availability without samples", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-empty-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   mkdirSync(path.join(userRoot, "logs"), { recursive: true });
   const options = parseSummaryArgs(["daemon", "probe", "summary", "--day", "19700101"]);
   assert.equal(options.ok, true);
@@ -349,7 +350,7 @@ test("summary reports unobserved rather than zero availability without samples",
 
 test("summary keeps a long interval declared by records inside the window", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-window-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const logDir = path.join(userRoot, "logs");
   mkdirSync(logDir, { recursive: true });
   const at = (ms: number) => new Date(ms).toISOString(),
@@ -392,7 +393,7 @@ test("summary keeps a long interval declared by records inside the window", asyn
 
 test("summary streams a large sample timeline without retaining the records", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-large-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const logDir = path.join(userRoot, "logs");
   mkdirSync(logDir, { recursive: true });
   const start = Date.parse("2026-11-03T00:00:00.000Z"),
@@ -422,7 +423,7 @@ test("summary streams a large sample timeline without retaining the records", as
 
 test("summary renders observed availability, captures, and the offline log view", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-summary-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const logDir = path.join(userRoot, "logs");
   mkdirSync(logDir, { recursive: true });
   const start = Date.parse("2026-11-03T00:00:00.000Z");
@@ -507,7 +508,7 @@ test("fallback samples and a later run contribute their combined observation", (
 
 test("fixed history is unchanged by current PID and records appended after cutoff", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-cut-"));
-  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(userRoot));
   const dir = path.join(userRoot, "logs");
   mkdirSync(dir, { recursive: true });
   const life = path.join(dir, "daemon-default-lifecycle.jsonl"),

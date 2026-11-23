@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import {
   validateLocalDocWriteInput,
   writeLocalDocument,
 } from "../src/main/local-doc-ipc.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 /**
  * 「GUI 内读本机文档」的信任边界与只读语义(task_89d324b5):渲染进程只能送
@@ -47,7 +48,7 @@ test.before(() => {
 });
 
 test.after(() => {
-  rmSync(root, { recursive: true, force: true });
+  removeTempRepository(root);
 });
 
 test("local document read, byte preview and write channels are registered once each", () => {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,7 @@ import { ManagedRbacService, managedRbacVersions } from "@harness-anything/autho
 import type { ManagedRbacHost } from "../../authorization/src/keycloak/managed-host.ts";
 import { stopManagedKeycloakOrphan } from "../../authorization/src/keycloak/managed-keycloak-orphan.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("Windows orphan ownership requires the exact Keycloak home property", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-rbac-keycloak-windows-ownership-")),
@@ -89,7 +90,7 @@ test("Windows orphan ownership requires the exact Keycloak home property", async
       );
     }
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -158,7 +159,7 @@ test("Windows stop reaps a Keycloak descendant after its launcher exits", async 
     assert.equal(listeners.size, 0);
   } finally {
     await service.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -230,7 +231,7 @@ test("Windows stop rechecks an orphan when the launcher exits during taskkill", 
     assert.equal(listeners.size, 0, "the descendant listener is reaped before stop reports success");
   } finally {
     await service.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -264,7 +265,7 @@ test("Windows orphan cleanup reports a failed tree termination", async () => {
     );
     assert.equal(taskkillCalls.length, 1);
   } finally {
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -304,7 +305,7 @@ test(
     } finally {
       await stopManagedService(managedService, managed.pidFile);
       await terminateFixture(orphan);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -338,7 +339,7 @@ test(
     } finally {
       await blockedService.service.stop();
       await terminateFixture(foreignOwner);
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

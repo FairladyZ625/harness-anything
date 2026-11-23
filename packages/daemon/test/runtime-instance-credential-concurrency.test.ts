@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,6 +9,7 @@ import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-insta
 import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "../src/daemon-host/runtime-instance-credentials.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -60,7 +61,7 @@ async function fixture(t: TestContext) {
   t.after(() => {
     release();
     server.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   });
   const executablePath = writeProviderExecutable(
     path.join(root, "provider"),

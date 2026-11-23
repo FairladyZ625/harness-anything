@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -16,6 +16,7 @@ import type { DaemonAuthenticationContext } from "../src/daemon-host/transport/a
 import { readDispatchStreamHeader } from "../src/daemon-host/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
   test(`production writer resolves the original host session for ${scenario}`, async () => {
@@ -217,7 +218,7 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
       await supervisor?.close();
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }
@@ -407,7 +408,7 @@ for (const exitCode of [0, 1]) {
         await supervisor?.close();
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
-        rmSync(root, { recursive: true, force: true });
+        removeTempRepository(root);
       }
     },
   );

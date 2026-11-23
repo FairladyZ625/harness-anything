@@ -2,7 +2,7 @@
 import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,6 +20,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import type { CredentialPort } from "../src/daemon-host/agent-runtime-credential-port.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The real daemon, writer process, socket, CLI, and provider executable run in a dedicated user root.
 // Keycloak wire behavior is a realm fixture; the fixed real-server mechanism is recorded in F-02C8A42D.
@@ -39,7 +40,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     await cleanupRuntimes();
     await stop();
     await realm.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   });
   initIngressRepo(root, process.getuid?.() ?? 0);
   execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });

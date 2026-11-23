@@ -9,6 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // Route-owned documents (progress.md, INDEX.md, …) are projections of their owning event routes.
 // A local rewrite must never wedge the doc channel: the scanner rebuilds the worktree copy from
@@ -84,7 +85,7 @@ test("a hand-edited or deleted progress projection is rebuilt from the canonical
     assert.equal(readFileSync(progressFile, "utf8"), canonical);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -160,7 +161,7 @@ test("task submit lands without owner recovery after a worker hand-edits progres
     assert.equal(readFileSync(progressFile, "utf8"), canonical);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ import {
 } from "../src/daemon-host/hosting-credential-readiness.ts";
 import { hostingCredentialConfigurationAdvice } from "../src/daemon-host/hosting-provider.ts";
 import { validateRuntimeSpawnReceipt } from "../src/daemon-host/gui-s3-control.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const githubInstance = {
   instanceId: "instance-github",
@@ -48,7 +49,7 @@ test("doctor check warns with the configuration command when no enabled instance
     ["https://gitlab.com/example/repo.git", "gitlab"],
   ] as const) {
     const rootDir = repoWithOrigin(remote);
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const disabledOnly = await hostedCredentialDoctorCheck(rootDir, {
       repoId: "repo-a",
       instances: [
@@ -72,7 +73,7 @@ test("doctor check warns with the configuration command when no enabled instance
 test("doctor check stays indeterminate when origin names no GitHub or GitLab host", async (t) => {
   for (const remote of ["https://source.example.internal/example/repo.git", "git@bitbucket.org:example/repo.git"]) {
     const rootDir = repoWithOrigin(remote);
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     const check = await hostedCredentialDoctorCheck(rootDir, { repoId: "repo-a", instances: [githubInstance] });
     assert.equal(check.status, "indeterminate", remote);
     assert.match(check.next, /hosting\.provider and hosting\.host/u);

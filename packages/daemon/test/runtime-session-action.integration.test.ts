@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import type { RepoCellBinding } from "../src/daemon-host/repo-cell.ts";
 import { keycloakRealm, serveKeycloak } from "./keycloak.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("runtime spawn production helpers cannot append canonical events outside the catalog commit", () => {
   const source = new URL("../src/", import.meta.url),
@@ -270,7 +271,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
   } finally {
     await cell?.close();
     await served.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

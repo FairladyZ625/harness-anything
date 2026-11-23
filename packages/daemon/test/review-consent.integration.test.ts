@@ -12,6 +12,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
 const originalPath = process.env.PATH;
@@ -25,7 +26,7 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 function writeReviewReport(rootDir: string, packagePath: unknown, reviewId: string, body?: string): string {
@@ -187,7 +188,7 @@ test("only the task owner can consent to a changes_requested review, and overrid
     assert.equal(reviewedEvent.payload.task.status, "in_review");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -263,7 +264,7 @@ test("review-execution without --execution-id names the resubmission command whi
     assert.match(String(rejected.rejectionExplanation), /ha task submit/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -364,7 +365,7 @@ test("review-execution and review-consent require a substantive physical report 
       { outcome: "op_rejected", code: "review_report_invalid" },
       JSON.stringify(linked),
     );
-    rmSync(reclaimedWorktree, { recursive: true, force: true });
+    removeTempRepository(reclaimedWorktree);
     rmSync(linkedReport);
     writeReviewReport(rootDir, packagePath, "review-symlink");
     const regular = await record("review-symlink");
@@ -411,7 +412,7 @@ test("review-execution and review-consent require a substantive physical report 
     assert.equal((await consent("review-landed")).outcome, "applied");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

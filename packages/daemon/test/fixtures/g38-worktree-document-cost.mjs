@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 /** Count production file reads, including baseline reads, rather than imposing a wall-clock budget. */
 export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
@@ -93,6 +94,6 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
   } finally {
     fs.readFileSync = read;
     syncBuiltinESMExports();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 }

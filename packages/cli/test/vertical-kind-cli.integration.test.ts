@@ -28,6 +28,7 @@ import {
   stop as stopAutostartDaemon,
   waitForFileContent,
 } from "./daemon-autostart-cli.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const canonicalDecisionPin = "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb",
   binding = withPolicyGroup(
@@ -508,7 +509,7 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
     assert.equal(retiredKind.revision, Number(retired.revision));
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 

@@ -3,13 +3,14 @@
 import { afterEach, beforeAll, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openRuntimeInstanceStore } from "../../daemon/src/daemon-host/agent-runtime-instance-store.ts";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { RuntimeInstanceUpdateInput } from "../src/renderer/runtime-instance-client.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 let root: Root | undefined, directory: string | undefined;
 beforeAll(() => {
@@ -19,7 +20,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   document.body.innerHTML = "";
-  if (directory) rmSync(directory, { recursive: true, force: true });
+  if (directory) removeTempRepository(directory);
   directory = undefined;
   vi.restoreAllMocks();
 });

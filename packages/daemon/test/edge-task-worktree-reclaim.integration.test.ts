@@ -11,7 +11,7 @@ import {
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -21,6 +21,7 @@ import { pushWorkerBranch } from "../src/daemon-host/runtime-worker-push.ts";
 import { addManagedWorktree } from "../src/daemon-host/schedule-occurrence-workspace.ts";
 import { checkoutTaskWorktree } from "../src/daemon-host/task-worktree.ts";
 import { noWorktreeSetup } from "../src/daemon-host/worktree-setup.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_57370FF2021DADF04E3B21724D CH4: an edge reclaims its own checkouts of the tasks its mirrored cut says are
 // closed. Two clones of one bare remote stand for two nodes; each has its own replica view of the center's cuts,
@@ -136,7 +137,7 @@ test("an unconverged view, a directory no mirrored package declares and a checko
 
 test("a Git-less edge has no checkout to reclaim", async (t) => {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-reclaim-gitless-")));
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   const node = { root: path.join(base, "node"), viewRoot: path.join(base, "view"), revision: 0 };
   mkdirSync(path.join(node.root, ".worktrees", doneId), { recursive: true });
   mkdirSync(path.join(node.root, "harness"));
@@ -287,7 +288,7 @@ async function nodesFixture(
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-reclaim-"))),
     remote = path.join(base, "remote.git"),
     seed = path.join(base, "seed");
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(base));
   git(base, "init", "--bare", "-q", "-b", "main", remote);
   git(base, "init", "-q", "-b", "main", seed);
   identify(seed);

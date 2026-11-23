@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync, readdirSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, readdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -14,6 +14,7 @@ import { openReadBackend } from "./fixtures/g38-read-backend.mjs";
 import { READ_PROBES, measureReadScale } from "./fixtures/g38-read-cost.mjs";
 import { evaluateReadMeasurements } from "../../../tools/gates/cost-budget-reads.mjs";
 import { sqliteWorkProbeUnavailableReason } from "./fixtures/g38-sqlite-work.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const platform = { skip: sqliteWorkProbeUnavailableReason() ?? false };
 
@@ -259,7 +260,7 @@ test(
             await store.drain();
           }
         } finally {
-          rmSync(rootDir, { recursive: true, force: true });
+          removeTempRepository(rootDir);
         }
       }
       t.diagnostic(JSON.stringify({ dm03Scenario: scenario.name, measured }));

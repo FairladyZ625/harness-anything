@@ -1,11 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL } from "../src/api/first-run-contract.ts";
 import { registerFirstRunIpcHandlers, validateFirstRunBootstrapInput } from "../src/main/first-run-ipc.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const trustedEvent = {
   sender: { id: 7 },
@@ -57,7 +58,7 @@ test("first-run IPC stays closed and forwards a validated bootstrap", async () =
       /untrusted_web_contents/u,
     );
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

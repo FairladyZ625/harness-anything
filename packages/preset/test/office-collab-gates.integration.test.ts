@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,6 +23,7 @@ import { makeTaskEventStore } from "@harness-anything/storage";
 import { compileRepoTaskBootstrap, createPresetProcessService, runPresetAction } from "../src/index.ts";
 import { waitFor } from "./preset-process-service.fixtures.ts";
 import { git } from "./preset-resolver.fixtures.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const sha256 = (value: string | Buffer): string => createHash("sha256").update(value).digest("hex");
 
@@ -190,7 +191,7 @@ test("office/collab presets materialize bilingual task packages and survive cold
       const reduced = reduceTaskEvent(emptyTaskLifecycleSnapshot(0), compiled.event);
       assert.equal(reduced.task?.metadata?.verticalId, "office/collab");
     } finally {
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   }
 });
@@ -561,6 +562,6 @@ test("frozen preset process executes office/collab gates: red blocks completion 
     assert.match(largeDrift.witness.diagnostic, /Live upstream drift/u);
   } finally {
     await service.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });

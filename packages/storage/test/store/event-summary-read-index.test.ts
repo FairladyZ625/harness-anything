@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { REPOSITORY_READ_TABLES_SQL, createProjectionTables } from "../../src/projection/projection-tables.ts";
@@ -14,6 +14,7 @@ import {
 } from "../../src/projection/event-summary-read-index.ts";
 import { repositoryEventQueries } from "../../src/projection/repository-event-queries.ts";
 import { readEventList } from "../../src/projection/event-list-query.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const OLD_EVENT_SUMMARY = `
   CREATE TABLE event_summary (
@@ -262,7 +263,7 @@ test("a read-only connection fails closed during backfill and sees the complete 
   } finally {
     reader?.close();
     writer?.close();
-    rmSync(directory, { recursive: true, force: true });
+    removeTempRepository(directory);
   }
 });
 

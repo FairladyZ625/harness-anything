@@ -2,13 +2,14 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { ManagedRbacLifecycleEvent } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { managedShutdownFixture, type ManagedShutdownFixtureOptions } from "./managed-rbac-shutdown.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function availablePort() {
   const server = createServer();
@@ -158,7 +159,7 @@ test(
       );
     } finally {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -189,7 +190,7 @@ test(
       assert.equal(await exchange(listener.port), "tls:hello");
     } finally {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -219,7 +220,7 @@ test(
       assert.equal(children.length, 4, "stop does not create another child");
     } finally {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -265,7 +266,7 @@ test(
       );
     } finally {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -289,7 +290,7 @@ test(
       assert.equal((await service.stop()).ok, true);
     } finally {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -313,7 +314,7 @@ test(
       assert.equal((await service.stop()).ok, true);
     } finally {
       await service.stop();
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );

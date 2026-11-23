@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -20,6 +20,7 @@ import {
 import { closeSqliteEventStoresUnder, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 export const actor = {
   principal: { personId: "person-fact" },
@@ -50,7 +51,7 @@ export function withFixture(
   } finally {
     projection?.close();
     closeSqliteEventStoresUnder(rootDir);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 export function withDecisionFixture(
@@ -77,7 +78,7 @@ export function withDecisionFixture(
   } finally {
     projection?.close();
     closeSqliteEventStoresUnder(rootDir);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 }
 export function decisionEvent(
