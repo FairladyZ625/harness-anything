@@ -29,6 +29,20 @@ export const providerProtocolCommands = Object.freeze([
       ),
       cliInput("--name", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
       cliInput("--model", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--request-timeout-ms",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$" },
+      ),
+      cliInput(
+        "--max-retries",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$" },
+      ),
       cliInput("--base-url", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput(
         "--api-key-file",
@@ -90,6 +104,20 @@ export const providerProtocolCommands = Object.freeze([
       ),
       cliInput("--name", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--model", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--request-timeout-ms",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$" },
+      ),
+      cliInput(
+        "--max-retries",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$" },
+      ),
       cliInput("--base-url", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--clear-base-url", "boolean", false, { code: "invalid_field" }, { conflictsWith: ["--base-url"] }),
       cliInput(

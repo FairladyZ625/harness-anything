@@ -15,6 +15,8 @@ const authHeaderLeakPattern =
   /(?:authorization\s*[:=]\s*bearer|bearer|x-api-key\s*[:=]|x-goog-api-key\s*[:=])\s*[^\s,;'"`]+/giu;
 
 const decisionFailureDetailMaxLength = 400;
+/** Hard upper bound on a single upstream Decisions HTTP response body to prevent memory exhaustion. */
+export const MAX_DECISION_RESPONSE_BYTES = 256 * 1024;
 
 /**
  * Wraps global `fetch` to prohibit HTTP redirects on every outbound Decisions request.
@@ -28,8 +30,23 @@ export function noRedirectFetch(input: string | URL | Request, init?: RequestIni
 }
 
 export async function postDecisionJson(input: DecisionPostJsonInput): Promise<DecisionPostJsonResult> {
+  if (input.timeoutMs <= 0) {
+    throw new DecisionAdapterError("decision_timeout", "Request timed out.", {
+      name: "TimeoutError",
+      diagnosticCode: "timeout",
+      transient: true,
+    });
+  }
   const controller = new AbortController();
   let timedOut = false;
+  const onParentAbort = () => controller.abort(input.signal?.reason);
+  if (input.signal) {
+    if (input.signal.aborted) {
+      controller.abort(input.signal.reason);
+    } else {
+      input.signal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
@@ -45,14 +62,66 @@ export async function postDecisionJson(input: DecisionPostJsonInput): Promise<De
       body: JSON.stringify(input.body),
       signal: controller.signal,
     });
-    rawBody = await response.text();
+    rawBody = await readBoundedResponseText(response, MAX_DECISION_RESPONSE_BYTES, controller);
   } catch (error) {
+    if (error instanceof DecisionAdapterError) throw error;
     throw classifyFetchTransportError(error, timedOut);
   } finally {
     clearTimeout(timer);
+    input.signal?.removeEventListener("abort", onParentAbort);
   }
   if (!response.ok) throw buildControlledHttpError(response.status, rawBody);
   return { status: response.status, rawBody };
+}
+
+async function readBoundedResponseText(
+  response: Response,
+  maxBytes: number,
+  controller: AbortController,
+): Promise<string> {
+  const declaredLength = response.headers?.get("content-length");
+  if (declaredLength !== null && declaredLength !== undefined) {
+    const parsedLength = Number(declaredLength);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      controller.abort();
+      throw new DecisionAdapterError(
+        "decision_protocol_invalid",
+        `Upstream response exceeded the ${String(maxBytes)}-byte safety limit.`,
+      );
+    }
+  }
+  if (!response.body) {
+    const text = await response.text();
+    if (Buffer.byteLength(text, "utf8") > maxBytes) {
+      throw new DecisionAdapterError(
+        "decision_protocol_invalid",
+        `Upstream response exceeded the ${String(maxBytes)}-byte safety limit.`,
+      );
+    }
+    return text;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        controller.abort();
+        throw new DecisionAdapterError(
+          "decision_protocol_invalid",
+          `Upstream response exceeded the ${String(maxBytes)}-byte safety limit.`,
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, totalBytes).toString("utf8");
 }
 
 export function isRedirectFetchError(error: unknown): boolean {

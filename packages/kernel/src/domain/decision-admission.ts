@@ -356,9 +356,19 @@ export const daemonDecisionPolicySources = [
     "const requestTimeoutMs = 30_000;",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#decisionRetryMaxRetries:c9d26f9fda7dbdba2863e86b973b5fa6",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#minConfiguredTimeoutMs:ae73cf9a64e499e9ae31ba36987ecf85",
+    "packages/daemon/src/daemon-host/decision-provider.ts#minConfiguredTimeoutMs",
+    "const minConfiguredTimeoutMs = 1_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#maxConfiguredTimeoutMs:03b863b60339627a86615a0f8eea7fda",
+    "packages/daemon/src/daemon-host/decision-provider.ts#maxConfiguredTimeoutMs",
+    "const maxConfiguredTimeoutMs = 300_000;",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#decisionRetryMaxRetries:ce6d72e3a6401eefba3619a6f2ddeb27",
     "packages/daemon/src/daemon-host/decision-provider.ts#decisionRetryMaxRetries",
-    "const decisionRetryMaxRetries = 3;",
+    "const decisionRetryMaxRetries = 2;",
   ],
   [
     "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#decisionRetryBaseDelayMs:eb34f8c731de24524b05aee0c6b076c9",
@@ -374,6 +384,41 @@ export const daemonDecisionPolicySources = [
     "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#invokeDecisionWithRetry:15b494ae6a0035b6d92d23efc09eb103",
     "packages/daemon/src/daemon-host/decision-provider.ts#invokeDecisionWithRetry",
     "if (retryable && retries > 0)",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#parseOptionalTimeoutMs:ead94b4a99d7c011762d4a4284b0e874",
+    "packages/daemon/src/daemon-host/decision-provider.ts#parseOptionalTimeoutMs",
+    'typeof value !== "number" || !Number.isSafeInteger(value) || value < minConfiguredTimeoutMs || value > maxConfiguredTimeoutMs',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#parseOptionalMaxRetries:3d793281dd186509e409f12be6e34c23",
+    "packages/daemon/src/daemon-host/decision-provider.ts#parseOptionalMaxRetries",
+    'typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > decisionRetryMaxRetries',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-providers/normalize.ts#extractDeterministicFence:378ee884e36e3748b6f42956b6f3b2b8",
+    "packages/daemon/src/daemon-host/decision-providers/normalize.ts#extractDeterministicFence",
+    "delimiters.length === 0",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-providers/normalize.ts#extractDeterministicFence:32f43363fe09d495823d65fa69e99a6b",
+    "packages/daemon/src/daemon-host/decision-providers/normalize.ts#extractDeterministicFence",
+    "delimiters.length !== 2",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/decision-providers/transport.ts#postDecisionJson:68e319466be84b9918bf03812b3ffa6f",
+    "packages/daemon/src/daemon-host/decision-providers/transport.ts#postDecisionJson",
+    "input.timeoutMs <= 0",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#providerMethods.params.payload.requestTimeoutMs:e8e7a242d9bcf09053ae1d2ac9df86c0",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#providerMethods.params.payload.requestTimeoutMs",
+    'requestTimeoutMs: "number?"',
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#providerMethods.params.payload.requestTimeoutMs:e8e7a242d9bcf09053ae1d2ac9df86c0:2",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts#providerMethods.params.payload.requestTimeoutMs",
+    'requestTimeoutMs: "number?"',
   ],
   [
     "policy:packages/application:packages/application/src/commands/decision-surface-actions.ts#prepareDecisionAmend:6dc792252bdb1c9f7bc757b66d2c747e",

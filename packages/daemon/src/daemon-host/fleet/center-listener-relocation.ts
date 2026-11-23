@@ -9,6 +9,7 @@ import {
   type ReplicationSlots,
   type WriterEpochLease,
 } from "@harness-anything/storage";
+import type { TaskReadAuthorizationTarget } from "../host-action-authorization.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { CenterMovedDetails, CenterRelocatedTombstoneV1, FleetCenterOptions } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
@@ -228,18 +229,27 @@ export function createCenterNodePrincipals(input: {
     // The one repository admission port: verified request identity plus that person's grant on this
     // repository (dec_66CE6F92 — a cross-cutting responsibility has a single implementation that
     // callers reuse instead of copying).
-    repoAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+    repoAdmission = async (
+      node: { nodeId: string; repoId: string; accessToken?: string },
+      target?: TaskReadAuthorizationTarget,
+    ) => {
       const principal = await readerAuth(node),
-        decision = await options.host.authorize(node.repoId, "repository-read", principal);
+        decision = await options.host.authorize(node.repoId, "repository-read", principal, target);
       if (decision.outcome !== "allowed")
-        throw new FleetFault("authorization_denied", "The request user may not read this repository.");
+        throw new FleetFault(
+          "authorization_denied",
+          target?.opaqueDenial ? "Access denied." : "The request user may not read this repository.",
+        );
       return principal;
     },
-    replicaAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+    replicaAdmission = async (
+      node: { nodeId: string; repoId: string; accessToken?: string },
+      target?: TaskReadAuthorizationTarget,
+    ) => {
       const moved = readListenerCenterRelocated(options, node.repoId);
       if (moved) throw centerMovedFleetFault(moved);
       nodeGate.assertOpen(node.nodeId);
-      if (!options.verifyReplica) return repoAdmission(node);
+      if (!options.verifyReplica) return repoAdmission(node, target);
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
       let machine: DaemonAuthenticationContext | null;
@@ -264,7 +274,7 @@ export function createCenterNodePrincipals(input: {
         }
         throw error;
       }
-      if (!machine) return repoAdmission(node);
+      if (!machine) return repoAdmission(node, target);
       const principal = machine.fleetReplicaPrincipal;
       if (
         !principal ||
@@ -274,9 +284,12 @@ export function createCenterNodePrincipals(input: {
       )
         throw new FleetFault("fleet_replica_credential_rejected", "The Fleet replica credential was rejected.");
       nodeGate.assertOpen(node.nodeId);
-      const decision = await options.host.authorize(node.repoId, "repository-read", machine);
+      const decision = await options.host.authorize(node.repoId, "repository-read", machine, target);
       if (decision.outcome !== "allowed")
-        throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
+        throw new FleetFault(
+          "authorization_denied",
+          target?.opaqueDenial ? "Access denied." : "The node owner may not read this repository.",
+        );
       return machine;
     };
   return { readerAuth, principalAuth, writerAuth, repoAdmission, replicaAdmission };

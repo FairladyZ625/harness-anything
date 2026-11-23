@@ -78,6 +78,12 @@ function executeRead(request: RepoWriterRequestV1): unknown {
     case "readEventWitness":
       value = reader.readEventWitness(Number(args[0]));
       break;
+    case "taskIdForDocumentPath":
+      value = reader.taskIdForDocumentPath(String(args[0]));
+      break;
+    case "readTaskAuthorizationMetadata":
+      value = reader.readTaskAuthorizationMetadata(args[0] as readonly string[]);
+      break;
     case "inFlightWork":
       value = reader.inFlightWork(Number(args[0]));
       break;

@@ -177,6 +177,24 @@ export interface DaemonStopResult {
 }
 
 type DaemonMethodResults = {
+  readonly "daemon.provider.create": {
+    readonly schema: "command-receipt/v2";
+    readonly ok: true;
+    readonly command: "provider-create";
+    readonly outcome: "applied";
+    readonly providerId: string;
+    readonly provider: import("@harness-anything/kernel").DecisionProviderRecord;
+    readonly summary: string;
+  };
+  readonly "daemon.provider.update": {
+    readonly schema: "command-receipt/v2";
+    readonly ok: true;
+    readonly command: "provider-update";
+    readonly outcome: "applied";
+    readonly provider: import("@harness-anything/kernel").DecisionProviderRecord;
+    readonly credentialCleanup: string;
+    readonly summary: string;
+  };
   readonly "repo.task.witness.run": DaemonTaskWitnessRunResult;
   readonly "daemon.skillEval.version.register": {
     readonly ok: true;

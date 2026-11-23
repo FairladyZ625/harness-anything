@@ -705,6 +705,15 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
     userRoot: parent,
     vault,
     now: () => "2026-11-21T00:00:00.000Z",
+    random: () => 0.999999,
+    sleep: async (ms) => void delays.push(ms),
+    requestTimeoutMs: 5_000,
+  });
+  const hangService = openDecisionProviderService({
+    userRoot: parent,
+    vault,
+    now: () => "2026-11-21T00:00:00.000Z",
+    random: () => 0.999999,
     sleep: async (ms) => void delays.push(ms),
     requestTimeoutMs: 60,
   });
@@ -799,21 +808,21 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
     return true;
   });
 
-  // 500 HTML -> retried 3 times, zero HTML / echoed context leaked
+  // 500 HTML -> retried 2 times (bounded retry budget <= 2), zero HTML / echoed context leaked
   mode = "500-html";
   hits = 0;
   delays.length = 0;
   await assert.rejects(service.port.decide(req("goog-err")), (error: unknown) => {
     assert.ok(error instanceof Error);
     assert.equal((error as { code?: string }).code, "decision_transport");
-    assert.equal((error as { retries?: number }).retries, 3);
+    assert.equal((error as { retries?: number }).retries, 2);
     assert.match(error.message, /HTTP 500/u);
     assert.equal(error.message.includes("<html>"), false);
     assert.equal(error.message.includes(echoedContext), false);
     return true;
   });
-  assert.equal(hits, 4);
-  assert.deepEqual(delays, [250, 500, 1_000]);
+  assert.equal(hits, 3);
+  assert.deepEqual(delays, [250, 500]);
 
   // 429 transient recovery
   mode = "429-once";
@@ -824,24 +833,23 @@ test("HA10-02: upstream error bodies with short keys, partial keys, or echoed co
   assert.equal(hits, 2);
   assert.deepEqual(delays, [250]);
 
-  // Timeout + ECONNREFUSED
+  // Timeout (bounded by total single-request deadline) + ECONNREFUSED
   mode = "hang";
   hits = 0;
   delays.length = 0;
-  await assert.rejects(service.port.decide(req("goog-err")), (error: unknown) => {
+  await assert.rejects(hangService.port.decide(req("goog-err")), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "decision_timeout");
-    assert.equal((error as { retries?: number }).retries, 3);
     return true;
   });
-  assert.equal(hits, 4);
+  assert.equal(hits, 1);
 
   delays.length = 0;
   await assert.rejects(service.port.decide(req("offline-gw")), (error: unknown) => {
     assert.equal((error as { code?: string }).code, "decision_transport");
-    assert.equal((error as { retries?: number }).retries, 3);
+    assert.equal((error as { retries?: number }).retries, 2);
     return true;
   });
-  assert.deepEqual(delays, [250, 500, 1_000]);
+  assert.deepEqual(delays, [250, 500]);
 });
 
 test("HA10-03 & HA10-04: rejects bad probability sums, truncated completions, invalid persisted URLs on update/probe, and preserves constructor/__proto__ option keys", async (t) => {

@@ -52,7 +52,9 @@ export async function evaluateRepoCellAction(input: {
   readonly revision: number;
   readonly now: string;
   readonly targetOverride?: EntityRef;
-  readonly readTask?: (taskId: string) => TaskV2 | null | Promise<TaskV2 | null>;
+  readonly readTask?: (
+    taskId: string,
+  ) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>;
   readonly fetchPort?: typeof fetch;
 }): Promise<AuthorizationDecision> {
   const target = input.targetOverride ?? actionTarget(input.action),
@@ -89,39 +91,16 @@ export async function evaluateRepoCellAction(input: {
       binding: { ...input.binding, authorizationDecision: undefined },
     });
   }
-  if (input.binding.executionPrincipal) {
-    if (!credential.center) throw executionCredentialRejected();
-    try {
-      await verifyRuntimeExecutionPrincipal(
-        await credential.center(),
-        input.binding.executionPrincipal,
-        input.fetchPort,
-      );
-    } catch (error) {
-      if (!isKeycloakTransportFailure(error)) throw error;
-      throw keycloakUnavailableFailure(error, "verifying the runtime execution credential");
-    }
-  }
-  const resourceAncestors = await canonicalResourceAncestors(input.readTask, resource);
-  const result = await evaluateKeycloakPerson({
-    credential,
-    personId: envelope.actor.principal.personId,
-    action: policyAction,
-    resource,
-    resourceAncestors,
-    policyRef: envelope.authorizationRef,
-    fetchPort: input.fetchPort,
-  });
-  const decision = keycloakDecision(
+  const decision = await evaluateOnlinePersonAction({
+      credential,
+      binding: input.binding,
       envelope,
-      `canonical:${input.revision}`,
-      result.outcome,
-      result.reasonCode,
+      action: policyAction,
       resource,
-      result.policyRef,
-      result.authority,
-      policyAction,
-    ),
+      evaluatedAtCut: `canonical:${input.revision}`,
+      readTask: input.readTask,
+      fetchPort: input.fetchPort,
+    }),
     token = input.binding.delegatedExecutionToken;
   return token
     ? {
@@ -137,6 +116,54 @@ export async function evaluateRepoCellAction(input: {
         ],
       }
     : decision;
+}
+
+export async function evaluateOnlinePersonAction(input: {
+  readonly credential: NonNullable<ReturnType<typeof onlineAuthorizationCredential>>;
+  readonly binding: RepoCellBinding;
+  readonly envelope: ReturnType<typeof composeDurableActionEnvelope>;
+  readonly action: string;
+  readonly resource: AuthorizationResource;
+  readonly evaluatedAtCut: string;
+  readonly readTask?: (
+    taskId: string,
+  ) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>;
+  readonly fetchPort?: typeof fetch;
+}): Promise<AuthorizationDecision> {
+  if (input.binding.executionPrincipal) {
+    if (!input.credential.center) throw executionCredentialRejected();
+    try {
+      await verifyRuntimeExecutionPrincipal(
+        await input.credential.center(),
+        input.binding.executionPrincipal,
+        input.fetchPort,
+      );
+    } catch (error) {
+      if (!isKeycloakTransportFailure(error)) throw error;
+      throw keycloakUnavailableFailure(error, "verifying the runtime execution credential");
+    }
+  }
+  const resourceAncestors = await canonicalResourceAncestors(input.readTask, input.resource);
+  const result = await evaluateKeycloakPerson({
+    credential: input.credential,
+    personId: input.envelope.actor.principal.personId,
+    action: input.action,
+    resource: input.resource,
+    resourceAncestors,
+    policyRef: input.envelope.authorizationRef,
+    fetchPort: input.fetchPort,
+  });
+  const decision = keycloakDecision(
+    input.envelope,
+    input.evaluatedAtCut,
+    result.outcome,
+    result.reasonCode,
+    input.resource,
+    result.policyRef,
+    result.authority,
+    input.action,
+  );
+  return decision;
 }
 
 /**
@@ -180,7 +207,9 @@ const stableArtifactKind = (kind: string): string | null => (stableArtifactKindP
 
 /** Resolve Work ancestors from the current writer projection; caller payloads cannot supply them. */
 export async function canonicalResourceAncestors(
-  read: ((taskId: string) => TaskV2 | null | Promise<TaskV2 | null>) | undefined,
+  read:
+    | ((taskId: string) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>)
+    | undefined,
   resource: AuthorizationResource,
 ): Promise<readonly AuthorizationResource[]> {
   if (!read || resource.kind !== "entity" || !resource.entityRef.startsWith("task/")) return [];
@@ -200,6 +229,11 @@ export async function canonicalResourceAncestors(
   }
   return ancestors;
 }
+
+export type TaskAncestorAuthorizationMetadata = {
+  readonly taskClass: TaskV2["taskClass"];
+  readonly metadata?: { readonly parentTaskId?: string | null };
+};
 
 type KeycloakPersonEvaluation = Pick<AuthorizationPermissionDecision, "outcome" | "reasonCode"> & {
   readonly policyRef: string;

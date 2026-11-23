@@ -15,6 +15,7 @@ import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import {
+  type AuthorizationDecision,
   projectRuntimeProviderHealth,
   readDaemonRegistry,
   type FleetDeviceLoginNotice,
@@ -46,8 +47,10 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import {
   evaluateFleetAction,
+  makeOpaqueTaskAncestorReader,
   requireAuthorizedFleetAction,
   requireAuthorizedHostAction,
+  resolveTaskReadAuthorizationScopes,
 } from "./host-action-authorization.ts";
 import {
   orchestrateRuntimeBatch,
@@ -347,26 +350,48 @@ export function createDaemonHostRuntimeApi(
       guardCenterRelocation(repoId, false);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
       const binding = await context.binding(cell.status().rootDir, auth);
+      const scopes = await resolveTaskReadAuthorizationScopes(cell, target, auth.connectionSignal);
       if (binding.executionPrincipal)
-        requireExecutionActionScope(binding.executionPrincipal, { kind, taskId: target?.taskId });
-      if (target)
-        return evaluateRepoCellAction({
-          action: { kind, taskId: target.taskId },
-          binding,
-          actionId: `${kind}:${repoId}:${target.taskId}`,
-          repoId,
-          revision: cell.status().ledgerRevision ?? 0,
-          now: new Date().toISOString(),
-          readTask: async (taskId) =>
-            cell.read("repo.tasks.runtimeContext.read", { taskId }, binding).then((result) => result.snapshot.task),
-        });
-      return evaluateFleetAction({
-        kind,
-        binding: await context.binding(cell.status().rootDir, auth),
-        actionId: `${kind}:${repoId}`,
-        evaluatedAtCut: `repository:${repoId}:current`,
-        repoId,
-      });
+        for (const entityRef of scopes)
+          requireExecutionActionScope(binding.executionPrincipal, {
+            kind,
+            ...(entityRef === undefined ? {} : { taskId: entityRef.slice("task/".length) }),
+          });
+      const readTask = makeOpaqueTaskAncestorReader(cell, auth.connectionSignal);
+      let decision: AuthorizationDecision | undefined;
+      for (const entityRef of scopes) {
+        const taskId = entityRef?.slice("task/".length);
+        decision =
+          kind === "repository-read" || kind === "fleet-overview-read"
+            ? await evaluateFleetAction({
+                kind,
+                binding,
+                actionId: entityRef === undefined ? `${kind}:${repoId}` : `${kind}:${repoId}:${entityRef}`,
+                evaluatedAtCut: `repository:${repoId}:current`,
+                repoId,
+                ...(entityRef === undefined ? {} : { entityRef, readTask }),
+                ...(target?.opaqueDenial === true ? { opaqueDenial: true } : {}),
+              })
+            : taskId !== undefined
+              ? await evaluateRepoCellAction({
+                  action: { kind, taskId },
+                  binding,
+                  actionId: `${kind}:${repoId}:${taskId}`,
+                  repoId,
+                  revision: cell.status().ledgerRevision ?? 0,
+                  now: new Date().toISOString(),
+                  readTask,
+                })
+              : await evaluateFleetAction({
+                  kind,
+                  binding,
+                  actionId: `${kind}:${repoId}`,
+                  evaluatedAtCut: `repository:${repoId}:current`,
+                  repoId,
+                });
+        if (decision.outcome === "denied") return decision;
+      }
+      return decision!;
     },
     fleet: {
       readCenterExternalAddress: async (auth) => {

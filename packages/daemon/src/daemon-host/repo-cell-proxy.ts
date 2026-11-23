@@ -409,6 +409,9 @@ export async function openRepoCellProxy(
     },
     readDispatchLifecycle: (queryValue, signal) => query("readDispatchLifecycle", [queryValue], undefined, signal),
     readEventWitness: (revision) => query("readEventWitness", [revision]),
+    taskIdForDocumentPath: (logicalPath, signal) => query("taskIdForDocumentPath", [logicalPath], undefined, signal),
+    readTaskAuthorizationMetadata: (taskIds, signal) =>
+      query("readTaskAuthorizationMetadata", [taskIds], undefined, signal),
     readNodeAutoClaimAssignments: (binding, signal) => query("readNodeAutoClaimAssignments", [], binding, signal),
     readNodeAutoDispatchCandidates: (dispatchQuery, signal) =>
       query("readNodeAutoDispatchCandidates", [dispatchQuery], undefined, signal),
