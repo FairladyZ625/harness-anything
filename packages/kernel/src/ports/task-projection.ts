@@ -165,7 +165,11 @@ export interface TaskProjection {
     readonly watermark: number;
     readonly sourceRevision: number;
   };
-  readonly listEntities: (entityKind: string, withAttribution?: boolean) => readonly EntityProjectionRow[];
+  readonly listEntities: (
+    entityKind: string,
+    withAttribution?: boolean,
+    limit?: number,
+  ) => readonly EntityProjectionRow[];
   /** Row count for one kind whose value matches every named top-level field. Counted at the
    *  storage boundary so a caller that only needs a number never materializes the collection. */
   readonly countEntities: (

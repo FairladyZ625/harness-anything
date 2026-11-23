@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { checkedPageLimit } from "./pg-query-page.ts";
 import { assertPgReadIndexReady, pgRuntimeObservedAtSql } from "./pg-read-index-migration.ts";
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import type { RuntimeSession, RuntimeSessionReadQuery } from "@harness-anything/kernel";
@@ -65,18 +66,15 @@ export async function listPgProjectionValues<Value>(
   scope: PgProjectionScope,
   model: string,
   owner?: string,
+  limit?: number,
 ): Promise<readonly Value[]> {
+  const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, model, [...(scope.readers ?? [])]];
+  const ownerClause = owner === undefined ? "" : ` AND owner_id=$${values.push(owner)}`;
+  const limitClause = limit === undefined ? "" : ` LIMIT $${values.push(checkedPageLimit(limit))}`;
   const result = await client.query<{ value: string }>(
     `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4
-     AND (cardinality($5::text[])=0 OR readers && $5::text[])${owner === undefined ? "" : " AND owner_id=$6"} ORDER BY entity_id,owner_id`,
-    [
-      scope.tenantId,
-      scope.projectId,
-      scope.policyEpoch,
-      model,
-      [...(scope.readers ?? [])],
-      ...(owner === undefined ? [] : [owner]),
-    ],
+     AND (cardinality($5::text[])=0 OR readers && $5::text[])${ownerClause} ORDER BY entity_id,owner_id${limitClause}`,
+    values,
   );
   return result.rows.map(({ value }) => JSON.parse(value) as Value);
 }

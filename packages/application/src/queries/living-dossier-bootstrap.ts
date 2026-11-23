@@ -6,6 +6,7 @@ import { dossierError, type DossierReader } from "../dossier-state.ts";
 
 const MAX_DOSSIER_TEXT = 280;
 const MAX_DOSSIER_TAGS = 6;
+const BOOTSTRAP_SCHEMA = "dossier-bootstrap/v1";
 
 export interface DossierProjectedChange {
   readonly eventId: string;
@@ -65,14 +66,6 @@ function mapActor(actor: unknown): DossierProjectedChange["actor"] | undefined {
 }
 
 function taskChangeFromRow(row: TaskIndexProjectionRow, fallbackRevision: number): DossierProjectedChange {
-  const type =
-    row.status === "done"
-      ? "task_completed"
-      : row.status === "cancelled"
-        ? "task_superseded"
-        : row.taskClass === "work"
-          ? "task_created"
-          : "task_transitioned";
   const payload: Record<string, unknown> = {
     title: clipText(row.title) ?? row.taskId,
     taskClass: row.taskClass,
@@ -84,8 +77,8 @@ function taskChangeFromRow(row: TaskIndexProjectionRow, fallbackRevision: number
   const creatorId = clipText(row.createdByPersonId);
   return {
     eventId: `boot-task-${row.taskId}`,
-    schema: "task-event/v1",
-    type,
+    schema: BOOTSTRAP_SCHEMA,
+    type: "seed_task",
     occurredAt: row.updatedAt,
     workspaceRevision: fallbackRevision,
     source: "local",
@@ -98,18 +91,6 @@ function taskChangeFromRow(row: TaskIndexProjectionRow, fallbackRevision: number
 }
 
 function decisionChangeFromRow(row: DecisionProjectionRow): DossierProjectedChange {
-  const type =
-    row.state === "in_effect"
-      ? "decision_accepted"
-      : row.state === "superseded"
-        ? "decision_superseded"
-        : row.state === "outcome_retired"
-          ? "decision_retired"
-          : row.state === "rejected"
-            ? "decision_rejected"
-            : row.state === "deferred"
-              ? "decision_deferred"
-              : "decision_proposed";
   const decisionAction =
     row.state === "in_effect"
       ? "accepted"
@@ -138,8 +119,8 @@ function decisionChangeFromRow(row: DecisionProjectionRow): DossierProjectedChan
   const actor = mapActor(row.arbiter ?? row.proposer);
   return {
     eventId: `boot-dec-${row.decisionId}-${row.workspaceRevision}`,
-    schema: "decision-event/v1",
-    type,
+    schema: BOOTSTRAP_SCHEMA,
+    type: "seed_decision",
     occurredAt: row.decidedAt ?? row.proposedAt,
     workspaceRevision: row.workspaceRevision,
     source: "local",
@@ -158,8 +139,9 @@ function decisionChangeFromRow(row: DecisionProjectionRow): DossierProjectedChan
 }
 
 /**
- * Build a strictly bounded O(1) baseline of synthetic change items from the current TaskProjection
- * so cold or severely lagging dossier slots can jump straight to sourceWatermark without scanning history.
+ * Build a strictly bounded O(1) baseline of projection seed items (schema `dossier-bootstrap/v1`,
+ * never canonical aggregate events) from the current TaskProjection so cold or severely lagging
+ * dossier slots can jump straight to sourceWatermark without scanning full history.
  */
 export function buildDossierBootstrapChanges(input: {
   readonly reader: DossierReader;
@@ -216,18 +198,80 @@ export function buildDossierBootstrapChanges(input: {
 
   if (wantsKind("task")) {
     const byTaskId = new Map<string, TaskIndexProjectionRow>();
-    const recent = projection.readTaskIndex({ limit: decisionCap, withAttribution: true }).rows;
-    const blocked = projection.readTaskIndex({ status: "blocked", limit: sliceCap + 1, withAttribution: true }).rows;
-    const works = projection.readTaskIndex({
+    const recentFloor = Math.max(0, sourceWatermark - sliceCap * decisionCap);
+    const openTasks = projection.readTaskIndex({
+      openOnly: true,
+      activePackagesOnly: true,
+      limit: decisionCap,
+      withAttribution: true,
+    }).rows;
+    const recentTasks = projection.readTaskIndex({
+      changedAfterRevision: recentFloor,
+      activePackagesOnly: true,
+      limit: decisionCap,
+      withAttribution: true,
+    }).rows;
+    const blocked = projection.readTaskIndex({
+      status: "blocked",
+      activePackagesOnly: true,
+      limit: sliceCap + 1,
+      withAttribution: true,
+    }).rows;
+    const openWorks = projection.readTaskIndex({
       workRootsOnly: true,
+      openOnly: true,
+      activePackagesOnly: true,
       presentationStatus: true,
       limit: decisionCap,
       withAttribution: true,
     }).rows;
-    for (const row of recent) byTaskId.set(row.taskId, row);
+    const recentWorks = projection.readTaskIndex({
+      workRootsOnly: true,
+      changedAfterRevision: recentFloor,
+      activePackagesOnly: true,
+      presentationStatus: true,
+      limit: secondaryCap,
+      withAttribution: true,
+    }).rows;
+    for (const row of recentTasks) byTaskId.set(row.taskId, row);
+    for (const row of openTasks) byTaskId.set(row.taskId, row);
     for (const row of blocked) byTaskId.set(row.taskId, row);
-    // Root works overwrite raw status with rolled-up presentationStatus so completed/active works render accurately.
-    for (const row of works) byTaskId.set(row.taskId, row);
+    for (const row of recentWorks) byTaskId.set(row.taskId, row);
+    for (const row of openWorks) byTaskId.set(row.taskId, row);
+
+    if (byTaskId.size === 0) {
+      const fallbackTasks = projection.readTaskIndex({
+        activePackagesOnly: true,
+        limit: secondaryCap,
+        withAttribution: true,
+      }).rows;
+      const fallbackWorks = projection.readTaskIndex({
+        workRootsOnly: true,
+        activePackagesOnly: true,
+        presentationStatus: true,
+        limit: secondaryCap,
+        withAttribution: true,
+      }).rows;
+      for (const row of fallbackTasks) byTaskId.set(row.taskId, row);
+      for (const row of fallbackWorks) byTaskId.set(row.taskId, row);
+    }
+
+    const missingParents = [
+      ...new Set(
+        [...byTaskId.values()]
+          .map((row) => row.parentTaskId)
+          .filter((parentId): parentId is string => typeof parentId === "string" && !byTaskId.has(parentId)),
+      ),
+    ].slice(0, decisionCap);
+    if (missingParents.length > 0) {
+      const parents = projection.readTaskIndex({
+        taskIds: missingParents,
+        presentationStatus: true,
+        limit: missingParents.length,
+        withAttribution: true,
+      }).rows;
+      for (const row of parents) byTaskId.set(row.taskId, row);
+    }
 
     const orderedTasks = [...byTaskId.values()].sort((left, right) => left.updatedAt.localeCompare(right.updatedAt));
     const baseRev = Math.max(1, sourceWatermark - orderedTasks.length);
@@ -243,8 +287,8 @@ export function buildDossierBootstrapChanges(input: {
       const actor = mapActor(fact.actor);
       items.push({
         eventId: `boot-fact-${fact.factId}`,
-        schema: "fact-event/v1",
-        type: "fact_recorded",
+        schema: BOOTSTRAP_SCHEMA,
+        type: "seed_fact",
         occurredAt: fact.occurredAt,
         workspaceRevision: fact.workspaceRevision,
         source: fact.source,
@@ -263,7 +307,7 @@ export function buildDossierBootstrapChanges(input: {
 
   for (const [opaqueKind, logicalKind] of Object.entries(kindMap)) {
     if (!wantsKind(logicalKind)) continue;
-    const rows = projection.listEntities(opaqueKind).slice(0, secondaryCap);
+    const rows = projection.listEntities(opaqueKind, false, secondaryCap);
     rows.forEach((row, idx) => {
       const val = row.value && typeof row.value === "object" ? row.value : {};
       const descriptor =
@@ -276,8 +320,8 @@ export function buildDossierBootstrapChanges(input: {
       const updatedAt = clipText(val.updatedAt) ?? new Date(0).toISOString();
       items.push({
         eventId: `boot-ent-${logicalKind}-${row.id}`,
-        schema: "entity-event/v1",
-        type: "entity_content_observed",
+        schema: BOOTSTRAP_SCHEMA,
+        type: "seed_entity",
         occurredAt: updatedAt,
         workspaceRevision: row.workspaceRevision || Math.max(1, sourceWatermark - rows.length + idx),
         source: "local",
@@ -311,8 +355,8 @@ export function buildDossierBootstrapChanges(input: {
     const rationale = clipText(edge.rationale);
     items.push({
       eventId: `boot-rel-${edge.relationId}`,
-      schema: "relation-event/v1",
-      type: "relation_created",
+      schema: BOOTSTRAP_SCHEMA,
+      type: "seed_relation",
       occurredAt: new Date(0).toISOString(),
       workspaceRevision: edge.workspaceRevision ?? sourceWatermark,
       source: "local",

@@ -252,7 +252,7 @@ export async function refreshDossierSlot(input: {
       const body = synthesizeDossierDocument({
         verticalId: input.verticalId,
         slot: input.slot,
-        previousBody: stripManagedStateForBootstrap(baseBody),
+        previousBody: bootPage.bootstrapped ? stripManagedStateForBootstrap(baseBody) : baseBody,
         expectedWatermark: heldWatermark,
         targetWatermark: bootPage.nextWatermark,
         changes: bootPage.changes,

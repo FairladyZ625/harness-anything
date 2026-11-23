@@ -1026,8 +1026,8 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
             changes: [
               {
                 eventId: "boot-dec-1",
-                schema: "decision-event/v1",
-                type: "decision_accepted",
+                schema: "dossier-bootstrap/v1",
+                type: "seed_decision",
                 occurredAt: "2026-11-23T02:00:00.000Z",
                 workspaceRevision: 289_900,
                 decisionId: "dec_head_1",
@@ -1083,5 +1083,100 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
     expect(submittedBody).toContain("<!-- dossier-watermark: 290000 -->");
     expect(submittedBody).toContain("Projection-seeded turbo catchup");
     expect(submittedBody).not.toContain("Obsolete r30 blocker");
+  });
+
+  it("preserves prior dossier-state history when bootstrap: true returns bootstrapped: false for small lag (<= 512)", async () => {
+    const contextSlot = dossierSlots[0]!;
+    const priorManagedAt64 = synthesizeDossierDocument({
+      verticalId: "software/coding",
+      slot: contextSlot,
+      previousBody: null,
+      expectedWatermark: 0,
+      targetWatermark: 64,
+      changes: [
+        {
+          eventId: "evt_prior_dec",
+          schema: "decision-event/v1",
+          type: "decision_accepted",
+          occurredAt: "2026-11-20T00:00:00.000Z",
+          workspaceRevision: 40,
+          decisionId: "dec_prior_keep",
+          actor: { principal: { personId: "person_zeyu" } },
+          payload: { decisionAction: "accepted", title: "Standing contract preserved across small bootstrap" },
+          entityRefs: ["decision/dec_prior_keep"],
+        },
+      ],
+      synthesizedAt: "2026-11-20T00:00:00.000Z",
+    });
+
+    vi.spyOn(dossierClient, "read").mockResolvedValue({
+      schema: "dossier-content/v1",
+      slot: contextSlot,
+      state: {
+        verticalId: "software/coding",
+        slotId: "context",
+        lastSynthesizedWatermark: 64,
+        synthesizedAt: "2026-11-20T00:00:00.000Z",
+        path: contextSlot.documentPath,
+      },
+      mediaType: "text/markdown",
+      body: priorManagedAt64,
+    });
+
+    vi.spyOn(dossierClient, "context").mockImplementation(
+      async (_repoId, _slotId, _maxWatermark, options): Promise<DossierContextRead> => ({
+        schema: "dossier-context/v1",
+        slotId: "context",
+        expectedWatermark: 64,
+        currentWatermark: 120,
+        nextWatermark: 120,
+        done: true,
+        ...(options?.bootstrap !== undefined ? { bootstrapped: false } : {}),
+        kindMap: {},
+        changes: [
+          {
+            eventId: "evt_inc_120",
+            schema: "decision-event/v1",
+            type: "decision_accepted",
+            occurredAt: "2026-11-23T02:00:00.000Z",
+            workspaceRevision: 120,
+            decisionId: "dec_new_120",
+            actor: { principal: { personId: "person_zeyu" } },
+            payload: { decisionAction: "accepted", title: "Incremental delta decision" },
+            entityRefs: ["decision/dec_new_120"],
+          },
+        ],
+      }),
+    );
+
+    let submittedBody = "";
+    vi.spyOn(dossierClient, "synthesize").mockImplementation(async (_repoId, payload) => {
+      submittedBody = payload.body;
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "dossier-synthesize",
+        outcome: "applied",
+        opId: "op_120",
+      };
+    });
+
+    const outcome = await refreshDossierSlot({
+      repoId: "repo-1",
+      verticalId: "software/coding",
+      slot: contextSlot,
+      bootstrap: true,
+      now: () => "2026-11-23T02:20:00.000Z",
+    });
+
+    expect(outcome).toEqual({
+      ok: true,
+      slotId: "context",
+      pagesApplied: 1,
+      reachedWatermark: 120,
+      remaining: false,
+    });
+    expect(submittedBody).toContain("Standing contract preserved across small bootstrap");
+    expect(submittedBody).toContain("Incremental delta decision");
   });
 });

@@ -416,8 +416,9 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
         sourceRevision: head,
         warnings: [],
       }),
-      listEntities: (kind: string) =>
-        kind === briefOpaqueKind
+      listEntities: (kind: string, _withAttribution?: boolean, limit?: number) => {
+        assert.equal(limit, 50, "bootstrap must pass an explicit SQL limit to listEntities");
+        return kind === briefOpaqueKind
           ? [
               {
                 kind: briefOpaqueKind,
@@ -429,9 +430,22 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
                 value: { descriptor: { title: "Executive Bootstrap Charter" }, updatedAt: "2026-11-23T01:55:00.000Z" },
               },
             ]
-          : [],
+          : [];
+      },
     },
   });
+
+  // Monotonic floor: afterWatermark < expectedWatermark clamps scanAfter to expectedWatermark for concurrent realignment
+  const clampedCtx = readDossierContext(
+    makeReader("software/coding", "project-pulse"),
+    "software/coding",
+    pulseSlot,
+    undefined,
+    codingCompiled.definition.entityKinds,
+    { afterWatermark: 32 },
+  );
+  assert.equal(clampedCtx.expectedWatermark, 64);
+  assert.equal(clampedCtx.afterWatermark, 64);
 
   // Negative control: lagging projection fails closed with projection_pending
   const pulseSlot = codingSlots.get("project-pulse")!;

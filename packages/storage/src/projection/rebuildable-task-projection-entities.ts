@@ -18,6 +18,7 @@ import {
   type EntityKindContract,
 } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { checkedPageLimit } from "./task-query-projection.ts";
 import type { EntityProjectionRow, PinnedEntityProjectionRow } from "@harness-anything/kernel";
 import { entityValueFilterEntries } from "./entity-value-filter.ts";
 import type { EntityFreshness, EntityVersion } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
@@ -101,8 +102,13 @@ export function listEntityProjectionRows(
   db: DatabaseSync,
   entityKind: string,
   withAttribution = false,
+  limit?: number,
 ): readonly EntityProjectionRow[] {
-  const rows = queryRows(db, LIST_ENTITY_SQL, entityKind).map(entityProjectionRow);
+  const rows = (
+    limit === undefined
+      ? queryRows(db, LIST_ENTITY_SQL, entityKind)
+      : queryRows(db, `${LIST_ENTITY_SQL} LIMIT ?`, entityKind, checkedPageLimit(limit))
+  ).map(entityProjectionRow);
   return entityKind === "todo" || withAttribution ? projectEntityOrigins(db, entityKind, rows) : rows;
 }
 
