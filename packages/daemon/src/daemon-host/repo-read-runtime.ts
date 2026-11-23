@@ -202,6 +202,7 @@ export function makeRepoReadRuntime(
     const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
         prepareWorktree: unsupportedWrite,
         prepareProgress: unsupportedWrite,
+        prepareCausalGitHistory: unsupportedWrite,
         spawn: unsupportedWrite,
         spawnTask: unsupportedWrite,
         spawnHandoff: unsupportedWrite,

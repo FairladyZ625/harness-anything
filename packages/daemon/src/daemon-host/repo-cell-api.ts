@@ -834,12 +834,18 @@ export function createRepoCellApi(
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });
   // The runtime publication turn verifies any executor claim before it authorizes and executes.
+  const prepareCausalGitHistory = (spawn: JsonObject) =>
+    context.state === "attached" ? context.runtimeSpawner.prepareCausalGitHistory?.(spawn) : undefined;
   const spawnRuntime: RepoCell["spawnRuntime"] = async (payload, binding, queueObservation, onExecutionStart) => {
     const { executor: _claim, ...spawn } = payload;
     // A dry-run preview is a read projection: it must not enter the publication
     // turn, acquire a lease, or append a dispatch event.
-    if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
-    // A task dispatch's worktree checkout and setup finish first; the queue receives only the dispatch itself.
+    if (spawn.dryRun === true) {
+      const causalGitHistory = await prepareCausalGitHistory(spawn);
+      return context.runtimeSpawner.spawn(spawn, binding, null, false, { causalGitHistory });
+    }
+    // A task dispatch's worktree checkout, workspace progress, and reverse-trace Git snapshot finish
+    // before the dispatch enters the single-writer queue (dec_9979850C7CE87C17271D78E4D1 CH1).
     const worktree = await context.runtimeSpawner.prepareWorktree(spawn);
     const authoredTask = worktree === null && typeof spawn.taskId === "string" ? spawn.taskId : null;
     if (authoredTask !== null) {
@@ -847,6 +853,7 @@ export function createRepoCellApi(
       requireTaskPackageMaterialization(context, authoredTask);
     }
     const progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
+    const causalGitHistory = await prepareCausalGitHistory(spawn);
     return enqueueRuntimePublication(
       context,
       "runtime-run",
@@ -858,21 +865,34 @@ export function createRepoCellApi(
       binding,
       (authorizedBinding) => {
         if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
-        return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
+        return context.runtimeSpawner.spawnTask(
+          spawn,
+          authorizedBinding,
+          worktree,
+          context.projection,
+          progress,
+          causalGitHistory,
+        );
       },
       queueObservation,
       onExecutionStart,
     );
   };
-  const spawnCenterReview: RepoCell["spawnCenterReview"] = (payload, binding, queueObservation, onExecutionStart) =>
-    enqueueRuntimePublication(
+  const spawnCenterReview: RepoCell["spawnCenterReview"] = async (
+    payload,
+    binding,
+    queueObservation,
+    onExecutionStart,
+  ) => {
+    const { executor: _claim, ...spawn } = payload,
+      causalGitHistory = await prepareCausalGitHistory(spawn);
+    return enqueueRuntimePublication(
       context,
       "runtime-run",
       { kind: "runtime-spawn", ...payload, executionRuntimeIngress: { kind: "runtime-run", ...payload } },
       binding,
       async (authorizedBinding) => {
-        const { executor: _claim, ...spawn } = payload,
-          fallback = await prepareCenterReviewFallback(context.extracted, spawn, authorizedBinding),
+        const fallback = await prepareCenterReviewFallback(context.extracted, spawn, authorizedBinding),
           worktree = await context.runtimeSpawner.prepareWorktree(spawn, fallback.commitSha);
         if (worktree === null && fallback.commitSha !== null)
           throw context.cellCodedError(
@@ -887,11 +907,19 @@ export function createRepoCellApi(
         const progress = await context.runtimeSpawner.prepareProgress(spawn, worktree);
         fallback.recheckReviewCut();
         if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
-        return context.runtimeSpawner.spawnTask(spawn, authorizedBinding, worktree, context.projection, progress);
+        return context.runtimeSpawner.spawnTask(
+          spawn,
+          authorizedBinding,
+          worktree,
+          context.projection,
+          progress,
+          causalGitHistory,
+        );
       },
       queueObservation,
       onExecutionStart,
     );
+  };
   const handoffRuntime: RepoCell["handoffRuntime"] = (payload, binding, queueObservation, onExecutionStart) =>
     runRuntimeHandoff({
       readDispatchLifecycle: (query) => context.projection.readDispatchLifecycle(query),
@@ -918,15 +946,17 @@ export function createRepoCellApi(
       },
       spawn: async (checkpoint, spawn, rollout) => {
         const worktree = await context.runtimeSpawner.prepareWorktree({
-          taskId: checkpoint.taskId,
-          acceptedCommit: checkpoint.commit,
-        });
+            taskId: checkpoint.taskId,
+            acceptedCommit: checkpoint.commit,
+          }),
+          causalGitHistory = await prepareCausalGitHistory({ ...spawn, taskId: checkpoint.taskId });
         return enqueueRuntimePublication(
           context,
           "runtime-handoff-claim",
           { kind: "runtime-handoff-claim", dispatchId: checkpoint.dispatchId },
           binding,
-          (authorized) => context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree, rollout),
+          (authorized) =>
+            context.runtimeSpawner.spawnHandoff(checkpoint, spawn, authorized, worktree, rollout, causalGitHistory),
           queueObservation,
           onExecutionStart,
         );

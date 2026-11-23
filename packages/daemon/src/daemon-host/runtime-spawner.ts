@@ -1,5 +1,7 @@
+import type { GitHistoryPort } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { collectRuntimeWorkspaceProgress, type RuntimeWorkspaceProgress } from "./runtime-continuation-context.ts";
+import { prepareRuntimeCausalGitHistory } from "./repo-cell-trace-view.ts";
 import {
   currentExecutionArrangement,
   executionArrangementAllows,
@@ -178,6 +180,23 @@ const { providerErrorLimit } = daemonRuntimePolicy.defaultValue.process;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 type RuntimeTaskClaimScope = { release?: () => Promise<void> };
+interface SpawnAttemptOptions {
+  readonly inheritedFallback?: RuntimeFallbackAttempt;
+  readonly trustedSchedule?: TrustedScheduleRuntime;
+  readonly handoffFromRuntimeSessionId?: string;
+  readonly publicationOwner?: ActiveRuntime["publicationOwner"];
+  readonly preparedWorktree?: TaskWorktreeCheckout | null;
+  readonly handoff?: RuntimeHandoffCheckpoint;
+  readonly handoffRollout?: Uint8Array;
+  readonly onDispatched?: (dispatchId: string, runtimeSessionId: string) => void;
+  readonly onPrepared?: (dispatchId: string, runtimeSessionId: string) => void;
+  readonly admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null;
+  readonly workspaceProgress?: RuntimeWorkspaceProgress;
+  readonly causalGitHistory?: GitHistoryPort | null;
+  readonly recoveryRequested?: boolean;
+  readonly inheritedFallbackCwd?: string;
+  readonly trustedManagedCwd?: TrustedManagedCwdKind;
+}
 
 function releaseFailedTaskClaim<Args extends unknown[]>(
   spawn: (claim: RuntimeTaskClaimScope, ...args: Args) => Promise<JsonObject>,
@@ -282,6 +301,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           }
           return prepareDispatchWorktree(input, worktreePayload, projectedWorktreeBinding(input), pinnedCommit);
         },
+        prepareCausalGitHistory: (taskId) =>
+          prepareRuntimeCausalGitHistory({
+            rootDir: input.rootDir,
+            payload: { taskId },
+            projection: input.projection,
+            remote: input.remote,
+            runGitHistoryAsync: input.runGitHistoryAsync,
+          }),
         launch: (
           payload,
           binding,
@@ -294,25 +321,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           inheritedCwd,
           preparedWorktree,
           trustedManagedCwd,
+          causalGitHistory,
         ) =>
-          spawnAttempt(
-            payload,
-            binding,
-            fallback,
-            schedule,
+          spawnAttempt(payload, binding, {
+            inheritedFallback: fallback,
+            trustedSchedule: schedule,
             handoffFromRuntimeSessionId,
             publicationOwner,
-            preparedWorktree ?? null,
-            undefined,
-            undefined,
+            preparedWorktree: preparedWorktree ?? null,
             onDispatched,
-            undefined,
-            undefined,
             workspaceProgress,
-            false,
-            inheritedCwd,
+            causalGitHistory,
+            inheritedFallbackCwd: inheritedCwd,
             trustedManagedCwd,
-          ),
+          }),
         dispatchId,
       }),
     ...(input.onPendingSteerReceipt ? { triggerSteerReceiptFlush: input.onPendingSteerReceipt } : {}),
@@ -321,21 +343,25 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     claim: RuntimeTaskClaimScope,
     payload: JsonObject,
     binding: RuntimeBinding,
-    inheritedFallback?: RuntimeFallbackAttempt,
-    trustedSchedule?: TrustedScheduleRuntime,
-    handoffFromRuntimeSessionId?: string,
-    publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
-    preparedWorktree: TaskWorktreeCheckout | null = null,
-    handoff?: RuntimeHandoffCheckpoint,
-    handoffRollout?: Uint8Array,
-    onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
-    onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
-    admissionTaskRead?: ReturnType<typeof requireCurrentTaskProjection> | null,
-    workspaceProgress?: RuntimeWorkspaceProgress,
-    recoveryRequested = false,
-    inheritedFallbackCwd?: string,
-    trustedManagedCwd?: TrustedManagedCwdKind,
+    options: SpawnAttemptOptions = {},
   ): Promise<JsonObject> {
+    const {
+      inheritedFallback,
+      trustedSchedule,
+      handoffFromRuntimeSessionId,
+      publicationOwner = "runtime",
+      preparedWorktree = null,
+      handoff,
+      handoffRollout,
+      onDispatched,
+      onPrepared,
+      admissionTaskRead,
+      workspaceProgress,
+      causalGitHistory,
+      recoveryRequested = false,
+      inheritedFallbackCwd,
+      trustedManagedCwd,
+    } = options;
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
@@ -688,6 +714,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         cwd,
         taskId,
         workspaceProgress: workspaceProgress ?? (input.remote ? await collectRuntimeWorkspaceProgress(cwd) : undefined),
+        causalGitHistory,
         continuationSnapshotProvided: inheritedFallback !== undefined,
         continuationRequested:
           recoveryRequested || requestedDispatchId !== undefined || providerSessionId !== undefined,
@@ -1780,38 +1807,42 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         pinnedCommit,
       );
     },
+    /** Pre-collects reverse-trace Git history asynchronously before the dispatch enters the write slot. */
+    prepareCausalGitHistory: (payload: JsonObject) =>
+      prepareRuntimeCausalGitHistory({
+        rootDir: input.rootDir,
+        payload,
+        projection: input.projection,
+        remote: input.remote,
+        runGitHistoryAsync: input.runGitHistoryAsync,
+      }),
     spawnHandoff: (
       checkpoint: RuntimeHandoffCheckpoint,
       payload: JsonObject,
       binding: RuntimeBinding,
       worktree: TaskWorktreeCheckout | null = null,
       rollout?: Uint8Array,
-    ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
+      causalGitHistory?: GitHistoryPort | null,
+    ) =>
+      spawnAttempt(payload, binding, {
+        preparedWorktree: worktree,
+        handoff: checkpoint,
+        handoffRollout: rollout,
+        causalGitHistory,
+      }),
     spawn: (
       payload: JsonObject,
       binding: RuntimeBinding,
       worktree: TaskWorktreeCheckout | null = null,
       recoveryRequested = false,
-      options?: { readonly trustedDecisionReview?: boolean },
+      options?: { readonly trustedDecisionReview?: boolean; readonly causalGitHistory?: GitHistoryPort | null },
     ) =>
-      spawnAttempt(
-        payload,
-        binding,
-        undefined,
-        undefined,
-        undefined,
-        "runtime",
-        worktree,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
+      spawnAttempt(payload, binding, {
+        preparedWorktree: worktree,
         recoveryRequested,
-        undefined,
-        options?.trustedDecisionReview === true ? "decision-package" : undefined,
-      ),
+        trustedManagedCwd: options?.trustedDecisionReview === true ? "decision-package" : undefined,
+        causalGitHistory: options?.causalGitHistory,
+      }),
     /** The direct RepoCell runtime.run route owns admission and reuses its task projection read. */
     spawnTask: async (
       payload: JsonObject,
@@ -1819,6 +1850,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       worktree: TaskWorktreeCheckout | null = null,
       admissionProjection: ReturnType<typeof requiredRuntimeProjection>,
       workspaceProgress?: RuntimeWorkspaceProgress,
+      causalGitHistory?: GitHistoryPort | null,
     ) => {
       const admitted = admitTaskDispatch({
         repoId: input.repoId,
@@ -1836,22 +1868,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ),
           recovery: admitted.recovery,
         } as unknown as JsonObject;
-      const receipt = await spawnAttempt(
-        admitted.payload,
-        binding,
-        undefined,
-        undefined,
-        undefined,
-        "runtime",
-        worktree,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        admitted.taskRead,
+      const receipt = await spawnAttempt(admitted.payload, binding, {
+        preparedWorktree: worktree,
+        admissionTaskRead: admitted.taskRead,
         workspaceProgress,
-        admitted.recovery !== null,
-      );
+        causalGitHistory,
+        recoveryRequested: admitted.recovery !== null,
+      });
       return admitted.recovery ? { ...receipt, recovery: { ...admitted.recovery, replayed: false } } : receipt;
     },
     spawnCoordinated: (
@@ -1859,19 +1882,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       binding: RuntimeBinding,
       onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
     ) =>
-      spawnAttempt(
-        payload,
-        binding,
-        undefined,
-        undefined,
-        undefined,
-        payload.targetAgentId === undefined ? "runtime" : "commander",
-        null,
-        undefined,
-        undefined,
-        undefined,
+      spawnAttempt(payload, binding, {
+        publicationOwner: payload.targetAgentId === undefined ? "runtime" : "commander",
         onPrepared,
-      ),
+      }),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) => {
       const agentPermissionMode = input.resolveAgent?.(scheduled.agentId)?.permissionMode,
         scheduledPermissionMode = resolveScheduledPermissionMode({
@@ -1893,9 +1907,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...(agentPermissionMode === undefined ? { permissionMode: scheduledPermissionMode } : {}),
         },
         binding,
-        undefined,
-        scheduled,
-        undefined,
+        { trustedSchedule: scheduled },
       );
     },
     /** The same trusted-schedule channel for a caller-assembled payload: a scheduled Squad run's
@@ -1905,20 +1917,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       scheduled: TrustedScheduleRuntime,
       binding: RuntimeBinding,
       onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
-    ) =>
-      spawnAttempt(
-        payload,
-        binding,
-        undefined,
-        scheduled,
-        undefined,
-        "runtime",
-        null,
-        undefined,
-        undefined,
-        undefined,
-        onPrepared,
-      ),
+    ) => spawnAttempt(payload, binding, { trustedSchedule: scheduled, onPrepared }),
     adopt: (onProgress?: (completed: number) => void) => {
       input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
       return adoptRuntimes(extracted, onProgress);

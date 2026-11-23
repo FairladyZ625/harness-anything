@@ -288,7 +288,19 @@ export type GitHistoryLogResult =
       readonly stderr: string;
     };
 
+export type AsyncGitHistoryLogRunner = (
+  rootDir: string,
+  args: readonly string[],
+  timeoutMs?: number,
+) => Promise<GitHistoryLogResult>;
+
 const GIT_HISTORY_STDERR_BYTES = 512;
+
+function boundedGitHistoryStderr(stderr: unknown): string {
+  return Buffer.from(String(stderr ?? "").trim(), "utf8")
+    .subarray(0, GIT_HISTORY_STDERR_BYTES)
+    .toString("utf8");
+}
 
 /**
  * Read-only Git history and status for reverse code-path trace (dec_9979850C7CE87C17271D78E4D1 CH1). Unlike
@@ -316,11 +328,42 @@ export function runGitHistoryLog(
       ok: false,
       exitCode: typeof failure.status === "number" ? failure.status : null,
       errorCode: typeof failure.code === "string" ? failure.code : null,
-      stderr: Buffer.from(String(failure.stderr ?? "").trim(), "utf8")
-        .subarray(0, GIT_HISTORY_STDERR_BYTES)
-        .toString("utf8"),
+      stderr: boundedGitHistoryStderr(failure.stderr),
     };
   }
+}
+
+/**
+ * Asynchronous read-only Git history and status runner for pre-queue dispatch collection
+ * (dec_9979850C7CE87C17271D78E4D1 CH1): preserves exit status, system error code, and bounded
+ * stderr without blocking the daemon event loop or the RepoCell single-writer slot.
+ */
+export async function runGitHistoryLogAsync(
+  rootDir: string,
+  args: readonly string[],
+  timeoutMs: number = daemonRuntimePolicy.defaultValue.runtime.currentWorktreeHeadTimeoutMs,
+): Promise<GitHistoryLogResult> {
+  const outcome = await launchProcessText("git", args, rootDir, { ...process.env, LC_ALL: "C" }, undefined, undefined, {
+    timeoutMs,
+  });
+  if (!outcome.error) return { ok: true, stdout: outcome.stdout };
+  const error = outcome.error,
+    terminated = error.killed === true || error.signal != null,
+    exitCode = !terminated && typeof error.status === "number" ? error.status : null,
+    errorCode =
+      typeof error.code === "string"
+        ? error.code
+        : terminated
+          ? typeof error.signal === "string"
+            ? error.signal
+            : "ETIMEDOUT"
+          : null;
+  return {
+    ok: false,
+    exitCode,
+    errorCode,
+    stderr: boundedGitHistoryStderr(outcome.stderr || error.stderr),
+  };
 }
 
 function processExists(pid: number): boolean {

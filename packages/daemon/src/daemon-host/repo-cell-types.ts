@@ -827,6 +827,8 @@ export interface RepoCellOpenInput {
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
+  /** Read-only async Git history runner used before the write slot; defaults to runGitHistoryLogAsync. */
+  readonly runGitHistoryAsync?: import("./process-port.ts").AsyncGitHistoryLogRunner;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   /** Host-owned fleet roster snapshot (remote-center schedule reads); resolved per read. */
   /** Daemon-owned fallback for writes produced inside the cell rather than a request. */

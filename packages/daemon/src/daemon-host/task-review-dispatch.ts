@@ -1063,10 +1063,13 @@ export async function spawnCutReviewDispatch(
         );
     },
     prepareAndLaunch = async (attemptPayload: typeof payload): Promise<void> => {
-      const worktree = await prepareReviewWorktree(cell, attemptPayload, submission.commitSha);
+      const worktree = await prepareReviewWorktree(cell, attemptPayload, submission.commitSha),
+        causalGitHistory = await cell.runtimeSpawner.prepareCausalGitHistory?.(attemptPayload);
       await enqueuePublication(attemptPayload, async (authorizationDecision) => {
         if (worktree === null) requireTaskPackageMaterialization(cell, input.taskId);
-        return cell.runtimeSpawner.spawn(attemptPayload, { ...input.binding, authorizationDecision }, worktree);
+        return cell.runtimeSpawner.spawn(attemptPayload, { ...input.binding, authorizationDecision }, worktree, false, {
+          causalGitHistory,
+        });
       });
     };
   try {
@@ -1570,7 +1573,8 @@ export async function prepareTaskReviewDispatch(
       fail(error instanceof Error ? error.message : String(error), reviewerId, execution.executionId);
       continue;
     }
-    steps.push({ ...target, kind: "local", payload, ids, worktree: checkout.worktree });
+    const causalGitHistory = await cell.runtimeSpawner.prepareCausalGitHistory?.(payload);
+    steps.push({ ...target, kind: "local", payload, ids, worktree: checkout.worktree, causalGitHistory });
   }
   return { steps, warnings, revision, materializationFailures };
 }
@@ -1593,6 +1597,9 @@ type PreparedTaskReview = {
       readonly payload: JsonObject & { readonly dispatchKey: string; readonly agentId: string };
       readonly ids: ReturnType<typeof reviewDispatchIds>;
       readonly worktree: Awaited<ReturnType<typeof prepareReviewWorktree>>;
+      readonly causalGitHistory?: Awaited<
+        ReturnType<RepoCellOperationalContext["runtimeSpawner"]["prepareCausalGitHistory"]>
+      >;
     }
 );
 
@@ -1667,7 +1674,7 @@ export async function dispatchTaskReview(
         );
         continue;
       }
-      const { payload, ids, worktree } = step,
+      const { payload, ids, worktree, causalGitHistory } = step,
         key = payload.dispatchKey,
         holding =
           cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ??
@@ -1698,7 +1705,9 @@ export async function dispatchTaskReview(
       if (authorizationDecision.outcome !== "allowed")
         throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
       if (worktree === null) requireTaskPackageMaterialization(cell, taskId);
-      const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree),
+      const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree, false, {
+          causalGitHistory,
+        }),
         selection = spawned.runtimeSelection;
       if (selection !== null && typeof selection === "object" && !Array.isArray(selection)) {
         const reason = "reason" in selection && typeof selection.reason === "string" ? selection.reason : undefined;
