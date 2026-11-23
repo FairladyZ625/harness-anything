@@ -1,9 +1,20 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 import { compileEntityDocumentRematerialization, taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { docSyncWritePlan } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { makeTaskEventStore, makeTaskProjection } from "../../src/index.ts";
@@ -263,3 +274,123 @@ test("a warm outbox cut uses the same Git operations with thousands of unrelated
   t.diagnostic(JSON.stringify(runs));
   assert.deepEqual(runs[0]?.processes, runs[1]?.processes);
 });
+
+test(
+  "attach settles a relocated symlinked ledger repo whose stale published_commit_sha is absent",
+  { skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      const externalParent = mkdtempSync(path.join(tmpdir(), "ha-relocated-ledger-")),
+        externalHarness = path.join(externalParent, "private-harness"),
+        options = { repoId: "outbox-relocated-ledger", rootDir },
+        logical = "context/relocated.md";
+      try {
+        let store = makeTaskEventStore(options);
+        try {
+          store.append(docBundle(store, "# Relocated cut\n", 1, "relocated-1", logical));
+          await store.settlePendingMaterialization!("publish rev 1 in original repository");
+          assert.equal(store.materializationHealth().state, "ok", JSON.stringify(store.materializationHealth()));
+        } finally {
+          await store.drain();
+        }
+
+        // Relocate harness/ into an independent root-commit Git repository mounted via symlink.
+        renameSync(path.join(rootDir, "harness"), externalHarness);
+        git(externalHarness, "init", "-q", "-b", "main");
+        git(externalHarness, "config", "user.name", "Test");
+        git(externalHarness, "config", "user.email", "test@example.com");
+        git(externalHarness, "add", ".");
+        git(externalHarness, "commit", "--allow-empty", "-qm", "init relocated private ledger");
+        const relocatedHead = git(externalHarness, "rev-parse", "HEAD");
+        symlinkSync(externalHarness, path.join(rootDir, "harness"), "dir");
+
+        // Reopen and settle WITHOUT appending a new event: commit === parent while SQLite still holds
+        // the old repository's published_commit_sha, which does not exist in externalHarness.
+        store = makeTaskEventStore(options);
+        try {
+          await store.settlePendingMaterialization!("settle relocated ledger at existing revision");
+          assert.equal(store.materializationHealth().state, "ok", JSON.stringify(store.materializationHealth()));
+          assert.equal(store.followerStatus().worktree.cut?.revision, 1);
+          assert.equal(git(externalHarness, "rev-parse", "HEAD"), relocatedHead);
+          assert.equal(git(externalHarness, "status", "--porcelain"), "");
+
+          // Sync materialize and subsequent incremental publication both work cleanly.
+          const synced = store.materialize({});
+          assert.equal(synced.status, "visible");
+          store.append(docBundle(store, "# Relocated cut 2\n", 2, "relocated-2", "context/relocated-2.md"));
+          await store.settlePendingMaterialization!("publish rev 2 in relocated repository");
+          assert.equal(store.materializationHealth().state, "ok", JSON.stringify(store.materializationHealth()));
+          assert.equal(store.followerStatus().worktree.cut?.revision, 2);
+          assert.equal(git(externalHarness, "status", "--porcelain"), "");
+        } finally {
+          await store.drain();
+        }
+      } finally {
+        removeTempRepository(externalParent);
+      }
+    });
+  },
+);
+
+test(
+  "attach recovers a relocated root-commit ledger when disk lags behind Git without parent^",
+  { skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      initRepo(rootDir);
+      const externalParent = mkdtempSync(path.join(tmpdir(), "ha-relocated-root-lag-")),
+        externalHarness = path.join(externalParent, "private-harness"),
+        options = { repoId: "outbox-relocated-root-lag", rootDir };
+      try {
+        let store = makeTaskEventStore(options),
+          projection = makeTaskProjection({ rootDir, eventStore: store });
+        try {
+          const doc1 = docBundle(store, "# Cut 1\n", 1, "lag-1", "context/lag-1.md");
+          store.append(doc1);
+          projection.apply(doc1.event, doc1.plan);
+          await store.settlePendingMaterialization!("publish rev 1 in original repository");
+          const doc2 = docBundle(store, "# Cut 2\n", 2, "lag-2", "context/lag-2.md");
+          store.append(doc2);
+          projection.apply(doc2.event, doc2.plan);
+          await store.settlePendingMaterialization!("publish rev 2 in original repository");
+        } finally {
+          projection.close();
+          await store.drain();
+        }
+
+        // Relocate harness/ into a single root commit (no parent^) and remove the worktree manifest so
+        // gitRevision (2) > diskRevision (0) while published_commit_sha points to the old repository.
+        renameSync(path.join(rootDir, "harness"), externalHarness);
+        git(externalHarness, "init", "-q", "-b", "main");
+        git(externalHarness, "config", "user.name", "Test");
+        git(externalHarness, "config", "user.email", "test@example.com");
+        git(externalHarness, "add", ".");
+        git(externalHarness, "commit", "--allow-empty", "-qm", "root commit at rev 2");
+        unlinkSync(path.join(externalHarness, "events", "segments", "manifest.json"));
+        symlinkSync(externalHarness, path.join(rootDir, "harness"), "dir");
+
+        store = makeTaskEventStore({
+          ...options,
+          readMaterializationDocuments: (forced, after, expected, previous) =>
+            projection.readCut().watermark === expected
+              ? readNodeMaterializationDocuments(projection, "include_done", forced, after, previous)
+              : null,
+        });
+        projection = makeTaskProjection({ rootDir, eventStore: store });
+        try {
+          await store.settlePendingMaterialization!("recover lagging disk on relocated root commit");
+          assert.equal(store.materializationHealth().state, "ok", JSON.stringify(store.materializationHealth()));
+          assert.equal(store.followerStatus().worktree.cut?.revision, 2);
+          assert.equal(existsSync(path.join(externalHarness, "events", "segments", "manifest.json")), true);
+          assert.equal(git(externalHarness, "status", "--porcelain"), "");
+        } finally {
+          projection.close();
+          await store.drain();
+        }
+      } finally {
+        removeTempRepository(externalParent);
+      }
+    });
+  },
+);

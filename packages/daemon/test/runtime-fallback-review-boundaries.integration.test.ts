@@ -64,7 +64,13 @@ test(
       symlinkSync(externalHarness, path.join(f.root, "harness"), "dir");
       await f.reopen();
 
-      assert.equal((await f.run({ kind: "task-submit", taskId, executionId })).outcome, "applied");
+      const submitted = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length >= 1,
+        true,
+        JSON.stringify(submitted),
+      );
 
       await f.waitForLaunches(2);
       const attempts = f.events().filter((event) => event.type === "runtime_dispatch_requested");
