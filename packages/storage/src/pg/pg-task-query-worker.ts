@@ -16,6 +16,7 @@ import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
 import { backfillPgArtifactDocuments } from "./pg-artifact-timeline.ts";
 import { backfillPgDispatchLifecycle } from "./pg-dispatch-lifecycle.ts";
 import { backfillPgInbox } from "./pg-inbox.ts";
+import { backfillPgPeerRequests } from "./pg-peer-request.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
 import {
@@ -58,6 +59,7 @@ interface PgQueryWorkerRequest {
     | "artifact-backfill"
     | "dispatch-lifecycle-backfill"
     | "inbox-backfill"
+    | "peer-request-backfill"
     | "relation-cycle-maintenance"
     | "epoch"
     | "replication";
@@ -453,6 +455,19 @@ function startWorker(
           await withPostgresTransaction(
             pool,
             (client) => backfillPgInbox(client, input.scope, input.repoId),
+            input.scope,
+          ),
+        );
+        return;
+      }
+      if (request.op === "peer-request-backfill") {
+        if (sessionClient) throw new Error("peer request backfill cannot run inside a projection read session");
+        respond(
+          request.id,
+          input.state,
+          await withPostgresTransaction(
+            pool,
+            (client) => backfillPgPeerRequests(client, input.scope, input.repoId),
             input.scope,
           ),
         );

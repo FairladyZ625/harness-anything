@@ -30,6 +30,7 @@ import {
 import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
+import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-collaboration.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,
@@ -659,8 +660,12 @@ const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contract
       const existing = new Set(actionCatalog.actions.map(({ id }) => id)),
         actions = [
           ...actionCatalog.actions,
-          ...(existing.has("pin") ? [] : [baseEntityAction(contract.kind, contract.id, "pin")]),
-          ...(existing.has("unpin") ? [] : [baseEntityAction(contract.kind, contract.id, "unpin")]),
+          ...(existing.has("pin") || !contract.baseActions.includes("pin")
+            ? []
+            : [baseEntityAction(contract.kind, contract.id, "pin")]),
+          ...(existing.has("unpin") || !contract.baseActions.includes("unpin")
+            ? []
+            : [baseEntityAction(contract.kind, contract.id, "unpin")]),
         ];
       return Object.freeze({
         ...contract,
@@ -1640,49 +1645,11 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     canonicalProjection: null,
     stateStores: stateStoresForKind("peer-request"),
     statusVocabulary: [{ field: "state", words: peerRequestStates }],
-    judgments: [{
-      id: "authenticated-sender",
-      symbol: "packages/kernel/src/domain/peer-collaboration.ts#verifyPeerSenderIdentity",
-      inputs: ["claimed person id", "authenticated person id"],
-      output: "Peer sender identity result",
-      failureCodes: ["peer_sender_spoofing_denied"],
-      explain: "Bind the claimed sender to the principal authenticated by the center.",
-      consumers: ["packages/kernel/src/domain/peer-collaboration.ts"],
-      sources: [],
-    }],
-    policies: [{
-      id: "execution-ceiling",
-      ownerRef: "peer-request",
-      unit: "Tier A operation",
-      bounds: "L0 is read-only. L1 requires local preflight and local human confirmation. L2 and unknown operations are draft-only.",
-      defaultValue: "draft_only",
-      version: 1,
-      scope: "Receiver-side evaluation of untrusted peer intent",
-      reason: "A remote request cannot delegate the receiving principal's authority.",
-      fixtures: ["packages/kernel/test/peer-collaboration.test.ts"],
-      sources: [{
-        candidateId: "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluatePeerExecutionCeiling.tier:1aa4cf7aa9729a9ae689d62ff902fa74",
-        route: "evaluatePeerExecutionCeiling",
-      }],
-    }, {
-      id: "claim-fence",
-      ownerRef: "peer-request",
-      unit: "request claim",
-      bounds: "A terminal event requires a live claim owned by the recipient and must present its fence. Reclaim is available at expiry.",
-      defaultValue: null,
-      version: 1,
-      scope: "PeerRequest lifecycle",
-      reason: "A window that loses its claim cannot settle the request after takeover.",
-      fixtures: ["packages/kernel/test/peer-collaboration.test.ts"],
-      sources: [{
-        candidateId: "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#peerRequestV1JsonSchema.claim:02c52e58cabf7ab5083a713eb26afc70",
-        route: "PeerRequestV1 claim schema",
-      }, {
-        candidateId: "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#reducePeerRequestEvent:49adb3c8f0bf4390ec0d6b480bbf3670",
-        route: "reducePeerRequestEvent",
-      }],
-    }],
-    actionCatalog: noActionCatalog("kernel/peer-request/v1", "Pure event aggregate pending transport and write ingress."),
+    judgments: [...peerJudgments],
+    policies: [...peerPolicies],
+    actionCatalog: createPeerActionCatalog((id) =>
+      entityAction("peer-request", requireEntityTypeContract("peer-request").id, id),
+    ),
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,

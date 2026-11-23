@@ -20,6 +20,7 @@ const pureKernelProtocolLeaves = [
   "packages/kernel/src/domain/receipt-acceptance.ts",
   "packages/kernel/src/domain/relation-state.ts",
   "packages/kernel/src/domain/timestamp.ts",
+  "packages/kernel/src/domain/peer-action-contract.ts",
   "packages/kernel/src/domain/todo-action-contract.ts",
 ];
 const allowedStaticGraph = new Set([
@@ -46,6 +47,7 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-runtime-fleet.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts",
+  "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-peer.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-todo.ts",
   "packages/daemon/src/daemon-host/protocol/todo-action-routes.ts",
   "packages/daemon/src/daemon-host/protocol/daemon-protocol-action-routes.ts",
@@ -184,6 +186,7 @@ function checkDaemonTransportImportGraph() {
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-runtime-fleet.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task-surface.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-task.ts",
+    "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-peer.ts",
     "packages/daemon/src/daemon-host/protocol/daemon-protocol-commands-todo.ts",
     ...pureKernelProtocolLeaves,
     "packages/daemon/src/daemon-host/protocol/todo-action-routes.ts",

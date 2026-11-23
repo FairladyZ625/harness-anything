@@ -1,13 +1,24 @@
 import { isNonEmptyString, isRecord } from "./contract-validation.ts";
+import type { EntityActionContract, EntityActionInputField } from "./entity-kind-registry.ts";
 import {
   validateEntityJsonSchema,
   type EntityDocumentJsonSchema,
+  type EntityJsonObjectSchema,
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
-import { validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope } from "./write-chain.contract.ts";
+import type { OntologyJudgmentDeclaration, OntologyPolicyDeclaration } from "./ontology-source.ts";
+import {
+  validateEventEnvelopeIdentity,
+  type ActorIdentity,
+  type EventEnvelope,
+  type WriteSource,
+} from "./write-chain.contract.ts";
+
+export const PEER_REQUEST_MODEL_VERSION = 1;
+export const PEER_REQUEST_PAGE_LIMIT = 200;
 
 export const peerRequestStates = ["OPEN", "CLAIMED", "ANSWERED", "DONE", "REJECTED", "PROMOTED"] as const;
-type PeerRequestState = (typeof peerRequestStates)[number];
+export type PeerRequestState = (typeof peerRequestStates)[number];
 
 export const peerRequestEventTypes = [
   "peer_request_opened",
@@ -18,39 +29,53 @@ export const peerRequestEventTypes = [
   "peer_request_promoted",
 ] as const;
 
-const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff"] as const;
+export const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff"] as const;
+export type PeerRequestKind = (typeof peerRequestKinds)[number];
 
-interface PeerStructuredBody {
+export interface PeerStructuredBody {
   readonly claim: string;
   readonly rootCause?: string;
   readonly requestedAction: string;
   readonly verification?: string;
 }
 
-interface PeerAttachment {
+export interface PeerAttachment {
   readonly sha256: `sha256:${string}`;
   readonly mediaType: string;
   readonly access: "read-only";
+  readonly size?: number;
+}
+
+export interface ContinuationPacket {
+  readonly anchorRef: string;
+  readonly wipCommitSha: string;
+  readonly wipBundleBlobSha256?: `sha256:${string}`;
+  readonly prNumber?: number;
+  readonly verifiedReceipts: readonly string[];
+  readonly inFlightDispatches: readonly string[];
+  readonly blockingGate: string | null;
+  readonly nextAction: string;
 }
 
 export interface PeerRequestInput {
   readonly requestId: string;
   readonly from: { readonly personId: string; readonly nodeId: string; readonly sessionHint?: string };
   readonly to: { readonly personId: string; readonly workId?: string; readonly lane?: string };
-  readonly kind: (typeof peerRequestKinds)[number];
+  readonly kind: PeerRequestKind;
   readonly anchorRef?: string;
   readonly summary: string;
   readonly structuredBody: PeerStructuredBody;
   readonly attachments: readonly PeerAttachment[];
+  readonly continuationPacket?: ContinuationPacket;
 }
 
-interface PeerReply {
+export interface PeerReply {
   readonly structuredBody: PeerStructuredBody;
   readonly attachments: readonly PeerAttachment[];
   readonly minRevision: number;
 }
 
-interface PeerClaim {
+export interface PeerClaim {
   readonly claimId: string;
   readonly expiresAt: string;
 }
@@ -83,7 +108,7 @@ interface PeerEventPayloads {
   };
 }
 
-type PeerEventType = (typeof peerRequestEventTypes)[number];
+export type PeerEventType = (typeof peerRequestEventTypes)[number];
 export type PeerRequestEventV1 = {
   [T in PeerEventType]: EventEnvelope<
     "peer-request-event/v1",
@@ -93,7 +118,7 @@ export type PeerRequestEventV1 = {
   >;
 }[PeerEventType];
 
-type PeerRequestErrorCode =
+export type PeerRequestErrorCode =
   | "peer_request_invalid_input"
   | "peer_request_transition_invalid"
   | "peer_request_revision_gap"
@@ -106,7 +131,7 @@ type PeerRequestErrorCode =
   | "peer_request_promotion_task_required"
   | "peer_sender_spoofing_denied";
 
-class PeerRequestDomainError extends Error {
+export class PeerRequestDomainError extends Error {
   readonly code: PeerRequestErrorCode;
 
   constructor(code: PeerRequestErrorCode, message: string) {
@@ -131,7 +156,7 @@ const peerIntentTiers = Object.freeze({
   merge: "L1",
   "host-privileged": "L2",
 } as const);
-type PeerIntentRiskTier = (typeof peerIntentTiers)[keyof typeof peerIntentTiers];
+export type PeerIntentRiskTier = (typeof peerIntentTiers)[keyof typeof peerIntentTiers];
 
 /** Classify the operation selected by the receiver's trusted action catalog. */
 export function classifyPeerIntentRiskTier(operation: string): PeerIntentRiskTier {
@@ -209,14 +234,32 @@ const structuredBody = objectFields(
   { claim: textField, rootCause: textField, requestedAction: textField, verification: textField },
   ["claim", "requestedAction"],
 );
+const sha256Field = { type: "string", pattern: "^sha256:[0-9a-f]{64}$" } as const;
 const attachments = {
   type: "array",
-  items: objectFields({
-    sha256: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
-    mediaType: textField,
-    access: { type: "string", const: "read-only" },
-  }),
+  items: objectFields(
+    {
+      sha256: sha256Field,
+      mediaType: textField,
+      access: { type: "string", const: "read-only" },
+      size: { type: "integer", integer: true, minimum: 0 },
+    },
+    ["sha256", "mediaType", "access"],
+  ),
 } as const;
+const continuationPacketFields = objectFields(
+  {
+    anchorRef: textField,
+    wipCommitSha: { type: "string", pattern: "^[0-9a-f]{7,64}$" },
+    wipBundleBlobSha256: sha256Field,
+    prNumber: { type: "integer", integer: true, minimum: 1 },
+    verifiedReceipts: { type: "array", items: textField },
+    inFlightDispatches: { type: "array", items: textField },
+    blockingGate: nullableText,
+    nextAction: textField,
+  },
+  ["anchorRef", "wipCommitSha", "verifiedReceipts", "inFlightDispatches", "blockingGate", "nextAction"],
+);
 const replyFields = objectFields({
   structuredBody,
   attachments,
@@ -232,6 +275,7 @@ const requestFields = objectFields(
     summary: { ...textField, pattern: "^[^\\r\\n\\u2028\\u2029]{1,240}$(?![\\s\\S])" },
     structuredBody,
     attachments,
+    continuationPacket: continuationPacketFields,
   },
   ["requestId", "from", "to", "kind", "summary", "structuredBody", "attachments"],
 );
@@ -294,11 +338,31 @@ const peerPayloadFields = {
   peer_request_promoted: { ...terminalFields, promotedTaskId: idField },
 } satisfies Record<PeerEventType, Readonly<Record<string, EntityJsonSchemaNode>>>;
 
-function eventContractIssues(event: PeerRequestEventV1): readonly string[] {
-  const schema = {
+function relaxObjectSchema(node: EntityJsonObjectSchema): EntityJsonObjectSchema {
+  return {
+    ...node,
+    additionalProperties: true,
+    properties: Object.fromEntries(
+      Object.entries(node.properties).map(([key, value]) => [key, relaxSchemaNode(value)]),
+    ),
+  };
+}
+
+function relaxSchemaNode(node: EntityJsonSchemaNode): EntityJsonSchemaNode {
+  if (node.type === "object" && node.properties) return relaxObjectSchema(node);
+  if (node.type === "array" && node.items) return { ...node, items: relaxSchemaNode(node.items) };
+  return node;
+}
+
+function eventContractIssues(event: PeerRequestEventV1, allowUnknownFields = false): readonly string[] {
+  const baseSchema: EntityJsonObjectSchema = objectFields({
+    requestRevision: revisionField,
+    ...peerPayloadFields[event.type],
+  });
+  const schema: EntityDocumentJsonSchema<unknown> = {
     $schema: schemaDialect,
     $id: "peer-request-event/v1",
-    ...objectFields({ requestRevision: revisionField, ...peerPayloadFields[event.type] }),
+    ...(allowUnknownFields ? relaxObjectSchema(baseSchema) : baseSchema),
   };
   const issues = validateEntityJsonSchema(schema, event.payload, "PeerRequest event payload");
   if (issues.length > 0) return issues;
@@ -423,6 +487,15 @@ function openPeerRequest(input: PeerRequestInput, eventId: string): PeerRequestV
     ...freezePeerContent(input),
     from: Object.freeze({ ...input.from }),
     to: Object.freeze({ ...input.to }),
+    ...(input.continuationPacket === undefined
+      ? {}
+      : {
+          continuationPacket: Object.freeze({
+            ...input.continuationPacket,
+            verifiedReceipts: Object.freeze([...input.continuationPacket.verifiedReceipts]),
+            inFlightDispatches: Object.freeze([...input.continuationPacket.inFlightDispatches]),
+          }),
+        }),
     schema: "peer-request/v1",
     state: "OPEN",
     revision: 1,
@@ -443,3 +516,431 @@ function freezePeerContent(input: PeerReply | PeerRequestInput): PeerReply | Pee
     attachments: Object.freeze(input.attachments.map((attachment) => Object.freeze({ ...attachment }))),
   }) as PeerReply | PeerRequestInput;
 }
+
+export function isPeerRequestEventType(type: string): type is PeerEventType {
+  return (peerRequestEventTypes as readonly string[]).includes(type);
+}
+
+export function isPeerRequestEvent(event: {
+  readonly schema: string;
+  readonly type: string;
+}): event is PeerRequestEventV1 {
+  return event.schema === "peer-request-event/v1" && isPeerRequestEventType(event.type);
+}
+
+export function peerRequestEventRequestId(event: PeerRequestEventV1): string {
+  return event.type === "peer_request_opened" ? event.payload.request.requestId : event.payload.requestId;
+}
+
+export function isTerminalPeerRequestState(state: PeerRequestState): boolean {
+  return state === "ANSWERED" || state === "DONE" || state === "REJECTED" || state === "PROMOTED";
+}
+
+export function validatePeerRequestEvent(value: unknown, allowUnknownFields = true): readonly string[] {
+  if (!isRecord(value) || value.schema !== "peer-request-event/v1" || !isPeerRequestEventType(String(value.type)))
+    return ["Invalid PeerRequest event schema or type."];
+  const envelopeIssues = validateEventEnvelopeIdentity(value, allowUnknownFields);
+  if (envelopeIssues.length > 0) return envelopeIssues;
+  return eventContractIssues(value as unknown as PeerRequestEventV1, allowUnknownFields);
+}
+
+export function validateCurrentPeerRequestEvent(value: unknown): readonly string[] {
+  return validatePeerRequestEvent(value, false);
+}
+
+export function peerRequestEventContentClaims(event: PeerRequestEventV1): readonly {
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}[] {
+  const list =
+    event.type === "peer_request_opened"
+      ? event.payload.request.attachments
+      : event.type === "peer_request_answered"
+        ? event.payload.reply.attachments
+        : [];
+  return list.flatMap((attachment) =>
+    attachment.size === undefined
+      ? []
+      : [
+          {
+            sha256: attachment.sha256.slice("sha256:".length),
+            size: attachment.size,
+            mediaType: attachment.mediaType,
+          },
+        ],
+  );
+}
+
+export type PeerRequestQuery =
+  | { readonly by: "id"; readonly requestId: string }
+  | {
+      readonly by: "list";
+      readonly recipientPersonId?: string;
+      readonly senderPersonId?: string;
+      readonly state?: PeerRequestState;
+      readonly kind?: PeerRequestKind;
+      readonly workId?: string;
+      readonly lane?: string;
+      readonly limit?: number;
+      readonly cursor?: string;
+    };
+
+export type PeerRequestRead =
+  | { readonly status: "pending"; readonly watermark: number; readonly sourceRevision: number }
+  | {
+      readonly status: "ready";
+      readonly watermark: number;
+      readonly sourceRevision: number;
+      readonly requests: readonly PeerRequestV1[];
+      readonly nextCursor: string | null;
+    };
+
+export function peerRequestPageLimit(limit: number | undefined): number {
+  return Math.min(Math.max(1, Math.trunc(limit ?? PEER_REQUEST_PAGE_LIMIT)), PEER_REQUEST_PAGE_LIMIT);
+}
+
+export function peerRequestCursor(cursor: string | undefined): number {
+  if (cursor === undefined) return 0;
+  if (!/^(?:0|[1-9][0-9]{0,15})$/u.test(cursor)) throw new Error(`peer request cursor is invalid: ${cursor}`);
+  return Number(cursor);
+}
+
+export function peerRequestNextCursor(
+  rows: readonly { readonly openedRevision: number }[],
+  limit: number,
+): string | null {
+  return rows.length > limit ? String(rows[limit - 1]!.openedRevision) : null;
+}
+
+type PeerEventMeta = {
+  readonly eventId: string;
+  readonly workspaceRevision: number;
+  readonly opId: string;
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly occurredAt: string;
+};
+
+function makePeerEnvelope<T extends PeerEventType>(
+  type: T,
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: T }>["payload"],
+): Extract<PeerRequestEventV1, { readonly type: T }> {
+  return { schema: "peer-request-event/v1", ...meta, type, payload } as Extract<
+    PeerRequestEventV1,
+    { readonly type: T }
+  >;
+}
+
+export const compilePeerRequestOpened = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_opened" }>["payload"],
+) => makePeerEnvelope("peer_request_opened", meta, payload);
+export const compilePeerRequestClaimed = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_claimed" }>["payload"],
+) => makePeerEnvelope("peer_request_claimed", meta, payload);
+export const compilePeerRequestAnswered = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_answered" }>["payload"],
+) => makePeerEnvelope("peer_request_answered", meta, payload);
+export const compilePeerRequestDone = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_done" }>["payload"],
+) => makePeerEnvelope("peer_request_done", meta, payload);
+export const compilePeerRequestRejected = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_rejected" }>["payload"],
+) => makePeerEnvelope("peer_request_rejected", meta, payload);
+export const compilePeerRequestPromoted = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_promoted" }>["payload"],
+) => makePeerEnvelope("peer_request_promoted", meta, payload);
+
+const peerText = (field: string, required: boolean, flag?: string): EntityActionInputField => ({
+  field,
+  type: "string",
+  required,
+  ...(flag ? { cli: { name: flag, kind: "single", error: { code: "invalid_field" } } } : {}),
+});
+const peerFlagBool = (field: string, flag: string): EntityActionInputField => ({
+  field,
+  type: "boolean",
+  required: false,
+  cli: { name: flag, kind: "boolean", error: { code: "invalid_field" } },
+});
+const peerFlagNum = (field: string, flag: string): EntityActionInputField => ({
+  field,
+  type: "number",
+  required: false,
+  cli: { name: flag, kind: "single", error: { code: "invalid_field" }, projection: "number" },
+});
+const peerIdempotencyField = peerText("idempotencyKey", false, "--idempotency-key");
+const peerRequestIdField = peerText("requestId", true);
+
+export const peerActionDefinitions = [
+  {
+    id: "ask",
+    read: false,
+    summary: "Send a structured PeerRequest to another principal with atomic Inbox wakeup.",
+    fields: [
+      peerText("toPersonId", true, "--to"),
+      peerText("summary", true, "--summary"),
+      peerText("claim", true, "--claim"),
+      peerText("requestedAction", true, "--action"),
+      peerText("requestKind", false, "--kind"),
+      peerText("workId", false, "--work"),
+      peerText("lane", false, "--lane"),
+      peerText("anchorRef", false, "--anchor-ref"),
+      peerText("rootCause", false, "--root-cause"),
+      peerText("verification", false, "--verification"),
+      peerText("fromPersonId", false, "--from-person-id"),
+      peerText("nodeId", false, "--node-id"),
+      peerText("sessionHint", false, "--session-hint"),
+      peerIdempotencyField,
+    ],
+  },
+  {
+    id: "reply",
+    read: false,
+    summary: "Reply to, complete, or reject a PeerRequest under Tier-A authorization ceilings.",
+    fields: [
+      peerRequestIdField,
+      peerText("claim", false, "--claim"),
+      peerText("requestedAction", false, "--action"),
+      peerText("outcome", false, "--outcome"),
+      peerText("reason", false, "--reason"),
+      peerText("operation", false, "--operation"),
+      peerFlagBool("preflightPassed", "--preflight-passed"),
+      peerFlagBool("humanConfirmed", "--human-confirmed"),
+      peerFlagBool("draftOnly", "--draft-only"),
+      peerText("rootCause", false, "--root-cause"),
+      peerText("verification", false, "--verification"),
+      peerIdempotencyField,
+    ],
+  },
+  {
+    id: "watch",
+    read: true,
+    summary: "Wait for causally ready interactive_watch PeerRequest or reply frames for this principal.",
+    fields: [
+      peerFlagBool("once", "--once"),
+      peerText("workId", false, "--work"),
+      peerText("replyTo", false, "--reply-to"),
+      peerText("lane", false, "--lane"),
+      peerFlagNum("timeoutMs", "--timeout-ms"),
+    ],
+  },
+  {
+    id: "inbox",
+    read: true,
+    summary: "List interactive_watch peer Inbox items and PeerRequest snapshots for this principal.",
+    fields: [
+      peerText("state", false, "--state"),
+      peerText("requestKind", false, "--kind"),
+      peerText("workId", false, "--work"),
+      peerText("lane", false, "--lane"),
+      peerFlagBool("sent", "--sent"),
+      peerFlagNum("limit", "--limit"),
+    ],
+  },
+  {
+    id: "promote",
+    read: false,
+    summary: "Promote a PeerRequest into a formal HA task under an existing work atomically.",
+    fields: [
+      peerRequestIdField,
+      peerText("work", true, "--work"),
+      peerText("title", false, "--title"),
+      peerIdempotencyField,
+    ],
+  },
+  {
+    id: "handoff",
+    read: false,
+    summary: "Bundle local WIP state and receipts into a ContinuationPacket and hand off to a peer CEO.",
+    fields: [
+      peerText("targetId", true),
+      peerText("toPersonId", true, "--to"),
+      peerText("summary", false, "--summary"),
+      peerText("nextAction", false, "--next-action"),
+      peerText("blockingGate", false, "--blocking-gate"),
+      peerFlagNum("prNumber", "--pr-number"),
+      peerText("workId", false, "--work"),
+      peerText("lane", false, "--lane"),
+      peerText("wipCommitSha", false, "--wip-commit-sha"),
+      peerText("bundlePath", false, "--bundle-path"),
+      peerText("fromPersonId", false, "--from-person-id"),
+      peerText("nodeId", false, "--node-id"),
+      peerIdempotencyField,
+    ],
+  },
+] as const;
+
+export function createPeerActionCatalog(baseAction: (id: string) => EntityActionContract) {
+  return {
+    ref: "kernel/peer-action/v1",
+    actions: peerActionDefinitions.map(
+      ({ id, read, fields, summary }): EntityActionContract => ({
+        ...baseAction(id),
+        input: { schema: "entity-action-input/v1", fields, exactlyOneOf: [] },
+        explain: summary,
+        concurrency: {
+          expectedVersion: {
+            authority: "canonical-entity-revision",
+            required: false,
+            arbitration: "center-single-write-queue",
+          },
+          leasePolicy: { authority: "repository-writer-epoch" },
+          occurrenceClaim: { authority: "not-applicable" },
+          idempotency: { authority: "operation-id", input: "idempotencyKey" },
+          artifactOwnership: { owner: "peer-request/{id}", path: "peer-requests/{id}.json" },
+        },
+        effects: read ? [] : [{ ref: "peer_request_opened", projection: "peer-request/v1" }],
+        execution: {
+          ingress: `peer-${id}`,
+          compile: null,
+          read,
+          implementation: "catalog-runtime",
+          topology: "center-forward-write",
+          targetIdField: id === "handoff" ? "targetId" : "requestId",
+        },
+      }),
+    ),
+  };
+}
+
+/** PeerRequestV1 ontology declarations (dec_2B573FD17D82C9ADDE2FC69C5D CH2/CH3/CH4). */
+export const peerJudgments = [
+  {
+    id: "authenticated-sender",
+    symbol: "packages/kernel/src/domain/peer-collaboration.ts#verifyPeerSenderIdentity",
+    inputs: ["claimed person id", "authenticated person id"],
+    output: "Peer sender identity result",
+    failureCodes: ["peer_sender_spoofing_denied"],
+    explain: "Bind the claimed sender to the principal authenticated by the center.",
+    consumers: ["packages/kernel/src/domain/peer-collaboration.ts", "packages/daemon/src/daemon-host/peer-action.ts"],
+    sources: [],
+  },
+  {
+    id: "peer-request-event-validation",
+    symbol: "packages/kernel/src/domain/peer-collaboration.ts#validatePeerRequestEvent",
+    inputs: ["unknown canonical peer request event"],
+    output: "readonly string[] validation issues",
+    failureCodes: ["peer_request_invalid_input"],
+    explain: "Validate canonical peer-request-event/v1 envelopes and payloads before admission.",
+    consumers: [],
+    sources: [
+      {
+        candidateId:
+          "judgment:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#validatePeerRequestEvent:57ccd6886015e975aaa0ce75d002f61d",
+        route: "validatePeerRequestEvent",
+      },
+    ],
+  },
+] as const satisfies readonly OntologyJudgmentDeclaration[];
+
+export const peerPolicies = [
+  {
+    id: "execution-ceiling",
+    ownerRef: "peer-request",
+    unit: "Tier A operation",
+    bounds:
+      "L0 is read-only. L1 requires local preflight and local human confirmation. L2 and unknown operations are draft-only.",
+    defaultValue: "draft_only",
+    version: 1,
+    scope: "Receiver-side evaluation of untrusted peer intent",
+    reason: "A remote request cannot delegate the receiving principal's authority.",
+    fixtures: ["packages/kernel/test/peer-collaboration.test.ts", "packages/daemon/test/peer-collaboration.test.ts"],
+    sources: [
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#evaluatePeerExecutionCeiling.tier:1aa4cf7aa9729a9ae689d62ff902fa74",
+        route: "evaluatePeerExecutionCeiling",
+      },
+    ],
+  },
+  {
+    id: "claim-fence",
+    ownerRef: "peer-request",
+    unit: "request claim",
+    bounds:
+      "A terminal event requires a live claim owned by the recipient and must present its fence. Reclaim is available at expiry.",
+    defaultValue: null,
+    version: 1,
+    scope: "PeerRequest lifecycle",
+    reason: "A window that loses its claim cannot settle the request after takeover.",
+    fixtures: ["packages/kernel/test/peer-collaboration.test.ts", "packages/daemon/test/peer-collaboration.test.ts"],
+    sources: [
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#peerRequestV1JsonSchema.claim:02c52e58cabf7ab5083a713eb26afc70",
+        route: "PeerRequestV1 claim schema",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#reducePeerRequestEvent:49adb3c8f0bf4390ec0d6b480bbf3670",
+        route: "reducePeerRequestEvent",
+      },
+    ],
+  },
+  {
+    id: "peer-collaboration-bridge",
+    ownerRef: "peer-request",
+    unit: "items / ms",
+    bounds:
+      "Peer reads cap at 200 items per page, peer inbox wakes use dispatchable/interactive_watch admission, and handoff git bundle subprocesses enforce bounded 5s/15s timeouts.",
+    defaultValue: 200,
+    version: 1,
+    scope: "PeerRequest projection reads, daemon ha peer actions, and handoff bundle packaging",
+    reason:
+      "Keep every peer bridge read bounded, isolated to interactive_watch, and protected against hung git subprocesses.",
+    fixtures: [
+      "packages/storage/test/store/peer-request-projection.test.ts",
+      "packages/daemon/test/peer-collaboration.test.ts",
+    ],
+    sources: [
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#PEER_REQUEST_PAGE_LIMIT:e654af11f2334d49dbdfaa7d6d5ebe49",
+        route: "readPeerRequests",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#evaluatePeerWatchOnce.read.limit:bf38217595aafee0d2b364031d7e7000",
+        route: "peer-watch",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.reqRead:78f06c4227ba785282a4e80f837cbc12",
+        route: "peer-inbox",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.inboxRead:78f06c4227ba785282a4e80f837cbc12",
+        route: "peer-inbox",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.inboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
+        route: "peer-ask",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.payload.admission:0434b29be0266d9440715451ee9874bd",
+        route: "peer-reply",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#prepareHandoffBundle.rev.timeoutMs:08b0a8a64d90c6ee0feb0e9b7d52b2ae",
+        route: "peer-handoff",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-handoff-bundle.ts#prepareHandoffBundle.created.timeoutMs:08ce959d3673db2be6251563546f9a16",
+        route: "peer-handoff",
+      },
+    ],
+  },
+] as const satisfies readonly OntologyPolicyDeclaration[];

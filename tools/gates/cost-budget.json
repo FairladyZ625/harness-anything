@@ -864,6 +864,15 @@
         },
         {
           "actions": [
+            "peer-ask",
+            "peer-handoff",
+            "peer-promote",
+            "peer-reply"
+          ],
+          "reason": "peer collaboration writes append one bounded PeerRequest event plus one interactive_watch Inbox wakeup; no history collection is traversed."
+        },
+        {
+          "actions": [
             "todo-add"
           ],
           "reason": "todo add runtime creates one todo item; no todo collection is traversed."
@@ -1233,6 +1242,16 @@
         "command:task-show": {
           "measurements": [
             "cli-task-show"
+          ]
+        },
+        "command:peer-inbox": {
+          "measurements": [
+            "peer-inbox"
+          ]
+        },
+        "command:peer-watch": {
+          "measurements": [
+            "peer-watch"
           ]
         },
         "command:todo-list": {

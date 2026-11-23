@@ -204,7 +204,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["OPEN", "CLAIMED", "ANSWERED", "DONE", "REJECTED", "PROMOTED"],
       },
     ],
-    actions: [],
+    actions: ["ask", "reply", "watch", "inbox", "promote", "handoff"],
   },
   person: {
     schemaId: "person/v1",

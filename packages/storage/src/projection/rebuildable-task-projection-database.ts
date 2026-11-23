@@ -48,6 +48,7 @@ import {
 import { ensureWorkspaceTaskCensus } from "./workspace-task-census.ts";
 import { catchUpDispatchLifecycle } from "./dispatch-lifecycle-projection.ts";
 import { catchUpInbox, ensureInboxModel } from "./inbox-projection.ts";
+import { catchUpPeerRequests, ensurePeerRequestModel } from "./inbox-projection.ts";
 import type { EventStreamPort } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 import {
   closeProjectionConnection,
@@ -756,6 +757,7 @@ function finalizeRebuildDatabase(
 
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
   ensureInboxModel(db);
+  ensurePeerRequestModel(db);
   ensureRuntimeSessionExecutionNodeColumn(db);
   ensureEventSummaryReadIndexColumns(db);
   ensureLeaseTaskActiveColumn(db);
@@ -771,6 +773,7 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
   backfillEventSummaryReadIndex(db, onValidationProgress);
   catchUpDispatchLifecycle(db, onValidationProgress);
   catchUpInbox(db);
+  catchUpPeerRequests(db);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   ensureArtifactTimelineBackfill(db);
   createTaskRelationProjectionTable(db);

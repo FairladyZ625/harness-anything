@@ -755,6 +755,18 @@
       },
       "technical": true
     },
+    "peer-ask": {
+      "owner": "peer-request"
+    },
+    "peer-handoff": {
+      "owner": "peer-request"
+    },
+    "peer-promote": {
+      "owner": "peer-request"
+    },
+    "peer-reply": {
+      "owner": "peer-request"
+    },
     "people-delegate": {
       "owner": "people"
     },

@@ -557,6 +557,7 @@
   "packages/storage/test/pglite/pglite-inbox.integration.test.ts": 600,
   "packages/storage/test/pglite/pglite-migration-content-compatibility.integration.test.ts": 590,
   "packages/storage/test/pglite/pglite-owner.integration.test.ts": 454,
+  "packages/storage/test/pglite/pglite-peer-request.integration.test.ts": 600,
   "packages/storage/test/pglite/pglite-query-parity.integration.test.ts": 826,
   "packages/storage/test/pglite/pglite-relation-bounded.integration.test.mjs": 24808,
   "packages/storage/test/pglite/pglite-relation-cycle-audit.integration.test.ts": 616,

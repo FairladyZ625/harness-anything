@@ -9,7 +9,7 @@ import {
   presetMethods,
   type CliInputGroup,
 } from "@harness-anything/preset/internal/preset-command-contract";
-import type { EntityActionContract } from "@harness-anything/kernel";
+import type { EntityActionContract, EntityActionInputField } from "@harness-anything/kernel";
 import { dossierContentMaxBytes } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { todoProtocolCommands } from "./daemon-protocol-commands-todo.ts";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
@@ -269,11 +269,161 @@ const entityPinProtocolCommands = Object.freeze([
   }),
 ]);
 
+const peerCliText = (field: string, required: boolean, flag?: string): EntityActionInputField => ({
+  field,
+  type: "string",
+  required,
+  ...(flag ? { cli: { name: flag, kind: "single", error: { code: "invalid_field" } } } : {}),
+});
+const peerCliBool = (field: string, flag: string): EntityActionInputField => ({
+  field,
+  type: "boolean",
+  required: false,
+  cli: { name: flag, kind: "boolean", error: { code: "invalid_field" } },
+});
+const peerCliNum = (field: string, flag: string): EntityActionInputField => ({
+  field,
+  type: "number",
+  required: false,
+  cli: { name: flag, kind: "single", error: { code: "invalid_field" }, projection: "number" },
+});
+const peerCliIdempotency = peerCliText("idempotencyKey", false, "--idempotency-key");
+const peerCliRequestId = peerCliText("requestId", true);
+
+const peerProtocolCommands = (
+  [
+    {
+      id: "ask",
+      read: false,
+      summary: "Send a structured PeerRequest to another principal with atomic Inbox wakeup.",
+      fields: [
+        peerCliText("toPersonId", true, "--to"),
+        peerCliText("summary", true, "--summary"),
+        peerCliText("claim", true, "--claim"),
+        peerCliText("requestedAction", true, "--action"),
+        peerCliText("requestKind", false, "--kind"),
+        peerCliText("workId", false, "--work"),
+        peerCliText("lane", false, "--lane"),
+        peerCliText("anchorRef", false, "--anchor-ref"),
+        peerCliText("rootCause", false, "--root-cause"),
+        peerCliText("verification", false, "--verification"),
+        peerCliText("fromPersonId", false, "--from-person-id"),
+        peerCliText("nodeId", false, "--node-id"),
+        peerCliText("sessionHint", false, "--session-hint"),
+        peerCliIdempotency,
+      ],
+    },
+    {
+      id: "reply",
+      read: false,
+      summary: "Reply to, complete, or reject a PeerRequest under Tier-A authorization ceilings.",
+      fields: [
+        peerCliRequestId,
+        peerCliText("claim", false, "--claim"),
+        peerCliText("requestedAction", false, "--action"),
+        peerCliText("outcome", false, "--outcome"),
+        peerCliText("reason", false, "--reason"),
+        peerCliText("operation", false, "--operation"),
+        peerCliBool("preflightPassed", "--preflight-passed"),
+        peerCliBool("humanConfirmed", "--human-confirmed"),
+        peerCliBool("draftOnly", "--draft-only"),
+        peerCliText("rootCause", false, "--root-cause"),
+        peerCliText("verification", false, "--verification"),
+        peerCliIdempotency,
+      ],
+    },
+    {
+      id: "watch",
+      read: true,
+      summary: "Wait for causally ready interactive_watch PeerRequest or reply frames for this principal.",
+      fields: [
+        peerCliBool("once", "--once"),
+        peerCliText("workId", false, "--work"),
+        peerCliText("replyTo", false, "--reply-to"),
+        peerCliText("lane", false, "--lane"),
+        peerCliNum("timeoutMs", "--timeout-ms"),
+      ],
+    },
+    {
+      id: "inbox",
+      read: true,
+      summary: "List interactive_watch peer Inbox items and PeerRequest snapshots for this principal.",
+      fields: [
+        peerCliText("state", false, "--state"),
+        peerCliText("requestKind", false, "--kind"),
+        peerCliText("workId", false, "--work"),
+        peerCliText("lane", false, "--lane"),
+        peerCliBool("sent", "--sent"),
+        peerCliNum("limit", "--limit"),
+      ],
+    },
+    {
+      id: "promote",
+      read: false,
+      summary: "Promote a PeerRequest into a formal HA task under an existing work atomically.",
+      fields: [
+        peerCliRequestId,
+        peerCliText("work", true, "--work"),
+        peerCliText("title", false, "--title"),
+        peerCliIdempotency,
+      ],
+    },
+    {
+      id: "handoff",
+      read: false,
+      summary: "Bundle local WIP state and receipts into a ContinuationPacket and hand off to a peer CEO.",
+      fields: [
+        peerCliText("targetId", true),
+        peerCliText("toPersonId", true, "--to"),
+        peerCliText("summary", false, "--summary"),
+        peerCliText("nextAction", false, "--next-action"),
+        peerCliText("blockingGate", false, "--blocking-gate"),
+        peerCliNum("prNumber", "--pr-number"),
+        peerCliText("workId", false, "--work"),
+        peerCliText("lane", false, "--lane"),
+        peerCliText("wipCommitSha", false, "--wip-commit-sha"),
+        peerCliText("bundlePath", false, "--bundle-path"),
+        peerCliText("fromPersonId", false, "--from-person-id"),
+        peerCliText("nodeId", false, "--node-id"),
+        peerCliIdempotency,
+      ],
+    },
+  ] as const
+).map(({ id, read, summary, fields }) => {
+  const hasPositional = id === "reply" || id === "promote" || id === "handoff",
+    positionalName = id === "handoff" ? "<target-id>" : "<request-id>",
+    positionalField = id === "handoff" ? "targetId" : "requestId";
+  const command = {
+    id: `peer-${id}`,
+    phase: "W3",
+    path: hasPositional ? ["peer", id, positionalName] : ["peer", id],
+    summary,
+    method: read ? "repo.task.read" : "repo.task.run",
+    repositoryRead: read,
+    positional: hasPositional ? positionalField : undefined,
+    positionalInputs: hasPositional ? [{ name: positionalName, pathKind: "non-path", pathReader: "none" }] : [],
+    inputs: (fields as readonly EntityActionInputField[]).flatMap((field) =>
+      field.cli
+        ? [
+            cliInput(field.cli.name, field.cli.kind, field.required, field.cli.error, {
+              pathKind: "non-path",
+              field: field.field,
+              ...(field.cli.projection ? { projection: field.cli.projection } : {}),
+            }),
+          ]
+        : [],
+    ),
+    payloadFields: (fields as readonly EntityActionInputField[]).filter((field) => !field.cli),
+  };
+  return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
+});
+
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...entityPinProtocolCommands,
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
   ...todoProtocolCommands,
+  ...peerProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,

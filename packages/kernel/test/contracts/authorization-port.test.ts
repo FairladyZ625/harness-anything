@@ -63,7 +63,8 @@ test("retired People mutations are absent from the durable authorization invento
   // task_40631087c9b73555d721d87c33 (dec_42EB7B8F636C12381A447E52A3/CH1): FDE vertical/preset scaffold
   // adds host-local repo-write actions preset-init and vertical-init (174 -> 176).
   // task_2f3c763ad41a0af8acd75c418c adds daemon-fleet-center-promote-from-edge (176 -> 177).
-  assert.equal(durablePolicyActions.length, 177);
+  // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D) adds peer-ask/reply/promote/handoff (177 -> 181).
+  assert.equal(durablePolicyActions.length, 181);
   for (const kind of ["cli-local-effects", "package-assets-build", "daemon-local-state", "preset-convert-local"]) {
     assert.equal(durablePolicyActions.includes(kind), false);
     assert.equal(durableActionKinds.includes(kind), false);

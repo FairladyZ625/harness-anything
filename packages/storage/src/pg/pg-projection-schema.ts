@@ -325,6 +325,8 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS dispatch_lifecycle_version smallint NOT NULL DEFAULT 0",
     // Same contract for the canonical Inbox model.
     "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS inbox_version smallint NOT NULL DEFAULT 0",
+    // Same contract for the PeerRequestV1 model.
+    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS peer_request_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
