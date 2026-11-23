@@ -459,28 +459,33 @@ function AppShell() {
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
     const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}`;
-    // 首次水合只是建立比较基准,避免健康冷启动把刚完成的读面再读一遍;但若常驻读面此前因
-    // replica_syncing / 预热停在错误态,首轮健康 cut 必须触发一次恢复重读进入正常业务视图。
+    if (lastLedgerCut.current !== null && !lastLedgerCut.current.startsWith(`${activeRepoId}:`)) {
+      lastRecoveredCut.current = null;
+    }
+    if (lastLedgerCut.current === null) {
+      lastLedgerCut.current = cut;
+    } else if (lastLedgerCut.current !== cut) {
+      lastLedgerCut.current = cut;
+      void invalidateLedgerDependents(queryClient, activeRepoId);
+    }
+    // 等在途请求落定后再判恢复:TanStack Query 对无缓存数据的在途 fetch 调用 invalidateQueries
+    // 会复用旧 retryer promise,必须等发布前的滞后 replica_syncing 回执落定后再补拉一次真实读。
+    if (workspaceSummaryQuery.isFetching || agendaQuery.isFetching) return;
     const needsRecovery =
       isLedgerUnavailableError(workspaceSummaryQuery.error) || isLedgerUnavailableError(agendaQuery.error);
-    if (lastLedgerCut.current === null || lastLedgerCut.current === cut) {
-      lastLedgerCut.current = cut;
-      if (needsRecovery && lastRecoveredCut.current !== cut) {
-        lastRecoveredCut.current = cut;
-        void invalidateLedgerDependents(queryClient, activeRepoId);
-      }
-      return;
+    if (needsRecovery && lastRecoveredCut.current !== cut) {
+      lastRecoveredCut.current = cut;
+      void invalidateLedgerDependents(queryClient, activeRepoId);
     }
-    lastLedgerCut.current = cut;
-    lastRecoveredCut.current = cut;
-    void invalidateLedgerDependents(queryClient, activeRepoId);
   }, [
     activeRepoId,
     agendaQuery.error,
+    agendaQuery.isFetching,
     queryClient,
     tasksQuery.data?.sourceRevision,
     tasksQuery.data?.watermark,
     workspaceSummaryQuery.error,
+    workspaceSummaryQuery.isFetching,
   ]);
 
   useEffect(() => {

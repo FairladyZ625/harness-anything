@@ -421,4 +421,212 @@ describe("sidebar ledger failure surface", () => {
     expect(statusPanel(container).querySelector('[data-testid="ledger-syncing-state"]')).toBeNull();
     expect(statusPanel(container).querySelector('[data-testid="task-error-state"]')).toBeNull();
   });
+
+  it("recovers workspace summary after switching repositories when a pre-activation replica_syncing summary resolves after tasksQuery cut hydration", async () => {
+    const syncing: ReadFailure = {
+      code: "replica_syncing",
+      hint: "projecting · 100% (20.0 MiB / 20.0 MiB)",
+      syncProgress: {
+        step: "projecting",
+        receivedBytes: 20 * 1024 * 1024,
+        totalBytes: 20 * 1024 * 1024,
+        updatedAt: AT,
+      },
+    };
+    let currentPhase: "repo-a" | "edge-b" = "repo-a";
+    let edgeSummaryCalls = 0;
+    let resolveInFlightEdgeSummary: ((value: unknown) => void) | null = null;
+    const readySummary = (rev: number) => ({
+      schema: "daemon.workspace-summary/v1",
+      ok: true,
+      status: "ready",
+      tasks: { lastChangedAt: null, total: 0, byStatus: {} },
+      decisions: {
+        total: 0,
+        inboxCount: 0,
+        byState: { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
+        groups: [
+          { id: "proposed", states: ["proposed"], count: 0, decisionIds: [] },
+          { id: "in_effect", states: ["in_effect"], count: 0, decisionIds: [] },
+          { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
+          { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
+          { id: "retired", states: ["superseded", "outcome_retired"], count: 0, decisionIds: [] },
+        ],
+      },
+      watermark: rev,
+      sourceRevision: rev,
+      warnings: [],
+    });
+    const bridge: Record<string, (payload?: Record<string, unknown> | null) => Promise<unknown>> = {
+      getSystemStatus: async () => ({
+        schema: "gui-system-status/v1",
+        ok: true,
+        observedAt: AT,
+        daemon: {
+          daemonId: "daemon-probe",
+          pid: 1,
+          startedAt: AT,
+          protocolVersion: { major: 1, minor: 0 },
+          uptimeMs: 1,
+          endpoint: "sock",
+          build: { version: "probe", commitSha: null },
+          activeControl: null,
+        },
+        repos:
+          currentPhase === "repo-a"
+            ? [
+                {
+                  repoId: "repo-a",
+                  displayName: "Repo A",
+                  canonicalRoot: "/tmp/repo-a",
+                  authoredBranch: "main",
+                  registrationState: "enabled",
+                  mode: "local",
+                  connectionId: "local",
+                  cellState: "attached",
+                  generation: 1,
+                  queueDepth: 0,
+                  lockState: "not_applicable",
+                  recoveryMs: null,
+                  lastError: null,
+                  unavailableReason: null,
+                },
+              ]
+            : [
+                {
+                  repoId: REPO_ID,
+                  displayName: "Edge B",
+                  canonicalRoot: "/tmp/edge-b",
+                  authoredBranch: "main",
+                  registrationState: "enabled",
+                  mode: "remote-edge",
+                  connectionId: "edge-1",
+                  cellState: "attached",
+                  generation: 1,
+                  queueDepth: 0,
+                  lockState: "not_applicable",
+                  recoveryMs: null,
+                  lastError: null,
+                  unavailableReason: null,
+                },
+              ],
+      }),
+      getTasks: async (payload) => {
+        const rev = payload?.repoId === "repo-a" ? 1 : 1_000;
+        return {
+          ok: true,
+          status: "ready",
+          rows: [],
+          invalidRows: [],
+          watermark: rev,
+          sourceRevision: rev,
+          warnings: [],
+        };
+      },
+      getWorkspaceSummary: async (payload) => {
+        if (payload?.repoId === "repo-a") return readySummary(1);
+        edgeSummaryCalls += 1;
+        if (edgeSummaryCalls === 1) {
+          return new Promise((resolve) => {
+            resolveInFlightEdgeSummary = resolve;
+          });
+        }
+        return readySummary(1_000);
+      },
+      getWorkIndex: async (payload) => {
+        const rev = payload?.repoId === "repo-a" ? 1 : 1_000;
+        return {
+          ok: true,
+          status: "ready",
+          works: [],
+          tasksByWork: {},
+          watermark: rev,
+          sourceRevision: rev,
+          warnings: [],
+        };
+      },
+      getAgenda: async (payload) => {
+        const rev = payload?.repoId === "repo-a" ? 1 : 1_000;
+        return {
+          ok: true,
+          status: "ready",
+          inFlight: [],
+          pinnedEntities: [],
+          pinnedEntityOverflow: 0,
+          awaitingRestart: [],
+          awaitingRework: [],
+          awaitingAdjudication: [],
+          underReview: [],
+          awaitingYou: [],
+          answeredForYou: [],
+          decisionReviewInProgress: [],
+          awaitingDecisionReview: [],
+          awaitingDecision: [],
+          waitingOnOthers: [],
+          dispatchable: [],
+          summary: "",
+          page: { sourceLimit: 100, cursor: null, nextCursor: null },
+          watermark: rev,
+          sourceRevision: rev,
+          warnings: [],
+        };
+      },
+    };
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge(
+        new Proxy(bridge, {
+          get(target, method: string) {
+            if (method in target) return target[method];
+            return async () => ({ ok: true });
+          },
+        }),
+        {
+          "daemon.gui.system.read": "getSystemStatus",
+          "repo.tasks.list": "getTasks",
+          "repo.works.index": "getWorkIndex",
+          "repo.workspace.summary.read": "getWorkspaceSummary",
+          "repo.agenda.read": "getAgenda",
+        },
+      ),
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    mounted.push({ root, container });
+    await act(async () => {
+      root.render(createElement(QueryClientProvider, { client }, createElement(App)));
+    });
+    for (let turn = 0; turn < 8; turn += 1)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    // 切到边缘仓 B:tasksQuery 立即返回已激活的 cut 1000,而首条 getWorkspaceSummary 仍在途。
+    currentPhase = "edge-b";
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["system"] });
+    });
+    for (let turn = 0; turn < 8; turn += 1)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+    expect(edgeSummaryCalls).toBe(1);
+    expect(resolveInFlightEdgeSummary).not.toBeNull();
+
+    // 首条在途 getWorkspaceSummary 晚于 tasksQuery 落定为发布前的 replica_syncing,应自动补拉第 2 次并退出同步态。
+    await act(async () => {
+      resolveInFlightEdgeSummary!(readFailure(syncing));
+    });
+    for (let turn = 0; turn < 10; turn += 1)
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    expect(edgeSummaryCalls).toBe(2);
+    expect(container.querySelector('[data-testid="workspace-replica-syncing"]')).toBeNull();
+    expect(statusPanel(container).querySelector('[data-testid="ledger-syncing-state"]')).toBeNull();
+    expect(statusPanel(container).querySelector('[data-testid="task-error-state"]')).toBeNull();
+  });
 });
