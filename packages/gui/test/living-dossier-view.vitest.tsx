@@ -1086,7 +1086,6 @@ describe("refreshDossierSlot concurrent watermark alignment (F-DOSSIER-01)", () 
   });
 
   it("preserves prior dossier-state history when bootstrap: true returns bootstrapped: false for small lag (<= 512)", async () => {
-    const contextSlot = dossierSlots[0]!;
     const priorManagedAt64 = synthesizeDossierDocument({
       verticalId: "software/coding",
       slot: contextSlot,
