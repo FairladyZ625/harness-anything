@@ -71,6 +71,10 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     const { runGuiLaunch } = await import("../cli/gui-launch.ts");
     return runGuiLaunch(argv, {}, renderReceipt);
   }
+  if (argv[at] === "fde") {
+    const { runFdeLaunch } = await import("../cli/fde-launch.ts");
+    return runFdeLaunch(argv, {}, renderReceipt);
+  }
   try {
     if (command === "probe") {
       const { runDaemonProbeControl } = await import("./probe/probe-control.ts");
@@ -362,7 +366,13 @@ async function dispatchFleetControl(
   daemonId: string,
   finish: ControlFinisher,
 ): Promise<number> {
-  if (argv[at] === "fleet" && argv[at + 1] === "center") {
+  if (
+    (argv[at] === "fleet" && argv[at + 1] === "center") ||
+    (argv[at] === "daemon" &&
+      argv[at + 1] === "fleet" &&
+      argv[at + 2] === "center" &&
+      argv[at + 3] === "promote-from-edge")
+  ) {
     const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
     return await runFleetCenterRelocationControl(argv, userRoot, finish);
   }

@@ -93,6 +93,15 @@ export interface TaskMutationFeedback {
  */
 const settledButInvisible: ReadonlySet<string> = new Set(["canonical_not_visible"]);
 
+/** 返回仍持有写锁的在飞/归属未知动作种类;canonical_not_visible 已落定放锁,返回 undefined。 */
+export function pendingMutationKind(
+  feedback: TaskMutationFeedback | undefined,
+): TaskMutationFeedback["kind"] | undefined {
+  return feedback?.state === "pending" && (feedback.code === undefined || !settledButInvisible.has(feedback.code))
+    ? feedback.kind
+    : undefined;
+}
+
 export function useTaskActions(repoId: string) {
   const queryClient = useQueryClient(),
     locks = useRef(new Map<string, Promise<TaskMutationFeedback>>());
@@ -162,8 +171,7 @@ export function useTaskActions(repoId: string) {
           // 不是在飞写入:继续挡住会把控件永久锁死——实测 pin 一次(回执
           // canonical_not_visible)之后 unpin 再也发不出去。真正归属未知的回执
           // (pending/indeterminate)照旧挡住,start 那条会另铸 executionId,不得重放。
-          if (result.state !== "pending" || (result.code !== undefined && settledButInvisible.has(result.code)))
-            locks.current.delete(lockKey);
+          if (pendingMutationKind(result) === undefined) locks.current.delete(lockKey);
           return result;
         },
         (error) => {

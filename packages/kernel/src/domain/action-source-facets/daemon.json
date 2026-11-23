@@ -302,6 +302,12 @@
         "order": 491
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/access-admin-state.ts#restoreManagedRbacAccessJournal:3294b79036b561cc2ba016b32ac182d9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/daemon-host/access-admin-state.ts#managedRbacReceiptJournal.append"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/access-admin-utils.ts#coded:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "daemon-local-state",
         "role": "technical-port",

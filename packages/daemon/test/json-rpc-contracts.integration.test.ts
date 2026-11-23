@@ -252,6 +252,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.decision.overrideReview", { decisionId: "dec_A", reviewContentDigest: `sha256:${"a".repeat(64)}`, reviewIds: ["review-a"], reason: "Owner accepts the risk" }],
     ["repo.decision.dispatchReview", { decisionId: "dec_A", expectedDigest: `sha256:${"a".repeat(64)}` }],
     ["repo.doc.show", { path: "decisions/decision-dec_A/artifacts/reports/dispatch-a.md" }],
+    ["repo.dossier.synthesize", { slotId: "context", expectedWatermark: 0, watermark: 1, body: "# Context\n" }],
     ["repo.todo.list", { open: true, targetRef: "task/task-a" }],
     ["repo.todo.show", { todoId: "todo-a" }],
     ["repo.todo.add", { text: "Update the README", relate: "task/task-a" }],

@@ -32,6 +32,7 @@ const doctorLocalRoots: readonly string[] = [
     "daemon",
     "doctor",
     "events",
+    "fde",
     "gui",
     "restore",
     "version",

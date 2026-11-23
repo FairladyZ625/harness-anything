@@ -376,5 +376,79 @@
     { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },
     { "id": "fact-event", "schemaRef": "schema://fact-event" },
     { "id": "artifact-descriptor", "schemaRef": "schema://artifact-descriptor" }
-  ]
+  ],
+  "livingDossier": {
+    "slots": [
+      {
+        "id": "project-brief",
+        "path": "PROJECT_BRIEF.md",
+        "kind": "markdown",
+        "title": "Project Brief",
+        "summary": "Initiative charter, aligned scope, and recent governance updates.",
+        "entityKinds": ["project-brief", "decision", "fact", "minutes"],
+        "requiredAnchors": ["charter", "aligned-scope", "recent-updates"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 6 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "deliverable-register",
+        "path": "DELIVERABLE_REGISTER.md",
+        "kind": "markdown",
+        "title": "Deliverable Register",
+        "summary": "Tracked deliverables, approval maturity, and upstream freshness.",
+        "entityKinds": ["deliverable", "task", "fact"],
+        "requiredAnchors": ["deliverable-index", "approval-trail"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 4 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "handoff-map",
+        "path": "HANDOFF_MAP.md",
+        "kind": "markdown",
+        "title": "Handoff Map",
+        "summary": "Ownership transfers, accepted responsibilities, and institutional memory.",
+        "entityKinds": ["handoff", "memory-item", "task", "minutes"],
+        "requiredAnchors": ["ownership-transfers", "institutional-memory"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 4 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "project-atlas",
+        "path": "project-atlas.html",
+        "kind": "html",
+        "title": "Project Atlas",
+        "summary": "Initiative structure, deliverable taxonomy, and ownership topology.",
+        "entityKinds": ["project-brief", "deliverable", "handoff", "decision", "memory-item"],
+        "requiredAnchors": ["atlas-topology", "entity-map", "change-ledger"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 8 },
+          { "kind": "periodic", "everyMs": 86400000 }
+        ]
+      },
+      {
+        "id": "project-pulse",
+        "path": "project-pulse.html",
+        "kind": "html",
+        "title": "Project Pulse",
+        "summary": "Cross-workstream cadence, key decisions, and coordination risks.",
+        "entityKinds": ["task", "decision", "deliverable", "handoff", "minutes", "fact"],
+        "requiredAnchors": ["pulse-flow", "decision-trail", "risk-signals"],
+        "watermarkMetadata": "required",
+        "triggers": [
+          { "kind": "event-watermark", "minimumDelta": 4 },
+          { "kind": "periodic", "everyMs": 43200000 }
+        ]
+      }
+    ]
+  }
 }

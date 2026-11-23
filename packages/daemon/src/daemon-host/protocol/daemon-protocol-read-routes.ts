@@ -567,6 +567,36 @@ export const daemonReadRoutes = Object.freeze([
     params: shape({ repo: shape({ repoId: "string" }) }),
     commandClass: "repo-read",
   },
+  {
+    id: "dossier.status",
+    repositoryRead: true,
+    phase: "LivingDossier",
+    method: "repo.dossier.status",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }), payload: { ...shape({}), optional: true } }),
+    commandClass: "repo-read",
+  },
+  {
+    id: "dossier.read",
+    repositoryRead: true,
+    phase: "LivingDossier",
+    method: "repo.dossier.read",
+    requiresRepo: true,
+    params: shape({ repo: shape({ repoId: "string" }), payload: shape({ slotId: "string" }) }),
+    commandClass: "repo-read",
+  },
+  {
+    id: "dossier.context",
+    repositoryRead: true,
+    phase: "LivingDossier",
+    method: "repo.dossier.context.read",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ slotId: "string", maxWatermark: "number?" }),
+    }),
+    commandClass: "repo-read",
+  },
 ] as const satisfies ReadonlyArray<{
   readonly method: DaemonGuiRpcReadMethod;
   readonly [key: string]: unknown;

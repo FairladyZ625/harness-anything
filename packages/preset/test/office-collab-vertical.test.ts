@@ -174,7 +174,7 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
 
     // Bundled roles for office/collab are portable and do not affect software/coding defaults
     const officeRoles = listBundledAgentDeclarationIds("office/collab");
-    assert.deepEqual(officeRoles, ["closeout-reviewer", "contributor", "coordinator", "reviewer"]);
+    assert.deepEqual(officeRoles, ["chronicler", "closeout-reviewer", "contributor", "coordinator", "reviewer"]);
     for (const id of officeRoles) {
       const decl = readBundledAgentDeclaration(id, "office/collab");
       assert.ok(decl, id);

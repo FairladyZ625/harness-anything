@@ -21,8 +21,9 @@ export interface ProductionDeltaCounts {
 const SOURCE_EXTENSION = /\.(?:c|m)?js$|\.(?:d\.)?tsx?$/u;
 const TEST_SEGMENT = /(?:^|\/)(?:__tests__|e2e|fixtures?|test|tests)(?:\/|$)/u;
 const TEST_FILE = /\.(?:integration\.)?(?:spec|test)\.[^.]+$/u;
+// dec_42EB7B8F636C12381A447E52A3/CH2: classify packages/gui-fde under its canonical gui-fde module.
 const CANONICAL_MODULE =
-  /^(?:packages|src)\/(kernel|task-lifecycle|doc-sync|preset|cli|gui|daemon|storage|authority-write-path|identity-rbac|dsh-plugin)(?:\/|$)/u;
+  /^(?:packages|src)\/(kernel|task-lifecycle|doc-sync|preset|cli|gui-fde|gui|daemon|storage|authority-write-path|identity-rbac|dsh-plugin)(?:\/|$)/u;
 const CONCEPT_MODULE =
   /^packages\/(?:kernel\/src\/(?:domain|schemas)\/(decision|fact)-event|kernel\/src\/projection\/(decision|fact)-event-projection|application\/src\/(decision|fact)-service|daemon\/src\/(?:daemon-host\/)?(decision|fact)-actions)\.ts$/u;
 

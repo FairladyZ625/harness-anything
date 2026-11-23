@@ -66,6 +66,15 @@ export const clientLocalCommands = [
     help: "    A restarted old center returns CENTER_MOVED with the tombstone routing fields.",
   },
   {
+    id: "fleet-center-promote-from-edge",
+    path: ["daemon", "fleet", "center", "promote-from-edge"],
+    usage:
+      "ha daemon fleet center promote-from-edge --root <path> --repo <id> --state-root <path> --force-new-epoch --confirm-possible-tail-loss [--holder-id <id>] [--rbac-backup-status verified|unavailable|unknown] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary:
+      "Manually promote a complete edge replica, rotate replication lineage, and record an emergency governance event.",
+    help: "    This is never automatic. Both confirmation flags are required and the edge daemon must be stopped.",
+  },
+  {
     id: "daemon-metrics",
     path: ["daemon", "metrics"],
     usage:
@@ -160,6 +169,19 @@ export const clientLocalCommands = [
       "    --root selects the repository context; it defaults to the current directory.",
       "    In a source checkout, a GUI bundle older than the sources is rebuilt before the window opens.",
       "    Closing the GUI never stops the daemon, and the GUI never respawns a stopped daemon.",
+    ].join("\n"),
+  },
+  {
+    // dec_42EB7B8F636C12381A447E52A3/CH2: independent FDE visual domain builder & simulator launcher.
+    id: "fde",
+    path: ["fde"],
+    usage: "ha fde [--browser [--port <n>]] [--root <path>]",
+    summary: "Launch the GUI-FDE visual domain workbench or serve it on loopback.",
+    help: [
+      "    Workbench code comes from @harness-anything/gui-fde without coupling CLI or GUI.",
+      "    --browser serves the split domain builder and live gate simulator on 127.0.0.1.",
+      "    --port selects an explicit loopback TCP port (requires --browser; default 0 for ephemeral).",
+      "    --root selects the target repository workspace (default: current directory).",
     ].join("\n"),
   },
   {

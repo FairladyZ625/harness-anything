@@ -180,7 +180,13 @@ for (const frame of [
     const officeCatalog = (await rpc("repo.gui.catalog.snapshot", { repo: { repoId } })) as {
       bundledAgents: string[];
     };
-    assert.deepEqual(officeCatalog.bundledAgents, ["closeout-reviewer", "contributor", "coordinator", "reviewer"]);
+    assert.deepEqual(officeCatalog.bundledAgents, [
+      "chronicler",
+      "closeout-reviewer",
+      "contributor",
+      "coordinator",
+      "reviewer",
+    ]);
 
     const created = await cliJson(0, "task", "create", "--title", "Quarterly briefing", "--risk-tier", "low");
     assert.equal(created.outcome, "applied", JSON.stringify(created));

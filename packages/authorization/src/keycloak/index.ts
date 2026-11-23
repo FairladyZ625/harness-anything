@@ -15,6 +15,9 @@ export { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from ".
 
 export { ManagedRbacService, type ManagedRbacPorts } from "./managed-rbac-service.ts";
 export {
+  MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
+  readManagedRbacRelocationBundle,
+  writeManagedRbacRelocationBundle,
   type ManagedRbacRelocationExportOptions,
   type ManagedRbacRelocationImportOptions,
   type ManagedRbacRelocationBundle,

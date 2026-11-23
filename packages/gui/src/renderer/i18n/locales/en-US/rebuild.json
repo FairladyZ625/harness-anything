@@ -140,6 +140,7 @@
   "shell.nav.tokenUsage": "Token Usage",
   "shell.nav.schedules": "Schedules",
   "shell.nav.artifacts": "Artifacts",
+  "shell.nav.dossier": "Living Dossier",
   "accessControl.tagline": "See each member’s roles by scope; grant or revoke access here.",
   "accessControl.tab.service": "Service & session",
   "accessControl.tab.groups": "Roles",

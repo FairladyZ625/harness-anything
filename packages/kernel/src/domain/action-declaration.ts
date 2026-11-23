@@ -63,6 +63,11 @@ export const actionPresentation = {
   "daemon-control-request": { domain: "daemon", name: "请求节点控制", description: "向节点发出控制请求。" },
   "daemon-node-auto-claim": { domain: "daemon", name: "配置自动认领", description: "配置当前节点的任务自动认领策略。" },
   "daemon-fleet-center-start": { domain: "daemon", name: "启动中心", description: "启用舰队中心服务。" },
+  "daemon-fleet-center-promote-from-edge": {
+    domain: "daemon",
+    name: "破窗提升边缘副本",
+    description: "在双重人工确认后提升完整边缘副本并旋转复制谱系。",
+  },
   "daemon-fleet-edge-sync": { domain: "daemon", name: "同步边缘", description: "将边缘节点与中心同步。" },
   "daemon-repo-register": { domain: "daemon", name: "登记仓库", description: "将仓库登记到当前节点。" },
   "repo-purge": { domain: "repo", name: "清除仓库", description: "清除仓库的台账数据。" },
@@ -413,6 +418,7 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-control-request", undefined, false),
   hostAdmin("daemon-node-auto-claim"),
   hostAdmin("daemon-fleet-center-start", undefined, false),
+  declare("daemon-fleet-center-promote-from-edge", "admin", { scope: "host-local", writer: "caller-process" }),
   hostAdmin("daemon-fleet-edge-sync", undefined, false),
   hostAdmin("access-manage", undefined, false),
   // The signed-in person's own session is the authority: it changes only that person's password.

@@ -415,11 +415,34 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/gui/**/*.{ts,tsx}"],
+    files: ["packages/gui/**/*.{ts,tsx}", "packages/gui-fde/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
     rules: {
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
+    },
+  },
+  {
+    // dec_42EB7B8F636C12381A447E52A3/CH2: gui-fde must stay decoupled from gui and use workspace barrels.
+    files: ["packages/gui-fde/**/*.{ts,tsx,js,mjs}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            { name: "@harness-anything/gui", message: "packages/gui-fde must remain decoupled from packages/gui." },
+          ],
+          patterns: [
+            ...noRestrictedKernelImportOptions().patterns,
+            crossPackageRelativeSourcePattern,
+            {
+              group: ["@harness-anything/gui/*", "**/packages/gui/**"],
+              message: "packages/gui-fde must remain decoupled from packages/gui.",
+            },
+          ],
+        },
+      ],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...crossPackageRelativeSourceSyntaxRestrictions],
     },
   },
   ...kernelImportKnownDebtOverrides,
