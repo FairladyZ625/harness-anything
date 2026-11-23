@@ -1024,10 +1024,7 @@ export const peerJudgments = [
     output: "StewardshipFenceVerdict",
     failureCodes: ["execution_handed_off"],
     explain: "Fence execution writes carrying a stale stewardshipEpoch or arriving from a superseded steward/node.",
-    consumers: [
-      "packages/daemon/src/daemon-host/peer-action.ts",
-      "packages/daemon/src/daemon-host/repo-cell-action-dispatch.ts",
-    ],
+    consumers: ["packages/daemon/src/daemon-host/peer-action.ts"],
     sources: [
       {
         candidateId:

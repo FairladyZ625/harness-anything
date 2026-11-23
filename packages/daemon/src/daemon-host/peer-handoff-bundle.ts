@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalContentBlob } from "@harness-anything/kernel";
-import { createHostScratchDirectory } from "./host-environment-io.ts";
+import { createHostScratchDirectory, writeCallerOutputFile } from "./host-environment-io.ts";
 import { runProcessExitAsync } from "./process-port.ts";
 
 export interface PreparedHandoffBundle {
@@ -94,7 +94,7 @@ export async function materializeHandoffBundle(input: {
   const scratch = createHostScratchDirectory("peerHandoffBundle");
   const bundleFile = path.join(scratch.directory, `${input.targetId}.bundle`);
   try {
-    writeFileSync(bundleFile, input.bundleBytes);
+    await writeCallerOutputFile(bundleFile, input.bundleBytes);
     const unbundled = await runProcessExitAsync(
       "git",
       ["bundle", "unbundle", bundleFile],

@@ -169,7 +169,7 @@ import {
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { requireTaskWriterAdmission } from "./runtime-dispatch-admission.ts";
-import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
+import * as taskDispatchAdmission from "./task-dispatch-admission.ts";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { admitTaskDispatch, runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
 import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
@@ -439,28 +439,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? (admissionTaskRead ?? requireCurrentTaskProjection(projection!, taskId, "runtime.run")).snapshot
           : null,
       leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null;
-    if (taskSnapshot && !reviewerBinding) {
-      const activeExec = taskSnapshot.executions.findLast(
-        (entry): entry is Extract<typeof entry, { readonly schema: "execution/v1" }> =>
-          entry.schema === "execution/v1" &&
-          entry.iteration === taskSnapshot.task?.iteration &&
-          (entry.state === "active" || entry.state === "changes_requested"),
-      );
-      if (activeExec && (activeExec.stewardshipEpoch ?? 1) > 1) {
-        if (activeExec.actor.principal.personId !== binding.actor.principal.personId) {
-          throw runtimeSpawnError(
-            "execution_handed_off",
-            `Execution ${activeExec.executionId} was handed off to ${activeExec.actor.principal.personId} ` +
-              `at stewardshipEpoch ${String(activeExec.stewardshipEpoch)}; dispatch from ${binding.actor.principal.personId} is fenced.`,
-          );
-        }
-      }
-    }
-    const // A reviewer dispatch binds to the submitted cut under review — never to the task's active
-      // implementation execution or lease — so it cannot observe, open, or mutate an implementation
-      // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
-      // enforces the same invariant.
-      reviewTarget =
+    taskDispatchAdmission.enforceRuntimeSpawnStewardshipFence(taskSnapshot, reviewerBinding, binding.actor);
+    // A reviewer dispatch binds to the submitted cut under review — never to the task's active
+    // implementation execution or lease — so it cannot observe, open, or mutate an implementation
+    // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
+    // enforces the same invariant.
+    const reviewTarget =
         reviewerBinding && taskId !== null
           ? selectReviewTarget(
               taskId,
@@ -530,7 +514,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           "execution_scope_mismatch",
           "This dispatch no longer owns the task execution arrangement.",
         );
-      const leaseQualifies = taskDispatchLeaseQualifies(
+      const leaseQualifies = taskDispatchAdmission.taskDispatchLeaseQualifies(
         leaseAtAdmission,
         binding.actor,
         runtimeSessionId,
@@ -544,7 +528,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           "authorization_missing",
           "Runtime dispatch requires the center AuthorizationPort decision.",
         );
-      if (!dryRun) assertTaskDispatchPrerequisites(projection!, taskId);
+      if (!dryRun) taskDispatchAdmission.assertTaskDispatchPrerequisites(projection!, taskId);
       // A submitted round's cut is frozen: an implementation runtime dispatched now could never
       // write under its lease, so the conflict is rejected here instead of after the work is done.
       // A read-only attach is the exception: it writes nothing, so it may observe the frozen cut.

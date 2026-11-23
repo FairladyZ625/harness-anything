@@ -13,6 +13,10 @@ import {
   executionStewardshipEpoch,
   type ExecutionWipCheckpointV1,
 } from "@harness-anything/kernel/internal/domain/execution.ts";
+import {
+  compileExecutionStewardshipTransferred,
+  compileExecutionWipCheckpointed,
+} from "@harness-anything/kernel/internal/domain/task-lifecycle-replay.ts";
 import type {
   ExecutionStewardshipTransferredEvent,
   ExecutionWipCheckpointedEvent,
@@ -813,17 +817,17 @@ export function runPeerAction(
 
     const batch: CanonicalWriteBundle[] = [];
     let nextWorkspaceRev = head + 1;
-    const transferEvent: ExecutionStewardshipTransferredEvent = {
-      schema: "task-event/v1",
-      eventId: `event-${opId}-transfer`,
-      workspaceRevision: nextWorkspaceRev,
-      opId: `${opId}-transfer`,
-      taskId: taskId!,
-      type: "execution_stewardship_transferred",
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt: now,
-      payload: {
+    const transferEvent = compileExecutionStewardshipTransferred(
+      {
+        eventId: `event-${opId}-transfer`,
+        workspaceRevision: nextWorkspaceRev,
+        opId: `${opId}-transfer`,
+        taskId: taskId!,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
         task: nextTask,
         execution: nextExecution,
         lease: nextLease,
@@ -834,9 +838,8 @@ export function runPeerAction(
         peerRequestId: requestId,
         reason: `Accepted peer handoff ${requestId} from ${current.from.personId}`,
         leaseExpiresAt: expiresAt,
-        documentClaims: [],
       },
-    };
+    );
     batch.push(buildTaskEventBundle(transferEvent));
 
     let state: PeerRequestV1 = current;
@@ -987,17 +990,17 @@ export function runPeerAction(
     };
     const nextTask: TaskV2 = task.status === "active" ? task : { ...task, status: "active" };
     const nextWorkspaceRev = head + 1;
-    const transferEvent: ExecutionStewardshipTransferredEvent = {
-      schema: "task-event/v1",
-      eventId: `event-${opId}`,
-      workspaceRevision: nextWorkspaceRev,
-      opId,
-      taskId,
-      type: "execution_stewardship_transferred",
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt: now,
-      payload: {
+    const transferEvent = compileExecutionStewardshipTransferred(
+      {
+        eventId: `event-${opId}`,
+        workspaceRevision: nextWorkspaceRev,
+        opId,
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
         task: nextTask,
         execution: nextExecution,
         lease: nextLease,
@@ -1008,9 +1011,8 @@ export function runPeerAction(
         reason,
         leaseExpiresAt: expiresAt,
         ...(binding.orphanRecovery?.audit ? { orphanRecovery: binding.orphanRecovery.audit } : {}),
-        documentClaims: [],
       },
-    };
+    );
     commitBatch(cell, [buildTaskEventBundle(transferEvent)]);
     return {
       ...cell.readResult(
@@ -1069,23 +1071,22 @@ export function runPeerAction(
       wipCheckpoint: checkpoint,
     };
     const nextWorkspaceRev = head + 1;
-    const checkpointEvent: ExecutionWipCheckpointedEvent = {
-      schema: "task-event/v1",
-      eventId: `event-${opId}`,
-      workspaceRevision: nextWorkspaceRev,
-      opId,
-      taskId,
-      type: "execution_wip_checkpointed",
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt: now,
-      payload: {
+    const checkpointEvent = compileExecutionWipCheckpointed(
+      {
+        eventId: `event-${opId}`,
+        workspaceRevision: nextWorkspaceRev,
+        opId,
+        taskId,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
         task,
         execution: nextExecution,
         checkpoint,
-        documentClaims: [],
       },
-    };
+    );
     commitBatch(cell, [buildTaskEventBundle(checkpointEvent)]);
     return {
       ...cell.readResult(
@@ -1124,17 +1125,24 @@ export function dispatchPeerAction(
         },
       },
     );
-  if (
-    (action.kind === "peer-handoff" || action.kind === "peer-checkpoint") &&
-    typeof action.targetId === "string" &&
-    action.targetId.trim().length > 0
-  ) {
+  if (action.kind === "peer-handoff" && typeof action.targetId === "string" && action.targetId.trim().length > 0) {
     return prepareHandoffBundle({
       rootDir: cell.rootDir,
       targetId: action.targetId.trim(),
       ...(typeof action.wipCommitSha === "string" ? { explicitCommitSha: action.wipCommitSha } : {}),
       ...(typeof action.bundlePath === "string" ? { explicitBundlePath: action.bundlePath } : {}),
     }).then((preparedHandoff) => execute(preparedHandoff));
+  }
+  if (action.kind === "peer-checkpoint" && typeof action.targetId === "string" && action.targetId.trim().length > 0) {
+    return prepareHandoffBundle({
+      rootDir: cell.rootDir,
+      targetId: action.targetId.trim(),
+      ...(typeof action.wipCommitSha === "string" ? { explicitCommitSha: action.wipCommitSha } : {}),
+      ...(typeof action.bundlePath === "string" ? { explicitBundlePath: action.bundlePath } : {}),
+    }).then((preparedHandoff) => execute(preparedHandoff));
+  }
+  if (action.kind === "peer-takeover") {
+    return execute();
   }
   if (action.kind === "peer-accept-handoff" && action.materializeWorktree === true) {
     return Promise.resolve(execute()).then(async (receipt): Promise<WriteReceiptDraft> => {
