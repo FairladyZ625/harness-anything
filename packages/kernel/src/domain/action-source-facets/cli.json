@@ -251,12 +251,6 @@
         "route": "cli:ha",
         "role": "effect",
         "order": 18
-      },
-      {
-        "candidateId": "action:packages/cli:packages/cli/src/index.ts#writeDescriptorVersionWarning:8ee08c037cd32b85afcb4e5c6c3c954b",
-        "route": "cli:ha",
-        "role": "effect",
-        "order": 15
       }
     ],
     "daemon-stop": [

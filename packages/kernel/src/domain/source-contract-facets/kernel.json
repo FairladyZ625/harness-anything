@@ -1369,26 +1369,6 @@
     ],
     "judgments": [
       {
-        "id": "entity-event-unknown-kind-upsert",
-        "symbol": "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload",
-        "inputs": [
-          "payload: Record<string, unknown>",
-          "hasFields: strict or replay field checker",
-          "schema: unknown"
-        ],
-        "output": "readonly string[]",
-        "failureCodes": ["invalid_entity_event"],
-        "explain": "Validate the minimum declaration claim and owned-content manifest required to retain an unknown entity kind during replay.",
-        "consumers": ["packages/kernel/src/domain/entity-event.ts"],
-        "sources": [
-          {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload:3600cb27c35d400d058a338c293b946b",
-            "route": "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload"
-          }
-        ],
-        "order": 5
-      },
-      {
         "id": "assertTransitionDocumentReady",
         "symbol": "packages/kernel/src/domain/transition-document-readiness.ts#assertTransitionDocumentReady",
         "inputs": [
@@ -1450,6 +1430,30 @@
           }
         ],
         "order": 3
+      },
+      {
+        "id": "entity-event-unknown-kind-upsert",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload",
+        "inputs": [
+          "payload: Record<string, unknown>",
+          "hasFields: strict or replay field checker",
+          "schema: unknown"
+        ],
+        "output": "readonly string[]",
+        "failureCodes": [
+          "invalid_entity_event"
+        ],
+        "explain": "Validate the minimum declaration claim and owned-content manifest required to retain an unknown entity kind during replay.",
+        "consumers": [
+          "packages/kernel/src/domain/entity-event.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload:3600cb27c35d400d058a338c293b946b",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload"
+          }
+        ],
+        "order": 5
       },
       {
         "id": "queryPayloadValidation",
