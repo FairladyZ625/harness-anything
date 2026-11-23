@@ -242,6 +242,8 @@ export function forwardCanonicalEventTypeIsUnknown(value: unknown): boolean {
   }
 }
 
+export const isUnknownForwardCanonicalEventType = forwardCanonicalEventTypeIsUnknown;
+
 function forwardUnknownTypeEnvelopeErrors(value: unknown): readonly string[] {
   const errors = [...validateEventEnvelopeIdentity(value, true)];
   if (!isRecord(value) || !isRecord(value.payload)) errors.push("canonical event payload is invalid");
