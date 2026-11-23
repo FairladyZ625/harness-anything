@@ -14,8 +14,12 @@ import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
-import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
-import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
+import {
+  runtimeInstanceScopeKey,
+  carrierSessionsForScope,
+  runtimeSelectionFromRef,
+  useProviderWorkspace,
+} from "../components/runtime/useRuntimeWorkspace.ts";
 import {
   DecisionProviderDetail,
   DecisionProviderDialog,
@@ -112,8 +116,6 @@ export function ProvidersWorkspace({
   const openAuthTerminal = (instanceId: string, receipt: TerminalControlReceipt | null) => {
     if (receipt?.outcome === "applied" && receipt.sessionId) onOpenAuthTerminal?.(instanceId, receipt.sessionId);
   };
-  const settings = useSettingsQuery(repoId),
-    settingsMutation = useSettingsMutation(repoId);
   const [dialog, setDialog] = useState(false),
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
@@ -128,34 +130,19 @@ export function ProvidersWorkspace({
   // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情;
   // Runtime 深链与 Decisions 本地选择都驱动同一详情布局。
   const narrow = useCatalogDetailPane(refId ?? decisionSelectionId);
-  const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
-    ? settings.data.settings.runtime.allowedInstances
-    : [];
   // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落目录首项(异常置顶后的
   // 第一项,标准 §2.5)——派生选择,不写回导航栈。
   const runtimeSelectedId =
     refId !== null && instances.some((candidate) => candidate.instanceId === refId)
       ? refId
-      : (orderProviderRows(instances, workspace.authProbeStates, allowedInstances)[0]?.instance.instanceId ?? null);
+      : (orderProviderRows(instances, workspace.authProbeStates)[0]?.instance.instanceId ?? null);
   const selectedId = decisionSelectionId === null ? runtimeSelectedId : null;
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
-  // 乐观并发令牌 = settings read 的 singleton 行修订(与写路径同源);lastChanged 只作归因展示。
-  const projectSettings = settings.isError ? undefined : settings.data;
-  const projectSettingsBusy = projectSettings === undefined || settingsMutation.isPending;
-  const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
-    if (projectSettings === undefined) return;
-    const current = projectSettings.settings.runtime?.allowedInstances ?? [];
-    return settingsMutation.mutate({
-      runtimeAllowedInstances: allowed
-        ? [...new Set([...current, instanceId])]
-        : current.filter((id) => id !== instanceId),
-      expectedVersion: projectSettings.revision,
-    });
-  };
-  const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
-  const carrierSessions =
-    workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
+  const nodeId = workspace.machine.data?.nodeId ?? "";
+  const liveSessions =
+    selectedId === null ? 0 : (workspace.liveByInstance.get(runtimeInstanceScopeKey(nodeId, selectedId)) ?? 0);
+  const carrierSessions = carrierSessionsForScope(workspace.overview.data?.sessions ?? [], nodeId, selectedId);
   const headerActions = (
     <Button
       size="sm"
@@ -201,8 +188,8 @@ export function ProvidersWorkspace({
           authProbeStates={workspace.authProbeStates}
           selectedId={selectedId}
           selectedDecisionProviderId={decisionSelectionId}
+          nodeId={nodeId}
           liveByInstance={workspace.liveByInstance}
-          allowedInstanceIds={allowedInstances}
           onSelect={(instanceId) => {
             setDecisionSelection(null);
             onSelectEntity(`provider/${instanceId}`);
@@ -287,11 +274,6 @@ export function ProvidersWorkspace({
                 }
                 authProbeState={workspace.authProbeStates.get(instance.instanceId)}
               />
-              {settings.error || settingsMutation.error ? (
-                <div role="alert" data-testid="provider-settings-error" className="px-3 py-2 ui-meta text-danger">
-                  {String(settings.error ?? settingsMutation.error)}
-                </div>
-              ) : null}
               <RuntimeCard
                 instance={instance}
                 installations={installations}
@@ -311,38 +293,9 @@ export function ProvidersWorkspace({
                     .then((receipt) => openAuthTerminal(instance.instanceId, receipt));
                 }}
                 onValidate={() => void workspace.validateInstance(instance.instanceId)}
-                onSetEnabled={(enabled) => {
-                  void workspace.setInstanceEnabled(instance.instanceId, enabled).then((result) => {
-                    if (enabled && result) updateProjectAllowedInstances(instance.instanceId, true);
-                  });
-                }}
-                projectAllowed={allowedInstances.includes(instance.instanceId)}
+                onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
                 providerHealth={instance.providerHealth}
                 onClearFreeze={() => void workspace.clearInstanceFreeze(instance.instanceId)}
-                projectOrder={
-                  allowedInstances.includes(instance.instanceId)
-                    ? allowedInstances.indexOf(instance.instanceId) + 1
-                    : undefined
-                }
-                onMoveProjectOrder={(direction) => {
-                  if (projectSettings === undefined) return;
-                  const indexes = allowedInstances.flatMap((instanceId, index) =>
-                      instances.find((row) => row.instanceId === instanceId)?.kindId === instance.kindId ? [index] : [],
-                    ),
-                    position = indexes.indexOf(allowedInstances.indexOf(instance.instanceId)),
-                    target = position + direction;
-                  if (position < 0 || target < 0 || target >= indexes.length) return;
-                  const next = [...allowedInstances],
-                    left = indexes[position]!,
-                    right = indexes[target]!;
-                  [next[left], next[right]] = [next[right]!, next[left]!];
-                  void settingsMutation.mutate({
-                    runtimeAllowedInstances: next,
-                    expectedVersion: projectSettings.revision,
-                  });
-                }}
-                projectSettingsBusy={projectSettingsBusy}
-                onSetProjectAllowed={(allowed) => updateProjectAllowedInstances(instance.instanceId, allowed)}
                 onUpdate={workspace.updateInstance}
                 onDelete={() => {
                   void workspace.deleteInstance(instance.instanceId);
@@ -373,7 +326,6 @@ export function ProvidersWorkspace({
           void workspace.createInstance(input).then((result) => {
             if (result) {
               setDialog(false);
-              updateProjectAllowedInstances(input.instanceId, true);
               onSelectEntity(`provider/${input.instanceId}`);
               openAuthTerminal(input.instanceId, result.authReceipt);
             }

@@ -103,6 +103,10 @@ const EXCLUDED_FIELDS: ReadonlySet<string> = new Set([
   "expectedVersion",
   "idempotencyKey",
   "gatesFromDocument",
+  // Runtime instances are node-local. These retired repository-wide controls
+  // remain in the daemon contract for compatibility but are not GUI settings.
+  "runtimeAllowedInstances",
+  "runtimeSelectionStrategy",
 ]);
 
 function settingsFieldRow(

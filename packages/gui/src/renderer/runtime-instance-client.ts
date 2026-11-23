@@ -15,6 +15,8 @@ export interface RuntimeInstallationRow {
   readonly defaultModel?: string;
 }
 export interface RuntimeInstanceCatalog {
+  /** Node that served this machine-local catalog. */
+  readonly nodeId: string;
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly installations: readonly RuntimeInstallationRow[];
   /** Verified kinds on the connected daemon, independent of the renderer platform. */
@@ -116,11 +118,13 @@ function runtimeInstanceCatalog(value: unknown): RuntimeInstanceCatalog {
     !isRendererRecord(value) ||
     value.schema !== "command-receipt/v2" ||
     value.ok !== true ||
+    typeof value.nodeId !== "string" ||
     !Array.isArray(value.instances) ||
     !Array.isArray(value.installations)
   )
     throw new Error(rendererErrorHint(value, "Runtime instance list returned an invalid receipt."));
   return {
+    nodeId: value.nodeId,
     instances: value.instances.map(runtimeInstanceSummary),
     installations: value.installations as RuntimeInstallationRow[],
     subscriptionIsolationKinds: (value.subscriptionIsolationKinds as readonly string[] | undefined) ?? [],

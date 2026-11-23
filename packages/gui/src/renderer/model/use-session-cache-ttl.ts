@@ -5,7 +5,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts
 import { promptCacheTtlMsForKind } from "./smart-attention.ts";
 
 /**
- * 会话页 Prompt Cache TTL 的读面:TTL 口径(kindId + definitionSnapshot.baseUrl)的唯一
+ * 会话页 Prompt Cache TTL 的读面:TTL 口径(kindId + definitionSnapshot.endpointKind)的唯一
  * 读源是任务范围 overview 的会话行。任务集由调用方给出——非钻入 = 已展开的任务组,
  * 钻入 = 钻入窗口的任务组(钻入行来自派工行,自身不带 kindId,不读就查不到口径,
  * 行级倒计时会在钻入态整段消失)。查询骑既有 overview key 家族,与展开组读共享缓存。
@@ -41,13 +41,22 @@ export function sessionCacheTtlOf(
   const ttls = new Map<string, number | null>();
   for (const sessions of taskSessionsByTask.values()) {
     for (const session of sessions) {
-      ttls.set(session.runtimeSessionId, promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.baseUrl));
+      ttls.set(
+        session.runtimeSessionId,
+        promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.endpointKind),
+      );
     }
   }
   for (const session of extraSessions) {
-    ttls.set(session.runtimeSessionId, promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.baseUrl));
+    ttls.set(
+      session.runtimeSessionId,
+      promptCacheTtlMsForKind(session.kindId, session.definitionSnapshot?.endpointKind),
+    );
   }
   if (selected)
-    ttls.set(selected.runtimeSessionId, promptCacheTtlMsForKind(selected.kindId, selected.definitionSnapshot?.baseUrl));
+    ttls.set(
+      selected.runtimeSessionId,
+      promptCacheTtlMsForKind(selected.kindId, selected.definitionSnapshot?.endpointKind),
+    );
   return ttls;
 }

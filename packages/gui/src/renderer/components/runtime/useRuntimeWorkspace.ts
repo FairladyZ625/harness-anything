@@ -3,7 +3,12 @@ import { guiInteractionPolicy } from "../../../api/renderer-dto.ts";
 import { useMemo, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
-import type { AgentDeclarationV1, SquadDeclarationV1, TerminalControlReceipt } from "@harness-anything/daemon/protocol";
+import type {
+  AgentDeclarationV1,
+  AgentRuntimeSessionDto,
+  SquadDeclarationV1,
+  TerminalControlReceipt,
+} from "@harness-anything/daemon/protocol";
 import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, type EntitySaveResult } from "../../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
@@ -37,6 +42,27 @@ import {
 import { t } from "../../i18n/index.tsx";
 export type RuntimeSelection = { readonly type: "runtime" | "agent" | "squad" | "session"; readonly id: string };
 const message = (value: unknown): string => (value instanceof Error ? value.message : String(value));
+export const runtimeInstanceScopeKey = (nodeId: string, instanceId: string): string =>
+  JSON.stringify([nodeId, instanceId]);
+export function liveSessionCountsByScope(
+  sessions: readonly AgentRuntimeSessionDto[],
+  nodeId: string,
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const session of sessions) {
+    if (session.lifecycle?.displayStatus !== "running" || session.nodeId !== nodeId) continue;
+    const key = runtimeInstanceScopeKey(nodeId, session.instanceId);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+export function carrierSessionsForScope(
+  sessions: readonly AgentRuntimeSessionDto[],
+  nodeId: string,
+  instanceId: string | null,
+): readonly AgentRuntimeSessionDto[] {
+  return sessions.filter((session) => session.nodeId === nodeId && session.instanceId === instanceId);
+}
 /** daemon 换版/重连窗口的拒绝是可重试的,不是业主的输入错了:错误码命中这一族时,
  * 预览失败的消息明确附上「稍后重试」,而不是只留一段 daemon 文本让人猜。 */
 const transientDaemonCodes = new Set(["daemon_stopping", "daemon_build_draining", "repo_unavailable", "repo_warming"]);
@@ -668,10 +694,8 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
     queryFn: () => agentRuntimeClient.overview(repoId),
     staleTime: 3_000,
   });
-  const liveByInstance = new Map<string, number>();
-  for (const session of overview.data?.sessions ?? [])
-    if (session.lifecycle?.displayStatus === "running")
-      liveByInstance.set(session.instanceId, (liveByInstance.get(session.instanceId) ?? 0) + 1);
+  const nodeId = machine.data?.nodeId ?? "";
+  const liveByInstance = liveSessionCountsByScope(overview.data?.sessions ?? [], nodeId);
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
       client.invalidateQueries({

@@ -605,6 +605,7 @@ describe("agent runtime renderer", () => {
       createElement(ProviderRail, {
         instances: [instance, disabled, unreachable] as never,
         selectedId: null,
+        nodeId: "node-a",
         liveByInstance: new Map(),
         onSelect: noop,
         onNew: noop,
@@ -634,6 +635,7 @@ describe("agent runtime renderer", () => {
       createElement(ProviderRail, {
         instances: [instance, claudeInstance] as never,
         selectedId: null,
+        nodeId: "node-a",
         liveByInstance: new Map(),
         onSelect: noop,
         onNew: noop,
@@ -737,7 +739,7 @@ describe("agent runtime renderer", () => {
     expect(agent).toMatch(/data-testid="agent-host-access-isolated"[^>]*aria-pressed="true"/u);
     expect(agent).not.toContain('data-testid="agent-instance-select"');
     expect(agent).toContain('data-testid="agent-runtime-model-claude"');
-    expect(agent).toContain("provider/claude-one");
+    expect(agent).not.toContain("provider/claude-one");
     const squad = renderToStaticMarkup(
       createElement(SquadCard, {
         detail: squadDetail,

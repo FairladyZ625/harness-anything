@@ -93,9 +93,6 @@ describe("subscription quota rendering and IPC validation", () => {
           onAuth: vi.fn(),
           onValidate: vi.fn(),
           onSetEnabled: vi.fn(),
-          projectAllowed: true,
-          projectSettingsBusy: false,
-          onSetProjectAllowed: vi.fn(),
           onUpdate: vi.fn().mockResolvedValue({ ok: true }),
           onDelete: vi.fn(),
           onSelfTest: vi.fn().mockResolvedValue(null),
@@ -128,6 +125,7 @@ describe("subscription quota rendering and IPC validation", () => {
         createElement(ProviderRail, {
           instances: [baseInstance, { ...baseInstance, instanceId: "api-only", name: "API", quota: undefined }],
           selectedId: "claude-max",
+          nodeId: "node-a",
           liveByInstance: new Map(),
           onSelect: vi.fn(),
           onNew: vi.fn(),
@@ -152,6 +150,7 @@ describe("subscription quota rendering and IPC validation", () => {
     request.mockResolvedValueOnce({
       schema: "command-receipt/v2",
       ok: true,
+      nodeId: "node-a",
       instances: [legacyInstance, baseInstance],
       installations: [],
     });
@@ -167,6 +166,7 @@ describe("subscription quota rendering and IPC validation", () => {
     request.mockResolvedValueOnce({
       schema: "command-receipt/v2",
       ok: true,
+      nodeId: "node-a",
       instances: [{ ...baseInstance, quota: { ...sampleQuota, windows: "not-an-array" } }],
       installations: [],
     });
@@ -276,9 +276,6 @@ describe("subscription quota rendering and IPC validation", () => {
       onAuth: vi.fn(),
       onValidate: vi.fn(),
       onSetEnabled: vi.fn(),
-      projectAllowed: true,
-      projectSettingsBusy: false,
-      onSetProjectAllowed: vi.fn(),
       onUpdate: vi.fn().mockResolvedValue({ ok: true }),
       onDelete: vi.fn(),
       onSelfTest: vi.fn().mockResolvedValue(null),
