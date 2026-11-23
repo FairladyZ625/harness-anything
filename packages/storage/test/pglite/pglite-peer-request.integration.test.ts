@@ -82,8 +82,9 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
         },
         events = peerEvents();
 
-      const sqliteStore = makeTaskEventStore({ rootDir, repoId });
-      const sqliteProj = makeTaskProjection({ rootDir, eventStore: sqliteStore });
+      const sqliteRoot = join(rootDir, "sqlite-parity");
+      const sqliteStore = makeTaskEventStore({ rootDir: sqliteRoot, repoId });
+      const sqliteProj = makeTaskProjection({ rootDir: sqliteRoot, eventStore: sqliteStore });
       const pgStore = makeTaskEventStore({ rootDir, repoId, storage });
       const pgProj = makeTaskProjection({ rootDir, eventStore: pgStore, repoId, storage });
       try {
@@ -94,7 +95,6 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
           sqliteStore.append({ event, plan, blobs: [] });
           sqliteProj.apply(event, plan);
           pgStore.append({ event, plan, blobs: [] });
-          pgProj.apply(event, plan);
         }
 
         for (const query of [
