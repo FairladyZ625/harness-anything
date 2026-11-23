@@ -704,6 +704,7 @@ export async function openRepoWriterCell(
       }
     },
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
+    ...(input.runGitHistoryAsync ? { runGitHistoryAsync: input.runGitHistoryAsync } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });
   let catalogPromise: Promise<ReturnType<typeof import("./gui-catalog.ts").openGuiCatalog>> | undefined;

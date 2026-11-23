@@ -455,6 +455,7 @@ async function dispatchContinuation(
           ...(arrangementId ? { arrangementId, dispatchKey: `task-arrangement:${arrangementId}` } : {}),
         },
         worktree = await cell.runtimeSpawner.prepareWorktree(payload),
+        causalGitHistory = await cell.runtimeSpawner.prepareCausalGitHistory?.(payload),
         spawned = await input.write({ kind: "runtime-spawn", ...payload }, binding, async (authorizedBinding) => {
           const snapshot = cell.projection.read(input.taskId).snapshot;
           if (
@@ -481,11 +482,9 @@ async function dispatchContinuation(
               dispatchId: existing.event.payload.dispatchId,
               runtimeSessionId: existing.event.payload.runtimeSessionId,
             } as WriteReceiptDraft;
-          return (await cell.runtimeSpawner.spawn(
-            payload,
-            authorizedBinding,
-            worktree,
-          )) as unknown as WriteReceiptDraft;
+          return (await cell.runtimeSpawner.spawn(payload, authorizedBinding, worktree, false, {
+            causalGitHistory,
+          })) as unknown as WriteReceiptDraft;
         });
       if (spawned.outcome !== "applied" && spawned.outcome !== "no_changes") {
         if (retryResume(attempt, continuation.mode, spawned.code)) continue;

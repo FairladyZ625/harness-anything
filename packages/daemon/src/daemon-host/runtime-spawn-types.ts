@@ -614,5 +614,7 @@ export interface RuntimeSpawnerInput {
   readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
   /** Notifies an external non-blocking receipt pump when a durable pending steer receipt is recorded (F13). */
   readonly onPendingSteerReceipt?: () => void;
+  /** Read-only async Git history runner used before the write slot; defaults to runGitHistoryLogAsync. */
+  readonly runGitHistoryAsync?: import("./process-port.ts").AsyncGitHistoryLogRunner;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

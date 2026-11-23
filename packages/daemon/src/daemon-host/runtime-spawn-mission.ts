@@ -29,8 +29,8 @@ import {
 } from "../runtime-engine/runtime-provider-health.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
+import type { GitHistoryPort } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
-import { makeWorkspaceGitHistoryPort } from "./repo-cell-trace-view.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "../runtime-engine/runtime-spawn-errors.ts";
 import type {
   RemoteRuntimePersistence,
@@ -788,6 +788,7 @@ export function deriveTaskMission(
   missionName?: string,
   causalContext?: string | null,
   reviewerBinding: boolean = false,
+  causalGitHistory?: GitHistoryPort | null,
 ): {
   readonly mission: string;
   readonly packageRoot: string;
@@ -811,7 +812,7 @@ export function deriveTaskMission(
       : null,
     causalContextResolved =
       causalContext === undefined
-        ? assembleTaskCausalContext({ projection, taskId, gitHistory: makeWorkspaceGitHistoryPort(rootDir) })
+        ? assembleTaskCausalContext({ projection, taskId, gitHistory: causalGitHistory ?? null })
         : causalContext,
     snapshot = projection.read(taskId).snapshot,
     mission = [
@@ -1011,6 +1012,8 @@ export async function resolveRuntimeMission(input: {
   readonly explicitMission: string | undefined;
   readonly reviewerBinding: boolean;
   readonly workspaceProgress?: RuntimeWorkspaceProgress;
+  /** Pre-collected read-only Git history snapshot prepared outside the single-writer slot. */
+  readonly causalGitHistory?: GitHistoryPort | null;
   readonly continuationSnapshotProvided?: boolean;
   readonly continuationRequested?: boolean;
   readonly lifecycleNode?: string | null;
@@ -1025,7 +1028,7 @@ export async function resolveRuntimeMission(input: {
       remoteTask === null
         ? taskId === null
           ? null
-          : assembleTaskCausalContext({ projection, taskId, gitHistory: makeWorkspaceGitHistoryPort(rootDir) })
+          : assembleTaskCausalContext({ projection, taskId, gitHistory: input.causalGitHistory ?? null })
         : remoteTask.causalContext,
     // The tier policy version and risk tier are frozen at creation: locally from the projection,
     // remotely from the center's serving read. Historical tasks without the policy version keep

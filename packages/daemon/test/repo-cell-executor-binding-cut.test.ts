@@ -532,6 +532,67 @@ test("runtime.run verifies its executor claim and spawns in one publication turn
   assert.deepEqual(invalid.spawned, []);
 });
 
+test("spawnRuntime prepares causal Git history outside enqueueRuntimePublication and forwards the snapshot", async () => {
+  const payload = {
+      runtimeInstanceId: "runtime-instance",
+      cwd: { scope: "repo-root" },
+      prompt: "Continue the held execution",
+      taskId,
+      dispatchKey: "causal-git-prequeue",
+    },
+    snapshot = {
+      readPathHistory: () => ({ availability: "available" as const, stdout: "" }),
+    },
+    context = contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => lease,
+    );
+  let preparedCount = 0;
+  let receivedSnapshot: unknown = null;
+  let releaseGit!: () => void;
+  const gitGate = new Promise<void>((resolve) => {
+    releaseGit = resolve;
+  });
+  Object.assign(context.runtimeSpawner, {
+    prepareCausalGitHistory: async (spawnPayload: unknown) => {
+      assert.deepEqual(spawnPayload, payload);
+      assert.equal(context.tailAssignments, 0, "causal Git snapshot runs before entering the write queue");
+      preparedCount += 1;
+      await gitGate;
+      return snapshot;
+    },
+    spawnTask: (
+      spawnPayload: unknown,
+      verified: RepoCellBinding,
+      _worktree: unknown,
+      _projection: unknown,
+      _progress: unknown,
+      causalGitHistory: unknown,
+    ) => {
+      receivedSnapshot = causalGitHistory;
+      context.spawned.push({ payload: spawnPayload, actor: verified.actor });
+      return Promise.resolve({ ok: true });
+    },
+  });
+  const pendingSpawn = createRepoCellApi(context).spawnRuntime(
+    { ...payload, executor: runtimeActor.executor },
+    binding,
+  );
+  for (let tick = 0; tick < 10 && preparedCount === 0; tick += 1)
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(preparedCount, 1);
+  assert.equal(context.tailAssignments, 0, "paused Git collection has not entered enqueueRuntimePublication");
+  // An ordinary write enters and completes on the write queue while Git collection is still paused.
+  const ordinaryWrite = await createRepoCellApi(context).run(action, binding);
+  assert.equal(ordinaryWrite.outcome, "applied");
+  assert.equal(context.tailAssignments, 1);
+  releaseGit();
+  await pendingSpawn;
+  assert.equal(context.tailAssignments, 2);
+  assert.equal(receivedSnapshot, snapshot, "the pre-collected snapshot rides into spawnTask");
+});
+
 test("executor-free actions reach the publication queue synchronously", async () => {
   const context = contextFor(
       Promise.resolve(),

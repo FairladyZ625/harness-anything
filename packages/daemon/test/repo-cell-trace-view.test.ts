@@ -8,8 +8,11 @@ import {
   parseBranchCollisions,
   parseGitHistory,
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
-import { runGitHistoryLog, runProcessText } from "../src/daemon-host/process-port.ts";
-import { makeWorkspaceGitHistoryPort } from "../src/daemon-host/repo-cell-trace-view.ts";
+import { runGitHistoryLog, runGitHistoryLogAsync, runProcessText } from "../src/daemon-host/process-port.ts";
+import {
+  makeWorkspaceGitHistoryPort,
+  prepareWorkspaceGitHistorySnapshot,
+} from "../src/daemon-host/repo-cell-trace-view.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const TASK_A = "task_aaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -185,4 +188,122 @@ test("dirty worktree scan prioritizes the most recently active worktree and repo
     assert.equal(scan.truncated, true);
     assert.deepEqual(scan.collisions, [{ taskId: path.basename(lastWorktree), tracePaths: [TARGET] }]);
   });
+});
+
+test("runGitHistoryLogAsync preserves exit status, error code, and bounded stderr without blocking", async () => {
+  const missing = await runGitHistoryLogAsync(path.join(tmpdir(), `ha-missing-${Date.now()}`), ["log", "-1"]);
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.equal(missing.exitCode, null);
+    assert.equal(missing.errorCode, "ENOENT");
+  }
+  const dir = mkdtempSync(path.join(tmpdir(), "ha-trace-git-async-"));
+  try {
+    writeFileSync(path.join(dir, ".git"), "gitdir: ./missing-git-dir\n");
+    const broken = await runGitHistoryLogAsync(dir, ["log", "-1"]);
+    assert.equal(broken.ok, false);
+    if (!broken.ok) {
+      assert.equal(broken.exitCode, 128);
+      assert.equal(broken.errorCode, null);
+      assert.ok(broken.stderr.length > 0 && Buffer.byteLength(broken.stderr) <= 512, "bounded stderr digest");
+    }
+  } finally {
+    removeTempRepository(dir);
+  }
+});
+
+test("prepareWorkspaceGitHistorySnapshot collects history and collisions asynchronously and fails closed on path drift", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ha-trace-snapshot-"));
+  try {
+    git(dir, "init", "-q", "-b", "main");
+    write(dir, TARGET, "export const a = 1;\n");
+    write(dir, OTHER, "export const b = 1;\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "chore: seed");
+    git(dir, "checkout", "-q", "-b", TASK_A);
+    write(dir, TARGET, "export const a = 2;\n");
+    git(dir, "commit", "-q", "-am", "feat: change target");
+    git(dir, "checkout", "-q", "main");
+    git(dir, "merge", "-q", "--no-ff", "-m", `Merge pull request #12 from owner/${TASK_A}`, TASK_A);
+    git(dir, "checkout", "-q", "-b", TASK_C);
+    write(dir, TARGET, "export const a = 3;\n");
+    git(dir, "commit", "-q", "-am", "wip: concurrent edit");
+    git(dir, "checkout", "-q", "main");
+    const dirtyWorktree = path.join(dir, ".worktrees", TASK_C);
+    git(dir, "worktree", "add", "-q", "--detach", dirtyWorktree, "HEAD");
+    write(dirtyWorktree, TARGET, "export const a = 4;\n");
+
+    let gitInvocations = 0;
+    const snapshot = await prepareWorkspaceGitHistorySnapshot({
+      rootDir: dir,
+      paths: [TARGET, OTHER],
+      excludeTaskId: TASK_A,
+      runGit: async (root, args, timeoutMs) => {
+        gitInvocations += 1;
+        return runGitHistoryLogAsync(root, args, timeoutMs);
+      },
+    });
+    const afterPrepare = gitInvocations;
+    assert.ok(afterPrepare >= 2, "pre-collection runs git log and worktree status asynchronously");
+
+    const history = snapshot.readPathHistory({ paths: [TARGET, OTHER], maxCommits: 10 });
+    assert.equal(history.availability, "available");
+    if (history.availability === "available") {
+      assert.deepEqual(
+        parseGitHistory(history.stdout).map((commit) => [commit.prNumber, commit.taskId]),
+        [
+          [12, TASK_A],
+          [null, null],
+        ],
+      );
+    }
+    const branches = snapshot.readBranchCollisions!({ paths: [TARGET, OTHER], maxCommits: 10 });
+    assert.equal(branches.availability, "available");
+    if (branches.availability === "available") {
+      assert.deepEqual(
+        [...parseBranchCollisions(branches.stdout, [TARGET, OTHER])],
+        [[TASK_C, { branch: TASK_C, commits: 1, tracePaths: new Set([TARGET]) }]],
+      );
+    }
+    assert.deepEqual(snapshot.readDirtyWorktreeCollisions!({ paths: [TARGET, OTHER], excludeTaskId: TASK_A }), {
+      collisions: [{ taskId: TASK_C, tracePaths: [TARGET] }],
+      scannedWorktrees: 1,
+      notScannedWorktrees: 0,
+      truncated: false,
+    });
+    assert.equal(gitInvocations, afterPrepare, "consuming a matching snapshot spawns zero git subprocesses");
+
+    // Path drift between pre-collection and publication returns structured unavailable without calling git.
+    const driftedHistory = snapshot.readPathHistory({ paths: [OTHER], maxCommits: 10 });
+    assert.equal(driftedHistory.availability, "unavailable");
+    if (driftedHistory.availability === "unavailable") {
+      assert.equal(driftedHistory.reason, "git_worktree_unavailable");
+      assert.match(driftedHistory.message, /snapshot does not match/u);
+    }
+    const driftedBranches = snapshot.readBranchCollisions!({ paths: [OTHER], maxCommits: 10 });
+    assert.equal(driftedBranches.availability, "unavailable");
+    assert.deepEqual(snapshot.readDirtyWorktreeCollisions!({ paths: [OTHER], excludeTaskId: TASK_A }), {
+      collisions: [],
+      scannedWorktrees: 0,
+      notScannedWorktrees: 0,
+      truncated: false,
+    });
+    assert.equal(gitInvocations, afterPrepare, "path drift never falls back to spawning git");
+
+    // Empty path snapshots invoke zero git processes and fail closed if paths appear before publication.
+    let emptyCalls = 0;
+    const emptySnapshot = await prepareWorkspaceGitHistorySnapshot({
+      rootDir: dir,
+      paths: [],
+      runGit: async (root, args, timeoutMs) => {
+        emptyCalls += 1;
+        return runGitHistoryLogAsync(root, args, timeoutMs);
+      },
+    });
+    assert.equal(emptyCalls, 0);
+    assert.equal(emptySnapshot.readPathHistory({ paths: [TARGET], maxCommits: 5 }).availability, "unavailable");
+    assert.equal(emptyCalls, 0);
+  } finally {
+    removeTempRepository(dir);
+  }
 });

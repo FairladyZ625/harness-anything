@@ -56,6 +56,7 @@ import {
   agentRuntimeTargetForKind,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
+import type { GitHistoryPort } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import type { RuntimeInstanceKind, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 
@@ -654,7 +655,9 @@ export async function scheduleFallbackContinuation(args: {
     inheritedCwd?: string,
     preparedWorktree?: TaskWorktreeCheckout | null,
     trustedManagedCwd?: TrustedManagedCwdKind,
+    causalGitHistory?: GitHistoryPort | null,
   ) => Promise<unknown>;
+  readonly prepareCausalGitHistory?: (taskId: string) => Promise<GitHistoryPort | undefined>;
   readonly ensureFallbackWorktree?: (input: {
     readonly role?: string;
     readonly taskId: string | null;
@@ -744,9 +747,12 @@ export async function scheduleFallbackContinuation(args: {
       }
       let workspaceProgress: RuntimeWorkspaceProgress = { head: null, changedFiles: null, unavailable: null };
       let remoteNode: string | null | undefined = null;
+      let causalGitHistory: GitHistoryPort | undefined;
       try {
         workspaceProgress = await collectRuntimeWorkspaceProgress(probeCwd);
         remoteNode = header.taskId && input.remote ? await input.remote.readTaskLifecycleNode?.(header.taskId) : null;
+        causalGitHistory =
+          header.taskId && !input.remote ? await args.prepareCausalGitHistory?.(header.taskId) : undefined;
       } catch (error) {
         consumeKnownError(error);
         workspaceProgress = {
@@ -868,6 +874,7 @@ export async function scheduleFallbackContinuation(args: {
             ensuredWorktree ? ensuredWorktree.cwd : dispatchCwd,
             ensuredWorktree,
             ensuredWorktree ? "worktree" : header.trustedManagedCwd,
+            causalGitHistory,
           );
         } catch (error) {
           consumeKnownError(error);
