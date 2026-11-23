@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
+import { mockRpcBridge } from "./mock-rpc-bridge.ts";
 
 const workspace = {
   machine: {
@@ -86,6 +87,14 @@ describe("ProvidersView node-local controls", () => {
   });
 
   it("renders only the node-local enabled switch and never exposes shared project access", async () => {
+    const request = vi.fn(async () => {
+      throw new Error("Unexpected repository settings request");
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: mockRpcBridge({ request }, {}),
+    });
+
     await act(async () => {
       root.render(
         <QueryClientProvider client={client}>
@@ -101,6 +110,10 @@ describe("ProvidersView node-local controls", () => {
 
     expect(container.querySelector('[data-testid="runtime-card-project-access"]')).toBeNull();
     expect(container.querySelector('[data-testid="runtime-project-order"]')).toBeNull();
-    expect(container.querySelector('[aria-label="Enabled"]')).not.toBeNull();
+    const enabledSwitch = container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Enabled"]');
+    expect(enabledSwitch).not.toBeNull();
+    await act(async () => enabledSwitch!.click());
+    expect(workspace.setInstanceEnabled).toHaveBeenCalledWith("provider-a", false);
+    expect(request).not.toHaveBeenCalled();
   });
 });
