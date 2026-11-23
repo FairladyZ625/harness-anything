@@ -160,7 +160,7 @@ describe("Prompt Cache TTL", () => {
     expect(promptCacheTtlMsForKind("does-not-exist")).toBeNull();
     expect(promptCacheTtlMsForKind(null)).toBeNull();
     expect(promptCacheTtlMsForKind(undefined)).toBeNull();
-    expect(promptCacheTtlMsForKind("claude", "https://third-party.example")).toBeNull();
+    expect(promptCacheTtlMsForKind("claude", "custom")).toBeNull();
     expect(promptCacheTtlMsForKind("claude", null)).toBe(300_000);
   });
 

@@ -42,11 +42,15 @@ const PROMPT_CACHE_TTL_MS_BY_KIND: Readonly<Record<string, number>> = {
 export const PROMPT_CACHE_TTL_WARNING_MS = 60_000;
 
 /**
- * 该 runtime kind 的 Prompt Cache TTL;查不到返回 null。claude 走 baseUrl 第三方端点覆盖
- * (如 GLM 适配)时端点不是 Anthropic,其口径不成立,同样返回 null。
+ * 该 runtime kind 的 Prompt Cache TTL;查不到返回 null。custom 端点不使用 Anthropic
+ * 官方口径,因此同样返回 null。
  */
-export function promptCacheTtlMsForKind(kindId: string | null | undefined, baseUrl?: string | null): number | null {
-  if (kindId == null || baseUrl) return null;
+export function promptCacheTtlMsForKind(
+  kindId: string | null | undefined,
+  endpointKind: string | null | undefined = "official",
+): number | null {
+  if (kindId == null || (endpointKind !== null && endpointKind !== undefined && endpointKind !== "official"))
+    return null;
   const ttlMs = PROMPT_CACHE_TTL_MS_BY_KIND[kindId];
   return ttlMs === undefined ? null : ttlMs;
 }

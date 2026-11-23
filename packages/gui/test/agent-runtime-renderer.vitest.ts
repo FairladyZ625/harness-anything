@@ -605,6 +605,7 @@ describe("agent runtime renderer", () => {
       createElement(ProviderRail, {
         instances: [instance, disabled, unreachable] as never,
         selectedId: null,
+        nodeId: "node-a",
         liveByInstance: new Map(),
         onSelect: noop,
         onNew: noop,
@@ -634,6 +635,7 @@ describe("agent runtime renderer", () => {
       createElement(ProviderRail, {
         instances: [instance, claudeInstance] as never,
         selectedId: null,
+        nodeId: "node-a",
         liveByInstance: new Map(),
         onSelect: noop,
         onNew: noop,

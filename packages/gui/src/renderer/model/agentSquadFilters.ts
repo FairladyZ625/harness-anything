@@ -7,7 +7,7 @@ import {
 
 // Agent·Squad 页左侧列表的查看者本地过滤状态(task_* gui-agent-filter):只放内存,
 // 不写台账。筛选项不写死——全部从当前 catalog 行聚合(agentFilterOptions)。
-// catalog 行只带 id/name/runtimes/instance/role/layer(squad 带 leader/workers);
+// catalog 行只带 id/name/runtimes/role/layer(squad 带 leader/workers);
 // instructions 不在 catalog 投影里,搜索域以行内实际字段为准。
 export interface AgentSquadFilters {
   readonly query: string;
@@ -87,7 +87,7 @@ export function filterAgents(
     if (!isAvailableAgentEntityRow(row)) return filters.lifecycle === "active";
     const retired = row.retirement !== null;
     if ((filters.lifecycle === "retired") !== retired) return false;
-    if (!substring(query, [row.name, row.id, row.instance])) return false;
+    if (!substring(query, [row.name, row.id])) return false;
     if (filters.roles.length > 0 && !filters.roles.includes(row.role)) return false;
     if (filters.runtimeKinds.length > 0 && !row.runtimes.some((target) => filters.runtimeKinds.includes(target.type)))
       return false;

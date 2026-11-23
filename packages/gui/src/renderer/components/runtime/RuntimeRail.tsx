@@ -16,7 +16,7 @@ import { catalogRailCompactClass } from "../primitives/CatalogSplit.tsx";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
 import { Avatar, KindDot } from "./parts.tsx";
 import { RuntimeQuotaRailBadge } from "./RuntimeQuotaPanel.tsx";
-import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
+import { runtimeInstanceScopeKey, type RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成页级 rail——
 // ProviderRail(承运者)/ IdentityRail(身份 + 组织,Squad 是 Agent 页内的面)。
@@ -40,11 +40,8 @@ const badEdge = { "--status-edge": TONE_COLOR.bad } as CSSProperties;
 export function orderProviderRows(
   instances: readonly RuntimeInstanceSummary[],
   authProbeStates?: ReadonlyMap<string, RuntimeAuthProbeState>,
-  allowedInstanceIds?: readonly string[],
 ) {
-  const order = new Map(
-    (allowedInstanceIds ?? instances.map(({ instanceId }) => instanceId)).map((id, index) => [id, index]),
-  );
+  const catalogOrder = new Map(instances.map(({ instanceId }, index) => [instanceId, index]));
   const rows = instances.map((instance) => {
     const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId));
     return {
@@ -52,10 +49,10 @@ export function orderProviderRows(
       auth,
       rank: !instance.enabled ? 2 : auth.cap === "none" ? 0 : 1,
       abnormal: instance.enabled && auth.cap === "none",
-      projectOrder: order.get(instance.instanceId) ?? order.size,
+      catalogOrder: catalogOrder.get(instance.instanceId) ?? 0,
     };
   });
-  return rows.sort((left, right) => left.rank - right.rank || left.projectOrder - right.projectOrder);
+  return rows.sort((left, right) => left.rank - right.rank || left.catalogOrder - right.catalogOrder);
 }
 
 export function ProviderRail({
@@ -64,8 +61,8 @@ export function ProviderRail({
   authProbeStates,
   selectedId,
   selectedDecisionProviderId = null,
+  nodeId,
   liveByInstance,
-  allowedInstanceIds,
   onSelect,
   onSelectDecisionProvider,
   onNew,
@@ -75,15 +72,15 @@ export function ProviderRail({
   readonly authProbeStates?: ReadonlyMap<string, RuntimeAuthProbeState>;
   readonly selectedId: string | null;
   readonly selectedDecisionProviderId?: string | null;
+  readonly nodeId: string;
   readonly liveByInstance: ReadonlyMap<string, number>;
   readonly onSelect: (instanceId: string) => void;
   readonly onSelectDecisionProvider?: (providerId: string) => void;
   readonly onNew: () => void;
-  readonly allowedInstanceIds?: readonly string[];
 }) {
   const [open, setOpen] = useState(true),
     [decisionsOpen, setDecisionsOpen] = useState(true);
-  const ordered = orderProviderRows(instances, authProbeStates, allowedInstanceIds);
+  const ordered = orderProviderRows(instances, authProbeStates);
   return (
     <nav
       data-testid="runtime-rail"
@@ -101,7 +98,7 @@ export function ProviderRail({
         onNew={onNew}
       >
         {ordered.map(({ instance, auth, abnormal }) => {
-          const live = liveByInstance.get(instance.instanceId) ?? 0,
+          const live = liveByInstance.get(runtimeInstanceScopeKey(nodeId, instance.instanceId)) ?? 0,
             // 已停用是人为关掉、不是出错:中性灰,不吃异常的红档;「可用」是正常值,同样中性。
             tone = !instance.enabled
               ? "neutral"

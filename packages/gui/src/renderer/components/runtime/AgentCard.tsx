@@ -183,7 +183,6 @@ export function AgentCard({
   const compatible = instances.filter(
     (instance) => instance.enabled && agentRuntimeKindMatches(draft.runtimes, instance.kindId),
   );
-  const localInstanceId = detail.instance;
   const patchRuntime = (
       kindId: string,
       value: Partial<{ readonly model: string; readonly effort: RuntimeEffort | "" }>,
@@ -725,14 +724,6 @@ export function AgentCard({
             );
           })}
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {localInstanceId ? (
-              <EntityRefLink
-                entityRef={`provider/${localInstanceId}`}
-                onNavigate={() => onSelectRuntime(localInstanceId)}
-                title={localInstanceId}
-                className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
-              />
-            ) : null}
             <Hint>{t("agentRuntime.compatibleCount", { count: compatible.length })}</Hint>
             <Button size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
               {t(runtimeListOpen ? "agentRuntime.collapse" : "agentRuntime.expand")}

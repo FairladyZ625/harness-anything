@@ -81,6 +81,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       scopedRpcParams("daemon.runtimeInstance.list", { all: true }),
     )) as RuntimeReceipt;
     assert.deepEqual(before.instances, []);
+    assert.equal(typeof before.nodeId, "string");
     const created = (await bridge.invoke(
       "daemon.runtimeInstance.create",
       scopedRpcParams("daemon.runtimeInstance.create", {
