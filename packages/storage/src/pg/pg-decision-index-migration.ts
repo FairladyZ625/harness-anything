@@ -1,29 +1,40 @@
 import { assertPgDecisionReadReady } from "./pg-decision-read-status.ts";
 import type { PoolClient } from "pg";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { decisionIdSortKey } from "../projection/decision-projection-reads.ts";
 
 /** Additive v5 expansion. Keep the previous-writer trigger through 2026-11-19.
  * Current writers also use it; the bounded backfill is removable after that window.
  */
-export function decisionIndexDdl(): readonly string[] {
+export function decisionIndexDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
   const alphabet = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz",
     primary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[0]).join(""),
     secondary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[1]).join("");
-  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`,
+    addCol = (col: string, def: string) => dialectAddColumnIfNotExistsSql(capabilities, "ha_decisions", col, def),
+    buildObject = capabilities.supportsExtendedJsonb ? "jsonb_build_object" : "json_build_object",
+    buildCast = capabilities.supportsExtendedJsonb ? "" : "::jsonb";
   return [
-    "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS decision_state text",
-    "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS legacy_group smallint",
-    "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS legacy_number double precision",
-    'ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS decision_sort_key text COLLATE "C"',
-    "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS list_summary jsonb",
-    "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS review_summary jsonb",
+    addCol("decision_state", "text"),
+    addCol("legacy_group", "smallint"),
+    addCol("legacy_number", "double precision"),
+    addCol("decision_sort_key", 'text COLLATE "C"'),
+    addCol("list_summary", "jsonb"),
+    addCol("review_summary", "jsonb"),
     `CREATE OR REPLACE FUNCTION ha_decision_list_summary(value jsonb) RETURNS jsonb
       LANGUAGE sql IMMUTABLE AS $function$
-        SELECT jsonb_build_object(
+        SELECT ${buildObject}(
           'title',value->'title','question',value->'question','state',value->'state',
           'riskTier',value->'riskTier','urgency',value->'urgency','proposedAt',value->'proposedAt',
-          'appliesTo',value->'appliesTo','chosen',value->'chosen','rejected',value->'rejected')
+          'appliesTo',value->'appliesTo','chosen',value->'chosen','rejected',value->'rejected')${buildCast}
       $function$`,
     `CREATE OR REPLACE FUNCTION ha_decision_index_fields() RETURNS trigger
       LANGUAGE plpgsql AS $function$
@@ -37,8 +48,12 @@ export function decisionIndexDdl(): readonly string[] {
           || ' ' || translate(NEW.decision_id,${literal(alphabet)},${literal(secondary)});
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_decision_index_fields BEFORE INSERT OR UPDATE OF value,decision_id
-      ON ha_decisions FOR EACH ROW EXECUTE FUNCTION ha_decision_index_fields()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_decision_index_fields",
+      tableName: "ha_decisions",
+      timingAndEvent: "BEFORE INSERT OR UPDATE OF value,decision_id",
+      functionCall: "ha_decision_index_fields()",
+    }),
     `CREATE OR REPLACE FUNCTION ha_decision_list_fields_v1() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       BEGIN
@@ -46,8 +61,12 @@ export function decisionIndexDdl(): readonly string[] {
         NEW.review_summary := NULL;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_decision_list_fields_v1 BEFORE INSERT OR UPDATE OF value
-      ON ha_decisions FOR EACH ROW EXECUTE FUNCTION ha_decision_list_fields_v1()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_decision_list_fields_v1",
+      tableName: "ha_decisions",
+      timingAndEvent: "BEFORE INSERT OR UPDATE OF value",
+      functionCall: "ha_decision_list_fields_v1()",
+    }),
     `CREATE INDEX IF NOT EXISTS ha_decisions_page ON ha_decisions
       (tenant_id,project_id,policy_epoch,legacy_group,legacy_number,decision_sort_key,decision_id COLLATE "C")`,
     `CREATE INDEX IF NOT EXISTS ha_decisions_state_order ON ha_decisions

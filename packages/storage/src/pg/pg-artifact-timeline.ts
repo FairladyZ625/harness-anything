@@ -1,5 +1,11 @@
 import type { PoolClient } from "pg";
 import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectUpsertSelectSql,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
+import {
   RAW_ARTIFACT_POLICY_ID,
   taskArtifactSubtreePath,
 } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
@@ -24,8 +30,118 @@ import { checkedPageLimit } from "./pg-query-page.ts";
  * code-point order. The in-memory merge of several reader ranges compares code points too, so it
  * cannot reorder non-BMP names against the database pages at a page boundary.
  */
-export const artifactTimelineDdl = (): readonly string[] => [
-  /* @gate-identity state-store/task.projection.ha_artifact_documents */ `CREATE TABLE IF NOT EXISTS ha_artifact_documents (
+export const artifactTimelineDdl = (
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] => {
+  const docColumns = [
+      "tenant_id",
+      "project_id",
+      "policy_epoch",
+      "all_readers",
+      "reader",
+      "readers",
+      "path",
+      "package_dir",
+      "relative",
+      "kind",
+      "sort_ms",
+      "occurred_at",
+      "size_bytes",
+    ] as const,
+    docConflict = ["tenant_id", "project_id", "policy_epoch", "all_readers", "reader", "path"] as const,
+    docUpdates = [
+      { column: "readers", valueSql: "excluded.readers" },
+      { column: "package_dir", valueSql: "excluded.package_dir" },
+      { column: "relative", valueSql: "excluded.relative" },
+      { column: "kind", valueSql: "excluded.kind" },
+      { column: "sort_ms", valueSql: "excluded.sort_ms" },
+      { column: "occurred_at", valueSql: "excluded.occurred_at" },
+      { column: "size_bytes", valueSql: "excluded.size_bytes" },
+    ] as const,
+    backfillInsert = capabilities.supportsLateralJoin
+      ? `${dialectUpsertSelectSql(capabilities, {
+          table: "ha_artifact_documents",
+          columns: docColumns,
+          selectSql: `SELECT v.tenant_id, v.project_id, v.policy_epoch, r.all_readers, r.reader, v.readers, v.entity_id AS path,
+            split_part(v.entity_id, '/', 2) AS package_dir,
+            substr(v.entity_id, strpos(v.entity_id, '/artifacts/') + 1) AS relative,
+            CASE WHEN metadata->>'mediaType' = 'text/html' THEN 'html'
+                 WHEN metadata->>'mediaType' = 'text/markdown' THEN 'md'
+                 ELSE 'raw' END AS kind,
+            -round(extract(epoch FROM e.occurred_at::timestamptz) * 1000)::bigint AS sort_ms,
+            e.occurred_at,
+            (metadata->>'size')::bigint AS size_bytes
+          FROM ha_projection_values v
+          JOIN ha_events e
+            ON e.tenant_id = v.tenant_id AND e.project_id = v.project_id
+           AND e.repo_id = repo AND e.revision = v.workspace_revision
+          CROSS JOIN LATERAL (SELECT v.document_metadata::jsonb AS metadata) m
+          CROSS JOIN LATERAL (
+            SELECT true AS all_readers, ''::text AS reader
+            UNION ALL
+            SELECT false, unnest(v.readers)
+          ) r
+          WHERE v.tenant_id = tenant AND v.project_id = project AND v.policy_epoch = epoch
+            AND v.model = 'document' AND v.owner_id = ''
+            AND v.entity_id LIKE 'tasks/%/artifacts/%'
+            AND v.document_metadata IS NOT NULL
+            AND ((metadata->>'mediaType') IN ('text/html', 'text/markdown')
+              OR (metadata->>'policyId') = 'raw-artifact-bytes/v1')`,
+          conflictColumns: docConflict,
+          updates: docUpdates,
+        })};`
+      : `${dialectUpsertSelectSql(capabilities, {
+          table: "ha_artifact_documents",
+          columns: docColumns,
+          selectSql: `SELECT v.tenant_id, v.project_id, v.policy_epoch, true AS all_readers, ''::text AS reader, v.readers, v.entity_id AS path,
+            split_part(v.entity_id, '/', 2) AS package_dir,
+            substr(v.entity_id, strpos(v.entity_id, '/artifacts/') + 1) AS relative,
+            CASE WHEN (v.document_metadata::jsonb)->>'mediaType' = 'text/html' THEN 'html'
+                 WHEN (v.document_metadata::jsonb)->>'mediaType' = 'text/markdown' THEN 'md'
+                 ELSE 'raw' END AS kind,
+            -round(extract(epoch FROM e.occurred_at::timestamptz) * 1000)::bigint AS sort_ms,
+            e.occurred_at,
+            ((v.document_metadata::jsonb)->>'size')::bigint AS size_bytes
+          FROM ha_projection_values v
+          JOIN ha_events e
+            ON e.tenant_id = v.tenant_id AND e.project_id = v.project_id
+           AND e.repo_id = repo AND e.revision = v.workspace_revision
+          WHERE v.tenant_id = tenant AND v.project_id = project AND v.policy_epoch = epoch
+            AND v.model = 'document' AND v.owner_id = ''
+            AND v.entity_id LIKE 'tasks/%/artifacts/%'
+            AND v.document_metadata IS NOT NULL
+            AND (((v.document_metadata::jsonb)->>'mediaType') IN ('text/html', 'text/markdown')
+              OR ((v.document_metadata::jsonb)->>'policyId') = 'raw-artifact-bytes/v1')`,
+          conflictColumns: docConflict,
+          updates: docUpdates,
+        })};
+        ${dialectUpsertSelectSql(capabilities, {
+          table: "ha_artifact_documents",
+          columns: docColumns,
+          selectSql: `SELECT v.tenant_id, v.project_id, v.policy_epoch, false AS all_readers, unnest(v.readers) AS reader, v.readers, v.entity_id AS path,
+            split_part(v.entity_id, '/', 2) AS package_dir,
+            substr(v.entity_id, strpos(v.entity_id, '/artifacts/') + 1) AS relative,
+            CASE WHEN (v.document_metadata::jsonb)->>'mediaType' = 'text/html' THEN 'html'
+                 WHEN (v.document_metadata::jsonb)->>'mediaType' = 'text/markdown' THEN 'md'
+                 ELSE 'raw' END AS kind,
+            -round(extract(epoch FROM e.occurred_at::timestamptz) * 1000)::bigint AS sort_ms,
+            e.occurred_at,
+            ((v.document_metadata::jsonb)->>'size')::bigint AS size_bytes
+          FROM ha_projection_values v
+          JOIN ha_events e
+            ON e.tenant_id = v.tenant_id AND e.project_id = v.project_id
+           AND e.repo_id = repo AND e.revision = v.workspace_revision
+          WHERE v.tenant_id = tenant AND v.project_id = project AND v.policy_epoch = epoch
+            AND v.model = 'document' AND v.owner_id = ''
+            AND v.entity_id LIKE 'tasks/%/artifacts/%'
+            AND v.document_metadata IS NOT NULL
+            AND (((v.document_metadata::jsonb)->>'mediaType') IN ('text/html', 'text/markdown')
+              OR ((v.document_metadata::jsonb)->>'policyId') = 'raw-artifact-bytes/v1')`,
+          conflictColumns: docConflict,
+          updates: docUpdates,
+        })};`;
+  return [
+    /* @gate-identity state-store/task.projection.ha_artifact_documents */ `CREATE TABLE IF NOT EXISTS ha_artifact_documents (
     tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
     all_readers boolean NOT NULL,
     reader text NOT NULL,
@@ -37,21 +153,21 @@ export const artifactTimelineDdl = (): readonly string[] => [
     sort_ms bigint NOT NULL, occurred_at text NOT NULL, size_bytes bigint NOT NULL,
     PRIMARY KEY (tenant_id, project_id, policy_epoch, all_readers, reader, path)
   )`,
-  // One reader range is (reader, kind, sort_ms, relative, package_dir); the same columns in the
-  // cursor predicate keep a page at the index boundary instead of scanning invisible rows.
-  `CREATE INDEX IF NOT EXISTS ha_artifact_documents_page ON ha_artifact_documents
+    // One reader range is (reader, kind, sort_ms, relative, package_dir); the same columns in the
+    // cursor predicate keep a page at the index boundary instead of scanning invisible rows.
+    `CREATE INDEX IF NOT EXISTS ha_artifact_documents_page ON ha_artifact_documents
     (tenant_id, project_id, policy_epoch, all_readers, reader, kind, sort_ms, relative, package_dir)`,
-  /* @gate-identity state-store/task.projection.ha_artifact_counts */ `CREATE TABLE IF NOT EXISTS ha_artifact_counts (
+    /* @gate-identity state-store/task.projection.ha_artifact_counts */ `CREATE TABLE IF NOT EXISTS ha_artifact_counts (
     tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
     all_readers boolean NOT NULL,
     reader text NOT NULL,
     kind text NOT NULL, total bigint NOT NULL CHECK (total >= 0),
     PRIMARY KEY (tenant_id, project_id, policy_epoch, all_readers, reader, kind)
   )`,
-  // Backfill for deployments whose documents predate this index. The caller passes the repository
-  // because canonical revisions are repo-scoped while projection rows are not. Each document
-  // contributes its `*` row and one row per reader; counts are rebuilt from those rows.
-  `CREATE OR REPLACE FUNCTION ha_backfill_artifact_documents(tenant text, project text, epoch bigint, repo text)
+    // Backfill for deployments whose documents predate this index. The caller passes the repository
+    // because canonical revisions are repo-scoped while projection rows are not. Each document
+    // contributes its `*` row and one row per reader; counts are rebuilt from those rows.
+    `CREATE OR REPLACE FUNCTION ha_backfill_artifact_documents(tenant text, project text, epoch bigint, repo text)
     RETURNS integer LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
     DECLARE processed integer;
     BEGIN
@@ -59,38 +175,7 @@ export const artifactTimelineDdl = (): readonly string[] => [
       -- repaired by the same one-time expansion, so readiness cannot hide stale outputs.
       DELETE FROM ha_artifact_documents WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
       DELETE FROM ha_artifact_counts WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
-      INSERT INTO ha_artifact_documents(
-        tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind,
-        sort_ms, occurred_at, size_bytes)
-      SELECT v.tenant_id, v.project_id, v.policy_epoch, r.all_readers, r.reader, v.readers, v.entity_id,
-        split_part(v.entity_id, '/', 2),
-        substr(v.entity_id, strpos(v.entity_id, '/artifacts/') + 1),
-        CASE WHEN metadata->>'mediaType' = 'text/html' THEN 'html'
-             WHEN metadata->>'mediaType' = 'text/markdown' THEN 'md'
-             ELSE 'raw' END,
-        -round(extract(epoch FROM e.occurred_at::timestamptz) * 1000)::bigint,
-        e.occurred_at,
-        (metadata->>'size')::bigint
-      FROM ha_projection_values v
-      JOIN ha_events e
-        ON e.tenant_id = v.tenant_id AND e.project_id = v.project_id
-       AND e.repo_id = repo AND e.revision = v.workspace_revision
-      CROSS JOIN LATERAL (SELECT v.document_metadata::jsonb AS metadata) m
-      CROSS JOIN LATERAL (
-        SELECT true AS all_readers, ''::text AS reader
-        UNION ALL
-        SELECT false, unnest(v.readers)
-      ) r
-      WHERE v.tenant_id = tenant AND v.project_id = project AND v.policy_epoch = epoch
-        AND v.model = 'document' AND v.owner_id = ''
-        AND v.entity_id LIKE 'tasks/%/artifacts/%'
-        AND v.document_metadata IS NOT NULL
-        AND ((metadata->>'mediaType') IN ('text/html', 'text/markdown')
-          OR (metadata->>'policyId') = 'raw-artifact-bytes/v1')
-      ON CONFLICT (tenant_id, project_id, policy_epoch, all_readers, reader, path) DO UPDATE SET
-        readers=excluded.readers, package_dir=excluded.package_dir, relative=excluded.relative,
-        kind=excluded.kind, sort_ms=excluded.sort_ms, occurred_at=excluded.occurred_at,
-        size_bytes=excluded.size_bytes;
+      ${backfillInsert}
       SELECT count(DISTINCT path) INTO processed
         FROM ha_artifact_documents
        WHERE tenant_id = tenant AND project_id = project AND policy_epoch = epoch;
@@ -100,7 +185,8 @@ export const artifactTimelineDdl = (): readonly string[] => [
       GROUP BY tenant_id, project_id, policy_epoch, all_readers, reader, kind;
       RETURN processed;
     END $function$`,
-];
+  ];
+};
 
 const artifactKindOf = (document: {
   readonly mediaType: string;
@@ -208,19 +294,37 @@ export async function flushPgArtifactDocuments(
       }),
     ),
   );
-  if (rows.length > 0)
-    await client.query(
-      `INSERT INTO ha_artifact_documents(
-         tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind,
-         sort_ms, occurred_at, size_bytes)
-       SELECT $1, $2, $3, x.all_readers, x.reader, x.readers, x.path,
-         split_part(x.path, '/', 2), substr(x.path, strpos(x.path, '/artifacts/') + 1),
-         x.kind, x.sort_ms, x.occurred_at, x.size_bytes
-       FROM jsonb_to_recordset($4::jsonb) AS x(
-         all_readers boolean, reader text, readers text[], path text, kind text, sort_ms bigint,
-         occurred_at text, size_bytes bigint)`,
-      [...scopeValues(scope), JSON.stringify(rows)],
-    );
+  const capabilities = getClientDialectCapabilities(client);
+  if (rows.length > 0) {
+    if (capabilities.supportsExtendedJsonb) {
+      await client.query(
+        `INSERT INTO ha_artifact_documents(
+           tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind,
+           sort_ms, occurred_at, size_bytes)
+         SELECT $1, $2, $3, x.all_readers, x.reader, x.readers, x.path,
+           split_part(x.path, '/', 2), substr(x.path, strpos(x.path, '/artifacts/') + 1),
+           x.kind, x.sort_ms, x.occurred_at, x.size_bytes
+         FROM jsonb_to_recordset($4::jsonb) AS x(
+           all_readers boolean, reader text, readers text[], path text, kind text, sort_ms bigint,
+           occurred_at text, size_bytes bigint)`,
+        [...scopeValues(scope), JSON.stringify(rows)],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO ha_artifact_documents(
+           tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind,
+           sort_ms, occurred_at, size_bytes)
+         SELECT $1, $2, $3, (x.value->>'all_readers')::boolean, x.value->>'reader',
+           ARRAY(SELECT jsonb_array_elements_text(x.value->'readers')),
+           x.value->>'path',
+           split_part(x.value->>'path', '/', 2),
+           substr(x.value->>'path', strpos(x.value->>'path', '/artifacts/') + 1),
+           x.value->>'kind', (x.value->>'sort_ms')::bigint, x.value->>'occurred_at', (x.value->>'size_bytes')::bigint
+         FROM jsonb_array_elements($4::jsonb) AS x(value)`,
+        [...scopeValues(scope), JSON.stringify(rows)],
+      );
+    }
+  }
   const deltas = new Map<string, CountDelta>();
   const add = (allReaders: boolean, reader: string, kind: ArtifactTimelineKind, delta: number) => {
     const key = `${allReaders ? "1" : "0"}\u0000${reader}\u0000${kind}`,
@@ -235,22 +339,46 @@ export async function flushPgArtifactDocuments(
   // Keep the negative side out of the INSERT row: `total` has CHECK (total >= 0), and PostgreSQL
   // validates the proposed row before ON CONFLICT resolves it. Positive deltas insert/raise the
   // count; negative deltas only update an existing row.
-  await client.query(
-    `INSERT INTO ha_artifact_counts(
-       tenant_id, project_id, policy_epoch, all_readers, reader, kind, total)
-     SELECT $1, $2, $3, x.all_readers, x.reader, x.kind, GREATEST(x.delta, 0)
-     FROM jsonb_to_recordset($4::jsonb) AS x(all_readers boolean, reader text, kind text, delta bigint)
-     ON CONFLICT (tenant_id, project_id, policy_epoch, all_readers, reader, kind) DO UPDATE
-     SET total = ha_artifact_counts.total + GREATEST(excluded.total, 0)`,
-    [...scopeValues(scope), payload],
-  );
-  await client.query(
-    `UPDATE ha_artifact_counts c SET total = GREATEST(c.total + x.delta, 0)
-     FROM jsonb_to_recordset($4::jsonb) AS x(all_readers boolean, reader text, kind text, delta bigint)
-     WHERE c.tenant_id=$1 AND c.project_id=$2 AND c.policy_epoch=$3
-       AND c.all_readers=x.all_readers AND c.reader=x.reader AND c.kind=x.kind AND x.delta < 0`,
-    [...scopeValues(scope), payload],
-  );
+  if (capabilities.supportsExtendedJsonb && capabilities.supportsOnConflict) {
+    await client.query(
+      `INSERT INTO ha_artifact_counts(
+         tenant_id, project_id, policy_epoch, all_readers, reader, kind, total)
+       SELECT $1, $2, $3, x.all_readers, x.reader, x.kind, GREATEST(x.delta, 0)
+       FROM jsonb_to_recordset($4::jsonb) AS x(all_readers boolean, reader text, kind text, delta bigint)
+       ON CONFLICT (tenant_id, project_id, policy_epoch, all_readers, reader, kind)
+       DO UPDATE SET total = ha_artifact_counts.total + GREATEST(excluded.total, 0)`,
+      [...scopeValues(scope), payload],
+    );
+    await client.query(
+      `UPDATE ha_artifact_counts c SET total = GREATEST(c.total + x.delta, 0)
+       FROM jsonb_to_recordset($4::jsonb) AS x(all_readers boolean, reader text, kind text, delta bigint)
+       WHERE c.tenant_id=$1 AND c.project_id=$2 AND c.policy_epoch=$3
+         AND c.all_readers=x.all_readers AND c.reader=x.reader AND c.kind=x.kind AND x.delta < 0`,
+      [...scopeValues(scope), payload],
+    );
+  } else {
+    await client.query(
+      dialectUpsertSelectSql(capabilities, {
+        table: "ha_artifact_counts",
+        columns: ["tenant_id", "project_id", "policy_epoch", "all_readers", "reader", "kind", "total"],
+        selectSql: `SELECT $1::text AS tenant_id, $2::text AS project_id, $3::bigint AS policy_epoch,
+          (x.value->>'all_readers')::boolean AS all_readers, x.value->>'reader' AS reader,
+          x.value->>'kind' AS kind, GREATEST((x.value->>'delta')::bigint, 0) AS total
+        FROM jsonb_array_elements($4::jsonb) AS x(value)`,
+        conflictColumns: ["tenant_id", "project_id", "policy_epoch", "all_readers", "reader", "kind"],
+        updates: [{ column: "total", valueSql: "ha_artifact_counts.total + GREATEST(excluded.total, 0)" }],
+      }),
+      [...scopeValues(scope), payload],
+    );
+    await client.query(
+      `UPDATE ha_artifact_counts c SET total = GREATEST(c.total + (x.value->>'delta')::bigint, 0)
+       FROM jsonb_array_elements($4::jsonb) AS x(value)
+       WHERE c.tenant_id=$1 AND c.project_id=$2 AND c.policy_epoch=$3
+         AND c.all_readers=(x.value->>'all_readers')::boolean AND c.reader=x.value->>'reader'
+         AND c.kind=x.value->>'kind' AND (x.value->>'delta')::bigint < 0`,
+      [...scopeValues(scope), payload],
+    );
+  }
 }
 
 /** Maintain the index in the same transaction that writes the canonical document row. */
@@ -311,7 +439,8 @@ export async function readPgArtifactTimeline(
     });
   const memberFilter = query.actorPersonId !== undefined || query.nodeId !== undefined;
   if (memberFilter && repoId === undefined) throw new Error("Scoped artifact read requires a repository id.");
-  const scopedReaders = canonicalReaders(scope.readers),
+  const capabilities = getClientDialectCapabilities(client),
+    scopedReaders = canonicalReaders(scope.readers),
     pageReaders = scopedReaders.length === 0 ? [""] : scopedReaders,
     rowsByPath = new Map<string, PageRow>();
   for (const reader of pageReaders) {
@@ -327,21 +456,38 @@ export async function readPgArtifactTimeline(
     const attribution = memberFilter ? pgArtifactAttributionPredicate(values, query, repoId!) : "",
       limitParameter = values.push(limit + 1),
       page = await client.query<PageRow>(
-        `SELECT a.package_dir, a.relative, a.kind, a.occurred_at, a.sort_ms, a.size_bytes,
-           s.task_id, s.snapshot->'task'->>'title' AS title
-         FROM ha_artifact_documents a
-         LEFT JOIN LATERAL (
-           SELECT task_id, snapshot FROM ha_task_snapshots t
-           WHERE t.tenant_id=a.tenant_id AND t.project_id=a.project_id AND t.policy_epoch=a.policy_epoch
-             AND t.package_path = 'tasks/' || a.package_dir
-             AND (cardinality($7::text[]) = 0 OR t.readers && $7::text[])
-           ORDER BY t.workspace_revision DESC LIMIT 1
-         ) s ON true
-         WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
-           AND a.all_readers=$4 AND a.reader=$5 AND a.kind=$6
-           ${afterSql} ${attribution}
-         ORDER BY a.sort_ms, a.relative COLLATE "C", a.package_dir COLLATE "C"
-         LIMIT $${limitParameter}`,
+        capabilities.supportsLateralJoin
+          ? `SELECT a.package_dir, a.relative, a.kind, a.occurred_at, a.sort_ms, a.size_bytes,
+               s.task_id, s.snapshot->'task'->>'title' AS title
+             FROM ha_artifact_documents a
+             LEFT JOIN LATERAL (
+               SELECT task_id, snapshot FROM ha_task_snapshots t
+               WHERE t.tenant_id=a.tenant_id AND t.project_id=a.project_id AND t.policy_epoch=a.policy_epoch
+                 AND t.package_path = 'tasks/' || a.package_dir
+                 AND (cardinality($7::text[]) = 0 OR t.readers && $7::text[])
+               ORDER BY t.workspace_revision DESC LIMIT 1
+             ) s ON true
+             WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
+               AND a.all_readers=$4 AND a.reader=$5 AND a.kind=$6
+               ${afterSql} ${attribution}
+             ORDER BY a.sort_ms, a.relative COLLATE "C", a.package_dir COLLATE "C"
+             LIMIT $${limitParameter}`
+          : `SELECT a.package_dir, a.relative, a.kind, a.occurred_at, a.sort_ms, a.size_bytes,
+               s.task_id, s.title
+             FROM ha_artifact_documents a
+             LEFT JOIN (
+               SELECT DISTINCT ON (t.package_path) t.package_path, t.task_id, t.snapshot->'task'->>'title' AS title
+               FROM ha_task_snapshots t
+               WHERE t.tenant_id=$1 AND t.project_id=$2 AND t.policy_epoch=$3
+                 AND t.package_path IS NOT NULL
+                 AND (cardinality($7::text[]) = 0 OR t.readers && $7::text[])
+               ORDER BY t.package_path, t.workspace_revision DESC
+             ) s ON s.package_path = 'tasks/' || a.package_dir
+             WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
+               AND a.all_readers=$4 AND a.reader=$5 AND a.kind=$6
+               ${afterSql} ${attribution}
+             ORDER BY a.sort_ms, a.relative COLLATE "C", a.package_dir COLLATE "C"
+             LIMIT $${limitParameter}`,
         values,
       );
     for (const row of page.rows) {
@@ -369,7 +515,7 @@ export async function readPgArtifactTimeline(
       [...scopeValues(scope), scopedReaders.length === 0, scopedReaders[0] ?? ""],
     );
     for (const row of totals.rows) counts[row.kind] = Number(row.total);
-  } else {
+  } else if (capabilities.supportsLateralJoin) {
     // A multi-reader union cannot be summed from per-reader totals (intersections), but the badge
     // does not need an exact count above the cap. Each facet reads at most cap+1 distinct paths and
     // reports min(actual, cap), so this path is O(cap x readers) regardless of repository size.
@@ -386,6 +532,19 @@ export async function readPgArtifactTimeline(
       [...scopeValues(scope), scopedReaders, ARTIFACT_TIMELINE_COUNT_CAP + 1],
     );
     for (const row of totals.rows) counts[row.kind] = Math.min(Number(row.total), ARTIFACT_TIMELINE_COUNT_CAP);
+  } else {
+    for (const kind of ["html", "md", "raw"] as const) {
+      const total = await client.query<{ readonly total: string | number }>(
+        `SELECT COUNT(*) AS total FROM (
+           SELECT DISTINCT a.path FROM ha_artifact_documents a
+           WHERE a.tenant_id=$1 AND a.project_id=$2 AND a.policy_epoch=$3
+             AND a.all_readers=false AND a.reader = ANY($4::text[]) AND a.kind = $5
+           LIMIT $6
+         ) page`,
+        [...scopeValues(scope), scopedReaders, kind, ARTIFACT_TIMELINE_COUNT_CAP + 1],
+      );
+      counts[kind] = Math.min(Number(total.rows[0]?.total ?? 0), ARTIFACT_TIMELINE_COUNT_CAP);
+    }
   }
   return {
     rows: ordered.slice(0, limit).map((row) => ({

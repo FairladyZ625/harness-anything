@@ -14,6 +14,7 @@ import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
 import { PgDecisionBackfillPendingError } from "./pg-decision-read-status.ts";
 import { readPgDecisionRows, type PgDecisionReviewSummary } from "./pg-decision-reads.ts";
 import { searchPgDecisionIds } from "./pg-decision-search.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 
 /** Stored order is shared with SQLite, including historical E-number blocks and case weights. */
 export async function listPgDecisionRows(
@@ -89,8 +90,33 @@ export async function listPgDecisionRows(
         ? "value,review_summary"
         : "value",
     pageSql = `SELECT decision_id,workspace_revision,${projection}
-      FROM ha_decisions WHERE ${where.join(" AND ")} ${order}${limitSql}`,
-    result = await client.query<{
+      FROM ha_decisions WHERE ${where.join(" AND ")} ${order}${limitSql}`;
+  const capabilities = getClientDialectCapabilities(client);
+  let resultRows: readonly {
+    decision_id: string | null;
+    workspace_revision: string;
+    value: Record<string, unknown>;
+    review_summary?: PgDecisionReviewSummary | null;
+    ready?: boolean;
+  }[];
+  if (summary && !capabilities.supportsLateralJoin) {
+    const status = await client.query<{ ready: boolean }>(
+      `SELECT COALESCE(
+        (SELECT scalar_pending IS NOT DISTINCT FROM 0 FROM ha_decision_read_status WHERE ${scopeSql}),
+        NOT EXISTS(SELECT 1 FROM ha_decisions WHERE ${scopeSql} LIMIT 1)) AS ready`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch],
+    );
+    if (status.rows[0]?.ready !== true) throw new PgDecisionBackfillPendingError("scalar");
+    resultRows = (
+      await client.query<{
+        decision_id: string | null;
+        workspace_revision: string;
+        value: Record<string, unknown>;
+        review_summary?: PgDecisionReviewSummary | null;
+      }>(pageSql, values)
+    ).rows;
+  } else {
+    const result = await client.query<{
       decision_id: string | null;
       workspace_revision: string;
       value: Record<string, unknown>;
@@ -106,8 +132,10 @@ export async function listPgDecisionRows(
         : pageSql,
       values,
     );
-  if (summary && result.rows[0]?.ready !== true) throw new PgDecisionBackfillPendingError("scalar");
-  const rows = result.rows.filter((row): row is typeof row & { decision_id: string } => row.decision_id !== null),
+    if (summary && result.rows[0]?.ready !== true) throw new PgDecisionBackfillPendingError("scalar");
+    resultRows = result.rows;
+  }
+  const rows = resultRows.filter((row): row is typeof row & { decision_id: string } => row.decision_id !== null),
     selected = limit === null ? rows : rows.slice(0, limit),
     decisions: readonly DecisionListSummaryRow[] = summary
       ? selected.map(({ decision_id: id, workspace_revision: revision, value }) => {

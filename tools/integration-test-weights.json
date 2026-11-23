@@ -587,6 +587,7 @@
   "packages/storage/test/postgres/pg-freshness-visibility.integration.test.ts": 2335,
   "packages/storage/test/postgres/pg-inbox.integration.test.ts": 2500,
   "packages/storage/test/postgres/pg-migration-content-compatibility.integration.test.ts": 2444,
+  "packages/storage/test/postgres/pg-opengauss-dialect.integration.test.ts": 150,
   "packages/storage/test/postgres/pg-projection.integration.test.ts": 13669,
   "packages/storage/test/postgres/pg-query-edge-parity.integration.test.ts": 15176,
   "packages/storage/test/postgres/pg-read-index-upgrade.integration.test.ts": 11858,

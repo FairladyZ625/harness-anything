@@ -10,6 +10,7 @@ import {
   changedDecisionDocuments,
   changedDecisionEvidenceRelations,
 } from "../projection/decision-projection-documents.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 
 export async function projectPgDecisionReads(
   client: PoolClient,
@@ -104,15 +105,27 @@ async function refreshSearchPositions(
         AND d.policy_epoch=$3 AND d.term_key=md5(word) AND d.term=word)`,
       [...keys, serialized],
     );
+    const capabilities = getClientDialectCapabilities(client);
     await client.query(
-      `INSERT INTO ha_decision_positions
-      (tenant_id,project_id,policy_epoch,readers,term_key,term_slot,decision_id,column_id,position,repo_id,head_readers,blob_readers)
-      SELECT $1,$2,$3,$4::text[],d.term_key,d.term_slot,$5,(v->>'column')::smallint,(v->>'offset')::integer,v->>'repo',
-        ARRAY(SELECT jsonb_array_elements_text(v->'head')),ARRAY(SELECT jsonb_array_elements_text(v->'blob'))
-      FROM jsonb_array_elements($6::jsonb) v CROSS JOIN LATERAL (
-        SELECT term_key,term_slot FROM ha_search_terms WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-          AND term_key=md5(v->>'term') AND term=v->>'term' ORDER BY term_slot LIMIT 1
-      ) d`,
+      capabilities.supportsLateralJoin
+        ? `INSERT INTO ha_decision_positions
+          (tenant_id,project_id,policy_epoch,readers,term_key,term_slot,decision_id,column_id,position,repo_id,head_readers,blob_readers)
+          SELECT $1,$2,$3,$4::text[],d.term_key,d.term_slot,$5,(v->>'column')::smallint,(v->>'offset')::integer,v->>'repo',
+            ARRAY(SELECT jsonb_array_elements_text(v->'head')),ARRAY(SELECT jsonb_array_elements_text(v->'blob'))
+          FROM jsonb_array_elements($6::jsonb) v CROSS JOIN LATERAL (
+            SELECT term_key,term_slot FROM ha_search_terms WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+              AND term_key=md5(v->>'term') AND term=v->>'term' ORDER BY term_slot LIMIT 1
+          ) d`
+        : `INSERT INTO ha_decision_positions
+          (tenant_id,project_id,policy_epoch,readers,term_key,term_slot,decision_id,column_id,position,repo_id,head_readers,blob_readers)
+          SELECT $1,$2,$3,$4::text[],d.term_key,d.term_slot,$5,(v->>'column')::smallint,(v->>'offset')::integer,v->>'repo',
+            ARRAY(SELECT jsonb_array_elements_text(v->'head')),ARRAY(SELECT jsonb_array_elements_text(v->'blob'))
+          FROM jsonb_array_elements($6::jsonb) v
+          JOIN (
+            SELECT term_key,term,MIN(term_slot) AS term_slot FROM ha_search_terms
+            WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+            GROUP BY term_key,term
+          ) d ON d.term_key=md5(v->>'term') AND d.term=v->>'term'`,
       [...keys, decision.readers, id, serialized],
     );
   }

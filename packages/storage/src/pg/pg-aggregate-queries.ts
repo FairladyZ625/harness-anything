@@ -137,7 +137,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
           taskIds = remaining.slice(0, limit),
           last = taskIds.at(-1),
           tasks = await client.query<{ task_id: string; title: string; package_path: string | null }>(
-            `SELECT task_id,snapshot#>>'{task,title}' AS title,package_path FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+            `SELECT task_id,snapshot #>>'{task,title}' AS title,package_path FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
            AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[]) ORDER BY task_id`,
             [...parameters, taskIds],
           ),

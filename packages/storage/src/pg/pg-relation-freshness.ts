@@ -5,6 +5,14 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import type { RelationType } from "@harness-anything/kernel/internal/domain/relation-type-registry.ts";
 import type { EntityVersion } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  dialectUpsertValuesSql,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import { relationFreshnessColumns } from "../projection/relation-freshness-columns.ts";
 import { readEntityVersionWitnesses } from "./pg-relation-queries.ts";
@@ -33,24 +41,46 @@ const endpointTables = [
   { table: "ha_squads", ref: "'squad/' || {row}.squad_id", columns: ["workspace_revision"] },
 ] as const;
 
-export function relationFreshnessDdl(): readonly string[] {
+export function relationFreshnessDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  const xactColumn = capabilities.supportsXid8
+      ? "xact xid8 NOT NULL DEFAULT pg_current_xact_id()"
+      : "xact bigint NOT NULL DEFAULT txid_current()",
+    currentXact = capabilities.supportsXid8 ? "pg_current_xact_id()" : "txid_current()",
+    markSql = dialectUpsertValuesSql(capabilities, {
+      table: PG_RELATION_FRESHNESS_DIRTY_TABLE,
+      columns: [
+        { name: "tenant_id", valueSql: "tenant" },
+        { name: "project_id", valueSql: "project" },
+        { name: "policy_epoch", valueSql: "epoch" },
+        { name: "ref", valueSql: "changed" },
+        { name: "xact", valueSql: currentXact },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "ref"],
+      updates: [{ column: "xact", valueSql: "EXCLUDED.xact" }],
+    });
   return [
-    "ALTER TABLE ha_relations ADD COLUMN IF NOT EXISTS freshness text",
-    "ALTER TABLE ha_relations ADD COLUMN IF NOT EXISTS current_target_version jsonb",
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_relations", "freshness", "text"),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_relations", "current_target_version", "jsonb"),
     /* @gate-identity state-store/task.projection.ha_relation_freshness_dirty */ `CREATE TABLE IF NOT EXISTS ${PG_RELATION_FRESHNESS_DIRTY_TABLE} (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       ref text NOT NULL,
-      xact xid8 NOT NULL DEFAULT pg_current_xact_id(),
+      ${xactColumn},
       PRIMARY KEY (tenant_id, project_id, policy_epoch, ref)
     )`,
-    `CREATE OR REPLACE FUNCTION ha_relation_freshness_mark(tenant text, project text, epoch bigint, changed text)
-      RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS $function$
-        INSERT INTO ${PG_RELATION_FRESHNESS_DIRTY_TABLE}(tenant_id, project_id, policy_epoch, ref)
-        VALUES (tenant, project, epoch, changed)
-        ON CONFLICT (tenant_id, project_id, policy_epoch, ref) DO UPDATE SET xact = EXCLUDED.xact
-      $function$`,
-    ...endpointTables.flatMap(({ table, ref, columns }) => endpointTriggerDdl(table, ref, columns)),
+    capabilities.supportsOnConflict
+      ? `CREATE OR REPLACE FUNCTION ha_relation_freshness_mark(tenant text, project text, epoch bigint, changed text)
+          RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS $function$
+            ${markSql}
+          $function$`
+      : `CREATE OR REPLACE FUNCTION ha_relation_freshness_mark(tenant text, project text, epoch bigint, changed text)
+          RETURNS void LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+          BEGIN
+            ${markSql};
+          END $function$`,
+    ...endpointTables.flatMap(({ table, ref, columns }) => endpointTriggerDdl(capabilities, table, ref, columns)),
     // A relation row is an endpoint of relations targeting `relation/<id>`; an executes row also
     // supplies its execution source's witness.
     `CREATE OR REPLACE FUNCTION ha_relation_freshness_relation_changed() RETURNS trigger
@@ -66,11 +96,19 @@ export function relationFreshnessDdl(): readonly string[] {
         END IF;
         RETURN NULL;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_relations_freshness_insert AFTER INSERT OR DELETE ON ha_relations
-      FOR EACH ROW EXECUTE FUNCTION ha_relation_freshness_relation_changed()`,
-    `CREATE OR REPLACE TRIGGER ha_relations_freshness_update AFTER UPDATE OF workspace_revision, value ON ha_relations
-      FOR EACH ROW WHEN (OLD.workspace_revision IS DISTINCT FROM NEW.workspace_revision OR OLD.value IS DISTINCT FROM NEW.value)
-      EXECUTE FUNCTION ha_relation_freshness_relation_changed()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_relations_freshness_insert",
+      tableName: "ha_relations",
+      timingAndEvent: "AFTER INSERT OR DELETE",
+      functionCall: "ha_relation_freshness_relation_changed()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_relations_freshness_update",
+      tableName: "ha_relations",
+      timingAndEvent: "AFTER UPDATE OF workspace_revision, value",
+      whenSql: "OLD.workspace_revision IS DISTINCT FROM NEW.workspace_revision OR OLD.value IS DISTINCT FROM NEW.value",
+      functionCall: "ha_relation_freshness_relation_changed()",
+    }),
     `CREATE OR REPLACE FUNCTION ha_relation_freshness_entity_changed() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       DECLARE changed record;
@@ -80,21 +118,38 @@ export function relationFreshnessDdl(): readonly string[] {
           substr(changed.model, 8) || '/' || changed.entity_id);
         RETURN NULL;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_projection_values_freshness_insert AFTER INSERT ON ha_projection_values
-      FOR EACH ROW WHEN (starts_with(NEW.model, 'entity:'))
-      EXECUTE FUNCTION ha_relation_freshness_entity_changed()`,
-    `CREATE OR REPLACE TRIGGER ha_projection_values_freshness_delete AFTER DELETE ON ha_projection_values
-      FOR EACH ROW WHEN (starts_with(OLD.model, 'entity:'))
-      EXECUTE FUNCTION ha_relation_freshness_entity_changed()`,
-    `CREATE OR REPLACE TRIGGER ha_projection_values_freshness_update AFTER UPDATE OF value, workspace_revision ON ha_projection_values
-      FOR EACH ROW WHEN (starts_with(NEW.model, 'entity:') AND
-        (OLD.value IS DISTINCT FROM NEW.value OR OLD.workspace_revision IS DISTINCT FROM NEW.workspace_revision))
-      EXECUTE FUNCTION ha_relation_freshness_entity_changed()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_projection_values_freshness_insert",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER INSERT",
+      whenSql: "starts_with(NEW.model, 'entity:')",
+      functionCall: "ha_relation_freshness_entity_changed()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_projection_values_freshness_delete",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER DELETE",
+      whenSql: "starts_with(OLD.model, 'entity:')",
+      functionCall: "ha_relation_freshness_entity_changed()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_projection_values_freshness_update",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER UPDATE OF value, workspace_revision",
+      whenSql:
+        "starts_with(NEW.model, 'entity:') AND (OLD.value IS DISTINCT FROM NEW.value OR OLD.workspace_revision IS DISTINCT FROM NEW.workspace_revision)",
+      functionCall: "ha_relation_freshness_entity_changed()",
+    }),
     "CREATE INDEX IF NOT EXISTS ha_relations_freshness_page ON ha_relations (tenant_id,project_id,policy_epoch,freshness,relation_id)",
   ];
 }
 
-function endpointTriggerDdl(table: string, ref: string, columns: readonly string[]): readonly string[] {
+function endpointTriggerDdl(
+  capabilities: PgDialectCapabilities,
+  table: string,
+  ref: string,
+  columns: readonly string[],
+): readonly string[] {
   const fn = `${table}_relation_freshness_changed`,
     changed = columns.map((column) => `OLD.${column} IS DISTINCT FROM NEW.${column}`).join(" OR ");
   return [
@@ -108,10 +163,19 @@ function endpointTriggerDdl(table: string, ref: string, columns: readonly string
         END IF;
         RETURN NULL;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ${table}_freshness_insert AFTER INSERT OR DELETE ON ${table}
-      FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
-    `CREATE OR REPLACE TRIGGER ${table}_freshness_update AFTER UPDATE OF ${columns.join(", ")} ON ${table}
-      FOR EACH ROW WHEN (${changed}) EXECUTE FUNCTION ${fn}()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: `${table}_freshness_insert`,
+      tableName: table,
+      timingAndEvent: "AFTER INSERT OR DELETE",
+      functionCall: `${fn}()`,
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: `${table}_freshness_update`,
+      tableName: table,
+      timingAndEvent: `AFTER UPDATE OF ${columns.join(", ")}`,
+      whenSql: changed,
+      functionCall: `${fn}()`,
+    }),
   ];
 }
 
@@ -140,28 +204,52 @@ async function recomputeAnchoredRelations(
   refs: readonly string[],
 ): Promise<number> {
   if (refs.length === 0) return 0;
-  const affected = await client.query<RelationFreshnessInput>(
-    `SELECT DISTINCT ON (relation_id) ${relationInputColumns} FROM (
-       SELECT r.* FROM unnest($4::text[]) d(ref) CROSS JOIN LATERAL (
-         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND target_ref = d.ref
-         UNION ALL
-         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND target_ref COLLATE "C" >= d.ref || '/' AND target_ref COLLATE "C" < d.ref || '0'
-         UNION ALL
-         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND source_ref = d.ref AND relation_type = ANY($5::text[])
-         UNION ALL
-         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND source_ref COLLATE "C" >= d.ref || '/' AND source_ref COLLATE "C" < d.ref || '0'
-           AND relation_type = ANY($5::text[])
-         UNION ALL
-         SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND starts_with(d.ref, 'relation/') AND relation_id = substr(d.ref, 10)
-       ) r
-     ) affected ORDER BY relation_id`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, refs, sourceAnchoredTypes],
-  );
+  const capabilities = getClientDialectCapabilities(client),
+    affected = capabilities.supportsLateralJoin
+      ? await client.query<RelationFreshnessInput>(
+          `SELECT DISTINCT ON (relation_id) ${relationInputColumns} FROM (
+             SELECT r.* FROM unnest($4::text[]) d(ref) CROSS JOIN LATERAL (
+               SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+                 AND target_ref = d.ref
+               UNION ALL
+               SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+                 AND target_ref COLLATE "C" >= d.ref || '/' AND target_ref COLLATE "C" < d.ref || '0'
+               UNION ALL
+               SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+                 AND source_ref = d.ref AND relation_type = ANY($5::text[])
+               UNION ALL
+               SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+                 AND source_ref COLLATE "C" >= d.ref || '/' AND source_ref COLLATE "C" < d.ref || '0'
+                 AND relation_type = ANY($5::text[])
+               UNION ALL
+               SELECT * FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+                 AND starts_with(d.ref, 'relation/') AND relation_id = substr(d.ref, 10)
+             ) r
+           ) affected ORDER BY relation_id`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, refs, sourceAnchoredTypes],
+        )
+      : await client.query<RelationFreshnessInput>(
+          `WITH d(ref) AS (SELECT unnest($4::text[]))
+           SELECT DISTINCT ON (relation_id) ${relationInputColumns} FROM (
+             SELECT r.* FROM ha_relations r JOIN d ON r.target_ref = d.ref
+               WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3
+             UNION ALL
+             SELECT r.* FROM ha_relations r JOIN d
+               ON r.target_ref COLLATE "C" >= d.ref || '/' AND r.target_ref COLLATE "C" < d.ref || '0'
+               WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3
+             UNION ALL
+             SELECT r.* FROM ha_relations r JOIN d ON r.source_ref = d.ref
+               WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3 AND r.relation_type = ANY($5::text[])
+             UNION ALL
+             SELECT r.* FROM ha_relations r JOIN d
+               ON r.source_ref COLLATE "C" >= d.ref || '/' AND r.source_ref COLLATE "C" < d.ref || '0'
+               WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3 AND r.relation_type = ANY($5::text[])
+             UNION ALL
+             SELECT r.* FROM ha_relations r JOIN d ON starts_with(d.ref, 'relation/') AND r.relation_id = substr(d.ref, 10)
+               WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3
+           ) affected ORDER BY relation_id`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, refs, sourceAnchoredTypes],
+        );
   await storePgRelationFreshness(client, scope, affected.rows);
   return affected.rows.length;
 }
@@ -174,7 +262,7 @@ async function recomputeAnchoredRelations(
  */
 export async function refreshPgDirtyRelationFreshness(client: PoolClient, scope: PgProjectionScope): Promise<number> {
   const dirty = await client.query<{ ref: string }>(
-    `${PG_OWN_DIRTY_RELATION_REFS_CTE} SELECT ref FROM own_dirty_refs`,
+    `${pgOwnDirtyRelationRefsCte(getClientDialectCapabilities(client))} SELECT ref FROM own_dirty_refs`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
   return recomputeAnchoredRelations(
@@ -189,10 +277,17 @@ export async function refreshPgDirtyRelationFreshness(client: PoolClient, scope:
  * a statement every materialized event already runs: an event that changed no endpoint then costs no
  * extra round trip. Pass the returned refs to `refreshPgRelationFreshnessForRefs`.
  */
-export const PG_OWN_DIRTY_RELATION_REFS_CTE = `WITH own_dirty_refs AS (
+export function pgOwnDirtyRelationRefsCte(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): string {
+  const currentXact = capabilities.supportsXid8 ? "pg_current_xact_id()" : "txid_current()";
+  return `WITH own_dirty_refs AS (
   DELETE FROM ${PG_RELATION_FRESHNESS_DIRTY_TABLE}
-  WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND xact = pg_current_xact_id() RETURNING ref
+  WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND xact = ${currentXact} RETURNING ref
 )`;
+}
+
+export const PG_OWN_DIRTY_RELATION_REFS_CTE = pgOwnDirtyRelationRefsCte();
 
 export function refreshPgRelationFreshnessForRefs(
   client: PoolClient,
@@ -283,10 +378,21 @@ async function storePgRelationFreshness(
         ];
   });
   if (changed.length === 0) return;
+  const capabilities = getClientDialectCapabilities(client);
+  if (capabilities.supportsExtendedJsonb) {
+    await client.query(
+      `UPDATE ha_relations AS r SET freshness = u.freshness, current_target_version = u.current_target_version
+       FROM jsonb_to_recordset($4::jsonb) AS u(relation_id text, freshness text, current_target_version jsonb)
+       WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3 AND r.relation_id = u.relation_id`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, JSON.stringify(changed)],
+    );
+    return;
+  }
   await client.query(
-    `UPDATE ha_relations AS r SET freshness = u.freshness, current_target_version = u.current_target_version
-     FROM jsonb_to_recordset($4::jsonb) AS u(relation_id text, freshness text, current_target_version jsonb)
-     WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3 AND r.relation_id = u.relation_id`,
+    `UPDATE ha_relations AS r SET freshness = u.value->>'freshness',
+       current_target_version = CASE WHEN u.value->'current_target_version' = 'null'::jsonb THEN NULL ELSE u.value->'current_target_version' END
+     FROM jsonb_array_elements($4::jsonb) AS u(value)
+     WHERE r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3 AND r.relation_id = u.value->>'relation_id'`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, JSON.stringify(changed)],
   );
 }

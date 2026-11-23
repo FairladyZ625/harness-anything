@@ -23,6 +23,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { eventIndexEvent } from "./pg-event-queries.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
 export type AsyncQueries<Keys extends keyof TaskProjectionQueries> = {
@@ -191,26 +192,44 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
         await assertPgEventReadIndexReady(client, scope, repoId);
         // One LATERAL index seek per requested id: the task's total dispatch history is never
         // materialized just to pick its newest row.
-        const result = await client.query<{ event_json: string }>(
-          `SELECT latest.event_json
-             FROM unnest($6::text[]) WITH ORDINALITY AS requested(task_id, position)
-             CROSS JOIN LATERAL (
-               SELECT ha_events.event_json
-                 FROM ha_events
-                WHERE ha_events.tenant_id=$1 AND ha_events.project_id=$2 AND ha_events.repo_id=$3
-                  AND ha_events.policy_epoch=$4
-                  AND (cardinality($5::text[])=0 OR ha_events.readers && $5::text[])
-                  AND ha_events.revision <= (SELECT watermark FROM ha_projection_meta
-                    WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
-                  AND ha_events.event_schema='agent-runtime-event/v1'
-                  AND ha_events.event_type='runtime_dispatch_requested'
-                  AND ha_events.payload_task_id=requested.task_id
-                ORDER BY COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC
-                LIMIT 1
-             ) AS latest
-            ORDER BY requested.position`,
-          [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, taskIds],
-        );
+        const capabilities = getClientDialectCapabilities(client),
+          result = await client.query<{ event_json: string }>(
+            capabilities.supportsLateralJoin && capabilities.supportsWithOrdinality
+              ? `SELECT latest.event_json
+                   FROM unnest($6::text[]) WITH ORDINALITY AS requested(task_id, position)
+                   CROSS JOIN LATERAL (
+                     SELECT ha_events.event_json
+                       FROM ha_events
+                      WHERE ha_events.tenant_id=$1 AND ha_events.project_id=$2 AND ha_events.repo_id=$3
+                        AND ha_events.policy_epoch=$4
+                        AND (cardinality($5::text[])=0 OR ha_events.readers && $5::text[])
+                        AND ha_events.revision <= (SELECT watermark FROM ha_projection_meta
+                          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+                        AND ha_events.event_schema='agent-runtime-event/v1'
+                        AND ha_events.event_type='runtime_dispatch_requested'
+                        AND ha_events.payload_task_id=requested.task_id
+                      ORDER BY COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC
+                      LIMIT 1
+                   ) AS latest
+                  ORDER BY requested.position`
+              : `SELECT latest.event_json
+                   FROM (SELECT ($6::text[])[i] AS task_id, i AS position FROM generate_subscripts($6::text[], 1) AS i) AS requested
+                   JOIN (
+                     SELECT DISTINCT ON (ha_events.payload_task_id) ha_events.payload_task_id, ha_events.event_json
+                       FROM ha_events
+                      WHERE ha_events.tenant_id=$1 AND ha_events.project_id=$2 AND ha_events.repo_id=$3
+                        AND ha_events.policy_epoch=$4
+                        AND (cardinality($5::text[])=0 OR ha_events.readers && $5::text[])
+                        AND ha_events.revision <= (SELECT watermark FROM ha_projection_meta
+                          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+                        AND ha_events.event_schema='agent-runtime-event/v1'
+                        AND ha_events.event_type='runtime_dispatch_requested'
+                        AND ha_events.payload_task_id = ANY($6::text[])
+                      ORDER BY ha_events.payload_task_id, COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC
+                   ) AS latest ON latest.payload_task_id = requested.task_id
+                  ORDER BY requested.position`,
+            [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, taskIds],
+          );
         return result.rows.map(({ event_json }) =>
           publicRuntimeDispatch(eventIndexEvent(JSON.parse(event_json) as Dispatch)),
         );
@@ -325,9 +344,19 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           // One index seek per distinct session; the lateral query returning no row ends the recursion.
           // https://wiki.postgresql.org/wiki/Loose_indexscan
           sessions = await client.query<{ event_json: string; session: string }>(
-            `WITH RECURSIVE latest AS ((${candidate(false)}) UNION ALL
-              SELECT next.* FROM latest previous CROSS JOIN LATERAL (${candidate(true)}) next)
-              SELECT event_json,session FROM latest ORDER BY runtime_session_id`,
+            getClientDialectCapabilities(client).supportsLateralJoin
+              ? `WITH RECURSIVE latest AS ((${candidate(false)}) UNION ALL
+                  SELECT next.* FROM latest previous CROSS JOIN LATERAL (${candidate(true)}) next)
+                  SELECT event_json,session FROM latest ORDER BY runtime_session_id`
+              : `SELECT DISTINCT ON (d.runtime_session_id) d.event_json, p.value AS session
+                 FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id
+                   AND p.policy_epoch=d.policy_epoch AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=d.runtime_session_id COLLATE "default"
+                 WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
+                   AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+                   AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))
+                   AND d.event_schema='agent-runtime-event/v1' AND d.event_type='runtime_dispatch_requested' AND d.runtime_session_present AND d.${field}=$6
+                   ${scopeFor("d")}
+                 ORDER BY d.runtime_session_id, d.dispatch_activity_at DESC, d.dispatch_id DESC`,
             [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, ...values],
           );
         return {

@@ -1,4 +1,11 @@
 import type { PoolClient } from "pg";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  getClientDialectCapabilities,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 import type { EntityProjectionRow, VersionedRelationProjectionRow } from "@harness-anything/kernel";
 import { getPgProjectionValue } from "./pg-projection-values.ts";
@@ -275,11 +282,14 @@ export async function readVersionedRelationsInTransaction(
   }
   if (query.limit !== undefined) values.push(checkedPageLimit(query.limit, 4096));
   const predicate = where.join(" AND "),
+    capabilities = getClientDialectCapabilities(client),
     from =
       batch === undefined
         ? `ha_relations WHERE ${predicate}`
-        : `unnest($${batchParameter}::text[]) AS endpoint(ref) CROSS JOIN LATERAL (
-        SELECT * FROM ha_relations WHERE ${predicate} AND ${batchColumn}=endpoint.ref OFFSET 0) AS relation`;
+        : capabilities.supportsLateralJoin
+          ? `unnest($${batchParameter}::text[]) AS endpoint(ref) CROSS JOIN LATERAL (
+        SELECT * FROM ha_relations WHERE ${predicate} AND ${batchColumn}=endpoint.ref OFFSET 0) AS relation`
+          : `ha_relations WHERE ${predicate} AND ${batchColumn}=ANY($${batchParameter}::text[])`;
   const result = await client.query<SelectedRelationRow & { freshness: string | null }>(
     `SELECT ${selectedRelationColumns}, freshness, current_target_version
            FROM ${from} ORDER BY relation_id${query.limit === undefined ? "" : ` LIMIT $${values.length}`}`,
@@ -342,13 +352,21 @@ async function readReaderRelationPage(
       where.push(`${column}${op}$${values.length}`);
     }
   values.push(checkedPageLimit(query.limit!, 4096));
-  const result = await client.query<{ relation_id: string }>(
-    `SELECT DISTINCT relation_id FROM unnest($4::text[]) AS allowed(key) CROSS JOIN LATERAL (
-      SELECT relation_id FROM ha_relation_reader_keys WHERE ${where.join(" AND ")}
-      ORDER BY ${page.order} LIMIT $${values.length} OFFSET 0) AS candidate
-      ORDER BY relation_id LIMIT $${values.length}`,
-    values,
-  );
+  const capabilities = getClientDialectCapabilities(client),
+    result = capabilities.supportsLateralJoin
+      ? await client.query<{ relation_id: string }>(
+          `SELECT DISTINCT relation_id FROM unnest($4::text[]) AS allowed(key) CROSS JOIN LATERAL (
+            SELECT relation_id FROM ha_relation_reader_keys WHERE ${where.join(" AND ")}
+            ORDER BY ${page.order} LIMIT $${values.length} OFFSET 0) AS candidate
+            ORDER BY relation_id LIMIT $${values.length}`,
+          values,
+        )
+      : await client.query<{ relation_id: string }>(
+          `SELECT DISTINCT relation_id FROM ha_relation_reader_keys
+            WHERE ${where.map((clause) => (clause === "reader_key=allowed.key" ? "reader_key=ANY($4::text[])" : clause)).join(" AND ")}
+            ORDER BY relation_id LIMIT $${values.length}`,
+          values,
+        );
   return result.rows.map(({ relation_id }) => relation_id);
 }
 
@@ -392,7 +410,9 @@ export async function readRelationsInTransaction(
  * previous writers. Contract the backfill/version column after 2026-11-28 once
  * the previous-writer window and all scoped backfills have completed.
  */
-export function relationReaderIndexDdl(): readonly string[] {
+export function relationReaderIndexDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
   return [
     /* @gate-identity state-store/task.projection.ha_relation_reader_keys */ `CREATE TABLE IF NOT EXISTS ha_relation_reader_keys (
       tenant_id text NOT NULL, project_id text NOT NULL, policy_epoch bigint NOT NULL,
@@ -402,7 +422,7 @@ export function relationReaderIndexDdl(): readonly string[] {
     )`,
     // The previous runtime can fire the trigger as soon as it is installed. Give
     // its writes scoped access first, without a schema-owner/SECURITY DEFINER path.
-    ...postgresScopeRlsStatements("ha_relation_reader_keys", { ifNotExists: true }),
+    ...postgresScopeRlsStatements("ha_relation_reader_keys", { ifNotExists: true, capabilities }),
     ...[POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime, POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.migration].map(
       (role) => `DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${role}') THEN
         GRANT SELECT,INSERT,UPDATE,DELETE ON ha_relation_reader_keys TO "${role}";
@@ -414,7 +434,7 @@ export function relationReaderIndexDdl(): readonly string[] {
         `CREATE INDEX IF NOT EXISTS ha_relation_reader_keys_page_${name} ON ha_relation_reader_keys
         (tenant_id,project_id,policy_epoch,reader_key,${columns}${order})`,
     ),
-    "ALTER TABLE ha_relations ADD COLUMN IF NOT EXISTS reader_index_version smallint NOT NULL DEFAULT 0",
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_relations", "reader_index_version", "smallint NOT NULL DEFAULT 0"),
     `CREATE INDEX IF NOT EXISTS ha_relations_reader_index_pending ON ha_relations
       (tenant_id,project_id,policy_epoch,relation_id) WHERE reader_index_version=0`,
     `CREATE OR REPLACE FUNCTION ha_relation_reader_index_sync() RETURNS trigger
@@ -432,15 +452,25 @@ export function relationReaderIndexDdl(): readonly string[] {
         END IF;
         RETURN OLD;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_relation_reader_index_sync AFTER INSERT OR UPDATE OF readers,relation_type,relation_state,relation_id,tenant_id,project_id,policy_epoch
-      OR DELETE ON ha_relations FOR EACH ROW EXECUTE FUNCTION ha_relation_reader_index_sync()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_relation_reader_index_sync",
+      tableName: "ha_relations",
+      timingAndEvent:
+        "AFTER INSERT OR UPDATE OF readers,relation_type,relation_state,relation_id,tenant_id,project_id,policy_epoch OR DELETE",
+      functionCall: "ha_relation_reader_index_sync()",
+    }),
     // Certify readiness only after the maintaining trigger exists. A previous
     // writer between DDL statements may leave a conservative pending row, never
     // a ready row without keys. Both triggers then share the relation transaction.
     `CREATE OR REPLACE FUNCTION ha_relation_reader_index_mark() RETURNS trigger
       LANGUAGE plpgsql AS $function$ BEGIN NEW.reader_index_version:=1; RETURN NEW; END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_relation_reader_index_mark BEFORE INSERT OR UPDATE OF readers,relation_type,relation_state,relation_id,tenant_id,project_id,policy_epoch
-      ON ha_relations FOR EACH ROW EXECUTE FUNCTION ha_relation_reader_index_mark()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_relation_reader_index_mark",
+      tableName: "ha_relations",
+      timingAndEvent:
+        "BEFORE INSERT OR UPDATE OF readers,relation_type,relation_state,relation_id,tenant_id,project_id,policy_epoch",
+      functionCall: "ha_relation_reader_index_mark()",
+    }),
   ];
 }
 

@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { dialectUpsertValuesSql, getClientDialectCapabilities } from "./dialect.ts";
 import type { PostgresEventStoreScope } from "./pg-event-store.ts";
 import type { ReplicationPosition } from "../store/replication-log.ts";
 import {
@@ -25,13 +26,51 @@ export async function pgSlotOperation(
   switch (input.method) {
     case "claim": {
       const [key, history] = input.args as [{ nodeId: string }, string],
-        result = (
-          await client.query<{ fence: string }>(
-            `INSERT INTO ha_replication_slots(tenant_id,project_id,repo_id,node_id,fence,history,readers,policy_epoch) VALUES($1,$2,$3,$4,1,$5,$6,$7) ON CONFLICT(tenant_id,project_id,repo_id,node_id) DO UPDATE SET fence=ha_replication_slots.fence+1,history=EXCLUDED.history,ack=CASE WHEN ha_replication_slots.history=EXCLUDED.history THEN ha_replication_slots.ack ELSE NULL END,acked_at=CASE WHEN ha_replication_slots.history=EXCLUDED.history THEN ha_replication_slots.acked_at ELSE NULL END RETURNING fence`,
-            [...keys, key.nodeId, history, scope.readers, scope.policyEpoch],
-          )
-        ).rows[0]!;
-      return { repoId, nodeId: key.nodeId, history, fence: Number(result.fence) };
+        capabilities = getClientDialectCapabilities(client),
+        upsertSql = dialectUpsertValuesSql(capabilities, {
+          table: "ha_replication_slots",
+          columns: [
+            { name: "tenant_id", valueSql: "$1::text" },
+            { name: "project_id", valueSql: "$2::text" },
+            { name: "repo_id", valueSql: "$3::text" },
+            { name: "node_id", valueSql: "$4::text" },
+            { name: "fence", valueSql: "1::bigint" },
+            { name: "history", valueSql: "$5::text" },
+            { name: "readers", valueSql: "$6::text[]" },
+            { name: "policy_epoch", valueSql: "$7::bigint" },
+          ],
+          conflictColumns: ["tenant_id", "project_id", "repo_id", "node_id"],
+          updates: [
+            { column: "fence", valueSql: "ha_replication_slots.fence+1" },
+            { column: "history", valueSql: "EXCLUDED.history" },
+            {
+              column: "ack",
+              valueSql:
+                "CASE WHEN ha_replication_slots.history=EXCLUDED.history THEN ha_replication_slots.ack ELSE NULL END",
+            },
+            {
+              column: "acked_at",
+              valueSql:
+                "CASE WHEN ha_replication_slots.history=EXCLUDED.history THEN ha_replication_slots.acked_at ELSE NULL END",
+            },
+          ],
+        });
+      let fence: string;
+      if (capabilities.supportsOnConflict) {
+        fence = (
+          await client.query<{ fence: string }>(`${upsertSql} RETURNING fence`, [
+            ...keys,
+            key.nodeId,
+            history,
+            scope.readers,
+            scope.policyEpoch,
+          ])
+        ).rows[0]!.fence;
+      } else {
+        await client.query(upsertSql, [...keys, key.nodeId, history, scope.readers, scope.policyEpoch]);
+        fence = (await row(key.nodeId))!.fence;
+      }
+      return { repoId, nodeId: key.nodeId, history, fence: Number(fence) };
     }
     case "current": {
       const [lease] = input.args as [ReplicationSlotLease],
@@ -64,7 +103,7 @@ export async function pgSlotOperation(
     case "minimumAck": {
       const value = (
         await client.query<{ floor: string | null }>(
-          `SELECT MIN((ack::jsonb#>>'{durable,sequence}')::bigint) AS floor FROM ha_replication_slots WHERE ${where} AND history=$4 AND ack IS NOT NULL`,
+          `SELECT MIN((ack::jsonb #>>'{durable,sequence}')::bigint) AS floor FROM ha_replication_slots WHERE ${where} AND history=$4 AND ack IS NOT NULL`,
           [...keys, input.args[1]],
         )
       ).rows[0]!.floor;

@@ -1,5 +1,10 @@
 import { auditPgProjectionRows } from "./postgres-projection-audit.ts";
-import { POSTGRES_STORAGE_MIGRATION_SCHEMA } from "./postgres-schema.ts";
+import { postgresStorageMigrationSchema } from "./postgres-schema.ts";
+import {
+  dialectUpsertDoNothingSql,
+  dialectUpsertValuesSql,
+  getClientDialectCapabilities,
+} from "../postgres/dialect.ts";
 import type { Pool, PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
@@ -47,7 +52,8 @@ export async function openPgMigrationEndpoint(input: {
   )
     throw new StorageMigrationError("storage_migration_primary_required", "migration requires the PostgreSQL primary");
   await withPostgresTransaction(input.pool, async (client) => {
-    for (const statement of POSTGRES_STORAGE_MIGRATION_SCHEMA) await client.query(statement);
+    for (const statement of postgresStorageMigrationSchema(getClientDialectCapabilities(client)))
+      await client.query(statement);
   });
   const { pool, repoId, scope } = input,
     backend = input.backend ?? "postgres",
@@ -284,8 +290,10 @@ export async function openPgMigrationEndpoint(input: {
     export: exportTuples,
     change: (expected, next, activate) =>
       transact(async (client) => {
+        const capabilities = getClientDialectCapabilities(client),
+          doNothing = dialectUpsertDoNothingSql(capabilities);
         await client.query("SET LOCAL synchronous_commit=on");
-        await client.query("INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ON CONFLICT DO NOTHING", [repoId]);
+        await client.query(`INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ${doNothing}`, [repoId]);
         const control = (await authority(client, true))!;
         assertMigrationValue(
           control.migration_control,
@@ -293,7 +301,17 @@ export async function openPgMigrationEndpoint(input: {
           "PostgreSQL repository authority changed concurrently",
         );
         await client.query(
-          "INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,readers,policy_epoch) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+          dialectUpsertValuesSql(capabilities, {
+            table: "ha_repo_heads",
+            columns: [
+              { name: "tenant_id", valueSql: "$1::text" },
+              { name: "project_id", valueSql: "$2::text" },
+              { name: "repo_id", valueSql: "$3::text" },
+              { name: "readers", valueSql: "$4::text[]" },
+              { name: "policy_epoch", valueSql: "$5::bigint" },
+            ],
+            conflictColumns: ["tenant_id", "project_id", "repo_id"],
+          }),
           [...key, scope.readers, scope.policyEpoch],
         );
         const rows = await head(client, true);
@@ -329,10 +347,20 @@ export async function openPgMigrationEndpoint(input: {
             "source changed before epoch takeover",
           );
         }
-        await client.query(
-          "UPDATE ha_repo_writer_epochs SET migration_control=$2::jsonb,writer_epoch=$3,writer_holder_id=$4,activation_markers=CASE WHEN $5 THEN activation_markers || jsonb_build_object($6::text,$2::jsonb) ELSE activation_markers END WHERE repo_id=$1",
-          [repoId, JSON.stringify(next), next.epoch, `migration:${next.runId}`, !!activate, next.runId],
-        );
+        if (capabilities.supportsExtendedJsonb) {
+          await client.query(
+            "UPDATE ha_repo_writer_epochs SET migration_control=$2::jsonb,writer_epoch=$3,writer_holder_id=$4,activation_markers=CASE WHEN $5 THEN activation_markers || jsonb_build_object($6::text,$2::jsonb) ELSE activation_markers END WHERE repo_id=$1",
+            [repoId, JSON.stringify(next), next.epoch, `migration:${next.runId}`, !!activate, next.runId],
+          );
+        } else {
+          const nextMarkers = activate
+            ? { ...(control.activation_markers ?? {}), [next.runId]: next }
+            : (control.activation_markers ?? {});
+          await client.query(
+            "UPDATE ha_repo_writer_epochs SET migration_control=$2::jsonb,writer_epoch=$3,writer_holder_id=$4,activation_markers=$5::jsonb WHERE repo_id=$1",
+            [repoId, JSON.stringify(next), next.epoch, `migration:${next.runId}`, JSON.stringify(nextMarkers)],
+          );
+        }
         await client.query("UPDATE ha_repo_heads SET writer_epoch=$2,writer_holder_id=$3 WHERE repo_id=$1", [
           repoId,
           next.epoch,
@@ -355,15 +383,41 @@ export async function openPgMigrationEndpoint(input: {
                 "storage_migration_conflict",
                 "PostgreSQL import requires prepared target",
               );
-            const s = tuple.scope,
+            const capabilities = getClientDialectCapabilities(client),
+              s = tuple.scope,
               k = [s.tenantId, s.projectId, repoId];
             await client.query(
-              "INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,readers,policy_epoch,migration_control,writer_epoch,writer_holder_id) VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,$8) ON CONFLICT DO NOTHING",
+              dialectUpsertValuesSql(capabilities, {
+                table: "ha_repo_heads",
+                columns: [
+                  { name: "tenant_id", valueSql: "$1::text" },
+                  { name: "project_id", valueSql: "$2::text" },
+                  { name: "repo_id", valueSql: "$3::text" },
+                  { name: "readers", valueSql: "$4::text[]" },
+                  { name: "policy_epoch", valueSql: "$5::bigint" },
+                  { name: "migration_control", valueSql: "$6::jsonb" },
+                  { name: "writer_epoch", valueSql: "$7::bigint" },
+                  { name: "writer_holder_id", valueSql: "$8::text" },
+                ],
+                conflictColumns: ["tenant_id", "project_id", "repo_id"],
+              }),
               [...k, s.readers, s.policyEpoch, JSON.stringify(current), current.epoch, `migration:${manifest.runId}`],
             );
             for (const blob of tuple.blobs)
               await client.query(
-                "INSERT INTO ha_content_blobs(tenant_id,project_id,sha256,size,body,readers,policy_epoch) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+                dialectUpsertValuesSql(capabilities, {
+                  table: "ha_content_blobs",
+                  columns: [
+                    { name: "tenant_id", valueSql: "$1::text" },
+                    { name: "project_id", valueSql: "$2::text" },
+                    { name: "sha256", valueSql: "$3::text" },
+                    { name: "size", valueSql: "$4::bigint" },
+                    { name: "body", valueSql: "$5::bytea" },
+                    { name: "readers", valueSql: "$6::text[]" },
+                    { name: "policy_epoch", valueSql: "$7::bigint" },
+                  ],
+                  conflictColumns: ["tenant_id", "project_id", "sha256"],
+                }),
                 [
                   s.tenantId,
                   s.projectId,
@@ -377,7 +431,28 @@ export async function openPgMigrationEndpoint(input: {
             for (const row of tuple.events) {
               const event = parseCanonicalEvent(row.eventJson);
               await client.query(
-                "INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,actor_refs,entity_refs,readers,policy_epoch,recorded_at,recorded_at_text) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::text::timestamptz,$15::text) ON CONFLICT DO NOTHING",
+                dialectUpsertValuesSql(capabilities, {
+                  table: "ha_events",
+                  columns: [
+                    { name: "tenant_id", valueSql: "$1::text" },
+                    { name: "project_id", valueSql: "$2::text" },
+                    { name: "repo_id", valueSql: "$3::text" },
+                    { name: "revision", valueSql: "$4::bigint" },
+                    { name: "op_id", valueSql: "$5::text" },
+                    { name: "event_id", valueSql: "$6::text" },
+                    { name: "event_type", valueSql: "$7::text" },
+                    { name: "event_json", valueSql: "$8::text" },
+                    { name: "event_digest", valueSql: "$9::text" },
+                    { name: "occurred_at", valueSql: "$10::text" },
+                    { name: "actor_refs", valueSql: "$11::text[]" },
+                    { name: "entity_refs", valueSql: "$12::text[]" },
+                    { name: "readers", valueSql: "$13::text[]" },
+                    { name: "policy_epoch", valueSql: "$14::bigint" },
+                    { name: "recorded_at", valueSql: "$15::text::timestamptz" },
+                    { name: "recorded_at_text", valueSql: "$15::text" },
+                  ],
+                  conflictColumns: ["tenant_id", "project_id", "repo_id", "revision"],
+                }),
                 [
                   ...k,
                   row.revision,
@@ -403,7 +478,28 @@ export async function openPgMigrationEndpoint(input: {
             }
             for (const o of tuple.outcomes)
               await client.query(
-                "INSERT INTO ha_command_outcomes(tenant_id,project_id,repo_id,op_id,status,first_revision,last_revision,intent_digest,intent_summary,rejection_code,recorded_at,member_op_ids,readers,policy_epoch,recorded_at_text,replication_sequence) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::text::timestamptz,$12,$13,$14,$11::text,0) ON CONFLICT DO NOTHING",
+                dialectUpsertValuesSql(capabilities, {
+                  table: "ha_command_outcomes",
+                  columns: [
+                    { name: "tenant_id", valueSql: "$1::text" },
+                    { name: "project_id", valueSql: "$2::text" },
+                    { name: "repo_id", valueSql: "$3::text" },
+                    { name: "op_id", valueSql: "$4::text" },
+                    { name: "status", valueSql: "$5::text" },
+                    { name: "first_revision", valueSql: "$6::bigint" },
+                    { name: "last_revision", valueSql: "$7::bigint" },
+                    { name: "intent_digest", valueSql: "$8::text" },
+                    { name: "intent_summary", valueSql: "$9::text" },
+                    { name: "rejection_code", valueSql: "$10::text" },
+                    { name: "recorded_at", valueSql: "$11::text::timestamptz" },
+                    { name: "member_op_ids", valueSql: "$12::text[]" },
+                    { name: "readers", valueSql: "$13::text[]" },
+                    { name: "policy_epoch", valueSql: "$14::bigint" },
+                    { name: "recorded_at_text", valueSql: "$11::text" },
+                    { name: "replication_sequence", valueSql: "0::bigint" },
+                  ],
+                  conflictColumns: ["tenant_id", "project_id", "repo_id", "op_id"],
+                }),
                 [
                   ...k,
                   o.opId,

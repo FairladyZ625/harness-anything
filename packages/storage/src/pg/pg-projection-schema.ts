@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
+import { entityDeclarationDdlStatements } from "./pg-entity-declarations.ts";
 import {
   contractPgEventSummaryIndex,
   eventReadIndexDdl,
@@ -20,7 +20,18 @@ import {
   POSTGRES_SCOPE_COLUMNS_SQL,
   POSTGRES_SCOPE_SCHEMA_CONTRACT,
   postgresScopeRlsStatements,
+  postgresScopeWriteGuardFunctionStatements,
 } from "../postgres/scope-schema.ts";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  detectPgDialectCapabilities,
+  dialectAddColumnIfNotExistsSql,
+  dialectCompatibilityPreludeStatements,
+  dialectCreateTriggerStatements,
+  dialectUpsertSelectSql,
+  dialectUpsertValuesSql,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 
 /** Tables populated by projection replay over the canonical event stream. */
 export const PG_REBUILDABLE_PROJECTION_TABLES = Object.freeze([
@@ -87,9 +98,13 @@ export function assertPgProjectionSchemaVersion(version: number | undefined): vo
  */
 export async function ensurePgProjectionSchema(
   client: PoolClient,
-  options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
+  options: {
+    readonly indexBuild?: "concurrent" | "isolated";
+    readonly capabilities?: PgDialectCapabilities;
+  } = {},
 ): Promise<void> {
-  for (const statement of projectionDdl()) {
+  const capabilities = options.capabilities ?? (await detectPgDialectCapabilities(client));
+  for (const statement of projectionDdl(capabilities)) {
     if (options.indexBuild !== "isolated" && statement.startsWith("DROP INDEX IF EXISTS ha_task_snapshots_")) {
       await client.query(statement.replace("DROP INDEX IF EXISTS", "DROP INDEX CONCURRENTLY IF EXISTS"));
       continue;
@@ -108,7 +123,7 @@ export async function ensurePgProjectionSchema(
     } else await client.query(statement);
   }
   for (const table of PG_REBUILDABLE_PROJECTION_TABLES) {
-    for (const statement of postgresScopeRlsStatements(table, { ifNotExists: true })) {
+    for (const statement of postgresScopeRlsStatements(table, { ifNotExists: true, capabilities })) {
       await client.query(statement);
     }
   }
@@ -127,8 +142,67 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
   for (const statement of eventRefIndexGrantDdl()) await client.query(statement);
 }
 
-export function projectionDdl(): readonly string[] {
+export function projectionDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  const unsettledRowUpsert = dialectUpsertValuesSql(capabilities, {
+      table: "ha_runtime_unsettled",
+      columns: [
+        { name: "tenant_id", valueSql: "NEW.tenant_id" },
+        { name: "project_id", valueSql: "NEW.project_id" },
+        { name: "policy_epoch", valueSql: "NEW.policy_epoch" },
+        { name: "readers", valueSql: "NEW.readers" },
+        { name: "entity_id", valueSql: "NEW.entity_id" },
+        { name: "value", valueSql: "NEW.value" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "entity_id"],
+      updates: [
+        { column: "readers", valueSql: "EXCLUDED.readers" },
+        { column: "value", valueSql: "EXCLUDED.value" },
+      ],
+    }),
+    unsettledMigrationUpsert = dialectUpsertSelectSql(capabilities, {
+      table: "ha_runtime_unsettled",
+      columns: ["tenant_id", "project_id", "policy_epoch", "readers", "entity_id", "value"],
+      selectSql: `SELECT tenant_id,project_id,policy_epoch,readers,entity_id,value FROM ha_projection_values
+          WHERE model='runtime-session' AND owner_id='' AND runtime_outcome IS NULL`,
+      conflictColumns: ["tenant_id", "project_id", "policy_epoch", "entity_id"],
+      updates: [
+        { column: "readers", valueSql: "EXCLUDED.readers" },
+        { column: "value", valueSql: "EXCLUDED.value" },
+      ],
+    }),
+    memoryClassColumnSql = capabilities.supportsStoredComputedColumns
+      ? "memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED"
+      : "memory_class text",
+    memoryClassMigrationStatements = capabilities.supportsStoredComputedColumns
+      ? [
+          dialectAddColumnIfNotExistsSql(
+            capabilities,
+            "ha_facts",
+            "memory_class",
+            "text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
+          ),
+        ]
+      : [
+          dialectAddColumnIfNotExistsSql(capabilities, "ha_facts", "memory_class", "text"),
+          `CREATE OR REPLACE FUNCTION ha_facts_memory_class_sync() RETURNS trigger
+            LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+            BEGIN
+              NEW.memory_class := NEW.value->>'memoryClass';
+              RETURN NEW;
+            END $function$`,
+          ...dialectCreateTriggerStatements(capabilities, {
+            triggerName: "ha_facts_memory_class_sync",
+            tableName: "ha_facts",
+            timingAndEvent: "BEFORE INSERT OR UPDATE OF value",
+            functionCall: "ha_facts_memory_class_sync()",
+          }),
+          "UPDATE ha_facts SET memory_class = value->>'memoryClass' WHERE memory_class IS DISTINCT FROM (value->>'memoryClass')",
+        ];
   return [
+    ...dialectCompatibilityPreludeStatements(capabilities),
+    ...postgresScopeWriteGuardFunctionStatements(capabilities),
     /* @gate-identity state-store/task.projection.ha_projection_values */ `CREATE TABLE IF NOT EXISTS ha_projection_values (
       ${POSTGRES_SCOPE_COLUMNS_SQL}, readers text[] NOT NULL DEFAULT '{}',
       model text NOT NULL, entity_id text NOT NULL, owner_id text NOT NULL DEFAULT '',
@@ -138,8 +212,8 @@ export function projectionDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_projection_values_ordered ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id,owner_id)`,
     `CREATE INDEX IF NOT EXISTS ha_projection_values_latest ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id,workspace_revision DESC)`,
     `CREATE INDEX IF NOT EXISTS ha_projection_values_lookup ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id)`,
-    ...documentMetadataDdl(),
-    ...readIndexDdl(),
+    ...documentMetadataDdl(capabilities),
+    ...readIndexDdl(capabilities),
     // Current-set projection for the home "in flight" read. A partial index over a mutable
     // outcome column accumulates dead entries between autovacuum runs (the G38 fixture measures
     // immediately after seeding), so an aggregate read must not depend on it. This table holds
@@ -172,10 +246,7 @@ export function projectionDdl(): readonly string[] {
         END IF;
         IF NEW.model='runtime-session' AND NEW.owner_id='' THEN
           IF NEW.runtime_outcome IS NULL THEN
-            INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value)
-            VALUES (NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.readers,NEW.entity_id,NEW.value)
-            ON CONFLICT (tenant_id,project_id,policy_epoch,entity_id)
-            DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
+            ${unsettledRowUpsert};
           ELSE
             DELETE FROM ha_runtime_unsettled WHERE tenant_id=NEW.tenant_id AND project_id=NEW.project_id
               AND policy_epoch=NEW.policy_epoch AND entity_id=NEW.entity_id;
@@ -183,26 +254,28 @@ export function projectionDdl(): readonly string[] {
         END IF;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_runtime_unsettled_sync AFTER INSERT OR UPDATE OF value, runtime_outcome
-      ON ha_projection_values FOR EACH ROW
-      WHEN (NEW.model = 'runtime-session' AND NEW.owner_id = '')
-      EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
-    `CREATE OR REPLACE TRIGGER ha_runtime_unsettled_delete AFTER DELETE ON ha_projection_values
-      FOR EACH ROW
-      WHEN (OLD.model = 'runtime-session' AND OLD.owner_id = '')
-      EXECUTE FUNCTION ha_runtime_unsettled_sync()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_runtime_unsettled_sync",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER INSERT OR UPDATE OF value, runtime_outcome",
+      whenSql: "NEW.model = 'runtime-session' AND NEW.owner_id = ''",
+      functionCall: "ha_runtime_unsettled_sync()",
+    }),
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_runtime_unsettled_delete",
+      tableName: "ha_projection_values",
+      timingAndEvent: "AFTER DELETE",
+      whenSql: "OLD.model = 'runtime-session' AND OLD.owner_id = ''",
+      functionCall: "ha_runtime_unsettled_sync()",
+    }),
     `DO $migration$
       BEGIN
         IF to_regclass('ha_projection_meta') IS NOT NULL THEN
-          INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value)
-          SELECT tenant_id,project_id,policy_epoch,readers,entity_id,value FROM ha_projection_values
-          WHERE model='runtime-session' AND owner_id='' AND runtime_outcome IS NULL
-          ON CONFLICT (tenant_id,project_id,policy_epoch,entity_id)
-          DO UPDATE SET readers=EXCLUDED.readers, value=EXCLUDED.value;
+          ${unsettledMigrationUpsert};
         END IF;
       END $migration$`,
-    ...artifactTimelineDdl(),
-    ...eventReadIndexDdl(),
+    ...artifactTimelineDdl(capabilities),
+    ...eventReadIndexDdl(capabilities),
     // Workspace scope event windows seek the explicit canonical task id.  The generic
     // task-index expression also covers runtime ownership, but it cannot serve this
     // predicate for task bootstrap/progress events without scanning unrelated history.
@@ -243,14 +316,14 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, decision_id)
     )`,
-    ...decisionIndexDdl(),
+    ...decisionIndexDdl(capabilities),
     /* @gate-identity state-store/task.projection.ha_facts */ `CREATE TABLE IF NOT EXISTS ha_facts (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
       fact_id text NOT NULL,
       workspace_revision bigint NOT NULL,
       value jsonb NOT NULL,
-      memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED,
+      ${memoryClassColumnSql},
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, fact_id)
     )`,
@@ -304,39 +377,54 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, projection_name)
     )`,
-    ...relationFreshnessDdl(),
-    ...relationCycleAuditDdl(),
-    ...relationReaderIndexDdl(),
-    ...entityDeclarationDdl,
-    ...decisionSearchDdl(),
-    ...decisionReadStatusDdl(),
+    ...relationFreshnessDdl(capabilities),
+    ...relationCycleAuditDdl(capabilities),
+    ...relationReaderIndexDdl(capabilities),
+    ...entityDeclarationDdlStatements(capabilities),
+    ...decisionSearchDdl(capabilities),
+    ...decisionReadStatusDdl(capabilities),
     `CREATE INDEX IF NOT EXISTS ha_document_heads_search_owner ON ha_document_heads
       (tenant_id,project_id,policy_epoch,path,repo_id)`,
-    ...PG_REBUILDABLE_PROJECTION_TABLES.map(
-      (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
+    ...PG_REBUILDABLE_PROJECTION_TABLES.map((table) =>
+      dialectAddColumnIfNotExistsSql(capabilities, table, "readers", "text[] NOT NULL DEFAULT '{}'"),
     ),
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS raw_lease jsonb",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS package_path text",
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "raw_lease", "jsonb"),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "package_path", "text"),
     // Old binary wrote projections before the artifact timeline index existed; the version asks
     // the embedded upgrade path to backfill once. Fresh inserts declare themselves complete.
-    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS artifact_index_version smallint NOT NULL DEFAULT 0",
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_projection_meta",
+      "artifact_index_version",
+      "smallint NOT NULL DEFAULT 0",
+    ),
     // Same contract for the dispatch lifecycle model: an older meta row reads pending until the
     // lifecycle backfill refolds it; fresh inserts declare the current model version.
-    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS dispatch_lifecycle_version smallint NOT NULL DEFAULT 0",
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_projection_meta",
+      "dispatch_lifecycle_version",
+      "smallint NOT NULL DEFAULT 0",
+    ),
     // Same contract for the canonical Inbox model.
-    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS inbox_version smallint NOT NULL DEFAULT 0",
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_projection_meta", "inbox_version", "smallint NOT NULL DEFAULT 0"),
     // Same contract for the PeerRequestV1 model.
-    "ALTER TABLE ha_projection_meta ADD COLUMN IF NOT EXISTS peer_request_version smallint NOT NULL DEFAULT 0",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
-    "ALTER TABLE ha_facts ADD COLUMN IF NOT EXISTS memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
+    dialectAddColumnIfNotExistsSql(
+      capabilities,
+      "ha_projection_meta",
+      "peer_request_version",
+      "smallint NOT NULL DEFAULT 0",
+    ),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "generation", "text NOT NULL DEFAULT 'v1'"),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "created_at", "timestamptz"),
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", "completed_at", "timestamptz"),
+    ...memoryClassMigrationStatements,
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
     // A lifecycle-status page (home "done in the last 24h", fleet "active leases") is an index
     // range, not a scan of every task the repository ever had.
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
-    ...taskParentIndexDdl(),
-    ...traceIndexDdl(),
+    ...taskParentIndexDdl(capabilities),
+    ...traceIndexDdl(capabilities),
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_status_updated_v2 ON ha_task_snapshots (tenant_id,project_id,policy_epoch,task_status,updated_at DESC,task_id)",
     "DROP INDEX IF EXISTS ha_task_snapshots_status_updated",
     ...PG_REBUILDABLE_PROJECTION_TABLES.map(

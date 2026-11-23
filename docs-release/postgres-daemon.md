@@ -98,3 +98,57 @@ Use real PostgreSQL evidence for deployment readiness. PGlite is a test adapter,
 available only on the supported Node runtime; it does not establish PostgreSQL RLS,
 role, lock or multi-node deployment behavior. No production storage switch is
 performed by this change.
+
+## PostgreSQL-compatible dialect support (openGauss 5.0+)
+
+`@harness-anything/storage` supports PostgreSQL 16+ as the primary SQL backend and
+detects compatible PostgreSQL-protocol servers — specifically **openGauss 5.0+** —
+at connection initialization inside the storage layer without leaking dialect logic
+into kernel, application, daemon, CLI or GUI layers.
+
+### Required database configuration
+
+- **Minimum version**: openGauss 5.0 or newer (verified empirically on openGauss 5.0.3).
+- **Compatibility mode (mandatory)**: The target database **must** be created with
+  PostgreSQL compatibility (`CREATE DATABASE harness WITH DBCOMPATIBILITY 'PG'`,
+  so `SHOW sql_compatibility` returns `PG`). Oracle-compatibility (`A`) databases treat
+  empty strings as `NULL` and break canonical primary keys such as `owner_id DEFAULT ''`;
+  the storage layer fails closed at startup with `code: "pg_dialect_incompatible"`.
+- **Wire authentication**: Standard `node-pg` (`pg`) connects directly without extra
+  database drivers when the server permits `md5` or `sha256`-compatible authentication
+  matching the client driver (`password_encryption_type = 1` with `md5` host rules in
+  `pg_hba.conf`, or equivalent TLS + password auth).
+- **Least-privilege runtime role**: Runtime connections must use a non-owner role without
+  `rolsuper` or `rolsystemadmin` (openGauss's administrative bypass equivalent to
+  PostgreSQL `rolbypassrls`).
+
+### Dialect adaptation boundaries (encapsulated in `@harness-anything/storage`)
+
+When an openGauss PG-mode server is detected, the storage dialect adapter automatically
+selects compatible SQL/DDL paths while keeping PostgreSQL 16+ behavior unchanged:
+
+- **Upserts**: Uses SQL-standard `MERGE INTO` on RLS-enabled tables (since openGauss
+  rejects `INSERT ... ON DUPLICATE KEY UPDATE` under row-level security with SQLSTATE
+  `0A000`) and `ON DUPLICATE KEY UPDATE NOTHING` on non-RLS authority tables, replacing
+  PostgreSQL `ON CONFLICT`.
+- **Row-Level Security**: Uses `CREATE ROW LEVEL SECURITY POLICY ... USING (...)` for
+  read/update/delete filtering, paired with a `BEFORE INSERT OR UPDATE` trigger
+  (`ha_enforce_scope_write_check`) that validates `session_user` privileges and rejects
+  unscoped or cross-tenant writes with SQLSTATE `42501` (closing openGauss's lack of
+  `CREATE POLICY ... WITH CHECK`).
+- **WAL / replication confirmation**: Uses `pg_current_xlog_location()` and
+  `pg_xlog_location_diff(receiver_flush_location, target_lsn)` instead of PG 10+
+  `pg_current_wal_flush_lsn()` / `pg_lsn`.
+- **Schema & query compatibility**: Uses `DO` blocks for idempotent `ADD COLUMN`,
+  `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER ... EXECUTE PROCEDURE`, `bigserial`
+  instead of `GENERATED ALWAYS AS IDENTITY`, `txid_current()` instead of `xid8`,
+  trigger fallback if stored generated columns are unavailable on a variant, and
+  non-`LATERAL` / `row_number()` rewrites for projection queries.
+
+### External identity provider database boundary
+
+Harness does not embed or share tables with an external identity provider (for example,
+a standalone Keycloak or OIDC deployment). When an external identity provider runs in
+the same cluster, place it in its own separate database instance or dedicated database
+schema with separate credentials; Harness only validates issued identity tokens at the
+`AuthorizationProvider` boundary and keeps `ha_*` tables isolated in the Harness database.

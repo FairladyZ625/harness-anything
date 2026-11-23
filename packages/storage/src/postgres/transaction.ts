@@ -6,6 +6,13 @@ import { Pool, type PoolClient, type PoolConfig } from "pg";
 import type { PostgresEventStoreScope } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "./scope-schema.ts";
+import {
+  dialectCurrentWalLsnSql,
+  dialectUpsertValuesSql,
+  ensurePoolDialectCapabilities,
+  getClientDialectCapabilities,
+  setClientDialectCapabilities,
+} from "./dialect.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export type { PostgresScopeClaims } from "@harness-anything/kernel/internal/domain/storage-scope-policy.ts";
@@ -71,6 +78,7 @@ export function borrowPostgresCommitWork(client: PoolClient, owner: PoolClient):
   const pending = committedWork.get(owner);
   if (!pending) throw new Error("PostgreSQL borrowed read requires an owned transaction");
   committedWork.set(client, pending);
+  setClientDialectCapabilities(client, getClientDialectCapabilities(owner));
   return client;
 }
 
@@ -110,6 +118,7 @@ export async function withPostgresTransaction<T>(
     pending: (() => Promise<void>)[] = inherited ?? [];
   committedWork.set(client, pending);
   try {
+    if (!inherited) await ensurePoolDialectCapabilities(pool, client);
     await client.query(
       `${options?.isolationLevel ? `BEGIN ISOLATION LEVEL ${options.isolationLevel.toUpperCase()}` : "BEGIN"}${options?.readOnly ? " READ ONLY" : ""}`,
     );
@@ -182,6 +191,58 @@ export async function advanceConfirmedRepoCut(
   repoId: string,
   cut: ConfirmedRepoCut,
 ): Promise<void> {
+  const capabilities = getClientDialectCapabilities(client);
+  if (!capabilities.supportsOnConflict) {
+    const mergeSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_repo_sync_watermarks",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "repo_id", valueSql: "$4::text" },
+        { name: "replication_history", valueSql: "$5::text" },
+        { name: "confirmed_revision", valueSql: "$6::bigint" },
+        { name: "confirmed_sequence", valueSql: "$7::bigint" },
+        { name: "readers", valueSql: "$8::text[]" },
+        { name: "policy_epoch", valueSql: "$3::bigint" },
+      ],
+      conflictColumns: ["tenant_id", "project_id", "repo_id"],
+      updates: [
+        { column: "replication_history", valueSql: "EXCLUDED.replication_history" },
+        {
+          column: "confirmed_revision",
+          valueSql:
+            "CASE WHEN ha_repo_sync_watermarks.replication_history=EXCLUDED.replication_history THEN GREATEST(ha_repo_sync_watermarks.confirmed_revision,EXCLUDED.confirmed_revision) ELSE EXCLUDED.confirmed_revision END",
+        },
+        {
+          column: "confirmed_sequence",
+          valueSql:
+            "CASE WHEN ha_repo_sync_watermarks.replication_history=EXCLUDED.replication_history THEN GREATEST(ha_repo_sync_watermarks.confirmed_sequence,EXCLUDED.confirmed_sequence) ELSE EXCLUDED.confirmed_sequence END",
+        },
+        { column: "readers", valueSql: "EXCLUDED.readers" },
+        { column: "policy_epoch", valueSql: "EXCLUDED.policy_epoch" },
+        { column: "updated_at", valueSql: "clock_timestamp()" },
+      ],
+    });
+    await client.query("BEGIN");
+    try {
+      await setPostgresClaims(client, scope);
+      await client.query(mergeSql, [
+        scope.tenantId,
+        scope.projectId,
+        String(scope.policyEpoch),
+        repoId,
+        cut.history,
+        cut.confirmedRevision,
+        cut.confirmedSequence,
+        scope.readers,
+      ]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    }
+    return;
+  }
   await client.query(
     `WITH claims AS MATERIALIZED (
        SELECT set_config('ha.tenant_id',$1,true), set_config('ha.project_id',$2,true),
@@ -217,7 +278,8 @@ export async function backfillConfirmedLegacyOutcomes(
   scope: PostgresEventStoreScope,
   repoId: string,
 ): Promise<void> {
-  const keys = [scope.tenantId, scope.projectId, repoId];
+  const keys = [scope.tenantId, scope.projectId, repoId],
+    lsnSql = dialectCurrentWalLsnSql(getClientDialectCapabilities(client));
   await client.query("SET LOCAL synchronous_commit = on");
   await client.query(
     `UPDATE ha_command_outcomes o SET replication_sequence=p.sequence FROM ha_replication_positions p
@@ -226,7 +288,7 @@ export async function backfillConfirmedLegacyOutcomes(
     keys,
   );
   await client.query(
-    `WITH proof AS MATERIALIZED (SELECT ha_is_lsn_sync_confirmed(pg_current_wal_flush_lsn()) AS confirmed)
+    `WITH proof AS MATERIALIZED (SELECT ha_is_lsn_sync_confirmed(${lsnSql}) AS confirmed)
      UPDATE ha_command_outcomes SET replication_sequence=0
      WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND replication_sequence IS NULL
        AND (SELECT confirmed FROM proof)`,
@@ -271,13 +333,11 @@ export async function resolveConfirmedRepoCut(
     Number(row.wm_seq) >= Number(row.max_seq);
   // PostgreSQL checks function EXECUTE even for an unselected CASE branch. An absent head
   // or an already proven watermark must not require the cold-recovery privilege at all.
+  const lsnSql = dialectCurrentWalLsnSql(getClientDialectCapabilities(client));
   const confirmed =
     hot ||
-    (
-      await client.query<{ confirmed: boolean }>(
-        "SELECT ha_is_lsn_sync_confirmed(pg_current_wal_flush_lsn()) AS confirmed",
-      )
-    ).rows[0]!.confirmed;
+    (await client.query<{ confirmed: boolean }>(`SELECT ha_is_lsn_sync_confirmed(${lsnSql}) AS confirmed`)).rows[0]!
+      .confirmed;
   if (confirmed) {
     const cut = {
       history: row.replication_history,

@@ -32,6 +32,7 @@ import {
   resolveConfirmedRepoCut,
   type ConfirmedRepoCut,
 } from "./transaction.ts";
+import { dialectUpsertValuesSql, getClientDialectCapabilities } from "./dialect.ts";
 import {
   assertAuthorizedReplacements,
   requiresReplacementAuthorization,
@@ -225,15 +226,26 @@ export async function executePostgresAppend(
   return withPostgresTransaction(
     pool,
     async (client) => {
+      const capabilities = getClientDialectCapabilities(client);
       signal?.throwIfAborted();
       await client.query("SET LOCAL synchronous_commit = on");
       await client.query("SET LOCAL statement_timeout = 0");
-      await client.query("SET LOCAL transaction_timeout = 0");
+      if (capabilities.supportsTransactionDurationGuc) await client.query("SET LOCAL transaction_timeout = 0");
       const prior = await readOutcome(client, scope, { repoId, opId });
       if (prior) return replayOutcome(client, scope, repoId, prior, intentDigest);
       await client.query(
-        `INSERT INTO ha_repo_heads (tenant_id, project_id, repo_id, revision, readers, policy_epoch)
-           VALUES ($1,$2,$3,0,$4,$5) ON CONFLICT (tenant_id,project_id,repo_id) DO NOTHING`,
+        dialectUpsertValuesSql(capabilities, {
+          table: "ha_repo_heads",
+          columns: [
+            { name: "tenant_id", valueSql: "$1::text" },
+            { name: "project_id", valueSql: "$2::text" },
+            { name: "repo_id", valueSql: "$3::text" },
+            { name: "revision", valueSql: "0::bigint" },
+            { name: "readers", valueSql: "$4::text[]" },
+            { name: "policy_epoch", valueSql: "$5::bigint" },
+          ],
+          conflictColumns: ["tenant_id", "project_id", "repo_id"],
+        }),
         [scope.tenantId, scope.projectId, repoId, scope.readers, scope.policyEpoch],
       );
       const locked = (
@@ -284,8 +296,19 @@ export async function executePostgresAppend(
       for (const blob of blobs) {
         const bytes = Buffer.from(blob.bodyBase64, "base64");
         await client.query(
-          `INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch)
-             VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (tenant_id,project_id,sha256) DO NOTHING`,
+          dialectUpsertValuesSql(capabilities, {
+            table: "ha_content_blobs",
+            columns: [
+              { name: "tenant_id", valueSql: "$1::text" },
+              { name: "project_id", valueSql: "$2::text" },
+              { name: "sha256", valueSql: "$3::text" },
+              { name: "size", valueSql: "$4::bigint" },
+              { name: "body", valueSql: "$5::bytea" },
+              { name: "readers", valueSql: "$6::text[]" },
+              { name: "policy_epoch", valueSql: "$7::bigint" },
+            ],
+            conflictColumns: ["tenant_id", "project_id", "sha256"],
+          }),
           [scope.tenantId, scope.projectId, blob.sha256, blob.size, bytes, scope.readers, scope.policyEpoch],
         );
       }
@@ -569,25 +592,44 @@ export async function updateDocumentHeads(
       nodeKind: null,
     })),
   ];
-  for (const change of changes)
-    await client.query(
-      `INSERT INTO ha_document_heads (tenant_id,project_id,repo_id,path,sha256,size,node_kind,revision,readers,policy_epoch)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT (tenant_id,project_id,repo_id,path) DO UPDATE SET sha256=EXCLUDED.sha256,size=EXCLUDED.size,
-         node_kind=EXCLUDED.node_kind,revision=EXCLUDED.revision,readers=EXCLUDED.readers,policy_epoch=EXCLUDED.policy_epoch`,
-      [
-        scope.tenantId,
-        scope.projectId,
-        repoId,
-        change.path,
-        change.sha256,
-        change.size,
-        change.nodeKind,
-        event.workspaceRevision,
-        scope.readers,
-        scope.policyEpoch,
+  const capabilities = getClientDialectCapabilities(client),
+    upsertSql = dialectUpsertValuesSql(capabilities, {
+      table: "ha_document_heads",
+      columns: [
+        { name: "tenant_id", valueSql: "$1::text" },
+        { name: "project_id", valueSql: "$2::text" },
+        { name: "repo_id", valueSql: "$3::text" },
+        { name: "path", valueSql: "$4::text" },
+        { name: "sha256", valueSql: "$5::text" },
+        { name: "size", valueSql: "$6::bigint" },
+        { name: "node_kind", valueSql: "$7::text" },
+        { name: "revision", valueSql: "$8::bigint" },
+        { name: "readers", valueSql: "$9::text[]" },
+        { name: "policy_epoch", valueSql: "$10::bigint" },
       ],
-    );
+      conflictColumns: ["tenant_id", "project_id", "repo_id", "path"],
+      updates: [
+        { column: "sha256", valueSql: "EXCLUDED.sha256" },
+        { column: "size", valueSql: "EXCLUDED.size" },
+        { column: "node_kind", valueSql: "EXCLUDED.node_kind" },
+        { column: "revision", valueSql: "EXCLUDED.revision" },
+        { column: "readers", valueSql: "EXCLUDED.readers" },
+        { column: "policy_epoch", valueSql: "EXCLUDED.policy_epoch" },
+      ],
+    });
+  for (const change of changes)
+    await client.query(upsertSql, [
+      scope.tenantId,
+      scope.projectId,
+      repoId,
+      change.path,
+      change.sha256,
+      change.size,
+      change.nodeKind,
+      event.workspaceRevision,
+      scope.readers,
+      scope.policyEpoch,
+    ]);
 }
 
 export interface HeadRow {

@@ -23,6 +23,7 @@ import { pgInboxQueries } from "./pg-inbox.ts";
 import { pgPeerRequestQueries } from "./pg-peer-request.ts";
 import type { Pool } from "pg";
 import { pgEventQueries, pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import type {
   DecisionAgendaProjectionPageRead,
   DecisionProjectionListRead,
@@ -193,7 +194,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           // snapshot status, never the recursive subtree rollup. The rollup is computed only when
           // the caller reads presentation status; an explicit raw caller may skip even the scalar.
           presentation = presentationStatus
-            ? presentationStatusSql(5)
+            ? presentationStatusSql(5, getClientDialectCapabilities(client))
             : presentationRollup
               ? "snapshot #>> '{task,status}'"
               : "NULL::text",
@@ -243,7 +244,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           ];
         if (query.status !== undefined) {
           values.push(query.status);
-          where.push(`${query.presentationStatus ? presentationStatusSql(4) : "task_status"} = $${values.length}`);
+          where.push(
+            `${query.presentationStatus ? presentationStatusSql(4, getClientDialectCapabilities(client)) : "task_status"} = $${values.length}`,
+          );
         }
         if (query.search !== undefined) {
           const search = query.search.replace(/[\\%_]/gu, "\\$&");
@@ -334,7 +337,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
         const limitParameter = limit === null ? null : values.push(limit + 1);
         const repoParameter = values.push(repoId),
-          presentation = query.presentationStatus ? presentationStatusSql(4) : "task_status",
+          presentation = query.presentationStatus
+            ? presentationStatusSql(4, getClientDialectCapabilities(client))
+            : "task_status",
           result = await client.query<{
             task_id: string;
             package_path: string | null;

@@ -16,6 +16,7 @@ import {
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { decisionLegacyId } from "../projection/decision-projection-reads.ts";
 import { PgDecisionBackfillPendingError } from "./pg-decision-read-status.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 
 export interface PgDecisionReviewSummary {
   readonly review: DecisionListReview | null;
@@ -40,16 +41,28 @@ export async function readPgDecisionRows(
     readers = [...(scope.readers ?? [])],
     withReview = rows[0]!.review_summary !== undefined,
     relations = await client.query<{ value: Record<string, unknown> }>(
-      `SELECT edge.value FROM unnest($4::text[]) AS requested(root)
-       CROSS JOIN LATERAL (
-         SELECT relation_id,value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND source_ref=requested.root AND (cardinality($5::text[])=0 OR readers && $5::text[])
-         UNION ALL
-         SELECT relation_id,value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-           AND source_ref COLLATE "C" >= (requested.root || '/') COLLATE "C"
-           AND source_ref COLLATE "C" < (requested.root || '0') COLLATE "C"
-           AND (cardinality($5::text[])=0 OR readers && $5::text[])
-       ) edge ORDER BY edge.relation_id`,
+      getClientDialectCapabilities(client).supportsLateralJoin
+        ? `SELECT edge.value FROM unnest($4::text[]) AS requested(root)
+           CROSS JOIN LATERAL (
+             SELECT relation_id,value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+               AND source_ref=requested.root AND (cardinality($5::text[])=0 OR readers && $5::text[])
+             UNION ALL
+             SELECT relation_id,value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+               AND source_ref COLLATE "C" >= (requested.root || '/') COLLATE "C"
+               AND source_ref COLLATE "C" < (requested.root || '0') COLLATE "C"
+               AND (cardinality($5::text[])=0 OR readers && $5::text[])
+           ) edge ORDER BY edge.relation_id`
+        : `SELECT edge.value FROM (
+             SELECT r.relation_id,r.value FROM unnest($4::text[]) AS requested(root)
+             JOIN ha_relations r ON r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3
+               AND r.source_ref=requested.root AND (cardinality($5::text[])=0 OR r.readers && $5::text[])
+             UNION ALL
+             SELECT r.relation_id,r.value FROM unnest($4::text[]) AS requested(root)
+             JOIN ha_relations r ON r.tenant_id=$1 AND r.project_id=$2 AND r.policy_epoch=$3
+               AND r.source_ref COLLATE "C" >= (requested.root || '/') COLLATE "C"
+               AND r.source_ref COLLATE "C" < (requested.root || '0') COLLATE "C"
+               AND (cardinality($5::text[])=0 OR r.readers && $5::text[])
+           ) edge ORDER BY edge.relation_id`,
       [scope.tenantId, scope.projectId, scope.policyEpoch, ids.map((id) => `decision/${id}`), readers],
     ),
     documents = await client.query<{ entity_id: string; model: string; value: string }>(

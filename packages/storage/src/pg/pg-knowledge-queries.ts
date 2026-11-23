@@ -115,7 +115,7 @@ export function pgKnowledgeQueries(
         [...parameters, factRefs.map((ref) => ref.slice(5))],
       ),
       tasks = await client.query<{ ref: string; status: string }>(
-        `SELECT 'task/' || task_id AS ref,snapshot#>>'{task,status}' AS status FROM ha_task_snapshots
+        `SELECT 'task/' || task_id AS ref,snapshot #>>'{task,status}' AS status FROM ha_task_snapshots
         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
         AND task_id=ANY($5::text[]) ORDER BY task_id`,
         [...parameters, taskIds],

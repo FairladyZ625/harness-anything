@@ -1,25 +1,35 @@
 import type { PoolClient } from "pg";
+import {
+  STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+  dialectAddColumnIfNotExistsSql,
+  dialectCreateTriggerStatements,
+  type PgDialectCapabilities,
+} from "../postgres/dialect.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 /** RLS cannot push non-leakproof JSON extraction into an index condition. Keep the
  * derived parent scalar in the same row; current and previous writers share its trigger.
  */
-export function taskParentIndexDdl(): readonly string[] {
+export function taskParentIndexDdl(
+  capabilities: PgDialectCapabilities = STANDARD_POSTGRES_DIALECT_CAPABILITIES,
+): readonly string[] {
+  const addCol = (col: string, def: string) =>
+    dialectAddColumnIfNotExistsSql(capabilities, "ha_task_snapshots", col, def);
   return [
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS parent_task_id text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_status text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_title text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_pinned boolean",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_class text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_superseded_by text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_work_kind text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_risk_tier text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_urgency text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_slug text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_package_disposition text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_lease_phase text",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS parent_index_version smallint NOT NULL DEFAULT 0",
-    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS task_index_version smallint NOT NULL DEFAULT 0",
+    addCol("parent_task_id", "text"),
+    addCol("task_status", "text"),
+    addCol("task_title", "text"),
+    addCol("task_pinned", "boolean"),
+    addCol("task_class", "text"),
+    addCol("task_superseded_by", "text"),
+    addCol("task_work_kind", "text"),
+    addCol("task_risk_tier", "text"),
+    addCol("task_urgency", "text"),
+    addCol("task_slug", "text"),
+    addCol("task_package_disposition", "text"),
+    addCol("task_lease_phase", "text"),
+    addCol("parent_index_version", "smallint NOT NULL DEFAULT 0"),
+    addCol("task_index_version", "smallint NOT NULL DEFAULT 0"),
     `CREATE OR REPLACE FUNCTION ha_task_parent_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       BEGIN
@@ -34,13 +44,17 @@ export function taskParentIndexDdl(): readonly string[] {
         NEW.task_urgency := NEW.snapshot #>> '{task,metadata,urgency}';
         NEW.task_slug := NEW.snapshot #>> '{task,metadata,slug}';
         NEW.task_package_disposition := COALESCE(NEW.snapshot #>> '{task,packageDisposition}', 'active');
-        NEW.task_lease_phase := NEW.raw_lease->>'phase';
+        NEW.task_lease_phase := CASE WHEN jsonb_typeof(NEW.raw_lease) = 'object' THEN NEW.raw_lease->>'phase' END;
         NEW.parent_index_version := 1;
         NEW.task_index_version := 2;
         RETURN NEW;
       END $function$`,
-    `CREATE OR REPLACE TRIGGER ha_task_parent_index_fields BEFORE INSERT OR UPDATE OF snapshot,readers,raw_lease
-      ON ha_task_snapshots FOR EACH ROW EXECUTE FUNCTION ha_task_parent_index_fields()`,
+    ...dialectCreateTriggerStatements(capabilities, {
+      triggerName: "ha_task_parent_index_fields",
+      tableName: "ha_task_snapshots",
+      timingAndEvent: "BEFORE INSERT OR UPDATE OF snapshot,readers,raw_lease",
+      functionCall: "ha_task_parent_index_fields()",
+    }),
     `CREATE INDEX IF NOT EXISTS ha_task_snapshots_parent ON ha_task_snapshots
       (tenant_id,project_id,policy_epoch,parent_task_id,task_id)`,
     // Keep the seek key narrow.  The task payload stays in the heap/TOAST row;

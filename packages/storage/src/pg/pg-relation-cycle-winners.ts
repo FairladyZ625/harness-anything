@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import type { RelationCycleIssue } from "@harness-anything/kernel";
+import { dialectUpsertSelectSql, getClientDialectCapabilities } from "../postgres/dialect.ts";
 
 interface Node {
   readonly component_id: string;
@@ -61,10 +62,24 @@ export class PgRelationCycleWinners {
     }
     const winner = await this.minimum(this.root);
     await this.client.query(
-      `INSERT INTO ha_relation_cycle_result(tenant_id,project_id,policy_epoch,reader_key,relation_type,root_component_id,issue_json)
-       SELECT $1,$2,$3,$4,$5,$7,issue_json FROM ha_relation_cycle_component WHERE ${scopedType} AND component_id=$6
-       ON CONFLICT (tenant_id,project_id,policy_epoch,reader_key,relation_type) DO UPDATE
-         SET root_component_id=EXCLUDED.root_component_id,issue_json=EXCLUDED.issue_json`,
+      dialectUpsertSelectSql(getClientDialectCapabilities(this.client), {
+        table: "ha_relation_cycle_result",
+        columns: [
+          "tenant_id",
+          "project_id",
+          "policy_epoch",
+          "reader_key",
+          "relation_type",
+          "root_component_id",
+          "issue_json",
+        ],
+        selectSql: `SELECT $1::text AS tenant_id,$2::text AS project_id,$3::bigint AS policy_epoch,$4::text[] AS reader_key,$5::text AS relation_type,$7::text AS root_component_id,issue_json FROM ha_relation_cycle_component WHERE ${scopedType} AND component_id=$6`,
+        conflictColumns: ["tenant_id", "project_id", "policy_epoch", "reader_key", "relation_type"],
+        updates: [
+          { column: "root_component_id", valueSql: "EXCLUDED.root_component_id" },
+          { column: "issue_json", valueSql: "EXCLUDED.issue_json" },
+        ],
+      }),
       [...this.keys, winner.component_id, this.root],
     );
   }

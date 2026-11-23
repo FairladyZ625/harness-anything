@@ -4,6 +4,7 @@ import { Pool, type PoolClient } from "pg";
 import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 import { POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/event-ledger-schema.ts";
 import { PG_PROJECTION_TABLES } from "../pg/pg-projection-schema.ts";
+import { dialectLsnSyncFunctionSignature, getClientDialectCapabilities } from "../postgres/dialect.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 
 const tables = [...POSTGRES_EVENT_LEDGER_TABLES, ...PG_PROJECTION_TABLES];
@@ -31,34 +32,37 @@ export async function createMigrationGrant(
     password = randomBytes(32).toString("hex"),
     predicate = `EXISTS (SELECT 1 FROM ha_migration_grants g WHERE g.role_name=session_user AND g.tenant_id=tenant_id AND g.project_id=project_id AND g.expires_at>clock_timestamp())`;
   await withPostgresTransaction(admin, async (client) => {
+    const capabilities = getClientDialectCapabilities(client),
+      policyKeyword = capabilities.supportsRlsWithCheck ? "CREATE POLICY" : "CREATE ROW LEVEL SECURITY POLICY",
+      roleAttrs = capabilities.supportsRoleBypassRls
+        ? "LOGIN PASSWORD '" + password + "' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
+        : "LOGIN PASSWORD '" + password + "' NOCREATEDB NOCREATEROLE NOINHERIT";
     await client.query(
       /* @gate-identity state-store/migration.source.storage.src.migration.postgres-grant.postgres-database */ `CREATE TABLE IF NOT EXISTS ha_migration_grants(role_name text NOT NULL, run_id text NOT NULL, tenant_id text NOT NULL, project_id text NOT NULL, expires_at timestamptz NOT NULL, PRIMARY KEY(role_name,tenant_id,project_id))`,
     );
     await client.query("ALTER TABLE ha_migration_grants ENABLE ROW LEVEL SECURITY");
-    await client.query("ALTER TABLE ha_migration_grants FORCE ROW LEVEL SECURITY");
+    if (capabilities.supportsForceRls) await client.query("ALTER TABLE ha_migration_grants FORCE ROW LEVEL SECURITY");
     // An interrupted exporter cannot run finally. Expiry revokes reads immediately; the next management
     // entry reaps its login and policies without a background timer or a host service.
     const expired = await client.query<{ role_name: string }>(
       "SELECT role_name FROM ha_migration_grants GROUP BY role_name HAVING max(expires_at)<=clock_timestamp()",
     );
     for (const row of expired.rows) await removeGrant(client, row.role_name);
-    await client.query(
-      `CREATE ROLE "${role}" LOGIN PASSWORD '${password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS VALID UNTIL '${expiresAt.replaceAll("'", "''")}'`,
-    );
+    await client.query(`CREATE ROLE "${role}" ${roleAttrs} VALID UNTIL '${expiresAt.replaceAll("'", "''")}'`);
     await client.query(`GRANT USAGE ON SCHEMA public TO "${role}"`);
     await client.query(`GRANT SELECT ON ha_migration_grants, ${tables.join(",")} TO "${role}"`);
-    await client.query(`GRANT EXECUTE ON FUNCTION ha_is_lsn_sync_confirmed(pg_lsn) TO "${role}"`);
+    await client.query(`GRANT EXECUTE ON FUNCTION ${dialectLsnSyncFunctionSignature(capabilities)} TO "${role}"`);
     await client.query(
-      `CREATE POLICY "${role}" ON ha_migration_grants FOR SELECT TO "${role}" USING(role_name=session_user)`,
+      `${policyKeyword} "${role}" ON ha_migration_grants FOR SELECT TO "${role}" USING(role_name=session_user)`,
     );
     for (const table of tables) {
       const condition = predicate
         .replace("g.tenant_id=tenant_id", `g.tenant_id=${table}.tenant_id`)
         .replace("g.project_id=project_id", `g.project_id=${table}.project_id`);
-      await client.query(`CREATE POLICY "${role}_read" ON ${table} FOR SELECT TO "${role}" USING(${condition})`);
+      await client.query(`${policyKeyword} "${role}_read" ON ${table} FOR SELECT TO "${role}" USING(${condition})`);
       // A restrictive policy defeats the existing permissive claims policy even if the login changes every GUC.
       await client.query(
-        `CREATE POLICY "${role}_bound" ON ${table} AS RESTRICTIVE FOR SELECT TO "${role}" USING(${condition})`,
+        `${policyKeyword} "${role}_bound" ON ${table} AS RESTRICTIVE FOR SELECT TO "${role}" USING(${condition})`,
       );
     }
     for (const scope of scopes)

@@ -33,6 +33,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { resolveConfirmedRepoCut, withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
+import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource, PgProjectionCut } from "./pg-task-source.ts";
 
 /** SQLite event_index keeps accepted bytes unless the registered reviewer-key transform changes a dispatch. */
@@ -698,6 +699,60 @@ async function readPgFleetNodeActivity(
 ): Promise<FleetNodeActivity[]> {
   const eventScope = `tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision <= $6
     AND (cardinality($5::text[])=0 OR readers && $5::text[])`;
+  if (!getClientDialectCapabilities(client).supportsLateralJoin) {
+    const activity: FleetNodeActivity[] = [];
+    for (const nodeId of nodeIds) {
+      const [tasksRes, dispatchesRes, eventsRes] = [
+        await client.query<FleetRecentTask>(
+          `SELECT a.task_id AS "taskId", t.task_title AS title,
+             COALESCE(t.task_status,'unknown') AS "coordinationStatus",
+             a.person_id AS "personId", a.updated_at AS "updatedAt"
+           FROM (
+             SELECT task_id,person_id,updated_at FROM ha_fleet_node_tasks
+             WHERE ${eventScope} AND node_id=$7
+             ORDER BY updated_at DESC,task_id LIMIT ${FLEET_RECENT_TASK_LIMIT}
+           ) a
+           JOIN ha_task_snapshots t ON t.tenant_id=$1 AND t.project_id=$2 AND t.policy_epoch=$3
+             AND t.task_id=a.task_id AND (cardinality($5::text[])=0 OR t.readers && $5::text[])
+           ORDER BY a.updated_at DESC,a.task_id`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, scope.readers ?? [], watermark, nodeId],
+        ),
+        await client.query<FleetRecentDispatch>(
+          `SELECT d.dispatch_id AS "dispatchId", d.runtime_session_id AS "runtimeSessionId",
+             d.fleet_task_id AS "taskId", t.task_title AS "taskTitle", d.agent_id AS "agentId",
+             COALESCE(d.agent_label,d.agent_id) AS "agentLabel", d.actor_person_id AS "personId",
+             COALESCE(s.runtime_outcome,
+               CASE WHEN s.runtime_liveness IN ('live','stale') THEN 'running' ELSE 'unknown' END) AS status,
+             d.dispatch_activity_at AS "startedAt"
+           FROM (
+             SELECT revision,dispatch_id,runtime_session_id,fleet_task_id,actor_person_id,agent_id,agent_label,dispatch_activity_at
+             FROM ha_events WHERE ${eventScope} AND fleet_node_id=$7 AND event_type='runtime_dispatch_requested'
+             ORDER BY dispatch_activity_at DESC,revision DESC LIMIT ${FLEET_RECENT_DISPATCH_LIMIT}
+           ) d
+           LEFT JOIN ha_task_snapshots t ON t.tenant_id=$1 AND t.project_id=$2 AND t.policy_epoch=$3
+             AND t.task_id=d.fleet_task_id COLLATE "default" AND (cardinality($5::text[])=0 OR t.readers && $5::text[])
+           LEFT JOIN ha_projection_values s ON s.tenant_id=$1 AND s.project_id=$2 AND s.policy_epoch=$3
+             AND s.model='runtime-session' AND s.owner_id='' AND s.entity_id=d.runtime_session_id COLLATE "default"
+             AND (cardinality($5::text[])=0 OR s.readers && $5::text[])
+           ORDER BY d.dispatch_activity_at DESC,d.revision DESC`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, scope.readers ?? [], watermark, nodeId],
+        ),
+        await client.query<PgFleetHeaderRow>(
+          `SELECT revision,summary_json,fleet_node_id,fleet_source_json,actor_person_id
+           FROM ha_events WHERE ${eventScope} AND fleet_node_id=$7 AND event_type<>'ci_run_observed'
+           ORDER BY revision DESC LIMIT ${FLEET_RECENT_EVENT_LIMIT}`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, repoId, scope.readers ?? [], watermark, nodeId],
+        ),
+      ];
+      activity.push({
+        nodeId,
+        recentTasks: tasksRes.rows,
+        recentDispatches: dispatchesRes.rows,
+        recentEvents: eventsRes.rows.map((event) => fleetEventSummary(pgFleetHeader(event))),
+      });
+    }
+    return activity;
+  }
   const { rows } = await client.query<{
     node_id: string;
     tasks: FleetRecentTask[];

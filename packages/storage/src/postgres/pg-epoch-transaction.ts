@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { migrationWritable } from "../migration/types.ts";
 import { WriterEpochError, type WriterEpochLease } from "../writer-epoch-contract.ts";
+import { dialectUpsertDoNothingSql, ensurePoolDialectCapabilities } from "./dialect.ts";
 import { commitPostgresTransaction } from "./transaction.ts";
 
 export type PgEpochOperation = "acquire" | "current" | "floor" | "retire" | "begin" | "end";
@@ -42,14 +43,16 @@ export function pgEpochTransactions(pool: Pool) {
         releaseError: Error | undefined;
       try {
         if (!snapshot) {
+          const capabilities = await ensurePoolDialectCapabilities(pool, client);
           await client.query("BEGIN");
           await client.query("SET LOCAL statement_timeout = 0");
-          await client.query("SET LOCAL transaction_timeout = 0");
+          if (capabilities.supportsTransactionDurationGuc) await client.query("SET LOCAL transaction_timeout = 0");
+          if (request.operation === "acquire")
+            await client.query(
+              `INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ${dialectUpsertDoNothingSql(capabilities)}`,
+              [request.repoId],
+            );
         }
-        if (request.operation === "acquire")
-          await client.query("INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ON CONFLICT DO NOTHING", [
-            request.repoId,
-          ]);
         const row = (
           await client.query<{
             writer_epoch: string;
