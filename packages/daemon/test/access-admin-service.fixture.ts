@@ -9,7 +9,7 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak"
 import { managedRbacReceiptJournal } from "../src/daemon-host/access-admin-state.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { saveFleetCenterConfig } from "../src/daemon-host/fleet-center-config.ts";
-import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
+import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/daemon-host/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/daemon-host/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
@@ -115,7 +115,12 @@ export async function edgeJoinCenter(t: TestContext, base: Awaited<ReturnType<ty
       ["-c", "user.name=Edge invite test", "-c", "user.email=edge-invite@example.invalid", "commit", "-qm", "seed"],
       { cwd: canonicalRoot },
     );
-    registerBootstrappedDaemonRepo({ canonicalRoot, repoId, userRoot: base.root, createConvenienceLinks: false });
+    await registerSettledBootstrappedDaemonRepo({
+      canonicalRoot,
+      repoId,
+      userRoot: base.root,
+      createConvenienceLinks: false,
+    });
   }
   saveFleetCenterConfig(base.root, "default", {
     bind: "127.0.0.1",

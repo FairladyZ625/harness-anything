@@ -198,6 +198,7 @@ export async function register(root: string, userRoot: string, repoId: string, e
     seeded = seedSettingsEvent({
       rootDir: root,
       repoId,
+      keepOpen: true,
       writerEpochFence: {
         schema: "harness-writer-epoch-fence/v1",
         stateRoot,

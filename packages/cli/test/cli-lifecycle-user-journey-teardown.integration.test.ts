@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   assert,
-  rmSync,
   runClient,
   setup,
   startClient,

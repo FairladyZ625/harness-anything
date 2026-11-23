@@ -181,6 +181,7 @@ pgliteIntegrationSuite("PGlite foundation", () => {
       });
     } finally {
       await backend.close();
+      await sqlite.drain();
       removeTempRepository(root);
       removeTempRepository(dataDir);
     }

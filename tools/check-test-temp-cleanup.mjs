@@ -28,29 +28,31 @@ function walkTestFiles(dir, out = []) {
   return out;
 }
 
-function isRmSyncCallee(expr) {
-  if (ts.isIdentifier(expr)) return expr.text === "rmSync";
-  if (ts.isPropertyAccessExpression(expr)) return expr.name.text === "rmSync";
-  if (ts.isElementAccessExpression(expr) && ts.isStringLiteralLike(expr.argumentExpression)) {
-    return expr.argumentExpression.text === "rmSync";
-  }
-  return false;
-}
-
-function hasRecursiveTrueOption(arg) {
-  if (!arg || !ts.isObjectLiteralExpression(arg)) return false;
-  for (const prop of arg.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue;
+function bareRecursiveRmSyncViolation(node, sf, relPath) {
+  if (!ts.isCallExpression(node) || node.arguments.length < 2) return null;
+  const expr = node.expression;
+  const calleeName = ts.isIdentifier(expr)
+    ? expr.text
+    : ts.isPropertyAccessExpression(expr)
+      ? expr.name.text
+      : ts.isElementAccessExpression(expr) && ts.isStringLiteralLike(expr.argumentExpression)
+        ? expr.argumentExpression.text
+        : null;
+  if (calleeName !== "rmSync") return null;
+  const optionsArg = node.arguments[1];
+  if (!optionsArg || !ts.isObjectLiteralExpression(optionsArg)) return null;
+  const recursiveProp = optionsArg.properties.find((prop) => {
+    if (!ts.isPropertyAssignment(prop)) return false;
     const name = ts.isIdentifier(prop.name)
       ? prop.name.text
       : ts.isStringLiteralLike(prop.name)
         ? prop.name.text
         : null;
-    if (name === "recursive" && prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
-      return true;
-    }
-  }
-  return false;
+    return name === "recursive" && prop.initializer.kind === ts.SyntaxKind.TrueKeyword;
+  });
+  if (!recursiveProp) return null;
+  const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+  return `${relPath}:${line + 1}:${character + 1}: bare recursive rmSync(...) is forbidden in tests; use removeTempRepository(...) from tools/fixtures/remove-temp-repository.ts`;
 }
 
 export function checkTestTempCleanup(root = DEFAULT_ROOT) {
@@ -75,14 +77,8 @@ export function checkTestTempCleanup(root = DEFAULT_ROOT) {
         const relPath = path.relative(root, filePath).split(path.sep).join("/");
 
         const visit = (node) => {
-          if (ts.isCallExpression(node) && isRmSyncCallee(node.expression)) {
-            if (node.arguments.length >= 2 && hasRecursiveTrueOption(node.arguments[1])) {
-              const { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
-              findings.push(
-                `${relPath}:${line + 1}:${character + 1}: bare recursive rmSync(...) is forbidden in tests; use removeTempRepository(...) from tools/fixtures/remove-temp-repository.ts`,
-              );
-            }
-          }
+          const violation = bareRecursiveRmSyncViolation(node, sf, relPath);
+          if (violation !== null) findings.push(violation);
           ts.forEachChild(node, visit);
         };
         visit(sf);

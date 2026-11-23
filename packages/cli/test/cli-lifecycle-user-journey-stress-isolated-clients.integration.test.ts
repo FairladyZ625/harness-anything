@@ -3,7 +3,7 @@ import test from "node:test";
 import * as shared from "./cli-lifecycle-user-journey-stress.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
-const { assert, rmSync, clientCount, chainsPerClient, runClient, startClient, stopClient, setup } = shared;
+const { assert, clientCount, chainsPerClient, runClient, startClient, stopClient, setup } = shared;
 const lifecycleConcurrency = 2;
 
 async function runBounded<T>(
