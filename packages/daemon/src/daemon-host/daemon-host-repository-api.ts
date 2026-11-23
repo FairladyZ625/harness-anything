@@ -66,7 +66,13 @@ import {
 import type { SquadControlResult } from "./squad-control-result.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
-import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import {
+  authorizeTaskScopedRepositoryRead,
+  requireAuthorizedFleetAction,
+  requireAuthorizedHostAction,
+  resolveTaskReadTargetFromAction,
+  resolveTaskReadTargetFromMethod,
+} from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "@harness-anything/application/commands";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
@@ -986,12 +992,13 @@ export function createDaemonHostRepositoryApi(
             action.kind === "doc-status" ||
             action.kind === "doc-dry-run")
         )
-          await requireAuthorizedHostAction({
+          await authorizeTaskScopedRepositoryRead({
             kind: "repository-read",
             repoId,
+            cell,
             binding: serverBinding,
-            actionId: `repository-read:${repoId}`,
-            evaluatedAtCut: `repository:${repoId}:current`,
+            target: resolveTaskReadTargetFromAction(action),
+            signal: auth.connectionSignal,
           });
         const resolvedAction = await resolveVerticalKindCommandAction(cell, action as RepoTaskAction);
         if (cell.status().mode === "remote-edge" && resolvedAction.kind === "doc-materialize")
@@ -1281,12 +1288,13 @@ export function createDaemonHostRepositoryApi(
         );
       const binding = await context.binding(cell.status().rootDir, auth);
       if (repositoryRead)
-        await requireAuthorizedHostAction({
+        await authorizeTaskScopedRepositoryRead({
           kind: method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read",
           repoId,
+          cell,
           binding,
-          actionId: `${method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read"}:${repoId}`,
-          evaluatedAtCut: `repository:${repoId}:current`,
+          target: method === "repo.fleet.overview.read" ? null : resolveTaskReadTargetFromMethod(method, payload),
+          signal,
         });
       const readBinding = await bindPersonalRead(binding, repoId, method, payload);
       let result: unknown;

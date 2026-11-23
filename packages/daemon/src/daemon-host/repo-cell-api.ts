@@ -1279,6 +1279,11 @@ export function createRepoCellApi(
     read,
     readDispatchLifecycle: async (query) => context.projection.readDispatchLifecycle(query),
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
+    taskIdForDocumentPath: async (logicalPath) => context.projection.taskIdForDocumentPath(logicalPath),
+    readTaskAuthorizationMetadata: async (taskIds) =>
+      context.projection
+        .readTaskIndex({ taskIds, limit: taskIds.length })
+        .rows.map(({ taskId, parentTaskId, taskClass }) => ({ taskId, parentTaskId, taskClass })),
     readNodeAutoClaimAssignments: async (binding) => {
       const graph = await read(
         "repo.triadic.relationGraph",

@@ -92,7 +92,13 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
       },
     };
     const result = await service.port.decide(request);
-    assert.deepEqual(invocation, {
+    assert.ok(invocation !== undefined);
+    const { timeoutMs, ...invocationWithoutTimeout } = invocation as typeof invocation & {
+      readonly timeoutMs?: number;
+    };
+    assert.equal(typeof timeoutMs, "number");
+    assert.ok(timeoutMs! > 0 && timeoutMs! <= 30_000);
+    assert.deepEqual(invocationWithoutTimeout, {
       apiKey: secret,
       serverURL: undefined,
       model: "openrouter/model-requested",
@@ -392,6 +398,7 @@ test("DecisionPort retries a transient rate limit and returns the later real dec
     service = openDecisionProviderService({
       userRoot: parent,
       vault,
+      random: () => 0.999999,
       sleep: async (delayMs) => void delays.push(delayMs),
       invokeDecision: async () => {
         calls.push(calls.length + 1);
@@ -444,6 +451,7 @@ test("DecisionPort exhausts transient retries without hiding the rate-limit reas
     service = openDecisionProviderService({
       userRoot: parent,
       vault,
+      random: () => 0.999999,
       sleep: async (delayMs) => void delays.push(delayMs),
       invokeDecision: async () => {
         calls.push(calls.length + 1);
@@ -477,12 +485,12 @@ test("DecisionPort exhausts transient retries without hiding the rate-limit reas
         "code" in error &&
         error.code === "decision_rate_limited" &&
         "retries" in error &&
-        error.retries === 3 &&
+        error.retries === 2 &&
         error instanceof Error &&
-        error.message.includes("重试 3 次后仍限流"),
+        error.message.includes("重试 2 次后仍限流"),
     );
-    assert.equal(calls.length, 4);
-    assert.deepEqual(delays, [250, 500, 1_000]);
+    assert.equal(calls.length, 3);
+    assert.deepEqual(delays, [250, 500]);
   } finally {
     removeTempRepository(parent);
   }
@@ -852,6 +860,7 @@ test("DecisionPort retries only failures with transient evidence and never echoe
       service = openDecisionProviderService({
         userRoot: parent,
         vault,
+        random: () => 0.999999,
         sleep: async (delayMs) => void delays.push(delayMs),
         invokeDecision: async () => {
           calls.push(calls.length + 1);
@@ -882,10 +891,10 @@ test("DecisionPort retries only failures with transient evidence and never echoe
           error instanceof Error &&
           error.message.includes("HTTP 503") &&
           error.message.includes("ServiceUnavailableResponseError") &&
-          error.message.includes("Retried 3 time(s)"),
+          error.message.includes("Retried 2 time(s)"),
       );
-      assert.equal(calls.length, 4);
-      assert.deepEqual(delays, [250, 500, 1_000]);
+      assert.equal(calls.length, 3);
+      assert.deepEqual(delays, [250, 500]);
     } finally {
       removeTempRepository(parent);
     }

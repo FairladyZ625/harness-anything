@@ -24,6 +24,10 @@ export type DecisionProviderRecord = {
   readonly baseUrl: string | null;
   readonly auth: { readonly mode: "api-key"; readonly credentialRef: string };
   readonly enabled: boolean;
+  /** Optional single-request total timeout budget (ms) for slow intranet gateways. */
+  readonly requestTimeoutMs?: number;
+  /** Optional bounded transient retry count (0..2); defaults to 2. */
+  readonly maxRetries?: number;
   readonly configurationRevision: number;
   /** Unique per record creation. A delete/recreate receives a new id, so a delayed failure from the old record cannot match the new one. */
   readonly configurationId: string;

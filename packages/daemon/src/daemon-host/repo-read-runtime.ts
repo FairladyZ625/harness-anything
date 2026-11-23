@@ -444,6 +444,14 @@ export function makeRepoReadRuntime(
     readDispatchLifecycle: (inputQuery: import("@harness-anything/kernel").DispatchLifecycleQuery) =>
       query((projection) => projection.readDispatchLifecycle(inputQuery)),
     readEventWitness: (revision: number) => query((projection) => projection.readEventWitness(revision)),
+    taskIdForDocumentPath: (logicalPath: string) =>
+      query((projection) => projection.taskIdForDocumentPath(logicalPath)),
+    readTaskAuthorizationMetadata: (taskIds: readonly string[]) =>
+      query((projection) =>
+        projection
+          .readTaskIndex({ taskIds, limit: taskIds.length })
+          .rows.map(({ taskId, parentTaskId, taskClass }) => ({ taskId, parentTaskId, taskClass })),
+      ),
     readNodeAutoClaimAssignments: (binding?: RepoCellBinding) => {
       const readAssignments = (projection: TaskProjectionQueries) => {
         const graph = readAtCut(

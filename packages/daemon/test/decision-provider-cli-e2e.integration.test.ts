@@ -70,6 +70,19 @@ test("HA10-06: real CLI provider create/probe flows through isolated daemon RPC 
     readonly auth: string | undefined;
     readonly googKey: string | string[] | undefined;
   }[] = [];
+  let openaiFailures = 0;
+  let openaiHang = false;
+  const sendOpenAiAnswer = (res: ServerResponse) => {
+    if (res.destroyed) return;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        model: "deepseek-r1",
+        usage: { prompt_tokens: 8, completion_tokens: 4 },
+        choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ type: "noul", noul: 0.95 }) } }],
+      }),
+    );
+  };
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -77,14 +90,18 @@ test("HA10-06: real CLI provider create/probe flows through isolated daemon RPC 
       const reqPath = req.url ?? "";
       seen.push({ path: reqPath, auth: req.headers.authorization, googKey: req.headers["x-goog-api-key"] });
       if (reqPath === "/v1/chat/completions") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            model: "deepseek-r1",
-            usage: { prompt_tokens: 8, completion_tokens: 4 },
-            choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ type: "noul", noul: 0.95 }) } }],
-          }),
-        );
+        if (openaiHang) {
+          openaiHang = false;
+          // Leave the HTTP response open until client abort/server close so the configured requestTimeoutMs fires without timers.
+          return;
+        }
+        if (openaiFailures > 0) {
+          openaiFailures -= 1;
+          res.writeHead(502, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "temporary gateway failure" } }));
+          return;
+        }
+        sendOpenAiAnswer(res);
         return;
       }
       if (reqPath === "/v1beta/decisions") {
@@ -162,6 +179,10 @@ test("HA10-06: real CLI provider create/probe flows through isolated daemon RPC 
       "CLI OpenAI",
       "--model",
       "deepseek-r1",
+      "--request-timeout-ms",
+      "1000",
+      "--max-retries",
+      "0",
       "--base-url",
       `${origin}/v1`,
       "--api-key-file",
@@ -171,20 +192,76 @@ test("HA10-06: real CLI provider create/probe flows through isolated daemon RPC 
   );
   assert.equal(createOai.status, 0, createOai.stderr || createOai.stdout);
   assert.equal(createOai.stdout.includes(apiKey), false, "CLI create stdout must not leak API key");
-  const createOaiJson = JSON.parse(createOai.stdout) as { ok: boolean; provider: { vendor: string; baseUrl: string } };
+  const createOaiJson = JSON.parse(createOai.stdout) as {
+    ok: boolean;
+    provider: { vendor: string; baseUrl: string; requestTimeoutMs?: number; maxRetries?: number };
+  };
   assert.equal(createOaiJson.ok, true);
   assert.equal(createOaiJson.provider.vendor, "openai-compatible");
   assert.equal(createOaiJson.provider.baseUrl, `${origin}/v1`);
+  assert.equal(createOaiJson.provider.requestTimeoutMs, 1000);
+  assert.equal(createOaiJson.provider.maxRetries, 0);
 
+  const updateOai = await runCliJson(
+    ["provider", "update", "cli-oai", "--request-timeout-ms", "2000", "--max-retries", "1"],
+    cliEnv,
+  );
+  assert.equal(updateOai.status, 0, updateOai.stderr || updateOai.stdout);
+  const updateOaiJson = JSON.parse(updateOai.stdout) as {
+    ok: boolean;
+    provider: { requestTimeoutMs?: number; maxRetries?: number };
+  };
+  assert.equal(updateOaiJson.provider.requestTimeoutMs, 2000);
+  assert.equal(updateOaiJson.provider.maxRetries, 1);
+
+  const readBackOai = await runCliJson(["provider", "show", "cli-oai"], cliEnv);
+  assert.equal(readBackOai.status, 0, readBackOai.stderr || readBackOai.stdout);
+  const readBackOaiJson = JSON.parse(readBackOai.stdout) as {
+    provider: { requestTimeoutMs?: number; maxRetries?: number };
+  };
+  assert.equal(readBackOaiJson.provider.requestTimeoutMs, 2000);
+  assert.equal(readBackOaiJson.provider.maxRetries, 1);
+
+  openaiFailures = 1;
+  const requestsBeforeRetryProbe = seen.filter(({ path }) => path === "/v1/chat/completions").length;
   const probeOai = await runCliJson(["provider", "probe", "cli-oai"], cliEnv);
   assert.equal(probeOai.status, 0, probeOai.stderr || probeOai.stdout);
   const probeOaiJson = JSON.parse(probeOai.stdout) as { ok: boolean; probe: { state: string } };
   assert.equal(probeOaiJson.ok, true);
   assert.equal(probeOaiJson.probe.state, "ready");
+  assert.equal(
+    seen.filter(({ path }) => path === "/v1/chat/completions").length - requestsBeforeRetryProbe,
+    2,
+    "the persisted one-retry budget must be applied to the provider probe",
+  );
   assert.equal(seen[0]?.path, "/v1/chat/completions");
   assert.equal(seen[0]?.auth, `Bearer ${apiKey}`);
 
+  const updateTimeout = await runCliJson(
+    ["provider", "update", "cli-oai", "--request-timeout-ms", "1000", "--max-retries", "0"],
+    cliEnv,
+  );
+  assert.equal(updateTimeout.status, 0, updateTimeout.stderr || updateTimeout.stdout);
+  const readBackTimeout = await runCliJson(["provider", "show", "cli-oai"], cliEnv);
+  assert.equal(readBackTimeout.status, 0, readBackTimeout.stderr || readBackTimeout.stdout);
+  const readBackTimeoutJson = JSON.parse(readBackTimeout.stdout) as {
+    provider: { requestTimeoutMs?: number; maxRetries?: number };
+  };
+  assert.equal(readBackTimeoutJson.provider.requestTimeoutMs, 1000);
+  assert.equal(readBackTimeoutJson.provider.maxRetries, 0);
+  const requestsBeforeTimeoutProbe = seen.filter(({ path }) => path === "/v1/chat/completions").length;
+  openaiHang = true;
+  const timeoutProbe = await runCliJson(["provider", "probe", "cli-oai"], cliEnv);
+  assert.notEqual(timeoutProbe.status, 0);
+  assert.match(timeoutProbe.stdout + timeoutProbe.stderr, /decision_timeout/u);
+  assert.equal(
+    seen.filter(({ path }) => path === "/v1/chat/completions").length - requestsBeforeTimeoutProbe,
+    1,
+    "the persisted zero-retry timeout budget must stop after its timed-out first request",
+  );
+
   // 2) Real CLI create + probe for google native Decisions API
+  const googleRequestsBeforeProbe = seen.filter(({ path }) => path === "/v1beta/decisions").length;
   const createGoogle = await runCliJson(
     [
       "provider",
@@ -213,8 +290,9 @@ test("HA10-06: real CLI provider create/probe flows through isolated daemon RPC 
   const probeGoogleJson = JSON.parse(probeGoogle.stdout) as { ok: boolean; probe: { state: string } };
   assert.equal(probeGoogleJson.ok, true);
   assert.equal(probeGoogleJson.probe.state, "ready");
-  assert.equal(seen[1]?.path, "/v1beta/decisions");
-  assert.equal(seen[1]?.googKey, apiKey);
+  const googleRequests = seen.filter(({ path }) => path === "/v1beta/decisions").slice(googleRequestsBeforeProbe);
+  assert.equal(googleRequests.length, 1);
+  assert.equal(googleRequests[0]?.googKey, apiKey);
 
   // 3) Negative CLI path: decisions-http without --base-url rejected cleanly via daemon RPC
   const badHttp = await runCliJson(

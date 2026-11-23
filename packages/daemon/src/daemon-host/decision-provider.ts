@@ -14,6 +14,7 @@ import type {
   DecisionUsage,
 } from "@harness-anything/kernel";
 import { credentialPort, isCredentialReferenceText, type CredentialPort } from "./agent-runtime-credential-port.ts";
+import { exponentialBackoffMs } from "./daemon-retry.ts";
 import {
   canonicalBaseUrlString,
   controlledHttpReason,
@@ -38,7 +39,9 @@ const fileSchema = "decision-providers/v1" as const;
 const providerIdPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u;
 const apiKeyPattern = /^[^\r\n\u0000-\u001f\u007f]{1,1280}$/u;
 const requestTimeoutMs = 30_000;
-const decisionRetryMaxRetries = 3;
+const minConfiguredTimeoutMs = 1_000;
+const maxConfiguredTimeoutMs = 300_000;
+const decisionRetryMaxRetries = 2;
 const decisionRetryBaseDelayMs = 250;
 const decisionRetryMaxDelayMs = 4_000;
 /** Sent through the real Decisions operation so a probe cannot pass on an endpoint decisions never use. */
@@ -57,6 +60,7 @@ type DecisionInvoker = (input: {
   readonly model: string;
   readonly state: readonly string[];
   readonly question: DecisionProviderQuestion;
+  readonly timeoutMs?: number;
 }) => Promise<NormalizedDecisionEnvelope>;
 type DecisionSleep = (delayMs: number) => Promise<void>;
 
@@ -69,14 +73,26 @@ export function openDecisionProviderService(input: {
   readonly vault?: CredentialPort;
   readonly invokeDecision?: DecisionInvoker;
   readonly now?: () => string;
+  /** Injectable monotonic clock (ms) for deterministic deadline/timeout budget tests. */
+  readonly nowMs?: () => number;
+  /** Injectable PRNG [0, 1) for deterministic jittered backoff tests. */
+  readonly random?: () => number;
   readonly isCredentialInUse?: (reference: string) => boolean;
   /** Injectable only to make bounded retry timing deterministic in tests. */
   readonly sleep?: DecisionSleep;
-  /** Injectable only to make request timeout tests deterministic without waiting 30s. */
+  /** Injectable default total request timeout budget (ms) for slow gateways or deterministic tests. */
   readonly requestTimeoutMs?: number;
+  /** Injectable retry cap (0..2); defaults to 2 and is strictly capped at 2. */
+  readonly maxRetries?: number;
 }) {
   const vault = input.vault ?? credentialPort();
   const effectiveTimeoutMs = input.requestTimeoutMs ?? requestTimeoutMs;
+  const serviceMaxRetries = Math.min(
+    decisionRetryMaxRetries,
+    Math.max(0, Math.floor(input.maxRetries ?? decisionRetryMaxRetries)),
+  );
+  const nowMs = input.nowMs ?? (() => Date.now());
+  const random = input.random ?? Math.random;
   const invokeAdapter = (
     vendor: DecisionProviderVendor,
   ): ((req: {
@@ -85,6 +101,7 @@ export function openDecisionProviderService(input: {
     readonly model: string;
     readonly state: readonly string[];
     readonly question: DecisionProviderQuestion;
+    readonly timeoutMs: number;
   }) => Promise<NormalizedDecisionEnvelope>) => {
     if (input.invokeDecision) {
       const injected = input.invokeDecision;
@@ -95,6 +112,7 @@ export function openDecisionProviderService(input: {
           model: request.model,
           state: request.state,
           question: request.question,
+          timeoutMs: request.timeoutMs,
         });
     }
     const adapter = getDecisionProviderAdapter(vendor);
@@ -105,7 +123,7 @@ export function openDecisionProviderService(input: {
         model: request.model,
         state: request.state,
         question: request.question,
-        timeoutMs: effectiveTimeoutMs,
+        timeoutMs: request.timeoutMs,
         postJson: postDecisionJson,
       });
   };
@@ -181,6 +199,8 @@ export function openDecisionProviderService(input: {
         model = requiredText(action.model, "model"),
         validatedUrl = parseDecisionProviderBaseUrl(adapter, action.baseUrl),
         enabled = action.enabled === undefined ? true : requireBoolean(action.enabled, "enabled"),
+        configuredTimeoutMs = parseOptionalTimeoutMs(action.requestTimeoutMs),
+        configuredMaxRetries = parseOptionalMaxRetries(action.maxRetries),
         auth = await takeCredential(action, vault);
       const record: DecisionProviderRecord = {
         schema: "decision-provider/v1",
@@ -192,6 +212,8 @@ export function openDecisionProviderService(input: {
         baseUrl: validatedUrl.stored,
         auth: { mode: "api-key", credentialRef: auth.reference },
         enabled,
+        ...(configuredTimeoutMs === undefined ? {} : { requestTimeoutMs: configuredTimeoutMs }),
+        ...(configuredMaxRetries === undefined ? {} : { maxRetries: configuredMaxRetries }),
         configurationRevision: 1,
         configurationId: randomUUID(),
         probe: { state: "unknown" },
@@ -229,13 +251,17 @@ export function openDecisionProviderService(input: {
         name = action.name === undefined ? undefined : requiredText(action.name, "name"),
         model = action.model === undefined ? undefined : requiredText(action.model, "model"),
         hasBaseUrlUpdate = action.baseUrl !== undefined,
-        enabled = action.enabled === undefined ? undefined : requireBoolean(action.enabled, "enabled");
+        enabled = action.enabled === undefined ? undefined : requireBoolean(action.enabled, "enabled"),
+        configuredTimeoutMs = parseOptionalTimeoutMs(action.requestTimeoutMs),
+        configuredMaxRetries = parseOptionalMaxRetries(action.maxRetries);
       if (
         vendor === undefined &&
         name === undefined &&
         model === undefined &&
         !hasBaseUrlUpdate &&
         enabled === undefined &&
+        configuredTimeoutMs === undefined &&
+        configuredMaxRetries === undefined &&
         action.apiKey === undefined &&
         action.credentialRef === undefined
       )
@@ -252,6 +278,8 @@ export function openDecisionProviderService(input: {
         ...(model === undefined ? {} : { model }),
         baseUrl: validatedUrl.stored,
         ...(enabled === undefined ? {} : { enabled }),
+        ...(configuredTimeoutMs === undefined ? {} : { requestTimeoutMs: configuredTimeoutMs }),
+        ...(configuredMaxRetries === undefined ? {} : { maxRetries: configuredMaxRetries }),
         auth: { mode: "api-key", credentialRef: auth.reference },
         configurationRevision: current.configurationRevision + 1,
         probe: { state: "unknown" },
@@ -302,6 +330,10 @@ export function openDecisionProviderService(input: {
         await invokeDecisionWithRetry({
           invokeDecision: invokeAdapter(current.vendor),
           sleep,
+          nowMs,
+          random,
+          deadlineMs: nowMs() + (current.requestTimeoutMs ?? effectiveTimeoutMs),
+          maxRetries: Math.min(decisionRetryMaxRetries, current.maxRetries ?? serviceMaxRetries),
           apiKey,
           baseUrl: validatedUrl.parsed,
           model: current.model,
@@ -379,12 +411,16 @@ export function openDecisionProviderService(input: {
         }
         return { provider, apiKey, parsedBaseUrl: validatedUrl.parsed };
       });
-      const startedAt = Date.now();
+      const startedAt = nowMs();
       let response: NormalizedDecisionEnvelope;
       try {
         response = await invokeDecisionWithRetry({
           invokeDecision: invokeAdapter(selected.provider.vendor),
           sleep,
+          nowMs,
+          random,
+          deadlineMs: startedAt + (selected.provider.requestTimeoutMs ?? effectiveTimeoutMs),
+          maxRetries: Math.min(decisionRetryMaxRetries, selected.provider.maxRetries ?? serviceMaxRetries),
           apiKey: selected.apiKey,
           baseUrl: selected.parsedBaseUrl,
           model: selected.provider.model,
@@ -409,7 +445,7 @@ export function openDecisionProviderService(input: {
           ).catch(consumeKnownError);
         throw error;
       }
-      return decodeDecision(response, request, selected.provider, Math.max(0, Date.now() - startedAt));
+      return decodeDecision(response, request, selected.provider, Math.max(0, nowMs() - startedAt));
     },
   };
   return { command, list: () => read().map(publicProvider), read, port };
@@ -423,8 +459,13 @@ function invokeDecisionWithRetry(
       readonly model: string;
       readonly state: readonly string[];
       readonly question: DecisionProviderQuestion;
+      readonly timeoutMs: number;
     }) => Promise<NormalizedDecisionEnvelope>;
     readonly sleep: DecisionSleep;
+    readonly nowMs: () => number;
+    readonly random: () => number;
+    readonly deadlineMs: number;
+    readonly maxRetries: number;
     readonly apiKey: string;
     readonly baseUrl: URL | null;
     readonly model: string;
@@ -435,6 +476,30 @@ function invokeDecisionWithRetry(
   },
   retries = 0,
 ): Promise<NormalizedDecisionEnvelope> {
+  const remainingMs = input.deadlineMs - input.nowMs();
+  if (remainingMs <= 0) {
+    const timeoutError = mapDecisionFailure(
+      new DecisionAdapterError("decision_timeout", "Request timed out.", {
+        name: "TimeoutError",
+        diagnosticCode: "timeout",
+        transient: true,
+      }),
+      input.apiKey,
+      input.providerId,
+      input.model,
+      input.vendor,
+    );
+    return Promise.reject(
+      retries > 0
+        ? providerError(
+            "decision_timeout",
+            `${timeoutError.message} Retried ${String(retries)} time(s); 重试 ${String(retries)} 次后仍为瞬时 decision_timeout 错误。`,
+            retries,
+          )
+        : timeoutError,
+    );
+  }
+  const boundedMaxRetries = Math.min(decisionRetryMaxRetries, Math.max(0, input.maxRetries));
   return input
     .invokeDecision({
       apiKey: input.apiKey,
@@ -442,12 +507,13 @@ function invokeDecisionWithRetry(
       model: input.model,
       state: input.state,
       question: input.question,
+      timeoutMs: remainingMs,
     })
     .catch((error: unknown) => {
       const code = decisionFailureCode(error),
         mapped = mapDecisionFailure(error, input.apiKey, input.providerId, input.model, input.vendor),
         retryable = retryableDecisionFailure(error, code);
-      if (!retryable || retries >= decisionRetryMaxRetries) {
+      if (!retryable || retries >= boundedMaxRetries) {
         if (retryable && retries > 0)
           return Promise.reject(
             providerError(
@@ -462,7 +528,24 @@ function invokeDecisionWithRetry(
           );
         return Promise.reject(mapped);
       }
-      const delayMs = Math.min(decisionRetryMaxDelayMs, decisionRetryBaseDelayMs * 2 ** retries);
+      const delayMs = exponentialBackoffMs({
+        attempt: retries,
+        baseMs: decisionRetryBaseDelayMs,
+        maxMs: decisionRetryMaxDelayMs,
+        random: input.random(),
+      });
+      const budgetLeftMs = input.deadlineMs - input.nowMs();
+      if (budgetLeftMs <= delayMs) {
+        return Promise.reject(
+          providerError(
+            code,
+            retries > 0
+              ? `${mapped.message} Retried ${String(retries)} time(s); total timeout budget exhausted.`
+              : `${mapped.message} Total timeout budget exhausted before retry.`,
+            retries,
+          ),
+        );
+      }
       return input.sleep(delayMs).then(() => invokeDecisionWithRetry(input, retries + 1));
     });
 }
@@ -571,6 +654,8 @@ function validateDecisionRequest(request: DecisionRequest): void {
     ids.some((id) => !Object.hasOwn(question.criteria, id) || !nonblank(question.criteria[id]))
   )
     throw providerError("invalid_decision_request", "Question criteria must describe each option exactly once.");
+  if (question.type === "choice" && question.abstainOptionId !== undefined && !ids.includes(question.abstainOptionId))
+    throw providerError("invalid_decision_request", "abstainOptionId must match a declared choice option id.");
 }
 
 function validOption(value: DecisionOption): boolean {
@@ -596,6 +681,7 @@ function toProviderQuestion(question: DecisionQuestion): DecisionProviderQuestio
       type: "choice",
       instructions: question.prompt,
       criteria,
+      ...(question.abstainOptionId === undefined ? {} : { abstainOptionId: question.abstainOptionId }),
     };
   }
   return {
@@ -878,6 +964,31 @@ function providerSummary(provider: DecisionProviderRecord): string {
 
 function requireBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw providerError("invalid_provider", `${field} must be boolean.`);
+  return value;
+}
+
+function parseOptionalTimeoutMs(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < minConfiguredTimeoutMs ||
+    value > maxConfiguredTimeoutMs
+  )
+    throw providerError(
+      "invalid_provider",
+      `requestTimeoutMs must be an integer between ${String(minConfiguredTimeoutMs)} and ${String(maxConfiguredTimeoutMs)}.`,
+    );
+  return value;
+}
+
+function parseOptionalMaxRetries(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > decisionRetryMaxRetries)
+    throw providerError(
+      "invalid_provider",
+      `maxRetries must be an integer between 0 and ${String(decisionRetryMaxRetries)}.`,
+    );
   return value;
 }
 

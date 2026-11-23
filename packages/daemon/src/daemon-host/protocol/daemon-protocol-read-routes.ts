@@ -315,6 +315,7 @@ export const daemonReadRoutes = Object.freeze([
   },
   {
     id: "artifacts.list",
+    repositoryRead: true,
     phase: "DocSync-B",
     method: "repo.artifacts.list",
     requiresRepo: true,
@@ -399,6 +400,7 @@ export const daemonReadRoutes = Object.freeze([
   },
   {
     id: "task.dispatches",
+    repositoryRead: true,
     phase: "Runtime-B",
     method: "repo.task.dispatches",
     requiresRepo: true,

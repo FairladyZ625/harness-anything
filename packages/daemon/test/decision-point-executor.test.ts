@@ -955,7 +955,7 @@ test("an exhausted Decisions rate limit applies the deterministic rerun instead 
     }),
     { cell, spawns, relates } = fakeIncidentCell({ rootDir, agentId: "terra" });
   await executor.settle(cell, incidentOutcomeEvent());
-  assert.equal(calls, 4, "the bounded provider retry still runs before the default is applied");
+  assert.equal(calls, 3, "the bounded provider retry still runs before the default is applied");
   assert.equal(relates.length, 0, "an automatic disposition must not open an owner await");
   assert.equal(spawns.length, 1, "the default disposition reruns the same identity");
   assert.equal(spawns[0]?.payload.agentId, "terra");
@@ -970,7 +970,7 @@ test("an exhausted Decisions rate limit applies the deterministic rerun instead 
   assert.equal(stored[0]?.action?.status, "applied");
   assert.match(String(stored[0]?.action?.reason), /Decisions API unavailable/u);
   assert.match(String(stored[0]?.action?.reason), /decision_rate_limited/u);
-  assert.match(String(stored[0]?.action?.reason), /重试 3 次后仍限流/u);
+  assert.match(String(stored[0]?.action?.reason), /重试 2 次后仍限流/u);
   assert.match(String(stored[0]?.action?.reason), /default disposition "rerun_same_identity"/u);
   // The durable receipt is what the dispatch read projects; it must carry the same explanation
   // so the row never reads as an owner ruling.
@@ -1003,7 +1003,7 @@ test("an exhausted rate limit resumes a resumable dispatch before falling back t
       agentId: "terra",
     });
   await executor.settle(cell, incidentOutcomeEvent());
-  assert.equal(calls, 4);
+  assert.equal(calls, 3);
   assert.equal(relates.length, 0);
   assert.equal(spawns.length, 1);
   assert.equal(spawns[0]?.payload.dispatchId, dispatchId, "resume reuses the source dispatch session");

@@ -1222,7 +1222,7 @@
         "order": 1161
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.invokeAdapter:4ebda1709afd5bacfae557776694502d",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/decision-provider.ts#openDecisionProviderService.invokeAdapter:a33fe8c318ecac2e6a1c8ec0b5f077dd",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/decision-providers/types.ts#DecisionProviderAdapter.invoke",
@@ -2802,7 +2802,7 @@
         "order": 674
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-action-authorization.ts#requireAuthorizedHostAction:3c36ab4d3afd3bfc0fe33a55bdd84e2f",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/host-action-authorization.ts#requireAuthorizedHostAction:308bc67730a816349f404a826f59c13f",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",

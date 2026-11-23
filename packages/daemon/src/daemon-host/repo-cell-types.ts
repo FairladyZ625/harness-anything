@@ -161,6 +161,12 @@ export interface RepoCellAutoClaimAssignment {
   readonly assignedByPersonId: string | null;
 }
 
+export interface TaskAuthorizationMetadata {
+  readonly taskId: string;
+  readonly parentTaskId: string | null;
+  readonly taskClass: import("@harness-anything/kernel").TaskV2["taskClass"];
+}
+
 export interface RepoCellBinding {
   readonly orphanRecovery?: import("./runtime-spawn-types.ts").RuntimeBinding["orphanRecovery"];
   /** Center-local proof that a remote control request originated from the authorized Center control path. */
@@ -456,6 +462,12 @@ export interface RepoCell {
   readonly readEventWitness: (
     revision: number,
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
+  /** O(1) projection lookup mapping an authored document path to its owning taskId, if any. */
+  readonly taskIdForDocumentPath?: (logicalPath: string, signal?: AbortSignal) => Promise<string | null>;
+  readonly readTaskAuthorizationMetadata?: (
+    taskIds: readonly string[],
+    signal?: AbortSignal,
+  ) => Promise<readonly TaskAuthorizationMetadata[]>;
   /** Assignment edges and actor witnesses read from one authorized projection cut. */
   readonly readNodeAutoClaimAssignments: (
     binding: RepoCellBinding,

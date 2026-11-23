@@ -24,6 +24,7 @@ import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-envir
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "../squad-control-result.ts";
+import { resolveTaskReadTargetFromMethod } from "../host-action-authorization.ts";
 import {
   appendFileSync,
   existsSync,
@@ -1561,9 +1562,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Runtime read repository must match the authenticated node request.",
         );
       const businessRead = FLEET_BUSINESS_READ_METHODS.has(frame.method);
+      const readTarget = resolveTaskReadTargetFromMethod(frame.method, frame.payload) ?? undefined;
       const binding = {
         ...(await (businessRead
-          ? replicaAdmission(a)
+          ? replicaAdmission(a, readTarget)
           : frame.method === "repo.access.members.read"
             ? repoAdmission(a)
             : auth(a))),

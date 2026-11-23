@@ -86,6 +86,8 @@ export const fleetBusinessOperationalReadMethods = [
   "repo.tasks.list",
   "repo.task.show",
   "repo.task.read",
+  "repo.tasks.document.read",
+  "repo.tasks.documents.list",
   "observe.tail",
   "repo.events.read",
   "repo.agentRuntime.events.read",

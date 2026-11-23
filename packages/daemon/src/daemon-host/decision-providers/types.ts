@@ -10,6 +10,7 @@ export type DecisionProviderQuestion =
       readonly type: "choice";
       readonly instructions: string;
       readonly criteria: Readonly<Record<string, string | { readonly label: string; readonly criterion: string }>>;
+      readonly abstainOptionId?: string;
     }
   | {
       readonly type: "score";
@@ -41,6 +42,7 @@ export type DecisionPostJsonInput = {
   readonly headers: Readonly<Record<string, string>>;
   readonly body: unknown;
   readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
 };
 
 export type DecisionPostJsonResult = {
@@ -58,6 +60,7 @@ export type DecisionAdapterInvokeInput = {
   readonly state: readonly string[];
   readonly question: DecisionProviderQuestion;
   readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
   readonly postJson: DecisionPostJson;
 };
 

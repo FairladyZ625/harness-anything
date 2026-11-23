@@ -1,5 +1,6 @@
 import type { DecisionProviderVendor } from "@harness-anything/kernel";
 import {
+  buildAbstainChoiceAnswer,
   buildStructuredDecisionSystemPrompt,
   decodeNativeDecisionsEnvelope,
   decodeStructuredDecisionJson,
@@ -51,6 +52,7 @@ const googleAdapter: DecisionProviderAdapter = {
         questions: { decision: input.question },
       },
       timeoutMs: input.timeoutMs,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     return decodeNativeDecisionsEnvelope(rawBody, input.model, input.question, googleAdapter.label);
   },
@@ -92,6 +94,7 @@ async function invokeBearerDecisionsEndpoint(
       },
     },
     timeoutMs: input.timeoutMs,
+    ...(input.signal ? { signal: input.signal } : {}),
   });
   return decodeNativeDecisionsEnvelope(rawBody, input.model, input.question, adapter.label);
 }
@@ -116,6 +119,7 @@ const openAiCompatibleAdapter: DecisionProviderAdapter = {
         ],
       },
       timeoutMs: input.timeoutMs,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     return parseChatCompletionsEnvelope(rawBody, input.model, input.question, openAiCompatibleAdapter.label);
   },
@@ -142,6 +146,7 @@ const anthropicAdapter: DecisionProviderAdapter = {
         messages: [{ role: "user", content: input.state.join("\n\n") }],
       },
       timeoutMs: input.timeoutMs,
+      ...(input.signal ? { signal: input.signal } : {}),
     });
     return parseAnthropicMessagesEnvelope(rawBody, input.model, input.question, anthropicAdapter.label);
   },
@@ -158,24 +163,40 @@ function parseChatCompletionsEnvelope(
   if (!Array.isArray(choices) || choices.length === 0 || !isJsonObject(choices[0]))
     throw new DecisionAdapterError("decision_protocol_invalid", `${vendorLabel} response did not include any choices.`);
   const firstChoice = choices[0];
-  if (firstChoice.finish_reason !== "stop")
+  let answer: NormalizedDecisionEnvelope["answers"]["decision"];
+  if (firstChoice.finish_reason === "length") {
+    const abstained = buildAbstainChoiceAnswer(question);
+    if (abstained === null)
+      throw new DecisionAdapterError(
+        "decision_protocol_invalid",
+        `${vendorLabel} completion did not finish normally (finish_reason must be "stop").`,
+      );
+    answer = abstained;
+  } else if (firstChoice.finish_reason !== "stop") {
     throw new DecisionAdapterError(
       "decision_protocol_invalid",
       `${vendorLabel} completion did not finish normally (finish_reason must be "stop").`,
     );
-  const message = firstChoice.message;
-  if (!isJsonObject(message))
-    throw new DecisionAdapterError(
-      "decision_protocol_invalid",
-      `${vendorLabel} response did not include a message object.`,
-    );
-  const contentText = extractOpenAiMessageText(message.content);
-  if (!contentText)
-    throw new DecisionAdapterError(
-      "decision_protocol_invalid",
-      `${vendorLabel} response did not include message content.`,
-    );
-  const answer = decodeStructuredDecisionJson(contentText, question, vendorLabel);
+  } else {
+    const message = firstChoice.message;
+    if (!isJsonObject(message))
+      throw new DecisionAdapterError(
+        "decision_protocol_invalid",
+        `${vendorLabel} response did not include a message object.`,
+      );
+    const contentText = extractOpenAiMessageText(message.content);
+    if (!contentText) {
+      const abstained = buildAbstainChoiceAnswer(question);
+      if (abstained === null)
+        throw new DecisionAdapterError(
+          "decision_protocol_invalid",
+          `${vendorLabel} response did not include message content.`,
+        );
+      answer = abstained;
+    } else {
+      answer = decodeStructuredDecisionJson(contentText, question, vendorLabel);
+    }
+  }
   const resolvedModel =
     typeof envelope.model === "string" && envelope.model.trim() !== "" ? envelope.model.trim() : requestedModel;
   const providerRoute =
@@ -197,18 +218,34 @@ function parseAnthropicMessagesEnvelope(
   const envelope = parseJsonObject(rawBody, `${vendorLabel} returned malformed JSON.`);
   const stopReason = envelope.stop_reason;
   const isNormalStop = typeof stopReason === "string" && normalAnthropicStopReasons.has(stopReason);
-  if (!isNormalStop)
+  let answer: NormalizedDecisionEnvelope["answers"]["decision"];
+  if (stopReason === "max_tokens") {
+    const abstained = buildAbstainChoiceAnswer(question);
+    if (abstained === null)
+      throw new DecisionAdapterError(
+        "decision_protocol_invalid",
+        `${vendorLabel} completion did not finish normally (stop_reason must be end_turn or stop_sequence).`,
+      );
+    answer = abstained;
+  } else if (!isNormalStop) {
     throw new DecisionAdapterError(
       "decision_protocol_invalid",
       `${vendorLabel} completion did not finish normally (stop_reason must be end_turn or stop_sequence).`,
     );
-  const contentText = extractAnthropicContentText(envelope.content);
-  if (!contentText)
-    throw new DecisionAdapterError(
-      "decision_protocol_invalid",
-      `${vendorLabel} response did not include text content.`,
-    );
-  const answer = decodeStructuredDecisionJson(contentText, question, vendorLabel);
+  } else {
+    const contentText = extractAnthropicContentText(envelope.content);
+    if (!contentText) {
+      const abstained = buildAbstainChoiceAnswer(question);
+      if (abstained === null)
+        throw new DecisionAdapterError(
+          "decision_protocol_invalid",
+          `${vendorLabel} response did not include text content.`,
+        );
+      answer = abstained;
+    } else {
+      answer = decodeStructuredDecisionJson(contentText, question, vendorLabel);
+    }
+  }
   const resolvedModel =
     typeof envelope.model === "string" && envelope.model.trim() !== "" ? envelope.model.trim() : requestedModel;
   const providerRoute =

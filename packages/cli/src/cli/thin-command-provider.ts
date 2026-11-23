@@ -22,6 +22,8 @@ export function parseProvider(
       "--vendor",
       "--name",
       "--model",
+      "--request-timeout-ms",
+      "--max-retries",
       "--base-url",
       "--clear-base-url",
       "--api-key-file",
@@ -41,6 +43,10 @@ export function parseProvider(
           providerId: flags.one.get("--id"),
           name: flags.one.get("--name"),
           model: flags.one.get("--model"),
+          ...(flags.one.has("--request-timeout-ms")
+            ? { requestTimeoutMs: Number(flags.one.get("--request-timeout-ms")) }
+            : {}),
+          ...(flags.one.has("--max-retries") ? { maxRetries: Number(flags.one.get("--max-retries")) } : {}),
           ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),
           ...(flags.one.has("--api-key-file") ? { apiKeyFile: flags.one.get("--api-key-file") } : {}),
           ...(flags.one.has("--credential-ref") ? { credentialRef: flags.one.get("--credential-ref") } : {}),
@@ -52,6 +58,10 @@ export function parseProvider(
           ...(flags.one.has("--vendor") ? { vendor: flags.one.get("--vendor") } : {}),
           ...(flags.one.has("--name") ? { name: flags.one.get("--name") } : {}),
           ...(flags.one.has("--model") ? { model: flags.one.get("--model") } : {}),
+          ...(flags.one.has("--request-timeout-ms")
+            ? { requestTimeoutMs: Number(flags.one.get("--request-timeout-ms")) }
+            : {}),
+          ...(flags.one.has("--max-retries") ? { maxRetries: Number(flags.one.get("--max-retries")) } : {}),
           ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),
           ...(flags.booleans.has("--clear-base-url") ? { baseUrl: "" } : {}),
           ...(flags.one.has("--api-key-file") ? { apiKeyFile: flags.one.get("--api-key-file") } : {}),

@@ -22,6 +22,7 @@ import { type DaemonGuiReadResultMap, type DaemonGuiRpcReadMethod } from "./prot
 import type { DaemonStreamPayloadMap } from "./protocol/daemon-protocol-results.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapRequest } from "./repo-bootstrap.ts";
+import type { TaskReadAuthorizationTarget } from "./host-action-authorization.ts";
 import {
   type RepoCell,
   type RepoCellStatus,
@@ -173,7 +174,7 @@ export interface DaemonHost {
     repoId: string,
     kind: string,
     auth: DaemonAuthenticationContext,
-    target?: { readonly taskId: string },
+    target?: TaskReadAuthorizationTarget,
   ) => Promise<AuthorizationDecision>;
   readonly terminalAttach: (
     repoId: string,
