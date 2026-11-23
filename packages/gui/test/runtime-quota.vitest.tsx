@@ -150,6 +150,7 @@ describe("subscription quota rendering and IPC validation", () => {
     request.mockResolvedValueOnce({
       schema: "command-receipt/v2",
       ok: true,
+      nodeId: "node-a",
       instances: [legacyInstance, baseInstance],
       installations: [],
     });
@@ -165,6 +166,7 @@ describe("subscription quota rendering and IPC validation", () => {
     request.mockResolvedValueOnce({
       schema: "command-receipt/v2",
       ok: true,
+      nodeId: "node-a",
       instances: [{ ...baseInstance, quota: { ...sampleQuota, windows: "not-an-array" } }],
       installations: [],
     });
