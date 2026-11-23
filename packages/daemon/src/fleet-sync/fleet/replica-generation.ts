@@ -1,6 +1,6 @@
 import { Worker } from "node:worker_threads";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -326,20 +326,11 @@ function createGenerationReaders(root: string) {
       for (const entry of superseded) {
         const source = path.join(directory, entry.name);
         const destination = path.join(directory, `.deleting-${entry.name}-${randomUUID()}`);
-        try {
-          /* @gate-identity state-store/task.replica-generation */ renameSync(source, destination);
-          pending.push(destination);
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-          consumeKnownError(error);
-        }
+        await /* @gate-identity state-store/task.replica-generation */ rename(source, destination);
+        pending.push(destination);
       }
       if (pending.length > 0) syncDirectory(directory);
-      await Promise.all(
-        pending.map((directoryPath) =>
-          removeStagingDirectory(directoryPath),
-        ),
-      );
+      await Promise.all(pending.map((directoryPath) => removeStagingDirectory(directoryPath)));
     })().finally(() => {
       collection = null;
     });
