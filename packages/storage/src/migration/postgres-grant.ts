@@ -10,12 +10,14 @@ import { withPostgresTransaction } from "../postgres/transaction.ts";
 const tables = [...POSTGRES_EVENT_LEDGER_TABLES, ...PG_PROJECTION_TABLES];
 async function removeGrant(client: PoolClient, role: string) {
   if (!/^ha_migration_[a-f0-9]{32}$/u.test(role)) throw new Error("invalid persisted migration login name");
+  const capabilities = getClientDialectCapabilities(client),
+    dropPolicyKeyword = capabilities.supportsRlsWithCheck ? "DROP POLICY" : "DROP ROW LEVEL SECURITY POLICY";
   await client.query("DELETE FROM ha_migration_grants WHERE role_name=$1", [role]);
   for (const table of tables) {
-    await client.query(`DROP POLICY IF EXISTS "${role}_read" ON ${table}`);
-    await client.query(`DROP POLICY IF EXISTS "${role}_bound" ON ${table}`);
+    await client.query(`${dropPolicyKeyword} IF EXISTS "${role}_read" ON ${table}`);
+    await client.query(`${dropPolicyKeyword} IF EXISTS "${role}_bound" ON ${table}`);
   }
-  await client.query(`DROP POLICY IF EXISTS "${role}" ON ha_migration_grants`);
+  await client.query(`${dropPolicyKeyword} IF EXISTS "${role}" ON ha_migration_grants`);
   if ((await client.query("SELECT 1 FROM pg_roles WHERE rolname=$1", [role])).rows.length) {
     await client.query(`DROP OWNED BY "${role}"`);
     await client.query(`DROP ROLE "${role}"`);
@@ -29,7 +31,8 @@ export async function createMigrationGrant(
   expiresAt = new Date(Date.now() + 3600_000).toISOString(),
 ) {
   const role = `ha_migration_${randomUUID().replaceAll("-", "")}`,
-    password = randomBytes(32).toString("hex"),
+    // Keep within openGauss's default 32-char password_max_length while satisfying >=3 character classes.
+    password = `Ha1!${randomBytes(21).toString("base64url")}`,
     predicate = `EXISTS (SELECT 1 FROM ha_migration_grants g WHERE g.role_name=session_user AND g.tenant_id=tenant_id AND g.project_id=project_id AND g.expires_at>clock_timestamp())`;
   await withPostgresTransaction(admin, async (client) => {
     const capabilities = getClientDialectCapabilities(client),

@@ -46,10 +46,27 @@ export function decisionSearchDdl(
     // Previous writers invalidate the same row. Backfill/tokenization is owned by current
     // projection catch-up; readers surface projection_pending until its transaction commits.
     `CREATE OR REPLACE FUNCTION ha_decision_document_search_invalidate() RETURNS trigger
-      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$ BEGIN
+      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+      DECLARE
+        v_tenant_id text;
+        v_project_id text;
+        v_policy_epoch bigint;
+        v_entity_id text;
+      BEGIN
+        IF TG_OP = 'DELETE' THEN
+          v_tenant_id := OLD.tenant_id;
+          v_project_id := OLD.project_id;
+          v_policy_epoch := OLD.policy_epoch;
+          v_entity_id := OLD.entity_id;
+        ELSE
+          v_tenant_id := NEW.tenant_id;
+          v_project_id := NEW.project_id;
+          v_policy_epoch := NEW.policy_epoch;
+          v_entity_id := NEW.entity_id;
+        END IF;
         UPDATE ha_decisions SET search_ready=false
-        WHERE tenant_id=COALESCE(NEW.tenant_id,OLD.tenant_id) AND project_id=COALESCE(NEW.project_id,OLD.project_id) AND policy_epoch=COALESCE(NEW.policy_epoch,OLD.policy_epoch)
-          AND decision_id=substring(COALESCE(NEW.entity_id,OLD.entity_id) from '^decisions/decision-(.*)/decision[.]md$');
+        WHERE tenant_id=v_tenant_id AND project_id=v_project_id AND policy_epoch=v_policy_epoch
+          AND decision_id=substring(v_entity_id from '^decisions/decision-(.*)/decision[.]md$');
         RETURN NULL;
       END $function$`,
     ...dialectCreateTriggerStatements(capabilities, {

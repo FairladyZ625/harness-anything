@@ -57,9 +57,9 @@ export function relationCycleAuditDdl(
     countSeedSql = dialectUpsertValuesSql(capabilities, {
       table: "ha_relation_cycle_count",
       columns: [
-        { name: "tenant_id", valueSql: "COALESCE(NEW.tenant_id,OLD.tenant_id)" },
-        { name: "project_id", valueSql: "COALESCE(NEW.project_id,OLD.project_id)" },
-        { name: "policy_epoch", valueSql: "COALESCE(NEW.policy_epoch,OLD.policy_epoch)" },
+        { name: "tenant_id", valueSql: "v_tenant_id" },
+        { name: "project_id", valueSql: "v_project_id" },
+        { name: "policy_epoch", valueSql: "v_policy_epoch" },
         { name: "reader_key", valueSql: "'{}'::text[]" },
         { name: "singleton", valueSql: "true" },
         { name: "edge_count", valueSql: "0::bigint" },
@@ -130,15 +130,28 @@ export function relationCycleAuditDdl(
       END $function$`,
     `CREATE OR REPLACE FUNCTION ha_relation_cycle_sync() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+      DECLARE
+        v_tenant_id text;
+        v_project_id text;
+        v_policy_epoch bigint;
       BEGIN
         IF TG_OP = 'UPDATE' AND
           (NEW.tenant_id,NEW.project_id,NEW.policy_epoch,NEW.relation_id,NEW.source_ref,NEW.target_ref,NEW.relation_type,NEW.relation_state,NEW.value->>'direction',NEW.readers)
           IS NOT DISTINCT FROM
           (OLD.tenant_id,OLD.project_id,OLD.policy_epoch,OLD.relation_id,OLD.source_ref,OLD.target_ref,OLD.relation_type,OLD.relation_state,OLD.value->>'direction',OLD.readers)
         THEN RETURN NEW; END IF;
+        IF TG_OP = 'DELETE' THEN
+          v_tenant_id := OLD.tenant_id;
+          v_project_id := OLD.project_id;
+          v_policy_epoch := OLD.policy_epoch;
+        ELSE
+          v_tenant_id := NEW.tenant_id;
+          v_project_id := NEW.project_id;
+          v_policy_epoch := NEW.policy_epoch;
+        END IF;
         ${countSeedSql};
-        PERFORM 1 FROM ha_relation_cycle_count WHERE tenant_id=COALESCE(NEW.tenant_id,OLD.tenant_id)
-          AND project_id=COALESCE(NEW.project_id,OLD.project_id) AND policy_epoch=COALESCE(NEW.policy_epoch,OLD.policy_epoch)
+        PERFORM 1 FROM ha_relation_cycle_count WHERE tenant_id=v_tenant_id
+          AND project_id=v_project_id AND policy_epoch=v_policy_epoch
           AND reader_key='{}' AND singleton FOR UPDATE;
         IF TG_OP <> 'INSERT' THEN
           DELETE FROM ha_relation_cycle_edge WHERE tenant_id=OLD.tenant_id AND project_id=OLD.project_id

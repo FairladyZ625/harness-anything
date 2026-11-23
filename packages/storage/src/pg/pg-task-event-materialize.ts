@@ -386,7 +386,7 @@ async function reduceAndStoreTaskSnapshot(
       event.type === "task_created" ? `tasks/${event.taskId}-${slugifyTaskTitle(event.payload.task.title)}` : null,
       event.occurredAt,
       event.type,
-      JSON.stringify(rawLease),
+      rawLease === null ? null : JSON.stringify(rawLease),
     ],
   );
   tables.add("ha_task_snapshots");

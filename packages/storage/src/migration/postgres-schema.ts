@@ -48,6 +48,23 @@ export function postgresStorageMigrationSchema(
       timingAndEvent: "BEFORE INSERT OR UPDATE",
       functionCall: "public.ha_inherit_repo_writer_epoch()",
     }),
+    ...(capabilities.supportsOnConflict
+      ? []
+      : [
+          // Dialects without ON CONFLICT use MERGE INTO for ha_repo_heads, which skips row triggers
+          // when the head already exists. Provide a narrow authority-first SHARE lock entrypoint
+          // gated by INSERT privilege on ha_repo_heads (matching the trigger's exact privilege boundary).
+          `CREATE OR REPLACE FUNCTION public.ha_acquire_repo_writer_epoch_share(target_repo_id text) RETURNS void
+            LANGUAGE plpgsql STRICT SECURITY DEFINER SET search_path = public, pg_catalog, pg_temp AS $fence$
+            BEGIN
+              IF NOT pg_catalog.has_table_privilege(session_user, 'public.ha_repo_heads', 'INSERT') THEN
+                RAISE EXCEPTION 'permission denied for table ha_repo_heads' USING ERRCODE = '42501';
+              END IF;
+              INSERT INTO public.ha_repo_writer_epochs(repo_id) VALUES(target_repo_id) ${dialectUpsertDoNothingSql(capabilities)};
+              PERFORM 1 FROM public.ha_repo_writer_epochs WHERE repo_id = target_repo_id FOR SHARE;
+            END $fence$`,
+          "GRANT EXECUTE ON FUNCTION public.ha_acquire_repo_writer_epoch_share(text) TO PUBLIC",
+        ]),
   ];
 }
 

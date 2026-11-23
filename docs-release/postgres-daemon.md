@@ -111,9 +111,10 @@ into kernel, application, daemon, CLI or GUI layers.
 - **Minimum version**: openGauss 5.0 or newer (verified empirically on openGauss 5.0.3).
 - **Compatibility mode (mandatory)**: The target database **must** be created with
   PostgreSQL compatibility (`CREATE DATABASE harness WITH DBCOMPATIBILITY 'PG'`,
-  so `SHOW sql_compatibility` returns `PG`). Oracle-compatibility (`A`) databases treat
-  empty strings as `NULL` and break canonical primary keys such as `owner_id DEFAULT ''`;
-  the storage layer fails closed at startup with `code: "pg_dialect_incompatible"`.
+  so `SHOW sql_compatibility` returns `PG`). Non-`PG` compatibility modes (`A`, `B`,
+  `C`, etc. — for example Oracle-mode `A`, where empty strings evaluate as `NULL` and
+  break canonical primary keys such as `owner_id DEFAULT ''`) are rejected fail-closed
+  at startup with `code: "pg_dialect_incompatible"`.
 - **Wire authentication**: Standard `node-pg` (`pg`) connects directly without extra
   database drivers when the server permits `md5` or `sha256`-compatible authentication
   matching the client driver (`password_encryption_type = 1` with `md5` host rules in

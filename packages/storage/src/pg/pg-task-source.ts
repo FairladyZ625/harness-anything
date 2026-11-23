@@ -556,7 +556,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readLease = (column: "task_id" | "raw_lease->>'executionId'", id: string, now: string) =>
+  const readLease = (
+    column: "task_id" | "(CASE WHEN jsonb_typeof(raw_lease)='object' THEN raw_lease->>'executionId' END)",
+    id: string,
+    now: string,
+  ) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
@@ -574,7 +578,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     );
   const currentLease = (taskId: string, at = now()) => readLease("task_id", taskId, at);
   const currentLeaseForExecution = (executionId: string, at = now()) =>
-    readLease("raw_lease->>'executionId'", executionId, at);
+    readLease("(CASE WHEN jsonb_typeof(raw_lease)='object' THEN raw_lease->>'executionId' END)", executionId, at);
   function listDecisions(
     filters: DecisionListFilters,
     selection: "summary",

@@ -1,11 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { Pool } from "pg";
 import { compileFactWrite, type FactMemoryClass } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel/internal/domain/task-graph.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
+import type { LeaseV1 } from "@harness-anything/kernel";
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import {
   capabilitiesFromProbeRow,
@@ -21,11 +25,20 @@ import { makePostgresTaskEventStore } from "../../src/postgres/pg-task-event-sto
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
-import { materializePgProjectionEvents } from "../../src/pg/pg-task-event-materialize.ts";
+import { changePgLease } from "../../src/pg/pg-lease-cas.ts";
+import { materializePgProjectionEvents, rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
+import { migrateStorage } from "../../src/migration/engine.ts";
+import { openPgMigrationEndpoint } from "../../src/migration/postgres-endpoint.ts";
+import { createMigrationGrant } from "../../src/migration/postgres-grant.ts";
+import { openSqliteMigrationEndpoint } from "../../src/migration/sqlite-endpoint.ts";
+import { initRepo } from "../store/task-event-store.fixtures.ts";
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 const ADMIN_URL = process.env.HARNESS_OPENGAUSS_ADMIN_URL;
 const RUNTIME_URL = process.env.HARNESS_OPENGAUSS_RUNTIME_URL;
+const B_MODE_URL = process.env.HARNESS_OPENGAUSS_B_URL;
+const C_MODE_URL = process.env.HARNESS_OPENGAUSS_C_URL;
 const SKIP_REASON =
   !ADMIN_URL || !RUNTIME_URL
     ? "Set HARNESS_OPENGAUSS_ADMIN_URL and HARNESS_OPENGAUSS_RUNTIME_URL to run live openGauss integration tests"
@@ -125,13 +138,13 @@ test(
     const tenantA = {
       tenantId: `tenant_a_${suffix}`,
       projectId: "proj_1",
-      policyEpoch: 1,
+      policyEpoch: 0,
       readers: [] as string[],
     };
     const tenantB = {
       tenantId: `tenant_b_${suffix}`,
       projectId: "proj_1",
-      policyEpoch: 1,
+      policyEpoch: 0,
       readers: [] as string[],
     };
 
@@ -148,36 +161,64 @@ test(
         assert.equal(capabilities.supportsForceRls, true);
         assert.equal(capabilities.supportsXlogLocation, true);
 
-        // Fail-closed guard for Oracle-mode databases
-        assert.throws(
-          () =>
-            capabilitiesFromProbeRow({
-              version_text: capabilities!.serverVersion,
-              server_version: "9.2.4",
-              server_version_num: String(capabilities!.serverVersionNum),
-              sql_compatibility: "A",
-              has_pg_lsn: false,
-              has_xid8: false,
-              has_wal_flush_lsn: false,
-              has_xlog_location: true,
-              has_current_setting_2arg: false,
-              has_gen_random_uuid: false,
-              has_starts_with: false,
-              has_cardinality: false,
-              has_to_regclass: false,
-              has_row_security_active: false,
-              has_jsonb_to_recordset: false,
-              has_jsonb_build_object: false,
-              has_jsonb_set: false,
-              has_transaction_timeout: false,
-              has_rolbypassrls: false,
-              has_stat_rep_flush_lsn: false,
-              has_stat_rep_receiver_flush: true,
-              has_pg_policies: false,
-              has_pg_rlspolicies: true,
-            }),
-          (error: unknown) => (error as { code?: string }).code === "pg_dialect_incompatible",
-        );
+        // Fail-closed guard for non-PG compatibility modes (A / B / C)
+        for (const mode of ["A", "B", "C"] as const) {
+          assert.throws(
+            () =>
+              capabilitiesFromProbeRow({
+                version_text: capabilities!.serverVersion,
+                server_version: "9.2.4",
+                server_version_num: String(capabilities!.serverVersionNum),
+                sql_compatibility: mode,
+                has_pg_lsn: false,
+                has_xid8: false,
+                has_wal_flush_lsn: false,
+                has_xlog_location: true,
+                has_current_setting_2arg: false,
+                has_gen_random_uuid: false,
+                has_starts_with: false,
+                has_cardinality: false,
+                has_to_regclass: false,
+                has_row_security_active: false,
+                has_jsonb_to_recordset: false,
+                has_jsonb_build_object: false,
+                has_jsonb_set: false,
+                has_transaction_timeout: false,
+                has_rolbypassrls: false,
+                has_stat_rep_flush_lsn: false,
+                has_stat_rep_receiver_flush: true,
+                has_pg_policies: false,
+                has_pg_rlspolicies: true,
+              }),
+            (error: unknown) => (error as { code?: string }).code === "pg_dialect_incompatible",
+            `expected sql_compatibility=${mode} to fail closed`,
+          );
+        }
+        // Live non-PG database fail-closed verification when B/C DB URLs are supplied
+        for (const [label, url] of [
+          ["B", B_MODE_URL],
+          ["C", C_MODE_URL],
+        ] as const) {
+          if (!url) continue;
+          const nonPgPool = new Pool({ connectionString: url, max: 1 });
+          try {
+            const nonPgClient = await nonPgPool.connect();
+            try {
+              await assert.rejects(
+                detectPgDialectCapabilities(nonPgClient),
+                (error: unknown) =>
+                  (error as { code?: string }).code === "pg_dialect_incompatible" &&
+                  error instanceof Error &&
+                  new RegExp(`sql_compatibility='${label}'`, "u").test(error.message),
+                `live openGauss ${label}-mode database must fail closed`,
+              );
+            } finally {
+              nonPgClient.release();
+            }
+          } finally {
+            await nonPgPool.end();
+          }
+        }
 
         await ensurePostgresEventLedgerSchema(adminClient, capabilities);
         await ensurePgProjectionSchema(adminClient, { indexBuild: "isolated", capabilities });
@@ -273,6 +314,15 @@ test(
       );
 
       // 4. Projection materialization + reads + ha_facts.memory_class B-Tree index under forced RLS
+      const readBlob =
+        (client: import("pg").PoolClient) =>
+        async (sha256: string): Promise<Uint8Array | null> =>
+          (
+            await client.query<{ body: Buffer }>(
+              "SELECT body FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3",
+              [tenantA.tenantId, tenantA.projectId, sha256],
+            )
+          ).rows[0]?.body ?? null;
       const eventsA = (await storeA.execute({
         operation: "events",
         afterRevision: 0,
@@ -284,6 +334,7 @@ test(
           await materializePgProjectionEvents(client, tenantA, {
             events: eventsA,
             revision: 3,
+            readContentBlob: readBlob(client),
           });
         },
         tenantA,
@@ -390,6 +441,266 @@ test(
         );
       } finally {
         unscopedClient.release();
+      }
+
+      // 6. G9-01: Empty lease writes SQL NULL, and lease reserve + currentLeaseForExecution handle both SQL NULL and historical JSON null
+      const taskLegacyNullId = `task_og_legacy_${suffix}`;
+      const r4 = await storeA.append(
+        makeTaskBundle(taskLegacyNullId, `op_og_4_${suffix}`, 4, "Legacy JSON null task"),
+        3,
+        fence,
+      );
+      assert.equal(r4.revision, 4);
+      const eventsAfterTask2 = (await storeA.execute({
+        operation: "events",
+        afterRevision: 3,
+      })) as readonly import("@harness-anything/kernel").CanonicalEventV1[];
+      await withPostgresTransaction(
+        runtimePool,
+        async (client) => {
+          await materializePgProjectionEvents(client, tenantA, { events: eventsAfterTask2, revision: 4 });
+          // Verify newly materialized empty lease is stored as SQL NULL (not JSON 'null'::jsonb)
+          const rawCheck = await client.query<{ is_sql_null: boolean }>(
+            "SELECT raw_lease IS NULL AS is_sql_null FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+            [tenantA.tenantId, tenantA.projectId, tenantA.policyEpoch, taskId],
+          );
+          assert.equal(rawCheck.rows[0]?.is_sql_null, true, "new empty lease must be stored as SQL NULL");
+          // Simulate a historical row storing JSON null scalar ('null'::jsonb)
+          await client.query(
+            "UPDATE ha_task_snapshots SET raw_lease='null'::jsonb WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+            [tenantA.tenantId, tenantA.projectId, tenantA.policyEpoch, taskLegacyNullId],
+          );
+        },
+        tenantA,
+      );
+      const leaseNow = "2026-11-23T08:05:00.000Z";
+      assert.equal(await sourceA.currentLease(taskId, leaseNow), null);
+      assert.equal(await sourceA.currentLease(taskLegacyNullId, leaseNow), null);
+      assert.equal(await sourceA.currentLeaseForExecution("exe_nonexistent", leaseNow), null);
+      const lease: LeaseV1 = {
+        schema: "lease/v1",
+        taskId,
+        executionId: `exe_og_${suffix}`,
+        actor,
+        source: "local",
+        phase: "reserving",
+        version: 0,
+        ttlMs: 3_600_000,
+        expiresAt: "2026-11-23T09:05:00.000Z",
+      };
+      const reserved = await changePgLease({
+        pool: runtimePool,
+        scope: tenantA,
+        repoId,
+        operation: "reserve",
+        expected: lease,
+        now: leaseNow,
+      });
+      assert.equal(reserved.phase, "reserving");
+      assert.equal(
+        (await sourceA.currentLeaseForExecution(lease.executionId, leaseNow))?.executionId,
+        lease.executionId,
+      );
+      const held = await changePgLease({
+        pool: runtimePool,
+        scope: tenantA,
+        repoId,
+        operation: "activate",
+        expected: reserved,
+        now: leaseNow,
+      });
+      assert.equal(held.phase, "held");
+      const released = await changePgLease({
+        pool: runtimePool,
+        scope: tenantA,
+        repoId,
+        operation: "release",
+        expected: held,
+        now: leaseNow,
+      });
+      assert.equal(released.phase, "released");
+      const afterRelease = await sourceA.currentLeaseForExecution(lease.executionId, leaseNow);
+      assert.equal(afterRelease?.phase, "released");
+      assert.equal(afterRelease?.version, released.version);
+
+      // 7. G9-02 & G9-03: Authority->head lock order on warm append vs migration freeze, readStateDigest, and full cold migration export + auditPgProjectionRows
+      // 7a. Read-only migration grant role must be denied ha_acquire_repo_writer_epoch_share and ha_inherit_repo_writer_epoch
+      const checkGrant = await createMigrationGrant(adminPool, `grant_check_${suffix}`, [tenantA]);
+      try {
+        await assert.rejects(
+          checkGrant.pool.query("SELECT public.ha_acquire_repo_writer_epoch_share($1)", [repoId]),
+          (error: unknown) => (error as { code?: string }).code === "42501",
+          "read-only migration grant role must not invoke ha_acquire_repo_writer_epoch_share",
+        );
+        await assert.rejects(
+          checkGrant.pool.query("SELECT public.ha_inherit_repo_writer_epoch()"),
+          (error: unknown) => (error as { code?: string }).code === "42501",
+        );
+      } finally {
+        await checkGrant.close();
+      }
+      await assert.rejects(
+        runtimePool.query("SELECT public.ha_inherit_repo_writer_epoch()"),
+        (error: unknown) => (error as { code?: string }).code === "42501",
+      );
+
+      // 7b. readStateDigest matches across online materialization vs full rebuild
+      // Clear the synthetic legacy JSON null and released lease on the two tasks by rebuilding cleanly from canonical events
+      const canonicalEventsA = (await storeA.execute({
+        operation: "events",
+        afterRevision: 0,
+      })) as readonly import("@harness-anything/kernel").CanonicalEventV1[];
+      await withPostgresTransaction(
+        runtimePool,
+        async (client) => {
+          await rebuildPgProjection(client, tenantA, {
+            events: canonicalEventsA,
+            sourceRevision: 4,
+            readContentBlob: readBlob(client),
+          });
+        },
+        tenantA,
+      );
+      const digestBefore = await sourceA.readStateDigest();
+      assert.match(digestBefore ?? "", /^sha256:[a-f0-9]{64}$/u);
+      await withPostgresTransaction(
+        runtimePool,
+        async (client) => {
+          await rebuildPgProjection(client, tenantA, {
+            events: canonicalEventsA,
+            sourceRevision: 4,
+            readContentBlob: readBlob(client),
+          });
+        },
+        tenantA,
+      );
+      assert.equal(await sourceA.readStateDigest(), digestBefore, "readStateDigest must be stable across rebuild");
+
+      // 7c. Warm append (existing ha_repo_heads row) vs concurrent migration freeze: must block cleanly on authority -> head order with ZERO deadlock
+      const migrationRoot = mkdtempSync(path.join(tmpdir(), "ha-og-migration-"));
+      try {
+        initRepo(migrationRoot);
+        const ogSource = await openPgMigrationEndpoint({ pool: adminPool, repoId, scope: tenantA });
+        const sqliteTarget = openSqliteMigrationEndpoint({
+          rootDir: migrationRoot,
+          role: "target",
+          repoId,
+          scope: tenantA,
+        });
+        try {
+          const warmBundle = makeFactBundle(
+            `F-${(Number(suffix.slice(-8)) + 2).toString().padStart(8, "0")}`,
+            `op_og_warm_${suffix}`,
+            5,
+            "semantic",
+          );
+          let warmCommitted = false;
+          await assert.rejects(
+            migrateStorage({
+              repoId,
+              runId: `og_race_${suffix}`,
+              exportDirectory: path.join(migrationRoot, "export-race"),
+              target: sqliteTarget,
+              source: {
+                ...ogSource,
+                async change(expected, next, activate) {
+                  if (next.phase !== "freezing") return ogSource.change(expected, next, activate);
+                  const entered = Promise.withResolvers<void>();
+                  const release = Promise.withResolvers<void>();
+                  const warmStore = makePostgresTaskEventStore({
+                    pool: runtimePool,
+                    repoId,
+                    scope: tenantA,
+                    async project(client, value) {
+                      await materializePgProjectionEvents(client, tenantA, {
+                        ...value,
+                        readContentBlob: readBlob(client),
+                      });
+                      entered.resolve();
+                      await release.promise;
+                    },
+                  });
+                  const warmAppend = warmStore.append(warmBundle, 4, fence).then((res) => {
+                    warmCommitted = true;
+                    return res;
+                  });
+                  await entered.promise;
+                  let freezeFinished = false;
+                  const freezing = ogSource.change(expected, next, activate).then(
+                    () => {
+                      freezeFinished = true;
+                      return null;
+                    },
+                    (error: unknown) => {
+                      freezeFinished = true;
+                      return error;
+                    },
+                  );
+                  try {
+                    // Give the freeze transaction time to attempt locking authority; it must remain blocked on authority (no deadlock, no early completion)
+                    await new Promise<void>((resolve) => setTimeout(resolve, 250));
+                    assert.equal(
+                      freezeFinished,
+                      false,
+                      "migration freeze must wait for in-flight warm append holding authority SHARE lock",
+                    );
+                  } finally {
+                    release.resolve();
+                    const res = await warmAppend;
+                    assert.equal(res.revision, 5);
+                  }
+                  const freezeError = await freezing;
+                  assert.ok(freezeError, "freeze must reject stale preflight cut after warm append commits");
+                  throw freezeError;
+                },
+              },
+            }),
+            (error: unknown) => (error as { code?: string }).code === "storage_migration_mismatch",
+          );
+          assert.equal(warmCommitted, true);
+          assert.equal(await ogSource.state(), null, "failed freeze must leave source unfrozen");
+
+          // 7d. Full cold migration export (invokes createMigrationGrant + auditPgProjectionRows + replay verification) -> SQLite target
+          const exported = await ogSource.export(`og_cold_${suffix}`);
+          assert.equal(exported.length, 1);
+          assert.equal(exported[0]?.events.length, 5);
+          await migrateStorage({
+            repoId,
+            runId: `og_cold_${suffix}`,
+            exportDirectory: path.join(migrationRoot, "export-cold"),
+            source: ogSource,
+            target: sqliteTarget,
+          });
+          assert.equal(await sqliteTarget.marker(`og_cold_${suffix}`), true);
+          const migratedTuples = await sqliteTarget.export(`og_cold_${suffix}`);
+          assert.equal(migratedTuples.length, 1);
+          assert.equal(migratedTuples[0]?.events.length, 5);
+          assert.deepEqual(migratedTuples[0]?.cut, exported[0]?.cut);
+          assert.deepEqual(migratedTuples[0]?.projection, exported[0]?.projection);
+
+          // 7e. Once frozen/migrated, subsequent warm append must fail closed with storage_migration_read_only
+          await assert.rejects(
+            storeA.append(
+              makeFactBundle(
+                `F-${(Number(suffix.slice(-8)) + 3).toString().padStart(8, "0")}`,
+                `op_og_after_freeze_${suffix}`,
+                6,
+                "semantic",
+              ),
+              5,
+              fence,
+            ),
+            (error: unknown) =>
+              (error as { code?: string }).code === "revision_conflict" &&
+              error instanceof Error &&
+              /storage_migration_read_only/u.test(error.message),
+          );
+        } finally {
+          await sqliteTarget.close();
+          await ogSource.close();
+        }
+      } finally {
+        removeTempRepository(migrationRoot);
       }
     } finally {
       await runtimePool.end();

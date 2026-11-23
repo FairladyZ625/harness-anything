@@ -152,9 +152,10 @@ export function capabilitiesFromProbeRow(row: DialectProbeRow): PgDialectCapabil
   const isOpenGauss =
     /\bopengauss\b|\bgaussdb\b/iu.test(versionText) ||
     (sqlCompatibility !== null && !row.has_pg_policies && Boolean(row.has_pg_rlspolicies));
-  if (isOpenGauss && sqlCompatibility?.toUpperCase() === "A") {
+  const normalizedCompatibility = sqlCompatibility?.trim().toUpperCase() || null;
+  if (isOpenGauss && normalizedCompatibility !== "PG") {
     throw dialectError(
-      "openGauss database uses sql_compatibility='A' (empty strings evaluate as NULL); recreate the database with DBCOMPATIBILITY 'PG'",
+      `openGauss database uses unsupported sql_compatibility='${normalizedCompatibility ?? "unknown"}'; recreate the database with DBCOMPATIBILITY 'PG'`,
     );
   }
   const supportsWalLsn = Boolean(row.has_pg_lsn && row.has_wal_flush_lsn && row.has_stat_rep_flush_lsn),

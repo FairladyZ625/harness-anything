@@ -23,7 +23,9 @@ import {
   postgresScopeRlsStatements,
   postgresScopeWriteGuardFunctionStatements,
 } from "../../src/postgres/scope-schema.ts";
+import { postgresStorageMigrationSchema } from "../../src/migration/postgres-schema.ts";
 import { projectionDdl } from "../../src/pg/pg-projection-schema.ts";
+import { readPgProjectionStoredRows } from "../../src/pg/pg-projection-stored-rows.ts";
 
 const STANDARD_PG16_PROBE = {
   version_text: "PostgreSQL 16.4 on x86_64-pc-linux-gnu",
@@ -127,13 +129,17 @@ test("capabilitiesFromProbeRow classifies openGauss 5.0.3 PG-compatibility mode 
 });
 
 test("capabilitiesFromProbeRow fails closed on non-PG openGauss sql_compatibility and missing primitives", () => {
-  assert.throws(
-    () => capabilitiesFromProbeRow({ ...OPENGAUSS_503_PG_PROBE, sql_compatibility: "A" }),
-    (error: unknown) =>
-      error instanceof Error &&
-      (error as { code?: string }).code === "pg_dialect_incompatible" &&
-      /DBCOMPATIBILITY 'PG'/u.test(error.message),
-  );
+  for (const mode of ["A", "B", "C", "", null] as const) {
+    assert.throws(
+      () => capabilitiesFromProbeRow({ ...OPENGAUSS_503_PG_PROBE, sql_compatibility: mode }),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as { code?: string }).code === "pg_dialect_incompatible" &&
+        /DBCOMPATIBILITY 'PG'/u.test(error.message),
+      `expected openGauss sql_compatibility=${String(mode)} to fail closed`,
+    );
+  }
+  assert.equal(capabilitiesFromProbeRow({ ...OPENGAUSS_503_PG_PROBE, sql_compatibility: "pg" }).engine, "opengauss");
   assert.throws(
     () =>
       capabilitiesFromProbeRow({
@@ -269,4 +275,77 @@ test("ensurePoolDialectCapabilities skips SQL probe on non-socket mock or PGlite
   const caps = await ensurePoolDialectCapabilities(mockPool, mockClient);
   assert.equal(caps, STANDARD_POSTGRES_DIALECT_CAPABILITIES);
   assert.deepEqual(queries, []);
+});
+
+test("migration schema installs authority-first share lock helper only on non-ON-CONFLICT dialects", () => {
+  const pgSchema = postgresStorageMigrationSchema(STANDARD_POSTGRES_DIALECT_CAPABILITIES).join("\n");
+  assert.doesNotMatch(pgSchema, /ha_acquire_repo_writer_epoch_share/u);
+
+  const og = capabilitiesFromProbeRow(OPENGAUSS_503_PG_PROBE);
+  const ogSchema = postgresStorageMigrationSchema(og).join("\n");
+  assert.match(ogSchema, /CREATE OR REPLACE FUNCTION public\.ha_acquire_repo_writer_epoch_share/u);
+  assert.match(ogSchema, /has_table_privilege\(session_user, 'public\.ha_repo_heads', 'INSERT'\)/u);
+  assert.match(ogSchema, /FROM public\.ha_repo_writer_epochs WHERE repo_id = target_repo_id FOR SHARE/u);
+});
+
+test("readPgProjectionStoredRows uses row_to_json on openGauss and strips/resolves columns identically", async () => {
+  const og = capabilitiesFromProbeRow(OPENGAUSS_503_PG_PROBE);
+  const executed: string[] = [];
+  const scope = { tenantId: "t1", projectId: "p1", policyEpoch: 1 };
+  const mockClient = {
+    async query(sql: string) {
+      executed.push(sql);
+      if (sql.includes("ha_decision_read_status")) {
+        return {
+          rows: [
+            {
+              row_value: {
+                tenant_id: "t1",
+                decision_id: "d1",
+                generation: "v1",
+                updated_at: "2026-11-23T00:00:00Z",
+              },
+            },
+          ],
+        };
+      }
+      if (sql.includes("ha_decision_positions")) {
+        return {
+          rows: [
+            {
+              row_value: { tenant_id: "t1", term_slot: 7, position: 2 },
+              resolved_term: "alpha",
+            },
+            {
+              row_value: { tenant_id: "t1", term_slot: 3, position: 1 },
+              resolved_term: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+  } as unknown as PoolClient;
+
+  const statusRows = await readPgProjectionStoredRows(mockClient, "ha_decision_read_status", scope, {
+    capabilities: og,
+    excludeColumns: ["updated_at", "state_digest"],
+  });
+  assert.deepEqual(statusRows, [{ tenant_id: "t1", decision_id: "d1" }]);
+
+  const posRows = await readPgProjectionStoredRows(mockClient, "ha_decision_positions", scope, {
+    capabilities: og,
+    excludeColumns: ["tenant_id"],
+    readers: [],
+    orderBy: "declaration_head_or_row",
+  });
+  assert.deepEqual(posRows, [
+    { position: 1, term: null },
+    { position: 2, term: "alpha" },
+  ]);
+
+  for (const sql of executed) {
+    assert.match(sql, /row_to_json\(projection\)/u);
+    assert.doesNotMatch(sql, /\bto_jsonb\b|\bjsonb_build_object\b/u);
+  }
 });
