@@ -1,10 +1,11 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 import { createLedgerBackup } from "../../src/store/ledger-backup.ts";
 import { runCompletionGenerationConversion } from "../../src/store/completion-generation-conversion.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -123,7 +124,7 @@ test("attach migration scan watermarks persist locally without changing the even
 
 test("canonical adapter accepts in SQLite before independently verifying the Git follower", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-canonical-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const event = eventAt(1),
     store = makeTaskEventStore({
@@ -157,7 +158,7 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
 
 test("canonical killpoint between events and outcome rolls back the accepting transaction", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-atomic-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const event = eventAt(1),
     store = makeTaskEventStore({
@@ -180,7 +181,7 @@ test("canonical killpoint between events and outcome rolls back the accepting tr
 
 test("Git can verify an accepted document while a concurrently edited worktree remains pending", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/context/published.md"), "local edit\n");
@@ -211,7 +212,7 @@ test("Git can verify an accepted document while a concurrently edited worktree r
 
 test("certified reopen resumes from the worktree's own manifest without overwriting later user edits", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-reopen-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const collision = path.join(rootDir, "harness/context/collision.md"),
     later = path.join(rootDir, "harness/context/later.md");
@@ -270,7 +271,7 @@ test("certified reopen resumes from the worktree's own manifest without overwrit
 
 test("certified reopen settles machine-owned snapshots from multiple accepted cuts without new events", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-worktree-partial-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const packagePath = "tasks/task-partial-generated",
     indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
@@ -316,7 +317,7 @@ test("reopen generated-file reads remain bounded as accepted task history grows"
   const counts: number[] = [];
   for (const amendments of [2, 12]) {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-history-reads-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     initRepo(rootDir);
     const packagePath = "tasks/task-history-reads",
       indexPath = path.join(rootDir, "harness", packagePath, "INDEX.md"),
@@ -398,7 +399,7 @@ test("SQLite content admission reuses exact objects after reopen and rejects mis
     body = "# Shared content\n",
     hash = sha256Text(body),
     options = { repoId, rootDir, writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }) };
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const first = makeTaskEventStore(options);
   try {
@@ -435,7 +436,7 @@ test("SQLite content admission reuses exact objects after reopen and rejects mis
 
 test("certified Git follower rejects document tampering even when its manifest is intact", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-git-tamper-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const store = makeTaskEventStore({
     repoId,
@@ -465,7 +466,7 @@ test("certified Git follower rejects document tampering even when its manifest i
 
 test("SQLite Decision append refuses a stale canonical document base before recording an outcome", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-decision-base-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     proposal = decisionProposal(),
@@ -552,7 +553,7 @@ test("SQLite Decision append refuses a stale canonical document base before reco
 
 test("SQLite migration replacement refuses a destination edited after classification", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-preimage-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const target = path.join(rootDir, "harness/context/notes.md"),
     expected = "# Initialized\n",
@@ -577,7 +578,7 @@ test("SQLite migration replacement refuses a destination edited after classifica
 
 test("SQLite retirement keeps a concurrent local edit while Git verifies the canonical deletion", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-retirement-race-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     logical = "context/temporary.md",
@@ -626,7 +627,7 @@ test("SQLite retirement keeps a concurrent local edit while Git verifies the can
 
 test("SQLite document admission rejects extra and missing frozen plan targets before acceptance", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-document-plan-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     candidate = docBundle(store, "# Plan\n", 1, "document-plan", "context/plan.md"),
@@ -881,7 +882,7 @@ test("generation migration is byte-exact, idempotent, and reports a bounded thro
 
 test("generation paths coexist beneath the local store root", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-path-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   assert.equal(sqliteLedgerPath(rootDir, 1), path.join(rootDir, ".harness/store/generations/1/ledger.sqlite"));
   assert.equal(sqliteLedgerPath(rootDir, 2), path.join(rootDir, ".harness/store/generations/2/ledger.sqlite"));
 });
@@ -903,7 +904,7 @@ function batchedSnapshotSource(events: unknown[]) {
 
 test("reconciliation uses immutable source, import evidence, row digests, outcomes and real Git read-back", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-reconcile-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
@@ -954,7 +955,7 @@ test("certified reopen retires stale legacy index entries without changing unrel
   const parent = mkdtempSync(path.join(tmpdir(), "ha-sqlite-stale-index-"));
   let rootDir = path.join(parent, "source");
   mkdirSync(rootDir);
-  t.after(() => rmSync(parent, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(parent));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
@@ -1185,7 +1186,7 @@ function intentFor(event: ReturnType<typeof eventAt>): SqliteCommandIntent {
 
 function scratch(name: string, t?: TestContext): string {
   const root = mkdtempSync(path.join(tmpdir(), `ha-sqlite-${name}-`));
-  t?.after(() => rmSync(root, { recursive: true, force: true }));
+  t?.after(() => removeTempRepository(root));
   return path.join(root, "ledger.sqlite");
 }
 

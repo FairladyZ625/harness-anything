@@ -1,9 +1,10 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -123,7 +124,7 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
     );
 
     // The source goes away before anything is read back, so every byte below comes from the center.
-    rmSync(absoluteSource, { recursive: true });
+    removeTempRepository(absoluteSource);
     await crashed.close();
     crashed = undefined;
     assert.equal(
@@ -179,7 +180,7 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
 
     // Cold rebuild: throw the materialized tree away and let the ledger put it back through the operator's
     // own entry point, with the source still gone.
-    rmSync(path.join(rootDir, "harness", root), { recursive: true, force: true });
+    removeTempRepository(path.join(rootDir, "harness", root));
     const rebuilt = await recovered.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
     assert.deepEqual(readFileSync(held("blobs", "binary.bin")), binaryBytes, "a cold rebuild restores the same bytes");
@@ -188,7 +189,7 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
   } finally {
     await crashed?.close();
     await recovered?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -278,7 +279,7 @@ test("An entity import interrupted before acceptance leaves nothing accepted and
   } finally {
     await crashed?.close();
     await recovered?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -401,7 +402,7 @@ test("An entity import under a superseded writer epoch writes nothing while the 
     newAuthority.close();
     await stale?.close().catch(() => undefined);
     await current?.close().catch(() => undefined);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -493,7 +494,7 @@ test("An import and the delete that ends it leave the source untouched, and a re
   } finally {
     await first?.close();
     await second?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -622,7 +623,7 @@ test("An instance pinned to schema v1 reads back unchanged from a cold process a
   } finally {
     await declaring?.close();
     await cold?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -899,7 +900,7 @@ test(
       );
 
       // Everything read back from here on is the center's own copy.
-      rmSync(absoluteSource, { recursive: true });
+      removeTempRepository(absoluteSource);
       const successorMarker = path.join(parent, "successor-orderly-exit.marker");
       successor = spawnArm("recover", successorMarker, [String(boundary.opId)]);
       const successorOutput = childRecords(successor),
@@ -1005,7 +1006,7 @@ test(
       assert.equal(existsSync(absoluteSource), false, "the recovery must owe nothing to the deleted source");
     } finally {
       for (const child of [doomed, successor]) if (child?.pid !== undefined) child.kill("SIGKILL");
-      rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      removeTempRepository(parent);
     }
   },
 );

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -32,12 +33,12 @@ before(() => {
 after(() => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
+  removeTempRepository(ciBin);
 });
 
 test("work owner appends without a lease while outsider and ordinary task require one, including cold replay", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-work-progress-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("work-progress"),
@@ -98,7 +99,7 @@ test("work owner appends without a lease while outsider and ordinary task requir
 
 test("task create rejects ids that cannot form task entity references", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-id-ref-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("task-id-ref"),
@@ -281,7 +282,7 @@ test("task create publishes complete metadata and first-class relations survive 
     assert.equal(edge?.targetRef, "task/task_dependency");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -657,13 +658,13 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     assert.equal(edge?.relationType, "depends-on");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
 test("a lifecycle rejection bound to a declared criterion reports the guard's own reason", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-reason-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("task-rejection-reason"),
@@ -838,7 +839,7 @@ test("cancellation and reinstatement are audited and terminal tasks require supe
     assert.equal(reopen.outcome, "op_rejected");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -948,7 +949,7 @@ test("aggregate-authored status events rebuild to the exact hot snapshot", async
     replay.close();
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -992,7 +993,7 @@ test("batch archive preflights every selected task before publishing any event",
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1062,7 +1063,7 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
     assert.match(String(receipt.evidence), /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1129,7 +1130,7 @@ test("task move refuses cyclic parents and the receipt names the landed work", a
     assert.equal(child?.metadata?.parentTaskId, "task_movable");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1210,7 +1211,7 @@ test("task move re-hangs a leased task while every other amendment stays fenced"
     assert.equal(movedTask?.metadata?.parentTaskId, "task_lease_work_b");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1271,7 +1272,7 @@ test("task amend refuses to retitle a plan with unsynced local edits, then retit
     assert.equal(existsSync(path.join(rootDir, ".harness", "conflicts", "doc-sync")), false);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

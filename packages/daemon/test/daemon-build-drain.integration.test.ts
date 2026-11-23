@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -127,7 +128,7 @@ for (const phase of ["attached", "attaching", "abandoned"] as const) {
         attachmentGate.resolve();
         client?.close();
         await daemon?.stop();
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     },
   );
@@ -222,7 +223,7 @@ for (const detached of [false, true]) {
       } finally {
         proxy.close();
         await daemon?.stop();
-        rmSync(parent, { recursive: true, force: true });
+        removeTempRepository(parent);
       }
     },
   );
@@ -277,7 +278,7 @@ test(
     } finally {
       if (!attachmentReleased) attachmentGate.resolve();
       await daemon?.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -361,7 +362,7 @@ test("a drifted daemon exits on its own while a runtime session is live", { time
     );
   } finally {
     await daemon?.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -457,7 +458,7 @@ test(
       client?.close();
       await replacement?.stop();
       await daemon?.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -534,7 +535,7 @@ test(
     } finally {
       if (!attachmentReleased) attachmentGate.resolve();
       await daemon?.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -613,7 +614,7 @@ test(
     } finally {
       await replacement?.stop();
       await daemon?.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -668,7 +669,7 @@ test(
     } finally {
       successorReady.resolve();
       await daemon?.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -711,7 +712,7 @@ test("a stop whose repository drain stalls still exceeds its shutdown deadline",
   } finally {
     attachmentGate.resolve();
     await daemon?.stop();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -774,7 +775,7 @@ test(
     } finally {
       await recovered?.stop();
       await daemon?.stop();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -1079,7 +1080,7 @@ test(
       await replacement?.stop();
       for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
       rmSync(release, { force: true });
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -1301,7 +1302,7 @@ test(
       await replacement?.stop();
       for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
       rmSync(release, { force: true });
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -1553,7 +1554,7 @@ test(
       await replacement?.stop();
       for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
       rmSync(release, { force: true });
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );
@@ -1572,7 +1573,7 @@ test(
     let daemon: RunningDaemon | undefined,
       daemonStart: Promise<RunningDaemon> | undefined,
       attachmentCompleted = false;
-    t.after(() => rmSync(parent, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(parent));
     initializeRepo(rootDir, repoId);
     signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
@@ -1665,7 +1666,7 @@ test("a drain that rejects still releases the pid file and the singleton lock", 
   } finally {
     await daemon?.stop().catch(() => undefined);
     await realCell?.close().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1698,7 +1699,7 @@ test("a pid file that cannot be removed still releases the singleton lock", { ti
     daemon = undefined;
   } finally {
     await daemon?.stop().catch(() => undefined);
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 

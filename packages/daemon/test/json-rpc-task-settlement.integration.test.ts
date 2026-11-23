@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { readDispatchStreamHeaders } from "../src/daemon-host/dispatch-stream.ts";
 import assert from "node:assert/strict";
@@ -213,7 +214,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     const completeEvent = store().readEvent(String(completed.opId)); assert.equal(completeEvent?.type, "task_completed"); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(store().read().events.filter((event) => event.type !== "task_completed").every((event) => event.schema !== "task-event/v1" || event.payload.task.status !== "done"), true); const revision = store().read().revision, repeated = await cell.run({ kind: "task-complete", taskId, executionId }, binding); assert.equal(repeated.opId, completed.opId); assert.equal(store().read().revision, revision);
     const completedShow = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence)) as { task: { status: string; currentNode: string } }, completedList = JSON.parse(String((await cell.run({ kind: "task-list" }, binding)).evidence)) as { rows: { taskId: string; status: string }[] }; assert.deepEqual({ status: completedShow.task.status, currentNode: completedShow.task.currentNode }, { status: "done", currentNode: "review" }); assert.equal(completedList.rows.find((row) => row.taskId === taskId)?.status, "done");
     await cell.close(); cell = undefined; const rebuilt = makeTaskProjection({ rootDir, eventStore: store() }); rebuilt.close(); rmSync(rebuilt.path, { force: true }); rebuilt.rebuild(); assert.equal(rebuilt.read(taskId).snapshot.task?.status, "done"); assert.equal(rebuilt.read(taskId).snapshot.task?.currentNode, "review"); assert.equal(rebuilt.read(taskId).snapshot.gateWitnesses.length, 0); rebuilt.close();
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -223,7 +224,7 @@ test("CompleteTask response loss settles by stable receipt and never publishes a
     initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n"); cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
     const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -238,7 +239,7 @@ test("Fact record publishes one event, L2 row, authored facts document, and supe
     const binding = repoWriteBinding, created = await cell.run({ kind: "task-create", taskId: "task-fact", title: "Fact History" }, binding); assert.equal(created.outcome, "applied"); const taskVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(taskVisible.wait?.state, "satisfied", JSON.stringify(taskVisible));
     const firstAction = { kind: "fact-record", taskId: "task-fact", statement: "Canonical facts are event-backed.", evidenceSource: "test:first", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"] }, first = await cell.run(firstAction, binding) as Record<string, unknown>; assert.equal(first.outcome, "applied", JSON.stringify(first)); assert.match(String(first.path), /^facts\/F-[0-9A-HJKMNP-TV-Z]{8}\.md$/u); assert.equal(first.status, "accepted_durable"); assert.equal(typeof first.cut, "object"); const firstVisible = await waitForAcceptedReceipt(cell, first as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(firstVisible.wait?.state, "satisfied", JSON.stringify(firstVisible)); const firstId = String(first.factId), factsPath = `facts/${firstId}.md`, factsFile = path.join(rootDir, "harness", factsPath); assert.equal(readFileSync(factsFile, "utf8").includes(`### ${firstId}`), true); const replay = await cell.run(firstAction, binding); assert.equal(replay.outcome, "applied", JSON.stringify(replay)); assert.equal(replay.status, "accepted_durable"); assert.equal(replay.opId, first.opId); assert.deepEqual(replay.acceptance, first.acceptance); const firstEvent = makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readEvent(String(first.opId)); assert.equal(firstEvent?.schema, "fact-event/v1"); if (firstEvent?.schema === "fact-event/v1") { assert.equal(firstEvent.payload.factsDocumentClaim.path, factsPath); assert.equal(firstEvent.workspaceRevision, first.revision); }
     const second = await cell.run({ kind: "fact-record", taskId: "task-fact", statement: "Canonical facts also have per-fact documents.", evidenceSource: "test:second", confidence: "high", memoryClass: "semantic", memoryTags: ["pattern"], supersedes: { factRef: `fact/${firstId}`, rationale: "The stronger observation supersedes the first." } }, binding) as Record<string, unknown>; assert.equal(second.outcome, "applied", JSON.stringify(second)); const secondVisible = await waitForAcceptedReceipt(cell, second as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(secondVisible.wait?.state, "satisfied", JSON.stringify(secondVisible)); const secondId = String(second.factId), secondPath = `facts/${secondId}.md`; assert.equal(readFileSync(path.join(rootDir, "harness", secondPath), "utf8").includes(`### ${secondId}`), true); const shown = await cell.run({ kind: "fact-show", factId: firstId }, binding); assert.equal((JSON.parse(String(shown.evidence)) as { fact: { state: string } }).fact.state, "superseded_fact"); assert.equal(makeTaskEventReader({ repoId: "invalid-fact", rootDir }).readHead()?.revision, baselineRevision + 3);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -260,7 +261,7 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
     assert.equal(fact.evidenceSource, `decision/${decisionId}@${beforeInvalid}`); assert.match(fact.statement, new RegExp(`basisRevision ${beforeInvalid}`, "u")); assert.equal(fact.workspaceRevision, beforeInvalid + 1);
     const stable = await cell.run({ kind: "receipt-show", opId: proposed.opId }, binding) as Record<string, unknown>; assert.deepEqual({ consentId: stable.consentId, path: stable.path, cut: stable.cut, documentSha256: stable.documentSha256 }, { consentId: (proposed as Record<string, unknown>).consentId, path: (proposed as Record<string, unknown>).path, cut: (proposed as Record<string, unknown>).cut, documentSha256: (proposed as Record<string, unknown>).documentSha256 }); assert.equal((stable.git as { state: string }).state, "verified"); assert.equal((stable.worktree as { state: string }).state, "verified");
     const event = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readEvent(reckon.opId); assert.equal(event?.schema, "fact-event/v1"); if (event?.schema === "fact-event/v1") assert.equal(event.payload.evidenceSource, fact.evidenceSource);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -301,7 +302,7 @@ test("Decision proposal packet defaults optional fields, checks boundaries befor
     writeFileSync(path.join(rootDir, "bad.md"), Buffer.from([0xff])); const invalidUtf8 = await cell.run({ kind: "decision-propose", fromFile: "proposal.json", bodyFile: "bad.md" }, binding); assert.equal(invalidUtf8.code, "invalid_command"); assert.equal(makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()?.revision, afterDefault);
     const prose = `${realizedDecisionBody("Atomic proposal")}\n初始正文。\n`; writeFileSync(path.join(rootDir, "body.md"), prose); const proposed = await cell.run({ kind: "decision-propose", fromFile: "proposal.json", bodyFile: "body.md" }, binding) as Record<string, unknown>; assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); assert.equal(proposed.revision, afterDefault + 1); const event = makeTaskEventReader({ repoId: "decision-packet", rootDir }).readEvent(String(proposed.opId)); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_proposed") { assert.deepEqual(event.payload.claims, packet.claims); assert.deepEqual(event.payload.fulfillments, []); assert.deepEqual(event.payload.relations, []); assert.equal(event.payload.body, prose); }
     const settled = await waitForAcceptedReceipt(cell, proposed as { opId: string; acceptance?: { revisionTo?: number } | null }, binding); assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled)); const decisionId = (JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId, document = readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"), projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId: "decision-packet", rootDir }) }), projected = projection.readDecision(decisionId).decision; assert.equal(document.includes(prose.trimEnd()), true); assert.match(document, /## 关联图谱 \(Causal Graph\)/u); assert.deepEqual(projected?.claims, [{ ...packet.claims[0], fulfillment: null }]); assert.deepEqual(readFileSync(index), indexBefore); projection.close(); await cell.close(); cell = undefined;
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); rmSync(outside, { force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); rmSync(outside, { force: true }); }
 });
 // prettier-ignore
 
@@ -311,7 +312,7 @@ test("Decision proposal-owner judgment uses repo-write and returns the embedded 
     const accepted = await cell.run({ kind: "decision-accept", decisionId, rationale: "CEO approval", judgmentOnlyRationale: "Explicit CEO judgment." }, binding); assert.equal(accepted.outcome, "applied", JSON.stringify(accepted)); assert.match(String((accepted as Record<string, unknown>).consentId), /^djc_[0-9a-f]{26}$/u); const event = makeTaskEventReader({ repoId: "decision-consent", rootDir }).readEvent(accepted.opId); assert.equal(event?.schema, "decision-event/v1"); if (event?.schema === "decision-event/v1" && event.type === "decision_accepted") assert.equal(event.payload.judgmentConsent.consentId, (accepted as Record<string, unknown>).consentId);
     assert.equal(accepted.authorizationDecision?.policyRef, "keycloak-policy@1");
     assert.equal(accepted.authorizationDecision?.outcome, "allowed");
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -328,7 +329,7 @@ test("Decision full vertical golden rebuilds proposal, prose, claim, relation, c
     // Cold-cache rebuild owns the cache file only after the live follower has drained and closed.
     await cell.close(); cell = undefined;
     const store = makeTaskEventReader({ repoId: "decision-vertical", rootDir }), projection = makeTaskProjection({ rootDir, eventStore: store }), before = { decision: projection.readDecision(decisionId).decision, document: projection.readDocument(logical).document, graph: projection.readDecisionGraph() }; projection.close(); rmSync(projection.path); projection.rebuild(); assert.deepEqual({ decision: projection.readDecision(decisionId).decision, document: projection.readDocument(logical).document, graph: projection.readDecisionGraph() }, before); projection.close();
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 for (const killpoint of ["before_event_write", "after_event_write"] as const) {
   test(`RepoCell rolls back event and outcome together at ${killpoint}`, async () => {
@@ -378,7 +379,7 @@ for (const killpoint of ["before_event_write", "after_event_write"] as const) {
     } finally {
       await crashed?.close();
       await recovered?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }
@@ -436,7 +437,7 @@ for (const killpoint of ["after_store_commit", "before_response_write", "after_r
     } finally {
       await crashed?.close();
       await recovered?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }
@@ -492,7 +493,7 @@ test("a post-accept Git failure leaves SQLite writable and the receipt independe
     assert.equal(settled.worktree.state, "verified");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 for (const killpoint of ["after_store_commit", "before_response_write", "after_response_write"] as const) {
@@ -556,7 +557,7 @@ for (const killpoint of ["after_store_commit", "before_response_write", "after_r
     } finally {
       await crashed?.close();
       await recovered?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 }
@@ -620,7 +621,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     const deniedEdgePreset = await rpc(host, auth("writer", 4102), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
     const deniedUnbind = await rpc(host, auth("reader", 4101), "daemon.repo.unbind", { repoId: "second" }); assert.equal(deniedUnbind.outcome, "op_rejected"); assert.equal(deniedUnbind.code, "authorization_denied"); const deniedPurge = await rpc(host, auth("reader", 4101), "daemon.repo.purge", { repoId: "second", scope: "cache" }); assert.equal(deniedPurge.outcome, "op_rejected"); assert.equal(deniedPurge.code, "authorization_denied");
     for (const [method, params] of [["daemon.repo.backup", { rootDir: second, backupDir: path.join(parent, "denied-backup") }], ["daemon.repo.restoreDrill", { rootDir: second, backupDir: path.join(parent, "denied-backup") }]] as const) { const denied = await rpc(host, auth("reader", 4101), method, params); assert.deepEqual({ outcome: denied.outcome, code: denied.code }, { outcome: "op_rejected", code: "authorization_denied" }, method); }
-  } finally { await realm.close(); await host.close(); rmSync(parent, { recursive: true, force: true }); }
+  } finally { await realm.close(); await host.close(); removeTempRepository(parent); }
 });
 // prettier-ignore
 
@@ -643,7 +644,7 @@ test("runtime witness issuance binds the server principal without transport role
     return transport(ids[personId]);
   };
   const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-runtime", installationId: "installation-runtime", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", endpointKind: "official", baseUrlHash: null, authMode: "subscription" } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root, activationPreflight: activateEmptyCanonicalGeneration }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } }, { schema: "agent-runtime-event/v1", eventId: "runtime-dispatch", workspaceRevision: 2, opId: "runtime-dispatch", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_dispatch_requested", payload: { dispatchId: "dispatch-runtime", runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, dispatchKey: "runtime-witness", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 3, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:02.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/test", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); await store.drain();
-    const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth("admin")); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth("writer")), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never).type, "heartbeat"); signOutAt(userRoot); const owners = await fleetNodeOwners({ userRoot, owners: { "node-runtime": "worker" }, repoIds: ["runtime-witness"] }), nodeAuth = owners.auth({ nodeId: "node-runtime" }), nodeToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", nodeAuth), nodeBound = host.bindRuntimeWitness("runtime-witness", nodeToken.token); assert.deepEqual(nodeBound.source, { kind: "node", nodeId: "node-runtime" }); assert.deepEqual(nodeBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const personId of ["dualAdmin", "dualArbiter"] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(personId)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await realm.close(); await host.close(); rmSync(parent, { recursive: true, force: true }); }
+    const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth("admin")); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth("writer")), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never).type, "heartbeat"); signOutAt(userRoot); const owners = await fleetNodeOwners({ userRoot, owners: { "node-runtime": "worker" }, repoIds: ["runtime-witness"] }), nodeAuth = owners.auth({ nodeId: "node-runtime" }), nodeToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", nodeAuth), nodeBound = host.bindRuntimeWitness("runtime-witness", nodeToken.token); assert.deepEqual(nodeBound.source, { kind: "node", nodeId: "node-runtime" }); assert.deepEqual(nodeBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const personId of ["dualAdmin", "dualArbiter"] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(personId)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await realm.close(); await host.close(); removeTempRepository(parent); }
   });
 test("task mutation rejections name the missing field and current execution status", async (context) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-diagnostics-")),
@@ -722,7 +723,7 @@ test("task mutation rejections name the missing field and current execution stat
     context.diagnostic(`submitted receipt=${JSON.stringify(submittedBody)}`);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 async function writeCloseout(

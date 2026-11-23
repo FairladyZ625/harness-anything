@@ -1,8 +1,9 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -331,7 +332,7 @@ test("Git event-layout corruption cannot revoke SQLite acceptance or reads", asy
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -420,7 +421,7 @@ test("SQLite malformed canonical rows fail closed during operator activation val
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -490,7 +491,7 @@ test("projection rebuild is executable from a projection latch and settles it", 
     assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -575,7 +576,7 @@ for (const surface of ["cell", "writer"] as const)
     } finally {
       await cell?.close();
       await writer?.close();
-      rmSync(rootDir, { recursive: true, force: true });
+      removeTempRepository(rootDir);
     }
   });
 
@@ -604,7 +605,7 @@ test("a queued write rechecks Cell state after close begins", async () => {
     assert.deepEqual(makeTaskEventReader({ repoId: "cell-close-queue", rootDir }).readHead(), headBeforeClose);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -995,7 +996,7 @@ test(
     } finally {
       await Promise.all(providers.map((provider) => stopStubProcess(provider.process)));
       await cell?.close();
-      rmSync(parent, { recursive: true, force: true });
+      removeTempRepository(parent);
     }
   },
 );

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -66,14 +67,14 @@ test("projection rebuild repairs a repository that has no authored settings docu
     initRepo(rootDir); provisionPolicyTestRepository("projection-rebuild-bare"); cell = await openProductRepoCell({ repoId: workspaceId("projection-rebuild-bare"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild-bare", keycloakCenter: policyTestCenter });
     const repaired = await cell.run({ kind: "projection-rebuild" }, withPolicyGroup(repoWriteBinding, "admin")) as Record<string, unknown>;
     assert.equal(repaired.outcome, "applied", JSON.stringify(repaired)); assert.equal(repaired.revision, 0); assert.deepEqual(makeTaskEventReader({ repoId: "projection-rebuild-bare", rootDir }).read().events, []);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
 test("replay receipts retain their SQLite cut while Git identity settles independently", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replay-current-cut-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut" }); const binding = repoWriteBinding; const created = await cell.run({ kind: "task-create", taskId: "task_replay_first", title: "First" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); const first = await cell.run({ kind: "task-start", taskId: "task_replay_first", executionId: "execution_replay_first" }, binding) as Record<string, unknown>, second = await cell.run({ kind: "task-create", taskId: "task_replay_second", title: "Second" }, binding) as Record<string, unknown>, replay = await cell.run({ kind: "receipt-show", opId: first.opId }, binding) as Record<string, unknown>; assert.notDeepEqual(first.cut, second.cut); assert.deepEqual(replay.cut, first.cut); assert.equal(replay.status, "accepted_durable"); await cell.close(); cell = await openRepoCell({ repoId: workspaceId("replay-current-cut"), rootDir: canonicalRoot(rootDir), ownerId: "replay-current-cut-reopened" }); const materialized = await waitForAcceptedReceipt(cell, first as { opId: string; acceptance?: { revisionTo?: number } | null }, binding, ["accepted_durable", "projection_visible", "git_verified"]); assert.equal(materialized.git.state, "verified"); assert.deepEqual(materialized.cut, first.cut); }
-  finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -81,7 +82,7 @@ test("task create dry-run validates the exact package without event, revision, c
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-create-preview-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try { initRepo(rootDir); mkdirSync(path.join(rootDir, "harness/custom"), { recursive: true }); mkdirSync(path.join(rootDir, "harness/templates"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  scaffolds:\n    task: custom/task-scaffold.json\n"); writeFileSync(path.join(rootDir, "harness/templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n"); writeFileSync(path.join(rootDir, "harness/custom/task-scaffold.json"), `${JSON.stringify({ schema: "task-scaffold/v1", replaceTemplate: [], addDocument: [{ slot: "project.notes", path: "notes.md", template: "templates/notes.md", requiredAnchors: ["## Project Notes"] }] })}\n`); cell = await openRepoCell({ repoId: workspaceId("preview"), rootDir: canonicalRoot(rootDir), ownerId: "preview-daemon" }); const action = { kind: "task-create", taskId: "task-preview", title: "Preview Package" } as const, baselineRevision = makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, before = git(rootDir, "rev-parse", "HEAD"), preview = await cell.run({ ...action, dryRun: true }, repoWriteBinding) as Record<string, unknown>; assert.equal(preview.outcome, "pending"); assert.equal(preview.packagePath, "tasks/task-preview-preview-package"); assert.equal(preview.dryRun, true); assert.equal((preview.generatedPaths as string[]).length, 7); assert.equal((preview.generatedPaths as string[]).includes("tasks/task-preview-preview-package/notes.md"), true); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision); assert.equal(git(rootDir, "rev-parse", "HEAD"), before); assert.equal(existsSync(path.join(rootDir, "harness/tasks/task-preview-preview-package")), false);
     const created = await cell.run(action, repoWriteBinding) as Record<string, unknown>; assert.equal(created.packagePath, preview.packagePath); assert.equal(created.presetDigest, preview.presetDigest); assert.equal(created.scaffoldDigest, preview.scaffoldDigest); assert.equal(typeof created.cut, "object"); assert.equal((created.guidance as { kind: string }[]).some(({ kind }) => kind === "task-create-start"), true); const settled = await waitForAcceptedReceipt(cell, created as { opId: string; acceptance?: { revisionTo?: number } | null }, repoWriteBinding); assert.deepEqual(settled.wait, { state: "satisfied", unsatisfied: [] }); assert.equal(settled.worktree.state, "verified"); assert.equal(execFileSync("git", ["show", "HEAD:harness/tasks/task-preview-preview-package/notes.md"], { cwd: rootDir, encoding: "utf8" }), "# Notes\n\n## Project Notes\n\nCustom.\n"); assert.equal(readFileSync(path.join(rootDir, "harness/custom/task-scaffold.json"), "utf8").includes('"project.notes"'), true); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision + 1); const duplicate = await cell.run({ ...action, title: "Different title" }, repoWriteBinding); assert.equal(duplicate.outcome, "op_rejected"); assert.equal(duplicate.code, "task_exists"); assert.equal(makeTaskEventReader({ repoId: "preview", rootDir }).read().revision, baselineRevision + 1); const shown = await cell.run({ kind: "task-show", taskId: "task-preview" }, repoWriteBinding); const evidence = JSON.parse(String(shown.evidence)) as { packagePath: string; task: { title: string } }; assert.equal(evidence.packagePath, preview.packagePath); assert.equal(evidence.task.title, "Preview Package");
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -97,7 +98,7 @@ test("RepoCell completion preserves the frozen snapshot until explicit preset up
     assert.equal((await cell.run({ kind: "preset-upgrade", taskId }, binding)).outcome, "applied");
     const upgrades = makeTaskEventReader({ repoId: "preset-upgrade-cell", rootDir }).read().events.filter((event) => event.type === "preset_snapshot_upgraded"); assert.equal(upgrades.length, 1, JSON.stringify(upgrades)); assert.equal(upgrades[0]?.schema, "preset-snapshot-upgrade-event/v1"); assert.equal(upgrades[0]?.payload.previousDigest, previousDigest);
     const redundant = await cell.run({ kind: "preset-upgrade", taskId }, binding); assert.equal(redundant.code, "snapshot_current", JSON.stringify(redundant)); assert.equal((await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding)).code, "not_in_review");
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -107,7 +108,7 @@ test("RepoCell completion recognizes the frozen snapshot of a docs task", async 
     initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("docs-snapshot"), rootDir: canonicalRoot(rootDir), ownerId: "docs-snapshot" });
     const created = await cell.run({ kind: "task-create", taskId, title: "Docs snapshot", workKind: "docs" }, repoWriteBinding); assert.equal(created.outcome, "applied");
     const blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, repoWriteBinding); assert.notEqual(blocked.code, "preset_snapshot_mismatch", String(blocked.code));
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -146,7 +147,7 @@ test("RepoCell serializes identical lifecycle intents into one accepted SQLite o
     await cell.close(); cell = undefined;
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 // prettier-ignore
@@ -154,7 +155,7 @@ test("RepoCell serializes identical lifecycle intents into one accepted SQLite o
 test("GUI and CLI submit derive the same canonical event from closeout", async (t) => {
   const roots = ["packet", "structured"].map((name) => mkdtempSync(path.join(tmpdir(), `ha-submit-ab-${name}-`)));
   t.after(() => {
-    for (const root of roots) rmSync(root, { recursive: true, force: true });
+    for (const root of roots) removeTempRepository(root);
   });
   const cells: Awaited<ReturnType<typeof openRepoCell>>[] = [];
   const now = () => "2026-08-14T01:02:03.000Z", taskId = "task-submit-ab", executionId = "execution-submit-ab", binding = repoWriteBinding;
@@ -223,7 +224,7 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
     assert.deepEqual(guiSubmission.artifacts?.map((artifact) => artifact.path), ["tasks/task-submit-ab-submit-a-b/artifacts/explainer.html"]);
     assert.deepEqual(row.executionEvidence[0]!.outputs.map((output) => output.locator), guiSubmission.outputs);
     assert.deepEqual(validateDaemonTaskSnapshotList(projected), []);
-  } finally { await Promise.all(cells.map((cell) => cell.close())); roots.forEach((root) => rmSync(root, { recursive: true, force: true })); }
+  } finally { await Promise.all(cells.map((cell) => cell.close())); roots.forEach((root) => removeTempRepository(root)); }
 });
 // prettier-ignore
 
@@ -267,7 +268,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const lookedUp = await cell.run({ kind: "receipt-show", opId: consented.opId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ taskId: lookedUp.taskId, executionId: lookedUp.executionId, transition: lookedUp.transition, changedPaths: lookedUp.changedPaths }, { taskId, executionId, transition: consented.transition, changedPaths: consented.changedPaths });
     await cell.close(); cell = undefined; const store = makeTaskEventReader({ repoId: "lifecycle-files", rootDir });
     const projection = makeTaskProjection({ rootDir, eventStore: store }); projection.close(); rmSync(projection.path, { force: true }); assert.equal(projection.rebuild().watermark, store.read().revision); for (const target of [indexPath, executionPath, reviewPath]) assert.equal(projection.readDocument(target).document?.body, readFileSync(path.join(rootDir, "harness", target), "utf8")); projection.close(); await store.drain();
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -312,7 +313,7 @@ test("a task completes without any code/doc step, and the retired commands are u
     assert.equal(row.snapshot.codeDocWitnesses, undefined);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 // prettier-ignore
@@ -333,7 +334,7 @@ test("RepoCell doc mapping enforces strict dual CAS, holder receipts, deletion r
     const next = `${body}B\n`; writeFileSync(authored, next);
     const updated = await cell.run(action, repoWriteBinding); assert.equal(updated.outcome, "applied", JSON.stringify(updated)); body = next;
     rmSync(authored); const deletion = await cell.run(action, repoWriteBinding); assert.equal(deletion.code, "deletion_forbidden"); writeFileSync(authored, body);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -347,7 +348,7 @@ test("doc ingress rejects symbolic links in claim and authored path chains", asy
     writeFileSync(path.join(claims, "plain"), body); mkdirSync(path.join(rootDir, "harness/context"), { recursive: true }); symlinkSync("../../outside.md", path.join(rootDir, "harness/context/link.md"));
     const authoredLink = await cell.run({ kind: "doc-submit", executionId: "execution-doc", baseLedgerSha: base, changes: [{ path: "context/link.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: { ref: "doc-sync-claims/plain", sha256: hash, size: Buffer.byteLength(body), mediaType: "text/markdown" } }] }, binding);
     assert.equal(authoredLink.code, "invalid_command"); assert.equal(makeTaskEventReader({ repoId: "claim-link", rootDir }).read().revision, beforeRevision);
-  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+  } finally { await cell?.close(); removeTempRepository(rootDir); }
 });
 // prettier-ignore
 
@@ -361,7 +362,7 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
     // dec_4C06F7F902E91C4210020A9E75/CH2 retires the builtin CI observer schedule.
     assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
-  finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
+  finally { await Promise.all(hosts.map((host) => host.close())); removeTempRepository(parent); }
 });
 // prettier-ignore
 
@@ -380,7 +381,7 @@ test("bootstrap binds the ledger repository branch independently of the project 
     await host.close(); host = await openDaemonHost({ daemonId: "bootstrap-two", userRoot }); await host.attachmentsSettled();
     const afterRestart = await host.run("branch-bound", { kind: "task-create", taskId: "task-after-restart", title: "After restart" }, auth); assert.equal(afterRestart.outcome, "applied", JSON.stringify(afterRestart)); const settled = await host.run("branch-bound", { kind: "receipt-show", opId: afterRestart.opId, waitFor: ["accepted_durable", "projection_visible", "git_verified"], timeoutMs: 5_000 }, auth); assert.equal(settled.wait?.state, "satisfied", JSON.stringify(settled));
     assert.equal(git(ledgerRoot, "symbolic-ref", "HEAD"), `refs/heads/${ledgerBranch}`); assert.equal(git(rootDir, "branch", "--show-current"), "feature");
-  } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+  } finally { await host.close(); removeTempRepository(parent); }
 });
 // prettier-ignore
 
@@ -391,7 +392,7 @@ test("bootstrap validates local identity before repository initialization", asyn
   try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, auth), hasCode("access_person_unknown")); assert.equal(existsSync(path.join(rootDir, ".git")), false);
     // Without the local socket owner boundary, bootstrap refuses before any repository write.
     await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
-  finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+  finally { await host.close(); removeTempRepository(parent); }
 });
 // prettier-ignore
 
@@ -403,7 +404,7 @@ test("unrelated workspace lock collision does not block either workspace", async
   roots.forEach((root) => { mkdirSync(root); initRepo(root); }); const cells = await Promise.all(roots.map((rootDir, index) => openRepoCell({ repoId: workspaceId(`repo-${index}`),
     rootDir: canonicalRoot(rootDir), ownerId: `daemon-${index}` })));
   try { assert.deepEqual(cells.map((cell) => cell.status().state), ["attached", "attached"]); }
-  finally { await Promise.all(cells.map((cell) => cell.close())); rmSync(parent, { recursive: true, force: true }); }
+  finally { await Promise.all(cells.map((cell) => cell.close())); removeTempRepository(parent); }
 });
 async function writeCloseout(
   drain: () => Promise<unknown>,

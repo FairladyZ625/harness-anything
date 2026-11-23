@@ -1,6 +1,7 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -23,7 +24,7 @@ const repoId = "generation-three-open-guard",
 
 test("activation preflight honors the ledger connection policy during a concurrent exclusive lock", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-activation-lock-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3),
@@ -62,7 +63,7 @@ test("activation preflight honors the ledger connection policy during a concurre
 
 test("canonical attach rejects a zero-byte main file before SQLite discards its recoverable WAL", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-empty-canonical-ledger-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3),
@@ -119,7 +120,7 @@ test("canonical attach rejects a zero-byte main file before SQLite discards its 
 
 test("canonical attach rejects a 4096-byte database without ledger metadata", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-schema-less-canonical-ledger-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3),
@@ -139,7 +140,7 @@ test("canonical attach rejects a 4096-byte database without ledger metadata", (t
 
 test("canonical writable attach rejects revision zero when the persisted projection proves accepted history", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stale-canonical-main-file-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3),
@@ -243,7 +244,7 @@ function restoreLedger(rootDir: string, savedLedgerPath: string): void {
 
 test("a projection cache from a future daemon build is refused as a schema mismatch, not a lagging ledger", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-future-projection-canonical-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const revisionZeroPath = await scannedProjectionAtHead(rootDir);
@@ -263,7 +264,7 @@ test("a projection cache from a future daemon build is refused as a schema misma
 
 test("a projection cache from an older daemon build that proves lost history still blocks the attach", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-past-projection-canonical-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const revisionZeroPath = await scannedProjectionAtHead(rootDir);
@@ -283,7 +284,7 @@ test("a projection cache from an older daemon build that proves lost history sti
 
 test("a projection cache from an older daemon build at the ledger head does not block the attach", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-past-projection-caughtup-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   await scannedProjectionAtHead(rootDir);
@@ -301,8 +302,8 @@ test("a same-revision cache scanned from another history does not block the atta
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-foreign-history-cache-")),
     altDir = mkdtempSync(path.join(tmpdir(), "ha-foreign-history-alt-"));
   t.after(() => {
-    rmSync(rootDir, { recursive: true, force: true });
-    rmSync(altDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
+    removeTempRepository(altDir);
   });
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
@@ -372,7 +373,7 @@ test("a same-revision cache scanned from another history does not block the atta
 
 test("canonical attach surfaces unreadable projection metadata instead of accepting an unproven head", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-unreadable-canonical-projection-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3),
@@ -387,7 +388,7 @@ test("canonical attach surfaces unreadable projection metadata instead of accept
 
 test("canonical read-only ledger probes do not depend on projection readability", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-readonly-canonical-projection-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
@@ -404,7 +405,7 @@ test("canonical read-only ledger probes do not depend on projection readability"
 
 test("canonical attach does not recreate a missing ledger covered by its activation certificate", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-missing-canonical-ledger-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3);
@@ -419,7 +420,7 @@ test("canonical attach does not recreate a missing ledger covered by its activat
 
 test("empty activation refuses to recreate a missing ledger while its projection remains", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lost-canonical-ledger-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
   const databasePath = sqliteLedgerPath(rootDir, 3),
@@ -443,7 +444,7 @@ for (const [shape, contents] of [
 ] as const) {
   test(`a brand-new repository initialises through a leftover ${shape} projection cache`, (t) => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-empty-cache-bootstrap-"));
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     initRepo(rootDir);
     const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
     mkdirSync(path.dirname(projectionPath), { recursive: true });
@@ -469,7 +470,7 @@ for (const [shape, contents] of [
 
 test("a projection cache that already scanned accepted history still blocks empty initialisation", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-scanned-cache-bootstrap-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const projectionPath = path.join(rootDir, ".harness", "cache", "task.sqlite");
   mkdirSync(path.dirname(projectionPath), { recursive: true });

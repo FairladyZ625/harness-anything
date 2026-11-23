@@ -1,7 +1,8 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -74,7 +75,7 @@ test("a CAS blob referenced by any migrated repo document follows it into the ev
     assert.equal(Buffer.from(store.readContentBlob(hash) ?? []).toString("utf8"), referencedBody);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -252,7 +253,7 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
     );
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -326,7 +327,7 @@ test("re-importing a source is an incremental no-op instead of a hard rejection"
     assert.match(String(dry.summary), /Already imported from this Git lineage: task=1/u);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -455,7 +456,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
     assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=2/u);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -703,7 +704,7 @@ test("migration adopts the source contract digest and rewrites the contract pack
     assert.equal(contract.presetSnapshotDigest, digest);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -951,7 +952,7 @@ test("contract migration repairs old migrated rows through one canonical event a
     assert.equal(missingNextGate.code, "not_in_review", JSON.stringify(missingNextGate));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1142,7 +1143,7 @@ test("contract migration deterministically disposes all three canonical manual f
     assert.equal(secondLedger.events.length, firstLedger.events.length);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1185,7 +1186,7 @@ test("decision replay keeps source prose and legacy frontmatter readable beside 
     assert.match(body, /## Migrated source frontmatter[\s\S]*contentPins:[\s\S]*sha256:aaaaaaaa/u);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -1208,7 +1209,7 @@ test("Task/v1 title witness prefers task_plan.md H1 and falls back to INDEX.md H
     });
     assert.equal(taskTitleFromPackage(packageRoot, "No heading\n", authoredRoot, "No heading\n"), null);
   } finally {
-    rmSync(authoredRoot, { recursive: true, force: true });
+    removeTempRepository(authoredRoot);
   }
 });
 
