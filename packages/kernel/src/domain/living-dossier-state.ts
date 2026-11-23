@@ -192,9 +192,15 @@ export function resolveKind(rawKind: string, kindMap?: Readonly<Record<string, s
 }
 
 function classifyCategory(change: DossierChangeItem): "task" | "decision" | "fact" | "domain" {
-  if (change.schema === "task-event/v1") return "task";
-  if (change.schema === "decision-event/v1") return "decision";
-  if (change.schema === "fact-event/v1") return "fact";
+  if (change.schema === "task-event/v1" || (change.schema === "dossier-bootstrap/v1" && change.type === "seed_task"))
+    return "task";
+  if (
+    change.schema === "decision-event/v1" ||
+    (change.schema === "dossier-bootstrap/v1" && change.type === "seed_decision")
+  )
+    return "decision";
+  if (change.schema === "fact-event/v1" || (change.schema === "dossier-bootstrap/v1" && change.type === "seed_fact"))
+    return "fact";
   return "domain";
 }
 
@@ -236,6 +242,8 @@ function isRiskEvent(change: DossierChangeItem): boolean {
   return (
     change.payload.taskStatus === "blocked" ||
     change.payload.taskStatus === "cancelled" ||
+    change.payload.decisionAction === "superseded" ||
+    change.payload.decisionAction === "retired" ||
     change.type === "decision_superseded" ||
     change.type === "decision_retired" ||
     change.type === "task_superseded"
@@ -478,7 +486,10 @@ function applyStructuredUpdate(
   workCountersTruncated: boolean,
   kindMap?: Readonly<Record<string, string>>,
 ): { readonly retiredMatched: boolean } {
-  if (change.schema === "decision-event/v1") {
+  if (
+    change.schema === "decision-event/v1" ||
+    (change.schema === "dossier-bootstrap/v1" && change.type === "seed_decision")
+  ) {
     const decisionId = extractDecisionId(change);
     if (decisionId) {
       const existing = activeDecisions[decisionId];
@@ -520,21 +531,34 @@ function applyStructuredUpdate(
         derivedTaskIds: derivedTaskIdsFromLinks(mergedDerivedLinks),
       });
 
-      if (change.type === "decision_proposed") {
+      const action = typeof change.payload.decisionAction === "string" ? change.payload.decisionAction : null;
+      if (change.type === "decision_proposed" || action === "proposed") {
         pendingProposals[decisionId] = buildProposal();
-      } else if (change.type === "decision_rejected" || change.type === "decision_deferred") {
+      } else if (
+        change.type === "decision_rejected" ||
+        change.type === "decision_deferred" ||
+        action === "rejected" ||
+        action === "deferred"
+      ) {
         delete pendingProposals[decisionId];
-      } else if (change.type === "decision_superseded" || change.type === "decision_retired") {
+      } else if (
+        change.type === "decision_superseded" ||
+        change.type === "decision_retired" ||
+        action === "superseded" ||
+        action === "retired"
+      ) {
         delete activeDecisions[decisionId];
         delete pendingProposals[decisionId];
-        const retiredState: DecisionState = change.type === "decision_superseded" ? "superseded" : "outcome_retired";
+        const retiredState: DecisionState =
+          change.type === "decision_superseded" || action === "superseded" ? "superseded" : "outcome_retired";
         const idx = retiredDecisions.findIndex((item) => item.decisionId === decisionId);
         if (idx >= 0) retiredDecisions.splice(idx, 1);
         retiredDecisions.unshift(buildRecord(retiredState, reason));
       } else if (
         change.type === "decision_accepted" ||
         change.type === "decision_amended" ||
-        change.type === "decision_repinned"
+        change.type === "decision_repinned" ||
+        action === "accepted"
       ) {
         if (change.type === "decision_amended" && !existing && proposal) {
           pendingProposals[decisionId] = buildProposal();
@@ -546,7 +570,7 @@ function applyStructuredUpdate(
     }
   }
 
-  if (change.schema === "task-event/v1") {
+  if (change.schema === "task-event/v1" || (change.schema === "dossier-bootstrap/v1" && change.type === "seed_task")) {
     const taskId = extractTaskId(change);
     if (taskId) {
       const existing = tasks[taskId];
@@ -606,6 +630,7 @@ function applyStructuredUpdate(
           priorCounter?.countsIncomplete ||
           (!existing &&
             change.type !== "task_created" &&
+            change.type !== "seed_task" &&
             inferredClass === "work" &&
             !priorCounter &&
             workCountersTruncated),

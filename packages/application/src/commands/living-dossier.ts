@@ -3,7 +3,6 @@ import {
   isDossierSynthesisEvent,
 } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import {
-  DOSSIER_PAGE_SIZE,
   dossierDocumentPath,
   isDossierWatermark,
   type DossierSlot,
@@ -41,8 +40,11 @@ export function prepareDossierSynthesis(input: {
       `Slot ${slot.id} has watermark ${current}, expected ${expectedWatermark}. Read a new context page.`,
     );
   const cut = dossierSourceCut(reader);
-  if (watermark <= current || watermark > cut.watermark || watermark - current > DOSSIER_PAGE_SIZE)
-    dossierError("invalid_command", "The target watermark must advance within one bounded source page.");
+  if (watermark <= current || watermark > cut.watermark)
+    dossierError(
+      "invalid_command",
+      "The target watermark must advance strictly above the current slot watermark up to the source cut.",
+    );
   const prior = dossierDocumentEvent(reader, dossierDocumentPath(verticalId, slot));
   if (prior !== null && (!isDossierSynthesisEvent(prior) || prior.payload.state.slotId !== slot.id))
     dossierError("dossier_path_conflict", `Dossier path ${slot.path} belongs to another document.`);

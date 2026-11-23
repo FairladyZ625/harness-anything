@@ -295,7 +295,10 @@ export function createRepoCellApi(
     "repo.dossier.read": (payload: Readonly<Record<string, unknown>>) =>
       dossierReads(context.extracted).read(payload.slotId),
     "repo.dossier.context.read": (payload: Readonly<Record<string, unknown>>) =>
-      dossierReads(context.extracted).context(payload.slotId, payload.maxWatermark),
+      dossierReads(context.extracted).context(payload.slotId, payload.maxWatermark, {
+        afterWatermark: payload.afterWatermark,
+        bootstrap: payload.bootstrap,
+      }),
     "repo.events.read": (payload: Readonly<Record<string, unknown>>) =>
       readCanonicalEventPage(context.store, context.input.repoId, canonicalEventReadRequest(payload)),
     "repo.reckoning.signals.read": (payload: Readonly<Record<string, unknown>>) => ({

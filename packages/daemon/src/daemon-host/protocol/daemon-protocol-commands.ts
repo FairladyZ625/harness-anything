@@ -78,7 +78,20 @@ const dossierProtocolCommands = Object.freeze([
     path: ["dossier", "context"],
     summary: "Read the next bounded page of source changes for a dossier slot.",
     method: "repo.task.read",
-    inputs: [slotInput, watermarkInput("--max-watermark", false, "Keep an earlier source cut fixed across pages.")],
+    inputs: [
+      slotInput,
+      watermarkInput("--after-watermark", false, "Resume in-memory paging after this scanned watermark."),
+      watermarkInput("--max-watermark", false, "Keep an earlier source cut fixed across pages."),
+      cliInput(
+        "--bootstrap",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        {
+          description: "Seed catch-up context from bounded current projections plus the tail event window.",
+        },
+      ),
+    ],
   }),
   defineCenterForwardWriteCommand({
     id: "dossier-synthesize",

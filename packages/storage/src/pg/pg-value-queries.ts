@@ -118,10 +118,16 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       );
   };
   return {
-    listEntities: (kind, withAttribution) =>
+    listEntities: (kind, withAttribution, limit) =>
       read(async (client) => {
         await ready(client);
-        const rows = await listPgProjectionValues<EntityProjectionRow>(client, scope, `entity:${kind}`);
+        const rows = await listPgProjectionValues<EntityProjectionRow>(
+          client,
+          scope,
+          `entity:${kind}`,
+          undefined,
+          limit,
+        );
         return kind === "todo" || withAttribution ? readPgEntityOrigins(client, options, kind, rows) : rows;
       }),
     countEntities: (kind, valueEquals) =>

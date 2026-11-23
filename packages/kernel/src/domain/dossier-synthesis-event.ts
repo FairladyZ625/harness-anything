@@ -2,7 +2,6 @@ import { dossierContentMaxBytes } from "./cli-operational-policy.ts";
 import { safeWorkspacePath } from "./write-source.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import {
-  DOSSIER_PAGE_SIZE,
   DOSSIER_DOCUMENT_OWNER,
   DOSSIER_SLOT_ID_PATTERN,
   DOSSIER_VERTICAL_ID_PATTERN,
@@ -155,7 +154,6 @@ function validateDossierSynthesisEventFields(value: unknown, allowUnknownFields:
     !isDossierWatermark(expectedWatermark) ||
     !isDossierWatermark(sourceWatermark) ||
     state.lastSynthesizedWatermark <= expectedWatermark ||
-    state.lastSynthesizedWatermark - expectedWatermark > DOSSIER_PAGE_SIZE ||
     state.lastSynthesizedWatermark > sourceWatermark ||
     sourceWatermark >= value.workspaceRevision ||
     !Array.isArray(documentClaims) ||

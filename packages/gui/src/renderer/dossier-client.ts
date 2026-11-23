@@ -11,7 +11,7 @@ import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { localErrorHint } from "./result-validation.ts";
 
-/** Bounded pagination ceiling per interactive refresh action (16 * 64 = 1,024 revisions per click). */
+/** Bounded pagination ceiling per interactive refresh action (16 * 512 = 8,192 revisions folded in memory per commit). */
 export const MAX_DOSSIER_REFRESH_PAGES = 16;
 /** Bounded realignment retries when another writer advances the slot between read and context. */
 export const MAX_DOSSIER_REALIGN_RETRIES = 3;
@@ -63,11 +63,18 @@ export const dossierClient = {
     return result;
   },
 
-  async context(repoId: string, slotId: string, maxWatermark?: number): Promise<DossierContextRead> {
+  async context(
+    repoId: string,
+    slotId: string,
+    maxWatermark?: number,
+    options?: { readonly afterWatermark?: number; readonly bootstrap?: boolean },
+  ): Promise<DossierContextRead> {
     const result = await invoke("repo.dossier.context.read", {
       repoId,
       slotId,
       ...(maxWatermark !== undefined ? { maxWatermark } : {}),
+      ...(options?.afterWatermark !== undefined ? { afterWatermark: options.afterWatermark } : {}),
+      ...(options?.bootstrap !== undefined ? { bootstrap: options.bootstrap } : {}),
     });
     if (!result || result.schema !== "dossier-context/v1" || !Array.isArray(result.changes)) {
       throw new Error(localErrorHint(result, "Living dossier context read returned an invalid result."));
@@ -130,112 +137,261 @@ async function readAlignedContextPage(input: {
   };
 }
 
+function stripManagedStateForBootstrap(previousBody: string | null): string | null {
+  if (!previousBody) return null;
+  return previousBody.includes("<!-- dossier-state:v1 ") ? null : previousBody;
+}
+
+function boundedPageTarget(afterWatermark: number, nextWatermark: number): number {
+  const delta = nextWatermark - afterWatermark;
+  return delta > DOSSIER_PAGE_SIZE ? afterWatermark + DOSSIER_PAGE_SIZE : nextWatermark;
+}
+
+async function commitSynthesizedSlot(input: {
+  readonly repoId: string;
+  readonly slotId: string;
+  readonly expectedWatermark: number;
+  readonly watermark: number;
+  readonly body: string;
+  readonly pagesApplied: number;
+  readonly remaining: boolean;
+}): Promise<DossierSlotRefreshOutcome> {
+  const receipt = await dossierClient.synthesize(input.repoId, {
+    slotId: input.slotId,
+    expectedWatermark: input.expectedWatermark,
+    watermark: input.watermark,
+    body: input.body,
+    idempotencyKey: `gui-dossier-${input.slotId}-${input.expectedWatermark}-${input.watermark}`,
+  });
+  if (!receipt.ok) {
+    const code =
+      typeof receipt.code === "string" && receipt.code.length > 0 ? receipt.code : "dossier_synthesis_failed";
+    const message = typeof receipt.hint === "string" && receipt.hint.length > 0 ? receipt.hint : code;
+    return {
+      ok: false,
+      slotId: input.slotId,
+      conflict: code === "dossier_watermark_conflict",
+      code,
+      message,
+    };
+  }
+  return {
+    ok: true,
+    slotId: input.slotId,
+    pagesApplied: input.pagesApplied,
+    reachedWatermark: input.watermark,
+    remaining: input.remaining,
+  };
+}
+
 export async function refreshDossierSlot(input: {
   readonly repoId: string;
   readonly verticalId: string;
   readonly slot: DossierSlot;
   readonly maxPages?: number;
+  readonly bootstrap?: boolean;
   readonly now?: () => string;
 }): Promise<DossierSlotRefreshOutcome> {
   const maxPages = input.maxPages ?? MAX_DOSSIER_REFRESH_PAGES;
   const now = input.now ?? (() => new Date().toISOString());
   const initialContent = await dossierClient.read(input.repoId, input.slot.id);
-  let previousBody = initialContent.body;
+  let baseBody = initialContent.body;
   let heldWatermark = initialContent.state?.lastSynthesizedWatermark ?? 0;
-  let pagesApplied = 0;
-  let reachedWatermark = heldWatermark;
-  let fixedUpperWatermark: number | undefined = undefined;
 
-  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
-    const aligned = await readAlignedContextPage({
-      repoId: input.repoId,
+  const firstAligned = await readAlignedContextPage({
+    repoId: input.repoId,
+    slotId: input.slot.id,
+    fixedUpperWatermark: undefined,
+    previousBody: baseBody,
+    heldWatermark,
+  });
+  if (firstAligned.status === "conflict") {
+    return {
+      ok: false,
       slotId: input.slot.id,
-      fixedUpperWatermark,
-      previousBody,
-      heldWatermark,
-    });
-    if (aligned.status === "conflict") {
-      return {
-        ok: false,
-        slotId: input.slot.id,
-        conflict: true,
-        code: "dossier_watermark_conflict",
-        message: aligned.message,
-      };
-    }
-    if (aligned.status === "caught_up") {
-      return {
-        ok: true,
-        slotId: input.slot.id,
-        pagesApplied,
-        reachedWatermark: aligned.heldWatermark,
-        remaining: false,
-      };
-    }
-    previousBody = aligned.previousBody;
-    const { page } = aligned;
+      conflict: true,
+      code: "dossier_watermark_conflict",
+      message: firstAligned.message,
+    };
+  }
+  if (firstAligned.status === "caught_up") {
+    return {
+      ok: true,
+      slotId: input.slot.id,
+      pagesApplied: 0,
+      reachedWatermark: firstAligned.heldWatermark,
+      remaining: false,
+    };
+  }
 
-    if (fixedUpperWatermark === undefined) fixedUpperWatermark = page.currentWatermark;
-    if (page.nextWatermark <= page.expectedWatermark) {
-      return {
-        ok: true,
-        slotId: input.slot.id,
-        pagesApplied,
-        reachedWatermark: page.expectedWatermark,
-        remaining: false,
-      };
-    }
-    const delta = page.nextWatermark - page.expectedWatermark;
-    const boundedTarget = delta > DOSSIER_PAGE_SIZE ? page.expectedWatermark + DOSSIER_PAGE_SIZE : page.nextWatermark;
-    const body = synthesizeDossierDocument({
-      verticalId: input.verticalId,
-      slot: input.slot,
-      previousBody,
-      expectedWatermark: page.expectedWatermark,
-      targetWatermark: boundedTarget,
-      changes: page.changes,
-      synthesizedAt: now(),
-      kindMap: page.kindMap,
-    });
-    const receipt = await dossierClient.synthesize(input.repoId, {
+  baseBody = firstAligned.previousBody;
+  heldWatermark = firstAligned.heldWatermark;
+  const page = firstAligned.page;
+  const fixedUpperWatermark = page.currentWatermark;
+
+  if (page.nextWatermark <= heldWatermark) {
+    return {
+      ok: true,
       slotId: input.slot.id,
-      expectedWatermark: page.expectedWatermark,
-      watermark: boundedTarget,
-      body,
-      idempotencyKey: `gui-dossier-${input.slot.id}-${page.expectedWatermark}-${boundedTarget}`,
-    });
-    if (!receipt.ok) {
-      const code =
-        typeof receipt.code === "string" && receipt.code.length > 0 ? receipt.code : "dossier_synthesis_failed";
-      const message = typeof receipt.hint === "string" && receipt.hint.length > 0 ? receipt.hint : code;
-      return {
-        ok: false,
+      pagesApplied: 0,
+      reachedWatermark: heldWatermark,
+      remaining: false,
+    };
+  }
+
+  const canAutoBootstrap =
+    input.bootstrap === true ||
+    (input.bootstrap !== false &&
+      input.maxPages === undefined &&
+      !page.done &&
+      fixedUpperWatermark - heldWatermark > maxPages * DOSSIER_PAGE_SIZE);
+
+  if (canAutoBootstrap) {
+    const bootPage = await dossierClient.context(input.repoId, input.slot.id, undefined, { bootstrap: true });
+    if (bootPage.expectedWatermark === heldWatermark && bootPage.nextWatermark > heldWatermark) {
+      const body = synthesizeDossierDocument({
+        verticalId: input.verticalId,
+        slot: input.slot,
+        previousBody: bootPage.bootstrapped ? stripManagedStateForBootstrap(baseBody) : baseBody,
+        expectedWatermark: heldWatermark,
+        targetWatermark: bootPage.nextWatermark,
+        changes: bootPage.changes,
+        synthesizedAt: now(),
+        kindMap: bootPage.kindMap,
+      });
+      return commitSynthesizedSlot({
+        repoId: input.repoId,
         slotId: input.slot.id,
-        conflict: code === "dossier_watermark_conflict",
-        code,
-        message,
-      };
-    }
-    previousBody = body;
-    heldWatermark = boundedTarget;
-    pagesApplied += 1;
-    reachedWatermark = boundedTarget;
-    if (page.done || boundedTarget >= page.currentWatermark) {
-      return {
-        ok: true,
-        slotId: input.slot.id,
-        pagesApplied,
-        reachedWatermark,
+        expectedWatermark: heldWatermark,
+        watermark: bootPage.nextWatermark,
+        body,
+        pagesApplied: 1,
         remaining: false,
-      };
+      });
     }
   }
 
-  return {
-    ok: true,
+  let cursor = boundedPageTarget(heldWatermark, page.nextWatermark);
+  let workingBody: string | null = synthesizeDossierDocument({
+    verticalId: input.verticalId,
+    slot: input.slot,
+    previousBody: baseBody,
+    expectedWatermark: heldWatermark,
+    targetWatermark: cursor,
+    changes: page.changes,
+    synthesizedAt: now(),
+    kindMap: page.kindMap,
+  });
+  let pagesApplied = 1;
+  let done = page.done || cursor >= fixedUpperWatermark;
+  let midFoldRealigns = 0;
+
+  while (!done && pagesApplied < maxPages) {
+    const nextPage = await dossierClient.context(input.repoId, input.slot.id, fixedUpperWatermark, {
+      afterWatermark: cursor,
+    });
+
+    if (nextPage.expectedWatermark !== heldWatermark) {
+      midFoldRealigns += 1;
+      if (midFoldRealigns > MAX_DOSSIER_REALIGN_RETRIES) {
+        return {
+          ok: false,
+          slotId: input.slot.id,
+          conflict: true,
+          code: "dossier_watermark_conflict",
+          message: `Slot ${input.slot.id} advanced concurrently from r${heldWatermark} to r${nextPage.expectedWatermark}.`,
+        };
+      }
+      const latest = await dossierClient.read(input.repoId, input.slot.id);
+      baseBody = latest.body;
+      heldWatermark = latest.state?.lastSynthesizedWatermark ?? 0;
+      if (heldWatermark >= fixedUpperWatermark) {
+        return {
+          ok: true,
+          slotId: input.slot.id,
+          pagesApplied: 0,
+          reachedWatermark: heldWatermark,
+          remaining: false,
+        };
+      }
+      let activePage = nextPage;
+      if (
+        activePage.expectedWatermark !== heldWatermark ||
+        (activePage.afterWatermark !== undefined && activePage.afterWatermark > heldWatermark)
+      ) {
+        const realigned = await readAlignedContextPage({
+          repoId: input.repoId,
+          slotId: input.slot.id,
+          fixedUpperWatermark,
+          previousBody: baseBody,
+          heldWatermark,
+        });
+        if (realigned.status === "conflict") {
+          return {
+            ok: false,
+            slotId: input.slot.id,
+            conflict: true,
+            code: "dossier_watermark_conflict",
+            message: realigned.message,
+          };
+        }
+        if (realigned.status === "caught_up") {
+          return {
+            ok: true,
+            slotId: input.slot.id,
+            pagesApplied: 0,
+            reachedWatermark: realigned.heldWatermark,
+            remaining: false,
+          };
+        }
+        baseBody = realigned.previousBody;
+        heldWatermark = realigned.heldWatermark;
+        activePage = realigned.page;
+      }
+      cursor = boundedPageTarget(heldWatermark, activePage.nextWatermark);
+      workingBody = synthesizeDossierDocument({
+        verticalId: input.verticalId,
+        slot: input.slot,
+        previousBody: baseBody,
+        expectedWatermark: heldWatermark,
+        targetWatermark: cursor,
+        changes: activePage.changes,
+        synthesizedAt: now(),
+        kindMap: activePage.kindMap,
+      });
+      pagesApplied = 1;
+      done = activePage.done || cursor >= fixedUpperWatermark;
+      continue;
+    }
+
+    if (nextPage.nextWatermark <= cursor) {
+      done = true;
+      break;
+    }
+
+    const nextTarget = boundedPageTarget(cursor, nextPage.nextWatermark);
+    workingBody = synthesizeDossierDocument({
+      verticalId: input.verticalId,
+      slot: input.slot,
+      previousBody: workingBody,
+      expectedWatermark: cursor,
+      targetWatermark: nextTarget,
+      changes: nextPage.changes,
+      synthesizedAt: now(),
+      kindMap: nextPage.kindMap,
+    });
+    cursor = nextTarget;
+    pagesApplied += 1;
+    done = nextPage.done || cursor >= fixedUpperWatermark;
+  }
+
+  return commitSynthesizedSlot({
+    repoId: input.repoId,
     slotId: input.slot.id,
+    expectedWatermark: heldWatermark,
+    watermark: cursor,
+    body: workingBody!,
     pagesApplied,
-    reachedWatermark,
-    remaining: true,
-  };
+    remaining: !done,
+  });
 }
