@@ -374,10 +374,10 @@ export const identityHealthProbePolicy = {
   ownerRef: "host",
   unit: "milliseconds / attempts",
   bounds:
-    "PostgreSQL single-user password application times out at 30000ms; realm readiness probes every 250ms up to 120 attempts on Unix or 720 on Windows.",
+    "PostgreSQL single-user password application times out at 30000ms; realm readiness probes every 250ms up to 720 attempts on Unix and Windows.",
   defaultValue: {
     postgresPasswordTimeoutMs: 30_000,
-    readinessAttempts: { default: 120, win32: 720 },
+    readinessAttempts: { default: 720, win32: 720 },
     probeIntervalMs: 250,
   },
   version: 1,
