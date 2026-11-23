@@ -55,7 +55,15 @@ describe("Settings 自描述文案 chokepoint(两个 locale 都要有,缺一项�
   /** 渲染字段面 = 契约仓库字段(排除 locale/机械项/一次性命令,与面板 EXCLUDED_FIELDS 同源)。 */
   it("契约里的持久设置字段全部进入渲染面", () => {
     const renderedFields = new Set(rows.map(({ field }) => field)),
-      excluded = new Set(["locale", "expectedVersion", "idempotencyKey", "gatesFromDocument", "gatesDraft"]);
+      excluded = new Set([
+        "locale",
+        "expectedVersion",
+        "idempotencyKey",
+        "gatesFromDocument",
+        "gatesDraft",
+        "runtimeAllowedInstances",
+        "runtimeSelectionStrategy",
+      ]);
     for (const { field } of settingsUpdateInputFields)
       if (!excluded.has(field)) expect(renderedFields.has(field), `${field} 应在渲染字段面里`).toBe(true);
   });
