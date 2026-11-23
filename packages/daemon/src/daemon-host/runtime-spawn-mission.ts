@@ -1045,7 +1045,10 @@ export async function resolveRuntimeMission(input: {
     outputShape =
       taskId === null || input.projection === null
         ? null
-        : taskOutputShape(taskSnapshot?.task ?? projection.read(taskId).snapshot.task, presetSnapshotReader(projection)),
+        : taskOutputShape(
+            taskSnapshot?.task ?? projection.read(taskId).snapshot.task,
+            presetSnapshotReader(projection),
+          ),
     causalContext =
       remoteTask === null
         ? taskId === null

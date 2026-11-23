@@ -164,12 +164,7 @@ export function resolveRepoBootstrap(
       "",
     ].join("\n"),
     machineRoot = machineDocumentRoot(rootDir, layout),
-    harnessDocument = machineDocument(
-      rootDir,
-      `${machineRoot}/harness.yaml`,
-      existingConfig ?? config,
-      request.name,
-    ),
+    harnessDocument = machineDocument(rootDir, `${machineRoot}/harness.yaml`, existingConfig ?? config, request.name),
     identityDocuments = [harnessDocument],
     initialized = harnessDocument.existingSha256 !== null;
   if (request.configureOnly && !initialized)

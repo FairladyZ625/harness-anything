@@ -288,13 +288,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       assert.match(plan, /No source tests|不要求源码测试/u);
     }
     const matrix = [
-      [
-        "standard-task",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout"],
-        ["verify-receipt"],
-      ],
+      ["standard-task", "repository-diff", [], ["task.plan", "task.closeout"], ["verify-receipt"]],
       ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout"], []],
       [
         "lifecycle-blackbox-acceptance",
@@ -310,20 +304,8 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         ["task.plan", "task.closeout", "task.code.impact.analysis"],
         [],
       ],
-      [
-        "worker-dispatch",
-        "repository-diff",
-        [],
-        ["task.plan", "task.closeout", "task.worker.flow"],
-        [],
-      ],
-      [
-        "architecture-rot-audit",
-        "task-package-artifact",
-        [],
-        ["task.plan", "task.closeout"],
-        [],
-      ],
+      ["worker-dispatch", "repository-diff", [], ["task.plan", "task.closeout", "task.worker.flow"], []],
+      ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout"], []],
       ["github-issue-repair", "repository-diff", [], ["task.plan", "task.closeout"], []],
       ["legacy-migration", "repository-diff", [], ["task.plan", "task.closeout"], []],
       ["create-work", "repository-diff", [], ["task.plan", "task.closeout"], []],
@@ -464,7 +446,7 @@ for (const sample of [
       assert.deepEqual(preview.snapshot.profile.completionGateIds, sample.gates);
       assert.equal(
         sample.addedPath === null
-          ? preview.documents.length === (sample.taskClass === "work" ? 5 : 6)
+          ? preview.documents.length === (sample.taskClass === "work" ? 4 : 5)
           : preview.documents.some(({ relativePath }) => relativePath === sample.addedPath),
         true,
       );

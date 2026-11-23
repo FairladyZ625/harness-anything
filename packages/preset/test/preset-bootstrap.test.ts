@@ -75,7 +75,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       opId: "op-standard",
     });
     assert.equal(standard.event.payload.task.taskClass, "standard");
-    assert.equal(standard.event.payload.initialDocumentClaims.length, 6);
+    assert.equal(standard.event.payload.initialDocumentClaims.length, 5);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
     const explainer = standard.documents.find(({ relativePath }) => relativePath === "artifacts/explainer.html")!.body;
     assert.ok(explainer.includes('id="now"'), "the living section id survives");
@@ -115,13 +115,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     );
     assert.deepEqual(
       standard.documents.map(({ relativePath }) => relativePath),
-      [
-        "INDEX.md",
-        "task-contract.json",
-        "task_plan.md",
-        "closeout.md",
-        "artifacts/explainer.html",
-      ],
+      ["INDEX.md", "task-contract.json", "task_plan.md", "closeout.md", "artifacts/explainer.html"],
     );
     assert.equal(
       standard.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
@@ -131,7 +125,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.match(standard.documents[2]!.body, /^# Standard$/mu);
     assert.deepEqual(
       standard.event.payload.initialDocumentClaims.map(({ owner }) => owner),
-      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync", "doc-sync"],
+      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync"],
     );
     assert.equal(JSON.parse(standard.documents[1]!.body).documents[2].owner, "doc-sync");
     const documentation = compileTaskBootstrap({
@@ -182,7 +176,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       profileId: "baseline",
       locale: "en-US",
     });
-    assert.equal(packageOnly.documents.length, 6);
+    assert.equal(packageOnly.documents.length, 5);
     assert.equal(
       packageOnly.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
       false,
@@ -272,7 +266,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     );
 
     assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
-    assert.equal(work.event.payload.initialDocumentClaims.length, 5);
+    assert.equal(work.event.payload.initialDocumentClaims.length, 4);
     assert.equal(
       work.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
       false,

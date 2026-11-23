@@ -122,7 +122,7 @@ test("a preset without scripts leaves the task package unchanged and creates no 
       bootstrap.documents.some(({ relativePath }) => relativePath.startsWith("artifacts/scripts/")),
       false,
     );
-    assert.equal(bootstrap.documents.length, 6);
+    assert.equal(bootstrap.documents.length, 5);
     const store = makeTaskEventStore({ repoId: "preset-scripts-none", rootDir });
     store.append({ event: bootstrap.event, plan: bootstrap.plan, blobs: bootstrap.blobs });
     await store.settlePendingMaterialization();

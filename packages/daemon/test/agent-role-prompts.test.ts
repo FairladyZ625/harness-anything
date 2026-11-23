@@ -168,7 +168,7 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /session ends while checks are pending or unreadable.*unverified/u);
     assert.match(
       prompt,
-      /Before ending a task-bound session, either submit a cut that meets the task's completion criteria, or publish completed work.*exact remaining scope/u,
+      /Before ending a task-bound session, submit a cut that meets the task's completion criteria.*exact remaining scope/u,
     );
     assert.match(
       prompt,
@@ -193,7 +193,7 @@ test("artifact role prompts omit repository-diff delivery instructions", () => {
   assert.doesNotMatch(artifactWorker, /Repository-Diff Delivery|ha task push|git archive|rebase onto/u);
   assert.doesNotMatch(artifactReviewer, /Repository-Diff Delivery|gh pr view|tools\/pr-merge\.mjs/u);
   assert.match(codeWorker, /Repository-Diff Delivery/u);
-  assert.match(codeWorker, /ha task push/u);
+  assert.match(codeWorker, /publish it through the task delivery commands/u);
 });
 
 test("the bundled reviewer stays read-only and bound to its exact review cut", () => {

@@ -37,7 +37,7 @@ const mutatorDiscipline = `# Implementation Permissions
 const repositoryDiffDiscipline = `# Repository-Diff Delivery
 
 - Stage only owned repository files. Keep the injected canonical repository root read-only and edit code in the worker repository root.
-- Task-package documents belong to the ledger and stay out of code commits. Never force-add ignored ledger paths.
+- Task-package documents belong to the ledger: task submit accepts them independently of code Git. Never force-add ignored ledger paths. A checkpoint asking for a commit applies only to repository changes; for ledger-only work, record the checkpoint in the task package and submit it without a code commit, push or PR.
 - A Squad child hands its local code commits to the Commander and stops; its branch is not published at settlement.
 - Read another commit without registering a worktree or sharing a dependency store: extract it with \`git archive\` into a plain directory outside the repository, and never point that checkout's dependency links at a shared store — a link resolves its parent directory first, so replacing an entry through it rewrites the store's own workspace links, and deleting the checkout then breaks every consumer. Use the repository's declared read-only checkout entry when it has one.
 - Worktrees share one git stash stack. Park changes in a temporary WIP commit instead.
@@ -46,6 +46,7 @@ const repositoryDiffDiscipline = `# Repository-Diff Delivery
 const reviewerDiscipline = [
   "# Reviewer Role",
   "- Repository files are read-only. Do not modify the reviewed cut or publish it. Report required fixes to the implementer.",
+  "- For a ledger-only Task delivery, review its frozen accepted artifacts and applicable gates; no repository PR, CI or merge is required.",
   "- Inspect the exact review target named in the mission. For a Task, verify its pinned execution, iteration, " +
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
@@ -73,12 +74,11 @@ const repositoryDiffReviewerDiscipline = [
     "or a reason for changes_requested; decide only from the frozen cut's content.",
 ].join("\n");
 
-const artifactReviewerDiscipline =
-  "- Review the frozen task package and its configured gates.";
+const artifactReviewerDiscipline = "- Review the frozen task package and its configured gates.";
 
 // Publication commands belong to repository-diff tasks, not the static role baseline.
 const repositoryDiffPublicationDiscipline = `- For repository changes, push early and often: after each coherent piece of code change, commit and publish it through the task delivery commands, even if a local test is still red — CI is the complete authority and cannot be read before a push. Waiting for green before the first push is a deadlock.
-- After publishing a coherent delivery, inspect the hosting platform's PR checks for that delivery commit. Pending is not green. While CI is pending, continue useful in-scope work; do not wait solely for CI. Repair regressions caused by this change and record failures also present on latest main. If the session ends while checks are pending or unreadable, report their exact status and mark CI unverified.`;
+- After publishing a coherent delivery, inspect the hosting platform's PR checks for that delivery commit. Pending is not green. While CI is pending, continue useful in-scope work; do not wait solely for CI. Repair regressions caused by this change and record failures also present on latest main. If the session ends while checks are pending or unreadable, report their exact status and mark CI unverified. Final merge authority belongs to the CEO.`;
 
 const taskDeliveryCloseoutDiscipline =
   "- Before ending a task-bound session, submit a cut that meets the task's completion criteria and update closeout.md with completed work, exact remaining scope, test results and unverified checks. Never hand off without a submitted cut. Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync for them.";
@@ -134,7 +134,7 @@ export function agentRolePrompt(
   const artifactDelivery = outputShape === "task-package-artifact";
   return [
     sharedExecutionDiscipline(hostAccess),
-    ...(!artifactDelivery ? [repositoryDiffDiscipline] : []),
+    ...(!artifactDelivery && role !== "reviewer" ? [repositoryDiffDiscipline] : []),
     ...(role === "reviewer"
       ? [reviewerDiscipline, artifactDelivery ? artifactReviewerDiscipline : repositoryDiffReviewerDiscipline]
       : [

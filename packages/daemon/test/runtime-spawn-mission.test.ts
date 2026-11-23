@@ -336,7 +336,7 @@ for (const outputShape of ["task-package-artifact", "repository-diff"] as const)
           taskClass: "standard",
           planBody: null,
           ownerReturnBody: null,
-          reviewerNote: null,
+          reviewerNote: "Use the configured reviewer.",
           worktree: null,
         } as never,
         taskSnapshot: {
