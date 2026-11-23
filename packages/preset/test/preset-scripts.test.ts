@@ -55,7 +55,7 @@ test("task create materializes preset scripts into artifacts/scripts as byte-ide
     const packageDir = path.join(rootDir, "harness", bootstrap.packagePath),
       scriptsDir = path.join(packageDir, "artifacts", "scripts");
     assert.deepEqual(readdirSync(scriptsDir).sort(), ["check-env.mjs", "sum.mjs"]);
-    assert.deepEqual(readdirSync(path.join(packageDir, "artifacts")).sort(), [".gitkeep", "explainer.html", "scripts"]);
+    assert.deepEqual(readdirSync(path.join(packageDir, "artifacts")).sort(), ["explainer.html", "scripts"]);
     for (const name of ["check-env.mjs", "sum.mjs"]) {
       const target = path.join(scriptsDir, name),
         status = lstatSync(target);

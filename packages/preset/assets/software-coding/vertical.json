@@ -226,12 +226,6 @@
           "templateRef": "template://planning/closeout@1",
           "materializeAs": "closeout.md",
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
-        },
-        {
-          "slot": "task.artifacts.keep",
-          "templateRef": "template://planning/keep-file@1",
-          "materializeAs": "artifacts/.gitkeep",
-          "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }
       ]
     },

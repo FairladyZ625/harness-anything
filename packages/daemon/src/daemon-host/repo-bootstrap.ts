@@ -61,6 +61,7 @@ export interface RepoBootstrapInput {
   readonly settingsBootstrap: readonly [settings: SettingsV1, documentBody: string];
   readonly keycloakAuthorization?: import("./repo-cell-types.ts").RepoCellBinding["keycloakAuthorization"];
   readonly repositoryPlan: RepositoryScaffoldPlan;
+  readonly outputShape: string | null;
   readonly actor: ActorIdentity;
   readonly configureOnly?: boolean;
 }
@@ -109,24 +110,33 @@ export function resolveRepoBootstrap(
     throw repoBootstrapError("invalid_display_name", "display-name must be one non-empty line.");
   if (request.name !== undefined && (!request.name.trim() || /[\r\n]/u.test(request.name)))
     throw repoBootstrapError("invalid_name", "name must be one non-empty line.");
+  const layout = resolveHarnessLayout(rootDir),
+    existingConfig = configuredBody(layout),
+    existingSettings = existingConfig === undefined ? null : readSettingsFacet(existingConfig);
   const normalizedRepoId = workspaceId(repoId),
     requestedVertical = request.vertical?.trim(),
     requestedPreset = request.preset?.trim(),
-    bootstrapDefaults =
-      requestedVertical || requestedPreset
+    bootstrapDefaults = request.configureOnly
+      ? {
+          verticalId: INITIAL_SETTINGS_V1.defaultVertical,
+          presetId: INITIAL_SETTINGS_V1.defaultPreset,
+          profileId: INITIAL_SETTINGS_V1.defaultProfile,
+          outputShape: null,
+        }
+      : existingSettings !== null
         ? resolveRepoBootstrapDefaults({
+            rootDir,
+            verticalId: existingSettings.defaultVertical,
+            presetId: existingSettings.defaultPreset,
+          })
+        : resolveRepoBootstrapDefaults({
             rootDir,
             verticalId: requestedVertical || INITIAL_SETTINGS_V1.defaultVertical,
             ...(requestedPreset ? { presetId: requestedPreset } : {}),
             ...(!requestedPreset && (!requestedVertical || requestedVertical === INITIAL_SETTINGS_V1.defaultVertical)
               ? { preferredPresetId: INITIAL_SETTINGS_V1.defaultPreset }
               : {}),
-          })
-        : {
-            verticalId: INITIAL_SETTINGS_V1.defaultVertical,
-            presetId: INITIAL_SETTINGS_V1.defaultPreset,
-            profileId: INITIAL_SETTINGS_V1.defaultProfile,
-          },
+          }),
     config = [
       "schema: harness-anything/v1",
       `name: ${request.name === undefined ? repoId : JSON.stringify(request.name)}`,
@@ -153,12 +163,11 @@ export function resolveRepoBootstrap(
       ...(npmWorkspaces(rootDir) ? ["  worktree:", "    setup:", "      - node-modules"] : []),
       "",
     ].join("\n"),
-    layout = resolveHarnessLayout(rootDir),
     machineRoot = machineDocumentRoot(rootDir, layout),
     harnessDocument = machineDocument(
       rootDir,
       `${machineRoot}/harness.yaml`,
-      configuredBody(layout) ?? config,
+      existingConfig ?? config,
       request.name,
     ),
     identityDocuments = [harnessDocument],
@@ -196,6 +205,7 @@ export function resolveRepoBootstrap(
           },
         }),
     repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),
+    outputShape: bootstrapDefaults.outputShape,
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };
 }
@@ -247,7 +257,12 @@ export function bootstrapRepo(
   assertRepositoryScaffoldPlanCurrent(input.repositoryPlan);
   const rootDir = input.rootDir,
     layout = resolveHarnessLayout(rootDir);
-  isolateLedgerFromProject(layout.rootDir, layout.authoredRoot, layout.localRoot);
+  isolateLedgerFromProject(
+    layout.rootDir,
+    layout.authoredRoot,
+    layout.localRoot,
+    input.outputShape === "repository-diff",
+  );
   const boundBranch = authoredBranch ?? resolveBootstrapAuthoredBranch(rootDir),
     ledgerRoot = layout.authoredRoot;
   /* @gate-identity non-state/environment-io.f91d4dbc214c0e3c */ mkdirSync(ledgerRoot, { recursive: true });
@@ -680,10 +695,16 @@ function authoredDocument(
     ? [{ publicPath: document.path, ledgerPath }]
     : [];
 }
-function isolateLedgerFromProject(rootDir: string, authoredRoot: string, localRoot: string): void {
+function isolateLedgerFromProject(
+  rootDir: string,
+  authoredRoot: string,
+  localRoot: string,
+  createProjectGit: boolean,
+): void {
   /* @gate-identity non-state/environment-io.b172fdbbdccfd324 */ mkdirSync(rootDir, { recursive: true });
   let projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
   if (!projectRoot) {
+    if (!createProjectGit) return;
     git(rootDir, ["init", "--quiet"]);
     projectRoot = optionalGit(rootDir, ["rev-parse", "--show-toplevel"]);
   }

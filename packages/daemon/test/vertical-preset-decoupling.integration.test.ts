@@ -87,12 +87,6 @@ function seedCustomAuditVertical(
                 materializeAs: "closeout.md",
                 localePolicy: { prefer: "project", fallback: "en-US" },
               },
-              {
-                slot: "task.artifacts.keep",
-                templateRef: "template://audit/keep-file@1",
-                materializeAs: "artifacts/.gitkeep",
-                localePolicy: { prefer: "project", fallback: "en-US" },
-              },
             ],
           },
           { entityKind: "decision", templateSelections: [] },
@@ -211,17 +205,6 @@ function seedCustomAuditVertical(
               { locale: "en-US", anchors: ["## Summary", "## Verification"], bodyPath: "templates/closeout.md" },
             ],
           },
-          {
-            id: "audit/keep-file",
-            version: "1",
-            documentKind: "keep-file",
-            slot: "task.artifacts.keep",
-            materializeAs: "artifacts/.gitkeep",
-            frontmatterSchema: "none",
-            requiredAnchors: [],
-            fallbackLocale: "en-US",
-            locales: [{ locale: "en-US", anchors: [], bodyPath: "templates/keep.txt" }],
-          },
         ],
       },
       null,
@@ -241,8 +224,6 @@ function seedCustomAuditVertical(
     path.join(verticalDir, "templates", "closeout.md"),
     "# Closeout\n\n## Summary\n\nSummarize audit findings.\n\n## Verification\n\nList verified workpapers.\n",
   );
-  writeFile(path.join(verticalDir, "templates", "keep.txt"), "");
-
   // Custom business roles inside verticals/<dir>/agents/*.json
   writeFile(
     path.join(verticalDir, "agents", "lead-auditor.json"),

@@ -709,7 +709,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
     // A named instance and its model are validated before mission loading reads and assembles the
     // submitted task cut; model errors must not wait behind review-context preparation.
-    const { taskMission, mission, progressSnapshot } = await resolveRuntimeMission({
+    const { taskMission, mission, progressSnapshot, outputShape } = await resolveRuntimeMission({
         rootDir: input.rootDir,
         cwd,
         taskId,
@@ -967,9 +967,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     preset,
                     resolvedSkills,
                     privateReads,
+                    outputShape,
                   )
                 : taskMission || role === "reviewer"
-                  ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined, privateReads)
+                  ? assembleUnboundPrompt(
+                      dispatchMission,
+                      role === "reviewer" ? role : undefined,
+                      privateReads,
+                      outputShape,
+                    )
                   : dispatchMission,
               // Scheduled Squad leaders answer the squad decision protocol; the run settles
               // the occurrence. Every dispatch still receives its own rendered dispatch id.
@@ -1145,7 +1151,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         permissionMode: launchedPermissionMode,
         agentId: agent?.id,
       });
-      if (taskId || trustedSchedule || reviewerBinding)
+      if ((taskId || trustedSchedule || reviewerBinding) && !(taskId && outputShape === "task-package-artifact"))
         await configureWorkerGitIdentity(cwd, input.rootDir, binding.actor.principal.personId);
       if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
       if (

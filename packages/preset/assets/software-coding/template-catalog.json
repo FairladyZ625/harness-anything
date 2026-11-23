@@ -394,20 +394,6 @@
       ]
     },
     {
-      "id": "planning/keep-file",
-      "version": "1",
-      "documentKind": "keep-file",
-      "slot": "task.artifacts.keep",
-      "materializeAs": "artifacts/.gitkeep",
-      "frontmatterSchema": "none",
-      "requiredAnchors": [],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": [], "bodyPath": "templates/task.keep/zh-CN.md" },
-        { "locale": "en-US", "anchors": [], "bodyPath": "templates/task.keep/en-US.md" }
-      ]
-    },
-    {
       "id": "analysis/code-impact",
       "version": "1",
       "documentKind": "code-impact-analysis",

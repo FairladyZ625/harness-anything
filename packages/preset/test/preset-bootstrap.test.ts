@@ -120,7 +120,6 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
         "task-contract.json",
         "task_plan.md",
         "closeout.md",
-        "artifacts/.gitkeep",
         "artifacts/explainer.html",
       ],
     );

@@ -40,6 +40,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import {
   runtimeProgressSnapshot,
   type RuntimeWorkspaceProgress,
@@ -90,11 +91,12 @@ export function assembleAgentPrompt(
   preset?: string,
   skills: readonly ResolvedAgentSkill[] = [],
   privateReads: string | null = null,
+  outputShape?: string | null,
 ): string {
   return [
     `# Agent Identity: ${agent.name} (${agent.id})`,
     agent.instructions.trim(),
-    agentRolePrompt(agent.role, agent.hostAccess),
+    agentRolePrompt(agent.role, agent.hostAccess, outputShape),
     ...(agent.prompts ?? []).map((prompt) => prompt.trim()).filter(Boolean),
     ...(preset?.trim() ? [preset.trim()] : []),
     ...(skills.length
@@ -115,8 +117,18 @@ export function assembleAgentPrompt(
  * explicitly select reviewer discipline. Direct prompts with neither task nor role pass through verbatim.
  * `privateReads` answers the private ledger paths the mission names, exactly as for a declared agent.
  */
-export function assembleUnboundPrompt(mission: string, role?: AgentRole, privateReads: string | null = null): string {
-  return [agentRolePrompt(role), ...(privateReads === null ? [] : [privateReads]), "# Mission", mission].join("\n\n");
+export function assembleUnboundPrompt(
+  mission: string,
+  role?: AgentRole,
+  privateReads: string | null = null,
+  outputShape?: string | null,
+): string {
+  return [
+    agentRolePrompt(role, undefined, outputShape),
+    ...(privateReads === null ? [] : [privateReads]),
+    "# Mission",
+    mission,
+  ].join("\n\n");
 }
 
 export function dispatchMissionForPermission(
@@ -718,6 +730,7 @@ export function taskMissionSections(
   profileId?: string | null,
   riskTierFlowVersion?: number | null,
   reviewerNote: string | null = null,
+  outputShape?: string | null,
 ): string[] {
   const living = reviewerBinding
     ? null
@@ -725,10 +738,10 @@ export function taskMissionSections(
   return [
     taskQueryGuidance(taskId),
     reviewerBinding ? unattendedReviewContract : unattendedRulingContract,
-    ...(reviewerBinding ? [] : [workerWorktreeBoundary]),
+    ...(reviewerBinding || outputShape === "task-package-artifact" ? [] : [workerWorktreeBoundary]),
     ...(reviewerBinding || reviewerNote === null ? [] : [reviewerNote]),
     ...(living === null ? [] : [living]),
-    ...(reviewerBinding ? [] : [taskPrPublicationNote]),
+    ...(reviewerBinding || outputShape === "task-package-artifact" ? [] : [taskPrPublicationNote]),
     ...(causalContext === null ? [] : [causalContext]),
     ...(reviewerBinding || ownerReturnBody === null
       ? []
@@ -754,6 +767,7 @@ export function explicitPromptMission(
   profileId?: string | null,
   riskTierFlowVersion?: number | null,
   reviewerNote: string | null = null,
+  outputShape?: string | null,
 ): string {
   return [
     ...(planBody === null ? [] : [taskPlanSection(planBody)]),
@@ -771,6 +785,7 @@ export function explicitPromptMission(
           profileId,
           riskTierFlowVersion,
           reviewerNote,
+          outputShape,
         )),
     prompt,
   ].join("\n\n");
@@ -815,6 +830,7 @@ export function deriveTaskMission(
         ? assembleTaskCausalContext({ projection, taskId, gitHistory: causalGitHistory ?? null })
         : causalContext,
     snapshot = projection.read(taskId).snapshot,
+    outputShape = taskOutputShape(snapshot.task, presetSnapshotReader(projection)),
     mission = [
       taskPlanSection(planDocument.body, packageRoot),
       ...taskMissionSections(
@@ -831,6 +847,7 @@ export function deriveTaskMission(
         snapshot.task?.metadata?.profileId,
         snapshot.task?.metadata?.riskTierFlowVersion,
         reviewerBinding ? null : taskReviewerNote(projection, snapshot),
+        outputShape,
       ),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");
@@ -1021,9 +1038,14 @@ export async function resolveRuntimeMission(input: {
   readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
   readonly mission: string;
   readonly progressSnapshot: string | null;
+  readonly outputShape: string | null;
 }> {
   const { rootDir, cwd, taskId, remoteTask, taskSnapshot, missionName, explicitMission } = input,
     projection = input.projection!,
+    outputShape =
+      taskId === null || input.projection === null
+        ? null
+        : taskOutputShape(taskSnapshot?.task ?? projection.read(taskId).snapshot.task, presetSnapshotReader(projection)),
     causalContext =
       remoteTask === null
         ? taskId === null
@@ -1098,11 +1120,13 @@ export async function resolveRuntimeMission(input: {
             remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId,
             remoteTask?.riskTierFlowVersion ?? taskSnapshot?.task?.metadata?.riskTierFlowVersion,
             reviewerNote,
+            outputShape,
           ),
     mission = renderWorkerRootPaths(baseMission, cwd);
   return {
     taskMission: taskMission === null ? null : { ...taskMission, mission },
     mission: mission,
     progressSnapshot: continuationSection,
+    outputShape,
   };
 }

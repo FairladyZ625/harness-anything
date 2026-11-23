@@ -275,6 +275,88 @@ test("task-bound explicit prompts carry the lookup guidance, living protocol and
   assert.ok(mission.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 });
 
+test("artifact missions omit repository-diff and PR guidance while code missions retain it", () => {
+  const artifactShape = "task-package-artifact",
+    artifactMission = explicitPromptMission(
+      "task_x",
+      null,
+      "Recompute the NOAA slopes.",
+      "medium",
+      undefined,
+      null,
+      false,
+      null,
+      null,
+      null,
+      null,
+      artifactShape,
+    ),
+    artifactPrompt = assembleUnboundPrompt(artifactMission, "worker", null, artifactShape),
+    codeShape = "repository-diff",
+    codeMission = explicitPromptMission(
+      "task_x",
+      null,
+      "Fix the bug.",
+      "medium",
+      undefined,
+      null,
+      false,
+      null,
+      null,
+      null,
+      null,
+      codeShape,
+    ),
+    codePrompt = assembleUnboundPrompt(codeMission, "worker", null, codeShape);
+
+  assert.doesNotMatch(artifactPrompt, /ha task push|git archive|rebase/u);
+  assert.match(codePrompt, /ha task push/u);
+  assert.match(codePrompt, /git archive/u);
+});
+
+for (const outputShape of ["task-package-artifact", "repository-diff"] as const)
+  test(`runtime mission uses the frozen preset shape ${outputShape}`, async () => {
+    const projection = {
+        readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
+      } as never,
+      resolved = await resolveRuntimeMission({
+        rootDir: process.cwd(),
+        cwd: process.cwd(),
+        taskId: "task_x",
+        projection,
+        remoteTask: {
+          packageRoot: "tasks/task_x",
+          mission: () => "Continue the task.",
+          continuationContext: null,
+          causalContext: null,
+          profileId: "baseline",
+          riskTier: "medium",
+          riskTierFlowVersion: null,
+          taskClass: "standard",
+          planBody: null,
+          ownerReturnBody: null,
+          reviewerNote: null,
+          worktree: null,
+        } as never,
+        taskSnapshot: {
+          task: { presetSnapshotDigest: "sha256:frozen" },
+          executions: [],
+        } as never,
+        missionName: undefined,
+        explicitMission: "Do the task.",
+        reviewerBinding: false,
+        continuationSnapshotProvided: true,
+      });
+    const prompt = assembleUnboundPrompt(resolved.mission, "worker", null, resolved.outputShape);
+
+    assert.equal(resolved.outputShape, outputShape);
+    if (outputShape === "task-package-artifact") assert.doesNotMatch(prompt, /ha task push|git archive|rebase/u);
+    else {
+      assert.match(prompt, /ha task push/u);
+      assert.match(prompt, /git archive/u);
+    }
+  });
+
 test("an injected causal block sits between the protocol and the caller text", () => {
   const xml = "<task-context>\n<refs>task/task_x</refs>\n</task-context>",
     mission = explicitPromptMission("task_x", xml, "Go.", "medium");

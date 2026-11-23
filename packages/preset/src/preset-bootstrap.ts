@@ -251,7 +251,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
             templateRef: null,
           };
   const scaffoldDigest = resolved.snapshot.scaffold.resolvedSelectionDigest,
-    orderedProse = [bySlot.get("task.plan")!, bySlot.get("task.closeout")!, bySlot.get("task.artifacts.keep")!],
+    orderedProse = [bySlot.get("task.plan")!, bySlot.get("task.closeout")!],
     additions = prose
       .filter((document) => !orderedProse.includes(document))
       .sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
@@ -265,7 +265,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       descriptorStub("task.contract", "task-contract.json", "machine"),
       withPlanScaffold(orderedProse[0]!),
       descriptor(orderedProse[1]!),
-      descriptor(orderedProse[2]!),
       ...additions.map((document) => descriptor(document)),
       ...(explainer === null ? [] : [descriptor(explainer)]),
       ...presetScripts.map((document) => descriptor(document)),

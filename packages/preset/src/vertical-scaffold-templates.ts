@@ -212,12 +212,6 @@ export function buildVerticalFiles(p: VerticalTemplateParams): PlannedScaffoldFi
             materializeAs: "closeout.md",
             localePolicy: defaultTemplateLocale,
           },
-          {
-            slot: "task.artifacts.keep",
-            templateRef: `template://${prefix}/keep-file@1`,
-            materializeAs: "artifacts/.gitkeep",
-            localePolicy: defaultTemplateLocale,
-          },
         ],
       },
       { entityKind: "decision", templateSelections: [] },
@@ -447,7 +441,6 @@ export function buildVerticalFiles(p: VerticalTemplateParams): PlannedScaffoldFi
         ["## Summary", "## Verification", "## Residual Risk"],
         "task.closeout",
       ),
-      doc("keep-file", "keep-file", "task.artifacts.keep", "artifacts/.gitkeep", "none", [], "task.keep"),
     ],
   };
 
@@ -545,8 +538,6 @@ export function buildVerticalFiles(p: VerticalTemplateParams): PlannedScaffoldFi
       relativePath: "templates/task.closeout/zh-CN.md",
       body: `# 收口报告\n\n## Summary\n\n总结本次 ${p.title} 交付成果。\n\n## Verification\n\n记录 \`${p.gateId}\` 门禁回执与评审结果。\n\n## Residual Risk\n\n列出剩余风险或注明无。\n`,
     },
-    { relativePath: "templates/task.keep/en-US.md", body: "\n" },
-    { relativePath: "templates/task.keep/zh-CN.md", body: "\n" },
     ...workRootFiles,
     ...defaultPresetFiles,
     { relativePath: "agents/contributor.json", body: json(workerAgent) },
