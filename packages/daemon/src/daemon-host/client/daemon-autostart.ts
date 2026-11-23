@@ -207,6 +207,8 @@ export async function ensureLocalDaemonRunning(input: {
         // Windows SSH-launched detached children disappear when the session ends. The task manager is
         // the sole Windows launcher, even before an explicit login-autostart install.
         if (!unit && process.platform === "win32") {
+          spawnCwd = daemonCheckoutRoot(input.invokingRoot);
+          if (!existsSync(spawnCwd)) throw spawnRootMissingError(spawnCwd);
           // Copying process.env loses its Windows case-insensitive property access.
           const scheduled = daemonServiceUnit(target)!,
             environment = Object.fromEntries(
@@ -486,6 +488,11 @@ function liveDaemonSingleton(launch: DaemonLaunchSpec): boolean {
 }
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function spawnRootMissingError(spawnCwd: string): Error & { code: string } {
+  const error = new Error(`ENOENT: no such file or directory, chdir '${spawnCwd}'`) as Error & { code: string };
+  error.code = "ENOENT";
+  return error;
 }
 export function daemonCheckoutRoot(rootDir: string): string {
   let current = canonicalPath(path.resolve(rootDir));

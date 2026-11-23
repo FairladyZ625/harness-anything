@@ -7,6 +7,7 @@ import {
   daemonServiceUnit,
   daemonServiceUnitContent,
   parseDaemonServiceState,
+  runDaemonServiceCommand,
 } from "../src/daemon-host/client/daemon-service.ts";
 import { daemonStdioLogPath } from "../src/daemon-host/lifecycle-log.ts";
 
@@ -89,4 +90,119 @@ test("Windows supervision reports the scheduler launcher's daemon child, not its
     () => parseDaemonServiceState("task-scheduler", { exitCode: 1, stdout: "query failed" }),
     /query failed/,
   );
+  assert.throws(
+    () => parseDaemonServiceState("task-scheduler", { exitCode: 1, stdout: "", stderr: "COM access denied" }),
+    /COM access denied/,
+  );
+});
+
+test("Windows Schedule.Service command retries transient COM/timeout failures and enforces 30s timeout floor", async () => {
+  const unit = daemonServiceUnit(target, "win32")!,
+    command = daemonServiceCommands(unit).load[0]!,
+    observedTimeouts: Array<number | undefined> = [],
+    delays: number[] = [];
+  let calls = 0;
+
+  await runDaemonServiceCommand(command, 10_000, {
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
+    random: () => 0.5,
+    runner: async (_cmd, _args, _cwd, _env, _input, _signal, options) => {
+      calls += 1;
+      observedTimeouts.push(options?.timeoutMs);
+      if (calls === 1) {
+        return { exitCode: 1, stdout: "", stderr: "COM error 0x80070422: Schedule.Service busy" };
+      }
+      if (calls === 2) {
+        const timeoutError = Object.assign(new Error("Command failed: powershell.exe"), {
+          killed: true,
+          signal: "SIGKILL",
+          stdout: "connecting...",
+          stderr: "RegisterTaskDefinition timed out",
+        });
+        throw timeoutError;
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+  });
+
+  assert.equal(calls, 3);
+  assert.deepEqual(observedTimeouts, [30_000, 30_000, 30_000]);
+  assert.deepEqual(delays, [375, 625]);
+});
+
+test("Windows Schedule.Service command fails closed after exhaustion with full exitCode, stderr, and stdout", async () => {
+  const unit = daemonServiceUnit(target, "win32")!,
+    command = daemonServiceCommands(unit).start;
+  let calls = 0;
+
+  await assert.rejects(
+    () =>
+      runDaemonServiceCommand(command, 10_000, {
+        sleep: async () => undefined,
+        random: () => 0,
+        runner: async () => {
+          calls += 1;
+          return {
+            exitCode: 1,
+            stdout: "attempt-stdout-snippet",
+            stderr: "Exception calling RegisterTaskDefinition with 6 argument(s): Access is denied",
+          };
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /exitCode=1/u);
+      assert.match(error.message, /attempts=3/u);
+      assert.match(error.message, /RegisterTaskDefinition/u);
+      assert.match(error.message, /attempt-stdout-snippet/u);
+      return true;
+    },
+  );
+  assert.equal(calls, 3);
+});
+
+test("Windows Schedule.Service command does not retry permanent ENOENT spawn errors and preserves error.code", async () => {
+  const unit = daemonServiceUnit(target, "win32")!,
+    command = daemonServiceCommands(unit).start;
+  let calls = 0;
+
+  await assert.rejects(
+    () =>
+      runDaemonServiceCommand(command, 10_000, {
+        sleep: async () => undefined,
+        runner: async () => {
+          calls += 1;
+          throw Object.assign(new Error("spawn powershell.exe ENOENT"), { code: "ENOENT" });
+        },
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as Error & { code?: string }).code, "ENOENT");
+      assert.match(error.message, /code=ENOENT/u);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});
+
+test("POSIX service commands do not retry and preserve exact caller timeout", async () => {
+  const observedTimeouts: Array<number | undefined> = [];
+  let calls = 0;
+
+  await assert.rejects(
+    () =>
+      runDaemonServiceCommand(["systemctl", "--user", "start", "ha.service"], 1_000, {
+        sleep: async () => undefined,
+        runner: async (_cmd, _args, _cwd, _env, _input, _signal, options) => {
+          calls += 1;
+          observedTimeouts.push(options?.timeoutMs);
+          return { exitCode: 1, stdout: "", stderr: "Failed to start ha.service" };
+        },
+      }),
+    /Failed to start ha\.service/u,
+  );
+  assert.equal(calls, 1);
+  assert.deepEqual(observedTimeouts, [1_000]);
 });

@@ -58,13 +58,15 @@ function readIndexEntries(output: Buffer, targets: ReadonlySet<string>): Map<str
   return entries;
 }
 
+const scopedArgByteLimit = process.platform === "win32" ? 4 * 1024 : 8 * 1024;
+
 function scopedArgs(scope: string, targets: ReadonlySet<string>): readonly string[] {
   let bytes = 0;
   for (const target of targets) {
     bytes += Buffer.byteLength(target) + 1;
     // Bulk reconciliation may need a whole authored subtree. Read it once and intersect
     // with the changed paths, instead of reopening a large index for every argv chunk.
-    if (bytes > 8 * 1024) return [scope];
+    if (bytes > scopedArgByteLimit) return [scope];
   }
   return [...targets];
 }

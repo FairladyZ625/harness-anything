@@ -194,184 +194,192 @@ test("task-bound runtime identity cannot autostart the shared daemon", (context)
   context.diagnostic(`task-bound refusal=${refusal.error?.code}; existing daemon request=applied`);
 });
 
-test("repo-admin backup routes through the injected runtime callback relay", async () => {
-  const previousTemp = process.env.TMPDIR;
-  process.env.TMPDIR = "/tmp";
-  const fixture = setup(),
-    repoId = "relay-admin",
-    dispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
-    canonicalRoot = realpathSync.native(fixture.root),
-    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
-    relayPath = path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`),
-    workerHome = path.join(fixture.parent, "worker", "home"),
-    backupDir = path.join(fixture.root, "tmp", "relay-backup"),
-    {
-      HARNESS_DAEMON_USER_ROOT: _stripped,
-      HARNESS_DAEMON_RELAY: _relay,
-      ...workerEnv
-    } = cliEnv(fixture.root, fixture.userRoot);
-  seedSettingsEvent({ rootDir: fixture.root, repoId });
-  registerDaemonRepo({
-    canonicalRoot: fixture.root,
-    repoId,
-    userRoot: fixture.userRoot,
-    createConvenienceLinks: false,
-  });
-  assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-  mkdirSync(workerHome, { recursive: true });
-  const relay = createRuntimeCallbackRelay({
-    dispatchId,
-    route: { userRoot: fixture.userRoot, daemonId: "default", endpoint },
-    relayPath,
-  });
-  await relay.start();
-  try {
-    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
-      const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", "backup", backupDir], {
-        env: {
-          ...workerEnv,
-          HOME: workerHome,
-          HARNESS_ACTOR: "agent:runtime-session:relay-admin",
-          HARNESS_TASK_BOUND: "1",
-          HARNESS_DAEMON_ENDPOINT: relayPath,
-          HARNESS_DAEMON_RELAY: "1",
-          HARNESS_CANONICAL_ROOT: canonicalRoot,
-          HARNESS_DAEMON_REPO_ID: repoId,
-          HARNESS_DAEMON_ID: "default",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let stdout = "",
-        stderr = "";
-      child.stdout.setEncoding("utf8").on("data", (chunk) => {
-        stdout += chunk;
-      });
-      child.stderr.setEncoding("utf8").on("data", (chunk) => {
-        stderr += chunk;
-      });
-      child.on("close", (status) => resolve({ status, stdout, stderr }));
+test(
+  "repo-admin backup routes through the injected runtime callback relay",
+  { skip: process.platform === "win32" ? "runtime callback relay uses POSIX Unix sockets" : false },
+  async () => {
+    const previousTemp = process.env.TMPDIR;
+    process.env.TMPDIR = "/tmp";
+    const fixture = setup(),
+      repoId = "relay-admin",
+      dispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
+      canonicalRoot = realpathSync.native(fixture.root),
+      endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+      relayPath = path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`),
+      workerHome = path.join(fixture.parent, "worker", "home"),
+      backupDir = path.join(fixture.root, "tmp", "relay-backup"),
+      {
+        HARNESS_DAEMON_USER_ROOT: _stripped,
+        HARNESS_DAEMON_RELAY: _relay,
+        ...workerEnv
+      } = cliEnv(fixture.root, fixture.userRoot);
+    seedSettingsEvent({ rootDir: fixture.root, repoId });
+    registerDaemonRepo({
+      canonicalRoot: fixture.root,
+      repoId,
+      userRoot: fixture.userRoot,
+      createConvenienceLinks: false,
     });
-    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-    const receipt = JSON.parse(result.stdout) as { readonly ok?: boolean };
-    assert.equal(receipt.ok, true);
-    assert.equal(existsSync(path.join(backupDir, "manifest.json")), true);
-  } finally {
-    await relay.stop();
-    if (previousTemp === undefined) delete process.env.TMPDIR;
-    else process.env.TMPDIR = previousTemp;
-  }
-});
-
-test("repo-admin backup waits through transient repo_warming over the runtime callback relay", async () => {
-  const previousTemp = process.env.TMPDIR;
-  process.env.TMPDIR = "/tmp";
-  const fixture = setup(false),
-    repoId = "relay-warming",
-    dispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
-    canonicalRoot = realpathSync.native(fixture.root),
-    endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
-    relayPath = path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`),
-    workerHome = path.join(fixture.parent, "worker", "home"),
-    backupDir = path.join(fixture.root, "tmp", "relay-warming-backup"),
-    {
-      HARNESS_DAEMON_USER_ROOT: _stripped,
-      HARNESS_DAEMON_RELAY: _relay,
-      ...workerEnv
-    } = cliEnv(fixture.root, fixture.userRoot);
-  mkdirSync(workerHome, { recursive: true });
-  let requests = 0,
-    helloRequests = 0;
-  const server = createServer((socket) => {
-    let buffered = "";
-    socket.on("data", (chunk) => {
-      buffered += String(chunk);
-      for (;;) {
-        const newline = buffered.indexOf("\n");
-        if (newline < 0) break;
-        const line = buffered.slice(0, newline);
-        buffered = buffered.slice(newline + 1);
-        const request = JSON.parse(line) as { id: number; method: string };
-        if (request.method === "protocol.hello") helloRequests += 1;
-        else {
-          assert.equal(request.method, "daemon.repo.backup");
-          requests += 1;
-        }
-        const result =
-          request.method === "protocol.hello"
-            ? fixtureDaemonHello()
-            : requests >= 3
-              ? {
-                  ok: true,
-                  schema: "ledger-backup-receipt/v1",
-                  exitCode: 0,
-                  backupDir,
-                }
-              : {
-                  schema: "command-receipt/v2",
-                  ok: false,
-                  command: "daemon.repo.backup",
-                  outcome: "op_rejected",
-                  opId: "N/A",
-                  origin: "daemon",
-                  code: "repo_warming",
-                  evidence: "rejection:repo_warming",
-                  rejectionExplanation: `Repository ${repoId} is still warming; waiting for recovering to complete.`,
-                  error: { code: "repo_warming" },
-                };
-        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
-      }
-    });
-  });
-  let relay: ReturnType<typeof createRuntimeCallbackRelay> | undefined;
-  try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(endpoint, resolve);
-    });
-    relay = createRuntimeCallbackRelay({
+    assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    mkdirSync(workerHome, { recursive: true });
+    const relay = createRuntimeCallbackRelay({
       dispatchId,
       route: { userRoot: fixture.userRoot, daemonId: "default", endpoint },
       relayPath,
     });
     await relay.start();
-    const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
-      const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", "backup", backupDir], {
-        env: {
-          ...workerEnv,
-          HOME: workerHome,
-          HARNESS_ACTOR: "agent:runtime-session:relay-warming",
-          HARNESS_TASK_BOUND: "1",
-          HARNESS_DAEMON_ENDPOINT: relayPath,
-          HARNESS_DAEMON_RELAY: "1",
-          HARNESS_CANONICAL_ROOT: canonicalRoot,
-          HARNESS_DAEMON_REPO_ID: repoId,
-          HARNESS_DAEMON_ID: "default",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
+    try {
+      const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+        const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", "backup", backupDir], {
+          env: {
+            ...workerEnv,
+            HOME: workerHome,
+            HARNESS_ACTOR: "agent:runtime-session:relay-admin",
+            HARNESS_TASK_BOUND: "1",
+            HARNESS_DAEMON_ENDPOINT: relayPath,
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_CANONICAL_ROOT: canonicalRoot,
+            HARNESS_DAEMON_REPO_ID: repoId,
+            HARNESS_DAEMON_ID: "default",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "",
+          stderr = "";
+        child.stdout.setEncoding("utf8").on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr.setEncoding("utf8").on("data", (chunk) => {
+          stderr += chunk;
+        });
+        child.on("close", (status) => resolve({ status, stdout, stderr }));
       });
-      let stdout = "",
-        stderr = "";
-      child.stdout.setEncoding("utf8").on("data", (chunk) => {
-        stdout += chunk;
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      const receipt = JSON.parse(result.stdout) as { readonly ok?: boolean };
+      assert.equal(receipt.ok, true);
+      assert.equal(existsSync(path.join(backupDir, "manifest.json")), true);
+    } finally {
+      await relay.stop();
+      if (previousTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTemp;
+    }
+  },
+);
+
+test(
+  "repo-admin backup waits through transient repo_warming over the runtime callback relay",
+  { skip: process.platform === "win32" ? "runtime callback relay uses POSIX Unix sockets" : false },
+  async () => {
+    const previousTemp = process.env.TMPDIR;
+    process.env.TMPDIR = "/tmp";
+    const fixture = setup(false),
+      repoId = "relay-warming",
+      dispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
+      canonicalRoot = realpathSync.native(fixture.root),
+      endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
+      relayPath = path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`),
+      workerHome = path.join(fixture.parent, "worker", "home"),
+      backupDir = path.join(fixture.root, "tmp", "relay-warming-backup"),
+      {
+        HARNESS_DAEMON_USER_ROOT: _stripped,
+        HARNESS_DAEMON_RELAY: _relay,
+        ...workerEnv
+      } = cliEnv(fixture.root, fixture.userRoot);
+    mkdirSync(workerHome, { recursive: true });
+    let requests = 0,
+      helloRequests = 0;
+    const server = createServer((socket) => {
+      let buffered = "";
+      socket.on("data", (chunk) => {
+        buffered += String(chunk);
+        for (;;) {
+          const newline = buffered.indexOf("\n");
+          if (newline < 0) break;
+          const line = buffered.slice(0, newline);
+          buffered = buffered.slice(newline + 1);
+          const request = JSON.parse(line) as { id: number; method: string };
+          if (request.method === "protocol.hello") helloRequests += 1;
+          else {
+            assert.equal(request.method, "daemon.repo.backup");
+            requests += 1;
+          }
+          const result =
+            request.method === "protocol.hello"
+              ? fixtureDaemonHello()
+              : requests >= 3
+                ? {
+                    ok: true,
+                    schema: "ledger-backup-receipt/v1",
+                    exitCode: 0,
+                    backupDir,
+                  }
+                : {
+                    schema: "command-receipt/v2",
+                    ok: false,
+                    command: "daemon.repo.backup",
+                    outcome: "op_rejected",
+                    opId: "N/A",
+                    origin: "daemon",
+                    code: "repo_warming",
+                    evidence: "rejection:repo_warming",
+                    rejectionExplanation: `Repository ${repoId} is still warming; waiting for recovering to complete.`,
+                    error: { code: "repo_warming" },
+                  };
+          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+        }
       });
-      child.stderr.setEncoding("utf8").on("data", (chunk) => {
-        stderr += chunk;
-      });
-      child.on("close", (status) => resolve({ status, stdout, stderr }));
     });
-    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-    const receipt = JSON.parse(result.stdout) as { readonly ok?: boolean; readonly schema?: string };
-    assert.equal(receipt.ok, true);
-    assert.equal(receipt.schema, "ledger-backup-receipt/v1");
-    assert.equal(requests, 3, "repo-admin backup must poll twice after the initial repo_warming receipt");
-    assert.equal(helloRequests, 2, "the warming polls must share one JSON-RPC connection");
-  } finally {
-    await relay?.stop();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    if (previousTemp === undefined) delete process.env.TMPDIR;
-    else process.env.TMPDIR = previousTemp;
-  }
-});
+    let relay: ReturnType<typeof createRuntimeCallbackRelay> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(endpoint, resolve);
+      });
+      relay = createRuntimeCallbackRelay({
+        dispatchId,
+        route: { userRoot: fixture.userRoot, daemonId: "default", endpoint },
+        relayPath,
+      });
+      await relay.start();
+      const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+        const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", "backup", backupDir], {
+          env: {
+            ...workerEnv,
+            HOME: workerHome,
+            HARNESS_ACTOR: "agent:runtime-session:relay-warming",
+            HARNESS_TASK_BOUND: "1",
+            HARNESS_DAEMON_ENDPOINT: relayPath,
+            HARNESS_DAEMON_RELAY: "1",
+            HARNESS_CANONICAL_ROOT: canonicalRoot,
+            HARNESS_DAEMON_REPO_ID: repoId,
+            HARNESS_DAEMON_ID: "default",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "",
+          stderr = "";
+        child.stdout.setEncoding("utf8").on("data", (chunk) => {
+          stdout += chunk;
+        });
+        child.stderr.setEncoding("utf8").on("data", (chunk) => {
+          stderr += chunk;
+        });
+        child.on("close", (status) => resolve({ status, stdout, stderr }));
+      });
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      const receipt = JSON.parse(result.stdout) as { readonly ok?: boolean; readonly schema?: string };
+      assert.equal(receipt.ok, true);
+      assert.equal(receipt.schema, "ledger-backup-receipt/v1");
+      assert.equal(requests, 3, "repo-admin backup must poll twice after the initial repo_warming receipt");
+      assert.equal(helloRequests, 2, "the warming polls must share one JSON-RPC connection");
+    } finally {
+      await relay?.stop();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (previousTemp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previousTemp;
+    }
+  },
+);
 
 test("repo-admin backup rejects an injected relay endpoint outside the sealed canonical root", () => {
   const fixture = setup(),

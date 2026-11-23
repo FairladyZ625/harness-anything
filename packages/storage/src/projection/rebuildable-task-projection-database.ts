@@ -168,9 +168,11 @@ export function closeQueryOnlyReader(projectionPath: string): void {
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
   const resolvedRoot = canonicalProjectionPath(rootDir),
-    prefix = `${resolvedRoot}${path.sep}`;
+    normalizedRoot = process.platform === "win32" ? resolvedRoot.toLowerCase() : resolvedRoot,
+    prefix = `${normalizedRoot}${path.sep}`;
   for (const projectionPath of [...projectionClosers.keys()]) {
-    if (projectionPath !== resolvedRoot && !projectionPath.startsWith(prefix)) continue;
+    const normalizedPath = process.platform === "win32" ? projectionPath.toLowerCase() : projectionPath;
+    if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(prefix)) continue;
     closeProjectionHandlesAt(projectionPath);
   }
 }
