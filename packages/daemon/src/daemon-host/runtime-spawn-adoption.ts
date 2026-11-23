@@ -43,6 +43,8 @@ import {
   readDispatchLifecycle,
   readDispatchLifecycleByIds,
 } from "./runtime-dispatch-admission.ts";
+import { readRuntimeDispatchOwnerEvidence } from "./runtime-dispatch-owner-evidence.ts";
+import { probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { runtimePidIsAlive } from "../runtime-engine/runtime-process-liveness.ts";
 
 export interface RuntimeRecoveryResult {
@@ -78,17 +80,12 @@ export async function adoptRuntimes(
     if (stopProof === "proven_stopped") context.dispatchState?.deactivate(runtimeSessionId);
     else context.dispatchState?.activate(runtimeSessionId, instanceId);
   };
-  const instanceIds = context.input.runtimeInstances?.().map(({ instanceId }) => instanceId) ?? [],
-    active = await Promise.all(
-      [...new Set([...instanceIds, ...streamHeaders.map(({ instanceId }) => instanceId)])].map((instanceId) =>
-        readActiveDispatchLifecycle(
-          (query) => readDispatchLifecycle(context, query),
-          context.runtimeSpawnError,
-          instanceId,
-        ),
-      ),
-    );
-  const activeViews = active.flat();
+  // Read the bounded active index across all instances so dispatches owned by retired or renamed
+  // instances are still discovered and recovered when their local dispatch streams are gone.
+  const activeViews = await readActiveDispatchLifecycle(
+    (query) => readDispatchLifecycle(context, query),
+    context.runtimeSpawnError,
+  );
   for (const view of activeViews)
     if (view.attempt.fence.verified && view.attempt.fence.owner === owner) registerCandidate(view);
   const activeDispatchIds = new Set(activeViews.map(({ attempt }) => attempt.dispatchId)),
@@ -157,15 +154,27 @@ export async function adoptRuntimes(
             if (!session) return "foreign" as const;
             const header = readDispatchStreamHeader(context.input.rootDir, dispatchId!);
             if (!header) {
-              if (view.attempt.stopProof === "proven_stopped") {
+              const canProbeRecordedPid = !view.attempt.executionTarget;
+              if (view.attempt.stopProof === "proven_stopped" || canProbeRecordedPid) {
                 const dispatch = context.input.remote
                   ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-                  : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);
-                if (dispatch?.actor) {
+                  : readLocalDispatchForRecovery(context, runtimeSessionId);
+                const recordedPid =
+                  canProbeRecordedPid &&
+                  dispatch &&
+                  "processGroupPid" in dispatch &&
+                  typeof dispatch.processGroupPid === "number"
+                    ? dispatch.processGroupPid
+                    : null;
+                const stopProven =
+                  view.attempt.stopProof === "proven_stopped" ||
+                  (recordedPid !== null && probeProcessGroup(recordedPid) === "proven_stopped");
+                if (stopProven && dispatch?.actor) {
                   await settleMissingDispatchStream(context, session, dispatchId!, {
                     actor: dispatch.actor,
                     source: dispatch.source,
                   });
+                  context.dispatchState?.deactivate(runtimeSessionId);
                   return "settled" as const;
                 }
               }
@@ -262,6 +271,15 @@ async function settleMissingDispatchStream(
     binding,
     resultBody,
   );
+}
+
+function readLocalDispatchForRecovery(context: RuntimeSpawnerContext, runtimeSessionId: string) {
+  const projection = context.requiredRuntimeProjection(context.input);
+  if (typeof projection.readRuntimeSessionEventsByType === "function") {
+    const evidence = readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId);
+    if (evidence) return evidence;
+  }
+  return projection.readRuntimeDispatch(runtimeSessionId);
 }
 
 async function restoreRuntime(

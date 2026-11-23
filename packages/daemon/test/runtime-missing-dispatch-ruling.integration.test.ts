@@ -104,7 +104,7 @@ function fixture(t: test.TestContext) {
         readRuntimeSessions: async () => [session],
         readDispatchLifecycle: async (query: DispatchLifecycleQuery) =>
           !rulingResolved &&
-          ((query.by === "active" && query.instanceId === definition.instanceId) ||
+          ((query.by === "active" && (!query.instanceId || query.instanceId === definition.instanceId)) ||
             (query.by === "session" && query.runtimeSessionId === runtimeSessionId))
             ? blockedLifecycleRead()
             : { status: "ready", watermark: 1, sourceRevision: 1, rows: [], nextCursor: null },

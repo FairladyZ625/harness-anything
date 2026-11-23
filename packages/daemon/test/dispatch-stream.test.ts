@@ -507,7 +507,11 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
       };
     await adoptRuntimes(context);
     assert.equal(adopted.size, 0, "only the dispatching node may probe or settle its recorded pid");
-    assert.deepEqual(activeQueries, ["instance-1"], "adoption reads the node's indexed instance page");
+    assert.deepEqual(
+      activeQueries,
+      ["all"],
+      "adoption reads the bounded active index across all instances so retired instances cannot leak orphans",
+    );
   } finally {
     removeTempRepository(rootDir);
   }

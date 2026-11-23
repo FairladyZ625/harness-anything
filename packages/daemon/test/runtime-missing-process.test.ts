@@ -741,7 +741,6 @@ test("runtime cancel settles a live remote session when the owner stream is gone
         },
         controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
       };
-    assert.equal((await adoptRuntimes(context as never))[0]?.outcome, "failed");
     const receipt = await cancelRuntime(context as never, { runtimeSessionId }, edgeBinding);
     assert.equal(receipt.detail, "cancelled");
     assert.deepEqual(reclaimed, [[instanceId, runtimeSessionId]]);
@@ -753,6 +752,138 @@ test("runtime cancel settles a live remote session when the owner stream is gone
   } finally {
     removeTempRepository(rootDir);
   }
+});
+
+test("Issue #4788: adoptRuntimes recovers retired-instance orphans whose missing-stream PID is proven stopped, and preserves live or unproven processes", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adopt-retired-missing-stream-"));
+  t.after(() => removeTempRepository(rootDir));
+  const deadDispatchId = "dispatch_478800000000000000000001",
+    deadSessionId = "runtime_478800000000000000000001",
+    liveDispatchId = "dispatch_478800000000000000000002",
+    liveSessionId = "runtime_478800000000000000000002",
+    unprovenDispatchId = "dispatch_478800000000000000000003",
+    unprovenSessionId = "runtime_478800000000000000000003",
+    edgeBinding = { actor: binding.actor, source: { kind: "node" as const, nodeId: "edge-a" } };
+  const liveChild = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  t.after(() => {
+    try {
+      if (liveChild.pid) process.kill(-liveChild.pid, "SIGKILL");
+    } catch {
+      liveChild.kill("SIGKILL");
+    }
+  });
+  const published: Array<{ readonly type: string; readonly runtimeSessionId: string }> = [],
+    deactivated: string[] = [];
+  const owners = new Map<
+    string,
+    {
+      readonly actor: typeof binding.actor;
+      readonly source: typeof edgeBinding.source;
+      readonly payload: { readonly dispatchId: string };
+      readonly instanceId: string;
+      readonly processGroupPid: number | null;
+    }
+  >([
+    [
+      deadSessionId,
+      {
+        actor: edgeBinding.actor,
+        source: edgeBinding.source,
+        payload: { dispatchId: deadDispatchId },
+        instanceId: "retired-instance",
+        processGroupPid: 2_147_483_646,
+      },
+    ],
+    [
+      liveSessionId,
+      {
+        actor: edgeBinding.actor,
+        source: edgeBinding.source,
+        payload: { dispatchId: liveDispatchId },
+        instanceId: "retired-instance",
+        processGroupPid: liveChild.pid ?? null,
+      },
+    ],
+    [
+      unprovenSessionId,
+      {
+        actor: edgeBinding.actor,
+        source: edgeBinding.source,
+        payload: { dispatchId: unprovenDispatchId },
+        instanceId: "retired-instance",
+        processGroupPid: null,
+      },
+    ],
+  ]);
+  const sessions = [liveSession(deadSessionId), liveSession(liveSessionId), liveSession(unprovenSessionId)];
+  const context = {
+    input: {
+      rootDir,
+      repoId: "adopt-retired-missing-stream",
+      runtimeNode: { nodeId: "edge-a" },
+      now: () => "2026-11-23T08:00:00.000Z",
+      // Instance "retired-instance" is deliberately absent from current runtimeInstances().
+      runtimeInstances: () => [],
+      remote: {
+        readRuntimeSession: async (id: string) => sessions.find((s) => s.runtimeSessionId === id) ?? null,
+        readRuntimeSessions: async () => sessions,
+        readRuntimeDispatch: async (id: string) => owners.get(id) ?? null,
+        readDispatchLifecycle: lifecycleReadFor([
+          {
+            runtimeSessionId: deadSessionId,
+            dispatchId: deadDispatchId,
+            instanceId: "retired-instance",
+            owner: "node:edge-a",
+            process: "alive",
+          },
+          {
+            runtimeSessionId: liveSessionId,
+            dispatchId: liveDispatchId,
+            instanceId: "retired-instance",
+            owner: "node:edge-a",
+            process: "alive",
+          },
+          {
+            runtimeSessionId: unprovenSessionId,
+            dispatchId: unprovenDispatchId,
+            instanceId: "retired-instance",
+            owner: "node:edge-a",
+            process: "alive",
+          },
+        ]),
+      },
+    },
+    processes: new Map(),
+    exiting: new Set<string>(),
+    dispatchState: {
+      activate: () => undefined,
+      deactivate: (id: string) => deactivated.push(id),
+    },
+    runtimeSpawnError,
+    publishRuntimeEvent: async (type: string, payload: { readonly runtimeSessionId: string }) => {
+      published.push({ type, runtimeSessionId: payload.runtimeSessionId });
+      return {};
+    },
+  };
+  const results = await adoptRuntimes(context as never);
+  const byId = new Map(results.map((r) => [r.runtimeSessionId, r]));
+  if (process.platform !== "win32") {
+    assert.equal(byId.get(deadSessionId)?.outcome, "settled", "dead PID on retired instance must settle");
+    assert.deepEqual(
+      published.filter((e) => e.runtimeSessionId === deadSessionId).map((e) => e.type),
+      ["runtime_session_exited", "runtime_session_outcome_observed"],
+    );
+    assert.ok(deactivated.includes(deadSessionId));
+  }
+  assert.equal(byId.get(liveSessionId)?.outcome, "failed", "live OS process group must never be settled");
+  assert.equal((byId.get(liveSessionId)?.error as { code?: string }).code, "runtime_recovery_missing_dispatch");
+  assert.equal(byId.get(unprovenSessionId)?.outcome, "failed", "null PID without stopProof must fail closed");
+  assert.equal((byId.get(unprovenSessionId)?.error as { code?: string }).code, "runtime_recovery_missing_dispatch");
+  assert.deepEqual(
+    published.filter((e) => e.runtimeSessionId !== deadSessionId),
+    [],
+    "live and unproven sessions must publish zero exit/outcome events",
+  );
 });
 
 test("runtime cancel refuses to settle an owner session when its process group is unproven", async () => {

@@ -66,6 +66,7 @@ export const dispatchLifecycleEventTypes = [
   "runtime_session_cancelled",
   "runtime_session_exited",
   "runtime_session_outcome_observed",
+  "runtime_dispatch_outcome_unknown",
 ] as const satisfies readonly AgentRuntimeEventV1["type"][];
 /** The task event types that move a task lease, register a delivery, or retire/finish historical groups. */
 export const dispatchLifecycleTaskEventTypes = [
@@ -79,6 +80,8 @@ export const dispatchLifecycleTaskEventTypes = [
   "task_completed",
   "task_transitioned",
   "task_superseded",
+  "task_archived",
+  "task_deleted",
 ] as const satisfies readonly TaskEventV1["type"][];
 export type DispatchLifecycleEventType = (typeof dispatchLifecycleEventTypes)[number];
 export type DispatchLifecycleEvent = Extract<AgentRuntimeEventV1, { readonly type: DispatchLifecycleEventType }>;
@@ -265,17 +268,28 @@ export function taskLeaseAfter(input: DispatchLifecycleInput): DispatchTaskLease
   if (!isTaskInput(input)) return undefined;
   if (input.type === "execution_started" || input.type === "lease_renewed")
     return { executionId: input.payload.execution.executionId, version: input.payload.lease.version };
-  if (input.type === "task_transitioned" || input.type === "task_superseded") return undefined;
+  if (
+    input.type === "task_transitioned" ||
+    input.type === "task_superseded" ||
+    input.type === "task_archived" ||
+    input.type === "task_deleted"
+  )
+    return undefined;
   return null;
 }
 
-function taskEventAddressesTaskGroups(input: DispatchLifecycleTaskEvent): boolean {
+function taskEventIsTerminalForTask(input: DispatchLifecycleTaskEvent): boolean {
   return (
     input.type === "task_completed" ||
     input.type === "task_superseded" ||
-    input.type === "execution_started" ||
+    input.type === "task_archived" ||
+    input.type === "task_deleted" ||
     (input.type === "task_transitioned" && isTerminalStatus(input.payload.task.status))
   );
+}
+
+function taskEventAddressesTaskGroups(input: DispatchLifecycleTaskEvent): boolean {
+  return taskEventIsTerminalForTask(input) || input.type === "execution_started";
 }
 
 export function dispatchLifecycleAddress(
@@ -535,8 +549,7 @@ function dispatchSuccessorRefusal(
 
 function taskEventClosesStoppedGroup(input: DispatchLifecycleTaskEvent, task: DispatchAttemptTask): boolean {
   if (task.taskId !== input.taskId) return false;
-  if (input.type === "task_completed" || input.type === "task_superseded") return true;
-  if (input.type === "task_transitioned") return isTerminalStatus(input.payload.task.status);
+  if (taskEventIsTerminalForTask(input)) return true;
   if (input.type === "task_completion_generation_retired")
     return task.executionId !== null && input.payload.execution.executionId === task.executionId;
   if (input.type === "execution_started")
@@ -580,13 +593,32 @@ function reduceTaskInput(
     )
       delivery = registered(`review:${input.payload.review.reviewId}`, input.payload.review.submissionDigest, input);
   }
-  const shouldClose =
+  const closesStopped =
     group.phase !== "closed" &&
     attempt.phase === "closed" &&
     attempt.stopProof === "proven_stopped" &&
     taskEventClosesStoppedGroup(input, nextTask);
+  // A historical lease-free reviewer attempt that never received a terminal outcome before its
+  // parent task finished or was archived cannot hold a task checkout lease or writer fence; close
+  // the group without inventing physical stopProof (cloud targets stay fenced until confirmed).
+  const closesUnprovenLeaseFree =
+    group.phase !== "closed" &&
+    attempt.phase !== "closed" &&
+    attempt.executionTarget === undefined &&
+    nextTask.role === "reviewer" &&
+    nextTask.leaseVersion === null &&
+    taskEventIsTerminalForTask(input);
+  const shouldClose = closesStopped || closesUnprovenLeaseFree;
   if (nextTask === task && delivery === group.delivery && !shouldClose) return ignored;
-  const next = { ...attempt, task: nextTask },
+  const next: DispatchLifecycleAttempt = closesUnprovenLeaseFree
+      ? {
+          ...attempt,
+          task: nextTask,
+          phase: "closed",
+          process: attempt.process === "exited" ? "exited" : "unknown",
+          outcome: attempt.outcome ?? "unknown",
+        }
+      : { ...attempt, task: nextTask },
     settled = {
       ...group,
       attempts: group.attempts.map((entry) => (entry === attempt ? next : entry)),
@@ -641,6 +673,15 @@ function advanceAttempt(
         phase: "closed",
         stopProof: isOwnerAbandonment(event) ? attempt.stopProof : "proven_stopped",
         outcome: event.payload.outcome,
+      };
+    case "runtime_dispatch_outcome_unknown":
+      if (attempt.executionTarget && attempt.stopProof !== "proven_stopped") return null;
+      // Historical failed-launch marker predating explicit exit/outcome settlement; closes without inventing stopProof.
+      return {
+        ...attempt,
+        phase: "closed",
+        process: attempt.process === "exited" ? "exited" : "unknown",
+        outcome: "unknown",
       };
     default:
       return null;
@@ -940,7 +981,7 @@ export function dispatchGroupIsActive(group: DispatchLifecycleGroup): boolean {
 }
 
 /** Bump when the folded group shape changes: stored lifecycle state of another version is refolded. */
-export const DISPATCH_LIFECYCLE_MODEL_VERSION = 10;
+export const DISPATCH_LIFECYCLE_MODEL_VERSION = 11;
 
 export const DISPATCH_LIFECYCLE_PAGE_LIMIT = 100;
 

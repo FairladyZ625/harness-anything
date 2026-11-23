@@ -502,5 +502,185 @@ export function taskTerminalLifecycleHistory(): readonly CanonicalEventV1[] {
     {},
   );
 
+  // 7. Issue #4788: awaiting_ruling stopped group closes on task_archived.
+  const tArchive = createTaskRunner("task-archive");
+  tArchive.startExec("exec-archive");
+  emitAwaitingRuling("d-archive", "s-archive", "task-archive", "exec-archive");
+  tArchive.run(
+    implementer,
+    {
+      type: "ReleaseRuntimeLease",
+      taskId: "task-archive",
+      executionId: "exec-archive",
+      leaseVersion: 0,
+      reason: "stop",
+    },
+    {},
+  );
+  const archStamp = stamp("tk");
+  events.push(
+    createTaskEvent<TaskMutationEvent>(
+      {
+        eventId: archStamp.eventId,
+        workspaceRevision: archStamp.revision,
+        opId: archStamp.opId,
+        taskId: "task-archive",
+        actor: implementer,
+        source: "local",
+        occurredAt: archStamp.occurredAt,
+      },
+      "task_archived",
+      {
+        task: { ...tArchive.snapshot().task!, packageDisposition: "archived" },
+        mutation: { command: "archive", reason: "archived", fields: ["packageDisposition"] },
+      },
+    ),
+  );
+
+  // 8. Issue #4788: historical running reviewer orphan on a completed task closes on task_completed.
+  const tOrphanRev = createTaskRunner("task-orphan-rev"),
+    orphanSubmission = {
+      completionClaim: "done",
+      deliverables: [],
+      outputs: [],
+      verificationNotes: ["tests"],
+      knownGaps: [],
+      residualRisks: [],
+      commitSha,
+      completionContract,
+    };
+  tOrphanRev.startExec("exec-orphan-rev");
+  tOrphanRev.run(
+    implementer,
+    {
+      type: "SubmitExecution",
+      taskId: "task-orphan-rev",
+      executionId: "exec-orphan-rev",
+      submission: orphanSubmission,
+    },
+    { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+  );
+  events.push(
+    emitRuntime("runtime_dispatch_requested", {
+      ...requested("d-orphan-rev", "s-orphan-rev", undefined, {
+        taskId: "task-orphan-rev",
+        executionId: "exec-orphan-rev",
+        role: "reviewer",
+      }).payload,
+    }),
+    emitRuntime("runtime_session_started", { ...started("s-orphan-rev").payload }),
+  );
+  tOrphanRev.run(
+    reviewer,
+    {
+      type: "RecordReview",
+      taskId: "task-orphan-rev",
+      executionId: "exec-orphan-rev",
+      reviewId: "rev-orphan-rev",
+      verdict: "approved",
+      reason: "lgtm",
+      evidenceChecked: [],
+      commitSha,
+      iteration: 0,
+      contentDigest: `sha256:${"d".repeat(64)}`,
+      submissionDigest: submissionDigest(orphanSubmission),
+      findings: [],
+      resolutions: [],
+    },
+    { actorBinding: reviewer, capability: "execution-review@v1", capabilityRef: "cap-orphan-rev", reworkBudget: 2 },
+  );
+  const orphanReview = tOrphanRev.snapshot().reviews[0]!;
+  tOrphanRev.run(
+    implementer,
+    {
+      type: "RecordReviewConsent",
+      taskId: "task-orphan-rev",
+      executionId: "exec-orphan-rev",
+      reviewId: orphanReview.reviewId,
+      consentId: "consent-orphan-rev",
+      reviewDigest: reviewDigest(orphanReview),
+      contentDigest: orphanReview.contentDigest,
+    },
+    { actorBinding: implementer, capability: "execution-consent@v1", capabilityRef: "cap-orphan-con" },
+  );
+  tOrphanRev.run(
+    implementer,
+    { type: "CompleteTask", taskId: "task-orphan-rev", executionId: "exec-orphan-rev" },
+    {
+      capability: "task-complete@v1",
+      capabilityRef: "cap-orphan-done",
+      actorRole: "owner",
+      noActiveLease: true,
+      closeoutGates: completionContract.closeoutGates,
+      gateReceipts: [],
+    },
+  );
+
+  // 9. Issue #4788: historical settling reviewer owned by a retired node closes on task_archived.
+  const tArchRev = createTaskRunner("task-arch-rev");
+  events.push(
+    emitRuntime(
+      "runtime_dispatch_requested",
+      {
+        ...requested("d-arch-rev", "s-arch-rev", undefined, {
+          taskId: "task-arch-rev",
+          role: "reviewer",
+        }).payload,
+      },
+      { kind: "node", nodeId: "node-retired" },
+    ),
+    emitRuntime(
+      "runtime_session_started",
+      { ...started("s-arch-rev").payload },
+      { kind: "node", nodeId: "node-retired" },
+    ),
+    emitRuntime(
+      "runtime_session_cancelled",
+      { runtimeSessionId: "s-arch-rev" },
+      { kind: "node", nodeId: "node-retired" },
+    ),
+  );
+  const archRevStamp = stamp("tk");
+  events.push(
+    createTaskEvent<TaskMutationEvent>(
+      {
+        eventId: archRevStamp.eventId,
+        workspaceRevision: archRevStamp.revision,
+        opId: archRevStamp.opId,
+        taskId: "task-arch-rev",
+        actor: implementer,
+        source: "local",
+        occurredAt: archRevStamp.occurredAt,
+      },
+      "task_archived",
+      {
+        task: { ...tArchRev.snapshot().task!, packageDisposition: "archived" },
+        mutation: { command: "archive", reason: "archived", fields: ["packageDisposition"] },
+      },
+    ),
+  );
+
+  // 10. Issue #4788: historical runtime_dispatch_outcome_unknown closes running attempt.
+  const tUnk = createTaskRunner("task-unk");
+  events.push(
+    emitRuntime("runtime_dispatch_requested", {
+      ...requested("d-unk", "s-unk", undefined, { taskId: tUnk.snapshot().task!.taskId, role: "reviewer" }).payload,
+    }),
+    emitRuntime("runtime_session_started", { ...started("s-unk").payload }),
+    emitRuntime("runtime_dispatch_outcome_unknown", { dispatchId: "d-unk", runtimeSessionId: "s-unk" }),
+  );
+
+  // 11. Negative control: running reviewer on an active unarchived/uncompleted task stays running.
+  const tLiveRev = createTaskRunner("task-live-rev");
+  events.push(
+    emitRuntime("runtime_dispatch_requested", {
+      ...requested("d-live-rev", "s-live-rev", undefined, {
+        taskId: tLiveRev.snapshot().task!.taskId,
+        role: "reviewer",
+      }).payload,
+    }),
+    emitRuntime("runtime_session_started", { ...started("s-live-rev").payload }),
+  );
+
   return events;
 }
