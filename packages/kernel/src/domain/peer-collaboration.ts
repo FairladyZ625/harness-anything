@@ -4,7 +4,12 @@ import {
   type EntityDocumentJsonSchema,
   type EntityJsonSchemaNode,
 } from "./entity-json-schema.ts";
-import { validateEventEnvelopeIdentity, type ActorIdentity, type EventEnvelope } from "./write-chain.contract.ts";
+import {
+  validateEventEnvelopeIdentity,
+  type ActorIdentity,
+  type EventEnvelope,
+  type WriteSource,
+} from "./write-chain.contract.ts";
 
 export const PEER_REQUEST_MODEL_VERSION = 1;
 export const PEER_REQUEST_PAGE_LIMIT = 200;
@@ -493,7 +498,10 @@ export function isPeerRequestEventType(type: string): type is PeerEventType {
   return (peerRequestEventTypes as readonly string[]).includes(type);
 }
 
-export function isPeerRequestEvent(event: { readonly schema: string; readonly type: string }): event is PeerRequestEventV1 {
+export function isPeerRequestEvent(event: {
+  readonly schema: string;
+  readonly type: string;
+}): event is PeerRequestEventV1 {
   return event.schema === "peer-request-event/v1" && isPeerRequestEventType(event.type);
 }
 
@@ -575,6 +583,54 @@ export function peerRequestCursor(cursor: string | undefined): number {
   return Number(cursor);
 }
 
-export function peerRequestNextCursor(rows: readonly { readonly openedRevision: number }[], limit: number): string | null {
+export function peerRequestNextCursor(
+  rows: readonly { readonly openedRevision: number }[],
+  limit: number,
+): string | null {
   return rows.length > limit ? String(rows[limit - 1]!.openedRevision) : null;
 }
+
+type PeerEventMeta = {
+  readonly eventId: string;
+  readonly workspaceRevision: number;
+  readonly opId: string;
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly occurredAt: string;
+};
+
+function makePeerEnvelope<T extends PeerEventType>(
+  type: T,
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: T }>["payload"],
+): Extract<PeerRequestEventV1, { readonly type: T }> {
+  return { schema: "peer-request-event/v1", ...meta, type, payload } as Extract<
+    PeerRequestEventV1,
+    { readonly type: T }
+  >;
+}
+
+export const compilePeerRequestOpened = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_opened" }>["payload"],
+) => makePeerEnvelope("peer_request_opened", meta, payload);
+export const compilePeerRequestClaimed = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_claimed" }>["payload"],
+) => makePeerEnvelope("peer_request_claimed", meta, payload);
+export const compilePeerRequestAnswered = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_answered" }>["payload"],
+) => makePeerEnvelope("peer_request_answered", meta, payload);
+export const compilePeerRequestDone = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_done" }>["payload"],
+) => makePeerEnvelope("peer_request_done", meta, payload);
+export const compilePeerRequestRejected = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_rejected" }>["payload"],
+) => makePeerEnvelope("peer_request_rejected", meta, payload);
+export const compilePeerRequestPromoted = (
+  meta: PeerEventMeta,
+  payload: Extract<PeerRequestEventV1, { readonly type: "peer_request_promoted" }>["payload"],
+) => makePeerEnvelope("peer_request_promoted", meta, payload);

@@ -65,21 +65,24 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
     assert.equal(askWork.outcome, "applied", JSON.stringify(askWork));
     const { request: workReq } = evidence(askWork) as { request: PeerRequestV1 };
 
-    const watchDefault = evidence(
-      await cell.run({ kind: "peer-watch", once: true, lane: "default" }, bobBinding),
-    ) as { matched: boolean; pendingCount: number };
+    const watchDefault = evidence(await cell.run({ kind: "peer-watch", once: true, lane: "default" }, bobBinding)) as {
+      matched: boolean;
+      pendingCount: number;
+    };
     assert.equal(watchDefault.matched, false);
     assert.equal(watchDefault.pendingCount, 0);
 
-    const watchOps = evidence(
-      await cell.run({ kind: "peer-watch", once: true, lane: "ops" }, bobBinding),
-    ) as { matched: boolean; request: PeerRequestV1 };
+    const watchOps = evidence(await cell.run({ kind: "peer-watch", once: true, lane: "ops" }, bobBinding)) as {
+      matched: boolean;
+      request: PeerRequestV1;
+    };
     assert.equal(watchOps.matched, true);
     assert.equal(watchOps.request.requestId, opsReq.requestId);
 
-    const watchWork = evidence(
-      await cell.run({ kind: "peer-watch", once: true, workId: "work_beta" }, bobBinding),
-    ) as { matched: boolean; request: PeerRequestV1 };
+    const watchWork = evidence(await cell.run({ kind: "peer-watch", once: true, workId: "work_beta" }, bobBinding)) as {
+      matched: boolean;
+      request: PeerRequestV1;
+    };
     assert.equal(watchWork.matched, true);
     assert.equal(watchWork.request.requestId, workReq.requestId);
 
@@ -227,9 +230,10 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
     assert.equal(handoffReq.attachments.length, 1);
     assert.equal(handoffReq.attachments[0]!.mediaType, "application/x-git-bundle");
 
-    const woken = evidence(
-      await cell.run({ kind: "peer-watch", once: true, lane: "night-shift" }, bobBinding),
-    ) as { matched: boolean; request: PeerRequestV1 };
+    const woken = evidence(await cell.run({ kind: "peer-watch", once: true, lane: "night-shift" }, bobBinding)) as {
+      matched: boolean;
+      request: PeerRequestV1;
+    };
     assert.equal(woken.matched, true);
     assert.equal(woken.request.requestId, handoffReq.requestId);
     assert.equal(woken.request.continuationPacket?.wipCommitSha, wipSha);

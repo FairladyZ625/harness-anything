@@ -88,7 +88,8 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
       const pgProj = makeTaskProjection({ rootDir, eventStore: pgStore, repoId, storage });
       try {
         for (const event of events) {
-          const reqId = event.type === "peer_request_opened" ? event.payload.request.requestId : event.payload.requestId;
+          const reqId =
+            event.type === "peer_request_opened" ? event.payload.request.requestId : event.payload.requestId;
           const plan = canonicalEventWritePlan(event, "peer-request", reqId);
           sqliteStore.append({ event, plan, blobs: [] });
           sqliteProj.apply(event, plan);
@@ -106,6 +107,7 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
       } finally {
         sqliteProj.close();
         pgProj.close();
+        await (pgStore as { close?: () => Promise<void> | void }).close?.();
       }
 
       const backend = await createPGliteStorageBackend({ repoId, storage });
@@ -150,12 +152,16 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
           "DELETE FROM ha_projection_values WHERE model IN ('peer-request', 'peer-request-list')",
         );
         await backend.pool.query("UPDATE ha_projection_meta SET peer_request_version=0");
-        assert.equal((await backend.projection.readPeerRequests({ by: "id", requestId: "peer_pg_1" })).status, "pending");
+        assert.equal(
+          (await backend.projection.readPeerRequests({ by: "id", requestId: "peer_pg_1" })).status,
+          "pending",
+        );
       } finally {
         await backend.close();
       }
 
-      const reopenedProj = makeTaskProjection({ rootDir, eventStore: pgStore, repoId, storage });
+      const reopenedStore = makeTaskEventStore({ rootDir, repoId, storage });
+      const reopenedProj = makeTaskProjection({ rootDir, eventStore: reopenedStore, repoId, storage });
       try {
         const backfilled = reopenedProj.readPeerRequests({ by: "id", requestId: "peer_pg_1" });
         assert.equal(backfilled.status, "ready");
@@ -165,6 +171,7 @@ pgliteIntegrationSuite("PGlite PeerRequestV1 projection", () => {
         }
       } finally {
         reopenedProj.close();
+        await (reopenedStore as { close?: () => Promise<void> | void }).close?.();
       }
     });
   });

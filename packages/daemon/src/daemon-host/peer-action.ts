@@ -1,11 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
-import {
-  type CanonicalContentBlob,
-  type CanonicalWriteBundle,
-  type WriteReceiptDraft,
-} from "@harness-anything/kernel";
+import { type CanonicalContentBlob, type CanonicalWriteBundle, type WriteReceiptDraft } from "@harness-anything/kernel";
 import {
   classifyPeerIntentRiskTier,
+  compilePeerRequestAnswered,
+  compilePeerRequestClaimed,
+  compilePeerRequestDone,
+  compilePeerRequestOpened,
+  compilePeerRequestPromoted,
+  compilePeerRequestRejected,
   evaluatePeerExecutionCeiling,
   isPeerFrameCausallyReady,
   matchesPeerWatchFilter,
@@ -25,7 +27,7 @@ import {
   type InboxEventPayloads,
   type InboxItem,
 } from "@harness-anything/kernel/internal/domain/inbox.ts";
-import type { AgentRuntimeEventV1 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import { compileInboxEnqueuedEvent } from "@harness-anything/kernel/internal/domain/agent-runtime-event.ts";
 import { canonicalEventWritePlan } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
 import { applyPreparedTaskCreate, prepareTaskCreateAt, type PreparedTaskCreate } from "./repo-cell-task-create.ts";
@@ -62,17 +64,15 @@ function buildInboxEnqueueBundle(input: {
   readonly occurredAt: string;
   readonly payload: InboxEventPayloads["inbox_item_enqueued"];
 }): CanonicalWriteBundle {
-  const event: AgentRuntimeEventV1 = {
-    schema: "agent-runtime-event/v1",
+  const event = compileInboxEnqueuedEvent({
     eventId: `event-${input.opId}`,
     workspaceRevision: input.workspaceRevision,
     opId: input.opId,
-    type: "inbox_item_enqueued",
     actor: input.actor,
     source: input.source,
     occurredAt: input.occurredAt,
     payload: input.payload,
-  };
+  });
   return {
     event,
     plan: canonicalEventWritePlan(event, "inbox", input.payload.inboxId),
@@ -90,22 +90,6 @@ function buildPeerEventBundle(
     plan: canonicalEventWritePlan(event, "peer-request", requestId),
     blobs,
   };
-}
-
-function assertFleetConnected(action: RepoTaskAction, options?: PeerActionExecutionOptions): void {
-  if (action.fleetStreamConnected === false || options?.fleetStreamConnected === false) {
-    reject(
-      "peer_replication_disconnected",
-      "Fleet replication stream (7545) is disconnected; peer ask/handoff fail closed until reconnected.",
-    );
-  }
-}
-
-function assertSenderIdentity(claimedPersonId: string, authenticatedPersonId: string): void {
-  const check = verifyPeerSenderIdentity({ claimedPersonId, authenticatedPersonId });
-  if (!check.valid) {
-    reject(check.errorCode, `Sender ${claimedPersonId} does not match authenticated principal ${authenticatedPersonId}.`);
-  }
 }
 
 function bareSha256(sha: string): string {
@@ -252,9 +236,17 @@ export function runPeerAction(
   const now = cell.now();
 
   if (action.kind === "peer-ask" || action.kind === "peer-handoff") {
-    assertFleetConnected(action, options);
+    if (action.fleetStreamConnected === false || options?.fleetStreamConnected === false) {
+      reject(
+        "peer_replication_disconnected",
+        "Fleet replication stream (7545) is disconnected; peer ask/handoff fail closed until reconnected.",
+      );
+    }
     const claimedSender = optionalString(action.fromPersonId) ?? personId;
-    assertSenderIdentity(claimedSender, personId);
+    const identity = verifyPeerSenderIdentity({ claimedPersonId: claimedSender, authenticatedPersonId: personId });
+    if (!identity.valid) {
+      reject(identity.errorCode, `Sender ${claimedSender} does not match authenticated principal ${personId}.`);
+    }
     const toPersonId = requiredString(action.toPersonId, "--to");
     const isHandoff = action.kind === "peer-handoff";
     const kind = (isHandoff ? "handoff" : (optionalString(action.requestKind) ?? "question")) as PeerRequestKind;
@@ -279,7 +271,8 @@ export function runPeerAction(
       const targetId = requiredString(action.targetId, "<target-id>");
       anchorRef = anchorRef ?? `task/${targetId}`;
       const bundle = options?.preparedHandoff;
-      const wipCommitSha = bundle?.wipCommitSha ?? optionalString(action.wipCommitSha) ?? "0000000000000000000000000000000000000000";
+      const wipCommitSha =
+        bundle?.wipCommitSha ?? optionalString(action.wipCommitSha) ?? "0000000000000000000000000000000000000000";
       if (bundle?.bundleBlob && bundle.bundleSha256 && bundle.bundleSize !== undefined) {
         attachments.push({
           sha256: bundle.bundleSha256,
@@ -349,17 +342,17 @@ export function runPeerAction(
     };
 
     const openedRevision = head + 1;
-    const openEvent: PeerRequestEventV1 = {
-      schema: "peer-request-event/v1",
-      eventId: `event-${opId}-open`,
-      workspaceRevision: openedRevision,
-      opId: `${opId}-open`,
-      type: "peer_request_opened",
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt: now,
-      payload: { requestRevision: 1, request: requestInput },
-    };
+    const openEvent = compilePeerRequestOpened(
+      {
+        eventId: `event-${opId}-open`,
+        workspaceRevision: openedRevision,
+        opId: `${opId}-open`,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      { requestRevision: 1, request: requestInput },
+    );
     const snapshot = reducePeerRequestEvent(null, openEvent);
     const inboxRevision = head + 2;
     const requiredBlobSha256s = attachments.map((a) => bareSha256(a.sha256));
@@ -423,7 +416,10 @@ export function runPeerAction(
         humanConfirmed: action.humanConfirmed === true,
       });
       if ("errorCode" in verdict && verdict.errorCode) {
-        reject(verdict.errorCode, `Tier-A ${verdict.tier} ceiling denied operation "${operation}": ${verdict.ceiling}.`);
+        reject(
+          verdict.errorCode,
+          `Tier-A ${verdict.tier} ceiling denied operation "${operation}": ${verdict.ceiling}.`,
+        );
       }
       if (verdict.ceiling === "draft_only" && action.draftOnly !== true) {
         reject(
@@ -436,21 +432,22 @@ export function runPeerAction(
     const batch: CanonicalWriteBundle[] = [];
     let state = current;
     let nextWorkspaceRev = head;
-    const claimActive = state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
+    const claimActive =
+      state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
     if (!claimActive) {
       nextWorkspaceRev += 1;
       const expiresAt = new Date(Date.parse(now) + DEFAULT_CLAIM_LEASE_MS).toISOString();
-      const claimEvent: PeerRequestEventV1 = {
-        schema: "peer-request-event/v1",
-        eventId: `event-${opId}-claim`,
-        workspaceRevision: nextWorkspaceRev,
-        opId: `${opId}-claim`,
-        type: "peer_request_claimed",
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: now,
-        payload: { requestId, requestRevision: state.revision + 1, expiresAt },
-      };
+      const claimEvent = compilePeerRequestClaimed(
+        {
+          eventId: `event-${opId}-claim`,
+          workspaceRevision: nextWorkspaceRev,
+          opId: `${opId}-claim`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
+        { requestId, requestRevision: state.revision + 1, expiresAt },
+      );
       state = reducePeerRequestEvent(state, claimEvent);
       batch.push(buildPeerEventBundle(claimEvent, requestId));
     }
@@ -459,43 +456,43 @@ export function runPeerAction(
     nextWorkspaceRev += 1;
     let terminalEvent: PeerRequestEventV1;
     if (outcome === "done") {
-      terminalEvent = {
-        schema: "peer-request-event/v1",
-        eventId: `event-${opId}-done`,
-        workspaceRevision: nextWorkspaceRev,
-        opId: `${opId}-done`,
-        type: "peer_request_done",
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: now,
-        payload: { requestId, requestRevision: state.revision + 1, claimId: state.claim!.claimId },
-      };
+      terminalEvent = compilePeerRequestDone(
+        {
+          eventId: `event-${opId}-done`,
+          workspaceRevision: nextWorkspaceRev,
+          opId: `${opId}-done`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
+        { requestId, requestRevision: state.revision + 1, claimId: state.claim!.claimId },
+      );
     } else if (outcome === "rejected") {
       const reason = requiredString(action.reason, "--reason");
-      terminalEvent = {
-        schema: "peer-request-event/v1",
-        eventId: `event-${opId}-reject`,
-        workspaceRevision: nextWorkspaceRev,
-        opId: `${opId}-reject`,
-        type: "peer_request_rejected",
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: now,
-        payload: { requestId, requestRevision: state.revision + 1, claimId: state.claim!.claimId, reason },
-      };
+      terminalEvent = compilePeerRequestRejected(
+        {
+          eventId: `event-${opId}-reject`,
+          workspaceRevision: nextWorkspaceRev,
+          opId: `${opId}-reject`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
+        { requestId, requestRevision: state.revision + 1, claimId: state.claim!.claimId, reason },
+      );
     } else {
       const replyClaim = requiredString(action.claim, "--claim");
       const replyAction = requiredString(action.requestedAction, "--action");
-      terminalEvent = {
-        schema: "peer-request-event/v1",
-        eventId: `event-${opId}-answer`,
-        workspaceRevision: nextWorkspaceRev,
-        opId: `${opId}-answer`,
-        type: "peer_request_answered",
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: now,
-        payload: {
+      terminalEvent = compilePeerRequestAnswered(
+        {
+          eventId: `event-${opId}-answer`,
+          workspaceRevision: nextWorkspaceRev,
+          opId: `${opId}-answer`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
+        {
           requestId,
           requestRevision: state.revision + 1,
           claimId: state.claim!.claimId,
@@ -510,7 +507,7 @@ export function runPeerAction(
             minRevision: nextWorkspaceRev + 1,
           },
         },
-      };
+      );
     }
     state = reducePeerRequestEvent(state, terminalEvent);
     batch.push(buildPeerEventBundle(terminalEvent, requestId));
@@ -573,21 +570,22 @@ export function runPeerAction(
     const batch: CanonicalWriteBundle[] = [];
     let state = current;
     let nextWorkspaceRev = head;
-    const claimActive = state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
+    const claimActive =
+      state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
     if (!claimActive) {
       nextWorkspaceRev += 1;
       const expiresAt = new Date(Date.parse(now) + DEFAULT_CLAIM_LEASE_MS).toISOString();
-      const claimEvent: PeerRequestEventV1 = {
-        schema: "peer-request-event/v1",
-        eventId: `event-${opId}-claim`,
-        workspaceRevision: nextWorkspaceRev,
-        opId: `${opId}-claim`,
-        type: "peer_request_claimed",
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt: now,
-        payload: { requestId, requestRevision: state.revision + 1, expiresAt },
-      };
+      const claimEvent = compilePeerRequestClaimed(
+        {
+          eventId: `event-${opId}-claim`,
+          workspaceRevision: nextWorkspaceRev,
+          opId: `${opId}-claim`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
+        { requestId, requestRevision: state.revision + 1, expiresAt },
+      );
       state = reducePeerRequestEvent(state, claimEvent);
       batch.push(buildPeerEventBundle(claimEvent, requestId));
     }
@@ -604,22 +602,22 @@ export function runPeerAction(
     batch.push(prepared.compiled);
 
     nextWorkspaceRev += 1;
-    const promoteEvent: PeerRequestEventV1 = {
-      schema: "peer-request-event/v1",
-      eventId: `event-${opId}`,
-      workspaceRevision: nextWorkspaceRev,
-      opId,
-      type: "peer_request_promoted",
-      actor: binding.actor,
-      source: binding.source,
-      occurredAt: now,
-      payload: {
+    const promoteEvent = compilePeerRequestPromoted(
+      {
+        eventId: `event-${opId}`,
+        workspaceRevision: nextWorkspaceRev,
+        opId,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+      },
+      {
         requestId,
         requestRevision: state.revision + 1,
         claimId: state.claim!.claimId,
         promotedTaskId: prepared.fields.taskId,
       },
-    };
+    );
     state = reducePeerRequestEvent(state, promoteEvent);
     batch.push(buildPeerEventBundle(promoteEvent, requestId));
 

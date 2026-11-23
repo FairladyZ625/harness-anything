@@ -52,7 +52,7 @@
       "evidence": [
         "packages/cli/src/daemon/control.ts",
         "packages/daemon/src/daemon-host/peer-handoff-bundle.ts",
-    "packages/daemon/src/daemon-host/runtime.ts",
+        "packages/daemon/src/daemon-host/runtime.ts",
         "packages/daemon/src/daemon-host/transport/unix-socket.ts"
       ]
     },

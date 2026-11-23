@@ -180,7 +180,13 @@ export function pgPeerRequestQueries(options: {
             return { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           const base = { status: "ready" as const, watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           if (query.by === "list") return { ...base, ...(await readList(client, scope, readers, query)) };
-          const stored = await getPgProjectionValue<StoredPeerRequest>(client, valueScope, ITEM, query.requestId, OWNER);
+          const stored = await getPgProjectionValue<StoredPeerRequest>(
+            client,
+            valueScope,
+            ITEM,
+            query.requestId,
+            OWNER,
+          );
           return { ...base, requests: stored === null ? [] : [stored.request], nextCursor: null };
         },
         scope,

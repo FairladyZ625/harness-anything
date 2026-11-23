@@ -9,6 +9,7 @@ import { edgeJoinFields, edgeJoinOrigins } from "./thin-command-edge-join.ts";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
+import { peerRouteParsers } from "./thin-command-peer.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
@@ -75,6 +76,7 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["provider-probe", parseProviderRoute],
   ["provider-show", parseProviderRoute],
   ["provider-update", parseProviderRoute],
+  ...peerRouteParsers,
 ]);
 
 function parseEdgeJoin(
@@ -272,23 +274,6 @@ export function parseRouted(
     return parseProjected(
       route.id,
       args.slice(route.id === "todo-list" ? 2 : 3),
-      rootDir,
-      repoId,
-      json,
-      inputs,
-      positional,
-      {},
-      route.method,
-    );
-  }
-  if (rootCommand === "peer") {
-    const hasPositional = route.id === "peer-reply" || route.id === "peer-promote" || route.id === "peer-handoff";
-    const field = route.id === "peer-handoff" ? "targetId" : "requestId";
-    const positional = hasPositional ? { [field]: args[2] } : {};
-    if (hasPositional && !nonEmpty(args[2])) return rejected("missing_field", `Use ${route.usage}.`, json);
-    return parseProjected(
-      route.id,
-      args.slice(hasPositional ? 3 : 2),
       rootDir,
       repoId,
       json,

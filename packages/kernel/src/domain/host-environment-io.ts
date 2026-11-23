@@ -13,6 +13,7 @@ export const hostScratchPrefixes = Object.freeze({
   completionWitness: "ha-witness-code-",
   migrationOracle: "ha-migration-oracle-",
   migrationPlanning: "harness-migration-stage-",
+  peerHandoffBundle: "ha-peer-bundle-",
   providerProbeHome: "ha-probe-home-",
 });
 

@@ -1,8 +1,8 @@
-import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import os from "node:os";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalContentBlob } from "@harness-anything/kernel";
+import { createHostScratchDirectory } from "./host-environment-io.ts";
 import { runProcessExitAsync } from "./process-port.ts";
 
 export interface PreparedHandoffBundle {
@@ -47,9 +47,8 @@ export async function prepareHandoffBundle(input: {
 
   if (!existsSync(path.join(gitDir, ".git"))) return { wipCommitSha: commitSha };
 
-  const tempDir = path.join(os.tmpdir(), `ha-peer-bundle-${randomBytes(8).toString("hex")}`);
-  const bundleFile = path.join(tempDir, `${input.targetId}.bundle`);
-  mkdirSync(tempDir, { recursive: true });
+  const scratch = createHostScratchDirectory("peerHandoffBundle");
+  const bundleFile = path.join(scratch.directory, `${input.targetId}.bundle`);
   try {
     const created = await runProcessExitAsync(
       "git",
@@ -70,6 +69,6 @@ export async function prepareHandoffBundle(input: {
       bundleSize: bytes.byteLength,
     };
   } finally {
-    rmSync(tempDir, { recursive: true, force: true });
+    scratch.close();
   }
 }
