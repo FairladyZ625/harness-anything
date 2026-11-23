@@ -326,30 +326,50 @@ test("terminal task events and execution retirements close historical groups via
       active.rows.map((row) => [row.attemptGroupId, row.groupPhase, row.attempt.phase, row.attempt.stopProof]),
       [
         ["d-live", "running", "running", "unproven"],
+        ["d-live-rev", "running", "running", "unproven"],
         ["d-nonterm", "waiting_backoff", "closed", "proven_stopped"],
       ],
+    );
+    assert.deepEqual(
+      projection.readRuntimeSessions({ nonExitedOnly: true }).map((session) => session.runtimeSessionId),
+      ["s-live", "s-live-rev", "s-nonterm"],
+      "ACTIVE_LIFECYCLE_SESSIONS_SQL must exclude archived/completed historical orphans",
     );
 
     const closed = projection.readDispatchLifecycle({
       by: "dispatch",
-      dispatchIds: ["d-done", "d-cancel", "d-supersede", "d-retire", "d-replace"],
+      dispatchIds: [
+        "d-arch-rev",
+        "d-archive",
+        "d-cancel",
+        "d-done",
+        "d-orphan-rev",
+        "d-replace",
+        "d-retire",
+        "d-supersede",
+        "d-unk",
+      ],
     });
     assert.ok(closed.status === "ready");
     assert.deepEqual(
       closed.rows.map((row) => [row.attemptGroupId, row.groupPhase, row.ruling, row.successor.admissible]),
       [
+        ["d-arch-rev", "closed", null, false],
+        ["d-archive", "closed", null, false],
         ["d-cancel", "closed", null, false],
         ["d-done", "closed", null, false],
+        ["d-orphan-rev", "closed", null, false],
         ["d-replace", "closed", null, false],
         ["d-retire", "closed", null, false],
         ["d-supersede", "closed", null, false],
+        ["d-unk", "closed", null, false],
       ],
     );
 
     const projectionPath = projection.path;
     projection.close();
 
-    // Verify bounded partial task index and v5 (pre-current_task_id, version=5) upgrade refold.
+    // Verify bounded partial task index and v5/v10 upgrade refold.
     const inspectDb = new DatabaseSync(projectionPath);
     const plan = inspectDb
       .prepare(
@@ -369,6 +389,7 @@ test("terminal task events and execution retirements close historical groups via
     ).map((row) => ({ ...row }));
     assert.deepEqual(indexedTasks, [
       { attempt_group_id: "d-live", current_task_id: "task-live" },
+      { attempt_group_id: "d-live-rev", current_task_id: "task-live-rev" },
       { attempt_group_id: "d-nonterm", current_task_id: "task-nonterm" },
     ]);
 
@@ -382,8 +403,9 @@ test("terminal task events and execution retirements close historical groups via
       CREATE TABLE dispatch_lifecycle_task_lease (task_id TEXT PRIMARY KEY, execution_id TEXT NOT NULL, version INTEGER NOT NULL);
       CREATE TABLE dispatch_lifecycle_cursor (singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
         revision INTEGER NOT NULL, model_version INTEGER NOT NULL);
-      INSERT INTO dispatch_lifecycle_group VALUES ('d-cancel', 'awaiting_ruling', 'codex-fixture', 'exec-cancel', 999, '{}');
-      INSERT INTO dispatch_lifecycle_cursor VALUES (1, 999, 5);`);
+      INSERT INTO dispatch_lifecycle_group VALUES ('d-archive', 'awaiting_ruling', 'codex-fixture', 'exec-archive', 999, '{}');
+      INSERT INTO dispatch_lifecycle_group VALUES ('d-orphan-rev', 'running', 'codex-fixture', 'exec-orphan-rev', 999, '{}');
+      INSERT INTO dispatch_lifecycle_cursor VALUES (1, 999, 10);`);
     assert.equal(
       readDispatchLifecycleRows(inspectDb, { by: "active", limit: 10 }, { watermark: 999, sourceRevision: 999 }).status,
       "pending",
@@ -395,7 +417,17 @@ test("terminal task events and execution retirements close historical groups via
     assert.deepEqual(
       upgraded.readDispatchLifecycle({
         by: "dispatch",
-        dispatchIds: ["d-done", "d-cancel", "d-supersede", "d-retire", "d-replace"],
+        dispatchIds: [
+          "d-arch-rev",
+          "d-archive",
+          "d-cancel",
+          "d-done",
+          "d-orphan-rev",
+          "d-replace",
+          "d-retire",
+          "d-supersede",
+          "d-unk",
+        ],
       }),
       closed,
     );

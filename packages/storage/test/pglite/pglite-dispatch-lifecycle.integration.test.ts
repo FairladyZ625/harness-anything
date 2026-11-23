@@ -121,6 +121,7 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
           active.rows.map((row) => [row.attemptGroupId, row.groupPhase, row.attempt.stopProof]),
           [
             ["d-live", "running", "unproven"],
+            ["d-live-rev", "running", "unproven"],
             ["d-nonterm", "waiting_backoff", "proven_stopped"],
           ],
         );
@@ -136,12 +137,13 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
         );
         assert.deepEqual(taskIndexRows.rows, [
           { entity_id: "d-live", owner_id: "task-live" },
+          { entity_id: "d-live-rev", owner_id: "task-live-rev" },
           { entity_id: "d-nonterm", owner_id: "task-nonterm" },
         ]);
 
-        // Simulate a stale v5 PG projection before backfill refolds to v6.
+        // Simulate a stale v10 PG projection before backfill refolds to v11.
         await backend.pool.query("DELETE FROM ha_projection_values WHERE model = 'dispatch-lifecycle-task'");
-        await backend.pool.query("UPDATE ha_projection_meta SET dispatch_lifecycle_version=5");
+        await backend.pool.query("UPDATE ha_projection_meta SET dispatch_lifecycle_version=10");
         assert.equal((await backend.projection.readDispatchLifecycle({ by: "active", limit: 10 })).status, "pending");
       } finally {
         await backend.close();
@@ -152,7 +154,17 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
         assert.deepEqual(second.projection.readDispatchLifecycle({ by: "active", limit: 20 }), active);
         const closed = second.projection.readDispatchLifecycle({
           by: "dispatch",
-          dispatchIds: ["d-done", "d-cancel", "d-supersede", "d-retire", "d-replace"],
+          dispatchIds: [
+            "d-done",
+            "d-cancel",
+            "d-supersede",
+            "d-retire",
+            "d-replace",
+            "d-archive",
+            "d-orphan-rev",
+            "d-arch-rev",
+            "d-unk",
+          ],
         });
         assert.deepEqual(
           second.projection.readDispatchLifecycle({
@@ -164,6 +176,10 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
               "d-supersede",
               "d-retire",
               "d-replace",
+              "d-archive",
+              "d-orphan-rev",
+              "d-arch-rev",
+              "d-unk",
             ],
           }),
           closed,
@@ -177,6 +193,10 @@ pgliteIntegrationSuite("PGlite dispatch lifecycle", () => {
             ["d-supersede", "closed", null, false],
             ["d-retire", "closed", null, false],
             ["d-replace", "closed", null, false],
+            ["d-archive", "closed", null, false],
+            ["d-orphan-rev", "closed", null, false],
+            ["d-arch-rev", "closed", null, false],
+            ["d-unk", "closed", null, false],
           ],
         );
       } finally {

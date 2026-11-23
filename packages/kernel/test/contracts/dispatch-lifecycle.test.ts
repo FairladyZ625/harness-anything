@@ -33,7 +33,7 @@ import {
 } from "../../src/domain/dispatch-lifecycle.ts";
 
 type Token = {
-  readonly t: "R" | "S" | "L" | "C" | "X" | "O";
+  readonly t: "R" | "S" | "L" | "C" | "X" | "O" | "U";
   readonly liveness?: string;
   readonly outcome?: string;
   readonly exitCode?: number | null;
@@ -56,6 +56,7 @@ const types = {
   C: "runtime_session_cancelled",
   X: "runtime_session_exited",
   O: "runtime_session_outcome_observed",
+  U: "runtime_dispatch_outcome_unknown",
 } as const;
 
 let revision = 0;
@@ -83,6 +84,7 @@ function runtimeEvent(
     });
   if (token.t === "S") payload.launchGeneration = options.launchGeneration ?? 1;
   if (token.t === "L") payload.liveness = token.liveness;
+  if (token.t === "U") payload.dispatchId = ids.dispatchId;
   if (token.t === "O") {
     payload.outcome = token.outcome;
     if ("exitCode" in token) payload.exitCode = token.exitCode;
@@ -779,9 +781,9 @@ test("lifecycle summary preserves each immediate successor in a three-attempt gr
   );
 });
 
-// Anti-regression gate for Issue #4632: terminal task transitions and execution retirements/replacements
-// must remain addressed in dispatchLifecycleTaskEventTypes and close stopped historical groups without
-// breaking capacity or stopProof invariants on live/unproven attempts.
+// Anti-regression gate for Issues #4632 and #4788: terminal/archive/delete task events and
+// execution retirements/replacements must remain addressed in dispatchLifecycleTaskEventTypes and
+// close stopped historical groups without breaking capacity or stopProof invariants on live/unproven implementers.
 test("terminal task events and execution retirements close stopped non-running groups after lease release", () => {
   const requiredTaskEventTypes = [
     "execution_started",
@@ -789,6 +791,8 @@ test("terminal task events and execution retirements close stopped non-running g
     "task_completed",
     "task_transitioned",
     "task_superseded",
+    "task_archived",
+    "task_deleted",
   ] as const;
   for (const type of requiredTaskEventTypes) {
     assert.ok(
@@ -842,6 +846,22 @@ test("terminal task events and execution retirements close stopped non-running g
             supersededBy: "task-successor",
           }),
           mutation: { command: "supersede", reason: "superseded", fields: ["status", "supersededBy"] },
+        }),
+    },
+    {
+      name: "task_archived",
+      event: (taskId: string) =>
+        taskEvent("task_archived", taskId, {
+          task: baseTaskSnapshot(taskId, "blocked", { packageDisposition: "archived" }),
+          mutation: { command: "archive", reason: "archived", fields: ["packageDisposition"] },
+        }),
+    },
+    {
+      name: "task_deleted",
+      event: (taskId: string) =>
+        taskEvent("task_deleted", taskId, {
+          task: baseTaskSnapshot(taskId, "blocked", { packageDisposition: "tombstoned" }),
+          mutation: { command: "delete", reason: "deleted", fields: ["packageDisposition"] },
         }),
     },
     {
@@ -979,6 +999,10 @@ test("running, starting, and unproven settling attempts preserve stopProof and c
         task: { taskId, status: "done", pinned: false },
         siblingResolution: { sourceTaskId: "sib", rationale: "done", factRef: "fact:f2" },
       }),
+      taskEvent("task_archived", taskId, {
+        task: { taskId, status: "done", packageDisposition: "archived", pinned: false },
+        mutation: { command: "archive", reason: "archived", fields: ["packageDisposition"] },
+      }),
     );
     const group = fold(events).groups.get(groupId)!,
       view = dispatchLifecycleView(group),
@@ -992,6 +1016,146 @@ test("running, starting, and unproven settling attempts preserve stopProof and c
       "runtime_capacity_exhausted",
     );
   }
+});
+
+test("Issue #4788: terminal/archived tasks close historical lease-free reviewer orphans and outcome_unknown without forging stopProof", () => {
+  assert.ok(DISPATCH_LIFECYCLE_MODEL_VERSION >= 11);
+  // task_archived and task_deleted must not mutate the task lease in taskLeaseAfter.
+  assert.equal(
+    taskLeaseAfter(
+      taskEvent("task_archived", "task-lease-check", {
+        task: { taskId: "task-lease-check", status: "done", packageDisposition: "archived", pinned: false },
+        mutation: { command: "archive", reason: "done", fields: ["packageDisposition"] },
+      }),
+    ),
+    undefined,
+  );
+  assert.equal(
+    taskLeaseAfter(
+      taskEvent("task_deleted", "task-lease-check", {
+        task: { taskId: "task-lease-check", status: "cancelled", packageDisposition: "tombstoned", pinned: false },
+        mutation: { command: "delete", reason: "deleted", fields: ["packageDisposition"] },
+      }),
+    ),
+    undefined,
+  );
+
+  // Reproduces real deli-ai-lab samples: running and cancelled/settling lease-free reviewers on done/archived tasks.
+  for (const kind of ["running", "settling"] as const) {
+    for (const closer of ["task_completed", "task_archived", "task_superseded", "task_deleted", "cancelled"] as const) {
+      const taskId = `task-orphan-rev-${kind}-${closer}`,
+        exeId = `exe-orphan-rev-${kind}-${closer}`,
+        groupId = `g-orphan-rev-${kind}-${closer}`,
+        ids = { dispatchId: `d-${groupId}`, runtimeSessionId: `s-${groupId}`, attemptGroupId: groupId };
+      const events: DispatchLifecycleInput[] = [
+        runtimeEvent({ t: "R" }, ids, {
+          source: { kind: "node", nodeId: "node-retired" },
+          dispatch: { taskId, executionId: exeId, role: "reviewer" },
+        }) as DispatchLifecycleInput,
+        runtimeEvent({ t: "S" }, ids, { source: { kind: "node", nodeId: "node-retired" } }),
+      ];
+      if (kind === "settling")
+        events.push(runtimeEvent({ t: "C" }, ids, { source: { kind: "node", nodeId: "node-retired" } }));
+      const closeEvent =
+        closer === "task_completed"
+          ? taskEvent("task_completed", taskId, {
+              task: { taskId, status: "done", pinned: false },
+              execution: { ...execution(exeId), taskId, state: "accepted" },
+            })
+          : closer === "task_archived"
+            ? taskEvent("task_archived", taskId, {
+                task: { taskId, status: "done", packageDisposition: "archived", pinned: false },
+                mutation: { command: "archive", reason: "archived", fields: ["packageDisposition"] },
+              })
+            : closer === "task_superseded"
+              ? taskEvent("task_superseded", taskId, {
+                  task: {
+                    taskId,
+                    status: "cancelled",
+                    packageDisposition: "archived",
+                    supersededBy: "t-next",
+                    pinned: false,
+                  },
+                  mutation: { command: "supersede", reason: "superseded", fields: ["status", "supersededBy"] },
+                })
+              : closer === "task_deleted"
+                ? taskEvent("task_deleted", taskId, {
+                    task: { taskId, status: "cancelled", packageDisposition: "tombstoned", pinned: false },
+                    mutation: { command: "delete", reason: "deleted", fields: ["packageDisposition"] },
+                  })
+                : taskEvent("task_transitioned", taskId, {
+                    task: { taskId, status: "cancelled", pinned: false },
+                    mutation: { command: "transition", reason: "cancelled", fields: ["status"] },
+                  });
+      events.push(closeEvent);
+      const group = fold(events).groups.get(groupId)!,
+        view = dispatchLifecycleView(group),
+        summary = dispatchLifecycleSummary({
+          status: "ready",
+          watermark: group.revision,
+          sourceRevision: group.revision,
+          rows: [view],
+          nextCursor: null,
+        });
+      assert.equal(group.phase, "closed", `${kind} reviewer must close on ${closer}`);
+      assert.equal(view.attempt.phase, "closed");
+      assert.equal(view.attempt.outcome, "unknown");
+      assert.equal(view.attempt.stopProof, "unproven", "must not invent physical stopProof");
+      assert.equal(view.policy.groupSettled, true);
+      assert.equal(view.policy.processAlive, false);
+      assert.equal(view.policy.capacity, "released");
+      assert.equal(view.policy.canHandoff, false);
+      assert.equal(summary.displayStatus, "unknown");
+    }
+  }
+
+  // Negative control 1: active/non-terminal task keeps running reviewer live.
+  const activeRevIds = { dispatchId: "d-active-rev", runtimeSessionId: "s-active-rev", attemptGroupId: "g-active-rev" };
+  const activeRevGroup = fold([
+    runtimeEvent({ t: "R" }, activeRevIds, {
+      dispatch: { taskId: "task-active-rev", executionId: "exe-active-rev", role: "reviewer" },
+    }),
+    runtimeEvent({ t: "S" }, activeRevIds),
+    taskEvent("task_transitioned", "task-active-rev", {
+      task: { taskId: "task-active-rev", status: "in_review", pinned: false },
+      mutation: { command: "transition", reason: "review", fields: ["status"] },
+    }),
+  ]).groups.get("g-active-rev")!;
+  assert.equal(activeRevGroup.phase, "running");
+  assert.equal(dispatchLifecycleView(activeRevGroup).policy.processAlive, true);
+
+  // Negative control 2: cloud sandbox reviewer keeps its unconfirmed stop fence across task completion/archive.
+  const cloudRevIds = { dispatchId: "d-cloud-rev", runtimeSessionId: "s-cloud-rev", attemptGroupId: "g-cloud-rev" };
+  const cloudRevGroup = fold([
+    runtimeEvent({ t: "R" }, cloudRevIds, {
+      dispatch: {
+        taskId: "task-cloud-rev",
+        executionId: "exe-cloud-rev",
+        role: "reviewer",
+        executionTarget: { kind: "cloud-sandbox", hostId: "sandbox-1" },
+      },
+    }),
+    runtimeEvent({ t: "S" }, cloudRevIds),
+    taskEvent("task_completed", "task-cloud-rev", {
+      task: { taskId: "task-cloud-rev", status: "done", pinned: false },
+      execution: { ...execution("exe-cloud-rev"), taskId: "task-cloud-rev", state: "accepted" },
+    }),
+  ]).groups.get("g-cloud-rev")!;
+  assert.equal(cloudRevGroup.phase, "running");
+
+  // Historical runtime_dispatch_outcome_unknown closes running attempt without forging stopProof.
+  const unknownIds = { dispatchId: "d-unk", runtimeSessionId: "s-unk", attemptGroupId: "g-unk" };
+  const unknownGroup = fold([
+    runtimeEvent({ t: "R" }, unknownIds, {
+      dispatch: { taskId: "task-unk", executionId: "exe-unk", role: "reviewer" },
+    }),
+    runtimeEvent({ t: "S" }, unknownIds),
+    runtimeEvent({ t: "U" }, unknownIds),
+  ]).groups.get("g-unk")!;
+  assert.equal(unknownGroup.phase, "closed");
+  assert.equal(unknownGroup.attempts[0]?.outcome, "unknown");
+  assert.equal(unknownGroup.attempts[0]?.stopProof, "unproven");
+  assert.equal(dispatchLifecycleView(unknownGroup).policy.capacity, "released");
 });
 
 test("task writer admission spans instances and nodes and survives lease release until stop proof", () => {
