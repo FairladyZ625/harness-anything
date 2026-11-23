@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -131,7 +132,7 @@ import {
       });
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -186,7 +187,7 @@ import {
       );
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -257,7 +258,7 @@ import {
         });
       } finally {
         await cell?.close();
-        rmSync(scratch, { recursive: true, force: true });
+        removeTempRepository(scratch);
       }
     },
   );
@@ -313,7 +314,7 @@ import {
         );
       } finally {
         await cell?.close();
-        rmSync(scratch, { recursive: true, force: true });
+        removeTempRepository(scratch);
       }
     },
   );
@@ -363,7 +364,7 @@ import {
       assert.equal(statSync(target).isDirectory(), true);
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -403,7 +404,7 @@ import {
       }
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -452,7 +453,7 @@ import {
       assert.deepEqual(rejected.diagnostic, { kind: "failure", code: "invalid_migration_resolution" });
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 }
@@ -501,7 +502,7 @@ import {
       );
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -632,7 +633,7 @@ import {
       assert.equal(digest(path.join(scratch, "cold-one.sqlite")), digest(path.join(scratch, "cold-two.sqlite")));
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -688,7 +689,7 @@ import {
       assert.equal(split.code, "invalid_migration_source_git");
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 
@@ -720,7 +721,7 @@ import {
       assert.equal(result.code, "multi_source_dry_run_requires_staging");
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 }
@@ -832,7 +833,7 @@ import {
     } finally {
       await first?.close();
       await retry?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   });
 }

@@ -1,7 +1,8 @@
 // harness-test-tier: contract
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -125,7 +126,7 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
     repoId = workspaceId("settle-rejoin"),
     taskId = "task_settle_rejoin",
     executionId = "exe_settle_rejoin";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -195,7 +196,7 @@ test("first submit with --as-owner rejoins a released worker execution before su
     repoId = workspaceId("submit-owner-rejoin"),
     taskId = "task_submit_owner_rejoin",
     executionId = "exe_submit_owner_rejoin";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -223,7 +224,7 @@ test("settle replaces executor attribution on declared-executor handoff and fore
     repoId = workspaceId("settle-handoff"),
     taskId = "task_settle_handoff",
     executionId = "exe_settle_handoff";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -253,7 +254,7 @@ test("a different-person takeover rejoin does not inherit the recorded executor"
     repoId = workspaceId("settle-takeover"),
     taskId = "task_settle_takeover",
     executionId = "exe_settle_takeover";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -286,7 +287,7 @@ test("settle refuses to resume another holder's submitted cut", async (t) => {
     repoId = workspaceId("settle-foreign"),
     taskId = "task_settle_foreign",
     executionId = "exe_settle_foreign";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -334,7 +335,7 @@ test("settle submits against its frozen snapshot after an installed preset chang
         ],
         defaultProfile: "baseline",
       });
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -438,7 +439,7 @@ test("settle stops on an underivable closeout instead of fabricating a draft", a
     repoId = workspaceId("settle-closeout"),
     taskId = "task_settle_closeout",
     executionId = "exe_settle_closeout";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -503,7 +504,7 @@ test("owner retries a settle interrupted after the durable cut without a second 
     repoId = workspaceId("settle-resume"),
     taskId = "task_settle_resume",
     executionId = "exe_settle_resume";
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   let armed = false,
     interrupted = false;
@@ -563,7 +564,7 @@ test("settle preserves the submitted file manifest after main merges the deliver
     taskId = "task_settle_merged",
     executionId = "exe_settle_merged",
     git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(rootDir));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -626,7 +627,7 @@ for (const explicit of [false, true])
       repoId = workspaceId("settle-stale-anchor"),
       taskId = "task_settle_stale_anchor",
       executionId = "exe_settle_stale_anchor";
-    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(rootDir));
     initRepo(rootDir);
     let blocked = false,
       blockedPublications = 0;

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -58,7 +59,7 @@ test("owned-content size admission avoids reading oversized objects", () => {
     assert.equal(readEntityContent({ rootDir, source, requestedPath: "large.md", maxBytes: 100 }).content, "small");
     assert.equal(reads, 1);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -90,7 +91,7 @@ test("distill claim streaming preserves first nonblank lines across UTF-8 chunk 
       assert.equal(JSON.parse(result.body).suggestedClaim, first.length > 240 ? `${first.slice(0, 237)}...` : first);
     }
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -379,7 +380,7 @@ test("Artifact import is dry-run safe, edge-idempotent, fenced, and cold-rebuild
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -562,7 +563,7 @@ test("a snapshot can become a reference and reference entities support fenced up
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -583,7 +584,7 @@ test("URL source resolution does not block a concurrent repository write", { tim
     await state.pendingImport;
     await state.cell?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   });
   t.after(() => {
     t.mock.restoreAll();
@@ -730,7 +731,7 @@ test("URL source resolution times out when response body never completes", async
   } finally {
     await cell?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -817,7 +818,7 @@ test("URL source resolution completes while seven writers keep the repository qu
     await Promise.allSettled(writers);
     await cell?.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -940,7 +941,7 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     assert.equal(fallback.outcome, "applied", JSON.stringify(fallback));
     assert.equal(fallbackEntity?.value.title, "no-readme-package");
 
-    rmSync(absoluteSource, { recursive: true });
+    removeTempRepository(absoluteSource);
     const missing = await cell.run({ ...request, expectedVersion: updated.revision }, binding),
       missingReceipt = await cell.run({ kind: "receipt-show", opId: missing.opId }, binding);
     assert.equal(missing.outcome, "applied", JSON.stringify(missing));
@@ -950,7 +951,7 @@ test("Directory artifact import fingerprints files, replays unchanged content, a
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1025,7 +1026,7 @@ test("Artifact import publishes original bytes to Git and the worktree independe
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1061,7 +1062,7 @@ test("Artifact import owns empty and non-text files across a directory source", 
       root = `entities/research/${entityId}`;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     await waitForFixturePublication(cell, receipt.opId, binding);
-    rmSync(absoluteSource, { recursive: true });
+    removeTempRepository(absoluteSource);
 
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "invalid.bin")), latin1);
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", root, "zero.bin")), Buffer.alloc(0));
@@ -1091,7 +1092,7 @@ test("Artifact import owns empty and non-text files across a directory source", 
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

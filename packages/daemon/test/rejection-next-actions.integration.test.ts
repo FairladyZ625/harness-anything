@@ -1,7 +1,8 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
@@ -157,7 +158,7 @@ test("submit lease refusals name the state-specific command that advances the ex
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -191,7 +192,7 @@ test("progress lease mismatch names the holder and a release plus re-entry route
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -228,7 +229,7 @@ test("start rejection identifies the active execution and its reuse command", as
     assert.equal((await cell.run({ kind: "task-start", taskId }, owner)).outcome, "applied");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -271,7 +272,7 @@ test("executor declaration rejection names its eligibility rule and review comma
     context.diagnostic(`invalid_proof receipt=${JSON.stringify(rejected)}`);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -376,7 +377,7 @@ test("executor declaration and completion context refusals name projection rebui
     assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "delivery_missing");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -415,8 +416,8 @@ test("attest for a task of another repository answers task_not_found naming the 
   } finally {
     await elsewhereCell?.close();
     await ownerCell?.close();
-    rmSync(ownerRoot, { recursive: true, force: true });
-    rmSync(elsewhereRoot, { recursive: true, force: true });
+    removeTempRepository(ownerRoot);
+    removeTempRepository(elsewhereRoot);
   }
 });
 
@@ -452,7 +453,7 @@ test("symptom task_5df51336056c76d54946b231a7: decision propose packet issues na
     assert.match(String(rejected.rejectionExplanation), /whyNot/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -502,7 +503,7 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (review-execution before submit): 
     });
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -631,7 +632,7 @@ test("symptom task_4ffca527dbc152660860bc4c89 (review-execution on superseded cu
     });
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -660,7 +661,7 @@ test("symptom task_6edcc0d990dae7e42f4bc93ff9 (submit packet): a submission pack
     assert.match(String(rejected.rejectionExplanation), /Write closeout\.md/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -685,7 +686,7 @@ test("symptom task_356fe6c7a05cb987d93a807b46: relation relate against a nonexis
     assert.match(String(rejected.rejectionExplanation), /task-does-not-exist-1 does not exist/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -704,7 +705,7 @@ test("review-execution against a nonexistent task names the missing task", async
     assert.match(String(rejected.rejectionExplanation), /Task task-does-not-exist does not exist/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -733,7 +734,7 @@ test("task reads against a task id the projection does not have answer task_not_
     }
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -816,7 +817,7 @@ test("a business refusal keeps its own sentence and no refusal can carry a crede
     assert.match(String(latched.rejectionExplanation), /task bootstrap event identity is invalid/u);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -847,7 +848,7 @@ test("a task with no managed worktree publishes a refusal naming the missing bra
     assert.doesNotMatch(explanation, /Check the GitHub credential and push access/u, explanation);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -972,7 +973,7 @@ test(
       );
       assert.doesNotMatch(explanation, /ghp_realtokenvalue123/u, explanation);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -1006,7 +1007,7 @@ test(
       assert.doesNotMatch(explanation, /glpat-AbCdEf1234567890xyz|pa55w0rd/u, explanation);
       assert.match(explanation, /gitlab\.com/u, explanation);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -1045,7 +1046,7 @@ exit 1
       assert.doesNotMatch(explanation, /AppData|fileserver|Program Files|\/srv\//u, explanation);
       assert.match(explanation, /does not appear to be a git repository/u, explanation);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -1120,7 +1121,7 @@ test("a task push to an unusable origin explains the cause without exporting thi
     assert.ok(!/\/Users\/|\/home\/|[A-Za-z]:[\\/]|\\\\[^\\\s]+\\/u.test(explanation), explanation);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

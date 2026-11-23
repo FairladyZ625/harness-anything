@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
@@ -109,7 +110,7 @@ test("a startup-failed repo self-heals on the next command and reports honest st
     assert.equal(systemAttached.unavailableReason, null);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -128,7 +129,7 @@ test("startup retires a registered root that no longer exists and records the at
     userRoot,
     createConvenienceLinks: false,
   }).repo;
-  rmSync(dead, { recursive: true, force: true });
+  removeTempRepository(dead);
   const host = await openSignedInHost({
     daemonId: "host-lifecycle",
     userRoot,
@@ -166,7 +167,7 @@ test("startup retires a registered root that no longer exists and records the at
     assert.match(String(disabled?.lastError), /canonical root does not exist/u);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -184,7 +185,7 @@ test("a request arriving while a registered repo warms parks until background at
     assert.equal(host.status().repos.find((repo) => repo.repoId === "host-warming")?.state, "attached");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -265,7 +266,7 @@ test("daemon status exposes the writer phase and progress while a repository att
     releaseOpen();
     await attachments;
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -347,7 +348,7 @@ test("a failed Git follower stays observable without rejecting later SQLite writ
     assert.equal(recovered.wait?.state, "satisfied");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -377,7 +378,7 @@ test("a request parked behind a non-settling initial attachment times out as rep
     assert.ok(elapsedMs >= 75, `warming timeout returned too early: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -392,7 +393,7 @@ test("a missing-root repository can be unbound through daemon-level local author
     userRoot,
     createConvenienceLinks: false,
   });
-  rmSync(rootDir, { recursive: true, force: true });
+  removeTempRepository(rootDir);
   const host = await openSignedInHost({ daemonId: "host-unregister-warming", userRoot });
   try {
     const receipt = await host.admin({ kind: "unbind", repoId: "host-unregister-warming" }, auth);
@@ -405,7 +406,7 @@ test("a missing-root repository can be unbound through daemon-level local author
     );
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -473,7 +474,7 @@ test("cache purge removes only derived local state and unbinds the repository", 
     await host.close();
     rmSync(relayPath, { force: true });
     rmSync(otherRelayPath, { force: true });
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -506,7 +507,7 @@ test("unbinding a remote-edge repository removes its node fleet-edge.json and CA
     assert.equal(existsSync(fleetEdgeCaPath(userRoot, repoId)), false);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -623,7 +624,7 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
     assert.equal(factsAfter.evidence, factsBefore.evidence);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -655,7 +656,7 @@ test("daemon backup and restore drill leave the runtime HOME and daemon user roo
     assert.deepEqual(snapshot(runtimeHome), runtimeHomeBefore);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -682,7 +683,7 @@ test("a corrupted purge backup fails its drill without deleting source data", as
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 1);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -711,7 +712,7 @@ test("generation-three restore drill cold-rebuilds the task projection to the ac
     assert.equal(existsSync(path.join(drill.shadowRoot, ".harness/cache/task.sqlite")), true);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -777,7 +778,7 @@ test("unbind rejects an active task lease without changing registry or repositor
     assert.equal(existsSync(backupDir), false);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -807,7 +808,7 @@ test("an unactivated repository is unavailable while an activated peer attaches 
     assert.equal((await host.run("active", { kind: "task-list" }, auth)).outcome, "applied");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -839,7 +840,7 @@ test("the host-level re-probe is throttled to one attempt per interval", async (
     assert.equal(host.status().repos.find((repo) => repo.repoId === "host-throttle")!.state, "attached");
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -931,7 +932,7 @@ test("repository modes close local, center-assignment, and edge command families
   } finally {
     await host.close();
     await owners.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -977,7 +978,7 @@ test("registry mode is authoritative before refresh and refresh replaces a drift
     assert.notEqual(status.generation, generation);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1026,7 +1027,7 @@ test("remote-edge Cell admits local terminal writes and rejects cross-node termi
     );
   } finally {
     await cell?.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1068,7 +1069,7 @@ test("daemon admission rejects a mismatched kernel projection schema and recover
     assert.equal(host.status().repos.find((repo) => repo.repoId === "schema-admission")?.attach, undefined);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1104,7 +1105,7 @@ test("daemon status exposes an ahead projection cache without letting rebuild di
     assert.deepEqual(readFileSync(projection.path), retained);
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1156,7 +1157,7 @@ test("daemon attach heals a same-revision cache that pins another ledger's diges
     assert.equal(rebuild.outcome, "applied", JSON.stringify(rebuild));
   } finally {
     await host.close();
-    rmSync(parent, { recursive: true, force: true });
+    removeTempRepository(parent);
   }
 });
 
@@ -1186,7 +1187,7 @@ test("local system binding identifies the socket owner without repository author
     assert.equal(binding.keycloakAuthorization, undefined);
     assert.equal(binding.actor.principal.personId, `local-user-${ownerUid}`);
   } finally {
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -1208,7 +1209,7 @@ test("Windows socket-owner identity does not install repository authorization", 
     else Object.defineProperty(process, "getuid", originalGetuid);
     if (originalPlatform === undefined) delete process.platform;
     else Object.defineProperty(process, "platform", originalPlatform);
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { spawnSync, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -119,7 +120,7 @@ test("real offline CLI converts, verifies and restores generation 1 bytes, comma
     assert.equal(converted.receipt.verification.events, 2);
     assert.deepEqual(readFileSync(sqliteLedgerPath(f.root, 1)), before);
     // Recovery cannot consult the original database, materialization or its object store.
-    rmSync(f.root, { recursive: true });
+    removeTempRepository(f.root);
     const restored = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       assert.deepEqual(restored.eventRows(), f.rows);
@@ -138,7 +139,7 @@ test("real offline CLI converts, verifies and restores generation 1 bytes, comma
     assert.equal(failed.status, 1);
     assert.match(failed.receipt.hint, /converted event differs/u);
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -181,7 +182,7 @@ for (const historicalFixture of [
         witness.close();
       }
     } finally {
-      rmSync(f.parent, { recursive: true, force: true });
+      removeTempRepository(f.parent);
     }
   });
 
@@ -221,7 +222,7 @@ test("existing migrated repository documents preserve their own content instead 
       target.close();
     }
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -243,7 +244,7 @@ test("an accepted content size mismatch is corruption, not a historical witness"
     assert.match(result.receipt.hint, /corrupt accepted content|event content object .* is missing/);
     assert.equal(existsSync(`${sqliteLedgerPath(f.destination, 3)}.activation.json`), false);
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -283,7 +284,7 @@ test("offline conversion preserves draft edits and deletion intent before settli
     assert.deepEqual(readFileSync(path.join(authored, "context/raw-1.bin")), draft);
     assert.equal(existsSync(path.join(authored, "context/raw-2.bin")), false);
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -323,7 +324,7 @@ test("valid historical decision relations retain their document transition inste
       source.close();
     }
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -356,7 +357,7 @@ test("source witnesses carry available legacy declaration bytes into generation 
     createLedgerBackup({ generation: 1, rootInput: f.root, backupDir: f.backupDir });
     const result = invoke(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]);
     assert.equal(result.status, 0, JSON.stringify(result.receipt));
-    rmSync(path.dirname(sqliteLedgerPath(f.destination, 1)), { recursive: true });
+    removeTempRepository(path.dirname(sqliteLedgerPath(f.destination, 1)));
     const target = openSqliteEventStore({ rootInput: f.destination, generation: 3, readOnly: true });
     try {
       const witness = target.eventAtRevision(1)! as any;
@@ -366,7 +367,7 @@ test("source witnesses carry available legacy declaration bytes into generation 
       target.close();
     }
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -387,7 +388,7 @@ test("live generation 2 writes cannot backfill recordedAt", () => {
     assert.equal(store.outcomes().length, 0);
   } finally {
     store.close();
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -465,7 +466,7 @@ test("conversion preserves a repeated observation one-to-one so no later revisio
       target.close();
     }
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });
 
@@ -522,6 +523,6 @@ test("gen3 reuses the evidence conversion without promoting historical CI measur
     }
     console.log("GEN3_SCHEMA_EVIDENCE=" + JSON.stringify(converted.receipt));
   } finally {
-    rmSync(f.parent, { recursive: true, force: true });
+    removeTempRepository(f.parent);
   }
 });

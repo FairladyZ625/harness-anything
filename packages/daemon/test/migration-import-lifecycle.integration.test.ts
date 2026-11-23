@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
@@ -146,7 +147,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
     );
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -191,7 +192,7 @@ test("authored audit preserves ordinary documents and leaves source-only runtime
     assert.doesNotMatch(String(result.summary), /UNCOVERED/u);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -226,7 +227,7 @@ test("non-UTF-8 attachments stay explicit in authored coverage as owner-excluded
     );
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -297,7 +298,7 @@ test(
       assert.equal(readlinkSync(target), linkTarget);
     } finally {
       await cell?.close();
-      rmSync(scratch, { recursive: true, force: true });
+      removeTempRepository(scratch);
     }
   },
 );
@@ -341,7 +342,7 @@ test("an authored document in an unfamiliar directory migrates as a repo documen
     assert.equal(event?.payload.entity.kind, "repo-document");
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -416,7 +417,7 @@ test("migration imports a taskless Fact without inventing an owner relation", as
     );
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -496,7 +497,7 @@ test("same-id legacy Facts under different tasks are deterministically re-keyed 
     ]);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -550,7 +551,7 @@ test("every historical canonical format fixture dry-runs through one-command ora
         if (variant.observation) assert.match(String(result.summary), variant.observation);
       } finally {
         await cell?.close();
-        rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+        removeTempRepository(scratch);
       }
     });
 });
@@ -928,7 +929,7 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
     assert.equal(rows.find(({ taskId }) => taskId === "task_child")!.placement.parentTaskId, "task_parent");
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -996,7 +997,7 @@ test("each ratified legacy relation type replays canonically and reruns idempote
     assert.equal(second.events.length, first.events.length);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -1038,7 +1039,7 @@ test("a canonical relation snapshot wins over its later retired legacy alias", a
     assert.equal(relation.payload.entity.relation.state, "active");
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -1070,7 +1071,7 @@ test("unmapped legacy relation triples fail the row into the manual table", asyn
     assert.match(String(dryRun.summary), /no deterministic legacy mapping for decision --blocks--> fact/u);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -1117,7 +1118,7 @@ test("a relation whose endpoint has no same-cut witness is retired with a receip
     );
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -1168,6 +1169,6 @@ test("migrated entities keep the actor recorded in the source repository, not th
     assert.deepEqual(seen.task_unowned, actor);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });

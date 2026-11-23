@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { emptyCompletionContract, retiredHostedCiSource } from "../../kernel/test/domain/completion.fixtures.ts";
 import {
@@ -230,7 +231,7 @@ test("stopped legacy Git plus accepted WAL suffix converts with a certified cold
       /content object/u,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -256,7 +257,7 @@ test("attach leaves a revision-zero generation over legacy history inactive and 
     assert.equal(unchanged.revision(), 0);
     unchanged.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -275,7 +276,7 @@ test("explicit bootstrap activation creates an empty canonical generation only f
     assert.equal(existsSync(`${generationThreePath}.activation.json`), true);
     activateEmptyCanonicalGeneration({ rootInput: root, repoId });
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -292,7 +293,7 @@ test("attach validates an activation certificate without replaying the immutable
     writeFileSync(snapshotPath, "not replayed during attach\n");
     assert.doesNotThrow(() => preflightCanonicalGeneration({ rootInput: root, repoId }));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -459,7 +460,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       /invalid object/u,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -555,7 +556,7 @@ test(
       assert.equal(marker.sourceDigest, written.sourceDigest);
       assert.ok(process.resourceUsage().maxRSS < 1_400_000, `maxRSS=${process.resourceUsage().maxRSS} KiB`);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   },
 );
@@ -649,7 +650,7 @@ test("inactive generation conversion repairs schedule definition bytes without r
     assert.throws(() => convertLegacyGeneration({ rootDir: root, snapshotPath, databasePath }), /active generation/u);
     assert.equal(readFileSync(snapshotPath, "utf8"), immutableBytes);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -781,7 +782,7 @@ test("inactive generation conversion witnesses separated legacy relations at the
     assert.equal(readFileSync(snapshotPath, "utf8"), immutableBytes);
   } finally {
     await cell?.close();
-    rmSync(scratch, { recursive: true, force: true });
+    removeTempRepository(scratch);
   }
 });
 
@@ -892,7 +893,7 @@ test("Task/v2 snapshot migration preserves lifecycle and relation final state", 
       convertedProjection.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -948,7 +949,7 @@ test("review submission migration pins only reviews missing the field", () => {
     assert.equal(preserved.payload.consent.submissionDigest, expectedPin);
     assert.equal(migrationFamily(currentPlan, "review-submission-pins").count, 0);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1154,7 +1155,7 @@ test("offline conversion preserves retired CI event bytes without rewriting the 
     }
     assert.equal(readFileSync(snapshotPath, "utf8"), sourceBytes);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1228,7 +1229,7 @@ for (const unpinned of [false, true]) {
       assert.equal(readFileSync(snapshotPath, "utf8"), sourceBytes);
       assert.equal(stableStringify(legacy), before);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeTempRepository(root);
     }
   });
 }
@@ -1265,7 +1266,7 @@ test("pre-freeze conversion refuses incorrect source review and consent bindings
     assert.equal(unchanged.rewrites.length, 0);
     assert.deepEqual(unchanged.events, frozen);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1343,7 +1344,7 @@ test("pre-freeze override converts disposition and preserves multiple execution 
       0,
     );
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1387,7 +1388,7 @@ test("submission amendments translate the previous content id, including a froze
       );
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -1478,6 +1479,6 @@ test("generation 1 pre-freeze gate evidence keeps provenance as historical accep
     } as CanonicalEventV1;
     assert.throws(() => convert([...events, broken]), /submission reference .* has no preceding accepted cut/u);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

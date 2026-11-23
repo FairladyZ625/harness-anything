@@ -1,8 +1,9 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -227,7 +228,7 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     }
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -287,7 +288,7 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
     assert.equal(rejected.code, "invalid_command");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -381,7 +382,7 @@ test("settings update gatesDraft splices the declared facet into the authored do
     );
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -425,7 +426,7 @@ test("settings update commits an authored harness.yaml that drifted from the led
     );
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -466,7 +467,7 @@ test("settings writes from a runtime executor are refused and must escalate to t
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -548,7 +549,7 @@ test("settingsLastChanged uses the canonical projection cut without scanning the
     }
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -619,7 +620,7 @@ test("repo.settings.read carries the write-path singleton revision as the GUI op
     assert.equal(stale.code, "revision_conflict");
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -695,7 +696,7 @@ test("settings saves keep their token across doc writes and harness.yaml edits b
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
   } finally {
     await cell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -737,6 +738,6 @@ test("project command interception settings persist through the principal-owned 
     );
   } finally {
     await cell.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

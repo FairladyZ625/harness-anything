@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -179,7 +180,7 @@ test("legacy writer epochs require explicit migration before current-layout read
       reopened.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -244,7 +245,7 @@ test("writer-epoch migration isolates an unreadable repo floor and rejects empty
       emptyAuthority.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -339,7 +340,7 @@ test("persistent writer epochs allocate monotonically and fence a stale holder",
     );
   } finally {
     closeWriterEpochFenceDescriptors();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -384,7 +385,7 @@ test("per-repository epoch databases import legacy floors and then retire the ol
       reopened.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -406,7 +407,7 @@ test("remote-edge lease allocation with ledger floor zero stays above a legacy e
       authority.close();
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -453,7 +454,7 @@ test("SQLite acceptance verifies the writer epoch before committing events and o
     second.close();
     first.close();
     closeWriterEpochFenceDescriptors();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -470,7 +471,7 @@ test("two concurrent processes take over monotonically after a prior holder exit
     assert.deepEqual(epochs, [2, 3]);
     assert.equal(new Set(results.map((result) => result.lease!.holderId)).size, 2);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -546,7 +547,7 @@ test("retiring the current row preserves the historical epoch high watermark", (
     );
     replacement.close();
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -603,7 +604,7 @@ test("append fences for distinct repositories do not contend on one shared write
   } finally {
     holder.stdin.end(Buffer.from([1]));
     assert.equal(await holderExit, 0, `holder child failed: ${holderErrors}`);
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -674,7 +675,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
     await cell
       ?.close()
       .catch((error: unknown) => assert.equal((error as { readonly code?: string }).code, "materialization_failed"));
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -764,7 +765,7 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
   } finally {
     await recoveryCell?.close();
     await oldCell?.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -790,7 +791,7 @@ test("a lease taken before registration floors at the restored ledger's recorded
   } finally {
     authority.close();
     store.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });
 
@@ -824,6 +825,6 @@ test("cold-import writer epoch is a floor and never permits an equal-epoch holde
   } finally {
     authority.close();
     store.close();
-    rmSync(root, { recursive: true, force: true });
+    removeTempRepository(root);
   }
 });

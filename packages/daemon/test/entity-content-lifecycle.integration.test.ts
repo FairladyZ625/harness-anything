@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -87,7 +88,7 @@ test("An imported directory keeps its empty directories through publication and 
       root = `entities/research/${entityId}`;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     await waitForFixturePublication(cell, receipt.opId, binding);
-    rmSync(absoluteSource, { recursive: true });
+    removeTempRepository(absoluteSource);
 
     const manifest = acceptedManifest(repoId, rootDir, receipt.opId);
     assert.deepEqual(
@@ -115,7 +116,7 @@ test("An imported directory keeps its empty directories through publication and 
     // Recovery: throw the whole materialized tree away and let the ledger put it back through the same
     // materializer an operator reaches for. Git can restore the files on its own; only the manifest can
     // restore the directories, and a recovery that returns without them is not the roundtrip that was asked for.
-    rmSync(path.join(rootDir, "harness", root), { recursive: true, force: true });
+    removeTempRepository(path.join(rootDir, "harness", root));
     const restored = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(restored.outcome, "applied", JSON.stringify(restored));
     assert.equal(readFileSync(path.join(rootDir, "harness", root, "README.md"), "utf8"), "# Empty directories\n");
@@ -127,7 +128,7 @@ test("An imported directory keeps its empty directories through publication and 
     assert.ok(existsSync(path.join(rootDir, "harness", root, "outbox", "pending")));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -230,7 +231,7 @@ test("Instance identity is independent of source bytes, source path and retries"
     assert.deepEqual(readFileSync(path.join(rootDir, "harness", ownedFile), "utf8"), shared);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -336,7 +337,7 @@ test("Update retires only dropped files and delete retires every bound file with
     assert.notEqual(reimportedId, entityId);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -431,7 +432,7 @@ test("A deleted source imports again as a new entity while retries inside one bi
     assert.equal((JSON.parse(String(secondRetry.evidence)) as { entityId: string }).entityId, secondId);
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -521,7 +522,7 @@ test("Deleting an entity retires its declared empty directories and leaves user 
     );
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -588,7 +589,7 @@ test("Deleting an entity is refused for a caller with no repository write role",
     assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -683,14 +684,14 @@ test("A user's own empty directory inside an entity's content root survives that
     assert.ok(statSync(neighbourHeld("spool")).isDirectory());
 
     // Once the user takes their own directory away, the retirement the entity did state completes.
-    rmSync(held("scratch"), { recursive: true });
+    removeTempRepository(held("scratch"));
     const retried = await cell.run({ kind: "doc-materialize", paths: [], all: true }, binding);
     assert.equal(retried.outcome, "applied", JSON.stringify(retried));
     assert.equal(existsSync(held()), false, "the blocked retirement is re-attempted, not dropped");
     assert.ok(statSync(neighbourHeld("spool")).isDirectory(), "the surviving entity keeps everything it declared");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
@@ -760,7 +761,7 @@ test("Relinking an entity retires none of its directories and none of another ow
     assert.equal(readFileSync(steadyHeld("README.md"), "utf8"), "# Steady\n");
   } finally {
     await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    removeTempRepository(rootDir);
   }
 });
 
