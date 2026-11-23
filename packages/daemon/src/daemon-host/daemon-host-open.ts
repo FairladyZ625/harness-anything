@@ -1667,20 +1667,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
       const rootDir = repo.canonicalRoot,
         config = readFleetEdgeConfig(input.userRoot, repo.repoId);
-      if (!config) {
-        const residue = fleetEdgeWorkspaceResidue(input.userRoot, repo.repoId, rootDir);
-        if (residue) {
-          input.recordLifecycle?.({
-            event: "replica_sync_failed",
-            repoId: repo.repoId,
-            code: residue.code,
-            error: residue.message,
-          });
+      if (!config || config.repoId !== repo.repoId) {
+        if (!config) {
+          const residue = fleetEdgeWorkspaceResidue(input.userRoot, repo.repoId, rootDir);
+          if (residue) {
+            input.recordLifecycle?.({
+              event: "replica_sync_failed",
+              repoId: repo.repoId,
+              code: residue.code,
+              error: residue.message,
+            });
+          }
         }
-        fleetVersionWarnings.delete(repo.repoId);
-        continue;
-      }
-      if (config.repoId !== repo.repoId) {
         fleetVersionWarnings.delete(repo.repoId);
         continue;
       }
