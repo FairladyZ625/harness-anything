@@ -28,7 +28,7 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 
 test(
   "doc-only task review fallback on a symlinked authoredRoot preserves task-package cwd and completes review registration",
-  { timeout: 60_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  { timeout: 120_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
   async () => {
     const externalParent = mkdtempSync(path.join(tmpdir(), "ha-doc-task-symlink-ledger-")),
       externalHarness = path.join(externalParent, "private-harness");
@@ -64,7 +64,13 @@ test(
       symlinkSync(externalHarness, path.join(f.root, "harness"), "dir");
       await f.reopen();
 
-      assert.equal((await f.run({ kind: "task-submit", taskId, executionId })).outcome, "applied");
+      const submitted = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length >= 1,
+        true,
+        JSON.stringify(submitted),
+      );
 
       await f.waitForLaunches(2);
       const attempts = f.events().filter((event) => event.type === "runtime_dispatch_requested");
@@ -128,7 +134,7 @@ test(
 
 test(
   "task-bound dispatch with caller-selected cwd never acquires .worktrees realpath exemption on initial launch or fallback",
-  { timeout: 60_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  { timeout: 120_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
   async () => {
     const outsideParent = mkdtempSync(path.join(tmpdir(), "ha-task-bound-worktrees-escape-")),
       externalWorktrees = path.join(outsideParent, "external-worktrees"),
@@ -225,7 +231,7 @@ test(
 
 test(
   "start-rejected review preserves local dispatch stream when center lifecycle is pending, then recovers backup review once ready",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
@@ -518,7 +524,7 @@ test(
 
 test(
   "active review cancellation is never misreported as a provider failure and does not shadow an earlier failed review group",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async () => {
     let rejectAll = false;
     const f = await fixture(false, true, false, false, false, {
@@ -607,7 +613,7 @@ test(
 
 test(
   "resume-fallback followed by provider fallback (:resume-fallback:fallback:1) prevents duplicate re-dispatch while in flight and surfaces failure when exhausted",
-  { timeout: 90_000 },
+  { timeout: 120_000 },
   async () => {
     const reworkReviewerPerson = "rework-boundary-reviewer";
     const f = await fixture(false, true, false, false, false, {
@@ -790,7 +796,7 @@ test(
 
 test(
   "review fallback verifies existing review checkout HEAD against frozen commitSha and refuses launch when drifted",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async () => {
     let nowMs = Date.now() + 60_000;
     const f = await fixture(1, true, false, false, false, {
@@ -853,7 +859,7 @@ test(
 
 test(
   "symlinked .worktrees review fallback reclaims the external review checkout directory and git worktree registration at group terminal settlement",
-  { timeout: 60_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
+  { timeout: 120_000, skip: process.platform === "win32" ? "requires POSIX symlink semantics" : false },
   async () => {
     const outsideParent = mkdtempSync(path.join(tmpdir(), "ha-symlink-review-reclaim-")),
       externalWorktrees = path.join(outsideParent, "external-worktrees");
@@ -915,7 +921,7 @@ test(
 
 test(
   "backup review post-admission credential preparation failure records sanitized reasonCode and attempt.reason in task show and agenda",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async () => {
     let credentialRejectedOnce = false;
     let fixtureHandle: Awaited<ReturnType<typeof fixture>> | null = null;

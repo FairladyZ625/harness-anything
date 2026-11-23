@@ -105,7 +105,12 @@ export function publishConvertedGeneration(input: {
     authoredRef,
     authoredPrefix: ledger.authoredPrefix,
     head: commit,
-    previous: commit === parent ? `${commit}^` : parent,
+    previous:
+      commit === parent
+        ? localGitObjectRefStore.hasCommit(ledger.rootDir, `${commit}^`)
+          ? `${commit}^`
+          : null
+        : parent,
     ...(commit === parent ? { visibility: files } : {}),
     retiredLegacyPaths: new Set(retiredLegacy.map((file) => file.delete)),
   });

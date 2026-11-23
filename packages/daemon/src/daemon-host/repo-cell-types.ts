@@ -765,6 +765,7 @@ export interface RepoCellApiContext {
   readonly catalog: RepoCell["catalog"];
   readonly runtimeStream: AgentRuntimeStreamHub;
   readonly canHibernate?: () => boolean;
+  readonly drainBackgroundWork?: () => Promise<void>;
   readonly generation: number;
   readonly recovery: RepoCellOperationalContext["recovery"];
   readonly lock: { readonly close: () => Promise<void> };

@@ -3404,6 +3404,20 @@
         "order": 399
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.scheduleBackgroundImmediate.handle:66188caa5b2fa149622d66b91955d560",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete",
+        "order": 9998
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.trackBackground.pending:98d90dd86b9878d60f46a3b9f321d287",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete",
+        "order": 9999
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell:00da4a8eeb1d40c99ca28669574ea668",
         "route": "daemon-local-state",
         "role": "support",

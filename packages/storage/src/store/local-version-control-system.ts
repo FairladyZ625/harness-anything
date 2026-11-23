@@ -569,6 +569,16 @@ export const localGitObjectRefStoreAsync = Object.freeze({
     (await spawnGitBytesAsync(repoRoot, ["rev-parse", revision])).toString("utf8").trim(),
   resolveBranchCommit: async (repoRoot: string, ref: string): Promise<string> =>
     (await readLooseBranchCommit(repoRoot, ref)) ?? (await localGitObjectRefStoreAsync.resolveCommit(repoRoot, ref)),
+  // `rev-parse` echoes a well-formed sha whether or not the object exists; this asks the object store.
+  hasCommit: async (repoRoot: string, sha: string): Promise<boolean> => {
+    try {
+      await spawnGitBytesAsync(repoRoot, ["cat-file", "-e", `${sha}^{commit}`]);
+      return true;
+    } catch (error) {
+      consumeKnownError(error);
+      return false;
+    }
+  },
   readPath: async (repoRoot: string, commit: string, target: string): Promise<Buffer | null> => {
     try {
       return await spawnGitBytesAsync(repoRoot, ["show", `${commit}:${target}`]);

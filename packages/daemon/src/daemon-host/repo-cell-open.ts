@@ -201,6 +201,7 @@ export async function openRepoWriterCell(
       ? null
       : causeClassOf(cellCodedError(recovery.errorCode ?? "publication_indeterminate", lastError!));
   const recoveryProbe = makeRecoveryProbe(latchReprobeThrottleMs);
+  const isClosed = (): boolean => state === "closed";
   const latched = (): string => repoCellLatchedMessage(causeClass, lastError);
   const latchWith = (error: unknown): void => {
     state = "unavailable";
@@ -239,6 +240,17 @@ export async function openRepoWriterCell(
           }
         }
         candidate = await initialize();
+        if (isClosed()) {
+          candidate.replica.close();
+          candidate.projection.close();
+          try {
+            await candidate.store.drain();
+          } catch (cleanupError) {
+            consumeKnownError(cleanupError);
+          }
+          candidate = undefined;
+          return;
+        }
         // The prior store is closed. Adopt the candidate so projection repair reads
         // the live SQLite ledger even if the projection probe is still indeterminate.
         ({ store, recovery, projection, entityActionExecutor, runtimeReads, service, replica } = candidate);
@@ -339,13 +351,52 @@ export async function openRepoWriterCell(
     });
     tail = pending.catch(() => undefined);
     void pending.then(
-      () => replica.kick(),
+      () => {
+        if (state !== "closed") replica.kick();
+      },
       (error: unknown) => {
         console.error(error);
-        replica.kick();
+        if (state !== "closed") replica.kick();
       },
     );
     return pending;
+  };
+  const backgroundImmediates = new Set<ReturnType<typeof setImmediate>>();
+  const backgroundWork = new Set<Promise<void>>();
+  const trackBackground = (work: () => Promise<unknown>): void => {
+    if (state === "closed") return;
+    const pending = Promise.resolve()
+      .then(work)
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          console.error("[repo-cell-background]", error);
+        },
+      )
+      .finally(() => {
+        backgroundWork.delete(pending);
+      });
+    backgroundWork.add(pending);
+  };
+  const scheduleBackgroundImmediate = (work: () => Promise<unknown>): void => {
+    if (state === "closed") return;
+    const handle = setImmediate(() => {
+      backgroundImmediates.delete(handle);
+      trackBackground(work);
+    });
+    backgroundImmediates.add(handle);
+  };
+  const drainBackgroundWork = async (): Promise<void> => {
+    for (const handle of backgroundImmediates) clearImmediate(handle);
+    backgroundImmediates.clear();
+    let settledTail: Promise<void> | null = null;
+    while (backgroundWork.size > 0 || recoveryReplacement !== null || tail !== settledTail) {
+      const pending: Promise<unknown>[] = [...backgroundWork];
+      if (recoveryReplacement !== null) pending.push(recoveryReplacement);
+      settledTail = tail;
+      pending.push(settledTail);
+      await Promise.allSettled(pending);
+    }
   };
   const backup: NonNullable<RepoCell["backup"]> = (request, queueObservation) => {
     queueDepth += 1;
@@ -414,16 +465,19 @@ export async function openRepoWriterCell(
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],
     actionId: string,
-  ): Promise<RepoCellBinding> =>
-    authorizeRuntimeRepoAction({
+  ): Promise<RepoCellBinding> => {
+    const resolvedBinding = await onlineBinding(binding);
+    if (state === "closed") throw cellCodedError("daemon_closed", "Runtime recovery writer closed.");
+    return authorizeRuntimeRepoAction({
       repoId: input.repoId,
       action,
-      binding: await onlineBinding(binding),
+      binding: resolvedBinding,
       actionId,
       revision: store.readHead()?.revision ?? 0,
       now: now(),
       projection,
     });
+  };
   const runtimeSpawner = makeRuntimeSpawner({
     repoId: input.repoId,
     rootDir,
@@ -483,44 +537,52 @@ export async function openRepoWriterCell(
       input.onRuntimeOutcome?.(event);
     },
     onStalledReviewer: (continuation) => {
-      if (mode !== "local") return;
+      if (mode !== "local" || state === "closed") return;
       const releaseAuthorization = continuation.binding.retainAuthorization?.();
-      void (async () => {
-        const dispatch = projection.readRuntimeDispatchById(continuation.dispatchId)?.event,
-          taskId = continuation.task.taskId,
-          executionId = continuation.task.executionId;
-        if (
-          !dispatch ||
-          dispatch.payload.role !== "reviewer" ||
-          dispatch.payload.taskId !== taskId ||
-          dispatch.payload.executionId !== executionId ||
-          typeof dispatch.payload.agentId !== "string" ||
-          typeof dispatch.payload.dispatchKey !== "string"
-        )
-          return;
-        const current = await service.read(taskId),
-          execution = current.snapshot.executions.find((value) => value.executionId === executionId);
-        if (current.snapshot.task?.status !== "in_review" || execution?.state !== "submitted" || !execution.submission)
-          return;
-        const baseKey = reviewDispatchKey(taskId, execution, dispatch.payload.agentId);
-        // Only the original automatic cut key may start this recovery. Its one existing manual
-        // attempt key is the bound: an already-created attempt1 (manual or automatic) is never
-        // advanced by another stalled terminal callback.
-        if (
-          dispatch.payload.dispatchKey !== baseKey ||
-          projection.readRuntimeDispatchByDispatchKey(`${baseKey}:attempt1`) !== null
-        )
-          return;
-        const binding = {
-          ...continuation.binding,
-          actor: { principal: continuation.binding.actor.principal, executor: null },
-        };
-        const receipt = await api.run({ kind: "task-dispatch-review", taskIds: [taskId] }, binding);
-        if (receipt.outcome !== "applied")
-          console.warn(`[review-stall-recovery] task ${taskId} automatic attempt failed: ${JSON.stringify(receipt)}`);
-      })()
-        .finally(() => releaseAuthorization?.())
-        .catch((error: unknown) => console.error("[review-stall-recovery]", error));
+      trackBackground(() =>
+        (async () => {
+          if (state === "closed") return;
+          const dispatch = projection.readRuntimeDispatchById(continuation.dispatchId)?.event,
+            taskId = continuation.task.taskId,
+            executionId = continuation.task.executionId;
+          if (
+            !dispatch ||
+            dispatch.payload.role !== "reviewer" ||
+            dispatch.payload.taskId !== taskId ||
+            dispatch.payload.executionId !== executionId ||
+            typeof dispatch.payload.agentId !== "string" ||
+            typeof dispatch.payload.dispatchKey !== "string"
+          )
+            return;
+          const current = await service.read(taskId);
+          if (isClosed()) return;
+          const execution = current.snapshot.executions.find((value) => value.executionId === executionId);
+          if (
+            current.snapshot.task?.status !== "in_review" ||
+            execution?.state !== "submitted" ||
+            !execution.submission
+          )
+            return;
+          const baseKey = reviewDispatchKey(taskId, execution, dispatch.payload.agentId);
+          // Only the original automatic cut key may start this recovery. Its one existing manual
+          // attempt key is the bound: an already-created attempt1 (manual or automatic) is never
+          // advanced by another stalled terminal callback.
+          if (
+            dispatch.payload.dispatchKey !== baseKey ||
+            projection.readRuntimeDispatchByDispatchKey(`${baseKey}:attempt1`) !== null
+          )
+            return;
+          const binding = {
+            ...continuation.binding,
+            actor: { principal: continuation.binding.actor.principal, executor: null },
+          };
+          const receipt = await api.run({ kind: "task-dispatch-review", taskIds: [taskId] }, binding);
+          if (receipt.outcome !== "applied")
+            console.warn(`[review-stall-recovery] task ${taskId} automatic attempt failed: ${JSON.stringify(receipt)}`);
+        })()
+          .finally(() => releaseAuthorization?.())
+          .catch((error: unknown) => console.error("[review-stall-recovery]", error)),
+      );
     },
     onAttemptTerminal: async (terminal) => {
       // A squad-owned scheduled dispatch settles its occurrence with the run, not with its
@@ -618,11 +680,8 @@ export async function openRepoWriterCell(
       if (receipt.outcome === "applied") {
         const event = store.readTaskEvent(receipt.opId);
         if (event)
-          setImmediate(() => {
-            if (state === "closed") return;
-            // Settlement may itself be queued (e.g. cancellation). Let that writer finish before
-            // the shared return handoff waits for another runtime's terminal publication.
-            void recoveryWork
+          scheduleBackgroundImmediate(() =>
+            recoveryWork
               .run(() =>
                 continueReviewRework(operationalContext, event, authorized, receipt, (nextAction, nextBinding, work) =>
                   recoveryWork.write(
@@ -640,8 +699,8 @@ export async function openRepoWriterCell(
                   ),
                 ),
               )
-              .catch((error: unknown) => console.error("[review-rework]", error));
-          });
+              .catch((error: unknown) => console.error("[review-rework]", error)),
+          );
       }
     },
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
@@ -885,9 +944,8 @@ export async function openRepoWriterCell(
       );
     });
   let restoringRuntimes = true;
-  setImmediate(() => {
-    if (state === "closed") return;
-    void recoveryWork
+  scheduleBackgroundImmediate(() =>
+    recoveryWork
       .run(async () => {
         const [recoveryResults, squadRecoveryDispatchIds] = await Promise.all([
           runtimeSpawner.adopt(),
@@ -919,8 +977,8 @@ export async function openRepoWriterCell(
       )
       .finally(() => {
         restoringRuntimes = false;
-      });
-  });
+      }),
+  );
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
   schedule(() =>
@@ -945,6 +1003,7 @@ export async function openRepoWriterCell(
       });
       return active.status === "ready" && active.rows.length === 0;
     },
+    drainBackgroundWork,
     onlineBinding,
     extracted: operationalContext,
     mode,

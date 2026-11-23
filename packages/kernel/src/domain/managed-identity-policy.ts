@@ -369,6 +369,32 @@ export const identityDatabaseProcessPolicy = {
   ],
 } as const satisfies OntologyPolicyDeclaration;
 
+export const identityArtifactDownloadPolicy = {
+  id: "identity-artifact-download",
+  ownerRef: "host",
+  unit: "attempts / milliseconds / HTTP status codes",
+  bounds:
+    "Idempotent managed artifact and checksum GET requests retry up to 4 times on HTTP 408/429/502/503/504 or transient transport failures with equal-jitter exponential backoff starting at 250ms, honoring Retry-After up to a 10000ms cap. Permanent 4xx responses fail immediately without retry.",
+  defaultValue: {
+    maxRetries: 4,
+    baseDelayMs: 250,
+    maxDelayMs: 10_000,
+    retryableStatuses: [408, 429, 502, 503, 504] as readonly number[],
+  },
+  version: 1,
+  scope: "Managed runtime binary and checksum idempotent HTTP downloads",
+  reason:
+    "Absorb transient upstream rate limits (HTTP 429) and gateway errors during concurrent cold installs while failing fast on permanent client errors.",
+  fixtures: ["packages/authorization/test/managed-rbac-download-retry.test.ts"],
+  sources: [
+    {
+      candidateId:
+        "policy:packages/authorization:packages/authorization/src/keycloak/managed-artifact-download.ts#fetchManagedArtifactResource.attempt:11ab76e8d0c02192aa2b1be4c6731dd8",
+      route: "artifact-download-retry-attempts",
+    },
+  ],
+} as const satisfies OntologyPolicyDeclaration;
+
 export const identityHealthProbePolicy = {
   id: "identity-health-probe",
   ownerRef: "host",

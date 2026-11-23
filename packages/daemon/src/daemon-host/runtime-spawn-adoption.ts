@@ -70,6 +70,7 @@ export async function adoptRuntimes(
   onProgress?: (completed: number) => void,
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
+  if (context.closed?.()) return [];
   const owner = dispatchOwnerForNode(context.input.runtimeNode?.nodeId),
     candidates = new Map<string, DispatchLifecycleView>(),
     streamHeaders = readDispatchStreamHeaders(context.input.rootDir);
@@ -86,6 +87,7 @@ export async function adoptRuntimes(
     (query) => readDispatchLifecycle(context, query),
     context.runtimeSpawnError,
   );
+  if (context.closed?.()) return [];
   for (const view of activeViews)
     if (view.attempt.fence.verified && view.attempt.fence.owner === owner) registerCandidate(view);
   const activeDispatchIds = new Set(activeViews.map(({ attempt }) => attempt.dispatchId)),
@@ -100,6 +102,7 @@ export async function adoptRuntimes(
       [...terminalHeaders.keys()],
       context.runtimeSpawnError,
     );
+    if (context.closed?.()) return [];
     for (const view of lifecycleRows) {
       const header = terminalHeaders.get(view.attempt.dispatchId);
       if (
@@ -136,9 +139,14 @@ export async function adoptRuntimes(
           .then(async () => {
             // Settlement retains ownership after releasing its process/model slot, until the
             // terminal publication finishes. Re-adoption would create a second process owner.
-            if (context.exiting.has(runtimeSessionId) || context.ownsModelSlot?.(runtimeSessionId))
+            if (
+              context.closed?.() ||
+              context.exiting.has(runtimeSessionId) ||
+              context.ownsModelSlot?.(runtimeSessionId)
+            )
               return "ready" as const;
             const lifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [dispatchId!] });
+            if (context.closed?.()) return "ready" as const;
             if (lifecycle.status === "pending")
               throw dispatchLifecyclePendingError(lifecycle, context.runtimeSpawnError);
             const view = lifecycle.rows.find(({ attempt }) => attempt.dispatchId === dispatchId);
@@ -151,6 +159,7 @@ export async function adoptRuntimes(
             const session = context.input.remote
               ? await context.input.remote.readRuntimeSession(runtimeSessionId)
               : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
+            if (context.closed?.()) return "ready" as const;
             if (!session) return "foreign" as const;
             const header = readDispatchStreamHeader(context.input.rootDir, dispatchId!);
             if (!header) {
@@ -194,6 +203,13 @@ export async function adoptRuntimes(
               outcome,
             }),
             (error: unknown) => {
+              if (context.closed?.() && runtimeErrorCode(error) === "daemon_closed") {
+                return {
+                  runtimeSessionId,
+                  dispatchId,
+                  outcome: "ready" as const,
+                };
+              }
               context.input.recordLifecycle?.({
                 event: "runtime_recovery_failed",
                 runtimeSessionId,
@@ -545,6 +561,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
 }
 
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
+  if (context.closed?.()) return;
   const snapshotSessionIds = new Set(listLocalSkillSnapshotSessionIds(context.input.rootDir)),
     runtimeSessionIds = [...new Set([...snapshotSessionIds, ...(context.input.listRuntimeTempSessionIds?.() ?? [])])];
   if (runtimeSessionIds.length === 0) {

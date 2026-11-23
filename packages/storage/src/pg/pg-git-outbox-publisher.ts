@@ -206,13 +206,14 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
     authoredRef: string,
     parent: string,
     commit: string,
+    previous: string | null,
     files: readonly (PublicationWrite | { readonly delete: string })[],
   ): FollowerIndexCut => ({
     repoRoot: ledger.rootDir,
     authoredRef,
     authoredPrefix: ledger.authoredPrefix,
     head: commit,
-    previous: commit === parent ? git.commitSha : parent,
+    previous,
     ...(commit === parent ? { visibility: files } : {}),
     ...(git.commitSha === null
       ? {
@@ -258,8 +259,17 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
           killpoint: options.killpoint,
           withFence: options.withFollowerFence,
         });
-      if (prepared.materializeTree)
-        alignFollowerIndex(indexCut(ledger, authoredRef, parent, commit, files), options.withFollowerFence);
+      if (prepared.materializeTree) {
+        const previous =
+          commit !== parent
+            ? parent
+            : git.commitSha !== null &&
+                git.commitSha !== commit &&
+                localGitObjectRefStore.hasCommit(ledger.rootDir, git.commitSha)
+              ? git.commitSha
+              : null;
+        alignFollowerIndex(indexCut(ledger, authoredRef, parent, commit, previous, files), options.withFollowerFence);
+      }
       finalizePgWorktreeManifest(ledger, commit, prepared.cut, files, prepared.materializeTree);
     }
     return buildPgReceipt(prepared.settlements, prepared.conflicts);
@@ -343,12 +353,21 @@ export function attachPgGitFollower(context: PgGitFollowerMountContext): PgGitFo
           killpoint: options.killpoint,
           finalizeRefs: runFinalizeRefsAsync,
         });
-      if (prepared.materializeTree)
+      if (prepared.materializeTree) {
+        const previous =
+          commit !== parent
+            ? parent
+            : git.commitSha !== null &&
+                git.commitSha !== commit &&
+                (await localGitObjectRefStoreAsync.hasCommit(ledger.rootDir, git.commitSha))
+              ? git.commitSha
+              : null;
         await alignFollowerIndexAsync(
-          indexCut(ledger, authoredRef, parent, commit, files),
+          indexCut(ledger, authoredRef, parent, commit, previous, files),
           options.withFollowerFence,
           options.withFollowerFenceAsync,
         );
+      }
       finalizePgWorktreeManifest(ledger, commit, prepared.cut, files, prepared.materializeTree);
     }
     return buildPgReceipt(prepared.settlements, prepared.conflicts);
