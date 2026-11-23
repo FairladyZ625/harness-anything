@@ -368,11 +368,17 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "browser-e2e", "--root", root, "--no-link"]);
     run(root, userRoot, ["task", "create", "--id", "task-browser-e2e", "--admin", "--title", "Browser E2E task"]);
-    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/gui"], {
+    const npmArgs = ["run", "build", "--workspace", "@harness-anything/gui"],
+      npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    execFileSync(
+      process.platform === "win32" ? process.execPath : "npm",
+      process.platform === "win32" ? [npmCli, ...npmArgs] : npmArgs,
+      {
       cwd: path.resolve("."),
       env: environment(root, userRoot),
       stdio: "pipe",
-    });
+      },
+    );
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     process.env.HARNESS_DAEMON_ID = daemonId;
     broker = await startBrowserGuiBroker(path.resolve("packages/gui"), root, parentOrigin);
@@ -575,10 +581,10 @@ function chromiumExecutable(parent: string): string {
     candidates = [configured, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
   const executable = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));
   if (executable) return executable;
-  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, browserName);
-    assert.ok(cached, "isolated dependency preparation did not cache Playwright Chromium");
-    return cached;
+  const configuredBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (configuredBrowsersPath) {
+    const cached = findFile(configuredBrowsersPath, browserName);
+    if (cached) return cached;
   }
   process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(parent, "playwright-browsers");
   execFileSync(process.execPath, [path.resolve("node_modules/playwright-core/cli.js"), "install", "chromium"], {
@@ -590,6 +596,7 @@ function chromiumExecutable(parent: string): string {
 }
 
 function findFile(directory: string, name: string): string | null {
+  if (!existsSync(directory)) return null;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) {

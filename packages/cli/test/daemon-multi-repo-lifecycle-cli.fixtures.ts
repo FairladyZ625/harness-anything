@@ -96,7 +96,7 @@ export function residentCliFixture() {
     release: (root: string) => {
       const registry = readDaemonRegistry({ userRoot });
       for (const repo of [...registry.repos, ...registry.invalidRepos]) {
-        if (repo.canonicalRoot === null || !repo.canonicalRoot.startsWith(`${root}${path.sep}`)) continue;
+        if (repo.canonicalRoot === null || !isPathInside(root, repo.canonicalRoot)) continue;
         // The real unbind waits for closeCell before removing the registration. Its receipt
         // therefore precedes Windows directory removal, including reader-handle release.
         assert.equal(run(repo.canonicalRoot, userRoot, ["repo", "unbind", repo.repoId]).ok, true);
@@ -104,6 +104,11 @@ export function residentCliFixture() {
       assert.equal(readDaemonPid(userRoot, "default"), pid, "unbinding a scenario must preserve the service");
     },
   };
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
 export function makeCanary(

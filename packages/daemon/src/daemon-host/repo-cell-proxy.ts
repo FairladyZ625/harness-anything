@@ -25,7 +25,7 @@ import { acquireWorkspaceLock, causeClassOf } from "./repo-cell-lock.ts";
 import type { RepoCellOpenInput } from "./repo-cell-types.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { failed } from "./repo-cell-settlement.ts";
-import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
+import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { openRepoReadClient, type RepoReadWorkerFactory } from "./repo-read-pool.ts";
 import { readObserveTail } from "./observe-tail.ts";
@@ -218,14 +218,17 @@ export async function openRepoCellProxy(
       });
     }
   }
-  const reads = openRepoReadClient(input, options.createReadWorker);
-  const query = <T>(
+  let reads = openRepoReadClient(input, options.createReadWorker);
+  let readerTransition: Promise<void> | null = null;
+  const query = async <T>(
     method: string,
     args: readonly unknown[] = [],
     binding?: RepoCellBinding,
     signal?: AbortSignal,
   ): Promise<T> => {
     if (closed) return Promise.reject(cellCodedError("repo_unavailable", "RepoCell is closed."));
+    if (readerTransition) await readerTransition;
+    if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
     const observeEvents = method === "observeTail" && (args[0] as { kind?: unknown } | null)?.kind === "events";
     const independent =
@@ -308,7 +311,38 @@ export async function openRepoCellProxy(
         opId: "closed",
         code: "repo_unavailable",
       } as never;
+    if (action.kind === "projection-rebuild") return rebuildProjection(action, binding, signal);
     return supervisor.request("run", { action }, binding, signal);
+  };
+  const rebuildProjection = (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+  ): ReturnType<RepoCell["run"]> => {
+    const previous = readerTransition,
+      operation = (async () => {
+        if (previous) await previous;
+        const currentReads = reads;
+        // Reader workers cache SQLite connections independently of the writer. They must release
+        // those handles before the rebuild replaces task.sqlite, otherwise Windows refuses the
+        // delete even though the writer projection owner has been closed.
+        try {
+          await currentReads.close();
+          return (await supervisor.request("run", { action }, binding, signal)) as Awaited<
+            ReturnType<RepoCell["run"]>
+          >;
+        } finally {
+          if (!closed) reads = openRepoReadClient(input, options.createReadWorker);
+        }
+      })(),
+      barrier = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+    readerTransition = barrier;
+    return operation.finally(() => {
+      if (readerTransition === barrier) readerTransition = null;
+    });
   };
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
     const admission = admitRepoMode(input.mode ?? "local", nodeLocalWriteCommandTopology, binding.source);

@@ -37,6 +37,8 @@ const {
   writeFileSync,
 } = shared;
 
+const posixRelaySkip = process.platform === "win32" ? "requires POSIX per-dispatch Unix-domain relay socket semantics" : undefined;
+
 interface RelayFixture {
   readonly parent: string;
   readonly root: string;
@@ -61,7 +63,7 @@ async function relayFixture(): Promise<RelayFixture> {
     dispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
     canonicalRoot = realpathSync.native(fixture.root),
     endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),
-    relayPath = path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`),
+    relayPath = runtimeRelayPath(dispatchId),
     workerHome = path.join(fixture.parent, "worker", "home"),
     sealedUserRoot = path.join(fixture.parent, "sealed-user");
   seedSettingsEvent({ rootDir: fixture.root, repoId });
@@ -231,7 +233,15 @@ function restoreTemp(previousTemp: string | undefined): void {
   else process.env.TMPDIR = previousTemp;
 }
 
-describe("host-backed runtime callback relay routes", () => {
+function usePortableTempDirectory(): void {
+  process.env.TMPDIR = process.platform === "win32" ? tmpdir() : "/tmp";
+}
+
+function runtimeRelayPath(dispatchId = `dispatch_${randomBytes(12).toString("hex")}`): string {
+  return path.join(perUserSocketRoot(), `r-${dispatchId.slice("dispatch_".length)}.sock`);
+}
+
+describe("host-backed runtime callback relay routes", { skip: posixRelaySkip }, () => {
   let hostRelayPromise: Promise<RelayFixture> | null = null;
   const hostRelayFixture = (): Promise<RelayFixture> => {
     hostRelayPromise ??= relayFixture();
@@ -247,7 +257,7 @@ describe("host-backed runtime callback relay routes", () => {
 
   test("read-only CLI commands route through the runtime callback relay without reading the host registry", async () => {
     const previousTemp = process.env.TMPDIR;
-    process.env.TMPDIR = "/tmp";
+    usePortableTempDirectory();
     const fixture = await hostRelayFixture();
     try {
       const listed = await runCli(fixture.root, ["task", "list"], fixture.env);
@@ -265,7 +275,7 @@ describe("host-backed runtime callback relay routes", () => {
 
   test("a relay route missing its repo id is refused as a route error instead of daemon_unavailable", async () => {
     const previousTemp = process.env.TMPDIR;
-    process.env.TMPDIR = "/tmp";
+    usePortableTempDirectory();
     const fixture = await hostRelayFixture();
     try {
       const { HARNESS_DAEMON_REPO_ID: _repoId, ...missingRepo } = fixture.env;
@@ -288,92 +298,104 @@ describe("host-backed runtime callback relay routes", () => {
   });
 });
 
-test("a relayed remote-edge fleet command forwards through the fixed relay, never the user socket", async () => {
-  const previousTemp = process.env.TMPDIR;
-  process.env.TMPDIR = "/tmp";
-  const { root, userRoot } = fleetWorkspace(),
-    relay = await startFakeDaemon(path.join(perUserSocketRoot(), `r-${randomBytes(12).toString("hex")}.sock`)),
-    rawSocket = await startFakeDaemon(localUserDaemonEndpoint(userRoot, "default"));
-  try {
-    const result = await runCli(root, ["task", "list"], { ...fleetEnv({ root, userRoot, relayPath: relay.path }) });
-    assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
-    assert.equal((JSON.parse(result.stdout) as { readonly outcome?: string }).outcome, "applied");
-    assert.deepEqual(
-      relay.methods,
-      ["protocol.hello", "repo.task.read"],
-      "the fleet payload must cross the injected relay",
-    );
-    assert.deepEqual(rawSocket.methods, [], "the implicit user socket must not be opened");
-  } finally {
-    await relay.close();
-    await rawSocket.close();
-    removeTempRepository(root);
-    restoreTemp(previousTemp);
-  }
-});
+test(
+  "a relayed remote-edge fleet command forwards through the fixed relay, never the user socket",
+  { skip: posixRelaySkip },
+  async () => {
+    const previousTemp = process.env.TMPDIR;
+    usePortableTempDirectory();
+    const { root, userRoot } = fleetWorkspace(),
+      relay = await startFakeDaemon(runtimeRelayPath()),
+      rawSocket = await startFakeDaemon(localUserDaemonEndpoint(userRoot, "default"));
+    try {
+      const result = await runCli(root, ["task", "list"], { ...fleetEnv({ root, userRoot, relayPath: relay.path }) });
+      assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+      assert.equal((JSON.parse(result.stdout) as { readonly outcome?: string }).outcome, "applied");
+      assert.deepEqual(
+        relay.methods,
+        ["protocol.hello", "repo.task.read"],
+        "the fleet payload must cross the injected relay",
+      );
+      assert.deepEqual(rawSocket.methods, [], "the implicit user socket must not be opened");
+    } finally {
+      await relay.close();
+      await rawSocket.close();
+      removeTempRepository(root);
+      restoreTemp(previousTemp);
+    }
+  },
+);
 
-test("a relayed remote-edge fleet command missing its endpoint is refused before any socket", async () => {
-  const previousTemp = process.env.TMPDIR;
-  process.env.TMPDIR = "/tmp";
-  const { root, userRoot } = fleetWorkspace(),
-    relay = await startFakeDaemon(path.join(perUserSocketRoot(), `r-${randomBytes(12).toString("hex")}.sock`)),
-    rawSocket = await startFakeDaemon(localUserDaemonEndpoint(userRoot, "default"));
-  try {
-    const { HARNESS_DAEMON_ENDPOINT: _endpoint, ...noEndpoint } = fleetEnv({
-      root,
-      userRoot,
-      relayPath: relay.path,
-    });
-    const refused = await runCli(root, ["task", "list"], noEndpoint);
-    assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
-    const receipt = JSON.parse(refused.stdout) as {
-      readonly error?: { readonly code?: string };
-      readonly diagnostic?: { readonly expectation?: string };
-    };
-    assert.equal(receipt.error?.code, "daemon_target_conflict");
-    assert.match(String(receipt.diagnostic?.expectation), /HARNESS_DAEMON_ENDPOINT is not set/u);
-    assert.deepEqual(relay.methods, [], "no relay request without an injected endpoint");
-    assert.deepEqual(rawSocket.methods, [], "no fallback to the implicit user socket");
-  } finally {
-    await relay.close();
-    await rawSocket.close();
-    removeTempRepository(root);
-    restoreTemp(previousTemp);
-  }
-});
+test(
+  "a relayed remote-edge fleet command missing its endpoint is refused before any socket",
+  { skip: posixRelaySkip },
+  async () => {
+    const previousTemp = process.env.TMPDIR;
+    usePortableTempDirectory();
+    const { root, userRoot } = fleetWorkspace(),
+      relay = await startFakeDaemon(runtimeRelayPath()),
+      rawSocket = await startFakeDaemon(localUserDaemonEndpoint(userRoot, "default"));
+    try {
+      const { HARNESS_DAEMON_ENDPOINT: _endpoint, ...noEndpoint } = fleetEnv({
+        root,
+        userRoot,
+        relayPath: relay.path,
+      });
+      const refused = await runCli(root, ["task", "list"], noEndpoint);
+      assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
+      const receipt = JSON.parse(refused.stdout) as {
+        readonly error?: { readonly code?: string };
+        readonly diagnostic?: { readonly expectation?: string };
+      };
+      assert.equal(receipt.error?.code, "daemon_target_conflict");
+      assert.match(String(receipt.diagnostic?.expectation), /HARNESS_DAEMON_ENDPOINT is not set/u);
+      assert.deepEqual(relay.methods, [], "no relay request without an injected endpoint");
+      assert.deepEqual(rawSocket.methods, [], "no fallback to the implicit user socket");
+    } finally {
+      await relay.close();
+      await rawSocket.close();
+      removeTempRepository(root);
+      restoreTemp(previousTemp);
+    }
+  },
+);
 
-test("a relayed remote-edge fleet command cannot override the dispatched repo", async () => {
-  const previousTemp = process.env.TMPDIR;
-  process.env.TMPDIR = "/tmp";
-  const { root, userRoot } = fleetWorkspace(),
-    relay = await startFakeDaemon(path.join(perUserSocketRoot(), `r-${randomBytes(12).toString("hex")}.sock`)),
-    rawSocket = await startFakeDaemon(localUserDaemonEndpoint(userRoot, "default"));
-  try {
-    const refused = await runCli(
-      root,
-      ["--repo", "another-repo", "task", "list"],
-      fleetEnv({ root, userRoot, relayPath: relay.path }),
-    );
-    assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
-    const receipt = JSON.parse(refused.stdout) as {
-      readonly error?: { readonly code?: string };
-      readonly diagnostic?: { readonly expectation?: string };
-    };
-    assert.equal(receipt.error?.code, "daemon_target_conflict");
-    assert.match(String(receipt.diagnostic?.expectation), /does not match the dispatched repo/u);
-    assert.deepEqual(relay.methods, [], "a rejected scope must not reach the relay");
-    assert.deepEqual(rawSocket.methods, [], "a rejected scope must not reach the user socket");
-  } finally {
-    await relay.close();
-    await rawSocket.close();
-    removeTempRepository(root);
-    restoreTemp(previousTemp);
-  }
-});
+test(
+  "a relayed remote-edge fleet command cannot override the dispatched repo",
+  { skip: posixRelaySkip },
+  async () => {
+    const previousTemp = process.env.TMPDIR;
+    usePortableTempDirectory();
+    const { root, userRoot } = fleetWorkspace(),
+      relay = await startFakeDaemon(runtimeRelayPath()),
+      rawSocket = await startFakeDaemon(localUserDaemonEndpoint(userRoot, "default"));
+    try {
+      const refused = await runCli(
+        root,
+        ["--repo", "another-repo", "task", "list"],
+        fleetEnv({ root, userRoot, relayPath: relay.path }),
+      );
+      assert.notEqual(refused.status, 0, `${refused.stderr}\n${refused.stdout}`);
+      const receipt = JSON.parse(refused.stdout) as {
+        readonly error?: { readonly code?: string };
+        readonly diagnostic?: { readonly expectation?: string };
+      };
+      assert.equal(receipt.error?.code, "daemon_target_conflict");
+      assert.match(String(receipt.diagnostic?.expectation), /does not match the dispatched repo/u);
+      assert.deepEqual(relay.methods, [], "a rejected scope must not reach the relay");
+      assert.deepEqual(rawSocket.methods, [], "a rejected scope must not reach the user socket");
+    } finally {
+      await relay.close();
+      await rawSocket.close();
+      removeTempRepository(root);
+      restoreTemp(previousTemp);
+    }
+  },
+);
 
 test("an unreadable registry reports a registry failure, not daemon_unavailable", async () => {
   const previousTemp = process.env.TMPDIR;
-  process.env.TMPDIR = "/tmp";
+  usePortableTempDirectory();
   const parent = mkdtempSync(path.join(tmpdir(), "ha-relay-unreadable-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
