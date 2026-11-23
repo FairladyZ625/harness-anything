@@ -85,6 +85,7 @@ import {
   localDefaultBinding,
   localSystemActionBinding,
   localSystemBinding,
+  resolveBoundAccessToken,
 } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
@@ -314,7 +315,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   };
   const keycloakSession = async (rootDir: string) => {
     await ensureRbacResumed();
-    const principal = (await oidc.bind({ transportKind: "unix-socket" }, rootDir)).oidcPrincipal;
+    const bound = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
+    if (bound.sessionUnavailable) throw bound.sessionUnavailable;
+    const principal = bound.oidcPrincipal;
     if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
     return {
       provider: principal.provider,
@@ -724,10 +727,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             );
             return { ...binding, source: { kind: "node", nodeId } };
           },
-          readAccessToken: async (request) => {
-            const auth = await oidc.bind({ transportKind: "unix-socket" }, request.workspaceRoot);
-            return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
-          },
+          readAccessToken: async (request) =>
+            resolveBoundAccessToken(await oidc.bind({ transportKind: "unix-socket" }, request.workspaceRoot)),
           controlBinding: async (request = location()) => {
             const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
             return { ...binding, source: { kind: "node", nodeId } };
@@ -1412,7 +1413,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                   nodeId: edge.nodeId,
                   credential: edge.credential,
                   repoId: edge.repoId,
-                  readAccessToken: async () => (await oidc.bind(auth, loginTarget)).oidcPrincipal?.accessToken,
+                  readAccessToken: async () => resolveBoundAccessToken(await oidc.bind(auth, loginTarget)),
                 },
                 (request.repoIds ?? []) as readonly string[],
               )),
@@ -1421,7 +1422,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }
         if (request.operation === "edge-join") {
           return startFleetEdgeJoin(request, {
-            session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
+            session: async (rootDir) => {
+              const bound = await oidc.bind(auth, rootDir);
+              if (bound.sessionUnavailable) throw bound.sessionUnavailable;
+              return bound.oidcPrincipal;
+            },
             beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
             register: (rootDir, repoId) => host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
             sync: (payload) => host.fleet.edgeSync(payload, auth),
@@ -1701,10 +1706,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const readAccessToken = createFleetReplicaAccessTokenReader({
         config,
         configDir: fleetEdgeConfigDir(input.userRoot, repo.repoId),
-        readUserAccessToken: async () => {
-          const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
-          return auth.localSessionAccessToken ? auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
-        },
+        readUserAccessToken: async () =>
+          resolveBoundAccessToken(await oidc.bind({ transportKind: "unix-socket" }, rootDir)),
       });
       const refreshEdgeReplicaStatus = (): void => {
         const cell = cells.get(repo.repoId);

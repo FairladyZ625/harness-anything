@@ -62,6 +62,7 @@ const REJECTION_KEYS: Readonly<Record<string, MessageKey>> = {
   access_request_invalid: "accessControl.error.accessRequestInvalid",
   rbac_not_configured: "accessControl.error.notConfigured",
   rbac_admin_unavailable: "accessControl.error.serviceUnavailable",
+  oidc_session_unavailable: "accessControl.error.serviceUnavailable",
   daemon_unavailable: "accessControl.error.daemonUnavailable",
 };
 

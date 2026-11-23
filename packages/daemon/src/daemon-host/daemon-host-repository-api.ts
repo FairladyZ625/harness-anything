@@ -296,6 +296,8 @@ export function createDaemonHostRepositoryApi(
         reusedRegistration && request.personId === undefined
           ? (await context.binding(requestedRoot, auth)).actor.principal.personId
           : undefined;
+      const bootstrapAuth = await context.oidc.bind(auth, requestedRoot);
+      if (bootstrapAuth.sessionUnavailable) throw bootstrapAuth.sessionUnavailable;
       const prepared = resolveRepoBootstrap(
         reusedRegistration
           ? {
@@ -304,7 +306,7 @@ export function createDaemonHostRepositoryApi(
               ...(registeredPersonId ? { personId: registeredPersonId } : {}),
             }
           : request,
-        await context.oidc.bind(auth, requestedRoot),
+        bootstrapAuth,
       );
       const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
         bootstrap = {

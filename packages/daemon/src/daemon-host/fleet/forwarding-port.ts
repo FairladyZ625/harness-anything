@@ -17,7 +17,7 @@ import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { fleetEdgeConfigDir, readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { daemonUserRoot } from "../client/local-daemon-target.ts";
-import { localDefaultBinding } from "../daemon-host-binding.ts";
+import { localDefaultBinding, resolveBoundAccessToken } from "../daemon-host-binding.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { RepoTaskAction } from "../repo-cell-types.ts";
 import type { FleetEdgeRuntimeRequest } from "../fleet-edge-runtime.ts";
@@ -81,13 +81,12 @@ export async function forward(input: {
         ? AbortSignal.any([input.signal, input.auth.connectionSignal])
         : (input.signal ?? input.auth.connectionSignal),
     runtimeAuth = signal ? { ...input.auth, connectionSignal: signal } : input.auth;
-  const readAccessToken = async () => {
-    const bound = await bindPersonSession(input, workspaceRoot);
-    return bound.localSessionAccessToken ? bound.localSessionAccessToken() : bound.oidcPrincipal?.accessToken;
-  };
+  const readAccessToken = async () => resolveBoundAccessToken(await bindPersonSession(input, workspaceRoot));
   signal?.throwIfAborted();
   if (input.intent.kind === "node-unregister") {
-    const { writePeer } = runtimeForwardingContext(config, readAccessToken);
+    const bound = await bindPersonSession(input, workspaceRoot);
+    if (bound.sessionUnavailable) throw bound.sessionUnavailable;
+    const { writePeer } = runtimeForwardingContext(config, () => resolveBoundAccessToken(bound));
     return raceLifetime(
       unregisterFleetNodeClient(
         { ...writePeer, signal },
@@ -100,7 +99,9 @@ export async function forward(input: {
     );
   }
   if (input.intent.kind === "operational-read") {
-    const { runtimeReadPeer } = runtimeForwardingContext(config, readAccessToken);
+    const bound = await bindPersonSession(input, workspaceRoot);
+    if (bound.sessionUnavailable) throw bound.sessionUnavailable;
+    const { runtimeReadPeer } = runtimeForwardingContext(config, () => resolveBoundAccessToken(bound));
     return raceLifetime(
       readFleetOperationalClient({
         ...runtimeReadPeer,
@@ -128,15 +129,16 @@ export async function forward(input: {
   if (scheduleAction || squadControl) {
     if (scheduleAction && (input.auth.executionPrincipal || input.auth.executionCredential))
       throw executionCredentialRejected();
-    const bound = scheduleAction ? await bindPersonSession(input, workspaceRoot) : runtimeAuth,
-      {
-        kind: _kind,
-        executor: _executor,
-        wait: _wait,
-        noStream: _noStream,
-        detach: _detach,
-        ...runtimeAction
-      } = action;
+    const bound = scheduleAction ? await bindPersonSession(input, workspaceRoot) : runtimeAuth;
+    if (bound.sessionUnavailable) throw bound.sessionUnavailable;
+    const {
+      kind: _kind,
+      executor: _executor,
+      wait: _wait,
+      noStream: _noStream,
+      detach: _detach,
+      ...runtimeAction
+    } = action;
     return raceLifetime(
       input.runRuntime(
         {
@@ -158,8 +160,9 @@ export async function forward(input: {
     planSource: _planSource,
     ...wireAction
   } = action;
-  const bound = await bindPersonSession(input, workspaceRoot),
-    personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
+  const bound = await bindPersonSession(input, workspaceRoot);
+  if (bound.sessionUnavailable) throw bound.sessionUnavailable;
+  const personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
   if (input.auth.executionPrincipal && personId !== localDefaultBinding(bound).actor.principal.personId)
     throw executionCredentialRejected();
   const receipt = await runFleetEdgeTask(
@@ -280,7 +283,7 @@ async function bindPersonSession(
   input: { readonly auth: DaemonAuthenticationContext; readonly oidc: IdentitySessionPort },
   workspaceRoot: string,
 ) {
-  if (input.auth.oidcPrincipal) return input.auth;
+  if (input.auth.oidcPrincipal || input.auth.sessionUnavailable) return input.auth;
   return input.oidc.bind(input.auth, workspaceRoot);
 }
 

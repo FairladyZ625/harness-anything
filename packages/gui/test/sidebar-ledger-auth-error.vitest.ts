@@ -629,4 +629,25 @@ describe("sidebar ledger failure surface", () => {
     expect(statusPanel(container).querySelector('[data-testid="ledger-syncing-state"]')).toBeNull();
     expect(statusPanel(container).querySelector('[data-testid="task-error-state"]')).toBeNull();
   });
+
+  it("renders identity-unavailable instead of sign-in banner when OIDC renewal is transiently unreachable", async () => {
+    const hint = "Keycloak could not be reached to renew the session.";
+    const authChanged = [];
+    const onAuthChanged = () => authChanged.push(true);
+    window.addEventListener("harness-auth-changed", onAuthChanged);
+    try {
+      const container = await mountApp({
+        summary: { code: "oidc_session_unavailable", hint },
+        tasks: { code: "oidc_session_unavailable", hint },
+      });
+      const readState = container.querySelector('[data-testid="repository-read-state"]');
+      expect(readState?.getAttribute("data-state")).toBe("identity-unavailable");
+      expect(container.querySelector('[data-testid="repository-read-sign-in"]')).toBeNull();
+      expect(container.textContent).toContain("认证服务暂时不可达");
+      expect(container.textContent).not.toContain("会话已结束或无法再用当前凭据读取台账");
+      expect(authChanged).toHaveLength(0);
+    } finally {
+      window.removeEventListener("harness-auth-changed", onAuthChanged);
+    }
+  });
 });
