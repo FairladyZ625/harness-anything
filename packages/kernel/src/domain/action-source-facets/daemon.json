@@ -6614,7 +6614,7 @@
     ],
     "peer-promote": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2:3",
         "route": "peer-promote",
         "role": "effect",
         "order": 1
@@ -6630,7 +6630,7 @@
     ],
     "peer-takeover": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2:3",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#dispatchPeerAction:4ded1d566bd0e27824c30f26ae7c5dc2",
         "route": "peer-takeover",
         "role": "effect",
         "order": 1
