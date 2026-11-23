@@ -43,7 +43,11 @@ import {
   type PersistedCanonicalEventV1,
   type DocumentState,
 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
-import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
+import {
+  canonicalEventSchemas,
+  isUnknownForwardCanonicalEventType,
+  serializeCanonicalEventUnchecked,
+} from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { isDossierSynthesisEvent } from "@harness-anything/kernel/internal/domain/dossier-synthesis-event.ts";
 import { isEntityDocumentEvent } from "@harness-anything/kernel/internal/domain/entity-document-event.ts";
 import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
@@ -69,7 +73,6 @@ import {
   entityOwnedDocumentClaims,
 } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
 import { canonicalDocumentRetirements } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
-import { interpretEntityValue } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
 import { interpretReplayDeclaration } from "./entity-declaration-replay.ts";
 import {
   isTaskBootstrapEvent,
@@ -87,6 +90,7 @@ import {
   projectScheduleHistory,
   scheduleDefinition,
   validateScheduleDefinitionV1,
+  type ScheduleV1,
 } from "@harness-anything/kernel/internal/domain/schedule.ts";
 import { lifecycleDocumentPaths } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -213,6 +217,24 @@ function applyEventProjection(
   event = normalizeHistoricalEvent(event);
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
+  // Preserve future schemas and event types in the generic index while leaving
+  // specialized projections at the last shape this edge understands.
+  if (
+    !canonicalEventSchemas.some((candidate) => candidate.schema === event.schema) ||
+    isUnknownForwardCanonicalEventType(event)
+  ) {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
+      event.opId,
+      event.workspaceRevision,
+      typeof (event as { readonly taskId?: unknown }).taskId === "string"
+        ? (event as { readonly taskId: string }).taskId
+        : null,
+      eventJson,
+    );
+    return;
+  }
   projectDispatchLifecycleEvent(db, event);
   projectInboxEvent(db, event);
   projectPeerRequestEvent(db, event);
@@ -294,10 +316,23 @@ function applyEventProjection(
       return;
     }
     if (event.type === "entity_reference_declared") {
-      const contract = contractForDeclarationEvent(event),
-        entity = interpretEntityValue(contract, event.payload.descriptor),
-        contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
-      if (contractErrors.length) throw new Error(contractErrors.join("; "));
+      const interpreted = interpretReplayDeclaration(
+        () => contractForDeclarationEvent(event),
+        event.payload.descriptor,
+        event.payload.entityId,
+      );
+      if (interpreted === null) {
+        markUninterpretableEntityDeclaration(
+          db,
+          event,
+          eventJson,
+          String(event.payload.entityKind),
+          event.payload.entityId,
+          event.payload.descriptor,
+        );
+        return;
+      }
+      const { contract, entity } = interpreted;
       if (entity.id !== event.payload.entityId) throw new Error("entity reference identity mismatch");
       insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
       projectInterpretedEntityValue(
@@ -359,14 +394,24 @@ function applyEventProjection(
       policyId: claim.policyId,
       workspaceRevision: event.workspaceRevision,
     };
-    const contract = contractForDeclarationEvent(event);
-    const entity = interpretReplayDeclaration(contract, value, event.payload.entityId);
-    if (entity === null) {
-      insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
+    const interpreted = interpretReplayDeclaration(
+      () => contractForDeclarationEvent(event),
+      value,
+      event.payload.entityId,
+    );
+    if (interpreted === null) {
+      markUninterpretableEntityDeclaration(
+        db,
+        event,
+        eventJson,
+        String(event.payload.entityKind),
+        event.payload.entityId,
+        value,
+      );
       upsertDocument(db, document);
-      markEntityProjectionUninterpretable(db, contract.kind, event.payload.entityId, event.workspaceRevision, value);
       return;
     }
+    const { contract, entity } = interpreted;
     insertEventIndexRow(db, event.opId, event.workspaceRevision, null, eventJson, event);
     upsertDocument(db, document);
     projectInterpretedEntityValue(
@@ -402,9 +447,11 @@ function applyEventProjection(
         throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
       }
       value = projectScheduleHistory(value);
+      const documentDefinition = projectScheduleHistory(scheduleDefinition(value as ScheduleV1)),
+        eventDefinition = projectScheduleHistory(scheduleDefinition(event.payload.schedule));
       if (
-        validateScheduleDefinitionV1(value).length > 0 ||
-        canonicalJson(value) !== canonicalJson(projectScheduleHistory(scheduleDefinition(event.payload.schedule)))
+        validateScheduleDefinitionV1(value, true).length > 0 ||
+        !replayShapeMatches(eventDefinition, documentDefinition)
       )
         throw new Error(`schedule definition blob ${claim.sha256} does not match the event definition facet`);
       const document: DocumentState = {
@@ -686,7 +733,7 @@ function applyEventProjection(
           : {}),
       },
       currentShape = { ...baseTask, ...changed };
-    if (canonicalJson(currentShape) !== canonicalJson(currentTaskForWrite(upgradedTask)))
+    if (!replayShapeMatches(currentShape, currentTaskForWrite(upgradedTask)))
       throw new Error(`preset snapshot upgrade changed immutable task fields for ${event.taskId}`);
     const contractBody = new TextDecoder("utf-8", { fatal: true }).decode(contractBytes),
       contract = event.payload.taskContractClaim,
@@ -789,6 +836,24 @@ function applyEventProjection(
   }
   if (event.schema === "execution-delegation-event/v1") return;
   applyTaskEvent(db, event, eventJson, readBlob);
+}
+
+function markUninterpretableEntityDeclaration(
+  db: DatabaseSync,
+  event: Pick<PersistedCanonicalEventV1, "opId" | "workspaceRevision">,
+  eventJson: string,
+  entityKind: string,
+  entityId: string,
+  value: unknown,
+): void {
+  runSql(
+    db,
+    "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+    event.opId,
+    event.workspaceRevision,
+    eventJson,
+  );
+  markEntityProjectionUninterpretable(db, entityKind, entityId, event.workspaceRevision, value);
 }
 
 // Lifecycle task-event reduction, document claims, and materialized task rows.
@@ -1236,8 +1301,25 @@ function persistedEventJson(event: PersistedCanonicalEventV1): string {
   return (
     hasRetiredCloseoutOverride(event)
       ? serializeCanonicalEventUnchecked(event)
-      : serializePersistedCanonicalEvent(event)
+      : serializePersistedCanonicalEvent(event, { allowUnknownForwardFields: true })
   ).trimEnd();
+}
+
+function replayShapeMatches(expected: unknown, actual: unknown): boolean {
+  if (Array.isArray(expected))
+    return (
+      Array.isArray(actual) &&
+      expected.length === actual.length &&
+      expected.every((entry, index) => replayShapeMatches(entry, actual[index]))
+    );
+  if (isRecord(expected))
+    return (
+      isRecord(actual) &&
+      Object.entries(expected).every(
+        ([field, value]) => Object.hasOwn(actual, field) && replayShapeMatches(value, actual[field]),
+      )
+    );
+  return expected === actual;
 }
 
 function drainDeferred(

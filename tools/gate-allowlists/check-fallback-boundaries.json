@@ -3,6 +3,12 @@
   "gateId": "check-fallback-boundaries",
   "baseline": "Existing CH4 fallback exits are ratcheted here. W2 removes the old socket reconnect catch under dec_89D06D7360CBEC09795F7B12EC/CH3.",
   "rationales": {
+    "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload": {
+      "task": "task_6bd384286e852d9ed8474f9dce",
+      "decision": "dec_7E44897ECDCAEF2B92EC66A260",
+      "errors": "Invalid persisted entity declaration claim path",
+      "reason": "The catch converts the path normalizer's known invalid-input error into the codec's validation result. Replay still rejects the malformed claim, and current-write admission remains closed to unknown kinds and fields."
+    },
     "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit": {
       "task": "task_0e1d9f41b62c51a1f78809f6d9",
       "decision": "dec_13B7B846B56BFA192533011B91",
@@ -115,6 +121,12 @@
       "decision": "dec_04A9211B073F29F0FC1E1CA573",
       "errors": "canonical append/reject/prune failures serialized to the waiting host with original name/message/code",
       "reason": "The dedicated commit Worker returns a typed failed response and wakes the caller; it never substitutes a successful result. Two publisher catch-and-continue sites were removed in this slice."
+    },
+    "packages/storage/src/projection/rebuildable-task-projection-event-application.ts#applyEventProjection": {
+      "task": "task_6bd384286e852d9ed8474f9dce",
+      "decision": "dec_659E15CFEC2FD7E254BE02EB89",
+      "errors": "edge replay does not recognize a future entity kind or entity schema",
+      "reason": "After the persisted event envelope and content claims have been validated, an unrecognized entity kind or newer entity schema is retained in event_index and document storage and marked uninterpretable instead of stopping replication. This only affects the replay projection path."
     }
   },
   "packages/daemon/src/daemon-host/task-worktree.ts#prepareTaskStartWorktree": {
@@ -125,6 +137,7 @@
   },
   "entries": {
     "consumeKnownError": [
+      "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload",
       "packages/application/src/commands/decision-surface-actions.ts#jsonEqual",
       "packages/application/src/commands/decision-surface-actions.ts#jsonObject",
       "packages/application/src/commands/decision-surface-actions.ts#unquoteDecisionScalar",

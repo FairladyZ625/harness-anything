@@ -8,22 +8,18 @@ import { FleetVersionWarningBanner } from "../src/renderer/components/FleetVersi
 const roots: HTMLElement[] = [];
 afterEach(() => roots.splice(0).forEach((host) => host.remove()));
 
-it("shows both build identities and the upgrade command at the shared GUI shell boundary", () => {
+it("shows an upgrade banner only when the fleet requires an incompatible-version upgrade", () => {
   const host = document.createElement("div");
+  const root = createRoot(host);
   document.body.append(host);
   roots.push(host);
   act(() => {
-    createRoot(host).render(
-      <FleetVersionWarningBanner
-        warning={{
-          centerBuildCommit: "center-build",
-          localBuildCommit: "edge-build",
-          upgradeCommand: "git pull --ff-only, then build CLI and daemon",
-        }}
-      />,
-    );
+    root.render(<FleetVersionWarningBanner upgradeRequired={false} />);
   });
-  expect(host.textContent).toContain("center-build");
-  expect(host.textContent).toContain("edge-build");
+  expect(host.textContent).toBe("");
+  act(() => {
+    root.render(<FleetVersionWarningBanner upgradeRequired={true} />);
+  });
+  expect(host.textContent).toContain("Fleet protocol or event shape is incompatible");
   expect(host.textContent).toContain("git pull --ff-only, then build CLI and daemon");
 });

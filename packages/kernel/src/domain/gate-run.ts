@@ -1,6 +1,6 @@
 import { validateActorAxes, type ActorAxes } from "./task.ts";
 import { timestamp } from "./timestamp.ts";
-import { isNonEmptyString, isRecord, hasOnlyFields } from "./contract-validation.ts";
+import { isNonEmptyString, isRecord, hasOnlyFields, hasRequiredFields } from "./contract-validation.ts";
 import type { ArtifactDelivery, ExecutionV1 } from "./execution.ts";
 import { submissionDigest } from "./submission-digest.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
@@ -37,16 +37,25 @@ export interface CompletionWitnessResult {
   readonly predicate: Readonly<Record<string, unknown>>;
   readonly diagnostic: string;
 }
-export function validCompletionWitnessResult(value: unknown): value is CompletionWitnessResult {
+export function validCompletionWitnessResult(
+  value: unknown,
+  allowUnknownFields = false,
+): value is CompletionWitnessResult {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, ["result", "subjects", "predicateType", "predicate", "diagnostic"]) &&
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
+      "result",
+      "subjects",
+      "predicateType",
+      "predicate",
+      "diagnostic",
+    ]) &&
     (value.result === "pass" || value.result === "fail") &&
     Array.isArray(value.subjects) &&
     value.subjects.every(
       (subject) =>
         isRecord(subject) &&
-        hasOnlyFields(subject, ["path", "revision", "blobSha256"]) &&
+        (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(subject, ["path", "revision", "blobSha256"]) &&
         isNonEmptyString(subject.path) &&
         Number.isSafeInteger(subject.revision) &&
         Number(subject.revision) > 0 &&
@@ -151,10 +160,10 @@ export function gateRunError(code: string, message: string): Error & { readonly 
   return Object.assign(new Error(message), { code });
 }
 
-export function validGateRun(value: unknown): value is GateRun {
+export function validGateRun(value: unknown, allowUnknownFields = false): value is GateRun {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, [
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       "runId",
       "claimFence",
       "repoId",
@@ -183,7 +192,7 @@ export function validGateRun(value: unknown): value is GateRun {
     Number(value.iteration) >= 0 &&
     typeof value.submissionDigest === "string" &&
     /^sha256:[a-f0-9]{64}$/u.test(value.submissionDigest) &&
-    validateActorAxes(value.actor).length === 0 &&
+    validateActorAxes(value.actor, allowUnknownFields).length === 0 &&
     timestamp(value.claimedAt) &&
     timestamp(value.expiresAt) &&
     Date.parse(String(value.expiresAt)) > Date.parse(String(value.claimedAt)) &&

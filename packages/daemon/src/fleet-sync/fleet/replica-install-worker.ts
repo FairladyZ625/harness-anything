@@ -7,7 +7,7 @@ import * as tar from "tar";
 import {
   BASE_BACKUP_ARCHIVE_ROOT,
   hydrateReplicaSeed,
-  makeTaskProjectionReader,
+  openReplicaProjection,
   openSqliteEventStore,
   syncDirectory,
   syncFile,
@@ -243,9 +243,21 @@ async function runInstall(input: ReplicaInstallWorkerInput): Promise<void> {
         ) {
           throw new NonResumableInstallError("base backup position differs from offer");
         }
-        const projection = makeTaskProjectionReader({ rootDir: temporary, projectionPath: stagedProjection });
+        // A center may ship a cache from a newer read-schema generation. The ledger in
+        // the same backup is authoritative, so discard that cache through the normal
+        // replay path and rebuild it using this edge's projection schema.
+        const projection = openReplicaProjection({
+          repoId: input.metadata.repoId,
+          rootDir: temporary,
+          ledgerPath: stagedLedger,
+          projectionPath: stagedProjection,
+          generation: 3,
+        });
         try {
-          if (projection.withSession((queries) => queries.readCut().watermark) !== position.revision) {
+          if (projection.projection.catchUpAsync === undefined)
+            throw new NonResumableInstallError("projection catch-up unavailable");
+          await projection.projection.catchUpAsync();
+          if (projection.projection.readCut().watermark !== position.revision) {
             throw new NonResumableInstallError("base backup projection position differs");
           }
         } finally {

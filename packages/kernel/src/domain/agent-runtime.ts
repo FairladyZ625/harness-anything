@@ -653,12 +653,12 @@ function validateAgentRuntimePayloadFields(
   allowUnknownFields: boolean,
 ): readonly string[] {
   if (type === "runtime_squad_run_observed")
-    return validSquadRunObservation(value) ? [] : ["Squad run observation is invalid"];
+    return validSquadRunObservation(value, allowUnknownFields) ? [] : ["Squad run observation is invalid"];
   if (
     type === "runtime_dispatch_requested" &&
     isRecord(value) &&
     value.squadRun !== undefined &&
-    !validSquadDispatchContext(value.squadRun)
+    !validSquadDispatchContext(value.squadRun, allowUnknownFields)
   )
     return ["Squad dispatch context is invalid"];
   const historicalDispatchKey =

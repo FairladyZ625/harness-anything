@@ -44,11 +44,12 @@ export function renderDaemonFleetStatus(result: JsonObject): string {
     `fleet overview repo=${overview.repoId} mode=${overview.mode} generated=${overview.generatedAt}`,
     `center daemon=${overview.center.daemonId} version=${overview.center.version} commit=${overview.center.commitSha ?? "unknown"} started=${overview.center.startedAt} revision=${overview.centerRevision ?? "unavailable"}`,
   ];
-  if (overview.versionWarning)
-    lines.push(
-      `WARNING version mismatch center=${overview.versionWarning.centerBuildCommit} local=${overview.versionWarning.localBuildCommit}; upgrade with ${overview.versionWarning.upgradeCommand}`,
-    );
   for (const node of overview.nodes) lines.push(...renderNodeLines(node, overview.center));
+  if (overview.nodes.some((node) => needsFleetUpgrade(node.lastFailure)))
+    lines.push(
+      "",
+      "WARNING Fleet protocol or event shape is incompatible. Upgrade the edge and center with git pull --ff-only, then build CLI and daemon.",
+    );
   lines.push("", `links ${overview.links.length}`);
   for (const link of overview.links)
     lines.push(
@@ -63,6 +64,10 @@ export function renderDaemonFleetStatus(result: JsonObject): string {
   if (overview.notes.length > 0) lines.push("", `notes ${overview.notes.join(" | ")}`);
   if (overview.warnings.length > 0) lines.push("", `warnings ${overview.warnings.join(" | ")}`);
   return lines.join("\n");
+}
+
+function needsFleetUpgrade(failure: FleetNode["lastFailure"]): boolean {
+  return failure.kind === "value" && /^(?:edge_upgrade_required|protocol_version_unsupported)\s/u.test(failure.text);
 }
 
 // One node block: identity, build, online, what it holds now, sync progress, watch, last failure.

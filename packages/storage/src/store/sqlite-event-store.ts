@@ -44,6 +44,7 @@ import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/cano
 import path from "node:path";
 import { readGenerationThreeActivationAtPath, selectGenerationThree } from "./generation-three-selection.ts";
 import { DatabaseSync } from "node:sqlite";
+import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import {
   serializeCanonicalEventUnchecked,
   serializePersistedCanonicalEvent,
@@ -388,8 +389,17 @@ function openSqliteEventStoreInternal(
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
   const appendCommand = (
     input: Parameters<SqliteEventStore["appendCommand"]>[0],
-    eventBytes = input.events.map(serializePersistedCanonicalEvent),
+    eventBytes: readonly string[] = input.events.map((event) => serializePersistedCanonicalEvent(event)),
   ): SqliteCommandOutcome => {
+    if (eventBytes.length !== input.events.length)
+      throw new TaskEventStoreError("invalid_write_plan", "imported event bytes must match the event count");
+    for (const [index, event] of input.events.entries()) {
+      const bytes = eventBytes[index]!;
+      if (serializeCanonicalEventUnchecked(event) === bytes) continue;
+      const parsed = parseCanonicalEvent(bytes, { allowUnknownForwardFields: true });
+      if (serializeCanonicalEventUnchecked(parsed) !== bytes || serializeCanonicalEventUnchecked(event) !== bytes)
+        throw new TaskEventStoreError("invalid_write_plan", "imported event bytes do not match the supplied event");
+    }
     if ((options.conversionSourceGeneration !== undefined) !== (input.historicalRecord !== undefined))
       throw new TaskEventStoreError("invalid_write_plan", "historical timestamps require an offline conversion writer");
     if (

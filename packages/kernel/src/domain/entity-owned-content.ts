@@ -1,6 +1,6 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { RAW_ARTIFACT_MAX_BYTES } from "./artifact-text-classification.ts";
-import { hasOnlyFields, isRecord, normalizeContentAddressedInputs } from "./write-chain.contract.ts";
+import { hasOnlyFields, hasRequiredFields, isRecord, normalizeContentAddressedInputs } from "./write-chain.contract.ts";
 
 export const ENTITY_OWNED_CONTENT_SCHEMA = "entity-owned-content/v1";
 /** The content-object ceiling (`RAW_ARTIFACT_MAX_BYTES`), single-sourced from the artifact classification. */
@@ -121,10 +121,10 @@ export function createEntityOwnedContent(input: {
   });
 }
 
-export function validateEntityOwnedContent(value: unknown): readonly string[] {
+export function validateEntityOwnedContent(value: unknown, allowUnknownFields = false): readonly string[] {
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, [
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       "schema",
       "ownerRef",
       "schemaId",
@@ -154,10 +154,12 @@ export function validateEntityOwnedContent(value: unknown): readonly string[] {
     directories = value.directories as unknown[],
     retirements = value.retirements as unknown[],
     directoryRetirements = value.directoryRetirements as unknown[],
-    contentErrors = content.flatMap(validateContentObject),
-    bindingErrors = bindings.flatMap(validateBinding),
-    directoryErrors = [...directories, ...directoryRetirements].flatMap(validateDirectory),
-    retirementErrors = retirements.flatMap(validateRetirement);
+    contentErrors = content.flatMap((entry) => validateContentObject(entry, allowUnknownFields)),
+    bindingErrors = bindings.flatMap((entry) => validateBinding(entry, allowUnknownFields)),
+    directoryErrors = [...directories, ...directoryRetirements].flatMap((entry) =>
+      validateDirectory(entry, allowUnknownFields),
+    ),
+    retirementErrors = retirements.flatMap((entry) => validateRetirement(entry, allowUnknownFields));
   if (contentErrors.length || bindingErrors.length || directoryErrors.length || retirementErrors.length)
     return [...contentErrors, ...bindingErrors, ...directoryErrors, ...retirementErrors];
   const contentRefs = content as unknown as readonly EntityContentObjectRef[],
@@ -267,9 +269,9 @@ export function entityOwnedDocumentClaims(manifest: EntityOwnedContentV1): reado
   });
 }
 
-function validateContentObject(value: unknown): readonly string[] {
+function validateContentObject(value: unknown, allowUnknownFields = false): readonly string[] {
   return isRecord(value) &&
-    hasOnlyFields(value, ["sha256", "byteLength", "mediaType"]) &&
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["sha256", "byteLength", "mediaType"]) &&
     typeof value.sha256 === "string" &&
     /^[0-9a-f]{64}$/u.test(value.sha256) &&
     Number.isSafeInteger(value.byteLength) &&
@@ -281,10 +283,10 @@ function validateContentObject(value: unknown): readonly string[] {
     : ["entity content object reference is invalid"];
 }
 
-function validateBinding(value: unknown): readonly string[] {
+function validateBinding(value: unknown, allowUnknownFields = false): readonly string[] {
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, ["path", "contentSha256", "policyId"]) ||
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["path", "contentSha256", "policyId"]) ||
     typeof value.path !== "string" ||
     typeof value.contentSha256 !== "string" ||
     !/^[0-9a-f]{64}$/u.test(value.contentSha256) ||
@@ -301,8 +303,12 @@ function validateBinding(value: unknown): readonly string[] {
   }
 }
 
-function validateDirectory(value: unknown): readonly string[] {
-  if (!isRecord(value) || !hasOnlyFields(value, ["path"]) || typeof value.path !== "string")
+function validateDirectory(value: unknown, allowUnknownFields = false): readonly string[] {
+  if (
+    !isRecord(value) ||
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["path"]) ||
+    typeof value.path !== "string"
+  )
     return ["entity content directory is invalid"];
   try {
     return normalizeRelativeDocumentPath(value.path) === value.path
@@ -313,10 +319,10 @@ function validateDirectory(value: unknown): readonly string[] {
   }
 }
 
-function validateRetirement(value: unknown): readonly string[] {
+function validateRetirement(value: unknown, allowUnknownFields = false): readonly string[] {
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, ["path", "baseBlobSha256"]) ||
+    !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["path", "baseBlobSha256"]) ||
     typeof value.path !== "string" ||
     typeof value.baseBlobSha256 !== "string" ||
     !/^[0-9a-f]{64}$/u.test(value.baseBlobSha256)

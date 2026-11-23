@@ -490,7 +490,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     // Retired envelopes stay readable history; current admission rejects assignment envelopes
     // even though their names remain in the v1 compatibility type list.
     !(allowUnknownFields
-      ? taskEventTypes.includes(value.type as TaskEventType) || isRetiredCodeDocEventType(String(value.type))
+      ? isNonEmptyString(value.type)
       : taskEventTypes.includes(value.type as TaskEventType) &&
         !(retiredTaskAssignmentEventTypes as readonly string[]).includes(String(value.type)))
   )
@@ -528,6 +528,12 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
         : []),
     ],
     claims = payload.documentClaims;
+  if (
+    allowUnknownFields &&
+    !taskEventTypes.includes(value.type as TaskEventType) &&
+    !isRetiredCodeDocEventType(String(value.type))
+  )
+    return issues;
   const claimlessFields =
     value.type === "task_created"
       ? ["task"]
@@ -561,7 +567,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       payload.execution !== undefined ||
       payload.externalResolution !== undefined ||
       !isRecord(resolution) ||
-      !hasOnlyFields(resolution, ["sourceTaskId", "rationale", "factRef"]) ||
+      !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(resolution, ["sourceTaskId", "rationale", "factRef"]) ||
       !isNonEmptyString(resolution.sourceTaskId) ||
       resolution.sourceTaskId === value.taskId ||
       !isNonEmptyString(resolution.rationale) ||
@@ -578,7 +584,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       payload.execution !== undefined ||
       payload.siblingResolution !== undefined ||
       !isRecord(resolution) ||
-      !hasOnlyFields(resolution, ["commitSha", "rationale", "factRef"]) ||
+      !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(resolution, ["commitSha", "rationale", "factRef"]) ||
       !isNativeCommitSha(resolution.commitSha) ||
       !isNonEmptyString(resolution.rationale) ||
       !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(resolution.factRef))

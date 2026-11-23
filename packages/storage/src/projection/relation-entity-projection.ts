@@ -12,7 +12,6 @@ import {
   entityKindContracts,
   type EntityKindContract,
 } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
-import { interpretEmbeddedEntityProjections } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
 import {
   relationFreshnessAnchorForType,
   relationOwnerRef,
@@ -32,6 +31,7 @@ import type { VersionedRelationProjectionRow } from "@harness-anything/kernel";
 export type { VersionedRelationProjectionRow } from "@harness-anything/kernel";
 import { canonicalJson, projectionTables, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
+import { interpretEmbeddedReplayProjections } from "./entity-declaration-replay.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
 import { isRelationFreshness, relationFreshnessColumns } from "./relation-freshness-columns.ts";
 import {
@@ -182,8 +182,9 @@ export function derivedRelationRecordsForReplay(event: PersistedCanonicalEventV1
   // regardless of schema match, so replay keeps rejecting a malformed payload outright.
   if (typeof event.payload !== "object" || event.payload === null || Array.isArray(event.payload))
     throw new Error(`${event.schema}/${event.type} payload must be an object`);
-  for (const contract of embeddedProjectionContractsBySchema.get(event.schema) ?? [])
-    for (const projection of interpretEmbeddedEntityProjections(contract, event))
+  for (const contract of embeddedProjectionContractsBySchema.get(event.schema) ?? []) {
+    const projections = interpretEmbeddedReplayProjections(contract, event);
+    for (const projection of projections)
       for (const relation of projection.relations) {
         const record = {
           relation_id: relation.relationId,
@@ -198,6 +199,7 @@ export function derivedRelationRecordsForReplay(event: PersistedCanonicalEventV1
         } as EntityRelationRecord;
         records.push(record);
       }
+  }
   return records;
 }
 

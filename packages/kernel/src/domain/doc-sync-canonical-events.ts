@@ -2,15 +2,16 @@ import {
   validateExecutionDelegationEvent,
   validateCurrentExecutionDelegationEvent,
 } from "./execution-delegation-event.ts";
-import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
+import { isEntityEventEnvelope, validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
 import { validateCurrentEntityPinEvent, validateEntityPinEvent } from "./entity-pin-event.ts";
 import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./agent-runtime.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
+import { decisionEventTypes } from "./decision-event-types.ts";
 import type { CanonicalEventV1, DocEventV1, PersistedCanonicalEventV1 } from "./doc-sync-types.ts";
 import { validateCurrentDocEvent } from "./doc-sync-validation.ts";
 import { validateCurrentDossierSynthesisEvent, validateDossierSynthesisEvent } from "./dossier-synthesis-event.ts";
 import { validateCurrentEntityDocumentEvent, validateEntityDocumentEvent } from "./entity-document-event.ts";
-import { validateCurrentFactEvent, validateFactEvent } from "./fact-event.ts";
+import { factEventTypes, validateCurrentFactEvent, validateFactEvent } from "./fact-event.ts";
 import {
   validateCurrentLedgerLayoutMigrationEvent,
   validateLedgerLayoutMigrationEvent,
@@ -27,16 +28,23 @@ import {
   validatePresetSnapshotUpgradeEvent,
 } from "./preset-snapshot-upgrade-event.ts";
 import { validateCurrentTaskBootstrapEvent, validateTaskBootstrapEvent } from "./task-bootstrap-event.ts";
-import { validateCurrentTaskEvent, validateTaskEvent, type TaskEventV1 } from "./task-lifecycle-event.ts";
+import {
+  taskEventTypes,
+  validateCurrentTaskEvent,
+  validateTaskEvent,
+  type TaskEventV1,
+} from "./task-lifecycle-event.ts";
 import { validateCurrentTaskProgressEvent, validateTaskProgressEvent } from "./task-progress-event.ts";
 import { validateCurrentScheduleEvent, validateScheduleEvent } from "./schedule-event.ts";
+import { scheduleEventTypes } from "./schedule.ts";
 import { validateCurrentSettingsEvent, validateSettingsEvent } from "./settings-event.ts";
 import { validateCurrentVerticalDeclarationEvent, validateVerticalDeclarationEvent } from "./vertical-declaration.ts";
 import { validateRetiredPeopleEvent } from "./people-event.ts";
 import { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
-import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
+import { relationEventTypes, validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
 import { validateCurrentPeerRequestEvent, validatePeerRequestEvent } from "./peer-collaboration.ts";
-import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
+import { isRetiredCodeDocEventType } from "./code-doc-retirement.ts";
+import { canonicalizeWriteValue, isRecord, validateEventEnvelopeIdentity } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
 
 export interface CanonicalEventSchemaRegistration {
@@ -203,15 +211,62 @@ export function serializeCanonicalEvent(event: CanonicalEventV1): string {
   return serializeCanonicalEventUnchecked(event);
 }
 
-export function serializePersistedCanonicalEvent(event: PersistedCanonicalEventV1): string {
+export interface PersistedCanonicalEventCodecOptions {
+  /** Replay may retain a future schema/type after checking its canonical envelope bytes. */
+  readonly allowUnknownForwardFields?: boolean;
+}
+
+/** Returns true only when a registered event schema has a type this runtime does not recognize. */
+export function isUnknownForwardCanonicalEventType(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.schema !== "string" || typeof value.type !== "string") return false;
+  switch (value.schema) {
+    case "task-event/v1":
+      return !taskEventTypes.includes(value.type as never) && !isRetiredCodeDocEventType(value.type);
+    case "entity-event/v1":
+    case "agent-entity-event/v1":
+      return !isEntityEventEnvelope(value.schema, value.type);
+    case "fact-event/v1":
+      return !factEventTypes.includes(value.type as never);
+    case "decision-event/v1":
+      return !decisionEventTypes.includes(value.type as never);
+    case "relation-event/v1":
+      return !relationEventTypes.includes(value.type as never);
+    case "schedule-event/v1":
+      return !scheduleEventTypes.includes(value.type as never);
+    case "migration-import-event/v1":
+      return value.type !== "entity_migrated";
+    default:
+      // Keep events for registered schemas on their existing projection paths unless
+      // this runtime has an explicit discriminant set for forward-type detection.
+      return !canonicalEventSchemas.some((candidate) => candidate.schema === value.schema);
+  }
+}
+
+function forwardUnknownTypeEnvelopeErrors(value: unknown): readonly string[] {
+  const errors = [...validateEventEnvelopeIdentity(value, true)];
+  if (!isRecord(value) || !isRecord(value.payload)) errors.push("canonical event payload is invalid");
+  return errors;
+}
+
+export function serializePersistedCanonicalEvent(
+  event: PersistedCanonicalEventV1,
+  options: PersistedCanonicalEventCodecOptions = {},
+): string {
   const normalized = normalizePersistedCanonicalEvent(event),
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
-    errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
+    schemaErrors = entry?.validate(normalized) ?? ["canonical event schema is unknown"],
+    errors =
+      options.allowUnknownForwardFields && (entry === undefined || isUnknownForwardCanonicalEventType(normalized))
+        ? forwardUnknownTypeEnvelopeErrors(normalized)
+        : schemaErrors;
   if (errors.length) throw new Error(errors.join("; "));
   return serializeCanonicalEventUnchecked(event);
 }
 
-export function parseCanonicalEvent(body: string): PersistedCanonicalEventV1 {
+export function parseCanonicalEvent(
+  body: string,
+  options: PersistedCanonicalEventCodecOptions = {},
+): PersistedCanonicalEventV1 {
   let value: unknown;
   try {
     value = JSON.parse(body);
@@ -222,7 +277,11 @@ export function parseCanonicalEvent(body: string): PersistedCanonicalEventV1 {
   const normalized = normalizePersistedCanonicalEvent(value as unknown as CanonicalEventV1),
     validationValue = normalizeHistoricalCloseoutOverrides(normalized),
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
-    errors = entry?.validate(validationValue) ?? ["canonical event schema is unknown"];
+    schemaErrors = entry?.validate(validationValue) ?? ["canonical event schema is unknown"],
+    errors =
+      options.allowUnknownForwardFields && (entry === undefined || isUnknownForwardCanonicalEventType(validationValue))
+        ? forwardUnknownTypeEnvelopeErrors(validationValue)
+        : schemaErrors;
   if (errors.length) throw new Error(errors.join("; "));
   if (serializeCanonicalEventUnchecked(value as unknown as CanonicalEventV1) !== body)
     throw new Error("canonical event bytes are not canonical");
