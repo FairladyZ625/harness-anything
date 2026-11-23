@@ -307,7 +307,7 @@ test("daemon source declarations preserve actual driver and business owners", ()
       "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.cancel",
     ],
     [
-      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:9030b04c8201332d5d65d14f2b188188",
+      "action:packages/daemon:packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch.prepareAndLaunch:4b54ec2a75952035e3a0282cfe320f28",
       "daemon-local-state",
       "daemon-local-state",
       "technical-port",
@@ -353,11 +353,11 @@ test("return continuation queue and automatic spawner use their actual technical
       "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
-      "dispatchContinuation.spawned:0945e48785ee4398118a84514b3a6fbf",
+      "dispatchContinuation.spawned:9cb520aac8933b24bb1792bc5d51de24",
       "packages/daemon/src/daemon-host/repo-cell-types.ts#RepoCellContinuationWrite",
     ],
     [
-      "dispatchContinuation.spawned:004f209ef618210157675205bc97597d",
+      "dispatchContinuation.spawned:983a02c53d7aa315476de449a27af309",
       "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn",
     ],
   ];
