@@ -1,10 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { openReplicationSlots, type BaseBackupMetadata, type ReplicationPosition } from "@harness-anything/storage";
 import {
   REPLICATION_BINARY_CHUNK_BYTES,
@@ -93,7 +94,7 @@ function createWirePeerPair(onEdgeToCenter?: (frame: ReplicationFrame) => void):
 
 test("withEdgeReadModel exposes replica_syncing with structured progress only during active healthy bootstrap", (t) => {
   const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-sync-read-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(viewRoot));
   const repoId = "repo-sync";
   const nodeId = "edge-air";
   const viewDir = path.join(viewRoot, "repos", repoId, "views", nodeId);
@@ -179,7 +180,7 @@ test("withEdgeReadModel exposes replica_syncing with structured progress only du
 
 test("walreceiver publishes basebackup, installing, and projecting progress into replica-health.json and clears on ack", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-wal-progress-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => removeTempRepository(root));
 
   const archiveDir = path.join(root, "center-archive");
   mkdirSync(archiveDir, { recursive: true });
