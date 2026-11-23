@@ -351,7 +351,7 @@
         "explain": "Local daemon process autostart and socket-readiness probe verifying lock/socket reachability before spawning or attaching a local daemon instance.",
         "sources": [
           {
-            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/client/daemon-autostart.ts#ensureLocalDaemonRunning:50ccf67852a2f4a140798761ffcbb72a",
+            "candidateId": "judgment:packages/daemon:packages/daemon/src/daemon-host/client/daemon-autostart.ts#ensureLocalDaemonRunning:527a8933b32a569ca16c27a75fa468d9",
             "route": "packages/daemon/src/daemon-host/client/daemon-autostart.ts#ensureLocalDaemonRunning"
           }
         ],

@@ -213,19 +213,107 @@ export function daemonServiceCommands(
     state: ["launchctl", "print", job],
   };
 }
+export interface DaemonServiceCommandOptions {
+  readonly runner?: typeof runProcessExitAsync;
+  readonly maxAttempts?: number;
+  readonly baseDelayMs?: number;
+  readonly minWindowsTimeoutMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly random?: () => number;
+}
+
+const PERMANENT_SPAWN_ERROR_CODES = new Set(["ENOENT", "EACCES", "EPERM"]);
+
+function isWindowsTaskSchedulerCommand(command: DaemonServiceCommand): boolean {
+  return command[0].toLowerCase() === "powershell.exe";
+}
+
+function truncateDiagnostic(value: string, limit: number): string {
+  const trimmed = value.trim();
+  if (trimmed.length <= limit) return trimmed;
+  return `${trimmed.slice(0, limit)}... [truncated ${trimmed.length - limit} chars]`;
+}
+
+function formatServiceCommandFailure(
+  command: DaemonServiceCommand,
+  failure: {
+    readonly exitCode?: number | null;
+    readonly code?: string | null;
+    readonly killed?: boolean;
+    readonly signal?: string | null;
+    readonly stderr?: string;
+    readonly stdout?: string;
+    readonly message?: string;
+  },
+  runCount: number,
+  multiRun: boolean,
+): Error {
+  const clientPolicy = daemonProtocolFleetPolicy.defaultValue.client;
+  const label = isWindowsTaskSchedulerCommand(command) ? "powershell.exe (Schedule.Service)" : command.join(" ");
+  const details: string[] = [];
+  if (typeof failure.exitCode === "number") details.push(`exitCode=${failure.exitCode}`);
+  if (typeof failure.code === "string" && failure.code.length > 0) details.push(`code=${failure.code}`);
+  if (failure.killed === true) details.push("killed=true");
+  if (typeof failure.signal === "string" && failure.signal.length > 0) details.push(`signal=${failure.signal}`);
+  if (multiRun) details.push(`attempts=${runCount}`);
+  const stderr = failure.stderr ? truncateDiagnostic(failure.stderr, clientPolicy.serviceDiagnosticStderrLimit) : "";
+  const stdout = failure.stdout ? truncateDiagnostic(failure.stdout, clientPolicy.serviceDiagnosticStdoutLimit) : "";
+  const summary = details.length > 0 ? `${label} failed (${details.join(", ")})` : `${label} failed`;
+  const sections = [summary];
+  if (stderr) sections.push(`stderr: ${stderr}`);
+  if (stdout) sections.push(`stdout: ${stdout}`);
+  if (!stderr && !stdout && failure.message)
+    sections.push(truncateDiagnostic(failure.message, clientPolicy.serviceDiagnosticStderrLimit));
+  const error = new Error(sections.join(" | "));
+  if (typeof failure.code === "string" && failure.code.length > 0)
+    (error as Error & { code?: string }).code = failure.code;
+  return error;
+}
+
+function extractProcessErrorDetails(error: unknown): {
+  readonly exitCode: number | null;
+  readonly code: string | null;
+  readonly killed: boolean;
+  readonly signal: string | null;
+  readonly stderr: string;
+  readonly stdout: string;
+  readonly message: string;
+} {
+  const record = (typeof error === "object" && error !== null ? error : {}) as {
+    readonly code?: unknown;
+    readonly status?: unknown;
+    readonly killed?: unknown;
+    readonly signal?: unknown;
+    readonly stderr?: unknown;
+    readonly stdout?: unknown;
+    readonly message?: unknown;
+  };
+  return {
+    exitCode: typeof record.status === "number" ? record.status : typeof record.code === "number" ? record.code : null,
+    code: typeof record.code === "string" ? record.code : null,
+    killed: record.killed === true,
+    signal: typeof record.signal === "string" ? record.signal : null,
+    stderr: typeof record.stderr === "string" ? record.stderr : "",
+    stdout: typeof record.stdout === "string" ? record.stdout : "",
+    message: typeof record.message === "string" ? record.message : String(error),
+  };
+}
+
 // The pid is the service manager's own account of the process it started, which is what separates a
 // supervised daemon from one that merely holds the same socket.
 export function parseDaemonServiceState(
   manager: DaemonServiceManager,
-  result: { readonly exitCode: number; readonly stdout: string },
+  result: { readonly exitCode: number; readonly stdout: string; readonly stderr?: string },
 ): DaemonServiceState {
   const pidIn = (pattern: RegExp): number | null => {
     const pid = Number(pattern.exec(result.stdout)?.[1] ?? 0);
     return pid > 0 ? pid : null;
   };
   if (manager === "task-scheduler") {
-    if (result.exitCode !== 0)
-      throw new Error(`Task Scheduler state query exited ${result.exitCode}: ${result.stdout.trim()}`);
+    if (result.exitCode !== 0) {
+      const detail = result.stderr?.trim() || result.stdout.trim();
+      throw new Error(`Task Scheduler state query exited ${result.exitCode}: ${detail}`);
+    }
     return { loaded: /^loaded=true$/mu.test(result.stdout), pid: pidIn(/^pid=([0-9]+)$/mu) };
   }
   if (manager === "systemd")
@@ -237,20 +325,75 @@ export async function readDaemonServiceState(unit: DaemonServiceUnit): Promise<D
   const [command, ...args] = daemonServiceCommands(unit).state;
   return parseDaemonServiceState(unit.manager, await runProcessExitAsync(command, args));
 }
-export async function runDaemonServiceCommand(command: DaemonServiceCommand, timeoutMs?: number): Promise<void> {
-  const result = await runProcessExitAsync(
-    command[0],
-    command.slice(1),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    timeoutMs === undefined
-      ? {}
-      : { timeoutMs, timeoutSignal: daemonProtocolFleetPolicy.defaultValue.client.serviceTimeoutSignal },
-  );
-  if (result.exitCode !== 0)
-    throw new Error(`${command.join(" ")} exited ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim()}`);
+type ServiceCommandAttemptOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly transient: boolean; readonly failure: Error };
+
+async function executeServiceCommandOnce(
+  runner: typeof runProcessExitAsync,
+  command: DaemonServiceCommand,
+  effectiveTimeoutMs: number | undefined,
+  timeoutSignal: "SIGTERM" | "SIGKILL",
+  runCount: number,
+  multiRun: boolean,
+): Promise<ServiceCommandAttemptOutcome> {
+  try {
+    const result = await runner(
+      command[0],
+      command.slice(1),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      effectiveTimeoutMs === undefined ? {} : { timeoutMs: effectiveTimeoutMs, timeoutSignal },
+    );
+    if (result.exitCode === 0) return { ok: true };
+    const failure = formatServiceCommandFailure(
+      command,
+      { exitCode: result.exitCode, stderr: result.stderr, stdout: result.stdout },
+      runCount,
+      multiRun,
+    );
+    return { ok: false, transient: true, failure };
+  } catch (error) {
+    const details = extractProcessErrorDetails(error);
+    const failure = formatServiceCommandFailure(command, details, runCount, multiRun);
+    const transient = details.code === null || !PERMANENT_SPAWN_ERROR_CODES.has(details.code);
+    return { ok: false, transient, failure };
+  }
+}
+
+export async function runDaemonServiceCommand(
+  command: DaemonServiceCommand,
+  timeoutMs?: number,
+  options: DaemonServiceCommandOptions = {},
+): Promise<void> {
+  const clientPolicy = daemonProtocolFleetPolicy.defaultValue.client;
+  const isWindowsScheduler = isWindowsTaskSchedulerCommand(command);
+  const runner = options.runner ?? runProcessExitAsync;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const random = options.random ?? Math.random;
+  const maxRuns = isWindowsScheduler ? Math.max(1, options.maxAttempts ?? clientPolicy.windowsServiceMaxAttempts) : 1;
+  const baseDelayMs = options.baseDelayMs ?? clientPolicy.windowsServiceRetryBaseDelayMs;
+  const minWindowsTimeoutMs = options.minWindowsTimeoutMs ?? clientPolicy.windowsServiceMinTimeoutMs;
+  const effectiveTimeoutMs =
+    isWindowsScheduler && timeoutMs !== undefined ? Math.max(timeoutMs, minWindowsTimeoutMs) : timeoutMs;
+
+  for (let index = 0; index < maxRuns; index += 1) {
+    const runCount = index + 1;
+    const outcome = await executeServiceCommandOnce(
+      runner,
+      command,
+      effectiveTimeoutMs,
+      clientPolicy.serviceTimeoutSignal,
+      runCount,
+      index > 0,
+    );
+    if (outcome.ok) return;
+    if (!outcome.transient || runCount >= maxRuns) throw outcome.failure;
+    const jitterMs = Math.floor(random() * baseDelayMs);
+    await sleep(baseDelayMs * runCount + jitterMs);
+  }
 }
 export function startDaemonServiceUnit(unit: DaemonServiceUnit, timeoutMs: number): Promise<void> {
   return runDaemonServiceCommand(daemonServiceCommands(unit).start, timeoutMs);

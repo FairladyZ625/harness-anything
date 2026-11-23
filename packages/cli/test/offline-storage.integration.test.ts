@@ -14,6 +14,8 @@ import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { activateEmptyCanonicalGeneration, makeTaskEventStore } from "@harness-anything/storage";
 import { registerDaemonRepo } from "@harness-anything/storage";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/storage";
+import { readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
+import { waitForDaemonProcessExitSync } from "./daemon-cleanup.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const realm = await spawnKeycloak();
@@ -39,6 +41,13 @@ function invokeCliResult(argv: readonly string[], userRoot?: string) {
     encoding: "utf8",
     env: { ...process.env, ...(userRoot ? { HARNESS_DAEMON_USER_ROOT: userRoot } : {}) },
   });
+}
+function stopFixtureDaemon(userRoot: string): void {
+  const pid = readDaemonPid(userRoot, "default");
+  if (pid === null) return;
+  const stopped = invokeCliResult(["daemon", "stop", "--user-root", userRoot, "--daemon-id", "default"], userRoot);
+  assert.equal(stopped.status, 0, `${stopped.stderr}\n${stopped.stdout}`);
+  waitForDaemonProcessExitSync(pid);
 }
 function register(userRoot: string, root: string, repoId: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
@@ -111,6 +120,7 @@ test("daemon backup rejects an unavailable registered source through human rende
     assert.equal(rendered.stream, "stderr");
     assert.match(rendered.text, /daemon_spawn_root_missing/u);
   } finally {
+    stopFixtureDaemon(userRoot);
     removeTempRepository(backupDir);
     removeTempRepository(userRoot);
   }
@@ -180,6 +190,7 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     assert.equal(repeated.status, 1);
     assert.match(String((JSON.parse(repeated.stdout) as { hint: string }).hint), /already exists/u);
   } finally {
+    stopFixtureDaemon(userRoot);
     removeTempRepository(root);
     removeTempRepository(backupDir);
     removeTempRepository(restoredRoot);
@@ -247,7 +258,7 @@ test("real CLI refuses a backup whose accepted content is absent or has the wron
     assert.match(receipt.hint, new RegExp(`content object ${sha256} is missing`, "u"));
     console.log(`CONTENT_RESTORE=${incomplete.stdout.trim()}`);
   } finally {
-    invokeCliResult(["daemon", "stop"], userRoot);
+    stopFixtureDaemon(userRoot);
     removeTempRepository(parent);
   }
 });
@@ -277,6 +288,7 @@ test("offline restore --to leaves the serving daemon's writer epoch lease intact
     successor.close();
     live.close();
   } finally {
+    stopFixtureDaemon(userRoot);
     removeTempRepository(root);
     removeTempRepository(backupDir);
     removeTempRepository(restoredRoot);
@@ -317,6 +329,7 @@ test("CLI backup receipt stays below spawnSync's default buffer for a manifest a
         JSON.stringify({ manifestBytes: manifest.byteLength, receiptBytes: Buffer.byteLength(backupResult.stdout) }),
     );
   } finally {
+    stopFixtureDaemon(userRoot);
     removeTempRepository(root);
     removeTempRepository(backupDir);
     removeTempRepository(userRoot);
@@ -351,6 +364,7 @@ test("daemon restore drill reads retention from harness.yaml and defaults to thr
     assert.equal((defaulted.removedShadowRoots as readonly string[]).length, 1);
     assert.equal(readdirSync(shadowParent).filter((entry) => entry.startsWith("restore-drill-")).length, 3);
   } finally {
+    stopFixtureDaemon(userRoot);
     removeTempRepository(root);
     removeTempRepository(backupDir);
     removeTempRepository(userRoot);

@@ -80,7 +80,11 @@ test("same person explicitly releases another session's lease once, audits the h
     assert.equal(event.payload.releasedLease.version, before.lease.version);
     assert.equal(event.payload.mutation.reason, reason);
     assert.ok(Number.isFinite(Date.parse(event.occurredAt)));
-    const projection = makeTaskProjection({ rootDir, eventStore: reader });
+    const projection = makeTaskProjection({
+      rootDir,
+      eventStore: reader,
+      projectionPath: path.join(rootDir, ".harness", "cache", "replay-check.sqlite"),
+    });
     try {
       projection.rebuild();
       assert.equal(projection.read(taskId).snapshot.lease, null, "release survives canonical replay");

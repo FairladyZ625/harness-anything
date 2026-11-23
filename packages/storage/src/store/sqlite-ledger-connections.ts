@@ -1,9 +1,27 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 const SQLITE_BUSY = 5;
+
+function canonicalLedgerPath(inputPath: string): string {
+  const resolved = path.resolve(inputPath),
+    pending: string[] = [];
+  let current = resolved;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return resolved;
+    pending.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(realpathSync.native(current), ...pending);
+}
+
+function normalizeForComparison(filePath: string): string {
+  return process.platform === "win32" ? filePath.toLowerCase() : filePath;
+}
 
 export function isSqliteBusy(error: unknown): boolean {
   return (
@@ -21,7 +39,7 @@ const openLedgerClosers = new Map<string, Set<() => void>>();
 /** Registers one connection's close and returns it; the guard keeps a second close — a teardown that
  *  already closed every handle on this path, then the owner's own close — from throwing. */
 export function registerLedgerClose(databasePath: string, db: DatabaseSync): () => void {
-  const resolvedLedgerPath = path.resolve(databasePath),
+  const resolvedLedgerPath = canonicalLedgerPath(databasePath),
     closers = openLedgerClosers.get(resolvedLedgerPath) ?? new Set<() => void>();
   let closed = false;
   const close = () => {
@@ -38,10 +56,11 @@ export function registerLedgerClose(databasePath: string, db: DatabaseSync): () 
 
 /** Test fixtures can close every ledger connection rooted at a temporary repository before removing it. */
 export function closeSqliteEventStoresUnder(rootDir: string): void {
-  const resolved = path.resolve(rootDir),
+  const resolved = normalizeForComparison(canonicalLedgerPath(rootDir)),
     prefix = `${resolved}${path.sep}`;
   for (const databasePath of [...openLedgerClosers.keys()]) {
-    if (databasePath !== resolved && !databasePath.startsWith(prefix)) continue;
+    const normalized = normalizeForComparison(databasePath);
+    if (normalized !== resolved && !normalized.startsWith(prefix)) continue;
     const closers = openLedgerClosers.get(databasePath)!;
     for (const close of [...closers]) close();
     closers.clear();

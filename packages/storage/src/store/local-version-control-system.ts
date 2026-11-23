@@ -42,7 +42,9 @@ import { writeFileDurably, type WriteFence } from "../durable-file.ts";
 const gitMaxBuffer = 256 * 1024 * 1024,
   gitBatchChunkBytes = 64 * 1024 * 1024,
   gitBatchChunkEntries = 4_096,
-  gitTreeArgumentBytes = 8 * 1024;
+  // Windows routes git through cmd.exe (8,191-char command-line ceiling), so cap unquoted path
+  // arguments at 4 KiB on win32 to leave room for quoting, flags, and the repository root path.
+  gitTreeArgumentBytes = process.platform === "win32" ? 4 * 1024 : 8 * 1024;
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
   return makeLocalVersionControlCommands({

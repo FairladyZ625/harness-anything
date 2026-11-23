@@ -430,7 +430,10 @@ test("a missing spawn cwd is classified as the workspace root being missing, not
     assert.equal(result.code, "daemon_spawn_root_missing");
     assert.equal(result.attempts, 1);
     assert.doesNotMatch(result.hint, /launcher binary was not found/u);
-    assert.match(result.hint, new RegExp(missingRoot.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+    assert.match(
+      result.hint.replaceAll("\\", "/"),
+      new RegExp(missingRoot.replaceAll("\\", "/").replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
+    );
   } finally {
     removeTempRepository(userRoot);
   }
