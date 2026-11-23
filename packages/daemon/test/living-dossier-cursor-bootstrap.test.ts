@@ -254,6 +254,7 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
   } as unknown as CanonicalEventV1;
 
   let windowReads = 0;
+  let lastWindowAfter = -1;
   const makeReader = (verticalId: string, slotId: string, cutStatus: "ready" | "behind" = "ready"): DossierReader => ({
     store: {
       readHead: () => ({ revision: head, opId: "op_tail_290000" }),
@@ -261,7 +262,7 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
       readEventAtRevision: (rev: number) => (rev === 65 ? priorSynthesis : rev === head ? tailTaskEvent : null),
       readEventWindow: (query) => {
         windowReads += 1;
-        assert.equal(query.afterRevision, head - DOSSIER_PAGE_SIZE, "bootstrap only scans the final 512-revision tail");
+        lastWindowAfter = query.afterRevision;
         return {
           sourceRevision: head,
           events: [tailTaskEvent],
@@ -437,18 +438,6 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
 
   const pulseSlot = codingSlots.get("project-pulse")!;
 
-  // Monotonic floor: afterWatermark < expectedWatermark clamps scanAfter to expectedWatermark for concurrent realignment
-  const clampedCtx = readDossierContext(
-    makeReader("software/coding", "project-pulse"),
-    "software/coding",
-    pulseSlot,
-    undefined,
-    codingCompiled.definition.entityKinds,
-    { afterWatermark: 32 },
-  );
-  assert.equal(clampedCtx.expectedWatermark, 64);
-  assert.equal(clampedCtx.afterWatermark, 64);
-
   // Negative control: lagging projection fails closed with projection_pending
   assert.throws(
     () =>
@@ -478,6 +467,7 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
   assert.equal(bootCtx.nextWatermark, head);
   assert.equal(bootCtx.done, true);
   assert.equal(windowReads, 1, "must read only 1 bounded tail window");
+  assert.equal(lastWindowAfter, head - DOSSIER_PAGE_SIZE, "bootstrap only scans the final 512-revision tail");
 
   const pulseHtml = synthesizeDossierDocument({
     verticalId: "software/coding",
@@ -532,4 +522,17 @@ test("bootstrap: true jumps a high-watermark repository (r64 -> r290,000) in 1 p
   });
   validateDossierContent(briefSlot, briefMd, head);
   assert.ok(briefMd.includes("Executive Bootstrap Charter"));
+
+  // Monotonic floor: afterWatermark < expectedWatermark clamps scanAfter to expectedWatermark for concurrent realignment
+  const clampedCtx = readDossierContext(
+    makeReader("software/coding", "project-pulse"),
+    "software/coding",
+    pulseSlot,
+    undefined,
+    codingCompiled.definition.entityKinds,
+    { afterWatermark: 32 },
+  );
+  assert.equal(clampedCtx.expectedWatermark, 64);
+  assert.equal(clampedCtx.afterWatermark, 64);
+  assert.equal(lastWindowAfter, 64);
 });
