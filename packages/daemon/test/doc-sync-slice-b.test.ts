@@ -201,8 +201,12 @@ test("local selection and assignment claim normalize to the same doc event throu
     );
     assert.equal(localResult.outcome, "applied", JSON.stringify(localResult));
     assert.equal(remoteResult.outcome, "applied", JSON.stringify(remoteResult));
-    const localEvent = await withTaskEventReader("local", local.rootDir, (reader) => reader.readEvent(localResult.opId));
-    const remoteEvent = await withTaskEventReader("remote", remote.rootDir, (reader) => reader.readEvent(remoteResult.opId));
+    const localEvent = await withTaskEventReader("local", local.rootDir, (reader) =>
+      reader.readEvent(localResult.opId),
+    );
+    const remoteEvent = await withTaskEventReader("remote", remote.rootDir, (reader) =>
+      reader.readEvent(remoteResult.opId),
+    );
     assert.equal(localEvent?.schema, "doc-event/v1");
     assert.equal(remoteEvent?.schema, "doc-event/v1");
     if (localEvent?.schema === "doc-event/v1" && remoteEvent?.schema === "doc-event/v1")
@@ -287,7 +291,8 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
       const event = reader.readEvent(first.opId);
       return {
         event,
-        blob: event?.schema === "doc-event/v1" ? reader.readContentBlob(event.payload.changes[0]!.candidate.sha256) : null,
+        blob:
+          event?.schema === "doc-event/v1" ? reader.readContentBlob(event.payload.changes[0]!.candidate.sha256) : null,
       };
     });
     assert.equal(event?.schema, "doc-event/v1");

@@ -363,10 +363,7 @@ test(
   disconnectBlockedVerticalScriptTest,
 );
 
-async function waitForDaemonIdentityReady(
-  daemon: ReturnType<typeof spawn>,
-  userRoot: string,
-): Promise<void> {
+async function waitForDaemonIdentityReady(daemon: ReturnType<typeof spawn>, userRoot: string): Promise<void> {
   await waitForValue(() => {
     const generation = readDaemonLifecycleGeneration(userRoot, "default");
     const failure = generation.find((record) => record.event === "rbac_resume_failed");

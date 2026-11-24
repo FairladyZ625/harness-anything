@@ -702,21 +702,28 @@ export function closeWriterEpochFenceDescriptors(): void {
 }
 
 export function closeWriterEpochFenceDescriptor(input: { readonly stateRoot: string; readonly repoId: string }): void {
-  const key = `${input.stateRoot}\0${input.repoId}`,
-    entry = descriptorAuthorities.get(key);
+  const targetKey = `${input.stateRoot}\0${input.repoId}`,
+    entry = descriptorAuthorities.get(targetKey);
   if (!entry) return;
   entry.authority.close();
-  descriptorAuthorities.delete(key);
+  const remaining = [...descriptorAuthorities.entries()].filter(([key]) => key !== targetKey);
+  descriptorAuthorities.clear();
+  for (const [key, value] of remaining) descriptorAuthorities.set(key, value);
 }
 
 export function closeWriterEpochFenceDescriptorsUnder(rootDir: string): void {
-  const root = path.resolve(rootDir);
+  const root = path.resolve(rootDir),
+    remaining: [string, { readonly stateRoot: string; readonly authority: PersistentWriterEpoch }][] = [];
   for (const [key, entry] of descriptorAuthorities) {
     const relative = path.relative(root, path.resolve(entry.stateRoot));
-    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      remaining.push([key, entry]);
+      continue;
+    }
     entry.authority.close();
-    descriptorAuthorities.delete(key);
   }
+  descriptorAuthorities.clear();
+  for (const [key, value] of remaining) descriptorAuthorities.set(key, value);
 }
 
 function leaseFromRow(row: EpochRow): WriterEpochLease {

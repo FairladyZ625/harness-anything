@@ -203,7 +203,9 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
 
 test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-browser-broker-")),
-    guiPackageRoot = path.join(root, "packages/gui");
+    guiPackageRoot = path.join(root, "packages/gui"),
+    previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
+  process.env.HARNESS_DAEMON_USER_ROOT = path.join(root, "isolated-user");
   const broker = await startBrowserGuiFixture(guiPackageRoot, root, "<!doctype html><title>GUI</title>");
   try {
     const url = new URL(broker.url),
@@ -268,12 +270,16 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
     assert.equal(admittedWrite.headers["access-control-allow-origin"], undefined);
   } finally {
     await broker.close();
+    if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     removeTempRepository(root);
   }
 });
 
 test("browser GUI embedding requires an explicit matching parent without changing RPC authentication", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-parent-"));
+  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-parent-")),
+    previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
+  process.env.HARNESS_DAEMON_USER_ROOT = path.join(root, "isolated-user");
   mkdirSync(path.join(root, "dist"));
   writeFileSync(path.join(root, "dist/index.html"), "<!doctype html><title>Embedded GUI</title><p>Embedded GUI</p>");
   const parent = createServer((_request, response) => response.end("<!doctype html><title>Parent</title>"));
@@ -343,6 +349,8 @@ test("browser GUI embedding requires an explicit matching parent without changin
   } finally {
     await browser?.close();
     await new Promise<void>((resolve, reject) => parent.close((error) => (error ? reject(error) : resolve())));
+    if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     removeTempRepository(root);
   }
 });

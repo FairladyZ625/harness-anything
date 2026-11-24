@@ -328,9 +328,7 @@ export async function openRepoCellProxy(
         // delete even though the writer projection owner has been closed.
         try {
           await currentReads.close();
-          return (await supervisor.request("run", { action }, binding, signal)) as Awaited<
-            ReturnType<RepoCell["run"]>
-          >;
+          return (await supervisor.request("run", { action }, binding, signal)) as Awaited<ReturnType<RepoCell["run"]>>;
         } finally {
           if (!closed) reads = openRepoReadClient(input, options.createReadWorker);
         }

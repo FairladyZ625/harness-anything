@@ -520,7 +520,10 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           });
         // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
         // resumed spawn launches one before their first ledger append reaches the append fence.
-        if (request.method !== "canonicalStore") assertWriterEpoch(request.writerEpoch);
+        if (request.method !== "canonicalStore") {
+          if (request.writerEpoch) trackWriterEpochDescriptor(request.writerEpoch);
+          assertWriterEpoch(request.writerEpoch);
+        }
         let value: unknown;
         switch (request.method) {
           case "canonicalStore":
@@ -672,8 +675,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
             await cell?.close();
           } finally {
             cell = null;
-            for (const descriptor of writerEpochDescriptors.values())
-              closeWriterEpochFenceDescriptor(descriptor);
+            for (const descriptor of writerEpochDescriptors.values()) closeWriterEpochFenceDescriptor(descriptor);
             writerEpochDescriptors.clear();
           }
           commits.close();
@@ -832,12 +834,12 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
   }
 
   function assertWriterEpoch(descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null): void {
-    if (!descriptor) return;
-    trackWriterEpochDescriptor(descriptor);
-    assertWriterEpochFenceDescriptor(descriptor);
+    if (descriptor) assertWriterEpochFenceDescriptor(descriptor);
   }
 
-  function trackWriterEpochDescriptor(descriptor: NonNullable<SerializableRepoCellBindingV1["writerEpochFence"]>): void {
+  function trackWriterEpochDescriptor(
+    descriptor: NonNullable<SerializableRepoCellBindingV1["writerEpochFence"]>,
+  ): void {
     writerEpochDescriptors.set(`${descriptor.stateRoot}\0${descriptor.repoId}`, descriptor);
   }
 
