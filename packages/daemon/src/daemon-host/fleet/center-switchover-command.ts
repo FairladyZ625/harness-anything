@@ -528,8 +528,19 @@ async function runForwardSwitchoverCommand(
         explicitKeyPath: explicitSourceKeyPath,
         explicitCertPath: explicitSourceCertPath,
       });
+      // F12: Resolve a verified personal human session token once and bind it to the target admin check.
+      const catchupToken = await resolveSwitchoverAccessToken({ sourceUserRoot, sourceRoot });
+      if (!catchupToken) {
+        throw switchoverCommandError(
+          "authentication_required",
+          "A verified personal human session authorized for daemon-fleet-center-switch is required before ceding center authority.",
+        );
+      }
       const status = await queryRemoteSwitchoverStatusClient(
-        buildRemotePeerOptions(Math.max(15_000, timeoutMs + 5_000)),
+        {
+          ...buildRemotePeerOptions(Math.max(15_000, timeoutMs + 5_000)),
+          readAccessToken: async () => catchupToken,
+        },
         {
           repoId: targetRepo,
           expectedTargetNodeId: candidateNode,
@@ -544,6 +555,7 @@ async function runForwardSwitchoverCommand(
           },
         },
       );
+      capturedSwitchoverAccessToken = catchupToken;
       capturedTargetCertPem = status.peerCertificatePem ?? capturedTargetCertPem;
       if (status.cut !== null) return status.cut;
       throw switchoverCommandError(
@@ -567,6 +579,33 @@ async function runForwardSwitchoverCommand(
             "Source center Fleet TLS key/certificate is required to sign the switchover ceded proof before Phase 1 fencing.",
           );
         }
+        // F12: Require a live, target-admin-verified personal session token BEFORE persisting Phase 1 fence.
+        // Refuse immediately if the session ended/expired during catchup; if rotated or unverified, re-verify
+        // this exact token against the target admin policy before fencing and pin it for budget & Phase 2.
+        const activeToken = await resolveSwitchoverAccessToken({ sourceUserRoot, sourceRoot });
+        if (!activeToken) {
+          throw switchoverCommandError(
+            "authentication_required",
+            "Personal human session ended or expired before Phase 1 fencing; source center remains unfenced.",
+          );
+        }
+        if (activeToken !== capturedSwitchoverAccessToken) {
+          const authRecheck = await queryRemoteSwitchoverStatusClient(
+            {
+              ...buildRemotePeerOptions(cliOperationalPolicy.defaultValue.probe.timeoutMs),
+              readAccessToken: async () => activeToken,
+            },
+            {
+              repoId: fenceInput.repoId,
+              expectedTargetNodeId: fenceInput.targetNodeId,
+              requireSwitchoverAdmin: true,
+              sourceCertificatePem: sourceTlsMaterial.certPem,
+            },
+          );
+          capturedTargetCertPem = authRecheck.peerCertificatePem ?? capturedTargetCertPem;
+          capturedSwitchoverAccessToken = activeToken;
+        }
+        const pinnedAccessToken = capturedSwitchoverAccessToken;
         cededProof = signSwitchoverCededProof({
           repoId: fenceInput.repoId,
           switchoverId: fenceInput.switchoverId,
@@ -580,9 +619,8 @@ async function runForwardSwitchoverCommand(
           sourceKeyPem: sourceTlsMaterial.keyPem,
           sourceCertificatePem: sourceTlsMaterial.certPem,
         });
-        // F11: Validate complete replication slot batching & activation transfer payload (including exact auth token and peer messageId budget) BEFORE persisting Phase 1 fence!
+        // F11: Validate complete replication slot batching & activation transfer payload (including exact verified auth token and peer messageId budget) BEFORE persisting Phase 1 fence!
         capturedReplicationSlots = readSourceReplicationSlotRows(sourceStateRoot, fenceInput.repoId);
-        capturedSwitchoverAccessToken = await buildRemotePeerOptions().readAccessToken?.();
         const transferCheck = measureSwitchoverRemoteActivationTransfer({
           repoId: fenceInput.repoId,
           switchoverId: fenceInput.switchoverId,
@@ -595,7 +633,7 @@ async function runForwardSwitchoverCommand(
           replicationSlots: capturedReplicationSlots,
           cededProof,
           callerNodeId: fenceInput.sourceNodeId,
-          ...(capturedSwitchoverAccessToken ? { accessToken: capturedSwitchoverAccessToken } : {}),
+          accessToken: pinnedAccessToken,
           ...(targetExternalUrl ? { targetExternalUrl } : {}),
           ...(targetLoginUrl ? { targetLoginUrl } : {}),
         });
@@ -650,10 +688,17 @@ async function runForwardSwitchoverCommand(
             "Missing signed Phase 1 ceded proof for remote switchover activation.",
           );
         }
+        if (!capturedSwitchoverAccessToken) {
+          throw switchoverCommandError(
+            "authentication_required",
+            "Missing verified Phase 1 switchover access token for remote activation.",
+          );
+        }
+        const pinnedAccessToken = capturedSwitchoverAccessToken;
         const remote = await activateRemoteSwitchoverClient(
           {
             ...buildRemotePeerOptions(60_000),
-            readAccessToken: async () => capturedSwitchoverAccessToken,
+            readAccessToken: async () => pinnedAccessToken,
           },
           {
             repoId: activationInput.repoId,

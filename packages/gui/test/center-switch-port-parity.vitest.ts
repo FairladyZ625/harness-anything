@@ -103,6 +103,8 @@ function createIntermediateCertChain(
   readonly leafPem: string;
   readonly fullChainPath: string;
   readonly fullChainPem: string;
+  readonly pathLenViolatingChainPath: string;
+  readonly missingKeyCertSignChainPath: string;
   readonly spkiSha256: string;
 } {
   mkdirSync(directory, { recursive: true });
@@ -112,6 +114,17 @@ function createIntermediateCertChain(
     interCsrPath = path.join(directory, "inter-ca.csr"),
     interCertPath = path.join(directory, "inter-ca.crt"),
     interExtPath = path.join(directory, "inter-ca.ext"),
+    subInterKeyPath = path.join(directory, "sub-inter-ca.key"),
+    subInterCsrPath = path.join(directory, "sub-inter-ca.csr"),
+    subInterCertPath = path.join(directory, "sub-inter-ca.crt"),
+    subLeafCertPath = path.join(directory, "sub-leaf.crt"),
+    pathLenViolatingChainPath = path.join(directory, "pathlen-violating-chain.crt"),
+    badKuInterKeyPath = path.join(directory, "bad-ku-inter.key"),
+    badKuInterCsrPath = path.join(directory, "bad-ku-inter.csr"),
+    badKuInterExtPath = path.join(directory, "bad-ku-inter.ext"),
+    badKuInterCertPath = path.join(directory, "bad-ku-inter.crt"),
+    badKuLeafCertPath = path.join(directory, "bad-ku-leaf.crt"),
+    missingKeyCertSignChainPath = path.join(directory, "missing-keycertsign-chain.crt"),
     leafKeyPath = path.join(directory, "leaf.key"),
     leafCsrPath = path.join(directory, "leaf.csr"),
     leafOnlyPath = path.join(directory, "leaf.crt"),
@@ -233,6 +246,140 @@ function createIntermediateCertChain(
     leafPem = readFileSync(leafOnlyPath, "utf8"),
     fullChainPem = `${leafPem.trim()}\n${intermediateCaPem.trim()}\n`;
   writeFileSync(fullChainPath, fullChainPem, "utf8");
+
+  // F8 pathlen:0 negative chain: Root -> Inter (pathlen:0) -> SubInter (CA:TRUE, pathlen:0) -> Leaf (EXACT same leaf SPKI & SAN).
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-new",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      subInterKeyPath,
+      "-out",
+      subInterCsrPath,
+      "-subj",
+      "/CN=Fleet Test Subordinate CA Violating PathLen",
+    ],
+    { stdio: "ignore" },
+  );
+  execFileSync(
+    "openssl",
+    [
+      "x509",
+      "-req",
+      "-in",
+      subInterCsrPath,
+      "-CA",
+      interCertPath,
+      "-CAkey",
+      interKeyPath,
+      "-CAcreateserial",
+      "-out",
+      subInterCertPath,
+      "-days",
+      "2",
+      "-extfile",
+      interExtPath,
+    ],
+    { stdio: "ignore" },
+  );
+  execFileSync(
+    "openssl",
+    [
+      "x509",
+      "-req",
+      "-in",
+      leafCsrPath,
+      "-CA",
+      subInterCertPath,
+      "-CAkey",
+      subInterKeyPath,
+      "-CAcreateserial",
+      "-out",
+      subLeafCertPath,
+      "-days",
+      "1",
+      "-extfile",
+      leafExtPath,
+    ],
+    { stdio: "ignore" },
+  );
+  writeFileSync(
+    pathLenViolatingChainPath,
+    `${readFileSync(subLeafCertPath, "utf8").trim()}\n${readFileSync(subInterCertPath, "utf8").trim()}\n${intermediateCaPem.trim()}\n`,
+    "utf8",
+  );
+
+  // F8 keyUsage negative chain: Root -> BadKuInter (CA:TRUE, keyUsage=digitalSignature without keyCertSign) -> Leaf (EXACT same leaf SPKI & SAN).
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-new",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      badKuInterKeyPath,
+      "-out",
+      badKuInterCsrPath,
+      "-subj",
+      "/CN=Fleet Test CA Without KeyCertSign",
+    ],
+    { stdio: "ignore" },
+  );
+  writeFileSync(badKuInterExtPath, "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,digitalSignature\n", "utf8");
+  execFileSync(
+    "openssl",
+    [
+      "x509",
+      "-req",
+      "-in",
+      badKuInterCsrPath,
+      "-CA",
+      rootCaPath,
+      "-CAkey",
+      rootKeyPath,
+      "-CAcreateserial",
+      "-out",
+      badKuInterCertPath,
+      "-days",
+      "2",
+      "-extfile",
+      badKuInterExtPath,
+    ],
+    { stdio: "ignore" },
+  );
+  execFileSync(
+    "openssl",
+    [
+      "x509",
+      "-req",
+      "-in",
+      leafCsrPath,
+      "-CA",
+      badKuInterCertPath,
+      "-CAkey",
+      badKuInterKeyPath,
+      "-CAcreateserial",
+      "-out",
+      badKuLeafCertPath,
+      "-days",
+      "1",
+      "-extfile",
+      leafExtPath,
+    ],
+    { stdio: "ignore" },
+  );
+  writeFileSync(
+    missingKeyCertSignChainPath,
+    `${readFileSync(badKuLeafCertPath, "utf8").trim()}\n${readFileSync(badKuInterCertPath, "utf8").trim()}\n`,
+    "utf8",
+  );
+
   return {
     rootCaPath,
     rootCaPem,
@@ -243,6 +390,8 @@ function createIntermediateCertChain(
     leafPem,
     fullChainPath,
     fullChainPem,
+    pathLenViolatingChainPath,
+    missingKeyCertSignChainPath,
     spkiSha256: spkiSha256FromCertPem(Buffer.from(leafPem, "utf8")),
   };
 }
@@ -615,6 +764,179 @@ it("F8/F12/F11: intermediate CA chain switchover & rollback, pre-Phase-1 target 
       assert.equal(existsSync(fencePathA), false, "F8.1: leaf without intermediate CA must fail pre-Phase-1");
       assert.equal(
         (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f8-nointer-ok", title: "Writable" }, auth))
+          .outcome,
+        "applied",
+      );
+
+      // F8.1b NEGATIVE: RFC 5280 pathlen:0 violation (Root -> Inter[pathlen:0] -> SubInter -> Leaf with SAME SPKI & SAN) MUST fail BEFORE Phase 1!
+      const pathLenViolation = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--source-cert",
+          chainA.pathLenViolatingChainPath,
+          "--switchover-id",
+          "sw_f8_pathlen_violation",
+        ],
+        nodeA.userRoot,
+      );
+      assert.equal(pathLenViolation.receipt.ok, false, JSON.stringify(pathLenViolation.receipt));
+      assert.equal(pathLenViolation.receipt.fencedCeded, undefined);
+      assert.equal(existsSync(fencePathA), false, "F8.1b: pathlen:0 violation must fail pre-Phase-1");
+
+      // F8.1c NEGATIVE: Intermediate CA lacking keyCertSign in keyUsage (SAME SPKI & SAN) MUST fail BEFORE Phase 1!
+      const missingKeyCertSign = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--source-cert",
+          chainA.missingKeyCertSignChainPath,
+          "--switchover-id",
+          "sw_f8_missing_keycertsign",
+        ],
+        nodeA.userRoot,
+      );
+      assert.equal(missingKeyCertSign.receipt.ok, false, JSON.stringify(missingKeyCertSign.receipt));
+      assert.equal(missingKeyCertSign.receipt.fencedCeded, undefined);
+      assert.equal(existsSync(fencePathA), false, "F8.1c: CA missing keyCertSign must fail pre-Phase-1");
+      assert.equal(
+        (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f8-pathlen-ok", title: "Writable" }, auth))
+          .outcome,
+        "applied",
+      );
+
+      // F12.3 NEGATIVE: Mid-catchup logout (session disappears after preflight + catchup, BEFORE Phase 1 fence!) MUST fail BEFORE Phase 1 and leave Source A unfenced & writable!
+      const cutBeforeMidLogout = readLedgerSnapshot(ledgerAPath);
+      await waitForFleetReplicaRevision(
+        { viewRoot: edgeB.viewRoot, repoId, nodeId: nodeBId },
+        cutBeforeMidLogout.revision,
+        AbortSignal.timeout(30_000),
+      );
+      const midCatchupLogout = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--switchover-id",
+          "sw_f12_mid_catchup_logout",
+        ],
+        nodeA.userRoot,
+        {
+          switchover: {
+            awaitTargetCatchup: async ({ frozenCut }) => {
+              signOutAt(nodeA.userRoot);
+              return {
+                repoId: frozenCut.repoId,
+                revision: frozenCut.finalRevision,
+                tipHash: frozenCut.tipHash,
+                history: frozenCut.history,
+                sequence: frozenCut.sequence,
+              };
+            },
+          },
+        },
+      );
+      assert.equal(midCatchupLogout.receipt.ok, false, JSON.stringify(midCatchupLogout.receipt));
+      assert.equal(midCatchupLogout.receipt.code, "authentication_required", JSON.stringify(midCatchupLogout.receipt));
+      assert.equal(midCatchupLogout.receipt.fencedCeded, undefined);
+      assert.equal(existsSync(fencePathA), false, "F12.3: mid-catchup logout must fail BEFORE Phase 1 fence");
+      signInAt(nodeA.userRoot, "person-one", [], longAdminToken, nodeA.repo);
+      assert.equal(
+        (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f12-midlogout-ok", title: "Writable" }, auth))
+          .outcome,
+        "applied",
+      );
+
+      // F12.4 NEGATIVE: Mid-catchup session swap to repository-read-only user MUST be re-verified on target BEFORE Phase 1 fence and rejected!
+      const cutBeforeMidSwap = readLedgerSnapshot(ledgerAPath);
+      await waitForFleetReplicaRevision(
+        { viewRoot: edgeB.viewRoot, repoId, nodeId: nodeBId },
+        cutBeforeMidSwap.revision,
+        AbortSignal.timeout(30_000),
+      );
+      const midCatchupSwap = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--switchover-id",
+          "sw_f12_mid_catchup_swap",
+        ],
+        nodeA.userRoot,
+        {
+          switchover: {
+            awaitTargetCatchup: async ({ frozenCut }) => {
+              nodeA.owners.keycloak.node(nodeAId, "person-reader-f12", `secret-${nodeAId}`);
+              signInAt(nodeA.userRoot, "person-reader-f12", [], `device-token-reader-${nodeAId}`, nodeA.repo);
+              return {
+                repoId: frozenCut.repoId,
+                revision: frozenCut.finalRevision,
+                tipHash: frozenCut.tipHash,
+                history: frozenCut.history,
+                sequence: frozenCut.sequence,
+              };
+            },
+          },
+        },
+      );
+      assert.equal(midCatchupSwap.receipt.ok, false, JSON.stringify(midCatchupSwap.receipt));
+      assert.equal(midCatchupSwap.receipt.fencedCeded, undefined);
+      assert.equal(existsSync(fencePathA), false, "F12.4: mid-catchup reader swap must fail BEFORE Phase 1 fence");
+      nodeA.owners.keycloak.node(nodeAId, "person-one", `secret-${nodeAId}`);
+      nodeA.owners.keycloak.interactiveSession("person-one", nodeAId, nodeA.owners.url, longAdminToken);
+      signInAt(nodeA.userRoot, "person-one", [], longAdminToken, nodeA.repo);
+      assert.equal(
+        (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f12-midswap-ok", title: "Writable" }, auth))
           .outcome,
         "applied",
       );
