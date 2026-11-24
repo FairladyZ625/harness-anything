@@ -250,11 +250,11 @@ export function readAgentEntityGuiProjection<
   const entityId = requiredEntityText(input.entityId, "entityId");
   if (input.kind === "agent-inspect") {
     const localRecord = input.localAgents?.find((record) => record.declaration.id === entityId),
-      local = localRecord?.declaration,
       shared = input.projection.getEntity("agent", entityId);
-    if (local && shared && !localAgentMatchesShared(local, shared.value))
+    if (localRecord && shared && !localAgentMatchesShared(localRecord.declaration, shared.value))
       throw entityError("agent_scope_conflict", `Agent ${entityId} exists in both local and shared scope.`);
     if (localRecord && shared === null) {
+      const local = localRecord.declaration;
       const hostAccess = resolveAgentHostAccess(local.hostAccess);
       return {
         schema: "agent-entity-detail/v1",
