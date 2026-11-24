@@ -50,7 +50,10 @@ export const daemonActionRoutes = Object.freeze([
     actionKind: "ceo-config",
     requiresRepo: true,
     commandClass: "repo-write",
-    params: shape({ payload: shape({ runtimeInstanceId: "string", model: "string", heartbeatIntervalSec: "number" }) }),
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ runtimeInstanceId: "string", model: "string", heartbeatIntervalSec: "number" }),
+    }),
   },
   {
     id: "ceo-start",
@@ -59,7 +62,7 @@ export const daemonActionRoutes = Object.freeze([
     actionKind: "ceo-start",
     requiresRepo: true,
     commandClass: "repo-write",
-    params: shape({ payload: shape({}) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: shape({}) }),
   },
   {
     id: "ceo-stop",
@@ -68,7 +71,7 @@ export const daemonActionRoutes = Object.freeze([
     actionKind: "ceo-stop",
     requiresRepo: true,
     commandClass: "repo-write",
-    params: shape({ payload: shape({}) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: shape({}) }),
   },
   {
     id: "ceo-status",
@@ -77,7 +80,7 @@ export const daemonActionRoutes = Object.freeze([
     actionKind: "ceo-status",
     requiresRepo: true,
     commandClass: "repo-read",
-    params: shape({ payload: shape({}) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: shape({}) }),
   },
   {
     id: "ceo-chat",
@@ -86,7 +89,7 @@ export const daemonActionRoutes = Object.freeze([
     actionKind: "ceo-chat",
     requiresRepo: true,
     commandClass: "repo-write",
-    params: shape({ payload: shape({ message: "string" }) }),
+    params: shape({ repo: shape({ repoId: "string" }), payload: shape({ message: "string" }) }),
   },
   actionRpc(
     "agentRuntime.handoff",
