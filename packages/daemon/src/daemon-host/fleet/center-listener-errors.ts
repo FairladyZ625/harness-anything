@@ -36,6 +36,7 @@ export async function sendCenterMovedReplicaReject(input: {
   readonly error: unknown;
   readonly centerBuildCommit: string | null;
   readonly taskEventShapeVersion: number;
+  readonly includeCenterMovedDetails: boolean;
 }): Promise<void> {
   const moved = centerMovedPayloadFromError(input.error);
   if (!moved) return;
@@ -45,13 +46,14 @@ export async function sendCenterMovedReplicaReject(input: {
     message: moved.message,
     centerBuildCommit: input.centerBuildCommit,
     taskEventShapeVersion: input.taskEventShapeVersion,
-    ...(moved.centerMoved ? { centerMoved: moved.centerMoved } : {}),
+    ...(input.includeCenterMovedDetails && moved.centerMoved ? { centerMoved: moved.centerMoved } : {}),
   });
 }
 
 export async function sendCenterMovedReplicaFailure(input: {
   readonly peer: ReplicationPeer;
   readonly error: unknown;
+  readonly includeCenterMovedDetails: boolean;
 }): Promise<void> {
   const moved = centerMovedPayloadFromError(input.error);
   if (!moved) return;
@@ -59,6 +61,6 @@ export async function sendCenterMovedReplicaFailure(input: {
     type: "replica.failure",
     code: "CENTER_MOVED",
     message: moved.message,
-    ...(moved.centerMoved ? { centerMoved: moved.centerMoved } : {}),
+    ...(input.includeCenterMovedDetails && moved.centerMoved ? { centerMoved: moved.centerMoved } : {}),
   });
 }

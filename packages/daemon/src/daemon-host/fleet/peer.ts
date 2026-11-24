@@ -4,8 +4,8 @@ import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/dom
 import { uploadFleetChange } from "./upload-client.ts";
 import { encodeFleetFrames, FleetTransferAssembler } from "./command-transfer.ts";
 import { tlsPeerIdentityOptions } from "../tls-ca-certificate.ts";
-import { connect, type TLSSocket } from "node:tls";
-import { createHash, X509Certificate } from "node:crypto";
+import { checkServerIdentity, connect, type TLSSocket } from "node:tls";
+import { createHash, hash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
@@ -67,6 +67,8 @@ export interface FleetPeerOptions {
   readonly ca: string | Buffer;
   readonly servername?: string;
   readonly spkiSha256?: string;
+  /** Verify peer identity by pre-provisioned leaf SPKI pin, validity window, and SAN without requiring a local root CA. */
+  readonly spkiPinOnly?: boolean;
   readonly nodeId: string;
   readonly credential: string;
   readonly repoId: string;
@@ -1209,32 +1211,68 @@ export async function readFleetLoginAuthorityClient(
     peer.close();
   }
 }
+class FleetPinError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+function verifyPinnedPeerIdentity(socket: TLSSocket, expectedServername: string, expectedSpkiSha256: string): void {
+  const peer = socket.getPeerCertificate(true);
+  if (!peer.raw) throw new FleetPinError("pin_mismatch", "The center did not present a certificate.");
+  const leaf = new X509Certificate(peer.raw),
+    pin = hash("sha256", leaf.publicKey.export({ type: "spki", format: "der" }), "hex");
+  if (pin !== expectedSpkiSha256)
+    throw new FleetPinError(
+      "pin_mismatch",
+      "The center certificate fingerprint does not match the pre-provisioned SPKI pin.",
+    );
+  const now = Date.now(),
+    validFrom = Date.parse(leaf.validFrom),
+    validTo = Date.parse(leaf.validTo);
+  if (!Number.isFinite(validFrom) || !Number.isFinite(validTo) || now < validFrom || now > validTo)
+    throw new FleetPinError("CERT_HAS_EXPIRED", "The center certificate is expired or not yet valid.");
+  const target = expectedServername.replace(/^\[|\]$/gu, ""),
+    identityError = checkServerIdentity(target, peer);
+  if (identityError) throw identityError;
+}
+
 function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocket> {
   if (options.signal?.aborted)
     return Promise.reject(
       options.signal.reason instanceof Error ? options.signal.reason : new Error("Fleet connection cancelled"),
     );
+  if (options.spkiPinOnly === true && (!options.spkiSha256 || !/^[a-f0-9]{64}$/u.test(options.spkiSha256)))
+    return Promise.reject(
+      new FleetPinError("pin_mismatch", "SPKI-pin-only transport requires a valid lowercase SHA-256 spkiSha256 pin."),
+    );
   return new Promise((resolve, reject) => {
     let settled = false;
-    const timeoutMs = options.timeoutMs ?? daemonProtocolFleetPolicy.defaultValue.fleet.helloTimeoutMs;
+    const timeoutMs = options.timeoutMs ?? daemonProtocolFleetPolicy.defaultValue.fleet.helloTimeoutMs,
+      spkiPinOnly = options.spkiPinOnly === true,
+      expectedServername = options.servername ?? "localhost";
     const socket = connect(
       {
         host: options.hostname ?? "127.0.0.1",
         port: options.port,
-        ca: options.ca,
-        ...tlsPeerIdentityOptions(options.servername ?? "localhost"),
-        rejectUnauthorized: true,
+        ...(spkiPinOnly ? {} : { ca: options.ca }),
+        ...tlsPeerIdentityOptions(expectedServername),
+        rejectUnauthorized: !spkiPinOnly,
       },
       () => {
-        const pinned = options.spkiSha256
-          ? probeFleetEdgeCenterAddress({
-              hostname: options.hostname ?? "127.0.0.1",
-              port: options.port,
-              ...(options.servername ? { servername: options.servername } : {}),
-              spkiSha256: options.spkiSha256,
-              socket,
-            })
-          : Promise.resolve();
+        const pinned = spkiPinOnly
+          ? Promise.resolve().then(() => verifyPinnedPeerIdentity(socket, expectedServername, options.spkiSha256!))
+          : options.spkiSha256
+            ? probeFleetEdgeCenterAddress({
+                hostname: options.hostname ?? "127.0.0.1",
+                port: options.port,
+                ...(options.servername ? { servername: options.servername } : {}),
+                spkiSha256: options.spkiSha256,
+                socket,
+              })
+            : Promise.resolve();
         void pinned.then(
           () =>
             finish(() => {

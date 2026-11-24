@@ -22,6 +22,7 @@ export interface FleetEdgeConfig {
   readonly caPath: string;
   readonly servername?: string;
   readonly spkiSha256?: string;
+  readonly spkiPinOnly?: true;
   readonly trustAnchors?: FleetEdgeTrustAnchors;
   readonly loginUrl?: string;
   readonly loginRealm?: string;
@@ -116,6 +117,8 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string, remoteEdge
     fail("Static fleet assignments are retired.");
   if (row.spkiSha256 !== undefined && (typeof row.spkiSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(row.spkiSha256)))
     fail("spkiSha256 must be a lowercase SHA-256 digest when present");
+  if (row.spkiPinOnly !== undefined && row.spkiPinOnly !== true) fail("spkiPinOnly must be true when present");
+  if (row.spkiPinOnly === true && !text("spkiSha256")) fail("spkiPinOnly requires spkiSha256");
   const port = Number(row.port),
     quotaBytes = Number(row.quotaBytes);
   if (!Number.isSafeInteger(port) || port < 0 || port > 65535) fail("port must be an integer from 0 to 65535");
@@ -151,6 +154,7 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string, remoteEdge
     caPath: text("caPath")!,
     ...(text("servername") ? { servername: text("servername") } : {}),
     ...(text("spkiSha256") ? { spkiSha256: text("spkiSha256") } : {}),
+    ...(row.spkiPinOnly === true ? { spkiPinOnly: true } : {}),
     ...(trustAnchors ? { trustAnchors } : {}),
     ...(text("loginUrl") ? { loginUrl: text("loginUrl") } : {}),
     ...(text("loginRealm") ? { loginRealm: text("loginRealm") } : {}),

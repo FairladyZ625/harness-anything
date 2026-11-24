@@ -9,6 +9,7 @@ import test from "node:test";
 import {
   BINARY_DATA_FRAME_TAG,
   BINARY_DATA_HEADER_BYTES,
+  CENTER_MOVED_DETAILS_CAPABILITY,
   REPLICATION_BINARY_CHUNK_BYTES,
   REPLICATION_CHUNK_BYTES,
   REPLICATION_FRAME_BYTES,
@@ -22,6 +23,10 @@ import {
   serializeReplicationWireFrame,
   type ReplicationFrame,
 } from "../src/fleet-sync/fleet/protocol.ts";
+import {
+  sendCenterMovedReplicaFailure,
+  sendCenterMovedReplicaReject,
+} from "../src/daemon-host/fleet/center-listener-errors.ts";
 
 const position = { history: "history-a", sequence: 9, revision: 7 } as const,
   digest = `sha256:${"a".repeat(64)}`,
@@ -485,4 +490,71 @@ test("snapshot-binary-wire/v1 and snapshot-object-pack/v1 round-trip mixed binar
   assert.equal(SNAPSHOT_BINARY_WIRE_CAPABILITY, "snapshot-binary-wire/v1");
   assert.equal(SNAPSHOT_OBJECT_PACK_CAPABILITY, "snapshot-object-pack/v1");
   assert.equal(SNAPSHOT_RESUME_CAPABILITY, "snapshot-resume/v1");
+  assert.equal(CENTER_MOVED_DETAILS_CAPABILITY, "center-moved-details/v1");
+});
+
+test("center-moved-details/v1 capability preserves exact N-1 baseline reject/failure frames for legacy edges", async () => {
+  const details = {
+      newExternalUrl: "https://center-b.example.invalid:9443",
+      newLoginUrl: "https://login-b.example.invalid",
+      newEpoch: 5,
+      spkiSha256: `sha256:${"d".repeat(64)}`,
+    },
+    error = Object.assign(new Error("The center has moved to center-b."), {
+      code: "CENTER_MOVED",
+      centerMoved: details,
+    }),
+    sent: ReplicationFrame[] = [],
+    peer = {
+      send: async (frame: ReplicationFrame) => {
+        sent.push(frame);
+      },
+      receive: async () => {
+        throw new Error("unused");
+      },
+    };
+
+  // N-1 edge without center-moved-details/v1 capability: exact baseline key count and zero centerMoved key.
+  await sendCenterMovedReplicaReject({
+    peer,
+    error,
+    centerBuildCommit: "abcdef1",
+    taskEventShapeVersion: 1,
+    includeCenterMovedDetails: false,
+  });
+  await sendCenterMovedReplicaFailure({ peer, error, includeCenterMovedDetails: false });
+  assert.equal(sent.length, 2);
+  const legacyReject = JSON.parse(serializeReplicationFrame(sent[0]!).trimEnd()) as Record<string, unknown>,
+    legacyFailure = JSON.parse(serializeReplicationFrame(sent[1]!).trimEnd()) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(legacyReject).sort(), [
+    "centerBuildCommit",
+    "code",
+    "message",
+    "taskEventShapeVersion",
+    "type",
+  ]);
+  assert.equal(Object.hasOwn(legacyReject, "centerMoved"), false);
+  assert.equal(legacyReject.code, "CENTER_MOVED");
+  assert.deepEqual(Object.keys(legacyFailure).sort(), ["code", "message", "type"]);
+  assert.equal(Object.hasOwn(legacyFailure, "centerMoved"), false);
+  assert.equal(legacyFailure.code, "CENTER_MOVED");
+  assert.deepEqual(parseReplicationFrame(JSON.stringify(legacyReject)), sent[0]);
+  assert.deepEqual(parseReplicationFrame(JSON.stringify(legacyFailure)), sent[1]);
+
+  // Capable edge declaring center-moved-details/v1: receives structured centerMoved metadata.
+  await sendCenterMovedReplicaReject({
+    peer,
+    error,
+    centerBuildCommit: "abcdef1",
+    taskEventShapeVersion: 1,
+    includeCenterMovedDetails: true,
+  });
+  await sendCenterMovedReplicaFailure({ peer, error, includeCenterMovedDetails: true });
+  assert.equal(sent.length, 4);
+  const modernReject = parseReplicationFrame(serializeReplicationFrame(sent[2]!).trimEnd()),
+    modernFailure = parseReplicationFrame(serializeReplicationFrame(sent[3]!).trimEnd());
+  assert.equal(modernReject.type, "replica.reject");
+  assert.deepEqual(modernReject.type === "replica.reject" ? modernReject.centerMoved : null, details);
+  assert.equal(modernFailure.type, "replica.failure");
+  assert.deepEqual(modernFailure.type === "replica.failure" ? modernFailure.centerMoved : null, details);
 });

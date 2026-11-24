@@ -17,6 +17,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { recordReplicaHealth, type ReplicaSyncProgress } from "../../fleet-sync/fleet/replica-health.ts";
 import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import {
+  CENTER_MOVED_DETAILS_CAPABILITY,
   isBaseBackupMetadata,
   ReplicationError,
   SNAPSHOT_BINARY_WIRE_CAPABILITY,
@@ -401,6 +402,7 @@ export async function runWalReceiver(input: {
         SNAPSHOT_RESUME_CAPABILITY,
         SNAPSHOT_BINARY_WIRE_CAPABILITY,
         SNAPSHOT_OBJECT_PACK_CAPABILITY,
+        CENTER_MOVED_DETAILS_CAPABILITY,
         ...(input.resumeOnly ? [REPOINT_RESUME_ONLY] : []),
       ],
       ...(stagedResume ? { resumeSnapshot: { snapshotId: stagedResume.snapshotId, offset: stagedResume.offset } } : {}),

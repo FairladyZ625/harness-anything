@@ -1,11 +1,62 @@
-import { readDaemonRegistry, unbindDaemonRepo, type InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
+import {
+  readDaemonRegistry,
+  unbindDaemonRepo,
+  type DaemonRepoMode,
+  type InvalidDaemonRegistryRepo,
+} from "@harness-anything/kernel";
 import { daemonBuildStamp } from "./build-identity.ts";
-import { hostCodedError } from "./daemon-host-errors.ts";
+import { daemonErrorMessage, hostCodedError } from "./daemon-host-errors.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
+import { causeClassOf } from "./repo-cell.ts";
 import { type RepoCell, type RepoCellStatus } from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+
+export function unavailableStatus(
+  repoId: string,
+  rootDir: string,
+  mode: DaemonRepoMode,
+  error: unknown,
+): RepoCellStatus {
+  return {
+    repoId,
+    rootDir,
+    mode,
+    state: "unavailable",
+    generation: null,
+    queueDepth: null,
+    recoveryMs: null,
+    materialization: null,
+    lastError: daemonErrorMessage(error),
+    causeClass: causeClassOf(error),
+  };
+}
+
+export function warmingStatus(repo: {
+  readonly repoId: string;
+  readonly canonicalRoot: string;
+  readonly mode: DaemonRepoMode;
+}): RepoCellStatus {
+  return {
+    repoId: repo.repoId,
+    rootDir: repo.canonicalRoot,
+    mode: repo.mode,
+    state: "warming",
+    generation: null,
+    queueDepth: null,
+    recoveryMs: null,
+    materialization: null,
+    lastError: null,
+    causeClass: null,
+    attach: {
+      phase: "opening",
+      applied: null,
+      total: null,
+      watermark: null,
+    },
+  };
+}
 
 export function requiredCell(
   cells: Map<string, RepoCell>,

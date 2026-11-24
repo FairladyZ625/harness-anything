@@ -1,7 +1,7 @@
 import { hash, X509Certificate } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { connect as tlsConnect, type DetailedPeerCertificate, type TLSSocket } from "node:tls";
+import { checkServerIdentity, connect as tlsConnect, type DetailedPeerCertificate, type TLSSocket } from "node:tls";
 import { evaluateEdgeAutoRepointTarget } from "@harness-anything/kernel/internal/domain/center-switchover.ts";
 import { openSqliteEventStore, type CenterMovedDetails } from "@harness-anything/storage";
 import { readReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
@@ -12,8 +12,13 @@ import {
   readFleetEdgeConfig,
   removeFleetEdgePinnedCaCert,
   writeFleetEdgePinnedCaCert,
+  type FleetEdgeConfig,
 } from "./client/fleet-edge-config.ts";
-import { repointFleetEdgeMirrorFenced } from "./fleet-center-admission.ts";
+import {
+  repointFleetEdgeMirrorFenced,
+  type FleetEdgeRepointStreamHooks,
+  type FleetEdgeSyncConfigFence,
+} from "./fleet-center-admission.ts";
 import { failFleetReplicaSync } from "./fleet/replica-sync.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { tlsPeerIdentityOptions } from "./tls-ca-certificate.ts";
@@ -56,7 +61,7 @@ export interface AutoRepointOnCenterMovedInput {
   readonly workspaceRoot: string;
   readonly repoId: string;
   readonly centerMoved: CenterMovedDetails;
-  readonly onAdmitted?: () => void;
+  readonly repointStream?: FleetEdgeRepointStreamHooks;
   readonly readAccessToken?: () => Promise<string | undefined>;
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
@@ -151,7 +156,8 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
   if (!verdict.ok) throw new FleetEdgeConfigError(verdict.code, verdict.detail);
 
   let stagedPinnedCaPath: string | null = null,
-    effectiveCaPath: string;
+    effectiveCaPath: string,
+    spkiPinOnly = false;
   if (verdict.matchedTrustAnchorKind === "ca_path" && probe.resolvedVerifiedCaPath !== null) {
     effectiveCaPath = probe.resolvedVerifiedCaPath;
   } else if (probe.resolvedVerifiedCaPath !== null) {
@@ -162,13 +168,18 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
         "center_moved_untrusted_target",
         "Auto-repoint refused: target presented no certificate material matching the pre-provisioned SPKI pin.",
       );
-    stagedPinnedCaPath = writeFleetEdgePinnedCaCert(
+    const previousResolvedCaPath = path.isAbsolute(config.caPath)
+      ? path.resolve(config.caPath)
+      : path.resolve(edgeDir, config.caPath);
+    const candidatePinnedPath = writeFleetEdgePinnedCaCert(
       input.userRoot,
       input.repoId,
       verdict.normalizedTargetSpkiSha256,
       probe.peerCertificateChainPem,
     );
-    effectiveCaPath = stagedPinnedCaPath;
+    if (path.resolve(candidatePinnedPath) !== previousResolvedCaPath) stagedPinnedCaPath = candidatePinnedPath;
+    effectiveCaPath = candidatePinnedPath;
+    spkiPinOnly = true;
   }
 
   try {
@@ -182,6 +193,7 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
           caPath: effectiveCaPath,
           servername: verdict.targetHost,
           spkiSha256: verdict.normalizedTargetSpkiSha256,
+          spkiPinOnly,
           nodeId: config.nodeId,
           credential: config.credential,
           repoId: input.repoId,
@@ -190,7 +202,7 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
         },
       },
       input.readAccessToken,
-      input.onAdmitted,
+      input.repointStream,
       input.signal,
     );
     return {
@@ -198,6 +210,7 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
       receipt,
     };
   } catch (error) {
+    // Only remove a newly staged PEM that is NOT referenced by the intact previous fleet-edge.json.
     if (stagedPinnedCaPath !== null) removeFleetEdgePinnedCaCert(stagedPinnedCaPath);
     throw error;
   }
@@ -332,6 +345,24 @@ function connectTlsProbe(input: {
       });
     const onSecureConnect = () => {
       const peer = socket.getPeerCertificate(true);
+      if (!input.rejectUnauthorized && peer.raw) {
+        const leaf = new X509Certificate(peer.raw),
+          now = Date.now(),
+          validFrom = Date.parse(leaf.validFrom),
+          validTo = Date.parse(leaf.validTo);
+        if (!Number.isFinite(validFrom) || !Number.isFinite(validTo) || now < validFrom || now > validTo) {
+          finish({
+            ok: false,
+            error: new FleetEdgeConfigError("CERT_HAS_EXPIRED", "Target center certificate is expired or not valid."),
+          });
+          return;
+        }
+        const identityError = checkServerIdentity(input.host.replace(/^\[|\]$/gu, ""), peer);
+        if (identityError) {
+          finish({ ok: false, error: identityError });
+          return;
+        }
+      }
       const extracted = extractPeerChainPem(peer);
       finish({ ok: true, spkiSha256: extracted.spkiSha256, chainPem: extracted.chainPem });
     };
@@ -364,6 +395,7 @@ export function createFleetEdgeAutoRepointCoordinator(input: {
   readonly closeSignal: AbortSignal;
   readonly isClosing: () => boolean;
   readonly withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>;
+  readonly repointStreamHooks: (repoId: string) => FleetEdgeRepointStreamHooks;
   readonly startReplicaSyncs: (admittedRepoId?: string) => void;
   readonly refreshEdgeReplicaStatus: (repoId: string) => void;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
@@ -429,7 +461,7 @@ export function createFleetEdgeAutoRepointCoordinator(input: {
               workspaceRoot: params.workspaceRoot,
               repoId: params.repoId,
               centerMoved: params.centerMoved,
-              onAdmitted: () => input.startReplicaSyncs(params.repoId),
+              repointStream: input.repointStreamHooks(params.repoId),
               signal: input.closeSignal,
             });
             handedOffTargets.delete(params.repoId);
@@ -518,6 +550,73 @@ export function createFleetEdgeAutoRepointCoordinator(input: {
       for (const repoId of [...handedOffTargets.keys()]) {
         failHandedOff(repoId, new Error("Daemon host closed."));
       }
+    },
+  };
+}
+
+/**
+ * Shared repo-level transition controls bridging staged repoint stream validation and
+ * concurrent manual sync preflight/commit fencing (F-26862501 / F-26862502).
+ */
+export function createFleetEdgeTransitionControls(input: {
+  readonly replicaSyncFences: ReadonlySet<string>;
+  readonly abortRunningReplicaSync: (repoId: string) => Promise<void>;
+  readonly startReplicaSyncs: (admittedRepoId?: string) => void;
+  readonly clearAutoRepointLatch: (repoId: string) => void;
+}): {
+  readonly stagedConfigFor: (repoId: string) => FleetEdgeConfig | undefined;
+  readonly clearStagedConfig: (repoId: string) => void;
+  readonly bumpTransitionSeq: (repoId: string) => void;
+  readonly repointStreamHooks: (repoId: string) => FleetEdgeRepointStreamHooks;
+  readonly edgeSyncConfigFence: FleetEdgeSyncConfigFence;
+} {
+  const stagedReplicaConfigs = new Map<string, FleetEdgeConfig | undefined>(),
+    replicaTransitionSeq = new Map<string, number>();
+  return {
+    stagedConfigFor: (repoId) => stagedReplicaConfigs.get(repoId),
+    clearStagedConfig: (repoId) => {
+      stagedReplicaConfigs.set(repoId, undefined);
+    },
+    bumpTransitionSeq: (repoId) => {
+      replicaTransitionSeq.set(repoId, (replicaTransitionSeq.get(repoId) ?? 0) + 1);
+    },
+    repointStreamHooks: (repoId) => ({
+      startStagedStream: (config) => {
+        stagedReplicaConfigs.set(repoId, config);
+        input.startReplicaSyncs(repoId);
+      },
+      abortStagedStream: async () => {
+        stagedReplicaConfigs.set(repoId, undefined);
+        await input.abortRunningReplicaSync(repoId);
+      },
+      commitStagedStream: () => {
+        stagedReplicaConfigs.set(repoId, undefined);
+        input.startReplicaSyncs(repoId);
+      },
+    }),
+    edgeSyncConfigFence: {
+      begin: (repoId) => {
+        if (input.replicaSyncFences.has(repoId))
+          throw new FleetEdgeConfigError(
+            "repoint_in_progress",
+            `A replica stream transition for ${repoId} is already active.`,
+          );
+        return replicaTransitionSeq.get(repoId) ?? 0;
+      },
+      commit: (repoId, token, writeAndAdmit) => {
+        if (input.replicaSyncFences.has(repoId))
+          throw new FleetEdgeConfigError(
+            "repoint_in_progress",
+            `A replica stream transition for ${repoId} is already active.`,
+          );
+        if ((replicaTransitionSeq.get(repoId) ?? 0) !== token)
+          throw new FleetEdgeConfigError(
+            "replica_cut_changed",
+            "The edge configuration changed during sync preflight. Retry sync against the active center.",
+          );
+        writeAndAdmit();
+        input.clearAutoRepointLatch(repoId);
+      },
     },
   };
 }

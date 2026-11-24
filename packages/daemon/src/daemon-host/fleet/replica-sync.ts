@@ -6,7 +6,11 @@ import { deterministicReplicaConfirmFailure } from "../runtime-recovery-watch.ts
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "../../fleet-sync/fleet/replica-health.ts";
-import { isDeterministicReplicaFailure, replicaRetryDelay } from "../../fleet-sync/fleet/replica-retry.ts";
+import {
+  isDeterministicReplicaFailure,
+  replicaRetryDelay,
+  resumeOnlyRefusalCode,
+} from "../../fleet-sync/fleet/replica-retry.ts";
 const DEFAULT_CONFIRM_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied" | "resumeOnly"> {
   readonly resumeOnly?: boolean | (() => boolean | undefined);
@@ -431,6 +435,15 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       const error = attempt.failed ? attempt.error : null;
       // Release any hung confirmation tied to the dropped connection so reconnects can re-confirm.
       abortActiveConfirmation(streamDown(error ?? new Error("replication stream ended")), true);
+      const refusalCode = attempt.failed ? resumeOnlyRefusalCode(resumeOnly, attempt.error) : null;
+      if (attempt.failed && refusalCode !== null) {
+        stream.down = attempt.error;
+        settleReady(key, false);
+        observe(replicaFailure(attempt.error, refusalCode));
+        options.onReplicaHealthChange?.();
+        options.onFailure?.(attempt.error);
+        return;
+      }
       const centerMoved = attempt.failed ? centerMovedFromSyncError(attempt.error) : null;
       if (attempt.failed && centerMoved !== null && options.onCenterMoved) {
         stream.down = attempt.error;

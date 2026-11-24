@@ -39,6 +39,7 @@ import {
   type FleetReplicationFixture,
 } from "./fleet-replication.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { runSwitchoverSlice2Mode2E2e } from "./center-switchover-slice2-e2e.fixture.ts";
 
 const seededTask = { taskId: "task_harden00000000000000000000001", executionId: "exe_harden", title: "Harden" };
 let pressureCounter = 0;
@@ -1055,4 +1056,10 @@ test(
     assert.deepEqual(transientFailureEvents, [], "a transient failure that heals within retry budget does not latch");
     await transientStream.stop();
   },
+);
+
+test(
+  "Switchover Slice 2 (Mode 2): stale offline edge refuses silent basebackup -> explicit --allow-basebackup rebuilds + managed RBAC relocation refreshes loginUrl/loginCertificate",
+  { timeout: 180_000 },
+  runSwitchoverSlice2Mode2E2e,
 );

@@ -1,7 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, generateKeyPairSync, sign as cryptoSign, X509Certificate } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer as createHttpsServer } from "node:https";
+import { connect as tlsConnect } from "node:tls";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,9 +17,18 @@ import {
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { openDaemonWriterEpochs } from "../src/daemon-host/daemon-host-writer-epoch.ts";
 import {
+  fleetEdgeConfigDir,
+  fleetEdgeConfigPath,
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
+import { syncFleetEdgeMirror, type FleetEdgeSyncConfigFence } from "../src/daemon-host/fleet-center-admission.ts";
+import { autoRepointFleetEdgeOnCenterMovedInsideFence } from "../src/daemon-host/fleet-edge-auto-repoint.ts";
+import {
   centerMovedFleetFault,
   readListenerCenterRelocated,
 } from "../src/daemon-host/fleet/center-listener-relocation.ts";
+import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { serializeFleetFrame } from "../src/daemon-host/fleet/command-protocol.ts";
 import {
   FleetRemoteError,
@@ -24,8 +36,16 @@ import {
   runFleetReplicaStream,
   runFleetTaskCommandClient,
 } from "../src/daemon-host/fleet/peer.ts";
+import { currentFleetProtocolVersion } from "../src/daemon-host/fleet/command-protocol.ts";
+import { runFleetReplicaSync, waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
+import {
+  CENTER_MOVED_DETAILS_CAPABILITY,
+  ReplicationDecoder,
+  serializeReplicationFrame,
+  SNAPSHOT_RESUME_CAPABILITY,
+} from "../src/fleet-sync/fleet/protocol.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
-import { fleetNodeOwners } from "./fleet-store.fixture.ts";
+import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -407,9 +427,564 @@ test(
       });
       assert.equal(siblingMeta.repoId, "active-repo");
       assert.ok(siblingMeta.writerEpoch >= oldEpoch + 1);
+
+      // F-26862504 mixed-version regression against real retired TLS center listener:
+      // 1) N-1 legacy edge (omitting center-moved-details/v1) gets exact 5-key replica.reject with code=CENTER_MOVED and NO centerMoved key.
+      // 2) Capable edge (declaring center-moved-details/v1) gets replica.reject WITH structured centerMoved details.
+      const readRawRejectFromListener = async (capabilities: readonly string[]) => {
+        const accessToken = await owners.readAccessToken("node-one")();
+        const socket = await new Promise<import("node:tls").TLSSocket>((resolve, reject) => {
+          const candidate = tlsConnect(
+            {
+              host: "127.0.0.1",
+              port: port2,
+              ca: caCert,
+              servername: "localhost",
+              rejectUnauthorized: true,
+            },
+            () => resolve(candidate),
+          );
+          candidate.once("error", reject);
+        });
+        try {
+          let buffered = "";
+          const nextLine = (): Promise<string> =>
+            new Promise<string>((resolve, reject) => {
+              const nl = buffered.indexOf("\n");
+              if (nl >= 0) {
+                const line = buffered.slice(0, nl);
+                buffered = buffered.slice(nl + 1);
+                resolve(line);
+                return;
+              }
+              const onData = (chunk: Buffer) => {
+                buffered += chunk.toString("utf8");
+                const idx = buffered.indexOf("\n");
+                if (idx >= 0) {
+                  socket.off("data", onData);
+                  socket.off("error", onErr);
+                  const line = buffered.slice(0, idx);
+                  buffered = buffered.slice(idx + 1);
+                  resolve(line);
+                }
+              };
+              const onErr = (err: Error) => {
+                socket.off("data", onData);
+                reject(err);
+              };
+              socket.on("data", onData);
+              socket.once("error", onErr);
+            });
+          socket.write(
+            serializeFleetFrame({
+              schema: "fleet.session.hello/v1",
+              messageId: "n1_hello",
+              protocolVersion: currentFleetProtocolVersion,
+              nodeId: "node-one",
+              credential: "secret-node-one",
+              ...(accessToken ? { accessToken } : {}),
+            }),
+          );
+          const ready = JSON.parse(await nextLine()) as { readonly schema?: string };
+          assert.equal(ready.schema, "fleet.session.ready/v1");
+          socket.write(
+            serializeReplicationFrame({
+              type: "replica.start",
+              repoId: "moved-repo",
+              position: null,
+              edgeBuildCommit: "legacy01",
+              taskEventShapeVersion: 1,
+              capabilities,
+            }),
+          );
+          const rawLine = await nextLine();
+          const decoded = new ReplicationDecoder().push(Buffer.from(`${rawLine}\n`));
+          assert.equal(decoded.length, 1);
+          return JSON.parse(rawLine) as Record<string, unknown>;
+        } finally {
+          socket.destroy();
+        }
+      };
+
+      const legacyFrame = await readRawRejectFromListener([SNAPSHOT_RESUME_CAPABILITY]);
+      assert.equal(legacyFrame.type, "replica.reject");
+      assert.equal(legacyFrame.code, "CENTER_MOVED");
+      assert.equal(Object.hasOwn(legacyFrame, "centerMoved"), false, JSON.stringify(legacyFrame));
+      assert.deepEqual(Object.keys(legacyFrame).sort(), [
+        "centerBuildCommit",
+        "code",
+        "message",
+        "taskEventShapeVersion",
+        "type",
+      ]);
+
+      const modernFrame = await readRawRejectFromListener([
+        SNAPSHOT_RESUME_CAPABILITY,
+        CENTER_MOVED_DETAILS_CAPABILITY,
+      ]);
+      assert.equal(modernFrame.type, "replica.reject");
+      assert.equal(modernFrame.code, "CENTER_MOVED");
+      assert.deepEqual(modernFrame.centerMoved, expectedCenterMoved);
     } finally {
       if (host1) await host1.close();
       if (host2) await host2.close();
+      await owners.close();
+      closeSqliteEventStoresUnder(root);
+      removeTempRepository(root);
+    }
+  },
+);
+
+test(
+  "F-26862501 & F-26862502: auto-repoint keeps fleet-edge.json & PEM intact when stream confirmation fails and shares config-write fence with manual sync",
+  { timeout: 90_000 },
+  async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-repoint-atomicity-fence-")),
+      repoId = "atomic-repo",
+      centerUserA = path.join(root, "center-a-user"),
+      centerUserB = path.join(root, "center-b-user"),
+      edgeUser = path.join(root, "edge-user"),
+      repoA = path.join(root, "repo-a"),
+      edgeWorkspace = path.join(root, "edge-workspace"),
+      viewRoot = path.join(root, "edge-view"),
+      keyPathA = path.join(root, "center-a.key"),
+      certPathA = path.join(root, "center-a.crt"),
+      keyPathB = path.join(root, "center-b.key"),
+      certPathB = path.join(root, "center-b.crt");
+    rosterRepo(repoA, repoId);
+    rosterRepo(edgeWorkspace, repoId);
+    writeSelfSignedLocalhostCertificate(keyPathA, certPathA);
+    writeSelfSignedLocalhostCertificate(keyPathB, certPathB);
+    const certA = readFileSync(certPathA),
+      keyA = readFileSync(keyPathA),
+      certB = readFileSync(certPathB),
+      keyB = readFileSync(keyPathB),
+      spkiB = createHash("sha256")
+        .update(new X509Certificate(certB).publicKey.export({ type: "spki", format: "der" }))
+        .digest("hex");
+
+    registerDaemonRepo({ canonicalRoot: repoA, repoId, userRoot: centerUserA, createConvenienceLinks: false });
+    registerDaemonRepo({
+      canonicalRoot: edgeWorkspace,
+      repoId,
+      userRoot: edgeUser,
+      mode: "remote-edge",
+      createConvenienceLinks: false,
+    });
+    const owners = await fleetNodeOwners({
+      userRoot: centerUserA,
+      owners: { "edge-atomic": "person-one" },
+      repoIds: [repoId],
+      localPersonId: "owner-one",
+    });
+    owners.bind(centerUserB);
+    owners.bind(edgeUser);
+
+    const loginServer = createHttpsServer({ key: keyB, cert: certB }, (req, res) => {
+      void (async () => {
+        let raw = "";
+        for await (const chunk of req) raw += String(chunk);
+        const url = new URL(req.url ?? "/", "https://localhost"),
+          answer = await owners.keycloak.fetch(`https://fixture-keycloak.invalid${url.pathname}${url.search}`, {
+            method: req.method,
+            headers: req.headers as Record<string, string>,
+            ...(raw === "" ? {} : { body: new URLSearchParams(raw) }),
+          });
+        res.statusCode = answer.status;
+        res.setHeader("content-type", "application/json");
+        res.end(Buffer.from(await answer.arrayBuffer()));
+      })().catch(() => {
+        res.statusCode = 500;
+        res.end("{}");
+      });
+    });
+    loginServer.listen(0, "127.0.0.1");
+    await once(loginServer, "listening");
+    const loginAddr = loginServer.address();
+    assert.ok(loginAddr && typeof loginAddr !== "string");
+    const loginUrl = `https://localhost:${String(loginAddr.port)}`;
+    t.after(
+      () =>
+        new Promise<void>((resolve) => {
+          loginServer.closeAllConnections();
+          loginServer.close(() => resolve());
+        }),
+    );
+
+    const hostA = await openDaemonHost({ daemonId: "center-a-atomic", userRoot: centerUserA });
+    let centerA: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
+      centerB: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
+      activeSyncController: AbortController | null = null,
+      activeSyncTask: Promise<void> | null = null;
+    try {
+      await hostA.attachmentsSettled();
+      assert.equal(
+        (await hostA.run(repoId, { kind: "task-create", taskId: "atomic-t1", title: "Atomic T1" }, auth)).outcome,
+        "applied",
+      );
+      centerA = await listenFleetTls({
+        host: hostA,
+        stateRoot: path.join(centerUserA, "fleet"),
+        ...fleetHostWriterOptions(centerUserA, [repoId]),
+        key: keyA,
+        cert: certA,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+      const oldEpoch = fleetHostWriterOptions(centerUserA, [repoId]).writerEpochLease(repoId).epoch;
+
+      // Seed initial edge config & durable replica cut from Center A with SPKI trustAnchor for B.
+      const edgeCaA = path.join(fleetEdgeConfigDir(edgeUser, repoId), "old-center-a.pem");
+      mkdirSync(path.dirname(edgeCaA), { recursive: true });
+      writeFileSync(edgeCaA, certA, { mode: 0o600 });
+      writeFleetEdgeConfig(edgeUser, repoId, {
+        repoId,
+        host: "127.0.0.1",
+        port: centerA.port,
+        caPath: edgeCaA,
+        servername: "localhost",
+        trustAnchors: { spkiSha256: [spkiB] },
+        nodeId: "edge-atomic",
+        credential: "secret-edge-atomic",
+        writerEpoch: oldEpoch,
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+      });
+
+      const initialStreamAbort = new AbortController(),
+        initialStreamTask = runFleetReplicaSync({
+          hostname: "127.0.0.1",
+          port: centerA.port,
+          ca: certA,
+          servername: "localhost",
+          nodeId: "edge-atomic",
+          credential: "secret-edge-atomic",
+          repoId,
+          viewRoot,
+          diskQuotaBytes: 64 * 1024 * 1024,
+          readAccessToken: owners.readAccessToken("edge-atomic"),
+          signal: initialStreamAbort.signal,
+        });
+      assert.equal(
+        await waitForFleetReplicaReady({ viewRoot, repoId, nodeId: "edge-atomic" }, AbortSignal.timeout(15_000)),
+        true,
+      );
+      initialStreamAbort.abort();
+      await initialStreamTask;
+
+      // Stand up Center B sharing the same canonical ledger with persisted writerEpoch = oldEpoch + 1 and window = 1.
+      // Between preflight and stream start we advance 2 commits so preflight says resumeAvailable=true,
+      // then the actual stream handshake rejects with replication_resume_unavailable!
+      let writerEpochB = openDaemonWriterEpochs({ userRoot: centerUserB, daemonId: "center-b-atomic-0" }),
+        advancedLeaseB = writerEpochB.writerEpochLease(repoId);
+      while (advancedLeaseB.epoch <= oldEpoch) {
+        writerEpochB.closeDaemonWriterEpoch();
+        writerEpochB = openDaemonWriterEpochs({
+          userRoot: centerUserB,
+          daemonId: `center-b-atomic-${String(advancedLeaseB.epoch)}`,
+        });
+        advancedLeaseB = writerEpochB.writerEpochLease(repoId);
+      }
+      const newEpochB = advancedLeaseB.epoch;
+      centerB = await listenFleetTls({
+        host: hostA,
+        stateRoot: path.join(centerUserB, "fleet"),
+        writerEpochStateRoot: path.join(centerUserB, "fleet"),
+        writerEpochLease: () => advancedLeaseB,
+        replicationRetentionWindowCommits: 1,
+        key: keyB,
+        cert: certB,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+      t.after(() => writerEpochB.closeDaemonWriterEpoch());
+
+      const rawConfigBefore = readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"),
+        rawOldPemBefore = readFileSync(edgeCaA, "utf8"),
+        expectedStagedPem = path.join(fleetEdgeConfigDir(edgeUser, repoId), `pinned-center-${spkiB.slice(0, 16)}.pem`);
+
+      const makeStreamHooks = (beforeStart?: () => Promise<void> | void) => ({
+        startStagedStream: async (stagedConfig: NonNullable<ReturnType<typeof readFleetEdgeConfig>>) => {
+          await beforeStart?.();
+          activeSyncController = new AbortController();
+          activeSyncTask = runFleetReplicaSync({
+            hostname: stagedConfig.host,
+            port: stagedConfig.port,
+            ca: readFileSync(stagedConfig.caPath),
+            ...(stagedConfig.servername ? { servername: stagedConfig.servername } : {}),
+            ...(stagedConfig.spkiSha256 ? { spkiSha256: stagedConfig.spkiSha256 } : {}),
+            ...(stagedConfig.spkiPinOnly ? { spkiPinOnly: true } : {}),
+            resumeOnly: stagedConfig.resumeOnly,
+            nodeId: stagedConfig.nodeId,
+            credential: stagedConfig.credential,
+            repoId: stagedConfig.repoId,
+            viewRoot: stagedConfig.viewRoot,
+            diskQuotaBytes: stagedConfig.quotaBytes,
+            readAccessToken: owners.readAccessToken("edge-atomic"),
+            signal: activeSyncController.signal,
+          });
+        },
+        abortStagedStream: async () => {
+          activeSyncController?.abort();
+          if (activeSyncTask) await activeSyncTask;
+          activeSyncController = null;
+          activeSyncTask = null;
+        },
+        commitStagedStream: () => undefined,
+      });
+
+      // F-26862501 Subcase 1: Preflight succeeds (resumeAvailable=true), then Center B advances 2 commits
+      // before stream handshake so real walsender rejects with replication_resume_unavailable!
+      // Config and old PEM MUST remain byte-for-byte intact and the staged PEM MUST be cleaned up!
+      let injectedOverflow = false;
+      const startHooksWithShrink = makeStreamHooks(async () => {
+        if (injectedOverflow) return;
+        injectedOverflow = true;
+        assert.equal(
+          (await hostA.run(repoId, { kind: "task-create", taskId: "atomic-t2", title: "Shrink window 1" }, auth))
+            .outcome,
+          "applied",
+        );
+        assert.equal(
+          (await hostA.run(repoId, { kind: "task-create", taskId: "atomic-t3", title: "Shrink window 2" }, auth))
+            .outcome,
+          "applied",
+        );
+      });
+      await assert.rejects(
+        autoRepointFleetEdgeOnCenterMovedInsideFence({
+          userRoot: edgeUser,
+          workspaceRoot: edgeWorkspace,
+          repoId,
+          centerMoved: {
+            newExternalUrl: `https://127.0.0.1:${String(centerB.port)}`,
+            newLoginUrl: loginUrl,
+            newEpoch: newEpochB,
+            spkiSha256: `sha256:${spkiB}`,
+          },
+          repointStream: startHooksWithShrink,
+          readAccessToken: owners.readAccessToken("edge-atomic"),
+          timeoutMs: 15_000,
+        }),
+        { code: "replication_resume_unavailable" },
+      );
+      assert.equal(
+        readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"),
+        rawConfigBefore,
+        "F-26862501: fleet-edge.json MUST NOT be overwritten when new stream rejects resume",
+      );
+      assert.equal(
+        readFileSync(edgeCaA, "utf8"),
+        rawOldPemBefore,
+        "F-26862501: old PEM referenced by fleet-edge.json MUST remain intact",
+      );
+      assert.equal(
+        existsSync(expectedStagedPem),
+        false,
+        "F-26862501: uncommitted staged SPKI PEM MUST be removed on failure",
+      );
+
+      // F-26862501 Subcase 2: Preflight succeeds on a healthy window, then stream handshake is interrupted/aborted
+      // before confirmation -> fleet-edge.json & old PEM remain intact, then recovery succeeds on retry!
+      await centerB.close();
+      centerB = await listenFleetTls({
+        host: hostA,
+        stateRoot: path.join(centerUserB, "fleet"),
+        writerEpochStateRoot: path.join(centerUserB, "fleet"),
+        writerEpochLease: () => advancedLeaseB,
+        replicationRetentionWindowCommits: 1024,
+        key: keyB,
+        cert: certB,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+      const interruptController = new AbortController();
+      await assert.rejects(
+        autoRepointFleetEdgeOnCenterMovedInsideFence({
+          userRoot: edgeUser,
+          workspaceRoot: edgeWorkspace,
+          repoId,
+          centerMoved: {
+            newExternalUrl: `https://127.0.0.1:${String(centerB.port)}`,
+            newLoginUrl: loginUrl,
+            newEpoch: newEpochB,
+            spkiSha256: `sha256:${spkiB}`,
+          },
+          repointStream: {
+            startStagedStream: () => {
+              // Simulate interruption right before stream confirms.
+              interruptController.abort(new Error("simulated stream interruption during handshake"));
+            },
+            abortStagedStream: async () => undefined,
+            commitStagedStream: () => undefined,
+          },
+          readAccessToken: owners.readAccessToken("edge-atomic"),
+          signal: interruptController.signal,
+          timeoutMs: 15_000,
+        }),
+        /simulated stream interruption/u,
+      );
+      assert.equal(readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"), rawConfigBefore);
+      assert.equal(readFileSync(edgeCaA, "utf8"), rawOldPemBefore);
+      assert.equal(existsSync(expectedStagedPem), false);
+
+      // F-26862502: Shared repo-level config-write fence between manual edge sync and auto-repoint.
+      let fenceActive = false,
+        transitionSeq = 0;
+      const sharedFence: FleetEdgeSyncConfigFence = {
+        begin: (id) => {
+          if (fenceActive)
+            throw Object.assign(new Error(`active transition for ${id}`), { code: "repoint_in_progress" });
+          return transitionSeq;
+        },
+        commit: (id, token, writeAndAdmit) => {
+          if (fenceActive)
+            throw Object.assign(new Error(`active transition for ${id}`), { code: "repoint_in_progress" });
+          if (transitionSeq !== token)
+            throw Object.assign(new Error("config changed during sync"), { code: "replica_cut_changed" });
+          writeAndAdmit();
+        },
+      };
+      const oldSyncPayload = {
+        host: "127.0.0.1",
+        port: centerA.port,
+        caPath: edgeCaA,
+        servername: "localhost",
+        trustAnchors: { caPaths: [edgeCaA] },
+        nodeId: "edge-atomic",
+        credential: "secret-edge-atomic",
+        repoId,
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+        workspaceRoot: edgeWorkspace,
+        timeoutMs: 10_000,
+      };
+
+      // Subcase 2a: Manual sync starting while auto-repoint holds the fence is rejected immediately.
+      fenceActive = true;
+      await assert.rejects(
+        syncFleetEdgeMirror(
+          { userRoot: edgeUser, payload: oldSyncPayload },
+          owners.readAccessToken("edge-atomic"),
+          undefined,
+          sharedFence,
+        ),
+        { code: "repoint_in_progress" },
+      );
+      fenceActive = false;
+
+      // Subcase 2b: Manual sync starts BEFORE auto-repoint, pauses in network preflight while auto-repoint
+      // succeeds and advances fleet-edge.json to Center B (epoch oldEpoch+1, preserving spkiB trustAnchors).
+      // When the late manual sync resumes with valid metadata from old Center A, commit MUST be rejected
+      // and MUST NOT revert fleet-edge.json back to Center A or overwrite trustAnchors!
+      let releaseLateSync!: () => void, signalSyncEntered!: () => void;
+      const syncEntered = new Promise<void>((resolve) => {
+        signalSyncEntered = resolve;
+      });
+      const releaseGate = new Promise<void>((resolve) => {
+        releaseLateSync = resolve;
+      });
+      const lateManualSync = syncFleetEdgeMirror(
+        { userRoot: edgeUser, payload: oldSyncPayload },
+        async () => {
+          signalSyncEntered();
+          await releaseGate;
+          return owners.readAccessToken("edge-atomic")();
+        },
+        undefined,
+        sharedFence,
+      );
+      await syncEntered;
+
+      // Now run auto-repoint cleanly to Center B (recovery after Subcase 2 interruption + advancing transitionSeq).
+      fenceActive = true;
+      transitionSeq += 1;
+      try {
+        const recovered = await autoRepointFleetEdgeOnCenterMovedInsideFence({
+          userRoot: edgeUser,
+          workspaceRoot: edgeWorkspace,
+          repoId,
+          centerMoved: {
+            newExternalUrl: `https://127.0.0.1:${String(centerB.port)}`,
+            newLoginUrl: loginUrl,
+            newEpoch: newEpochB,
+            spkiSha256: `sha256:${spkiB}`,
+          },
+          repointStream: makeStreamHooks(),
+          readAccessToken: owners.readAccessToken("edge-atomic"),
+          timeoutMs: 15_000,
+        });
+        assert.equal(recovered.matchedTrustAnchorKind, "spki_pin");
+        assert.equal(recovered.receipt.ok, true);
+      } finally {
+        fenceActive = false;
+      }
+      const rawConfigAfterRepoint = readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"),
+        parsedAfterRepoint = readFleetEdgeConfig(edgeUser, repoId);
+      assert.equal(parsedAfterRepoint?.port, centerB.port);
+      assert.equal(parsedAfterRepoint?.writerEpoch, newEpochB);
+      assert.equal(parsedAfterRepoint?.spkiPinOnly, true);
+      assert.deepEqual(parsedAfterRepoint?.trustAnchors, { spkiSha256: [spkiB] });
+
+      // Release the late manual sync: it MUST fail and leave fleet-edge.json untouched on Center B!
+      releaseLateSync();
+      await assert.rejects(lateManualSync, { code: "replica_cut_changed" });
+      assert.equal(
+        readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"),
+        rawConfigAfterRepoint,
+        "F-26862502: late manual sync MUST NOT revert auto-repointed fleet-edge.json or overwrite trustAnchors",
+      );
+
+      // Subcase 2c: Even a fresh manual sync against old Center A (lower writerEpoch) is refused!
+      await assert.rejects(
+        syncFleetEdgeMirror(
+          { userRoot: edgeUser, payload: oldSyncPayload },
+          owners.readAccessToken("edge-atomic"),
+          undefined,
+          sharedFence,
+        ),
+        { code: "writer_epoch_not_advanced" },
+      );
+      assert.equal(readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"), rawConfigAfterRepoint);
+    } finally {
+      activeSyncController?.abort();
+      if (activeSyncTask) await activeSyncTask;
+      if (centerB) await centerB.close();
+      if (centerA) await centerA.close();
+      await hostA.close();
       await owners.close();
       closeSqliteEventStoresUnder(root);
       removeTempRepository(root);

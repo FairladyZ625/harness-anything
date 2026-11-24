@@ -2729,13 +2729,6 @@
         "order": 200
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/walreceiver.ts#runWalReceiver:71488d15ed1193278c8543357215521e",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 662
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/walreceiver.ts#runWalReceiver:7cfab6648a33efbdd92cc1993746f5cb",
         "route": "daemon-local-state",
         "role": "technical-port",

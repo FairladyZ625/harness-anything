@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID, X509Certificate } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
+import { promisify } from "node:util";
 import {
   readManagedRbacRelocationBundle,
   writeManagedRbacRelocationBundle,
 } from "@harness-anything/authorization/keycloak";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 import {
   closeSqliteEventStoresUnder,
@@ -20,7 +22,10 @@ import {
   writeCenterSwitchoverFence,
 } from "@harness-anything/storage";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
+import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
+import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
 import { fleetEdgeConfigPath, readFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { autoRepointFleetEdgeOnCenterMovedInsideFence } from "../src/daemon-host/fleet-edge-auto-repoint.ts";
 import {
@@ -28,19 +33,28 @@ import {
   prepareCenterSymmetricIdentity,
   relocateFleetCenter,
 } from "../src/daemon-host/fleet/center.ts";
-import { runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
+import { readFleetRepositoryMetadataClient, runFleetTaskCommandClient } from "../src/daemon-host/fleet/peer.ts";
 import { waitForFleetReplicaReady, waitForFleetReplicaRevision } from "../src/daemon-host/fleet/replica-sync.ts";
+import { requestFleetReplicaToken } from "../src/daemon-host/fleet/replica-token.ts";
+import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rpc-server.ts";
+import { authenticateRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-credential.ts";
+import { createUnixSocketTransportServer } from "../src/daemon-host/transport/unix-socket.ts";
 import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
 import { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetHostWriterOptions } from "./fleet-store.fixture.ts";
+import { IdentitySessionPort, serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+
+const execFileAsync = promisify(execFile);
 
 interface TestCertBundle {
   readonly key: Buffer;
   readonly cert: Buffer;
+  /** Standard production TLS chain: leaf + intermediate CA, intentionally OMITTING the self-signed root CA. */
+  readonly chainWithoutRoot: Buffer;
   readonly keyPath: string;
   readonly certPath: string;
   readonly spkiSha256: string;
@@ -50,12 +64,17 @@ function createSignedClusterMaterial(root: string): {
   readonly caKeyPath: string;
   readonly caCertPath: string;
   readonly caCertPem: Buffer;
+  readonly intermediateCertPem: Buffer;
   readonly issueServerCert: (name: string) => TestCertBundle;
 } {
   const caDir = path.join(root, "cluster-ca");
   mkdirSync(caDir, { recursive: true });
   const caKeyPath = path.join(caDir, "ca.key"),
-    caCertPath = path.join(caDir, "ca.crt");
+    caCertPath = path.join(caDir, "ca.crt"),
+    interKeyPath = path.join(caDir, "intermediate.key"),
+    interCsrPath = path.join(caDir, "intermediate.csr"),
+    interExtPath = path.join(caDir, "intermediate.ext"),
+    interCertPath = path.join(caDir, "intermediate.crt");
   execFileSync(
     "openssl",
     [
@@ -69,16 +88,55 @@ function createSignedClusterMaterial(root: string): {
       "-out",
       caCertPath,
       "-subj",
-      "/CN=Harness Test Cluster CA",
+      "/CN=Harness Test Cluster Root CA",
       "-days",
       "1",
       "-addext",
-      "basicConstraints=critical,CA:TRUE",
+      "basicConstraints=critical,CA:TRUE,pathlen:1",
       "-addext",
       "keyUsage=critical,keyCertSign,cRLSign",
     ],
     { stdio: "ignore" },
   );
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      interKeyPath,
+      "-out",
+      interCsrPath,
+      "-subj",
+      "/CN=Harness Test Cluster Intermediate CA",
+    ],
+    { stdio: "ignore" },
+  );
+  writeFileSync(interExtPath, "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n");
+  execFileSync(
+    "openssl",
+    [
+      "x509",
+      "-req",
+      "-in",
+      interCsrPath,
+      "-CA",
+      caCertPath,
+      "-CAkey",
+      caKeyPath,
+      "-CAcreateserial",
+      "-out",
+      interCertPath,
+      "-days",
+      "1",
+      "-extfile",
+      interExtPath,
+    ],
+    { stdio: "ignore" },
+  );
+  const intermediateCertPem = readFileSync(interCertPath);
   const issueServerCert = (name: string): TestCertBundle => {
     const dir = path.join(root, `cert-${name}`);
     mkdirSync(dir, { recursive: true });
@@ -103,9 +161,9 @@ function createSignedClusterMaterial(root: string): {
         "-in",
         csrPath,
         "-CA",
-        caCertPath,
+        interCertPath,
         "-CAkey",
-        caKeyPath,
+        interKeyPath,
         "-CAcreateserial",
         "-out",
         certPath,
@@ -118,9 +176,22 @@ function createSignedClusterMaterial(root: string): {
     );
     const cert = readFileSync(certPath),
       key = readFileSync(keyPath);
-    return { key, cert, keyPath, certPath, spkiSha256: computeSpkiSha256(cert) };
+    return {
+      key,
+      cert,
+      chainWithoutRoot: Buffer.concat([cert, intermediateCertPem]),
+      keyPath,
+      certPath,
+      spkiSha256: computeSpkiSha256(cert),
+    };
   };
-  return { caKeyPath, caCertPath, caCertPem: readFileSync(caCertPath), issueServerCert };
+  return {
+    caKeyPath,
+    caCertPath,
+    caCertPem: readFileSync(caCertPath),
+    intermediateCertPem,
+    issueServerCert,
+  };
 }
 
 function createSelfSignedCert(directory: string): TestCertBundle {
@@ -150,7 +221,7 @@ function createSelfSignedCert(directory: string): TestCertBundle {
   );
   const cert = readFileSync(certPath),
     key = readFileSync(keyPath);
-  return { key, cert, keyPath, certPath, spkiSha256: computeSpkiSha256(cert) };
+  return { key, cert, chainWithoutRoot: cert, keyPath, certPath, spkiSha256: computeSpkiSha256(cert) };
 }
 
 function computeSpkiSha256(certPem: Buffer): string {
@@ -563,7 +634,8 @@ export async function runSwitchoverSlice2Mode1E2e(t: TestContext): Promise<void>
               stateRoot: path.join(edgeB.edgeUser, "fleet"),
               ...fleetHostWriterOptions(edgeB.edgeUser, [repoId]),
               key: certB.key,
-              cert: Buffer.concat([certB.cert, cluster.caCertPem]),
+              // F-26862503: Serve standard production leaf + intermediate chain OMITTING the root CA!
+              cert: certB.chainWithoutRoot,
               hostname: "127.0.0.1",
               port: 0,
               replicaDiskQuotaBytes: 64 * 1024 * 1024,
@@ -674,22 +746,95 @@ export async function runSwitchoverSlice2Mode1E2e(t: TestContext): Promise<void>
     assert.equal(updatedCCa?.loginUrl, stableLoginProxy.url, "Independent stable loginUrl stays unchanged!");
     assert.equal(updatedCSpki?.port, portB);
     assert.equal(updatedCSpki?.writerEpoch, updatedCCa?.writerEpoch);
+    assert.equal(updatedCSpki?.spkiPinOnly, true, "SPKI-only auto-repoint MUST persist spkiPinOnly=true");
     assert.deepEqual(updatedCSpki?.trustAnchors, { spkiSha256: [certB.spkiSha256] });
     assert.equal(updatedCSpki?.loginUrl, stableLoginProxy.url);
 
-    // Verify Edge C can execute authenticated writes against Center B using the independent stable loginUrl!
+    // Verify Edge C (CA anchor) AND Edge C2 (SPKI-only over rootless leaf+intermediate chain) can both execute
+    // authenticated writes against Center B using the independent stable loginUrl!
     const edgeCWrite = await edgeCCa.command({
       kind: "task-create",
       taskId: "s2-edge-c-write-on-b",
       title: "Write from Edge C after auto-repoint (stable loginUrl)",
     });
     assert.equal(edgeCWrite.outcome, "applied", JSON.stringify(edgeCWrite));
+    const edgeCSpkiWrite = await edgeCSpki.command({
+      kind: "task-create",
+      taskId: "s2-edge-c2-spki-write-on-b",
+      title: "Write from SPKI-only Edge C2 over rootless chain",
+    });
+    assert.equal(edgeCSpkiWrite.outcome, "applied", JSON.stringify(edgeCSpkiWrite));
     const rev4 = readRepoRevision(edgeB.edgeRoot, repoId);
     assert.ok(rev4 > rev3);
     await waitForFleetReplicaRevision(
       { viewRoot: edgeCSpki.viewRoot, repoId, nodeId: "node-c-spki" },
       rev4,
       AbortSignal.timeout(30_000),
+    );
+
+    // F-26862503 Restart verification: fully restart SPKI-only Edge C2 daemon and confirm its persisted
+    // spkiPinOnly config reconnects over Center B's rootless leaf+intermediate chain and replicates new commits!
+    edgeCSpki.rpc.close();
+    await edgeCSpki.host.close();
+    const restartedCSpki = await openDaemonHost({
+      daemonId: "edge-c-spki-restarted",
+      userRoot: edgeCSpki.edgeUser,
+      oidc: createIdentitySession(edgeCSpki.edgeUser, { fetch: nodeA.owners.keycloak.fetch }),
+    });
+    t.after(() => restartedCSpki.close());
+    await restartedCSpki.attachmentsSettled();
+    assert.equal(
+      (
+        await hostBAsCenter!.run(
+          repoId,
+          { kind: "task-create", taskId: "s2-after-spki-restart", title: "After SPKI edge restart" },
+          auth,
+        )
+      ).outcome,
+      "applied",
+    );
+    const rev5 = readRepoRevision(edgeB.edgeRoot, repoId);
+    assert.ok(rev5 > rev4);
+    await waitForFleetReplicaRevision(
+      { viewRoot: edgeCSpki.viewRoot, repoId, nodeId: "node-c-spki" },
+      rev5,
+      AbortSignal.timeout(30_000),
+    );
+    assert.equal(basebackups.starts(), 0, "Restarted SPKI-only edge MUST resume with ZERO basebackup");
+    assert.equal(readReplicaGeneration(viewDirCSpki)?.id, genIdCSpkiBefore);
+
+    // F-26862503 Negative controls: spkiPinOnly MUST still enforce SPKI pin and SAN hostname identity!
+    await assert.rejects(
+      readFleetRepositoryMetadataClient({
+        hostname: "127.0.0.1",
+        port: portB,
+        ca: certB.chainWithoutRoot,
+        servername: "localhost",
+        spkiSha256: rogueCert.spkiSha256,
+        spkiPinOnly: true,
+        nodeId: "node-c-spki",
+        credential: "secret-node-c-spki",
+        repoId,
+        actionKind: "repository-read",
+        readAccessToken: nodeA.owners.readAccessToken("node-c-spki"),
+      }),
+      { code: "pin_mismatch" },
+    );
+    await assert.rejects(
+      readFleetRepositoryMetadataClient({
+        hostname: "127.0.0.1",
+        port: portB,
+        ca: certB.chainWithoutRoot,
+        servername: "wrong-host.example.invalid",
+        spkiSha256: certB.spkiSha256,
+        spkiPinOnly: true,
+        nodeId: "node-c-spki",
+        credential: "secret-node-c-spki",
+        repoId,
+        actionKind: "repository-read",
+        readAccessToken: nodeA.owners.readAccessToken("node-c-spki"),
+      }),
+      { code: "ERR_TLS_CERT_ALTNAME_INVALID" },
     );
 
     // Negative Control 1: Edge D (no trustAnchors) MUST refuse auto-repoint and keep fleet-edge.json byte-identical!
@@ -743,7 +888,8 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     repoId = "lease-repo",
     cluster = createSignedClusterMaterial(root),
     certB = cluster.issueServerCert("center-b-rbac"),
-    rbacBundleDir = path.join(root, "rbac-relocation-bundle");
+    rbacBundleDir = path.join(root, "rbac-relocation-bundle"),
+    cliEntry = path.resolve("packages/cli/src/index.ts");
   let hostBAsCenter: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
     centerB: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
     fencedCenterA: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
@@ -774,32 +920,21 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       undefined,
       { replicaAdmission: true },
     );
-    // RBAC Mode 2: Old Center A has loginProxyA (cert A); New Center B has loginProxyB (cert B, distinct URL & cert)!
+    // RBAC Mode 2 (F-26862505): Old Center A uses its own identity backend (nodeA.owners) behind oldLoginProxy;
+    // New Center B will run a COMPLETELY INDEPENDENT identity backend (ownersB) initialized solely by importing
+    // the exported ManagedRbacRelocationBundle!
     const oldLoginProxy = await listenLoginProxy(t, {
-        key: readFileSync(path.join(nodeA.root, "tls.key")),
-        cert: readFileSync(path.join(nodeA.root, "tls.crt")),
-        keycloak: nodeA.owners.keycloak,
-      }),
-      newLoginProxy = await listenLoginProxy(t, {
-        key: certB.key,
-        cert: Buffer.concat([certB.cert, cluster.caCertPem]),
-        keycloak: nodeA.owners.keycloak,
-      });
+      key: readFileSync(path.join(nodeA.root, "tls.key")),
+      cert: readFileSync(path.join(nodeA.root, "tls.crt")),
+      keycloak: nodeA.owners.keycloak,
+    });
     const oldAuthorityFor = (nodeId: string) => ({
-        url: oldLoginProxy.url,
-        realm: "harness",
-        clientId: `harness-node-${nodeId}`,
-        servername: "localhost",
-        certificate: oldLoginProxy.certificate,
-      }),
-      newAuthorityFor = (nodeId: string) => ({
-        url: newLoginProxy.url,
-        realm: "harness",
-        clientId: `harness-node-${nodeId}`,
-        servername: "localhost",
-        browserUrl: newLoginProxy.url,
-        certificate: cluster.caCertPem.toString("utf8"),
-      });
+      url: oldLoginProxy.url,
+      realm: "harness",
+      clientId: `harness-node-${nodeId}`,
+      servername: "localhost",
+      certificate: oldLoginProxy.certificate,
+    });
     oldAuthorityProvider = oldAuthorityFor;
 
     for (const id of ["node-a-sym", "node-c-rbac", "node-f-stale"]) {
@@ -819,7 +954,7 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     );
     const rev1 = readRepoRevision(nodeA.repo, repoId);
 
-    // Candidate B + Online Edge C (will follow RBAC relocation) + Edge F (will go offline & fall out of log window).
+    // Candidate B + Online Edge C (will follow RBAC relocation) + Edge F (will go offline & fall beyond default 1024 window).
     const edgeB = await fleetEdgeHostFixture(t, nodeA, {
       name: "cand-b-m2",
       nodeId: "node-one",
@@ -860,61 +995,171 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       await waitForFleetReplicaRevision({ viewRoot: edge.viewRoot, repoId, nodeId }, rev1, AbortSignal.timeout(30_000));
     }
 
-    // Take Edge F offline BEFORE further commits so its lastAppliedRevision falls behind B's retention window!
+    const viewDirB = path.join(edgeB.viewRoot, "repos", repoId, "views", "node-one"),
+      viewDirF = path.join(edgeFStale.viewRoot, "repos", repoId, "views", "node-f-stale"),
+      seqEdgeFOffline = readReplicaGeneration(viewDirF)?.metadata.position.sequence ?? 0;
+    assert.ok(seqEdgeFOffline > 0);
+
+    // Take Edge F offline BEFORE advancing > DEFAULT_REPLICA_LOG_WINDOW_COMMITS (1024) commits!
     await edgeFStale.host.close();
 
-    // Advance Center A by 4 more commits (exceeding the small retention window we will set on Center B) and catch up B & C.
-    for (let i = 2; i <= 5; i += 1) {
-      assert.equal(
-        (
-          await nodeA.command("center-node", {
-            kind: "task-create",
-            taskId: `m2-t${String(i)}`,
-            title: `Task ${String(i)}`,
-          })
-        ).outcome,
-        "applied",
-      );
+    // F-26862506: Advance Center A by >1024 real replication_log commits (1030 eventless commits + 1 task write)
+    // so Candidate B's real production default window (DEFAULT_REPLICA_LOG_WINDOW_COMMITS = 1024) prunes Edge F's position!
+    const overflowCommits = DEFAULT_REPLICA_LOG_WINDOW_COMMITS + 6;
+    const centerAStore = openSqliteEventStore({ rootInput: nodeA.repo, repoId });
+    try {
+      const activeFence = centerAStore.writerFence();
+      assert.ok(activeFence, "Center A canonical store must hold an active writer fence");
+      for (let i = 1; i <= overflowCommits; i += 1) {
+        const opId = `op_window_overflow_${String(i)}`,
+          intentDigest = `sha256:${createHash("sha256").update(opId).digest("hex")}` as const;
+        centerAStore.appendCommand({
+          fence: activeFence,
+          intent: { opId, intentDigest, summary: `window-overflow-${String(i)}` },
+          events: [],
+          rejectionCode: "window_overflow_marker",
+        });
+      }
+    } finally {
+      centerAStore.close();
     }
-    const rev5 = readRepoRevision(nodeA.repo, repoId);
+    assert.equal(
+      (await nodeA.command("center-node", { kind: "task-create", taskId: "m2-t2-post-1024", title: "Post-1024 Task" }))
+        .outcome,
+      "applied",
+    );
+    const revAfterOverflow = readRepoRevision(nodeA.repo, repoId);
     await waitForFleetReplicaRevision(
       { viewRoot: edgeB.viewRoot, repoId, nodeId: "node-one" },
-      rev5,
-      AbortSignal.timeout(30_000),
+      revAfterOverflow,
+      AbortSignal.timeout(45_000),
     );
     await waitForFleetReplicaRevision(
       { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
-      rev5,
-      AbortSignal.timeout(30_000),
+      revAfterOverflow,
+      AbortSignal.timeout(45_000),
+    );
+    const seqCandidateB = readReplicaGeneration(viewDirB)?.metadata.position.sequence ?? 0;
+    assert.ok(
+      seqCandidateB - seqEdgeFOffline > DEFAULT_REPLICA_LOG_WINDOW_COMMITS,
+      `Expected Edge F lag > ${String(DEFAULT_REPLICA_LOG_WINDOW_COMMITS)}, got ${String(seqCandidateB - seqEdgeFOffline)}`,
     );
 
-    // Export & verify logical RBAC relocation bundle from A -> B (reusing v0 cross-platform RBAC relocation primitive).
+    // F-26862505: Export A's real RBAC state into ManagedRbacRelocationBundle and stand up a brand-new,
+    // completely independent identity backend (ownersB) initialized solely by importing the bundle!
+    const exportedNodes = [...nodeA.owners.keycloak.nodeClients.values()].map((client) => {
+      const device = JSON.parse(client.attributes.harness_device) as {
+        readonly nodeId: string;
+        readonly personId: string;
+        readonly state: string;
+        readonly revocation: string;
+      };
+      return {
+        nodeId: device.nodeId,
+        personId: device.personId,
+        secret: client.secret,
+        state: device.state,
+        revocation: device.revocation,
+      };
+    });
+    const exportedAccounts = ["person-one", "person-center", "lease-owner"];
+    const everyAction = actionDeclarations.map((declaration) => declaration.kind);
+    const exportedGrants = [
+      { personId: "person-one", repoId, actions: everyAction },
+      { personId: "person-center", repoId, actions: everyAction },
+      { personId: "lease-owner", repoId, actions: everyAction },
+    ];
     writeManagedRbacRelocationBundle(rbacBundleDir, {
       realm: "harness",
-      realmJson: JSON.stringify({ realm: "harness", clients: [{ clientId: "harness-center" }] }),
+      realmJson: JSON.stringify({
+        realm: "harness",
+        accounts: exportedAccounts,
+        nodes: exportedNodes,
+        grants: exportedGrants,
+      }),
       centerClientSecret: "slice2-relocated-center-secret",
       edgeJoinJournal: {
         schema: IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA,
-        entries: [JSON.stringify({ nodeId: "node-c-rbac", relocatedTo: newLoginProxy.url })],
+        entries: exportedNodes.map((entry) => JSON.stringify({ nodeId: entry.nodeId, personId: entry.personId })),
       },
     });
+
+    // Independent identity backend for Center B (zero shared state with nodeA.owners!).
+    const ownersB = await serveKeycloak();
+    t.after(() => ownersB.close());
+    assert.equal(ownersB.keycloak.nodeClients.size, 0, "Fresh B identity backend MUST start empty before import");
+
     const relocatedRbacBundle = readManagedRbacRelocationBundle(rbacBundleDir);
     assert.equal(relocatedRbacBundle.realm, "harness");
     assert.equal(relocatedRbacBundle.centerClientSecret, "slice2-relocated-center-secret");
-
-    // Switchover A -> B with managed RBAC rebinding to newLoginProxy!
-    mkdirSync(path.join(edgeB.edgeUser, "rbac"), { recursive: true });
-    if (existsSync(path.join(nodeA.userRoot, "rbac", "config.json"))) {
-      writeFileSync(
-        path.join(edgeB.edgeUser, "rbac", "config.json"),
-        readFileSync(path.join(nodeA.userRoot, "rbac", "config.json")),
-      );
+    const importedRealm = JSON.parse(relocatedRbacBundle.realmJson) as {
+      readonly accounts: readonly string[];
+      readonly nodes: readonly {
+        readonly nodeId: string;
+        readonly personId: string;
+        readonly secret: string;
+      }[];
+      readonly grants: readonly {
+        readonly personId: string;
+        readonly repoId: string;
+        readonly actions: readonly string[];
+      }[];
+    };
+    for (const personId of importedRealm.accounts) ownersB.keycloak.account(personId);
+    for (const grant of importedRealm.grants) ownersB.keycloak.permit(grant.personId, grant.repoId, grant.actions);
+    for (const node of importedRealm.nodes) {
+      ownersB.keycloak.node(node.nodeId, node.personId);
+      const client = ownersB.keycloak.nodeClients.get(`harness-node-${node.nodeId}`);
+      assert.ok(client);
+      client.secret = node.secret;
+      ownersB.keycloak.interactiveSession(node.personId, node.nodeId, ownersB.url, `b-device-token-${node.nodeId}`);
     }
+    // Add an ungranted principal strictly on B to verify real authorization enforcement after migration.
+    ownersB.keycloak.account("person-ungranted");
+    ownersB.keycloak.node("node-ungranted", "person-ungranted");
+    ownersB.keycloak.interactiveSession(
+      "person-ungranted",
+      "node-ungranted",
+      ownersB.url,
+      "b-device-token-node-ungranted",
+    );
+
+    const newLoginProxy = await listenLoginProxy(t, {
+      key: certB.key,
+      cert: certB.chainWithoutRoot,
+      keycloak: ownersB.keycloak,
+    });
+    const newAuthorityFor = (nodeId: string) => ({
+      url: newLoginProxy.url,
+      realm: "harness",
+      clientId: `harness-node-${nodeId}`,
+      servername: "localhost",
+      browserUrl: newLoginProxy.url,
+      certificate: cluster.caCertPem.toString("utf8"),
+    });
+    const ownerOfOnB = (nodeId: string): string | null => {
+      const client = ownersB.keycloak.nodeClients.get(`harness-node-${nodeId}`);
+      if (!client) return null;
+      const device = JSON.parse(client.attributes.harness_device) as {
+        readonly state: string;
+        readonly revocation: string;
+        readonly personId: string;
+      };
+      return device.state === "active" && device.revocation === "complete" ? device.personId : null;
+    };
+    const authenticateOnB = (nodeId: string, credential: string): boolean => {
+      const client = ownersB.keycloak.nodeClients.get(`harness-node-${nodeId}`);
+      return client !== undefined && client.enabled !== false && client.secret === credential;
+    };
+
+    // Switchover A -> B with managed RBAC rebinding to independent ownersB + newLoginProxy!
     const oldPortA = nodeA.center.port;
     edgeB.rpc.close();
     await edgeB.host.close();
     await nodeA.center.close();
     await nodeA.closeHost(nodeA.host);
+    // Shut down oldLoginProxy BEFORE cutover finishes so Edge C CANNOT authenticate via A's login proxy!
+    await oldLoginProxy.close();
     alignSourceReplicationSlotsForSwitchover(nodeA.stateRoot, nodeA.writerEpochStateRoot);
 
     const basebackups = trackBaseBackups(t);
@@ -961,11 +1206,13 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
           probeAuth: async () => ({ ok: true }),
           freezeAndDrain: async () => undefined,
           afterTargetActivated: async () => {
-            nodeA.owners.bind(edgeB.edgeUser);
+            oidcCenterSelections(edgeB.edgeUser).clearAll();
+            ownersB.bind(edgeB.edgeUser);
+            signInAt(edgeB.edgeUser, "lease-owner");
             hostBAsCenter = await openDaemonHost({
               daemonId: "center-b-mode2",
               userRoot: edgeB.edgeUser,
-              oidc: createIdentitySession(edgeB.edgeUser, { fetch: nodeA.owners.keycloak.fetch }),
+              oidc: createIdentitySession(edgeB.edgeUser, { fetch: ownersB.keycloak.fetch }),
             });
             await hostBAsCenter.attachmentsSettled();
             centerB = await listenFleetTls({
@@ -973,18 +1220,18 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
               stateRoot: path.join(edgeB.edgeUser, "fleet"),
               ...fleetHostWriterOptions(edgeB.edgeUser, [repoId]),
               key: certB.key,
-              cert: Buffer.concat([certB.cert, cluster.caCertPem]),
+              cert: certB.chainWithoutRoot,
               hostname: "127.0.0.1",
               port: 0,
-              // Bounded window: online Edge C (lag=1) resumes incrementally; stale offline Edge F (lag=5) falls out!
-              replicationRetentionWindowCommits: 2,
+              // F-26862506: NO small-window override! Uses real promoted DEFAULT_REPLICA_LOG_WINDOW_COMMITS = 1024!
               replicaDiskQuotaBytes: 64 * 1024 * 1024,
-              authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-              nodeOwner: nodeA.owners.nodeOwner,
-              verifyHuman: nodeA.owners.verifyHuman,
-              authenticateExecutionPrincipal: nodeA.owners.authenticateExecutionPrincipal,
+              authenticate: authenticateOnB,
+              nodeOwner: ownerOfOnB,
+              verifyHuman: (authCtx) => IdentitySessionPort(edgeB.edgeUser).bind(authCtx),
+              authenticateExecutionPrincipal: (credential) =>
+                authenticateRuntimeExecutionPrincipal(() => IdentitySessionPort(edgeB.edgeUser).center(), credential),
               verifyReplica: (authCtx) =>
-                createIdentitySession(edgeB.edgeUser, { fetch: nodeA.owners.keycloak.fetch }).bindReplica!(authCtx),
+                createIdentitySession(edgeB.edgeUser, { fetch: ownersB.keycloak.fetch }).bindReplica!(authCtx),
               loginAuthority: (nodeId) => newAuthorityFor(nodeId),
             });
             portB = centerB.port;
@@ -995,14 +1242,13 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     assert.equal(switchAB.exitCode, 0, JSON.stringify(switchAB.receipt));
     assert.ok(portB > 0);
 
-    // Write task 6 on Center B (lag=1 for online Edge C, lag=5 > window=2 for offline Edge F).
-    assert.equal(
-      (await hostBAsCenter!.run(repoId, { kind: "task-create", taskId: "m2-t6", title: "Task 6 on B" }, auth)).outcome,
-      "applied",
-    );
+    // Write a new task on Center B (lag=1 for online Edge C <= 1024, lag > 1024 for offline Edge F!).
+    const t6 = await hostBAsCenter!.run(repoId, { kind: "task-create", taskId: "m2-t6", title: "Task 6 on B" }, auth);
+    assert.equal(t6.outcome, "applied", JSON.stringify(t6));
     const rev6 = readRepoRevision(edgeB.edgeRoot, repoId);
 
-    // Update A's fence to advertise B's bound port + newLoginProxy.url and reopen old Center A listener.
+    // Update A's fence to advertise B's bound port + newLoginProxy.url and reopen old Center A listener
+    // (using static credential check so nodeA.owners can be stopped cleanly!).
     const fenceA = JSON.parse(
       readFileSync(path.join(nodeA.userRoot, "fleet", "center-switchover-fence", `${repoId}.json`), "utf8"),
     ) as Parameters<typeof writeCenterSwitchoverFence>[1];
@@ -1015,7 +1261,7 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     fencedHostA = await openDaemonHost({
       daemonId: "fenced-old-center-a-m2",
       userRoot: nodeA.userRoot,
-      oidc: createIdentitySession(nodeA.userRoot, { fetch: nodeA.owners.keycloak.fetch }),
+      oidc: createIdentitySession(nodeA.userRoot, { fetch: ownersB.keycloak.fetch }),
     });
     fencedCenterA = await listenFleetTls({
       host: fencedHostA,
@@ -1029,16 +1275,25 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       hostname: "127.0.0.1",
       port: oldPortA,
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
-      nodeOwner: nodeA.owners.nodeOwner,
-      verifyHuman: nodeA.owners.verifyHuman,
+      nodeOwner: () => "person-one",
+      verifyHuman: (authCtx) => IdentitySessionPort(edgeB.edgeUser).bind(authCtx),
     });
 
-    // RBAC Mode 2 Verification: Edge C auto-repoints to B with ZERO basebackup AND refreshes loginUrl/loginCertificate!
+    // Completely shut down A's identity backend NOW — before Edge C even finishes auto-repointing!
+    await nodeA.owners.close();
+
+    // RBAC Mode 2 Verification: Edge C auto-repoints to B with ZERO basebackup, authenticates strictly against
+    // independent ownersB via newLoginProxy (since A's login proxy & identity backend are both stopped!),
+    // and refreshes loginUrl/loginCertificate!
     await waitForFleetReplicaRevision(
       { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
       rev6,
       AbortSignal.timeout(30_000),
-    );
+    ).catch((error: unknown) => {
+      throw new Error(
+        `Mode 2 Edge C did not reach rev ${String(rev6)}: ${String(error)}; health=${JSON.stringify(readReplicaHealth(path.join(edgeCRbac.viewRoot, "repos", repoId, "views", "node-c-rbac")))}; cfg=${JSON.stringify(readFleetEdgeConfig(edgeCRbac.edgeUser, repoId))}; proxyRequests=${String(newLoginProxy.requests())}`,
+      );
+    });
     assert.equal(basebackups.starts(), 0, "Online Edge C auto-repoint MUST use zero basebackup");
     assert.deepEqual(basebackups.repos(), [], "Online Edge C auto-repoint MUST use zero basebackup");
     const refreshedEdgeC = readFleetEdgeConfig(edgeCRbac.edgeUser, repoId);
@@ -1051,38 +1306,12 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     );
     assert.ok(
       newLoginProxy.requests() > 0,
-      "Auto-repoint MUST authenticate against relocated newLoginProxy over HTTPS",
+      "Auto-repoint MUST authenticate against independent B identity backend via newLoginProxy over HTTPS",
     );
 
-    // Shut down oldLoginProxy completely: Edge C MUST continue replicating new writes on B using ONLY newLoginProxy!
-    await oldLoginProxy.close();
-    const writeOnCenterB = (taskId: string, title: string) =>
-      runFleetTaskCommandClient({
-        hostname: "127.0.0.1",
-        port: portB,
-        ca: cluster.caCertPem,
-        servername: "localhost",
-        nodeId: "center-node",
-        credential: "secret-center-node",
-        readAccessToken: nodeA.owners.readAccessToken("center-node"),
-        opId: randomUUID(),
-        repoId,
-        taskId,
-        action: { kind: "task-create", taskId, title } as never,
-        waitMs: 10_000,
-      });
-    const t7 = await writeOnCenterB("m2-t7", "Task 7 after old login closed");
-    assert.equal(t7.outcome, "applied", JSON.stringify(t7));
-    const rev7 = readRepoRevision(edgeB.edgeRoot, repoId);
-    await waitForFleetReplicaRevision(
-      { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
-      rev7,
-      AbortSignal.timeout(30_000),
-    );
-
-    // Now bring stale offline Edge F back online! Its lag (rev1 -> rev7) exceeds B's replication_log window!
-    const viewDirF = path.join(edgeFStale.viewRoot, "repos", repoId, "views", "node-f-stale"),
-      rawConfigFBefore = readFileSync(fleetEdgeConfigPath(edgeFStale.edgeUser, repoId), "utf8"),
+    // Now bring stale offline Edge F (>1024 commits behind!) back online so it receives CENTER_MOVED from A
+    // and proves auto-repoint refuses silent basebackup under the real DEFAULT 1024-commit window!
+    const rawConfigFBefore = readFileSync(fleetEdgeConfigPath(edgeFStale.edgeUser, repoId), "utf8"),
       genIdFBefore = readReplicaGeneration(viewDirF)?.id;
     assert.ok(genIdFBefore);
 
@@ -1090,13 +1319,14 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     const restartedHostF = await openDaemonHost({
       daemonId: "edge-f-restarted",
       userRoot: edgeFStale.edgeUser,
-      oidc: createIdentitySession(edgeFStale.edgeUser, { fetch: nodeA.owners.keycloak.fetch }),
+      oidc: createIdentitySession(edgeFStale.edgeUser, { fetch: ownersB.keycloak.fetch }),
       recordLifecycle: edgeFLifecycle.recordLifecycle,
     });
     t.after(() => restartedHostF.close());
     await restartedHostF.attachmentsSettled();
 
-    // Negative Control A: Auto-repoint on CENTER_MOVED MUST refuse silent basebackup and preserve fleet-edge.json!
+    // Negative Control A: Auto-repoint on CENTER_MOVED MUST refuse silent basebackup (>1024 default window)
+    // and preserve fleet-edge.json byte-for-byte!
     await edgeFLifecycle.waitForCode("replication_resume_unavailable", 20_000);
     assert.equal(readReplicaHealth(viewDirF).syncFailure?.code, "replication_resume_unavailable");
     assert.equal(
@@ -1107,41 +1337,166 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     assert.equal(basebackups.starts(), 0, "Auto-repoint MUST NEVER trigger silent basebackup");
     assert.deepEqual(basebackups.repos(), [], "Auto-repoint MUST NEVER trigger silent basebackup");
 
-    // Negative Control B: Manual repoint WITHOUT --allow-basebackup MUST also refuse silent basebackup!
-    const repointPayloadF = {
-      host: "127.0.0.1",
-      port: portB,
-      caPath: cluster.caCertPath,
-      servername: "localhost",
-      spkiSha256: certB.spkiSha256,
-      nodeId: "node-f-stale",
-      credential: "secret-node-f-stale",
-      repoId,
-      viewRoot: edgeFStale.viewRoot,
-      quotaBytes: 64 * 1024 * 1024,
-      workspaceRoot: edgeFStale.edgeRoot,
-      timeoutMs: 30_000,
-      repoint: true,
-    };
-    await assert.rejects(restartedHostF.fleet.edgeSync(repointPayloadF, auth), (error: unknown) => {
-      assert.equal((error as { readonly code?: unknown }).code, "replication_resume_unavailable");
-      assert.match(String(error), /--allow-basebackup/u);
-      return true;
-    });
-    assert.equal(readFileSync(fleetEdgeConfigPath(edgeFStale.edgeUser, repoId), "utf8"), rawConfigFBefore);
-    assert.equal(basebackups.starts(), 0, "Default manual repoint MUST NOT trigger basebackup");
-    assert.deepEqual(basebackups.repos(), [], "Default manual repoint MUST NOT trigger basebackup");
+    // Shut down old Center A listener & host completely: Center A + oldLoginProxy + nodeA.owners are ALL dead!
+    await fencedCenterA.close();
+    fencedCenterA = null;
+    await fencedHostA.close();
+    fencedHostA = null;
 
-    // Positive Control: Explicit manual repoint WITH allowBasebackup: true verifies CA/SPKI/epoch/lineage and rebuilds!
-    const rebuilt = await restartedHostF.fleet.edgeSync({ ...repointPayloadF, allowBasebackup: true }, auth);
-    assert.equal(rebuilt.ok, true, JSON.stringify(rebuilt));
-    assert.equal(rebuilt.basebackup, true, JSON.stringify(rebuilt));
-    assert.ok(basebackups.starts() > 0, "Explicit --allow-basebackup MUST start basebackup rebuild");
-    assert.ok(basebackups.repos().includes(repoId), "Explicit --allow-basebackup MUST trigger basebackup rebuild");
+    // F-26862505 Post-shutdown B Identity Verification (A and A's backend are 100% stopped!):
+    // 1) Re-issue fresh machine replica token from independent ownersB over HTTPS newLoginProxy (and reject bad secret).
+    const freshMachineToken = await requestFleetReplicaToken({
+      url: newLoginProxy.url,
+      realm: "harness",
+      clientId: "harness-node-node-c-rbac",
+      servername: "localhost",
+      nodeId: "node-c-rbac",
+      credential: "secret-node-c-rbac",
+      ca: cluster.caCertPem.toString("utf8"),
+    });
+    assert.equal(freshMachineToken, "node-token-harness-node-node-c-rbac");
+    await assert.rejects(
+      requestFleetReplicaToken({
+        url: newLoginProxy.url,
+        realm: "harness",
+        clientId: "harness-node-node-c-rbac",
+        servername: "localhost",
+        nodeId: "node-c-rbac",
+        credential: "wrong-secret",
+        ca: cluster.caCertPem.toString("utf8"),
+      }),
+    );
+
+    // 2) Authorized command on Center B using ownersB's fresh token succeeds and replicates to Edge C!
+    const writeOnCenterB = (taskId: string, title: string, nodeId = "center-node") =>
+      runFleetTaskCommandClient({
+        hostname: "127.0.0.1",
+        port: portB,
+        ca: cluster.caCertPem,
+        servername: "localhost",
+        nodeId,
+        credential: `secret-${nodeId}`,
+        readAccessToken: async () => `b-device-token-${nodeId}`,
+        opId: randomUUID(),
+        repoId,
+        taskId,
+        action: { kind: "task-create", taskId, title } as never,
+        waitMs: 10_000,
+      });
+    const t7 = await writeOnCenterB("m2-t7", "Task 7 authorized by independent B RBAC");
+    assert.equal(t7.outcome, "applied", JSON.stringify(t7));
+    const rev7 = readRepoRevision(edgeB.edgeRoot, repoId);
+    await waitForFleetReplicaRevision(
+      { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
+      rev7,
+      AbortSignal.timeout(30_000),
+    );
+
+    // 3) Ungranted principal on independent ownersB is denied by Center B!
+    const deniedWrite = await writeOnCenterB("m2-t-denied", "Must be denied on B", "node-ungranted");
+    assert.equal(deniedWrite.outcome, "op_rejected", JSON.stringify(deniedWrite));
+    assert.equal(deniedWrite.code, "authorization_denied", JSON.stringify(deniedWrite));
+    assert.equal(readRepoRevision(edgeB.edgeRoot, repoId), rev7, "Denied write MUST NOT advance Center B revision");
+
+    // F-26862506: Expose restartedHostF on its real local Unix socket and invoke REAL CLI
+    // `ha daemon fleet edge repoint` (without and with `--allow-basebackup`)!
+    // Sign the operator into the relocated independent B identity backend before invoking manual CLI repoint.
+    oidcCenterSelections(edgeFStale.edgeUser).clearAll();
+    ownersB.bind(edgeFStale.edgeUser);
+    signInAt(edgeFStale.edgeUser, "person-one", [], "b-device-token-node-f-stale");
+    const cliSocketServer = createUnixSocketTransportServer({
+      daemonId: "edge-f-restarted",
+      socketPath: localUserDaemonEndpoint(edgeFStale.edgeUser, "edge-f-restarted"),
+      createProtocolServer: (authContext, emit) =>
+        createJsonRpcProtocolServer({
+          host: restartedHostF,
+          build: daemonBuildStamp(),
+          authContext,
+          sessionPrincipal: (method, params) => restartedHostF.sessionPrincipal(authContext, method, params),
+          emit,
+        }),
+    });
+    await cliSocketServer.start();
+    t.after(() => cliSocketServer.stop());
+
+    const runRepointCli = async (extraArgs: readonly string[]) => {
+      const cliArgs = [
+        cliEntry,
+        "daemon",
+        "fleet",
+        "edge",
+        "repoint",
+        "--user-root",
+        edgeFStale.edgeUser,
+        "--daemon-id",
+        "edge-f-restarted",
+        "--root",
+        edgeFStale.edgeRoot,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(portB),
+        "--ca",
+        cluster.caCertPath,
+        "--servername",
+        "localhost",
+        "--spki-sha256",
+        certB.spkiSha256,
+        "--timeout-ms",
+        "45000",
+        "--json",
+        ...extraArgs,
+      ];
+      const cliEnv: NodeJS.ProcessEnv = { ...process.env };
+      delete cliEnv.HARNESS_EXECUTION_CREDENTIAL;
+      try {
+        const { stdout, stderr } = await execFileAsync(process.execPath, cliArgs, {
+          env: cliEnv,
+          timeout: 60_000,
+        });
+        return { exitCode: 0, stdout, stderr };
+      } catch (error) {
+        const failed = error as { readonly code?: number; readonly stdout?: string; readonly stderr?: string };
+        return {
+          exitCode: typeof failed.code === "number" ? failed.code : 1,
+          stdout: failed.stdout ?? "",
+          stderr: failed.stderr ?? "",
+        };
+      }
+    };
+
+    // Negative Control B (REAL CLI): `ha daemon fleet edge repoint` WITHOUT --allow-basebackup MUST refuse!
+    const cliRefused = await runRepointCli([]);
+    assert.notEqual(cliRefused.exitCode, 0, `Expected non-zero CLI exit: ${cliRefused.stdout} ${cliRefused.stderr}`);
+    assert.match(
+      `${cliRefused.stdout}\n${cliRefused.stderr}`,
+      /replication_resume_unavailable/u,
+      `${cliRefused.stdout}\n${cliRefused.stderr}`,
+    );
+    assert.match(
+      `${cliRefused.stdout}\n${cliRefused.stderr}`,
+      /--allow-basebackup/u,
+      `${cliRefused.stdout}\n${cliRefused.stderr}`,
+    );
+    assert.equal(readFileSync(fleetEdgeConfigPath(edgeFStale.edgeUser, repoId), "utf8"), rawConfigFBefore);
+    assert.equal(basebackups.starts(), 0, "Default CLI repoint MUST NOT trigger basebackup");
+    assert.deepEqual(basebackups.repos(), [], "Default CLI repoint MUST NOT trigger basebackup");
+
+    // Positive Control (REAL CLI): `ha daemon fleet edge repoint --allow-basebackup` rebuilds cleanly!
+    const cliRebuilt = await runRepointCli(["--allow-basebackup"]);
+    assert.equal(cliRebuilt.exitCode, 0, `${cliRebuilt.stdout}\n${cliRebuilt.stderr}`);
+    const cliReceipt = JSON.parse(cliRebuilt.stdout.trim()) as {
+      readonly ok?: boolean;
+      readonly basebackup?: boolean;
+    };
+    assert.equal(cliReceipt.ok, true, cliRebuilt.stdout);
+    assert.equal(cliReceipt.basebackup, true, cliRebuilt.stdout);
+    assert.ok(basebackups.starts() > 0, "Explicit CLI --allow-basebackup MUST start basebackup rebuild");
+    assert.ok(basebackups.repos().includes(repoId), "Explicit CLI --allow-basebackup MUST trigger basebackup rebuild");
     assert.notEqual(
       readReplicaGeneration(viewDirF)?.id,
       genIdFBefore,
-      "Stale edge installed new basebackup generation",
+      "Stale edge installed new basebackup generation via CLI",
     );
     assert.equal(readReplicaGeneration(viewDirF)?.metadata.position.revision, rev7);
     assert.equal(readFleetEdgeConfig(edgeFStale.edgeUser, repoId)?.port, portB);
@@ -1151,7 +1506,7 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     });
 
     // Subsequent incremental commit on B replicates normally to rebuilt Edge F!
-    const t8 = await writeOnCenterB("m2-t8", "Task 8 after rebuild");
+    const t8 = await writeOnCenterB("m2-t8", "Task 8 after CLI rebuild");
     assert.equal(t8.outcome, "applied", JSON.stringify(t8));
     const rev8 = readRepoRevision(edgeB.edgeRoot, repoId);
     await waitForFleetReplicaRevision(

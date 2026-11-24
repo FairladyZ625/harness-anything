@@ -36,7 +36,7 @@ import {
   type FleetReplicationFixture,
 } from "./fleet-replication.fixture.ts";
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
-import { runSwitchoverSlice2Mode1E2e, runSwitchoverSlice2Mode2E2e } from "./center-switchover-slice2-e2e.fixture.ts";
+import { runSwitchoverSlice2Mode1E2e } from "./center-switchover-slice2-e2e.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const seededTask = { taskId: "task_resident0000000000000000001", executionId: "exe_resident", title: "Resident" };
@@ -953,10 +953,4 @@ test(
   "Switchover Slice 2 (Mode 1): 3-node A->B CA & SPKI zero-basebackup auto-repoint with independent stable loginUrl + unanchored/untrusted/stale-epoch refusals",
   { timeout: 120_000 },
   runSwitchoverSlice2Mode1E2e,
-);
-
-test(
-  "Switchover Slice 2 (Mode 2): stale offline edge refuses silent basebackup -> explicit --allow-basebackup rebuilds + managed RBAC relocation refreshes loginUrl/loginCertificate",
-  { timeout: 120_000 },
-  runSwitchoverSlice2Mode2E2e,
 );

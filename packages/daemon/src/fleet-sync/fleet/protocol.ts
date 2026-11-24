@@ -26,6 +26,7 @@ export const REPLICATION_OBJECT_PACK_MAX_BYTES = 8 * 1024 * 1024;
 export const SNAPSHOT_RESUME_CAPABILITY = "snapshot-resume/v1";
 export const SNAPSHOT_BINARY_WIRE_CAPABILITY = "snapshot-binary-wire/v1";
 export const SNAPSHOT_OBJECT_PACK_CAPABILITY = "snapshot-object-pack/v1";
+export const CENTER_MOVED_DETAILS_CAPABILITY = "center-moved-details/v1";
 export const BINARY_DATA_FRAME_TAG = 0x00;
 export const BINARY_DATA_HEADER_BYTES = 13;
 

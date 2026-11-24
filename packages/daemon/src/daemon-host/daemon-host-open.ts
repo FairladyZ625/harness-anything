@@ -129,6 +129,8 @@ import {
   publicRegistryRepo,
   requiredCell,
   requiredText,
+  unavailableStatus,
+  warmingStatus,
 } from "./daemon-host-status.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import { openDaemonWriterEpochs } from "./daemon-host-writer-epoch.ts";
@@ -148,13 +150,7 @@ import { canonicalRoot, jsonRpcMethodContracts, workspaceId } from "./protocol/d
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { openDaemonRuntimePorts } from "./daemon-runtime-ports.ts";
-import {
-  causeClassOf,
-  latchReprobeThrottleMs,
-  type RepoCell,
-  type RepoCellBinding,
-  type RepoCellStatus,
-} from "./repo-cell.ts";
+import { latchReprobeThrottleMs, type RepoCell, type RepoCellBinding, type RepoCellStatus } from "./repo-cell.ts";
 import { openRepoCell } from "./repo-cell-open.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
 
@@ -181,7 +177,7 @@ import {
 } from "./authorization-provider.ts";
 
 import { openSkillEvalProduction } from "./skill-eval-production.ts";
-import { createFleetEdgeAutoRepointCoordinator } from "./fleet-edge-auto-repoint.ts";
+import { createFleetEdgeAutoRepointCoordinator, createFleetEdgeTransitionControls } from "./fleet-edge-auto-repoint.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
@@ -806,6 +802,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       throw error;
     }
   }
+  const replicaTransitions = createFleetEdgeTransitionControls({
+    replicaSyncFences,
+    abortRunningReplicaSync: async (repoId) => {
+      const running = replicaSyncControllers.get(repoId);
+      if (running) {
+        running.controller.abort();
+        await running.task;
+      }
+    },
+    startReplicaSyncs: (repoId) => startReplicaSyncs(repoId),
+    clearAutoRepointLatch: (repoId) => autoRepointCoordinator.clearLatch(repoId),
+  });
   async function withReplicaSyncFence<T>(repoId: string, operation: () => Promise<T>): Promise<T> {
     if (replicaSyncFences.has(repoId))
       throw new FleetEdgeConfigError(
@@ -813,6 +821,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         `A replica stream transition for ${repoId} is already active.`,
       );
     replicaSyncFences.add(repoId);
+    replicaTransitions.bumpTransitionSeq(repoId);
     try {
       const running = replicaSyncControllers.get(repoId);
       if (running) {
@@ -822,6 +831,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }
       return await operation();
     } finally {
+      replicaTransitions.clearStagedConfig(repoId);
       replicaSyncFences.delete(repoId);
       startReplicaSyncs();
     }
@@ -895,45 +905,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
   });
   const replicaSyncTasks = new Set<Promise<void>>();
-  const unavailableStatus = (
-    repoId: string,
-    rootDir: string,
-    mode: DaemonRepoMode,
-    error: unknown,
-  ): RepoCellStatus => ({
-    repoId,
-    rootDir,
-    mode,
-    state: "unavailable",
-    generation: null,
-    queueDepth: null,
-    recoveryMs: null,
-    materialization: null,
-    lastError: daemonErrorMessage(error),
-    causeClass: causeClassOf(error),
-  });
-  const warmingStatus = (repo: {
-    readonly repoId: string;
-    readonly canonicalRoot: string;
-    readonly mode: DaemonRepoMode;
-  }): RepoCellStatus => ({
-    repoId: repo.repoId,
-    rootDir: repo.canonicalRoot,
-    mode: repo.mode,
-    state: "warming",
-    generation: null,
-    queueDepth: null,
-    recoveryMs: null,
-    materialization: null,
-    lastError: null,
-    causeClass: null,
-    attach: {
-      phase: "opening",
-      applied: null,
-      total: null,
-      watermark: null,
-    },
-  });
   const warmingMessage = (repoId: string): string => {
     const status = warming.get(repoId),
       attach = status?.attach;
@@ -1217,6 +1188,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     startReplicaSyncs: () => startReplicaSyncs(),
     startReplicaSyncsFor: (repoId) => startReplicaSyncs(repoId),
     withReplicaSyncFence,
+    repointStreamHooks: replicaTransitions.repointStreamHooks,
+    edgeSyncConfigFence: replicaTransitions.edgeSyncConfigFence,
     settleControl,
     buildObserver,
     startInitialAttachments,
@@ -1412,6 +1385,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                   ),
                   ...(edge.servername ? { servername: edge.servername } : {}),
                   ...(edge.spkiSha256 ? { spkiSha256: edge.spkiSha256 } : {}),
+                  ...(edge.spkiPinOnly ? { spkiPinOnly: true } : {}),
                   nodeId: edge.nodeId,
                   credential: edge.credential,
                   repoId: edge.repoId,
@@ -1665,6 +1639,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     closeSignal: closeController.signal,
     isClosing: () => closing,
     withReplicaSyncFence,
+    repointStreamHooks: replicaTransitions.repointStreamHooks,
     startReplicaSyncs: (repoId) => startReplicaSyncs(repoId),
     refreshEdgeReplicaStatus: refreshRepoReplicaStatus,
     recordLifecycle: input.recordLifecycle,
@@ -1688,7 +1663,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     for (const repo of registered) {
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
       const rootDir = repo.canonicalRoot,
-        config = readFleetEdgeConfig(input.userRoot, repo.repoId);
+        config = replicaTransitions.stagedConfigFor(repo.repoId) ?? readFleetEdgeConfig(input.userRoot, repo.repoId);
       if (!config || config.repoId !== repo.repoId) {
         if (!config) {
           const residue = fleetEdgeWorkspaceResidue(input.userRoot, repo.repoId, rootDir);
@@ -1724,6 +1699,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const readAccessToken = createFleetReplicaAccessTokenReader({
         config,
         configDir: fleetEdgeConfigDir(input.userRoot, repo.repoId),
+        preferMachineToken: Boolean(config.resumeOnly || replicaTransitions.stagedConfigFor(repo.repoId)),
         readUserAccessToken: async () =>
           resolveBoundAccessToken(await oidc.bind({ transportKind: "unix-socket" }, rootDir)),
       });
@@ -1735,7 +1711,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ca: readFileSync(caPath),
         ...(config.servername ? { servername: config.servername } : {}),
         ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
-        resumeOnly: () => readFleetEdgeConfig(input.userRoot, repo.repoId)?.resumeOnly,
+        ...(config.spkiPinOnly ? { spkiPinOnly: true } : {}),
+        resumeOnly: () =>
+          replicaTransitions.stagedConfigFor(repo.repoId)?.resumeOnly ??
+          readFleetEdgeConfig(input.userRoot, repo.repoId)?.resumeOnly,
         nodeId: config.nodeId,
         credential: config.credential,
         repoId: config.repoId,
@@ -1820,6 +1799,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           });
         },
         onFailure: (error) => {
+          readAccessToken.onCenterError(error);
           refreshEdgeReplicaStatus();
           input.recordLifecycle?.({
             event: "replica_sync_failed",

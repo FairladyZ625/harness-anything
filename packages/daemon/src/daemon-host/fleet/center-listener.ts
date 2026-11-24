@@ -94,6 +94,7 @@ import { fleetBusinessOperationalReadMethods, type FleetFrameV1 } from "./comman
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
 import {
+  CENTER_MOVED_DETAILS_CAPABILITY,
   isBaseBackupMetadata,
   isReplicationPosition,
   SNAPSHOT_BINARY_WIRE_CAPABILITY,
@@ -509,7 +510,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("../../fleet-sync/fleet/protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
-    const replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    const replicaKeyForNode = { nodeId, repoId: frame.repoId },
+      supportsCenterMovedDetails = frame.capabilities?.includes(CENTER_MOVED_DETAILS_CAPABILITY) ?? false;
     replicaStatus.recordActivity(replicaKeyForNode, "authorizing");
     let readerProfile: { personId: string; nodeId: string };
     try {
@@ -526,6 +528,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         error,
         centerBuildCommit: daemonBuildStamp().commit,
         taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+        includeCenterMovedDetails: supportsCenterMovedDetails,
       });
       throw error;
     }
@@ -548,6 +551,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ...(frame.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ? [SNAPSHOT_RESUME_CAPABILITY] : []),
       ...(frame.capabilities?.includes(SNAPSHOT_BINARY_WIRE_CAPABILITY) ? [SNAPSHOT_BINARY_WIRE_CAPABILITY] : []),
       ...(frame.capabilities?.includes(SNAPSHOT_OBJECT_PACK_CAPABILITY) ? [SNAPSHOT_OBJECT_PACK_CAPABILITY] : []),
+      ...(supportsCenterMovedDetails ? [CENTER_MOVED_DETAILS_CAPABILITY] : []),
     ];
     await peer.send({
       type: "replica.accept",
@@ -588,7 +592,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         } catch (error) {
           if (error instanceof FleetFault && error.code === "authorization_denied")
             await peer.send({ type: "replica.resync", reason: "authorization_denied" });
-          await sendCenterMovedReplicaFailure({ peer, error });
+          await sendCenterMovedReplicaFailure({ peer, error, includeCenterMovedDetails: supportsCenterMovedDetails });
           throw error;
         }
       },
