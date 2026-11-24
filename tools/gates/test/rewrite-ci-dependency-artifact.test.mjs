@@ -73,18 +73,22 @@ test("dependency consumers remain fail-closed when the shared install fails", ()
   }
 });
 
+// cost-budget-read-summary joins G38 shards under Node 24 and uses an unconditional
+// github-script check (step 1) plus install-success guards on node-modules download instead
+// of a separate fail-fast shell step; see cost-budget-reads.test.mjs G38 CI contract.
 const installArtifactConsumers = () =>
   workflow
     .split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu)
     .filter(
       (section) =>
+        !section.startsWith("cost-budget-read-summary:") &&
         /^    needs:.*\binstall\b/mu.test(section) &&
         section.includes("name: node-modules-${{ hashFiles('package-lock.json') }}"),
     );
 
 test("every node-modules consumer fails fast when upstream install does not succeed", () => {
   const consumers = installArtifactConsumers();
-  assert.ok(consumers.length >= 10, "expected every shared node_modules artifact consumer to be covered");
+  assert.ok(consumers.length >= 9, "expected every shared node_modules artifact consumer with a fail-fast step to be covered");
   for (const job of consumers) {
     const label = job.split(":")[0];
     assert.match(job, /name: Fail fast when the shared install did not succeed/u, label);
@@ -132,6 +136,19 @@ test("a node-modules consumer without an install-success guard is rejected", () 
     () => assert.match(block, /if:.*needs\.install\.result == 'success'/u),
     /AssertionError/,
     "unguarded download-artifact must not pass the install-success contract",
+  );
+});
+
+test("cost-budget-read-summary keeps the G38 github-script first and guards node-modules download", () => {
+  const section = workflow
+    .split(/^  (?=[A-Za-z0-9_-]+:\s*$)/mu)
+    .find((candidate) => candidate.startsWith("cost-budget-read-summary:"));
+  assert.ok(section);
+  assert.doesNotMatch(section, /name: Fail fast when the shared install did not succeed/u);
+  assert.match(section, /^      - name: Check the G38 read jobs\n        uses: actions\/github-script@v7/mu);
+  assert.match(
+    section,
+    /- uses: actions\/download-artifact@v4\n\s+if: env\.G38_SKIP_READS != 'true' && needs\.install\.result == 'success'/u,
   );
 });
 

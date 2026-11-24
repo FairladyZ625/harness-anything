@@ -805,9 +805,8 @@ jobs:
     env:
       G38_SKIP_READS: ${{ github.event_name == 'pull_request' && needs.install.result == 'success' && needs.install.outputs.costBudgetReads == 'false' }}
     steps:
-      - name: Fail fast when the shared install did not succeed
-        if: needs.install.result != 'success' && needs.install.result != 'skipped'
-        run: echo "::error::Upstream install job ended with result=${{ needs.install.result }}; skipping artifact download" && exit 1
+      # G38 contract (dec_72FADB…/CH3): the github-script step is unconditional and must stay
+      # first so install failures still surface through read-job results instead of artifact noise.
       - name: Check the G38 read jobs
         uses: actions/github-script@v7
         env:
