@@ -94,6 +94,7 @@ import { fleetBusinessOperationalReadMethods, type FleetFrameV1 } from "./comman
 import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import { openFleetStorage, hasDaemonGitFollower } from "@harness-anything/storage";
 import {
+  CENTER_MOVED_DETAILS_CAPABILITY,
   isBaseBackupMetadata,
   isReplicationPosition,
   SNAPSHOT_BINARY_WIRE_CAPABILITY,
@@ -108,7 +109,11 @@ import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 import { createBaseBackupQueue } from "../../fleet-sync/fleet/basebackup-queue.ts";
 import { forwardingIntentForAction, forwardingIntentIssue } from "./forwarding-intent.ts";
-import { fleetErrorCode, sendCenterMovedReplicaReject } from "./center-listener-errors.ts";
+import {
+  fleetErrorCode,
+  sendCenterMovedReplicaFailure,
+  sendCenterMovedReplicaReject,
+} from "./center-listener-errors.ts";
 import { readCenterRepointLineage } from "./center-listener-repoint.ts";
 import { awaitWithSignal, delay } from "./center-listener-async.ts";
 import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
@@ -505,7 +510,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("../../fleet-sync/fleet/protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
-    const replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    const replicaKeyForNode = { nodeId, repoId: frame.repoId },
+      supportsCenterMovedDetails = frame.capabilities?.includes(CENTER_MOVED_DETAILS_CAPABILITY) ?? false;
     replicaStatus.recordActivity(replicaKeyForNode, "authorizing");
     let readerProfile: { personId: string; nodeId: string };
     try {
@@ -522,6 +528,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         error,
         centerBuildCommit: daemonBuildStamp().commit,
         taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+        includeCenterMovedDetails: supportsCenterMovedDetails,
       });
       throw error;
     }
@@ -544,6 +551,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ...(frame.capabilities?.includes(SNAPSHOT_RESUME_CAPABILITY) ? [SNAPSHOT_RESUME_CAPABILITY] : []),
       ...(frame.capabilities?.includes(SNAPSHOT_BINARY_WIRE_CAPABILITY) ? [SNAPSHOT_BINARY_WIRE_CAPABILITY] : []),
       ...(frame.capabilities?.includes(SNAPSHOT_OBJECT_PACK_CAPABILITY) ? [SNAPSHOT_OBJECT_PACK_CAPABILITY] : []),
+      ...(supportsCenterMovedDetails ? [CENTER_MOVED_DETAILS_CAPABILITY] : []),
     ];
     await peer.send({
       type: "replica.accept",
@@ -578,12 +586,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     };
     const source = {
       authorize: async () => {
-        writerEpoch.assert(frame.repoId, owned.epoch, owned.holderId);
         try {
+          writerEpoch.assert(frame.repoId, owned.epoch, owned.holderId);
           await admitReplica(nodeId, frame.repoId, accessToken);
         } catch (error) {
           if (error instanceof FleetFault && error.code === "authorization_denied")
             await peer.send({ type: "replica.resync", reason: "authorization_denied" });
+          await sendCenterMovedReplicaFailure({ peer, error, includeCenterMovedDetails: supportsCenterMovedDetails });
           throw error;
         }
       },
@@ -860,10 +869,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") reclaimConsumedClaims(extracted, repo.repoId);
   const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
-    if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
-      throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const moved = readListenerCenterRelocated(options, repoId);
     if (moved) throw centerMovedFleetFault(moved);
+    if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
+      throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken);
     // The request user's repository-read authority admits this node's replica (CH1).
     const principal = await replicaAdmission(a),

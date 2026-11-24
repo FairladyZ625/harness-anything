@@ -17,6 +17,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { recordReplicaHealth, type ReplicaSyncProgress } from "../../fleet-sync/fleet/replica-health.ts";
 import { hostEnvironmentFilePath, writeHostEnvironmentFile } from "../host-environment-io.ts";
 import {
+  CENTER_MOVED_DETAILS_CAPABILITY,
   isBaseBackupMetadata,
   ReplicationError,
   SNAPSHOT_BINARY_WIRE_CAPABILITY,
@@ -401,6 +402,7 @@ export async function runWalReceiver(input: {
         SNAPSHOT_RESUME_CAPABILITY,
         SNAPSHOT_BINARY_WIRE_CAPABILITY,
         SNAPSHOT_OBJECT_PACK_CAPABILITY,
+        CENTER_MOVED_DETAILS_CAPABILITY,
         ...(input.resumeOnly ? [REPOINT_RESUME_ONLY] : []),
       ],
       ...(stagedResume ? { resumeSnapshot: { snapshotId: stagedResume.snapshotId, offset: stagedResume.offset } } : {}),
@@ -416,7 +418,7 @@ export async function runWalReceiver(input: {
     };
     const handshake = await peer.receive(signal);
     if (handshake.type === "replica.reject")
-      throw Object.assign(new Error(handshake.message), { code: handshake.code });
+      throw new ReplicationError(handshake.message, handshake.code, handshake.centerMoved);
     if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied") {
       if (!input.resumeOnly) await rejectUnauthorizedRead();
       throw new ReplicationError(
@@ -546,7 +548,7 @@ export async function runWalReceiver(input: {
     for (;;) {
       signal.throwIfAborted();
       const frame = await peer.receive(signal);
-      if (frame.type === "replica.failure") throw new ReplicationError(frame.message, frame.code);
+      if (frame.type === "replica.failure") throw new ReplicationError(frame.message, frame.code, frame.centerMoved);
       if (input.resumeOnly && (frame.type === "replica.backup" || frame.type === "replica.resync"))
         throw new ReplicationError("Repoint requires incremental replication.", "replication_resume_unavailable");
       if (frame.type === "replica.commit" || frame.type === "replica.backup") frameSize = frame.size;

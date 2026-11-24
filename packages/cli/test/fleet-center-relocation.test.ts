@@ -12,6 +12,8 @@ import {
   makeTaskEventStore,
 } from "@harness-anything/storage";
 import { main } from "../src/index.ts";
+import { parseTrustAnchorFlags } from "../src/daemon/control-support.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 function captureCli(argv: readonly string[]): Promise<{
@@ -304,6 +306,86 @@ test("ha fleet center export, retire, and import route through daemon control, v
     assert.equal(dryRunReceipt.command, "fleet-center-switch");
     assert.equal(dryRunReceipt.preflight?.ok, false);
     assert.ok((dryRunReceipt.preflight?.checks.length ?? 0) >= 6);
+
+    // Slice 2: CLI --trust-ca / --trust-spki-sha256 / --allow-basebackup validation & fleet-edge.json compatibility.
+    const validSpkiA = "a".repeat(64),
+      validSpkiB = "b".repeat(64);
+    const parsedAnchors = parseTrustAnchorFlags([
+      "daemon",
+      "fleet",
+      "edge",
+      "sync",
+      "--trust-ca",
+      path.join(root, "ca-1.pem"),
+      "--trust-ca",
+      path.join(root, "ca-2.pem"),
+      "--trust-spki-sha256",
+      `sha256:${validSpkiA}`,
+      "--trust-spki-sha256",
+      validSpkiB,
+    ]);
+    assert.equal(parsedAnchors.ok, true);
+    assert.deepEqual(parsedAnchors.ok ? parsedAnchors.trustAnchors : null, {
+      caPaths: [path.resolve(path.join(root, "ca-1.pem")), path.resolve(path.join(root, "ca-2.pem"))],
+      spkiSha256: [validSpkiA, validSpkiB],
+    });
+    assert.equal(
+      parseTrustAnchorFlags(["daemon", "fleet", "edge", "sync", "--trust-spki-sha256", "bad-hash"]).ok,
+      false,
+    );
+    assert.equal(parseTrustAnchorFlags(["daemon", "fleet", "edge", "sync", "--trust-ca"]).ok, false);
+
+    const badRepointAnchor = await captureCli([
+      "daemon",
+      "fleet",
+      "edge",
+      "repoint",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "9443",
+      "--ca",
+      path.join(root, "ca.pem"),
+      "--spki-sha256",
+      validSpkiA,
+      "--trust-spki-sha256",
+      "not-a-sha256",
+      "--allow-basebackup",
+      "--json",
+    ]);
+    assert.equal(badRepointAnchor.exitCode, 2);
+    assert.equal(JSON.parse(badRepointAnchor.stdout[0]!).code, "invalid_field");
+
+    // Backward compatibility: legacy fleet-edge.json without trustAnchors still reads cleanly,
+    // and trustAnchors round-trips with sha256: normalization.
+    const compatUserRoot = path.join(root, "compat-user"),
+      legacyConfig = {
+        repoId: "compat-repo",
+        host: "127.0.0.1",
+        port: 9443,
+        caPath: path.join(root, "ca.pem"),
+        nodeId: "edge-compat",
+        credential: "secret-compat",
+        viewRoot: path.join(root, "views"),
+        quotaBytes: 64 * 1024 * 1024,
+      };
+    writeFleetEdgeConfig(compatUserRoot, "compat-repo", legacyConfig);
+    const readLegacy = readFleetEdgeConfig(compatUserRoot, "compat-repo");
+    assert.deepEqual(readLegacy, legacyConfig);
+    assert.equal(readLegacy?.trustAnchors, undefined);
+
+    writeFleetEdgeConfig(compatUserRoot, "compat-repo", {
+      ...legacyConfig,
+      trustAnchors: {
+        caPaths: [path.join(root, "cluster-ca.pem")],
+        spkiSha256: [`sha256:${validSpkiB}`],
+      },
+    });
+    const readAnchored = readFleetEdgeConfig(compatUserRoot, "compat-repo");
+    assert.deepEqual(readAnchored?.trustAnchors, {
+      caPaths: [path.join(root, "cluster-ca.pem")],
+      spkiSha256: [validSpkiB],
+    });
   } finally {
     closeSqliteEventStoresUnder(root);
     removeTempRepository(root);

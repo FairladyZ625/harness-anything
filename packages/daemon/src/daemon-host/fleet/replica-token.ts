@@ -19,28 +19,41 @@ type ReplicaAccessConfig = Pick<
   | "spkiSha256"
   | "nodeId"
   | "credential"
->;
+> & { readonly spkiPinOnly?: boolean };
 
-/** Creates a reader for replica admission, preferring the current user session and then the node identity. */
+export type FleetReplicaAccessTokenReader = (() => Promise<string | undefined>) & {
+  readonly onCenterError: (error: unknown) => void;
+};
+
+/** Creates a reader for replica admission, preferring the current user session and falling back to node identity. */
 export function createFleetReplicaAccessTokenReader(input: {
   readonly config: ReplicaAccessConfig;
   readonly configDir: string;
   readonly readUserAccessToken: () => Promise<string | undefined>;
-}): () => Promise<string | undefined> {
-  let replicaLoginAuthority: OidcLoginAuthority | null | undefined;
-  return async () => {
-    let userToken: string | undefined;
-    try {
-      userToken = await input.readUserAccessToken();
-    } catch (error) {
-      const code =
-        typeof error === "object" && error !== null && "code" in error
-          ? (error as { readonly code?: unknown }).code
-          : undefined;
-      if (code !== "authentication_required") throw error;
-      consumeKnownError(error);
+  readonly preferMachineToken?: boolean;
+}): FleetReplicaAccessTokenReader {
+  let replicaLoginAuthority: OidcLoginAuthority | null | undefined,
+    lastUserToken: string | null = null,
+    rejectedUserToken: string | null = null;
+  const callable = (async (): Promise<string | undefined> => {
+    if (!input.preferMachineToken) {
+      let userToken: string | undefined;
+      try {
+        userToken = await input.readUserAccessToken();
+      } catch (error) {
+        const code =
+          typeof error === "object" && error !== null && "code" in error
+            ? (error as { readonly code?: unknown }).code
+            : undefined;
+        if (code !== "authentication_required" && code !== "human_confirmation_required") throw error;
+        consumeKnownError(error);
+      }
+      if (userToken && userToken !== rejectedUserToken) {
+        lastUserToken = userToken;
+        return userToken;
+      }
     }
-    if (userToken) return userToken;
+    lastUserToken = null;
     if (replicaLoginAuthority === undefined) {
       const centerAuthority =
         input.config.loginUrl && (!input.config.loginRealm || input.config.spkiSha256)
@@ -54,6 +67,7 @@ export function createFleetReplicaAccessTokenReader(input: {
               ),
               ...(input.config.servername ? { servername: input.config.servername } : {}),
               ...(input.config.spkiSha256 ? { spkiSha256: input.config.spkiSha256 } : {}),
+              ...(input.config.spkiPinOnly ? { spkiPinOnly: true } : {}),
               nodeId: input.config.nodeId,
               credential: input.config.credential,
             })
@@ -69,7 +83,29 @@ export function createFleetReplicaAccessTokenReader(input: {
       ca: loginAuthority.certificate ?? input.config.loginCertificate ?? systemCaCertificates(),
       ...(input.config.loginServername ? { servername: input.config.loginServername } : {}),
     });
+  }) as (() => Promise<string | undefined>) & {
+    onCenterError: (error: unknown) => void;
   };
+  callable.onCenterError = (error: unknown) => {
+    const code =
+      typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : null;
+    if (
+      code === "ECONNREFUSED" ||
+      code === "ETIMEDOUT" ||
+      code === "ENOTFOUND" ||
+      code === "EHOSTUNREACH" ||
+      code === "ENETUNREACH"
+    )
+      return;
+    if (lastUserToken !== null && input.config.loginUrl) {
+      rejectedUserToken = lastUserToken;
+    } else if (lastUserToken === null) {
+      rejectedUserToken = null;
+    }
+  };
+  return callable;
 }
 
 /** Resolves the machine-token authority while repairing configs written before loginRealm existed. */

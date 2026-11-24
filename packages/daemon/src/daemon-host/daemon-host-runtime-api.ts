@@ -674,7 +674,7 @@ export function createDaemonHostRuntimeApi(
               payload: repointPayload as FleetEdgeRepointRequest["payload"],
             },
             context.withReplicaSyncFence,
-            () => context.startReplicaSyncsFor(request.repoId),
+            context.repointStreamHooks(request.repoId),
           );
         }
         const syncRequest = request as FleetEdgeSyncRequest["payload"],
@@ -685,9 +685,15 @@ export function createDaemonHostRuntimeApi(
             persistedConfig.nodeId === syncRequest.nodeId
               ? persistedConfig
               : null,
+          effectiveSyncPayload: FleetEdgeSyncRequest["payload"] =
+            matchingConfig?.spkiPinOnly &&
+            matchingConfig.caPath === syncRequest.caPath &&
+            (!syncRequest.spkiSha256 || syncRequest.spkiSha256 === matchingConfig.spkiSha256)
+              ? { ...syncRequest, spkiSha256: matchingConfig.spkiSha256, spkiPinOnly: true }
+              : syncRequest,
           readAccessToken = createFleetReplicaAccessTokenReader({
             config: {
-              ...syncRequest,
+              ...effectiveSyncPayload,
               ...(matchingConfig?.loginUrl ? { loginUrl: matchingConfig.loginUrl } : {}),
               ...(matchingConfig?.loginRealm ? { loginRealm: matchingConfig.loginRealm } : {}),
               ...(matchingConfig?.loginServername ? { loginServername: matchingConfig.loginServername } : {}),
@@ -698,9 +704,10 @@ export function createDaemonHostRuntimeApi(
               resolveBoundAccessToken(await context.oidc.bind(auth, syncRequest.workspaceRoot)),
           });
         const receipt = await syncFleetEdgeMirror(
-          { userRoot: context.input.userRoot, payload: syncRequest },
+          { userRoot: context.input.userRoot, payload: effectiveSyncPayload },
           readAccessToken,
           () => context.startReplicaSyncs(),
+          context.edgeSyncConfigFence,
         );
         await runReplicaConfirmedRound({
           reconcile: async () => {

@@ -1201,6 +1201,8 @@ export const fleetProtocolMethods = Object.freeze([
         spkiSha256: "string?",
         timeoutMs: "number",
         repoint: "boolean?",
+        allowBasebackup: "boolean?",
+        trustAnchors: "json?",
       }),
     }),
   },

@@ -1427,6 +1427,69 @@
         "order": 517
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.clearLatch:12521c061ea401a7d5bc940fc41e3ff7",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1407
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.clearRetryTimer:eef93a776928002a7362962b70e87e80",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1399
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.failHandedOff:dc3dbb5ee5187494a668e8f6a4bebb41",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1400
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.triggerFromReplicaStream.task.attempt:07fc208b287e7f13649d529449e25340",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1401
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.triggerFromReplicaStream.task.attempt:37dce88bb94a6a4c4b0cf964ba5247ca",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1402
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.triggerFromReplicaStream.task.timer:37dce88bb94a6a4c4b0cf964ba5247ca",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1404
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.triggerFromReplicaStream.task.timer:384c397f5076635badbca8a19e16109e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/timers.d.ts#timers.global.setTimeout",
+        "order": 1405
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.triggerFromReplicaStream.task.timer:4acd91a6552929c1c9fda7c94f712950",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1403
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-auto-repoint.ts#createFleetEdgeAutoRepointCoordinator.triggerFromReplicaStream:ef02de930b82e865ab8bca399847dd96",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete",
+        "order": 1406
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-content.ts#digestFile:700ba2fad4acd9e264e98f8cc9f786c8",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -2484,6 +2547,13 @@
         "order": 1384
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/replica-sync.ts#failFleetReplicaSync:9cc22dd13ee5476a437fb76d1252539e",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 1408
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/replica-sync.ts#runFleetReplicaSync.attempt.onApplied:11fd39fae6e197ebba5826e54faed5a5",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -2657,13 +2727,6 @@
         "role": "technical-port",
         "port": "packages/daemon/src/fleet-sync/fleet/commit-file.ts#openReplicationCommitFile.write",
         "order": 200
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/walreceiver.ts#runWalReceiver:71488d15ed1193278c8543357215521e",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 662
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/walreceiver.ts#runWalReceiver:7cfab6648a33efbdd92cc1993746f5cb",

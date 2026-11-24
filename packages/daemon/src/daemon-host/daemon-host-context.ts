@@ -205,6 +205,8 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly startReplicaSyncs: () => void;
   readonly startReplicaSyncsFor: (repoId: string) => void;
   readonly withReplicaSyncFence: <T>(repoId: string, operation: () => Promise<T>) => Promise<T>;
+  readonly repointStreamHooks: (repoId: string) => import("./fleet-center-admission.ts").FleetEdgeRepointStreamHooks;
+  readonly edgeSyncConfigFence: import("./fleet-center-admission.ts").FleetEdgeSyncConfigFence;
   readonly fleetVersionWarnings: Map<string, FleetVersionWarning>;
   /** This node's runtimes whose recovery keeps failing; the edge agenda shows them to the owner. */
   readonly runtimeRecoveryWatch: import("./runtime-recovery-watch.ts").RuntimeRecoveryWatch;
