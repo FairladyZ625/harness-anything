@@ -1,18 +1,34 @@
 import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
+import { relationIsCurrent } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import { isDomainStatus, isTerminalStatus } from "@harness-anything/kernel/internal/domain/lifecycle-status.ts";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import { blockingOf } from "@harness-anything/kernel/internal/domain/task-blocking.ts";
+import type { TaskIndexProjectionRow, TaskProjection } from "@harness-anything/kernel";
 import {
-  blockingOf,
-  isDomainStatus,
-  isTerminalStatus,
-  relationIsCurrent,
-  type TaskIndexProjectionRow,
-  type TaskProjection,
-} from "@harness-anything/kernel";
+  projectionRead,
+  runAsyncProjectionRead,
+  runProjectionRead,
+  type AsyncProjection,
+  type ProjectionReadPlan,
+} from "./projection-read-plan.ts";
 
 const TASK_INDEX_PAGE_LIMIT = 500;
 const TASK_REF = /^task\/([^/]+)$/u;
 
+class WorkTopologyNotFoundError extends Error {
+  readonly code = "task_not_found";
+
+  constructor(workRootTaskId: string) {
+    super(`Work topology root task not found: ${workRootTaskId}`);
+  }
+}
+
 type BlockingAssessment = ReturnType<typeof blockingOf>[number];
+type TopologyProjection = Pick<TaskProjection, "readCut" | "readTaskIndex" | "readTaskRelationsBySources">;
+const readTopology = <Result>(
+  step: (projection: TopologyProjection | AsyncProjection<TopologyProjection>) => Result | Promise<Result>,
+) => projectionRead<TopologyProjection, Result>(step);
 
 export interface WorkTopologyNode {
   readonly taskId: string;
@@ -60,17 +76,35 @@ export interface WorkTopologyRead {
  * prerequisites are loaded by id without following their own dependencies.
  */
 export function workTopologyFromProjection(
-  projection: TaskProjection,
+  projection: TopologyProjection,
   input: { readonly workRootTaskId: string },
 ): WorkTopologyRead {
-  const cut = projection.readCut(),
+  return runProjectionRead(workTopology(input), projection);
+}
+
+export function workTopologyFromAsyncProjection(
+  projection: AsyncProjection<TopologyProjection>,
+  input: { readonly workRootTaskId: string },
+): Promise<WorkTopologyRead> {
+  return runAsyncProjectionRead(workTopology(input), projection);
+}
+
+function* workTopology(input: {
+  readonly workRootTaskId: string;
+}): ProjectionReadPlan<TopologyProjection, WorkTopologyRead> {
+  const cut = yield* readTopology((projection) => projection.readCut()),
     warnings = new Set<string>(),
-    rootRead = projection.readTaskIndex({ taskIds: [input.workRootTaskId], limit: 1 });
+    rootRead = yield* readTopology((projection) =>
+      projection.readTaskIndex({
+        taskIds: [input.workRootTaskId],
+        limit: storageReadPolicy.defaultValue.pageSizes.one,
+      }),
+    );
   assertSameCut(cut, rootRead);
   if (rootRead.status !== "ready") warnings.add("task projection is pending");
   for (const warning of rootRead.warnings) warnings.add(warning);
   const root = rootRead.rows[0];
-  if (!root) throw new Error(`Work topology root task not found: ${input.workRootTaskId}`);
+  if (!root) throw new WorkTopologyNotFoundError(input.workRootTaskId);
 
   const rows = new Map<string, TaskIndexProjectionRow>([[root.taskId, root]]),
     pending = [root.taskId];
@@ -78,11 +112,13 @@ export function workTopologyFromProjection(
     const parentTaskId = pending[pendingIndex]!;
     let cursor: string | undefined;
     do {
-      const read = projection.readTaskIndex({
-        parentTaskId,
-        limit: TASK_INDEX_PAGE_LIMIT,
-        ...(cursor === undefined ? {} : { cursor }),
-      });
+      const read = yield* readTopology((projection) =>
+        projection.readTaskIndex({
+          parentTaskId,
+          limit: TASK_INDEX_PAGE_LIMIT,
+          ...(cursor === undefined ? {} : { cursor }),
+        }),
+      );
       assertSameCut(cut, read);
       if (read.status !== "ready") warnings.add("task projection is pending");
       for (const warning of read.warnings) warnings.add(warning);
@@ -100,8 +136,10 @@ export function workTopologyFromProjection(
 
   const memberIds = [...rows.keys()],
     memberRefs = memberIds.map((taskId) => `task/${taskId}`),
-    dependencyRead = projection.readTaskRelationsBySources(memberRefs, "depends-on"),
-    awaitsRead = projection.readTaskRelationsBySources(memberRefs, "awaits");
+    dependencyRead = yield* readTopology((projection) =>
+      projection.readTaskRelationsBySources(memberRefs, "depends-on"),
+    ),
+    awaitsRead = yield* readTopology((projection) => projection.readTaskRelationsBySources(memberRefs, "awaits"));
   assertSameCut(cut, dependencyRead);
   assertSameCut(cut, awaitsRead);
   if (dependencyRead.status !== "ready" || awaitsRead.status !== "ready")
@@ -114,7 +152,9 @@ export function workTopologyFromProjection(
     if (match && !rows.has(match[1]!)) externalTaskIds.add(match[1]!);
   }
   const externalRead =
-    externalTaskIds.size === 0 ? null : projection.readTaskIndex({ taskIds: [...externalTaskIds].sort() });
+    externalTaskIds.size === 0
+      ? null
+      : yield* readTopology((projection) => projection.readTaskIndex({ taskIds: [...externalTaskIds].sort() }));
   if (externalRead) {
     assertSameCut(cut, externalRead);
     if (externalRead.status !== "ready") warnings.add("external task projection is pending");

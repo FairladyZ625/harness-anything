@@ -1,4 +1,15 @@
-import type { PoolClient, QueryResult } from "pg";
+import type { Pool, PoolClient, QueryResult } from "pg";
+import { borrowPostgresCommitWork } from "../postgres/transaction.ts";
+
+/** Adapt one physical snapshot to the projection source's sequential transaction calls. */
+export function pgReadSessionPool(owner: () => PoolClient): Pool {
+  return {
+    connect: async () => {
+      const client = owner();
+      return borrowPostgresCommitWork(await borrowPgReadClient(client), client);
+    },
+  } as Pool;
+}
 
 let nextSavepoint = 0;
 /** A nested read borrows the caller's snapshot; rollback also restores its scope GUCs. */

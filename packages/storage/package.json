@@ -31,6 +31,10 @@
         "types": "./dist/postgres/index.d.ts",
         "default": "./dist/postgres/index.js"
       },
+      "./pg/read-only": {
+        "types": "./dist/pg/pg-projection-read-session.d.ts",
+        "default": "./dist/pg/pg-projection-read-session.js"
+      },
       "./pglite": {
         "types": "./dist/pglite/index.d.ts",
         "default": "./dist/pglite/index.js"
@@ -74,6 +78,10 @@
     "./pg": {
       "types": "./src/postgres/index.ts",
       "default": "./src/postgres/index.ts"
+    },
+    "./pg/read-only": {
+      "types": "./src/pg/pg-projection-read-session.ts",
+      "default": "./src/pg/pg-projection-read-session.ts"
     },
     "./pglite": {
       "types": "./src/pglite/index.ts",

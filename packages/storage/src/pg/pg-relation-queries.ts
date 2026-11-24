@@ -9,7 +9,7 @@ import {
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT, postgresScopeRlsStatements } from "../postgres/scope-schema.ts";
 import type { EntityProjectionRow, VersionedRelationProjectionRow } from "@harness-anything/kernel";
 import { getPgProjectionValue } from "./pg-projection-values.ts";
-import { relationProjectionRowFromColumns } from "../projection/relation-entity-projection.ts";
+import { relationProjectionRowFromColumns } from "../projection/relation-projection-row.ts";
 import { isRelationFreshness } from "../projection/relation-freshness-columns.ts";
 import type { RelationEntity } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import type {
