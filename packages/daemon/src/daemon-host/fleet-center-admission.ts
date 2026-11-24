@@ -9,6 +9,7 @@ import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import {
   readReplicaGeneration,
   revokeReplicaView,
+  updateReplicaGenerationPosition,
   type ReplicaGeneration,
 } from "../fleet-sync/fleet/replica-generation.ts";
 import { FLEET_SESSION_CAPABILITY } from "./fleet/command-protocol.ts";
@@ -22,7 +23,7 @@ import {
 import { readReplicaHealth } from "../fleet-sync/fleet/replica-health.ts";
 import { applyFleetMirrorCut, revokeFleetMirrorTree, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
-import type { WriterEpochLease } from "@harness-anything/storage";
+import type { ReplicationPosition, WriterEpochLease } from "@harness-anything/storage";
 import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything/storage";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import {
@@ -459,13 +460,29 @@ export async function repointFleetEdgeMirrorFenced(
     view = locateFleetMirrorView(viewRoot, request.repoId, previous.nodeId, { includeEntries: false });
   if (!generation || !view)
     throw new FleetEdgeConfigError("replica_unavailable", "The edge has no durable replica cut to use for repoint.");
-  const lastAppliedRevision = generation.metadata.position.revision;
-  if (view.revision !== lastAppliedRevision)
+  const ledgerCut = readReplicaLedgerCut(generation, request.repoId),
+    pointerPosition = generation.metadata.position,
+    ledgerPositionValid =
+      ledgerCut.position.history === pointerPosition.history &&
+      ledgerCut.position.sequence >= pointerPosition.sequence &&
+      ledgerCut.position.revision >= pointerPosition.revision &&
+      ledgerCut.tipPresent;
+  let effectivePosition: ReplicationPosition;
+  if (ledgerPositionValid && view.revision === ledgerCut.position.revision) {
+    effectivePosition = ledgerCut.position;
+  } else if (ledgerPositionValid && view.revision === pointerPosition.revision) {
+    effectivePosition = pointerPosition;
+  } else {
     throw new FleetEdgeConfigError(
       "replica_cut_inconsistent",
       "The edge replica cut is not internally consistent; retry after it settles.",
     );
-  const ledgerEpoch = readReplicaWriterEpoch(generation, request.repoId),
+  }
+  const positionPointerLagsLedger =
+      effectivePosition.sequence !== pointerPosition.sequence ||
+      effectivePosition.revision !== pointerPosition.revision,
+    lastAppliedRevision = effectivePosition.revision,
+    ledgerEpoch = ledgerCut.writerEpoch,
     configEpoch = previous.writerEpoch ?? 0,
     oldEpoch = Math.max(configEpoch, ledgerEpoch);
   if (oldEpoch === 0)
@@ -488,7 +505,7 @@ export async function repointFleetEdgeMirrorFenced(
     repoId: request.repoId,
     sessionCapabilities: [FLEET_SESSION_CAPABILITY.extendedLoginAuthority],
     actionKind: "repository-read",
-    resumePosition: generation.metadata.position,
+    resumePosition: effectivePosition,
     signal: deadline,
     timeoutMs,
   };
@@ -556,7 +573,7 @@ export async function repointFleetEdgeMirrorFenced(
       "writer_epoch_not_advanced",
       `The new center writer epoch ${head.writerEpoch} is not greater than ${oldEpoch}.`,
     );
-  if (head.replicationSequence === null || head.replicationSequence < generation.metadata.position.sequence)
+  if (head.replicationSequence === null || head.replicationSequence < effectivePosition.sequence)
     throw new FleetEdgeConfigError(
       "replication_sequence_behind",
       "The new center replication sequence is behind the edge cut.",
@@ -585,7 +602,19 @@ export async function repointFleetEdgeMirrorFenced(
   if (
     JSON.stringify(readFleetEdgeConfig(input.userRoot, request.repoId)) !== JSON.stringify(previous) ||
     current?.id !== generation.id ||
-    current.metadata.position.sequence !== generation.metadata.position.sequence
+    current.metadata.position.sequence !== pointerPosition.sequence ||
+    current.metadata.position.revision !== pointerPosition.revision
+  )
+    throw new FleetEdgeConfigError(
+      "replica_cut_changed",
+      "The edge config or replica advanced during preflight. Retry repoint.",
+    );
+  const currentLedgerCut = readReplicaLedgerCut(current, request.repoId);
+  if (
+    currentLedgerCut.position.history !== ledgerCut.position.history ||
+    currentLedgerCut.position.sequence !== ledgerCut.position.sequence ||
+    currentLedgerCut.position.revision !== ledgerCut.position.revision ||
+    currentLedgerCut.writerEpoch !== ledgerCut.writerEpoch
   )
     throw new FleetEdgeConfigError(
       "replica_cut_changed",
@@ -626,6 +655,7 @@ export async function repointFleetEdgeMirrorFenced(
       ledgerGeneration: lineage.ledgerGeneration,
     });
   }
+  if (positionPointerLagsLedger) updateReplicaGenerationPosition(viewDir, effectivePosition);
   await repointStream.startStagedStream(stagedConfig);
   try {
     // Even at the same sequence, the new stream must confirm it can resume (or finish explicit basebackup)
@@ -648,7 +678,7 @@ export async function repointFleetEdgeMirrorFenced(
     await repointStream.abortStagedStream();
     if (wrotePendingRepoint) {
       const afterAbort = readReplicaGeneration(viewDir),
-        epochAfterAbort = afterAbort ? readReplicaWriterEpoch(afterAbort, request.repoId) : 0;
+        epochAfterAbort = afterAbort ? readReplicaLedgerCut(afterAbort, request.repoId).writerEpoch : 0;
       if (epochAfterAbort < head.writerEpoch) removeFleetEdgePendingRepoint(input.userRoot, request.repoId);
     }
     if (error instanceof FleetReplicaStreamDownError) {
@@ -750,7 +780,13 @@ function buildEdgeConnectionConfig(
   };
 }
 
-function readReplicaWriterEpoch(generation: ReplicaGeneration, repoId: string): number {
+interface ReplicaLedgerCut {
+  readonly writerEpoch: number;
+  readonly position: ReplicationPosition;
+  readonly tipPresent: boolean;
+}
+
+function readReplicaLedgerCut(generation: ReplicaGeneration, repoId: string): ReplicaLedgerCut {
   const ledger = openSqliteEventStore({
     databasePath: generation.ledgerPath,
     repoId,
@@ -758,7 +794,13 @@ function readReplicaWriterEpoch(generation: ReplicaGeneration, repoId: string): 
     readOnly: true,
   });
   try {
-    return ledger.writerFence()?.epoch ?? 0;
+    const position = ledger.replicationPosition(),
+      tipPresent = position.revision === 0 || ledger.eventIdentityAtRevision(position.revision) !== null;
+    return {
+      writerEpoch: ledger.writerFence()?.epoch ?? 0,
+      position,
+      tipPresent,
+    };
   } finally {
     ledger.close();
   }
