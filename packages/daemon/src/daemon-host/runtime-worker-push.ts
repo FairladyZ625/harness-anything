@@ -317,7 +317,7 @@ export async function pushWorkerBranch(input: {
     );
     if (
       writePortExternalObservation.currentDepth() > 0 &&
-      classifyRemoteGitInvocation(invocation.command, invocation.args, input.cwd)
+      (await classifyRemoteGitInvocation("git", ["push", "origin"], input.cwd))
     )
       writePortExternalObservation.noteRemoteChildProcess();
     await execFileAsync(invocation.command, invocation.args, {

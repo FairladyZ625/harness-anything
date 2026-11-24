@@ -17,3 +17,8 @@ export const EXTERNAL_WAIT_PROBES = Object.freeze({
     m.measureTaskSubmitRejectionWritePort(rootDir),
   ),
 });
+
+export async function measureInjectedRemoteGitProcessWritePort(rootDir) {
+  const fixture = await load(rootDir, "packages/daemon/test/fixtures/g38-external-wait-cost.ts");
+  return fixture.measureInjectedRemoteGitProcessWritePort();
+}

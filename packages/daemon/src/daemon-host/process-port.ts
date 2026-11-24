@@ -112,7 +112,7 @@ interface ProcessTextOutcome {
 /** A bounded command may need a protocol exchange before its stdin can close. */
 export type ProcessInput = string | ((child: ChildProcess) => Promise<void>);
 
-function launchProcessText(
+async function launchProcessText(
   command: string,
   args: readonly string[],
   cwd: string | undefined,
@@ -126,7 +126,7 @@ function launchProcessText(
     readonly maxBuffer?: number;
   },
 ): Promise<ProcessTextOutcome> {
-  if (writePortExternalObservation.currentDepth() > 0 && classifyRemoteGitInvocation(command, args, cwd))
+  if (writePortExternalObservation.currentDepth() > 0 && (await classifyRemoteGitInvocation(command, args, cwd)))
     writePortExternalObservation.noteRemoteChildProcess();
   return new Promise((resolve) => {
     let interactionError: Error | null = null;

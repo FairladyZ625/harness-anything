@@ -9,6 +9,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { canonicalRoot, workspaceId } from "../../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { writePortExternalObservation } from "../../src/daemon-host/write-port-external-observation.ts";
+import { chainRepoCellWrite } from "../../src/daemon-host/repo-cell.ts";
+import { pushWorkerBranch } from "../../src/daemon-host/runtime-worker-push.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "../repo-settings.fixture.ts";
 import { withPolicyGroup } from "../keycloak-policy.fixtures.ts";
 import { initRepo } from "../task-surface.fixtures.ts";
@@ -134,7 +136,37 @@ export async function measureTaskSubmitRejectionWritePort(_rootDir: string): Pro
   });
 }
 
-/** Positive-control helper: one artificial network round trip inside a write turn. */
-export function injectWritePortNetworkRoundTrip(): void {
-  writePortExternalObservation.noteNetworkRoundTrip();
+/** Run a hosted-shaped push through the real write queue with a local Git transport. */
+export async function measureInjectedRemoteGitProcessWritePort(): Promise<ExternalWaitCounts> {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-g38-external-positive-")),
+    rootDir = path.join(parent, "repo"),
+    bare = path.join(parent, "origin.git"),
+    worktree = path.join(parent, "worker"),
+    taskId = "task_g38_positive",
+    remote = "https://g38.invalid/origin.git",
+    config = path.join(parent, "gitconfig");
+  try {
+    mkdirSync(rootDir);
+    initRepo(rootDir);
+    gitShell(rootDir, "branch", "-M", "main");
+    execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", bare], { stdio: "ignore" });
+    gitShell(rootDir, "push", pathToFileURL(bare).href, "main:main");
+    gitShell(rootDir, "remote", "add", "origin", remote);
+    gitShell(rootDir, "worktree", "add", "-qb", taskId, worktree);
+    writeFileSync(config, `[url "${pathToFileURL(bare).href}"]\n\tinsteadOf = ${remote}\n`, "utf8");
+    writePortExternalObservation.reset();
+    const pushed = await chainRepoCellWrite(Promise.resolve(), () =>
+      pushWorkerBranch({
+        cwd: worktree,
+        canonicalRoot: rootDir,
+        taskId,
+        env: { GIT_CONFIG_GLOBAL: config, GIT_CONFIG_NOSYSTEM: "1", GIT_ALLOW_PROTOCOL: "file" },
+      }),
+    );
+    assert.ok(pushed.attempted && pushed.ok, JSON.stringify(pushed));
+    assert.equal(gitShell(bare, "rev-parse", `refs/heads/${taskId}`), pushed.pushedCommit);
+    return writePortExternalObservation.snapshot();
+  } finally {
+    removeTempRepository(parent);
+  }
 }

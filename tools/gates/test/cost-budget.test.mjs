@@ -16,7 +16,10 @@ import {
   measureG1WriteCostScaling,
   readCostFixture,
 } from "../cost-budget.mjs";
-import { EXTERNAL_WAIT_PROBES } from "../../../packages/daemon/test/fixtures/g38-external-wait-cost.mjs";
+import {
+  EXTERNAL_WAIT_PROBES,
+  measureInjectedRemoteGitProcessWritePort,
+} from "../../../packages/daemon/test/fixtures/g38-external-wait-cost.mjs";
 import { measureCostSuitesParallel } from "../../../packages/daemon/test/fixtures/g38-cost-runner.mjs";
 import {
   measureTaskSubmitArtifacts,
@@ -773,20 +776,23 @@ test("G38 write-port external-wait registers task-submit and task-push probes", 
   );
 });
 
-test("G38 write-port external-wait positive control is red when a round trip exceeds budget", async (t) => {
+test("G38 write-port external-wait positive control observes a remote Git child and fails the gate", async (t) => {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-g38-external-wait-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   mkdirSync(path.join(rootDir, "tools/gates"), { recursive: true });
   const source = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
   writeFileSync(path.join(rootDir, "tools/gates/cost-budget.json"), `${JSON.stringify(source)}\n`);
+  const injectedRemoteProcess = await measureInjectedRemoteGitProcessWritePort(REPO_ROOT);
+  assert.equal(injectedRemoteProcess.remoteChildProcesses, 1);
   const measured = {
-    "task-submit:write-port": { networkRoundTrips: 1, remoteChildProcesses: 0 },
-    "task-push:write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+    "task-submit:write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+    "task-push:write-port": injectedRemoteProcess,
     "task-submit:rejection-write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
   };
   const result = await evaluateWritePortExternalWait({ rootDir, measured });
   assert.equal(result.ok, false);
-  assert.match(result.errors.join("\n"), /task-submit\.networkRoundTrips: measured 1 exceeds budget 0/u);
+  assert.match(result.errors.join("\n"), /task-push\.remoteChildProcesses: measured 1 exceeds budget 0/u);
+  t.diagnostic(result.errors.join("\n"));
 });
 
 test("G38 write-port rejection paths keep zero external-wait budget", async (t) => {

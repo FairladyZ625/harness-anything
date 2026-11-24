@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { lstat, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 /** G38 write-port external-wait dimension: counts only while a serialized write turn executes work. */
@@ -32,43 +32,44 @@ export const writePortExternalObservation = Object.freeze({
 
 function isLocalGitEndpoint(target: string): boolean {
   return (
-    target.startsWith("file://") ||
-    target.startsWith("/") ||
-    target.startsWith("./") ||
-    target.startsWith("../") ||
+    /^file:\/\//iu.test(target) ||
+    /^[\\/]/u.test(target) ||
+    /^\.{1,2}[\\/]/u.test(target) ||
     /^[A-Za-z]:[\\/]/u.test(target)
   );
 }
 
 function isRemoteGitEndpoint(target: string): boolean {
-  return /^(https?:\/\/|git@|ssh:\/\/)/u.test(target);
+  return /^(?:[\w+.-]+:\/\/|[\w+.-]+::|[^\\/]+:)/u.test(target);
 }
 
 function remoteUrlLooksRemote(url: string): boolean {
   return isRemoteGitEndpoint(url) && !isLocalGitEndpoint(url);
 }
 
-function resolveGitConfigPath(cwd: string): string | null {
-  if (!existsSync(cwd)) return null;
+async function resolveGitConfigPath(cwd: string): Promise<string | null> {
   let dir = path.resolve(cwd);
   for (;;) {
     const dotGit = path.join(dir, ".git");
-    if (existsSync(dotGit)) {
-      const stats = statSync(dotGit);
+    const directoryEntries = await readdir(dir);
+    if (directoryEntries.includes(".git")) {
+      const gitStats = await lstat(dotGit);
       let gitDir: string | null = null;
-      if (stats.isDirectory()) {
+      if (gitStats.isDirectory()) {
         gitDir = dotGit;
-      } else if (stats.isFile()) {
-        const match = /^gitdir:\s*(.+)$/mu.exec(readFileSync(dotGit, "utf8"));
-        if (match) gitDir = path.resolve(dir, match[1].trim());
+      } else if (gitStats.isFile()) {
+        const match = /^gitdir:\s*(.+)$/mu.exec(await readFile(dotGit, "utf8"));
+        if (!match) throw new Error("Git worktree .git file has no gitdir path");
+        gitDir = path.resolve(dir, match[1].trim());
       }
-      if (!gitDir) return null;
+      if (gitDir === null) return null;
+      const commonDirEntries = await readdir(gitDir);
       const commonDirFile = path.join(gitDir, "commondir");
-      const configDir = existsSync(commonDirFile)
-        ? path.resolve(gitDir, readFileSync(commonDirFile, "utf8").trim())
+      const configDir = commonDirEntries.includes("commondir")
+        ? path.resolve(gitDir, (await readFile(commonDirFile, "utf8")).trim())
         : gitDir;
-      const configPath = path.join(configDir, "config");
-      return existsSync(configPath) ? configPath : null;
+      const configEntries = await readdir(configDir);
+      return configEntries.includes("config") ? path.join(configDir, "config") : null;
     }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
@@ -76,12 +77,12 @@ function resolveGitConfigPath(cwd: string): string | null {
   }
 }
 
-function readGitRemoteUrl(cwd: string, name: string): string | null {
-  const configPath = resolveGitConfigPath(cwd);
+async function readGitRemoteUrl(cwd: string, name: string): Promise<string | null> {
+  const configPath = await resolveGitConfigPath(cwd);
   if (!configPath) return null;
   const header = `[remote "${name}"]`;
   let inRemote = false;
-  for (const rawLine of readFileSync(configPath, "utf8").split(/\r?\n/u)) {
+  for (const rawLine of (await readFile(configPath, "utf8")).split(/\r?\n/u)) {
     const line = rawLine.trim();
     if (line.startsWith("[")) {
       inRemote = line === header;
@@ -94,17 +95,21 @@ function readGitRemoteUrl(cwd: string, name: string): string | null {
   return null;
 }
 
-function namedRemoteLooksRemote(cwd: string | undefined, name: string): boolean {
+async function namedRemoteLooksRemote(cwd: string | undefined, name: string): Promise<boolean> {
   if (!cwd) return true;
-  const url = readGitRemoteUrl(cwd, name);
+  const url = await readGitRemoteUrl(cwd, name);
   if (url === null) return true;
   return remoteUrlLooksRemote(url);
 }
 
 /** True when a child git invocation would contact a non-local endpoint. */
-export function classifyRemoteGitInvocation(command: string, args: readonly string[], cwd?: string): boolean {
+export async function classifyRemoteGitInvocation(
+  command: string,
+  args: readonly string[],
+  cwd?: string,
+): Promise<boolean> {
   const base = path.basename(command);
-  if (base !== "git" && base !== "git.exe") return false;
+  if (base.toLowerCase() !== "git" && base.toLowerCase() !== "git.exe") return false;
   let index = 0;
   let workdir = cwd;
   if (args[0] === "-C") {
@@ -117,7 +122,7 @@ export function classifyRemoteGitInvocation(command: string, args: readonly stri
     if (arg.startsWith("-")) continue;
     if (isLocalGitEndpoint(arg) || arg === ".") return false;
     if (isRemoteGitEndpoint(arg)) return true;
-    if (arg === "origin" || arg === "upstream") return namedRemoteLooksRemote(workdir, arg);
+    if (arg === "origin" || arg === "upstream") return await namedRemoteLooksRemote(workdir, arg);
   }
   return subcommand === "fetch" || subcommand === "push" || subcommand === "pull";
 }
