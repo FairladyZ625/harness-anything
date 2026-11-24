@@ -643,7 +643,7 @@ export function openPersistentWriterEpoch(options: {
 // once per check; the authority itself keys databases per repository.
 const descriptorAuthorities = new Map<
   string,
-  { readonly stateRoot: string; readonly authority: PersistentWriterEpoch }
+  { readonly stateRoot: string; readonly authority: PersistentWriterEpoch; readonly sqliteBacked: boolean }
 >();
 
 function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): PersistentWriterEpoch {
@@ -651,12 +651,17 @@ function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): Persistent
   const key = `${descriptor.stateRoot}\0${descriptor.repoId}`;
   let entry = descriptorAuthorities.get(key);
   if (!entry) {
+    const storage = writerEpochStorage(descriptor);
     const authority = openPersistentWriterEpoch({
       stateRoot: descriptor.stateRoot,
       holderId: descriptor.holderId,
-      storage: writerEpochStorage(descriptor),
+      storage,
     });
-    entry = { stateRoot: descriptor.stateRoot, authority };
+    entry = {
+      stateRoot: descriptor.stateRoot,
+      authority,
+      sqliteBacked: !storage || storage.backend === "sqlite",
+    };
     descriptorAuthorities.set(key, entry);
   }
   return entry.authority;
@@ -713,10 +718,13 @@ export function closeWriterEpochFenceDescriptor(input: { readonly stateRoot: str
 
 export function closeWriterEpochFenceDescriptorsUnder(rootDir: string): void {
   const root = path.resolve(rootDir),
-    remaining: [string, { readonly stateRoot: string; readonly authority: PersistentWriterEpoch }][] = [];
+    remaining: [
+      string,
+      { readonly stateRoot: string; readonly authority: PersistentWriterEpoch; readonly sqliteBacked: boolean },
+    ][] = [];
   for (const [key, entry] of descriptorAuthorities) {
     const relative = path.relative(root, path.resolve(entry.stateRoot));
-    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    if (!entry.sqliteBacked || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       remaining.push([key, entry]);
       continue;
     }
