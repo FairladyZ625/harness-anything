@@ -356,3 +356,140 @@ it("does not let a cached automatic account probe mask a later manual model/quot
   expect(field("runtime-provider-models").textContent).not.toContain("old-catalog-model");
   expect(field<HTMLSelectElement>("runtime-provider-default-model").value).toBe(hydrogen);
 });
+
+it("skips foreground probes when daemon warmup already populated readiness and keeps manual refresh working", async () => {
+  mockReadSurfaces();
+  const warmed: RuntimeInstanceSummary[] = [
+    {
+      schemaVersion: 2,
+      instanceId: "agy-warm-a",
+      name: "AGY Warm A",
+      kindId: "agy",
+      installationId: installation.installationId,
+      providerId: "google",
+      models: [hydrogen],
+      defaultModel: hydrogen,
+      enabled: true,
+      tier: 1,
+      credentialSource: "operator",
+      permissionMode: null,
+      isolationState: "operator-environment",
+      configuration: {},
+      authMode: "subscription",
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+    },
+    {
+      schemaVersion: 2,
+      instanceId: "agy-warm-b",
+      name: "AGY Warm B",
+      kindId: "agy",
+      installationId: installation.installationId,
+      providerId: "google",
+      models: [carbon],
+      defaultModel: carbon,
+      enabled: true,
+      tier: 1,
+      credentialSource: "instance",
+      permissionMode: null,
+      isolationState: "enforced",
+      configuration: {},
+      authMode: "subscription",
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+    },
+  ];
+  vi.spyOn(runtimeInstanceClient, "list").mockResolvedValue({
+    nodeId: "center",
+    instances: warmed,
+    installations: [installation],
+    subscriptionIsolationKinds: ["agy"],
+  });
+  const probe = vi.spyOn(runtimeInstanceClient, "probe").mockImplementation(async (instanceId) => ({
+    ...warmed.find((entry) => entry.instanceId === instanceId)!,
+  }));
+
+  await mount(createElement(ProvidersHarness));
+  await settled(() => expect(field("rail-runtime-agy-warm-b")).toBeTruthy());
+  expect(probe).not.toHaveBeenCalled();
+
+  await click("rail-runtime-agy-warm-b");
+  await settled(() => expect(field<HTMLButtonElement>("runtime-account-refresh").disabled).toBe(false));
+  expect(probe).not.toHaveBeenCalled();
+
+  await click("runtime-account-refresh");
+  await settled(() => expect(probe).toHaveBeenCalledTimes(1));
+  expect(probe).toHaveBeenCalledWith("agy-warm-b", "demo");
+});
+
+it("writes a cold-start foreground probe back into the catalog cache so switching providers does not re-probe", async () => {
+  mockReadSurfaces();
+  const current: RuntimeInstanceSummary[] = [
+    {
+      schemaVersion: 2,
+      instanceId: "agy-cold-a",
+      name: "AGY Cold A",
+      kindId: "agy",
+      installationId: installation.installationId,
+      providerId: "google",
+      models: [hydrogen],
+      defaultModel: hydrogen,
+      enabled: true,
+      tier: 1,
+      credentialSource: "operator",
+      permissionMode: null,
+      isolationState: "operator-environment",
+      configuration: {},
+      authMode: "subscription",
+      authState: "unknown",
+      authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: null },
+    },
+    {
+      schemaVersion: 2,
+      instanceId: "agy-cold-b",
+      name: "AGY Cold B",
+      kindId: "agy",
+      installationId: installation.installationId,
+      providerId: "google",
+      models: [carbon],
+      defaultModel: carbon,
+      enabled: true,
+      tier: 1,
+      credentialSource: "instance",
+      permissionMode: null,
+      isolationState: "enforced",
+      configuration: {},
+      authMode: "subscription",
+      authState: "unknown",
+      authReadiness: { status: "not-ready", code: "runtime_auth_not_checked", hint: null },
+    },
+  ];
+  vi.spyOn(runtimeInstanceClient, "list").mockImplementation(async () => ({
+    nodeId: "center",
+    instances: current.map((entry) => ({ ...entry })),
+    installations: [installation],
+    subscriptionIsolationKinds: ["agy"],
+  }));
+  const probe = vi.spyOn(runtimeInstanceClient, "probe").mockImplementation(async (instanceId) => {
+    const index = current.findIndex((entry) => entry.instanceId === instanceId);
+    const updated: RuntimeInstanceSummary = {
+      ...current[index]!,
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+    };
+    current[index] = updated;
+    return updated;
+  });
+
+  await mount(createElement(ProvidersHarness));
+  await settled(() => expect(probe).toHaveBeenCalledTimes(1));
+  expect(probe).toHaveBeenCalledWith("agy-cold-a", "demo");
+
+  await click("rail-runtime-agy-cold-b");
+  await settled(() => expect(probe).toHaveBeenCalledTimes(2));
+  expect(probe).toHaveBeenCalledWith("agy-cold-b", "demo");
+
+  await click("rail-runtime-agy-cold-a");
+  await settled(() => expect(field("rail-runtime-agy-cold-a").getAttribute("aria-current")).toBe("true"));
+  expect(probe).toHaveBeenCalledTimes(2);
+});

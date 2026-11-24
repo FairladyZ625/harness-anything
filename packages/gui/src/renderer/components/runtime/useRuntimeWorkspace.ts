@@ -23,6 +23,7 @@ import {
 } from "../../runtime-control.ts";
 import {
   runtimeInstanceClient,
+  type RuntimeInstanceCatalog,
   type RuntimeInstanceCreateInput,
   type RuntimeInstanceUpdateInput,
 } from "../../runtime-instance-client.ts";
@@ -653,14 +654,38 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       ].join("\u0000");
       return {
         queryKey: ["runtime-instance-auth", repoId, instance.instanceId, authFingerprint],
-        queryFn: () => runtimeInstanceClient.probe(instance.instanceId, repoId),
+        queryFn: async () => {
+          const probed = await runtimeInstanceClient.probe(instance.instanceId, repoId);
+          const catalogKey = runtimeInstanceCatalogQuery(repoId).queryKey;
+          let hasOtherUnchecked = false;
+          client.setQueryData<RuntimeInstanceCatalog>(catalogKey, (current) => {
+            if (!current) return current;
+            const nextInstances = current.instances.map((entry) => {
+              if (entry.instanceId !== probed.instanceId) {
+                if (entry.authReadiness.code === "runtime_auth_not_checked") hasOtherUnchecked = true;
+                return entry;
+              }
+              return {
+                ...entry,
+                authState: probed.authState,
+                authReadiness: probed.authReadiness,
+                availableModels: probed.availableModels,
+                quota: probed.quota,
+                providerHealth: probed.providerHealth,
+              };
+            });
+            return { ...current, instances: nextInstances };
+          });
+          if (hasOtherUnchecked) void client.invalidateQueries({ queryKey: catalogKey });
+          return probed;
+        },
         // Provider auth commands may invoke the provider executable. Probe the visible carrier;
         // probing every catalog row at once created a second daemon request storm on cold entry.
         enabled: needsProbe && instance.instanceId === autoProbeInstanceId,
         retry: guiInteractionPolicy.defaultValue.retry,
-        // A not-checked verdict is not a reusable answer: when the key returns to it (for example
-        // after a daemon generation reset), the next mount probes again.
-        staleTime: needsProbe ? 0 : 2_000,
+        // Reuse a completed automatic probe across immediate catalog rereads and provider switches
+        // without re-triggering a foreground probe; a later mount or daemon reset re-probes.
+        staleTime: 2_000,
         ...(needsProbe ? {} : { initialData: instance }),
       };
     }),

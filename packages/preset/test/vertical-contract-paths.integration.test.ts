@@ -39,7 +39,7 @@ test("validate, discovery, and create materialization accept one compiled custom
     if (result.ok) {
       assert.deepEqual(
         result.snapshot.templates.map(({ path: documentPath }) => documentPath),
-        ["task_plan.md", "closeout.md", "artifacts/.gitkeep"],
+        ["task_plan.md", "closeout.md"],
       );
     }
   } finally {

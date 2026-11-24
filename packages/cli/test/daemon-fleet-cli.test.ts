@@ -72,6 +72,7 @@ test(
         [
           "daemon-fleet-center-promote-from-edge",
           "daemon-fleet-center-start",
+          "daemon-fleet-center-switch",
           "daemon-fleet-edge-repoint",
           "daemon-fleet-edge-sync",
         ],

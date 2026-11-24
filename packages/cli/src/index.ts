@@ -262,29 +262,12 @@ export function emit(receipt: Record<string, unknown>, json: boolean, explainRef
   if (json) console.log(JSON.stringify(receipt));
   else {
     const rendered = renderCliReceipt(receipt, explainRefs);
-    const warning = versionWarningText(receipt);
-    const text = warning ? `${rendered.text}\n${warning}` : rendered.text;
-    console[rendered.stream === "stderr" ? "error" : "log"](text);
+    const versionUpgrade =
+      receipt.code === "edge_upgrade_required" || receipt.code === "protocol_version_unsupported"
+        ? "\nUpgrade the edge and center with git pull --ff-only, then build CLI and daemon before retrying."
+        : "";
+    console[rendered.stream === "stderr" ? "error" : "log"](`${rendered.text}${versionUpgrade}`);
   }
-}
-
-function versionWarningText(receipt: Record<string, unknown>): string | null {
-  const warning =
-    typeof receipt.versionWarning === "object" && receipt.versionWarning !== null
-      ? (receipt.versionWarning as {
-          readonly centerBuildCommit?: unknown;
-          readonly localBuildCommit?: unknown;
-          readonly upgradeCommand?: unknown;
-        })
-      : null;
-  return warning && typeof warning.centerBuildCommit === "string" && typeof warning.localBuildCommit === "string"
-    ? `WARNING version mismatch center=${warning.centerBuildCommit} local=${warning.localBuildCommit}; upgrade with ${String(warning.upgradeCommand ?? "git pull --ff-only, then build CLI and daemon")}`
-    : null;
-}
-
-function writeDescriptorVersionWarning(receipt: Record<string, unknown>, raw: boolean): void {
-  const warning = versionWarningText(receipt);
-  if (warning) (raw ? process.stderr : process.stdout).write(`${warning}\n`);
 }
 
 async function renderDocumentDescriptor(receipt: Record<string, unknown>, command: ThinCommand): Promise<void> {
@@ -294,7 +277,6 @@ async function renderDocumentDescriptor(receipt: Record<string, unknown>, comman
   }
   const raw = command.action.raw === true;
   await streamDocumentFile(receipt, raw);
-  writeDescriptorVersionWarning(receipt, raw);
 }
 
 // Failure subjects for invalid refs carry ref: null by contract, so the renderer needs the refs the

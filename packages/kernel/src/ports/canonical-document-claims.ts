@@ -28,6 +28,7 @@ import {
   type CanonicalEventV1,
   type PersistedCanonicalEventV1,
 } from "../domain/doc-sync.contract.ts";
+import { isUnknownForwardCanonicalEventType } from "../domain/doc-sync-canonical-events.ts";
 import { migrationImportClaims, migrationImportContentClaims } from "../domain/migration-import-event.ts";
 import { isTaskBootstrapEvent, taskBootstrapClaims } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
@@ -80,6 +81,7 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
   /** Present on entity/decorated claims; content-object policies are not materialized documents. */
   readonly policyId?: string;
 }[] {
+  if (isUnknownForwardCanonicalEventType(event)) return [];
   if (isEntityDocumentEvent(event) || isDossierSynthesisEvent(event)) return event.payload.documentClaims;
   if (isEntityEvent(event))
     return isEntityDeclarationEvent(event) ? entityOwnedDocumentClaims(ownedContentForDeclarationEvent(event)) : [];
@@ -133,6 +135,7 @@ export function isContentObjectClaim(claim: { readonly policyId?: string }): boo
 export function canonicalDocumentRetirements(
   event: PersistedCanonicalEventV1,
 ): readonly { readonly path: string; readonly baseBlobSha256: string }[] {
+  if (isUnknownForwardCanonicalEventType(event)) return [];
   // An update that drops a file the entity used to own retires that path, exactly like a delete does; folding
   // only `entity_deleted` here would leave the dropped file standing in the worktree with no event owning it.
   if (isEntityEvent(event))
@@ -198,6 +201,7 @@ export function canonicalOwnedDirectories(event: PersistedCanonicalEventV1): {
   /** Directories this owner held under an earlier accepted manifest and holds no longer. */
   readonly retirements: readonly string[];
 } | null {
+  if (isUnknownForwardCanonicalEventType(event)) return null;
   if (!isEntityEvent(event)) return null;
   if (event.type === "entity_deleted")
     return {
@@ -227,6 +231,7 @@ export function contentClaims(event: PersistedCanonicalEventV1): readonly {
   readonly size: number;
   readonly mediaType: string;
 }[] {
+  if (isUnknownForwardCanonicalEventType(event)) return [];
   if (isCiRunObservationEvent(event)) {
     const ref = event.payload.detailRef;
     return ref ? [{ sha256: ref.sha256, size: ref.encodedBytes, mediaType: ref.mediaType }] : [];
@@ -289,7 +294,7 @@ function decisionDocumentClaims(
   )
     return [];
   return [
-    event.payload.decisionDocumentClaim,
+    ...(event.payload.decisionDocumentClaim === undefined ? [] : [event.payload.decisionDocumentClaim]),
     ...(event.type === "decision_review_recorded"
       ? (event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
           path: target,
@@ -301,7 +306,7 @@ function decisionDocumentClaims(
 
 function decisionContentClaims(event: Extract<PersistedCanonicalEventV1, { readonly schema: "decision-event/v1" }>) {
   return [
-    event.payload.decisionDocumentClaim,
+    ...(event.payload.decisionDocumentClaim === undefined ? [] : [event.payload.decisionDocumentClaim]),
     ...(event.type === "decision_review_recorded"
       ? (event.payload.carriedDocumentClaims ?? []).map((change) => change.candidate)
       : []),

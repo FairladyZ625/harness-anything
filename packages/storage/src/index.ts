@@ -75,6 +75,7 @@ export type {
 export { replicaDeliveryLeases } from "./fleet-replica-delivery-lease.ts";
 export type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./fleet-replica-delivery-lease.ts";
 export {
+  advancePersistentWriterEpochFloor,
   assertWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
@@ -139,12 +140,43 @@ export {
   writerEpochRetirementSealPath,
   writeWriterEpochRetirementSeal,
 } from "./center-relocation.ts";
+export {
+  centerSwitchoverFencePath,
+  clearCenterSwitchoverFence,
+  isSwitchoverAttemptInvalidated,
+  markCenterSwitchoverFenceDemoted,
+  readCenterSwitchoverFence,
+  recordInvalidatedSwitchoverAttempt,
+  switchoverInvalidatedAttemptsPath,
+  writeCenterSwitchoverFence,
+} from "./center-relocation-state.ts";
 export type {
   CenterMigratingStateV1,
   CenterMovedDetails,
   CenterRelocatedTombstoneV1,
+  CenterSwitchoverFenceV1,
+  SwitchoverInvalidatedAttemptsV1,
   WriterEpochRetirementSealV1,
 } from "./center-relocation-state.ts";
+export {
+  CenterSwitchoverStorageError,
+  cedeCenterForSwitchover,
+  invalidateTargetSwitchoverAttempt,
+  promoteReplicaForSwitchover,
+  readCenterFrozenCut,
+  rollbackCenterSwitchover,
+  switchoverActivationAuditPath,
+  switchoverRollbackAuditPath,
+} from "./center-switchover.ts";
+export type {
+  CedeCenterForSwitchoverInput,
+  CenterFrozenCutSnapshot,
+  CenterReplicationLogRow,
+  PromoteReplicaForSwitchoverInput,
+  PromoteReplicaForSwitchoverResult,
+  RollbackCenterSwitchoverInput,
+  RollbackCenterSwitchoverResult,
+} from "./center-switchover.ts";
 export type {
   CenterRelocationManifestV1,
   ExportCenterRelocationInput,

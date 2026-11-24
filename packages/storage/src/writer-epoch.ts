@@ -748,6 +748,47 @@ function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescript
     throw new WriterEpochError("writer_epoch_invalid", "writer epoch fence descriptor is invalid");
 }
 
+export function advancePersistentWriterEpochFloor(input: {
+  readonly stateRoot: string;
+  readonly repoId: string;
+  readonly minimumEpoch: number;
+  readonly now?: () => string;
+  readonly storage?: StorageBackendConfig;
+}): number {
+  if (!repoIdPattern.test(input.repoId))
+    throw new WriterEpochError("writer_epoch_invalid", `repoId ${input.repoId} is invalid for a writer epoch database`);
+  if (!Number.isSafeInteger(input.minimumEpoch) || input.minimumEpoch < 1)
+    throw new WriterEpochError("writer_epoch_invalid", "minimumEpoch must be a positive safe integer");
+  if (input.storage?.backend === "postgres" || input.storage?.backend === "pglite") {
+    const authority = requireExternalWriterEpochOpener(input.storage.backend)({
+      stateRoot: input.stateRoot,
+      storage: input.storage,
+      now: input.now,
+    });
+    try {
+      authority.retireCurrent(input.repoId);
+      return Math.max(authority.highWatermark(input.repoId), input.minimumEpoch);
+    } finally {
+      authority.close();
+    }
+  }
+  const databasePath = path.join(input.stateRoot, "writer-epochs", `${input.repoId}.sqlite`);
+  assertLegacyWriterEpochRepoMigrated(input.stateRoot, input.repoId, databasePath);
+  const authority = openRepoEpochAuthority({
+    databasePath,
+    repoId: input.repoId,
+    holderId: `switchover-floor-${process.pid}`,
+    now: input.now ?? (() => new Date().toISOString()),
+    initialEpochFloor: input.minimumEpoch,
+  });
+  try {
+    authority.retireCurrent(input.repoId);
+    return authority.highWatermark(input.repoId);
+  } finally {
+    authority.close();
+  }
+}
+
 export function readLedgerWriterEpoch(
   repoId: string,
   rootDir: string | null | undefined,

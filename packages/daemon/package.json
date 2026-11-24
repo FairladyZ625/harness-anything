@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/daemon-host/index.ts",
+    "./cloud-query-host": "./src/fleet-sync/cloud-query-host.ts",
     "./client": {
       "default": "./src/daemon-host/client/index.ts"
     },
@@ -88,6 +89,7 @@
     "access": "public",
     "exports": {
       ".": "./dist/daemon/src/daemon-host/index.js",
+      "./cloud-query-host": "./dist/daemon/src/fleet-sync/cloud-query-host.js",
       "./client": "./dist/daemon/src/daemon-host/client/index.js",
       "./protocol": "./dist/daemon/src/daemon-host/protocol/index.js",
       "./protocol/validation": "./dist/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.js",

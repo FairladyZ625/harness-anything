@@ -7,6 +7,7 @@ import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 import { authoredDocumentStatusWordRegister } from "./status-word-register-authored-document.ts";
 import { dispatchStatusWordRegister } from "./status-word-register-dispatch.ts";
 import { inboxStatusWordRegister } from "./status-word-register-inbox.ts";
+import { centerSwitchoverPhases } from "./center-switchover.ts";
 
 export const rbacBackupStatuses = ["verified", "unavailable", "unknown"] as const;
 export type RbacBackupStatus = (typeof rbacBackupStatuses)[number];
@@ -24,6 +25,21 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
       verified: "The operator has evidence that the separate RBAC backup or recovery path is available.",
       unavailable: "The operator has confirmed that the separate RBAC backup or recovery path is unavailable.",
       unknown: "The operator has not verified the separate RBAC backup or recovery path.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
+  ...centerSwitchoverPhases.map((word) => ({
+    word,
+    entity: "Migration" as const,
+    field: "center switchover phase",
+    meaning: {
+      idle: "Center switchover has not entered write freeze yet.",
+      freezing: "Old center writes are frozen in CENTER_MIGRATING while waiting for RPO=0 replica catch-up.",
+      fenced_ceded: "Old center durably persisted a reversible cededEpoch fence before activating the target.",
+      target_activated: "Target node activated at oldEpoch + 1 while preserving replication_state.history.",
+      demoted_edge: "Old center demoted in place to remote-edge pointing at the newly activated center.",
+      aborted_rolled_back:
+        "Switchover aborted before fencing or rolled back to oldEpoch + 2 after audited invalidation.",
     }[word],
     divergence: "entity-scoped" as const,
   })),

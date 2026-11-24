@@ -303,7 +303,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         : session?.buildCommit
           ? {
               kind: "value",
-              text: `${session.buildCommit}${input.center.commitSha !== null && session.buildCommit !== input.center.commitSha ? " (version mismatch; git pull --ff-only, then build CLI and daemon)" : ""}`,
+              text: `${session.buildCommit}${input.center.commitSha !== null && session.buildCommit !== input.center.commitSha ? " (build skew, compatible)" : ""}`,
             }
           : { kind: "unavailable", reason: "no-edge-build-observed" },
       online: isCenter

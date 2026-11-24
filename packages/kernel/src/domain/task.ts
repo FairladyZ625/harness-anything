@@ -78,10 +78,10 @@ export interface TaskExecutionArrangement {
   readonly model?: string;
 }
 
-function validTaskExecutionArrangement(value: unknown): value is TaskExecutionArrangement {
+function validTaskExecutionArrangement(value: unknown, allowUnknownFields = false): value is TaskExecutionArrangement {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, [
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
       "id",
       "executionId",
       "submissionDigest",
@@ -98,7 +98,7 @@ function validTaskExecutionArrangement(value: unknown): value is TaskExecutionAr
     /^sha256:[0-9a-f]{64}$/u.test(value.submissionDigest) &&
     Number.isSafeInteger(value.iteration) &&
     Number(value.iteration) > 0 &&
-    validateActorIdentity(value.actor).length === 0 &&
+    validateActorIdentity(value.actor, allowUnknownFields).length === 0 &&
     validateWriteSource(value.source).length === 0 &&
     isNonEmptyString(value.reason) &&
     typeof value.ready === "boolean" &&
@@ -241,7 +241,10 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
   )
     return [{ code: "invalid_task", message: "Task/v2 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
-  if (value.executionArrangement !== undefined && !validTaskExecutionArrangement(value.executionArrangement))
+  if (
+    value.executionArrangement !== undefined &&
+    !validTaskExecutionArrangement(value.executionArrangement, allowUnknownFields)
+  )
     issues.push({ code: "invalid_task", message: "execution arrangement is invalid" });
   if (value.presetSnapshotGap !== undefined) {
     const gap = value.presetSnapshotGap;
@@ -260,7 +263,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     )
       issues.push({ code: "invalid_task", message: "historical snapshot gap must name its source acceptance" });
   }
-  if (value.assignment != null && !validTaskAssignment(value.assignment))
+  if (value.assignment != null && !validTaskAssignment(value.assignment, allowUnknownFields))
     issues.push({ code: "invalid_task", message: "invalid task assignment" });
   if (value.schema !== "task/v2") issues.push({ code: "invalid_schema", message: "Task must use task/v2" });
   if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.title))

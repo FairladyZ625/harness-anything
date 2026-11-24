@@ -371,7 +371,7 @@ async function dispatchFleetControl(
     (argv[at] === "daemon" &&
       argv[at + 1] === "fleet" &&
       argv[at + 2] === "center" &&
-      argv[at + 3] === "promote-from-edge")
+      (argv[at + 3] === "promote-from-edge" || argv[at + 3] === "switch"))
   ) {
     const { runFleetCenterRelocationControl } = await import("./fleet-center-relocation.ts");
     return await runFleetCenterRelocationControl(argv, userRoot, finish);

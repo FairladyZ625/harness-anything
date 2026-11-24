@@ -27,6 +27,7 @@ import {
 } from "@harness-anything/storage";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
+import { runCenterSwitchoverSlice1E2e } from "./center-switchover-e2e.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { fleetHostWriterOptions } from "./fleet-store.fixture.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
@@ -816,3 +817,9 @@ function createSpkiSha256(certificate: Buffer): string {
     .update(new X509Certificate(certificate).publicKey.export({ type: "spki", format: "der" }))
     .digest("hex");
 }
+
+test(
+  "Switchover Slice 1: RPO=0 negative control, Phase 1 crash fencing + oldEpoch+2 rollback, history/log-window preservation, and A -> B -> A round-trip",
+  { timeout: 360_000 },
+  runCenterSwitchoverSlice1E2e,
+);

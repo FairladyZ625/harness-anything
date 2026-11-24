@@ -13,6 +13,8 @@ import {
   canonicalEventSchemas,
   normalizePersistedCanonicalEvent,
   parseCanonicalEvent,
+  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "../../src/domain/doc-sync.contract.ts";
 import { eventShapeMigrations, type EventShapeCut } from "../../../storage/src/store/event-shape-migration.ts";
@@ -59,6 +61,56 @@ test("Task/v2 readers ignore a field that current writers do not know", () => {
 
   assert.deepEqual(parseCanonicalEvent(bytes), future);
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /unknown/u);
+  assert.throws(() => serializeCanonicalEvent(future as never), /unknown/u);
+});
+
+test("replay preserves an unknown task event type and an unknown canonical schema", () => {
+  const futureTaskEvent = {
+      ...taskCreated,
+      type: "task_created_with_future_metadata",
+      payload: { task: { ...taskCreated.payload.task, futureOptionalField: true } },
+    },
+    taskBytes = serializeEventEnvelope(futureTaskEvent),
+    futureSchema = { ...taskCreated, schema: "task-event/v2", payload: { task: taskCreated.payload.task } },
+    schemaBytes = serializeEventEnvelope(futureSchema);
+
+  assert.deepEqual(parseCanonicalEvent(taskBytes), futureTaskEvent);
+  assert.match(validateCurrentCanonicalEvent(futureTaskEvent).join("\n"), /type/u);
+  assert.throws(() => parseCanonicalEvent(schemaBytes), /unknown/u);
+  assert.deepEqual(parseCanonicalEvent(schemaBytes, { allowUnknownForwardFields: true }), futureSchema);
+  assert.equal(
+    serializePersistedCanonicalEvent(futureSchema as never, { allowUnknownForwardFields: true }),
+    schemaBytes,
+  );
+});
+
+test("replay retains unknown Fact and Decision event types after validating the common envelope", () => {
+  const futureFact = {
+      ...taskCreated,
+      schema: "fact-event/v1",
+      eventId: "future-fact-type-event",
+      opId: "future-fact-type-op",
+      factId: "F-12345678",
+      type: "fact_recorded_with_future_evidence",
+      payload: { futureEvidence: true },
+    },
+    futureDecision = {
+      ...taskCreated,
+      schema: "decision-event/v1",
+      eventId: "future-decision-type-event",
+      opId: "future-decision-type-op",
+      decisionId: "dec_forward_compat",
+      type: "decision_review_recorded_with_future_fields",
+      payload: { futureReview: true },
+    };
+
+  for (const event of [futureFact, futureDecision]) {
+    const bytes = serializeEventEnvelope(event);
+    assert.deepEqual(parseCanonicalEvent(bytes, { allowUnknownForwardFields: true }), event);
+    assert.notDeepEqual(validateCurrentCanonicalEvent(event), []);
+    assert.throws(() => serializeCanonicalEvent(event as never));
+    assert.throws(() => parseCanonicalEvent(bytes), /invalid|unknown/u);
+  }
 });
 
 test("Task/v2 provenance readers ignore additions without relaxing required fields", () => {

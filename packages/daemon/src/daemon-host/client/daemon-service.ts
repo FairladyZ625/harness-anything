@@ -109,7 +109,9 @@ export function daemonServiceUnitContent(
         : "<Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>",
       '<Principals><Principal id="User"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>',
       "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>",
-      `<Actions Context="User"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}</Arguments></Exec></Actions>`,
+      // Launch powershell.exe via conhost.exe --headless so Task Scheduler never allocates a
+      // visible console window before PowerShell parses -WindowStyle Hidden.
+      `<Actions Context="User"><Exec><Command>conhost.exe</Command><Arguments>--headless powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}</Arguments></Exec></Actions>`,
       "</Task>",
       "",
     ].join("\n");
@@ -185,10 +187,12 @@ export function daemonServiceCommands(
           `$d = $s.NewTask(0); $d.XmlText = [IO.File]::ReadAllText(${powerShellText(unit.unitPath)}); $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name; $d.Principal.UserId = $user; foreach ($trigger in $d.Triggers) { $trigger.UserId = $user }; $t = $f.RegisterTaskDefinition(${powerShellText(unit.name)}, $d, 6, $null, $null, 3); $null = $t.Run($null)`,
         ),
       ],
-      unload: command(`$t = ${task}; $t.Stop(0); $f.DeleteTask(${powerShellText(unit.name)}, 0)`),
+      unload: command(
+        `$t = ${task}; foreach ($r in $t.GetInstances(0)) { $c = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $r.EnginePID)); foreach ($m in ($c | Where-Object { $_.Name -eq 'powershell.exe' })) { $n = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $m.ProcessId) | Where-Object { $_.Name -eq 'node.exe' }); Stop-Process -Id $m.ProcessId -Force -ErrorAction SilentlyContinue; $n | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; $c | Where-Object { $_.Name -eq 'node.exe' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }; $t.Stop(0); $f.DeleteTask(${powerShellText(unit.name)}, 0)`,
+      ),
       start: command(`$null = ${task}.Run($null)`),
       state: command(
-        `$t = ${registered}; if ($null -eq $t) { 'loaded=false' } else { 'loaded=true'; foreach ($r in $t.GetInstances(0)) { Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $r.EnginePID) | Where-Object { $_.Name -eq 'node.exe' } | ForEach-Object { 'pid=' + $_.ProcessId } } }`,
+        `$t = ${registered}; if ($null -eq $t) { 'loaded=false' } else { 'loaded=true'; foreach ($r in $t.GetInstances(0)) { $c = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $r.EnginePID)); $c | Where-Object { $_.Name -eq 'node.exe' } | ForEach-Object { 'pid=' + $_.ProcessId }; foreach ($m in ($c | Where-Object { $_.Name -eq 'powershell.exe' })) { Get-CimInstance Win32_Process -Filter ('ParentProcessId = ' + $m.ProcessId) | Where-Object { $_.Name -eq 'node.exe' } | ForEach-Object { 'pid=' + $_.ProcessId } } } }`,
       ),
     };
   }

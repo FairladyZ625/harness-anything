@@ -1,13 +1,8 @@
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { scopedPersonId, type CollaboratorScope } from "@harness-anything/kernel/internal/domain/collaborator-scope.ts";
-import {
-  drainCursorPagesSync,
-  todoIsOpen,
-  type Todo,
-  type TaskProjection,
-  type TaskRelationQuery,
-  type RelationGraphEdgeRow,
-} from "@harness-anything/kernel";
+import type { Todo, TaskProjection, TaskRelationQuery, RelationGraphEdgeRow } from "@harness-anything/kernel";
+import { todoIsOpen } from "@harness-anything/kernel/internal/domain/todo.ts";
+import { drainCursorPagesSync } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
 
 export type TodoScope = "mine" | "all" | { readonly personId: string };
 

@@ -1,4 +1,4 @@
-import { borrowPgReadClient } from "./pg-read-savepoint.ts";
+import { pgReadSessionPool } from "./pg-read-savepoint.ts";
 import { backfillPgEntityDeclarationPage } from "./pg-entity-declaration-catchup.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { isMainThread, parentPort, workerData, type MessagePort } from "node:worker_threads";
@@ -19,12 +19,7 @@ import { backfillPgInbox } from "./pg-inbox.ts";
 import { backfillPgPeerRequests } from "./pg-peer-request.ts";
 import { maintainPgRelationCycleAuditPage } from "./pg-relation-cycle-audit.ts";
 import { backfillPgRelationReaderIndexPage } from "./pg-relation-queries.ts";
-import {
-  borrowPostgresCommitWork,
-  withPostgresTransaction,
-  withPostgresCommitGuard,
-  createPostgresPool,
-} from "../postgres/transaction.ts";
+import { withPostgresTransaction, withPostgresCommitGuard, createPostgresPool } from "../postgres/transaction.ts";
 import { dialectRuntimeRoleUnsafeQuery, ensurePoolDialectCapabilities } from "../postgres/dialect.ts";
 import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
@@ -243,7 +238,10 @@ function startWorker(
         input.scope,
       );
     source = createPgTaskProjectionSource({
-      pool: sessionPool(),
+      pool: pgReadSessionPool(() => {
+        if (!sessionClient) throw new Error("PostgreSQL query requested outside a reader session");
+        return sessionClient;
+      }),
       scope: input.scope,
       repoId: input.repoId,
       path: input.path,
@@ -252,15 +250,6 @@ function startWorker(
     });
     return backfillReaderKeys;
   };
-
-  const sessionPool = () =>
-    ({
-      connect: async () => {
-        if (!sessionClient) throw new Error("PostgreSQL query requested outside a reader session");
-        const owner = sessionClient;
-        return borrowPostgresCommitWork(await borrowPgReadClient(owner), owner);
-      },
-    }) as unknown as Pool;
 
   const finishSession = async (command: "COMMIT" | "ROLLBACK") => {
     if (sessionClient) await options.readSessions?.beforeEnd(sessionClient);

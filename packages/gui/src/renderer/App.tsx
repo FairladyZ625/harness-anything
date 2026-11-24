@@ -758,7 +758,15 @@ function AppShell() {
               onExit={() => memberScope.setScopePersonId(null)}
             />
           )}
-          <FleetVersionWarningBanner warning={fleetOverview.overview?.versionWarning} />
+          <FleetVersionWarningBanner
+            upgradeRequired={
+              fleetOverview.overview?.nodes.some(
+                (node) =>
+                  node.lastFailure.kind === "value" &&
+                  /^(?:edge_upgrade_required|protocol_version_unsupported)\s/u.test(node.lastFailure.text),
+              ) ?? false
+            }
+          />
           <GuiBuildWarningBanner
             guiCommit={systemQuery.data?.guiBuild?.commit}
             daemonCommit={systemQuery.data?.daemon.build.commitSha}

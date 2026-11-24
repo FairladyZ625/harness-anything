@@ -242,14 +242,14 @@ const LEASE_HOLDER_FIELDS = ["taskId", "executionId", "actor", "source"] as cons
 function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
-function validArtifactAnchors(value: unknown): boolean {
+function validArtifactAnchors(value: unknown, allowUnknownFields = false): boolean {
   return (
     Array.isArray(value) &&
     value.length > 0 &&
     value.every(
       (anchor) =>
         isRecord(anchor) &&
-        hasOnlyFields(anchor, ["path", "revision", "blobSha256"]) &&
+        (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(anchor, ["path", "revision", "blobSha256"]) &&
         isNonEmptyString(anchor.path) &&
         Number.isSafeInteger(anchor.revision) &&
         Number(anchor.revision) > 0 &&
@@ -258,18 +258,28 @@ function validArtifactAnchors(value: unknown): boolean {
     )
   );
 }
-export function validSubmissionDelivery(value: Record<string, unknown>): boolean {
+export function validSubmissionDelivery(value: Record<string, unknown>, allowUnknownFields = false): boolean {
   if (value.commitSha !== null)
     return (
-      isNativeCommitSha(value.commitSha) && (value.artifacts === undefined || validArtifactAnchors(value.artifacts))
+      isNativeCommitSha(value.commitSha) &&
+      (value.artifacts === undefined || validArtifactAnchors(value.artifacts, allowUnknownFields))
     );
   // A no-diff submission delivers its frozen closeout prose without a code or artifact cut.
-  return (Array.isArray(value.artifacts) && value.artifacts.length === 0) || validArtifactAnchors(value.artifacts);
+  return (
+    (Array.isArray(value.artifacts) && value.artifacts.length === 0) ||
+    validArtifactAnchors(value.artifacts, allowUnknownFields)
+  );
 }
-function validProductionDelta(value: unknown): value is ProductionDeltaV1 {
+function validProductionDelta(value: unknown, allowUnknownFields = false): value is ProductionDeltaV1 {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, ["baseSha", "added", "deleted", "changed", "unclassified"]) &&
+    (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
+      "baseSha",
+      "added",
+      "deleted",
+      "changed",
+      "unclassified",
+    ]) &&
     isNativeCommitSha(value.baseSha) &&
     Number.isSafeInteger(value.added) &&
     Number(value.added) >= 0 &&
@@ -279,7 +289,7 @@ function validProductionDelta(value: unknown): value is ProductionDeltaV1 {
     value.changed.every(
       (entry) =>
         isRecord(entry) &&
-        hasOnlyFields(entry, ["filePath", "module", "added", "deleted"]) &&
+        (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(entry, ["filePath", "module", "added", "deleted"]) &&
         isNonEmptyString(entry.filePath) &&
         isNonEmptyString(entry.module) &&
         Number.isSafeInteger(entry.added) &&
@@ -290,18 +300,24 @@ function validProductionDelta(value: unknown): value is ProductionDeltaV1 {
     stringArray(value.unclassified)
   );
 }
-export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
+export function validExecutionDeliveryBaseline(
+  value: unknown,
+  allowUnknownFields = false,
+): value is ExecutionDeliveryBaseline {
   return (
     isRecord(value) &&
-    ((hasOnlyFields(value, value.stackOn === undefined ? ["kind", "commitSha"] : ["kind", "commitSha", "stackOn"]) &&
+    (((allowUnknownFields ? hasRequiredFields : hasOnlyFields)(
+      value,
+      value.stackOn === undefined ? ["kind", "commitSha"] : ["kind", "commitSha", "stackOn"],
+    ) &&
       value.kind === "commit" &&
       isNativeCommitSha(value.commitSha) &&
       (value.stackOn === undefined ||
         (isRecord(value.stackOn) &&
-          hasOnlyFields(value.stackOn, ["taskId", "executionId"]) &&
+          (allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value.stackOn, ["taskId", "executionId"]) &&
           isNonEmptyString(value.stackOn.taskId) &&
           isNonEmptyString(value.stackOn.executionId)))) ||
-      (hasOnlyFields(value, ["kind"]) && value.kind === "empty-tree"))
+      ((allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, ["kind"]) && value.kind === "empty-tree"))
   );
 }
 
@@ -324,10 +340,13 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !stringArray(value.knownGaps) ||
     !stringArray(value.residualRisks) ||
     (value.changedFiles !== undefined && !stringArray(value.changedFiles)) ||
-    (value.riskTierAssessment !== undefined && !isTaskRiskTierAssessmentV1(value.riskTierAssessment)) ||
-    !validSubmissionDelivery(value) ||
+    (value.riskTierAssessment !== undefined &&
+      !isTaskRiskTierAssessmentV1(value.riskTierAssessment, allowUnknownFields)) ||
+    !validSubmissionDelivery(value, allowUnknownFields) ||
     (value.productionDelta !== undefined &&
-      (value.commitSha === null || value.changedFiles === undefined || !validProductionDelta(value.productionDelta))) ||
+      (value.commitSha === null ||
+        value.changedFiles === undefined ||
+        !validProductionDelta(value.productionDelta, allowUnknownFields))) ||
     (value.reviewResponses !== undefined &&
       (!Array.isArray(value.reviewResponses) ||
         value.reviewResponses.some(
@@ -386,7 +405,7 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   const issues: ContractValidationIssue[] = [];
   if (
     !Array.isArray(value.gateRuns) ||
-    !value.gateRuns.every(validGateRun) ||
+    !value.gateRuns.every((run) => validGateRun(run, allowUnknownFields)) ||
     value.gateRuns.some(
       (run) =>
         run.taskId !== value.taskId || run.executionId !== value.executionId || run.iteration !== value.iteration,
@@ -415,7 +434,10 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   if (value.amendedBy !== undefined) issues.push(...validateActorAxes(value.amendedBy, allowUnknownFields));
   if (value.annotations !== undefined)
     issues.push(...validateExecutionAnnotationV1s(value.annotations, allowUnknownFields));
-  if (value.deliveryBaseline !== undefined && !validExecutionDeliveryBaseline(value.deliveryBaseline))
+  if (
+    value.deliveryBaseline !== undefined &&
+    !validExecutionDeliveryBaseline(value.deliveryBaseline, allowUnknownFields)
+  )
     issues.push({ code: "invalid_execution", message: "execution delivery baseline is invalid" });
   if (
     value.stewardshipEpoch !== undefined &&

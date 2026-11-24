@@ -510,20 +510,22 @@ export function doctorBuildDrift(build: Pick<DaemonBuildStatus, "loadedBuildId" 
 }
 
 export function fleetVersionDoctorCheck(warnings: readonly string[]): DoctorCheck {
-  const observed = [...new Set(warnings.filter((warning) => warning.length > 0))];
-  return observed.length === 0
+  const incompatible = [
+    ...new Set(warnings.filter((warning) => /(?:edge_upgrade_required|protocol_version_unsupported)/u.test(warning))),
+  ];
+  return incompatible.length === 0
     ? {
         id: "fleet-version",
         status: "ok",
         count: 0,
-        summary: "Fleet peers report matching build identities.",
+        summary: "Fleet peers are protocol-compatible despite build differences.",
         next: "Nothing to do.",
       }
     : {
         id: "fleet-version",
         status: "warn",
-        count: observed.length,
-        summary: observed.join(" | "),
+        count: incompatible.length,
+        summary: incompatible.join(" | "),
         next: "Run git pull --ff-only, then build CLI and daemon on the center and edge, then reconnect the Fleet session.",
       };
 }

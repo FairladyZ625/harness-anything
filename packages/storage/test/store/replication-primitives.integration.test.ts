@@ -9,12 +9,13 @@ import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { openReplicaStore } from "../../src/store/replica-store.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
-test("a restored replica recycles backup log rows without waiting for another commit", async (t) => {
+test("a restored replica recycles backup log rows to its configured retention window without waiting for another commit", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-restored-"));
   t.after(() => removeTempRepository(root));
   const repoId = "replication-test",
     databasePath = path.join(root, "center.sqlite"),
     replicaPath = path.join(root, "replica.sqlite"),
+    windowReplicaPath = path.join(root, "replica-window.sqlite"),
     fence = { repoId, holder: "center", epoch: 1 },
     center = openSqliteEventStore({ repoId, databasePath });
   try {
@@ -30,12 +31,33 @@ test("a restored replica recycles backup log rows without waiting for another co
       source = new DatabaseSync(databasePath, { readOnly: true });
     try {
       await backup(source, replicaPath);
+      await backup(source, windowReplicaPath);
     } finally {
       source.close();
     }
-    // The center handles the backup ACK; no subsequent commit will invoke replica.apply.
+    // Bounded window (dec_AAEC26DBB6F23BDF80876ABB2C CH2): retains [sequence - window .. sequence] and recycles older rows.
+    const windowedReplica = openReplicaStore({ repoId, databasePath: windowReplicaPath, retentionWindowCommits: 3 }),
+      windowedDb = new DatabaseSync(windowReplicaPath, { readOnly: true });
+    try {
+      assert.deepEqual(windowedReplica.position(), position);
+      const sequences = (
+        windowedDb.prepare("SELECT sequence FROM replication_log ORDER BY sequence").all() as readonly {
+          readonly sequence: unknown;
+        }[]
+      ).map((row) => Number(row.sequence));
+      assert.deepEqual(sequences, [
+        position.sequence - 3,
+        position.sequence - 2,
+        position.sequence - 1,
+        position.sequence,
+      ]);
+    } finally {
+      windowedDb.close();
+      windowedReplica.close();
+    }
+    // Explicit retentionWindowCommits: 0 recycles down to the single applied anchor immediately on open.
     center.pruneReplicationLog(position.sequence);
-    const replica = openReplicaStore({ repoId, databasePath: replicaPath }),
+    const replica = openReplicaStore({ repoId, databasePath: replicaPath, retentionWindowCommits: 0 }),
       restored = new DatabaseSync(replicaPath, { readOnly: true }),
       current = new DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -43,7 +65,7 @@ test("a restored replica recycles backup log rows without waiting for another co
       assert.deepEqual(
         restored.prepare("SELECT * FROM replication_log ORDER BY sequence").all(),
         current.prepare("SELECT * FROM replication_log ORDER BY sequence").all(),
-        "restored log keeps only its applied anchor, even without a subsequent commit",
+        "restored log with retentionWindowCommits=0 keeps only its applied anchor, even without a subsequent commit",
       );
       assert.deepEqual(
         restored.prepare("SELECT * FROM command_outcome ORDER BY op_id").all(),

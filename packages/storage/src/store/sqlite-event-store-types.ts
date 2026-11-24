@@ -101,6 +101,15 @@ export interface SqliteEventStore {
   /** Rotate the replication lineage after a break-glass promotion. */
   readonly rotateReplicationHistory: (history?: string) => ReplicationPosition;
   readonly pruneReplicationLog: (throughSequence: number) => void;
+  readonly mergeReplicationLogRows: (
+    rows: readonly {
+      readonly sequence: number;
+      readonly revision: number;
+      readonly outcomeOpId: string | null;
+      readonly writerJson: string | null;
+    }[],
+    retentionWindowCommits: number,
+  ) => void;
   readonly replicationCommits: (
     after: ReplicationPosition,
     limit: number,
@@ -119,28 +128,34 @@ export interface SqliteEventStore {
   /** Hand the ledger back when an offline holder stops writing, so a live writer is not fenced out. */
   readonly releaseWriter: (fence: SqliteWriterFence) => void;
   readonly writerFence: () => SqliteWriterFence | null;
-  readonly appendCommand: (input: {
-    readonly fence: SqliteWriterFence;
-    readonly intent: SqliteCommandIntent;
-    readonly events: readonly CanonicalEventV1[];
-    readonly blobs?: readonly CanonicalContentBlob[];
-    readonly rejectionCode?: string;
-    readonly beforeOutcome?: () => void;
-    readonly outboxBaselines?: ReadonlyMap<string, SqliteOutboxBaseline>;
-    readonly historicalRecord?: {
-      readonly recordedAt: string;
-      readonly eventRecordedAt: readonly string[];
-    };
-  }) => SqliteCommandOutcome;
+  readonly appendCommand: (
+    input: {
+      readonly fence: SqliteWriterFence;
+      readonly intent: SqliteCommandIntent;
+      readonly events: readonly CanonicalEventV1[];
+      readonly blobs?: readonly CanonicalContentBlob[];
+      readonly rejectionCode?: string;
+      readonly beforeOutcome?: () => void;
+      readonly outboxBaselines?: ReadonlyMap<string, SqliteOutboxBaseline>;
+      readonly historicalRecord?: {
+        readonly recordedAt: string;
+        readonly eventRecordedAt: readonly string[];
+      };
+    },
+    eventBytes?: readonly string[],
+  ) => SqliteCommandOutcome;
   /** Internal admission seam: the caller has validated the canonical bundle before invoking this. */
-  readonly appendValidatedBundle: (input: {
-    readonly intent?: (eventBytes: readonly string[]) => SqliteCommandIntent;
-    readonly fence: SqliteWriterFence;
-    readonly events: readonly CanonicalEventV1[];
-    readonly blobs: readonly CanonicalContentBlob[];
-    readonly beforeOutcome?: () => void;
-    readonly outboxBaselines?: ReadonlyMap<string, SqliteOutboxBaseline>;
-  }) => SqliteCommandOutcome;
+  readonly appendValidatedBundle: (
+    input: {
+      readonly intent?: (eventBytes: readonly string[]) => SqliteCommandIntent;
+      readonly fence: SqliteWriterFence;
+      readonly events: readonly CanonicalEventV1[];
+      readonly blobs: readonly CanonicalContentBlob[];
+      readonly beforeOutcome?: () => void;
+      readonly outboxBaselines?: ReadonlyMap<string, SqliteOutboxBaseline>;
+    },
+    eventBytes?: readonly string[],
+  ) => SqliteCommandOutcome;
   readonly gitOutboxState: () => SqliteGitOutboxState;
   readonly markGitOutboxPublished: (input: {
     readonly revision: number;

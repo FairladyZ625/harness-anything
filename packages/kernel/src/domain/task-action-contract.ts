@@ -1056,6 +1056,7 @@ export function descriptorFacets(id: string) {
           receiptLookupCapabilityRef: "receipt.show" as const,
         })
       : null,
+    // dec_81C77B1E9E9B3860C38319CD5E/CH1: artifact paths come from the selected preset, not a universal empty-file requirement.
     ownedArtifacts: create
       ? Object.freeze([
           artifact(
@@ -1075,15 +1076,6 @@ export function descriptorFacets(id: string) {
             "typed-machine-writer/v1",
             null,
             false,
-          ),
-          artifact(
-            "task.artifacts.keep",
-            "artifacts.keep",
-            "{packagePath}/artifacts/.gitkeep",
-            "machine",
-            "typed-machine-writer/v1",
-            null,
-            true,
           ),
         ])
       : Object.freeze([]),

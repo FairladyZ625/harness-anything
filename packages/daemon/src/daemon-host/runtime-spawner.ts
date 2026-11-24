@@ -707,9 +707,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         health: providerHealth,
         now: input.now(),
       });
-    // A named instance and its model are validated before mission loading reads and assembles the
-    // submitted task cut; model errors must not wait behind review-context preparation.
-    const { taskMission, mission, progressSnapshot } = await resolveRuntimeMission({
+    // Validate named runtime models before preparing the submitted task cut.
+    const { taskMission, mission, progressSnapshot, outputShape } = await resolveRuntimeMission({
         rootDir: input.rootDir,
         cwd,
         taskId,
@@ -917,12 +916,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                       })
                     : mission,
               readOnlyDispatch = effectivePermissionMode === "read-only",
-              // The self-iteration step rides every task-bound dispatch whose declaration mounts the
-              // `self-iteration` skill — the skill mount is the only opt-in (`dec_43F5EA40143C5BD729EF90D030`
-              // CH1), and both audiences opt in the same way. What differs is where the proposal lands:
-              // a delivery turn owns its task package, while a reviewer may write nothing but its review
-              // report (`runtime-execution-scope.ts:101,251-261`), so its proposal is a section of that
-              // report. Read-only attaches cannot write either surface, so they stay excluded.
+              // The mounted skill opts both delivery and review dispatches in (`dec_43F5EA40143C5BD729EF90D030` CH1).
+              // Delivery proposals go in the task package, review proposals in the review report, and read-only dispatches omit them.
               selfIteration =
                 taskId !== null && !readOnlyDispatch
                   ? selfIterationCloseoutSection(
@@ -943,9 +938,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   taskBound: taskId !== null,
                 },
               ),
-              // A worktree checks out no private ledger, so every `harness/…` reference the agent
-              // declaration or the mission carries is answered with the path this worker can open;
-              // every executing dispatch also owes the isolated-test entry when nothing names it.
+              // Resolve mission and declaration ledger reads to paths available in the worker worktree.
+              // Include the isolated-test entry when no dispatch input already names it.
               privateReads = privateLedgerReadSection(
                 resolvePrivateLedgerReads({
                   rootDir: input.rootDir,
@@ -967,9 +961,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     preset,
                     resolvedSkills,
                     privateReads,
+                    outputShape,
                   )
                 : taskMission || role === "reviewer"
-                  ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined, privateReads)
+                  ? assembleUnboundPrompt(
+                      dispatchMission,
+                      role === "reviewer" ? role : undefined,
+                      privateReads,
+                      outputShape,
+                    )
                   : dispatchMission,
               // Scheduled Squad leaders answer the squad decision protocol; the run settles
               // the occurrence. Every dispatch still receives its own rendered dispatch id.
@@ -1145,7 +1145,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         permissionMode: launchedPermissionMode,
         agentId: agent?.id,
       });
-      if (taskId || trustedSchedule || reviewerBinding)
+      if ((taskId || trustedSchedule || reviewerBinding) && !(taskId && outputShape === "task-package-artifact"))
         await configureWorkerGitIdentity(cwd, input.rootDir, binding.actor.principal.personId);
       if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
       if (

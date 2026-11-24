@@ -11,7 +11,7 @@ import {
   saveFleetCenterConfig,
 } from "./fleet-center-config.ts";
 import { readCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
-import { readCenterRelocated, throwIfCenterMigrating, throwIfCenterRelocated } from "@harness-anything/storage";
+import { centerMovedError, throwIfCenterMigrating, throwIfCenterRelocated } from "@harness-anything/storage";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
@@ -157,7 +157,8 @@ export function createDaemonHostRuntimeApi(
   const guardCenterRelocation = (repoId: string, mutating: boolean): void => {
     const userRoot = context.input?.userRoot;
     if (typeof userRoot !== "string" || userRoot.length === 0) return;
-    throwIfCenterRelocated(userRoot, repoId);
+    const repoMode = readDaemonRegistry({ userRoot }).repos.find((entry) => entry.repoId === repoId)?.mode;
+    throwIfCenterRelocated(userRoot, repoId, { repoMode });
     if (mutating) throwIfCenterMigrating(userRoot, repoId);
   };
   return {
@@ -574,7 +575,7 @@ export function createDaemonHostRuntimeApi(
             },
           });
           await context.waitForWarming(authorityRepoId);
-          if (!context.input?.userRoot || readCenterRelocated(context.input.userRoot, authorityRepoId) === null)
+          if (!context.input?.userRoot || centerMovedError(context.input.userRoot, authorityRepoId) === null)
             context.requiredCell(context.cells, context.warming, context.unavailable, authorityRepoId);
           const replaced = context.fleetCenter !== null;
           if (context.fleetCenter) {

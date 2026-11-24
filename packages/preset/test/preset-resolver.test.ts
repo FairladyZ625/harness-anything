@@ -30,7 +30,7 @@ test("canonical resolver decodes one complete bundled package into a content-add
     assert.deepEqual(result.snapshot.profile.completionGateIds, []);
     assert.deepEqual(
       result.snapshot.templates.map((entry) => entry.path),
-      ["task_plan.md", "closeout.md", "artifacts/.gitkeep"],
+      ["task_plan.md", "closeout.md"],
     );
     assert.match(result.snapshot.digest, /^sha256:[0-9a-f]{64}$/u);
     assert.equal(result.package, null);

@@ -11,7 +11,7 @@ import path from "node:path";
 import test from "node:test";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { makeTaskProjectionReader } from "@harness-anything/storage";
+import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS, makeTaskProjectionReader } from "@harness-anything/storage";
 
 import { createNodeRetirement } from "../src/daemon-host/fleet/node-retirement.ts";
 import { AccessAdminService } from "../src/daemon-host/access-admin-service.ts";
@@ -126,17 +126,61 @@ const compareDatabase = (centerPath: string, edgePath: string, label: string): v
     } = tableRows(centerPath);
   assert.deepEqual(edgeTables, centerTables, `${label}: every table row matches center`);
   if (edgeLog === undefined) return;
+  // dec_AAEC26DBB6F23BDF80876ABB2C CH2: replicas retain a bounded replication_log window (up to
+  // DEFAULT_REPLICA_LOG_WINDOW_COMMITS) so planned Switchover can promote a replica without rotating
+  // history even after the center prunes older rows down to its slowest slot ACK. Verify byte-for-byte
+  // identity across the shared center-retained range and contiguous bounded retention through `applied`.
   const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence,
-    firstRetained = (edgeLog[0] as unknown as { sequence: number } | undefined)?.sequence ?? applied;
+    edgeRows = edgeLog as unknown as readonly {
+      sequence: number;
+      revision: number;
+      outcome_op_id: string | null;
+    }[],
+    centerRows = (centerLog ?? []) as unknown as readonly {
+      sequence: number;
+      revision: number;
+      outcome_op_id: string | null;
+    }[],
+    firstRetained = edgeRows[0]?.sequence ?? applied,
+    centerFloor = centerRows[0]?.sequence ?? applied,
+    overlapStart = Math.max(firstRetained, centerFloor);
   assert.deepEqual(
-    edgeLog,
-    (centerLog ?? []).filter((row) => {
-      const sequence = (row as unknown as { sequence: number }).sequence;
-      return sequence >= firstRetained && sequence <= applied;
-    }),
+    edgeRows.filter((row) => row.sequence >= overlapStart && row.sequence <= applied),
+    centerRows.filter((row) => row.sequence >= overlapStart && row.sequence <= applied),
     `${label}: every retained edge log row matches the center through its applied position`,
   );
-  assert.equal((edgeLog.at(-1) as unknown as { sequence: number } | undefined)?.sequence, applied);
+  assert.equal(edgeRows.at(-1)?.sequence, applied);
+  assert.ok(
+    edgeRows.length >= 1 && edgeRows.length <= DEFAULT_REPLICA_LOG_WINDOW_COMMITS + 1,
+    `${label}: edge replication_log stays within the bounded retention window`,
+  );
+  assert.ok(
+    firstRetained >= Math.max(0, applied - DEFAULT_REPLICA_LOG_WINDOW_COMMITS),
+    `${label}: edge replication_log floor stays within the bounded retention window`,
+  );
+  const outcomeIds = new Set(
+    ((edgeTables.command_outcome ?? []) as unknown as readonly { op_id: string }[]).map((row) => row.op_id),
+  );
+  for (let index = 0; index < edgeRows.length; index += 1) {
+    const row = edgeRows[index]!;
+    if (index > 0) {
+      assert.equal(
+        row.sequence,
+        edgeRows[index - 1]!.sequence + 1,
+        `${label}: edge replication_log sequences are contiguous`,
+      );
+      assert.ok(
+        row.revision >= edgeRows[index - 1]!.revision,
+        `${label}: edge replication_log revisions are monotonic`,
+      );
+    }
+    if (row.outcome_op_id !== null) {
+      assert.ok(
+        outcomeIds.has(row.outcome_op_id),
+        `${label}: retained edge replication_log row ${row.sequence} references a mirrored command_outcome`,
+      );
+    }
+  }
 };
 
 test("three process-level edges hold one consistent mirror of every center read", { timeout: 240_000 }, async (t) => {

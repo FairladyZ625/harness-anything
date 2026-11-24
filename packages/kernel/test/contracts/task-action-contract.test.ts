@@ -34,6 +34,16 @@ test("owner rework exposes explicit worker identity overrides", () => {
   }
 });
 
+test("task creation does not declare a generic artifact placeholder", () => {
+  const action = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "create");
+  assert.ok(action);
+  assert.equal(
+    action.ownedArtifacts.some(({ slot }) => slot === "task.artifacts.keep"),
+    false,
+  );
+  assert.doesNotMatch(JSON.stringify(action.ownedArtifacts), /artifacts\/.gitkeep/u);
+});
+
 test("all public Task writes are complete executable Action contracts", () => {
   const task = getEntityKindContract("task"),
     actions = task?.actionCatalog?.actions ?? [];

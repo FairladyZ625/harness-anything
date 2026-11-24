@@ -273,6 +273,31 @@
         }
       }
     },
+    "daemon-fleet-center-switch": {
+      "owner": "daemon",
+      "execution": {
+        "ingress": "daemon-fleet-center-switch",
+        "read": false
+      },
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      }
+    },
     "daemon-fleet-edge-sync": {
       "owner": "daemon",
       "concurrency": {

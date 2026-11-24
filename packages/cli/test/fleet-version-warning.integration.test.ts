@@ -5,7 +5,7 @@ import { emit } from "../src/index.ts";
 import { runFleetTaskCommandClient } from "@harness-anything/daemon";
 import { fleetFixture } from "../../daemon/test/fleet-tls-session.fixture.ts";
 
-test("a successful Fleet task carries the handshake warning into CLI output", { timeout: 30_000 }, async (t) => {
+test("a successful Fleet task keeps build skew out of CLI output", { timeout: 30_000 }, async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center(),
@@ -56,8 +56,27 @@ test("a successful Fleet task carries the handshake warning into CLI output", { 
     console.log = originalLog;
     console.error = originalError;
   }
-  assert.match(
-    lines.join("\n"),
-    /WARNING version mismatch .* upgrade with git pull --ff-only, then build CLI and daemon/u,
-  );
+  assert.doesNotMatch(lines.join("\n"), /WARNING version mismatch|upgrade with git pull/u);
+});
+
+test("an incompatible Fleet protocol failure keeps the upgrade instruction", () => {
+  const lines: string[] = [],
+    originalError = console.error;
+  console.error = (line?: unknown) => lines.push(String(line ?? ""));
+  try {
+    emit(
+      {
+        schema: "command-receipt/v2",
+        command: "fleet-sync",
+        ok: false,
+        code: "protocol_version_unsupported",
+        hint: "The edge protocol is incompatible.",
+      },
+      false,
+    );
+  } finally {
+    console.error = originalError;
+  }
+  assert.match(lines.join("\n"), /protocol_version_unsupported/u);
+  assert.match(lines.join("\n"), /git pull --ff-only, then build CLI and daemon/u);
 });

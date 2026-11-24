@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import { getClientDialectCapabilities, type PgDialectCapabilities } from "../postgres/dialect.ts";
-import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
+import { canonicalJson } from "../projection/iso-timestamp-sql.ts";
 
 /** A dictionary slot is an allocation address. Digests and replay audits compare the
  * exact word it addresses, preserving every posting column and exposing dangling slots.

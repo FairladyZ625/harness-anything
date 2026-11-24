@@ -266,15 +266,13 @@ test(
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
     // The leader carries the commander delivery contract for the CEO, not the worker delivery
-    // loop; the framework's one-line PR note may ride the task-bound mission, but the worker's
-    // exact publication loop never does.
+    // loop; a docs-task (task-package-artifact) leader also omits repository-diff PR instructions.
     assert.match(leader.prompt, /delivery contract with the CEO/u);
-    assert.ok(leader.prompt.includes(taskPrPublicationNote));
+    assert.equal(leader.prompt.includes(taskPrPublicationNote), false);
     assert.doesNotMatch(
-      leader.prompt.replaceAll(taskPrPublicationNote, ""),
-      /ha task push <task-id>|ha task pr <task-id>|task delivery commands/u,
+      leader.prompt,
+      /ha task push <task-id>|ha task pr <task-id>|task delivery commands|Do not merge/u,
     );
-    assert.match(leader.prompt, /Do not merge/u);
     await fixture.cell.settlePendingMaterialization("before public integration");
     git(fixture.root, "checkout", "-qb", "codex/mission-delivery");
     for (const head of heads) git(fixture.root, "cherry-pick", head);

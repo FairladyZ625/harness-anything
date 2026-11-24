@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS } from "@harness-anything/storage";
 import {
   fakeReplicationCenter,
   fleetReplicationFixture,
@@ -69,13 +70,30 @@ test(
         true,
         "the package carries committed outcomes, not only events",
       );
-      assert.deepEqual(
-        mirrorLedger
-          .prepare("SELECT sequence FROM replication_log ORDER BY sequence")
-          .all()
-          .map((row) => Number((row as { sequence: number }).sequence)),
-        [header.position.sequence],
-        "the copied replica log retains only the packaged cut anchor",
+      // dec_AAEC26DBB6F23BDF80876ABB2C CH2: basebackup retains a bounded replication_log window
+      // (up to DEFAULT_REPLICA_LOG_WINDOW_COMMITS commits) ending at the packaged cut anchor so
+      // promotable replicas can serve lagging edges without basebackup after planned Switchover.
+      const sequences = mirrorLedger
+        .prepare("SELECT sequence FROM replication_log ORDER BY sequence")
+        .all()
+        .map((row) => Number((row as { sequence: number }).sequence));
+      assert.equal(
+        sequences.at(-1),
+        header.position.sequence,
+        "the copied replica log ends at the packaged cut anchor",
+      );
+      assert.ok(
+        sequences.length >= 1 && sequences.length <= DEFAULT_REPLICA_LOG_WINDOW_COMMITS + 1,
+        `the copied replica log stays within the bounded window (rows=${sequences.length})`,
+      );
+      assert.ok(
+        sequences[0]! >= Math.max(0, Number(header.position.sequence) - DEFAULT_REPLICA_LOG_WINDOW_COMMITS),
+        `the copied replica log floor stays within the bounded window (floor=${sequences[0]}, head=${header.position.sequence})`,
+      );
+      assert.equal(
+        sequences.at(-1)! - sequences[0]! + 1,
+        sequences.length,
+        "the copied replica log window is contiguous",
       );
     } finally {
       mirrorLedger.close();

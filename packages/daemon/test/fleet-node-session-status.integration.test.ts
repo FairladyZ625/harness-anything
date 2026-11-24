@@ -66,7 +66,7 @@ test(
     const edge = (nodeId: string) => overview(center).nodes.find((node) => node.nodeId === nodeId)!;
     assert.deepEqual(edge("edge-one").online, { kind: "value", text: "connected" });
     assert.equal(edge("edge-one").build.kind, "value");
-    assert.match((edge("edge-one").build as { text: string }).text, /0000000000.*version mismatch/u);
+    assert.match((edge("edge-one").build as { text: string }).text, /0000000000 \(build skew, compatible\)/u);
     assert.equal(edge("edge-one").watch.kind, "value");
     assert.match((edge("edge-one").watch as { text: string }).text, /center phase=/u);
     // A syntactically valid JSON object with an invalid replication shape. Neither the raw

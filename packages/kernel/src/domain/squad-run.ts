@@ -1,5 +1,5 @@
 import type { ActorIdentity, EventEnvelope } from "./write-chain.contract.ts";
-import { hasOnlyFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
+import { hasOnlyFields, hasRequiredFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
 
 export type SquadRunPhase = "planning" | "leader_running" | "workers_running" | "cancelled" | "converged" | "failed";
 export type SquadRunTrigger =
@@ -104,36 +104,38 @@ const identityFields = ["squadRunId", "squadId", "subject", "mission", "leaderAg
 const nullableText = (value: unknown): boolean => value === null || isNonEmptyString(value);
 const count = (value: unknown): boolean => Number.isSafeInteger(value) && Number(value) >= 0;
 
-export function validSquadRunSubject(value: unknown): value is SquadRunSubjectV1 {
+export function validSquadRunSubject(value: unknown, allowUnknownFields = false): value is SquadRunSubjectV1 {
   if (!isRecord(value)) return false;
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (value.kind === "task")
     return (
-      hasOnlyFields(value, ["kind", "taskId", "executionId"]) &&
-      [value.taskId, value.executionId].every(isNonEmptyString)
+      hasFields(value, ["kind", "taskId", "executionId"]) && [value.taskId, value.executionId].every(isNonEmptyString)
     );
   return (
     value.kind === "schedule-occurrence" &&
-    hasOnlyFields(value, ["kind", "scheduleId", "occurrenceId", "claimFence"]) &&
+    hasFields(value, ["kind", "scheduleId", "occurrenceId", "claimFence"]) &&
     [value.scheduleId, value.occurrenceId, value.claimFence].every(isNonEmptyString)
   );
 }
 
-export function validSquadDispatchContext(value: unknown): value is SquadDispatchContext {
+export function validSquadDispatchContext(value: unknown, allowUnknownFields = false): value is SquadDispatchContext {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   return (
     isRecord(value) &&
     ("ownerDispatchId" in value
-      ? hasOnlyFields(value, ["squadRunId", "ownerDispatchId", "turnId"]) &&
+      ? hasFields(value, ["squadRunId", "ownerDispatchId", "turnId"]) &&
         [value.squadRunId, value.ownerDispatchId, value.turnId].every(isNonEmptyString)
-      : hasOnlyFields(value, identityFields) &&
+      : hasFields(value, identityFields) &&
         ["squadRunId", "squadId", "mission", "leaderAgentId"].every((field) => isNonEmptyString(value[field])) &&
-        validSquadRunSubject(value.subject)) &&
+        validSquadRunSubject(value.subject, allowUnknownFields)) &&
     /^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId))
   );
 }
-export function validSquadRunObservation(value: unknown): value is SquadRunObservation {
+export function validSquadRunObservation(value: unknown, allowUnknownFields = false): value is SquadRunObservation {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (
     !isRecord(value) ||
-    !hasOnlyFields(value, [
+    !hasFields(value, [
       ...identityFields,
       "ownerDispatchId",
       "runRevision",
@@ -150,7 +152,7 @@ export function validSquadRunObservation(value: unknown): value is SquadRunObser
     return false;
   return (
     ["squadRunId", "squadId", "mission", "leaderAgentId"].every((field) => isNonEmptyString(value[field])) &&
-    validSquadRunSubject(value.subject) &&
+    validSquadRunSubject(value.subject, allowUnknownFields) &&
     /^squad_[a-f0-9]{24}$/u.test(String(value.squadRunId)) &&
     isNonEmptyString(value.ownerDispatchId) &&
     count(value.runRevision) &&
@@ -169,22 +171,22 @@ export function validSquadRunObservation(value: unknown): value is SquadRunObser
     value.leaderTurns.every(
       (turn) =>
         isRecord(turn) &&
-        hasOnlyFields(turn, ["turnId", "trigger", "dispatchId", "runtimeSessionId", "decision"]) &&
+        hasFields(turn, ["turnId", "trigger", "dispatchId", "runtimeSessionId", "decision"]) &&
         [turn.turnId, turn.dispatchId, turn.runtimeSessionId].every(isNonEmptyString) &&
-        validTrigger(turn.trigger) &&
+        validTrigger(turn.trigger, allowUnknownFields) &&
         (turn.decision === null ||
           (isRecord(turn.decision) &&
             (turn.decision.kind === "converged"
-              ? hasOnlyFields(turn.decision, ["kind"])
+              ? hasFields(turn.decision, ["kind"])
               : turn.decision.kind === "plan" &&
-                hasOnlyFields(turn.decision, ["kind", "dispatchCount"]) &&
+                hasFields(turn.decision, ["kind", "dispatchCount"]) &&
                 count(turn.decision.dispatchCount)))),
     ) &&
     Array.isArray(value.workerAttempts) &&
     value.workerAttempts.every(
       (attempt) =>
         isRecord(attempt) &&
-        hasOnlyFields(attempt, [
+        hasFields(attempt, [
           "attemptId",
           "workerId",
           "leaderTurnId",
@@ -209,22 +211,23 @@ export function validSquadRunObservation(value: unknown): value is SquadRunObser
     )
   );
 }
-function validTrigger(value: unknown): boolean {
+function validTrigger(value: unknown, allowUnknownFields = false): boolean {
   if (!isRecord(value)) return false;
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   switch (value.kind) {
     case "initial":
-      return hasOnlyFields(value, ["kind"]);
+      return hasFields(value, ["kind"]);
     case "leader_retry":
-      return hasOnlyFields(value, ["kind", "turnId", "reason"]) && [value.turnId, value.reason].every(isNonEmptyString);
+      return hasFields(value, ["kind", "turnId", "reason"]) && [value.turnId, value.reason].every(isNonEmptyString);
     case "worker_outcome":
-      return hasOnlyFields(value, ["kind", "runtimeSessionId"]) && isNonEmptyString(value.runtimeSessionId);
+      return hasFields(value, ["kind", "runtimeSessionId"]) && isNonEmptyString(value.runtimeSessionId);
     case "worker_wait":
       return (
-        hasOnlyFields(value, ["kind", "runtimeSessionId", "reason"]) &&
+        hasFields(value, ["kind", "runtimeSessionId", "reason"]) &&
         [value.runtimeSessionId, value.reason].every(isNonEmptyString)
       );
     case "worker_rejected":
-      return hasOnlyFields(value, ["kind", "attemptId"]) && isNonEmptyString(value.attemptId);
+      return hasFields(value, ["kind", "attemptId"]) && isNonEmptyString(value.attemptId);
     default:
       return false;
   }
