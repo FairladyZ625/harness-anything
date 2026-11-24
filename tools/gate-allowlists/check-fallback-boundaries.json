@@ -27,6 +27,18 @@
       "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
       "reason": "Follow-up creation failures are displayed on the selected card; no task link is synthesized and no replacement task or fallback parent is created."
     },
+    "packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#submitReply": {
+      "task": "task_b75af18a8ce517d88ee1cb2bd9",
+      "decision": "dec_166C5D2EAB57F8BCA3F15107E2",
+      "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
+      "reason": "Peer reply RPC failures are displayed on the channel panel; no local reply state is synthesized and the channel list refreshes only after an applied receipt."
+    },
+    "packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#submitPromote": {
+      "task": "task_b75af18a8ce517d88ee1cb2bd9",
+      "decision": "dec_166C5D2EAB57F8BCA3F15107E2",
+      "errors": "GUI bridge/read/write/runtime rejection shown to the caller",
+      "reason": "Peer promote RPC failures are displayed on the channel panel; no local task link is synthesized and the channel list refreshes only after an applied receipt."
+    },
     "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#run": {
       "task": "task_0e1d9f41b62c51a1f78809f6d9",
       "decision": "dec_9C43012EBB2754D7112F618F0D",
@@ -419,6 +431,8 @@
       "packages/gui/src/renderer/views/agenda/AgendaInboxActions.tsx#submit",
       "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#archive",
       "packages/gui/src/renderer/views/agenda/AgendaOutboxActions.tsx#create",
+      "packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#submitReply",
+      "packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#submitPromote",
       "packages/gui/src/renderer/views/agenda/useAgendaContinuation.ts#run",
       "packages/gui/src/renderer/views/live-floor-model.ts#parseJsonObject",
       "packages/gui/src/renderer/views/live-floor-model.ts#readableModelName",

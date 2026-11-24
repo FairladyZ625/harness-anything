@@ -58,7 +58,7 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
         setReplyAction("");
         invalidate();
       } else {
-        setFeedback(result.hint ?? result.outcome);
+        setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
       }
     } catch (cause) {
       consumeKnownError(cause);
@@ -82,7 +82,7 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
         setFeedback(t("views.agenda.peerPromoted"));
         invalidate();
       } else {
-        setFeedback(result.hint ?? result.outcome);
+        setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
       }
     } catch (cause) {
       consumeKnownError(cause);
@@ -170,11 +170,11 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
 function ChannelStatusTag({ item }: { readonly item: ChannelListItem }) {
   const tone =
     item.status === "delivered" || item.status === "routed"
-      ? "ok"
+      ? "done"
       : item.status === "duplicate"
         ? "neutral"
         : item.status === "failed"
-          ? "danger"
+          ? "bad"
           : "wait";
   return <StatusTag tone={tone} label={item.channelKind} />;
 }

@@ -3,6 +3,23 @@ import { nonEmpty, rejected } from "./thin-command-flags.ts";
 import { parseProjected } from "./thin-command-projection.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
+export const channelRouteParsers: readonly (readonly [string, typeof parseChannel])[] = [
+  ["channel-deliver", parseChannel],
+  ["channel-list", parseChannel],
+  ["channel-send", parseChannel],
+];
+
+export function parseChannel(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+}
+
 export const peerRouteParsers: readonly (readonly [string, typeof parsePeer])[] = [
   ["peer-ask", parsePeer],
   ["peer-reply", parsePeer],

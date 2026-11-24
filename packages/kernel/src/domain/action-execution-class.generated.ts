@@ -13,7 +13,6 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["agent-unassign", "repo-write"],
     ["assignment-migrate", "repo-write"],
     ["channel-deliver", "repo-write"],
-    ["channel-list", "repo-read"],
     ["channel-send", "repo-write"],
     ["cli-local-effects", "admin"],
     ["daemon-connection-add", "admin"],

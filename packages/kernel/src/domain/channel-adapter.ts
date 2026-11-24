@@ -7,7 +7,6 @@
  */
 import type { EntityActionContract, EntityActionInputField } from "./entity-kind-registry.ts";
 import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
-import { inboxDedupeKey } from "./inbox.ts";
 import type { InboxItemSource } from "./inbox.ts";
 import type { OntologyJudgmentDeclaration, OntologyPolicyDeclaration } from "./ontology-source.ts";
 import { isNonEmptyString, isRecord } from "./contract-validation.ts";
@@ -222,12 +221,6 @@ const channelText = (field: string, required: boolean, flag?: string): EntityAct
   type: "string",
   required,
   ...(flag ? { cli: { name: flag, kind: "single", error: { code: "invalid_field" } } } : {}),
-});
-const channelFlagBool = (field: string, flag: string): EntityActionInputField => ({
-  field,
-  type: "boolean",
-  required: false,
-  cli: { name: flag, kind: "boolean", error: { code: "invalid_field" } },
 });
 const channelFlagNum = (field: string, flag: string): EntityActionInputField => ({
   field,

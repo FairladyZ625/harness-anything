@@ -30,37 +30,41 @@ export const channelQueryKeys = {
   list: (repoId: string, channelKind?: string) => [...channelQueryKeys.all(repoId), "list", channelKind] as const,
 };
 
-function readChannelListResult(value: unknown): ChannelListSuccess {
+function parseChannelListEvidence(evidence: string | undefined): ChannelListSuccess {
+  if (!evidence) return { ok: true, items: [], nextCursor: null, watermark: 0 };
+  try {
+    const parsed = JSON.parse(evidence) as {
+      items?: ChannelListItem[];
+      nextCursor?: string | null;
+      watermark?: number;
+    };
+    return {
+      ok: true,
+      items: parsed.items ?? [],
+      nextCursor: parsed.nextCursor ?? null,
+      watermark: parsed.watermark ?? 0,
+    };
+  } catch {
+    return { ok: true, items: [], nextCursor: null, watermark: 0 };
+  }
+}
+
+function channelReceipt(value: unknown) {
+  const receipt = readGuiActionResult(value);
   if (
-    typeof value === "object" &&
-    value !== null &&
-    "ok" in value &&
-    (value as { ok: boolean }).ok === true &&
-    "items" in value
-  ) {
-    const v = value as { items: ChannelListItem[]; nextCursor?: string | null; watermark?: number };
-    return { ok: true, items: v.items ?? [], nextCursor: v.nextCursor ?? null, watermark: v.watermark ?? 0 };
-  }
-  if (typeof value === "object" && value !== null && "evidence" in value) {
-    try {
-      const evidence = JSON.parse(String((value as { evidence: string }).evidence));
-      return {
-        ok: true,
-        items: evidence.items ?? [],
-        nextCursor: evidence.nextCursor ?? null,
-        watermark: evidence.watermark ?? 0,
-      };
-    } catch {
-      return { ok: true, items: [], nextCursor: null, watermark: 0 };
-    }
-  }
-  return { ok: true, items: [], nextCursor: null, watermark: 0 };
+    !receipt.ok ||
+    receipt.outcome === "op_rejected" ||
+    receipt.outcome === "indeterminate" ||
+    receipt.outcome === "pending"
+  )
+    throw new Error(receipt.hint ?? receipt.outcome ?? "Channel request did not complete.");
+  return receipt;
 }
 
 export async function readChannelList(repoId: string, channelKind?: string): Promise<ChannelListSuccess> {
-  const payload = { repo: { repoId }, payload: { ...(channelKind ? { channelKind } : {}) } };
-  const result = await invoke("repo.channel.list", payload);
-  return readChannelListResult(result);
+  const params = { repoId, ...(channelKind ? { channelKind } : {}) };
+  const receipt = channelReceipt(await invoke("repo.channel.list", params));
+  return parseChannelListEvidence(receipt.evidence);
 }
 
 export function useChannelListQuery(repoId: string, channelKind?: string) {
@@ -79,8 +83,10 @@ export async function replyPeerRequest(payload: {
 }): Promise<GuiActionResult> {
   return readGuiActionResult(
     await invoke("repo.peer.reply", {
-      repo: { repoId: payload.repoId },
-      payload: { requestId: payload.requestId, claim: payload.claim, requestedAction: payload.requestedAction },
+      repoId: payload.repoId,
+      requestId: payload.requestId,
+      claim: payload.claim,
+      requestedAction: payload.requestedAction,
     }),
   );
 }
@@ -93,8 +99,10 @@ export async function promotePeerRequest(payload: {
 }): Promise<GuiActionResult> {
   return readGuiActionResult(
     await invoke("repo.peer.promote", {
-      repo: { repoId: payload.repoId },
-      payload: { requestId: payload.requestId, work: payload.work, ...(payload.title ? { title: payload.title } : {}) },
+      repoId: payload.repoId,
+      requestId: payload.requestId,
+      work: payload.work,
+      ...(payload.title ? { title: payload.title } : {}),
     }),
   );
 }

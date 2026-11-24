@@ -7,7 +7,6 @@ import {
   channelPageLimit,
   validateChannelInboxEnvelope,
   validateChannelOutboxMessage,
-  type ChannelKind,
 } from "../src/domain/channel-adapter.ts";
 
 test("channel adapter: envelope validation", () => {
