@@ -60,7 +60,12 @@ test("chat and peer wakes resume the same persistent session and record a receip
   await service.start("person_owner");
   const first = await service.wake("person_owner", "human-chat", "Please review the current plan.");
   setNow("2026-11-24T00:00:30.000Z");
-  const second = await service.wake("person_owner", "peer-request", "Peer request: prepare a handoff.", "peer_request_1");
+  const second = await service.wake(
+    "person_owner",
+    "peer-request",
+    "Peer request: prepare a handoff.",
+    "peer_request_1",
+  );
   assert.equal(first.response, "reply-1");
   assert.equal(second.response, "reply-2");
   assert.equal(runs[0]?.persistentSessionId, null);

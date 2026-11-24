@@ -75,14 +75,7 @@ test("permission request CLI parses self-request inputs and directs decisions to
 });
 
 test("peer delegate CLI compiles to the canonical PeerRequest ask action", () => {
-  const parsed = parseThinCommand([
-    "peer",
-    "delegate",
-    "--to",
-    "person_bob",
-    "--title",
-    "Review the migration",
-  ]);
+  const parsed = parseThinCommand(["peer", "delegate", "--to", "person_bob", "--title", "Review the migration"]);
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
   assert.equal(parsed.command.method, "repo.task.run");
@@ -91,8 +84,6 @@ test("peer delegate CLI compiles to the canonical PeerRequest ask action", () =>
     requestKind: "delegate",
     toPersonId: "person_bob",
     summary: "Review the migration",
-    claim: "Review the migration",
-    requestedAction: "Review the migration",
   });
 });
 

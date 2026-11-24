@@ -337,7 +337,11 @@ export const harnessClient = {
     return result as ResidentCeoReceipt;
   },
   async configureResidentCeo(
-    payload: RepoScope & { readonly runtimeInstanceId: string; readonly model: string; readonly heartbeatIntervalSec: number },
+    payload: RepoScope & {
+      readonly runtimeInstanceId: string;
+      readonly model: string;
+      readonly heartbeatIntervalSec: number;
+    },
   ): Promise<ResidentCeoReceipt> {
     return readResidentCeoReceipt(await invoke("repo.residentCeo.config", payload));
   },

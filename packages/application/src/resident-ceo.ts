@@ -10,7 +10,6 @@ import {
 
 export interface ResidentCeoProfileStore {
   readonly read: (principalPersonId: string) => Promise<ResidentCeoProfile | null>;
-  readonly list?: () => Promise<readonly ResidentCeoProfile[]>;
   /** Writes are serialized by the owning daemon writer. */
   readonly write: (profile: ResidentCeoProfile, expectedUpdatedAt: string | null) => Promise<void>;
 }
@@ -46,34 +45,37 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
     return profile;
   };
 
-  const update = async (
-    profile: ResidentCeoProfile,
-    next: ResidentCeoProfile,
-  ): Promise<ResidentCeoProfile> => {
-    await input.profiles.write(next, profile.updatedAt);
-    return next;
+  const update = async (profile: ResidentCeoProfile, next: ResidentCeoProfile): Promise<ResidentCeoProfile> => {
+    const updated = {
+      ...next,
+      updatedAt: new Date(Math.max(Date.parse(next.updatedAt), Date.parse(profile.updatedAt) + 1)).toISOString(),
+    };
+    await input.profiles.write(updated, profile.updatedAt);
+    return updated;
   };
 
   return {
     configure: async (principalPersonId: string, configuration: Omit<ResidentCeoProfileInput, "principalPersonId">) => {
       const previous = await input.profiles.read(principalPersonId);
       if (previous !== null) assertResidentCeoPrincipal(previous, principalPersonId);
-      const created = createResidentCeoProfile(
-        { ...configuration, principalPersonId },
-        input.now(),
-      );
+      if (previous?.lastWake?.status === "running")
+        throw Object.assign(new Error("Resident CEO has a turn in progress."), { code: "resident_ceo_busy" });
+      const created = createResidentCeoProfile({ ...configuration, principalPersonId }, input.now());
       const next = previous
         ? {
             ...created,
             persistentSessionId:
-              previous.runtimeInstanceId === created.runtimeInstanceId && previous.model === created.model
+              previous.repoId === created.repoId &&
+              previous.runtimeInstanceId === created.runtimeInstanceId &&
+              previous.model === created.model
                 ? previous.persistentSessionId
                 : null,
             status: previous.status,
             lastWake: previous.lastWake,
           }
         : created;
-      await input.profiles.write(next, previous?.updatedAt ?? null);
+      if (previous) return update(previous, next);
+      await input.profiles.write(next, null);
       return next;
     },
     start: async (principalPersonId: string) => {
@@ -85,17 +87,13 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       return update(profile, { ...profile, status: "stopped", updatedAt: input.now() });
     },
     status: requiredProfile,
-    wake: async (
-      principalPersonId: string,
-      cause: ResidentCeoWakeCause,
-      message: string,
-      peerRequestId?: string,
-    ) => {
+    wake: async (principalPersonId: string, cause: ResidentCeoWakeCause, message: string, peerRequestId?: string) => {
       let profile = await requiredProfile(principalPersonId);
       if (profile.status !== "running") throw new Error("Resident CEO is stopped.");
       if (cause === "heartbeat" && !residentCeoWakeDue(profile, Date.parse(input.now())))
         return { profile, response: null } as const;
-      if (profile.lastWake?.status === "running") return { profile, response: null } as const;
+      if (profile.lastWake?.status === "running")
+        throw Object.assign(new Error("Resident CEO has a turn in progress."), { code: "resident_ceo_busy" });
 
       const wakeId = input.createId();
       const requestedAt = input.now();
@@ -125,6 +123,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         });
       } catch (error) {
         const completedAt = input.now();
+        profile = await requiredProfile(principalPersonId);
         const failed = residentCeoWakeReceipt({
           profile,
           wakeId,
@@ -140,6 +139,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           residentCeoProfile: saved,
         });
       }
+      profile = await requiredProfile(principalPersonId);
       profile = await update(
         profile,
         residentCeoWakeReceipt({
@@ -150,7 +150,6 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           completedAt: null,
           status: "running",
           runtimeSessionId: run.runtimeSessionId,
-          persistentSessionId: profile.persistentSessionId,
         }),
       );
       let completedResponse: Awaited<Awaited<ReturnType<ResidentCeoRuntime["run"]>>["response"]>;
@@ -158,6 +157,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         completedResponse = await run.response;
       } catch (error) {
         const completedAt = input.now();
+        profile = await requiredProfile(principalPersonId);
         const failed = residentCeoWakeReceipt({
           profile,
           wakeId,
@@ -166,7 +166,6 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           completedAt,
           status: "failed",
           runtimeSessionId: run.runtimeSessionId,
-          persistentSessionId: profile.persistentSessionId,
           detail: error instanceof Error ? error.message : String(error),
         });
         const saved = await update(profile, failed);
@@ -175,17 +174,22 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         });
       }
       const completedAt = input.now();
+      const current = await requiredProfile(principalPersonId);
       const completed = residentCeoWakeReceipt({
-        profile,
+        profile: current,
         wakeId,
         cause,
         requestedAt,
         completedAt,
         status: "succeeded",
         runtimeSessionId: run.runtimeSessionId,
-        persistentSessionId: completedResponse.persistentSessionId,
+        ...(current.repoId === profile.repoId &&
+        current.runtimeInstanceId === profile.runtimeInstanceId &&
+        current.model === profile.model
+          ? { persistentSessionId: completedResponse.persistentSessionId }
+          : {}),
       });
-      const saved = await update(profile, completed);
+      const saved = await update(current, completed);
       return { profile: saved, response: completedResponse.response } as const;
     },
   };

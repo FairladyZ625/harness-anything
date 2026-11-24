@@ -18,6 +18,7 @@ export interface ResidentCeoWakeReceipt {
 export interface ResidentCeoProfile {
   readonly schema: typeof RESIDENT_CEO_PROFILE_SCHEMA;
   readonly principalPersonId: string;
+  readonly repoId?: string;
   readonly runtimeInstanceId: string;
   readonly model: string;
   readonly heartbeatIntervalSec: number;
@@ -29,7 +30,7 @@ export interface ResidentCeoProfile {
 
 export type ResidentCeoProfileInput = Pick<
   ResidentCeoProfile,
-  "principalPersonId" | "runtimeInstanceId" | "model" | "heartbeatIntervalSec"
+  "principalPersonId" | "repoId" | "runtimeInstanceId" | "model" | "heartbeatIntervalSec"
 >;
 
 export class ResidentCeoProfileError extends Error {
@@ -42,10 +43,7 @@ export class ResidentCeoProfileError extends Error {
   }
 }
 
-export function createResidentCeoProfile(
-  input: ResidentCeoProfileInput,
-  updatedAt: string,
-): ResidentCeoProfile {
+export function createResidentCeoProfile(input: ResidentCeoProfileInput, updatedAt: string): ResidentCeoProfile {
   const fields = [input.principalPersonId, input.runtimeInstanceId, input.model, updatedAt];
   if (
     fields.some((field) => field.trim().length === 0) ||
@@ -61,6 +59,7 @@ export function createResidentCeoProfile(
   return {
     schema: RESIDENT_CEO_PROFILE_SCHEMA,
     principalPersonId: input.principalPersonId,
+    ...(input.repoId === undefined ? {} : { repoId: input.repoId }),
     runtimeInstanceId: input.runtimeInstanceId,
     model: input.model,
     heartbeatIntervalSec: input.heartbeatIntervalSec,

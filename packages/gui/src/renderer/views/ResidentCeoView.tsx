@@ -24,7 +24,9 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
   const [heartbeatIntervalSec, setHeartbeatIntervalSec] = useState("300");
   const [message, setMessage] = useState("");
   const [reply, setReply] = useState("");
-  const selectedInstance = instances.find((instance) => instance.instanceId === (instanceId || profile?.runtimeInstanceId));
+  const selectedInstance = instances.find(
+    (instance) => instance.instanceId === (instanceId || profile?.runtimeInstanceId),
+  );
   const models = selectedInstance?.models ?? [];
   const selectedModel = useMemo(
     () =>
@@ -33,7 +35,14 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
       selectedInstance?.defaultModel ||
       models[0] ||
       "",
-    [model, profile?.model, profile?.runtimeInstanceId, selectedInstance?.defaultModel, selectedInstance?.instanceId, models],
+    [
+      model,
+      profile?.model,
+      profile?.runtimeInstanceId,
+      selectedInstance?.defaultModel,
+      selectedInstance?.instanceId,
+      models,
+    ],
   );
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["resident-ceo", repoId] });
   const configure = useMutation({
@@ -66,16 +75,23 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="ui-heading">{t("residentCeo.configuration")}</h2>
           <span data-testid="resident-ceo-status">
-            {profile ? t(profile.status === "running" ? "residentCeo.running" : "residentCeo.stopped") : t("residentCeo.notConfigured")}
+            {profile
+              ? t(profile.status === "running" ? "residentCeo.running" : "residentCeo.stopped")
+              : t("residentCeo.notConfigured")}
           </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="flex flex-col gap-2 ui-body">
             {t("residentCeo.providerInstance")}
-            <select value={instanceId || profile?.runtimeInstanceId || ""} onChange={(event) => setInstanceId(event.target.value)}>
+            <select
+              value={instanceId || profile?.runtimeInstanceId || ""}
+              onChange={(event) => setInstanceId(event.target.value)}
+            >
               <option value="">{t("residentCeo.chooseInstance")}</option>
               {instances.map((instance) => (
-                <option key={instance.instanceId} value={instance.instanceId}>{instance.name}</option>
+                <option key={instance.instanceId} value={instance.instanceId}>
+                  {instance.name}
+                </option>
               ))}
             </select>
           </label>
@@ -83,7 +99,11 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
             {t("residentCeo.model")}
             <select value={selectedModel} onChange={(event) => setModel(event.target.value)}>
               <option value="">{t("residentCeo.chooseModel")}</option>
-              {models.map((name) => <option key={name} value={name}>{name}</option>)}
+              {models.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
             </select>
           </label>
           <label className="flex flex-col gap-2 ui-body">
@@ -100,21 +120,36 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             onClick={() => configure.mutate()}
-            disabled={!selectedInstance || !selectedModel || !Number.isSafeInteger(Number(heartbeatIntervalSec)) || Number(heartbeatIntervalSec) < 30}
-          >{t("residentCeo.saveConfiguration")}</Button>
+            disabled={
+              !selectedInstance ||
+              !selectedModel ||
+              !Number.isSafeInteger(Number(heartbeatIntervalSec)) ||
+              Number(heartbeatIntervalSec) < 30
+            }
+          >
+            {t("residentCeo.saveConfiguration")}
+          </Button>
           {profile?.status === "running" ? (
             <Button onClick={() => stop.mutate()}>{t("residentCeo.stop")}</Button>
           ) : (
-            <Button onClick={() => start.mutate()} disabled={!profile}>{t("residentCeo.start")}</Button>
+            <Button onClick={() => start.mutate()} disabled={!profile}>
+              {t("residentCeo.start")}
+            </Button>
           )}
         </div>
         <p className="mt-4 ui-micro text-text-muted" data-testid="resident-ceo-last-wake">
-          {t("residentCeo.lastWake")}: {profile?.lastWake ? `${profile.lastWake.cause} · ${profile.lastWake.status} · ${profile.lastWake.requestedAt}` : t("residentCeo.none")}
+          {t("residentCeo.lastWake")}:{" "}
+          {profile?.lastWake
+            ? `${profile.lastWake.cause} · ${profile.lastWake.status} · ${profile.lastWake.requestedAt}`
+            : t("residentCeo.none")}
         </p>
       </div>
       <form
         className="rounded-xl border border-border-subtle bg-surface p-5"
-        onSubmit={(event) => { event.preventDefault(); chat.mutate(); }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          chat.mutate();
+        }}
       >
         <h2 className="mb-3 ui-heading">{t("residentCeo.conversation")}</h2>
         <div className="flex gap-2">
@@ -125,9 +160,15 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
             placeholder={t("residentCeo.messagePlaceholder")}
             aria-label={t("residentCeo.sendMessage")}
           />
-          <Button type="submit" disabled={profile?.status !== "running" || message.trim().length === 0}>{t("residentCeo.send")}</Button>
+          <Button type="submit" disabled={profile?.status !== "running" || message.trim().length === 0}>
+            {t("residentCeo.send")}
+          </Button>
         </div>
-        {reply ? <p className="mt-4 whitespace-pre-wrap" data-testid="resident-ceo-reply">{reply}</p> : null}
+        {reply ? (
+          <p className="mt-4 whitespace-pre-wrap" data-testid="resident-ceo-reply">
+            {reply}
+          </p>
+        ) : null}
       </form>
     </section>
   );

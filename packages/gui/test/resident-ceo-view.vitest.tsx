@@ -57,20 +57,42 @@ describe("resident CEO view", () => {
   it("shows saved status, lets the owner continue the configured conversation, and displays its reply", async () => {
     api.getResidentCeo.mockResolvedValue({ ok: true, profile });
     api.listInstances.mockResolvedValue({
-      instances: [{ instanceId: "instance-one", name: "Local provider", enabled: true, models: ["model-one"], defaultModel: "model-one" }],
+      instances: [
+        {
+          instanceId: "instance-one",
+          name: "Local provider",
+          enabled: true,
+          models: ["model-one"],
+          defaultModel: "model-one",
+        },
+      ],
     });
     api.chatResidentCeo.mockResolvedValue({ ok: true, profile, response: "The current plan is ready." });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
     queryClient.setQueryData(["resident-ceo", "repo-one"], { ok: true, profile });
     queryClient.setQueryData(["runtime-instances", "machine", "repo-one"], {
-      instances: [{ instanceId: "instance-one", name: "Local provider", enabled: true, models: ["model-one"], defaultModel: "model-one" }],
+      instances: [
+        {
+          instanceId: "instance-one",
+          name: "Local provider",
+          enabled: true,
+          models: ["model-one"],
+          defaultModel: "model-one",
+        },
+      ],
     });
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);
     mounted.push(root);
     await act(async () => {
-      root.render(createElement(QueryClientProvider, { client: queryClient }, createElement(ResidentCeoView, { repoId: "repo-one" })));
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(ResidentCeoView, { repoId: "repo-one" }),
+        ),
+      );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.querySelector('[data-testid="resident-ceo-status"]')?.textContent).toBe("Running");
@@ -89,6 +111,8 @@ describe("resident CEO view", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(api.chatResidentCeo).toHaveBeenCalledWith({ repoId: "repo-one", message: "Review the plan" });
-    expect(container.querySelector('[data-testid="resident-ceo-reply"]')?.textContent).toBe("The current plan is ready.");
+    expect(container.querySelector('[data-testid="resident-ceo-reply"]')?.textContent).toBe(
+      "The current plan is ready.",
+    );
   });
 });

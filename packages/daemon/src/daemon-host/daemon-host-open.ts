@@ -1251,6 +1251,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
+  const { restoreResidentCeos, ...runtimeApi } = createDaemonHostRuntimeApi(hostContext);
   void ensureRbacResumed().catch(consumeKnownError);
   identityReadiness.start();
   const edgeJoinProgress = createEdgeJoinProgressTap();
@@ -1357,7 +1358,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     parkedWaitSignal: closeController.signal,
     ...createDaemonHostRepositoryApi(hostContext),
-    ...createDaemonHostRuntimeApi(hostContext),
+    ...runtimeApi,
     ...createDaemonHostControlApi(hostContext),
     ...lifecycle,
     manageRbac: (request, auth) => {
@@ -1971,10 +1972,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     return waitForWarmingImpl(extracted, repoId);
   }
   function startInitialAttachments(): Promise<void> {
-    return startInitialAttachmentsImpl(extracted).then(() => {
+    return startInitialAttachmentsImpl(extracted).then(async () => {
       initialAttachmentsSettled = true;
       if (closing) return;
       startReplicaSyncs();
+      await restoreResidentCeos().catch(consumeKnownError);
       return scheduleScheduler.start();
     });
   }

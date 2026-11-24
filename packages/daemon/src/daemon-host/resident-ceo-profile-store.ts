@@ -81,7 +81,8 @@ export function openResidentCeoProfileStore(userRoot: string): ResidentCeoProfil
         }
       } finally {
         release();
-        if (pendingWrites.get(profile.principalPersonId) === queuedWrite) pendingWrites.delete(profile.principalPersonId);
+        if (pendingWrites.get(profile.principalPersonId) === queuedWrite)
+          pendingWrites.delete(profile.principalPersonId);
       }
     },
   };
