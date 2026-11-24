@@ -739,7 +739,7 @@ export function prepareAgentEntityInstall(input: {
     const local = input.localAgent?.(agentId),
       storedEntity = store.get("agent", agentId),
       matchingTransfer =
-        local !== null && storedEntity !== null && localAgentMatchesShared(local.declaration, storedEntity.value);
+        local != null && storedEntity !== null && localAgentMatchesShared(local.declaration, storedEntity.value);
     if (local && storedEntity && !matchingTransfer)
       throw entityError("agent_scope_conflict", `Agent ${agentId} exists in both local and shared scope.`);
     const current =
@@ -822,7 +822,7 @@ export function prepareAgentEntityInstall(input: {
     local = kind === "agent" ? input.localAgent?.(declaration.id) : null,
     storedEntity = kind === "agent" ? store.get("agent", declaration.id) : null,
     matchingTransfer =
-      local !== null && storedEntity !== null && localAgentMatchesShared(local.declaration, storedEntity.value);
+      local != null && storedEntity !== null && localAgentMatchesShared(local.declaration, storedEntity.value);
   if (local && storedEntity && !matchingTransfer)
     throw entityError("agent_scope_conflict", `Agent ${declaration.id} exists in both local and shared scope.`);
   const current =
