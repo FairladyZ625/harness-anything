@@ -97,6 +97,7 @@ import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-r
 import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-dispatch-owner-evidence.ts";
 import { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 import { admitTaskDispatch } from "./task-dispatch-recovery.ts";
@@ -642,6 +643,10 @@ export function openFleetEdgeRuntime(input: {
         let runtimeContext = await readTaskContext(taskId, purpose);
         let current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
+        const taskForOutputShape = current.task;
+        const outputShape = await readRuntimeProjection(request, (projection) =>
+          taskOutputShape(taskForOutputShape, presetSnapshotReader(projection)),
+        );
         let executionId = review
           ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
           : current.lease?.phase === "held"
@@ -843,6 +848,7 @@ export function openFleetEdgeRuntime(input: {
               profileId,
               riskTierFlowVersion,
               review !== undefined ? null : reviewerNote,
+              outputShape,
             ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];

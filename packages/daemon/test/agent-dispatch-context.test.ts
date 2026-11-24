@@ -777,8 +777,9 @@ test("artifact task cwd stays in its package while permissions follow request, a
     assert.doesNotMatch(prepared!.prompt, /native Bash sandbox/u);
     assert.doesNotMatch(prepared!.prompt, /Approved CLI entries: `ha`\./u);
     assert.doesNotMatch(prepared!.prompt, /gh pr create/u);
-    assert.match(prepared!.prompt, /ha task push <task-id>/u);
-    assert.match(prepared!.prompt, /daemon 在推送后创建或更新 PR/u);
+    assert.doesNotMatch(prepared!.prompt, /ha task push <task-id>/u);
+    assert.doesNotMatch(prepared!.prompt, /daemon 在推送后创建或更新 PR/u);
+    assert.match(prepared!.prompt, /ha task submit/u);
     const unboundReceipt = await cell.spawnRuntime(
       {
         runtimeInstanceId: definition.instanceId,

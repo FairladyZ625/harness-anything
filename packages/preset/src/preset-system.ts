@@ -282,7 +282,12 @@ export function resolveRepoBootstrapDefaults(input: {
   readonly verticalId: string;
   readonly presetId?: string;
   readonly preferredPresetId?: string;
-}): { readonly verticalId: string; readonly presetId: string; readonly profileId: string } {
+}): {
+  readonly verticalId: string;
+  readonly presetId: string;
+  readonly profileId: string;
+  readonly outputShape: string;
+} {
   const selected = resolveDefaultPresetSelection({
     repoRoot: input.rootDir,
     userRoot: presetUserRoot(input.rootDir),

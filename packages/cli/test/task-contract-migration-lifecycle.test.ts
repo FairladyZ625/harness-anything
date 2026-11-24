@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { mkdirSync } from "node:fs";
 import test from "node:test";
 import {
   assert,
@@ -73,6 +74,7 @@ test("submitted contract migration continues through the CLI without losing hist
   const started = cli("task", "start", taskId, "--execution-id", "execution-new-contract");
   assert.equal(started.outcome, "applied", JSON.stringify(started));
   assert.equal(show().task.status, "active");
+  mkdirSync(path.join(fixture.root, packagePath, "artifacts"), { recursive: true });
   writeFileSync(
     path.join(fixture.root, packagePath, "artifacts", "iteration-two.md"),
     "# Contract migration deliverable\n\nThe new contract has a deliverable.\n",
