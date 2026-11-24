@@ -12,6 +12,7 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
   const profileQuery = useQuery({
     queryKey: ["resident-ceo", repoId],
     queryFn: () => harnessClient.getResidentCeo({ repoId }),
+    refetchInterval: (query) => (query.state.data?.profile?.status === "running" ? 5_000 : false),
   });
   const instanceQuery = useQuery({
     queryKey: ["runtime-instances", "machine", repoId],
@@ -21,7 +22,8 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
   const instances = instanceQuery.data?.instances.filter((instance) => instance.enabled) ?? [];
   const [instanceId, setInstanceId] = useState("");
   const [model, setModel] = useState("");
-  const [heartbeatIntervalSec, setHeartbeatIntervalSec] = useState("300");
+  const [heartbeatDraft, setHeartbeatDraft] = useState<string>();
+  const heartbeatIntervalSec = heartbeatDraft ?? String(profile?.heartbeatIntervalSec ?? 300);
   const [message, setMessage] = useState("");
   const [reply, setReply] = useState("");
   const selectedInstance = instances.find(
@@ -85,12 +87,15 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
             {t("residentCeo.providerInstance")}
             <select
               value={instanceId || profile?.runtimeInstanceId || ""}
-              onChange={(event) => setInstanceId(event.target.value)}
+              onChange={(event) => {
+                setInstanceId(event.target.value);
+                setModel("");
+              }}
             >
               <option value="">{t("residentCeo.chooseInstance")}</option>
               {instances.map((instance) => (
                 <option key={instance.instanceId} value={instance.instanceId}>
-                  {instance.name}
+                  {instance.providerId} · {instance.name}
                 </option>
               ))}
             </select>
@@ -113,7 +118,7 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
               min={30}
               max={86400}
               value={heartbeatIntervalSec}
-              onChange={(event) => setHeartbeatIntervalSec(event.target.value)}
+              onChange={(event) => setHeartbeatDraft(event.target.value)}
             />
           </label>
         </div>
