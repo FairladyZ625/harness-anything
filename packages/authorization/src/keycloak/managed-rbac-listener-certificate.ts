@@ -42,6 +42,11 @@ export class ListenerKeyExposedError extends Error {
   readonly code = "rbac_listener_key_exposed";
 }
 
+export function assertOwnerOnlyPrivateKeyMode(mode: number, platform: NodeJS.Platform): void {
+  if (platform !== "win32" && (mode & 0o077) !== 0)
+    throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
+}
+
 function selfSignedCertificatePaths(root: string): {
   readonly certificateFile: string;
   readonly certificateKeyFile: string;
@@ -152,7 +157,7 @@ export function isManagedListenerPair(
 
 function readRegularFileWithStats(
   filePath: string,
-  options: { readonly requireOwnerOnlyMode?: boolean } = {},
+  options: { readonly requireOwnerOnlyMode?: boolean; readonly platform?: NodeJS.Platform } = {},
 ): { readonly bytes: Buffer; readonly mode: number } {
   const file = readRegularFileIfPresent(filePath);
   if (!file) {
@@ -164,8 +169,7 @@ function readRegularFileWithStats(
       "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
     );
   }
-  if (options.requireOwnerOnlyMode && (file.mode & 0o077) !== 0)
-    throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
+  if (options.requireOwnerOnlyMode) assertOwnerOnlyPrivateKeyMode(file.mode, options.platform ?? process.platform);
   return file;
 }
 

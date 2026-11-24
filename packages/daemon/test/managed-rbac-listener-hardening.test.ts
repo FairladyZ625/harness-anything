@@ -28,7 +28,10 @@ import {
   readRegularListenerCertificateIfPresent,
 } from "@harness-anything/authorization/keycloak";
 import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
-import type { ListenerWriteStage } from "../../authorization/src/keycloak/managed-rbac-listener-certificate.ts";
+import {
+  assertOwnerOnlyPrivateKeyMode,
+  type ListenerWriteStage,
+} from "../../authorization/src/keycloak/managed-rbac-listener-certificate.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
 import { validateCertificateNames } from "../src/daemon-host/tls-listener-admission.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
@@ -178,6 +181,12 @@ function createHardeningFixture(options: HardeningFixtureOptions = {}) {
     },
   };
 }
+
+test("private-key mode validation follows platform semantics", () => {
+  for (const mode of [0o100644, 0o100666])
+    assert.throws(() => assertOwnerOnlyPrivateKeyMode(mode, "linux"), { code: "rbac_listener_key_exposed" });
+  assert.doesNotThrow(() => assertOwnerOnlyPrivateKeyMode(0o100666, "win32"));
+});
 
 function createOpensslCaWorkspace(baseDir: string) {
   const indexFile = path.join(baseDir, "index.txt"),
