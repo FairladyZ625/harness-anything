@@ -1,9 +1,12 @@
+import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readDaemonRegistry, type DaemonRepoMode } from "@harness-anything/kernel/daemon-registry";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import {
   exportCenterRelocation,
   importCenterRelocation,
+  openSqliteEventStore,
   publishPendingSqliteGitOutbox,
   promoteFromEdge,
   retireCenter,
@@ -24,7 +27,103 @@ import {
 } from "@harness-anything/kernel/internal/domain/status-vocabulary.ts";
 import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "../fleet-center-config.ts";
 import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../../fleet-sync/fleet/replica-health.ts";
 import { switchFleetCenter, type FleetCenterSwitchoverHooks } from "./center-switchover-command.ts";
+
+export interface EdgeLocalStateSnapshot {
+  readonly ok: true;
+  readonly mode: DaemonRepoMode | null;
+  readonly repoId: string;
+  readonly nodeId: string | null;
+  readonly configuredCenter: { readonly host: string; readonly port: number } | null;
+  readonly localRevision: number | null;
+  readonly localSequence: number | null;
+  readonly writerEpoch: number | null;
+  readonly syncFailureCode: string | null;
+  readonly canPromote: boolean;
+}
+
+/**
+ * Purely local read-only summary of an edge repository's local mirror state.
+ * Never dials or forwards to the configured center, and never exposes machine credentials.
+ */
+export function readFleetEdgeLocalState(input: {
+  readonly userRoot: string;
+  readonly repoId: string;
+}): EdgeLocalStateSnapshot {
+  const userRoot = path.resolve(input.userRoot),
+    repoId = input.repoId,
+    repo = readDaemonRegistry({ userRoot }).repos.find((entry) => entry.repoId === repoId),
+    mode: DaemonRepoMode | null = repo?.mode ?? null,
+    canonicalRoot: string | null = repo?.canonicalRoot ?? null,
+    edge = readFleetEdgeConfig(userRoot, repoId, canonicalRoot ?? undefined);
+  if (!edge || edge.repoId !== repoId) {
+    return {
+      ok: true,
+      mode,
+      repoId,
+      nodeId: null,
+      configuredCenter: null,
+      localRevision: null,
+      localSequence: null,
+      writerEpoch: null,
+      syncFailureCode: "fleet_edge_config_missing",
+      canPromote: false,
+    };
+  }
+  const configuredCenter = { host: edge.host, port: edge.port },
+    writerEpoch = edge.writerEpoch ?? null;
+  if (!canonicalRoot) {
+    return {
+      ok: true,
+      mode,
+      repoId,
+      nodeId: edge.nodeId,
+      configuredCenter,
+      localRevision: null,
+      localSequence: null,
+      writerEpoch,
+      syncFailureCode: "repo_canonical_root_missing",
+      canPromote: false,
+    };
+  }
+  const viewRoot = path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(canonicalRoot, edge.viewRoot),
+    viewDir = path.join(viewRoot, "repos", repoId, "views", edge.nodeId),
+    health = readReplicaHealth(viewDir),
+    generation = readReplicaGeneration(viewDir);
+  let localRevision: number | null = null,
+    localSequence: number | null = null,
+    hasValidGeneration = false;
+  if (generation && generation.metadata.repoId === repoId && existsSync(generation.ledgerPath)) {
+    hasValidGeneration = true;
+    const ledger = openSqliteEventStore({
+      databasePath: generation.ledgerPath,
+      repoId,
+      generation: generation.metadata.ledgerGeneration,
+      readOnly: true,
+    });
+    try {
+      localRevision = ledger.revision();
+      localSequence = ledger.replicationPosition().sequence;
+    } finally {
+      ledger.close();
+    }
+  }
+  const syncFailureCode =
+    health.modelFailure?.code ?? health.syncFailure?.code ?? (hasValidGeneration ? null : "replica_unavailable");
+  return {
+    ok: true,
+    mode,
+    repoId,
+    nodeId: edge.nodeId,
+    configuredCenter,
+    localRevision,
+    localSequence,
+    writerEpoch,
+    syncFailureCode,
+    canPromote: mode === "remote-edge" && hasValidGeneration,
+  };
+}
 
 export interface FleetCenterRelocationOutcome {
   readonly receipt: Record<string, unknown>;

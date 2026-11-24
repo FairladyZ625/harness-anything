@@ -1062,6 +1062,26 @@ function AppShell() {
                     }
                     return res;
                   }}
+                  onCenterSwitch={async (input) => {
+                    const api = guiHostBridge()?.centerSettings?.centerSwitch;
+                    if (!api) return { ok: false, code: "bridge_unavailable" };
+                    return api(input);
+                  }}
+                  onPromoteFromEdge={async (input) => {
+                    const api = guiHostBridge()?.centerSettings?.promoteFromEdge;
+                    if (!api) return { ok: false, code: "bridge_unavailable" };
+                    return api(input);
+                  }}
+                  onReadEdgeLocalState={async (targetRepoId) => {
+                    const api = guiHostBridge()?.centerSettings?.edgeLocalState;
+                    if (!api) return { ok: false, code: "bridge_unavailable" };
+                    return api({ repoId: targetRepoId });
+                  }}
+                  onCenterChanged={() => {
+                    void queryClient.invalidateQueries({ queryKey: ["fleet-overview", projectId] });
+                    void queryClient.invalidateQueries({ queryKey: ["center", "fleet-status"] });
+                    void queryClient.invalidateQueries({ queryKey: ["system"] });
+                  }}
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace

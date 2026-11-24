@@ -2,6 +2,14 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { t } from "../i18n/index.tsx";
 import type { FleetOverviewEvent, FleetOverviewNode, FleetOverviewRead } from "../../api/renderer-dto.ts";
 import type { FleetNodeUnregisterInput } from "../../api/fleet-admin-contract.ts";
+import type {
+  CenterSettingsReply,
+  CenterSwitchInput,
+  CenterSwitchReply,
+  EdgeLocalState,
+  PromoteFromEdgeInput,
+  PromoteFromEdgeReply,
+} from "../../api/center-settings-contract.ts";
 import { formatListTime } from "../model/time.ts";
 import { RepoModeBadge, displayedRepoMode, type RepoMode } from "../components/RepoModeBadge.tsx";
 import { Empty } from "../components/primitives/Empty.tsx";
@@ -11,6 +19,7 @@ import { Drawer } from "../components/primitives/Drawer.tsx";
 import { READ_ERROR_LABELS, warningLabel } from "./collaboration/fleet-labels.ts";
 import { FleetTopology } from "./collaboration/FleetTopology.tsx";
 import { NodeDetails, nodeLabelOf } from "./collaboration/NodeDetails.tsx";
+import { offlineDisconnectCodeOf, OfflineBreakGlassPanel } from "./collaboration/OfflineBreakGlassPanel.tsx";
 
 /**
  * 协作页:舰队拓扑(task_8ce646d94 数据层 + task_16c20131 视觉重做)。数据全部来自
@@ -39,6 +48,10 @@ export function CollaborationView({
   onOpenNodeBoard,
   onOpenNodeSessions,
   onUnregisterNode,
+  onCenterSwitch,
+  onPromoteFromEdge,
+  onReadEdgeLocalState,
+  onCenterChanged,
 }: {
   readonly repoId: string;
   readonly mode: RepoMode;
@@ -54,6 +67,10 @@ export function CollaborationView({
   readonly onOpenNodeBoard?: (nodeId: string) => void;
   readonly onOpenNodeSessions?: (nodeId: string) => void;
   readonly onUnregisterNode?: (input: FleetNodeUnregisterInput) => Promise<Record<string, unknown>>;
+  readonly onCenterSwitch?: (input: CenterSwitchInput) => Promise<CenterSwitchReply>;
+  readonly onPromoteFromEdge?: (input: PromoteFromEdgeInput) => Promise<PromoteFromEdgeReply>;
+  readonly onReadEdgeLocalState?: (repoId: string) => Promise<CenterSettingsReply<EdgeLocalState>>;
+  readonly onCenterChanged?: () => void;
 }) {
   const shownOverview = overview,
     nodes = shownOverview?.nodes ?? [];
@@ -141,6 +158,15 @@ export function CollaborationView({
                 READ_ERROR_LABELS[overviewError] === undefined ? overviewError : t(READ_ERROR_LABELS[overviewError]),
             })}
           </p>
+        ) : null}
+        {mode === "remote-edge" && offlineDisconnectCodeOf(overviewError) !== null && onReadEdgeLocalState ? (
+          <OfflineBreakGlassPanel
+            repoId={repoId}
+            overviewError={overviewError}
+            onReadEdgeLocalState={onReadEdgeLocalState}
+            onPromoteFromEdge={onPromoteFromEdge}
+            onPromoted={onCenterChanged}
+          />
         ) : null}
         {overviewLoading && shownOverview === null ? (
           <Empty>{t("collaboration.loading")}</Empty>
@@ -232,6 +258,7 @@ export function CollaborationView({
           <NodeDetails
             key={selected.nodeId}
             repoId={repoId}
+            repoMode={mode}
             actorPersonId={actorPersonId}
             node={selected}
             overview={shownOverview!}
@@ -244,6 +271,8 @@ export function CollaborationView({
             onOpenNodeBoard={onOpenNodeBoard}
             onOpenNodeSessions={onOpenNodeSessions}
             onUnregisterNode={onUnregisterNode}
+            onCenterSwitch={onCenterSwitch}
+            onSwitchCompleted={onCenterChanged}
           />
         )}
       </Drawer>

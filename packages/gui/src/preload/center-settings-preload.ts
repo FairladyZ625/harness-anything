@@ -30,6 +30,18 @@ export function centerSettingsPreloadApi(
       >,
     selectFile: (kind: "certificate" | "private-key") =>
       invoke(CENTER_SETTINGS_CHANNEL, { operation: "select-file", kind }) as Promise<string | null>,
+    centerSwitch: (input) =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "center-switch", ...input }) as ReturnType<
+        NonNullable<CenterSettingsApi["centerSwitch"]>
+      >,
+    promoteFromEdge: (input) =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "promote-from-edge", ...input }) as ReturnType<
+        NonNullable<CenterSettingsApi["promoteFromEdge"]>
+      >,
+    edgeLocalState: (input) =>
+      invoke(CENTER_SETTINGS_CHANNEL, { operation: "edge-local-state", ...input }) as ReturnType<
+        NonNullable<CenterSettingsApi["edgeLocalState"]>
+      >,
   };
 }
 

@@ -13,7 +13,12 @@ import {
   verifyWindowsDesktopSession,
   type WindowReadinessTracker,
 } from "./gui-launch-channel.ts";
-import { guiArtifactCacheRoot, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
+import {
+  guiArtifactCacheRoot,
+  guiDaemonReadOnly,
+  guiDaemonUserRoot,
+  guiGlobalDaemonTarget,
+} from "./gui-daemon-target.ts";
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { registerProjectWindowIpc } from "./project-window-ipc.ts";
 import {
@@ -35,6 +40,7 @@ import { createLoginWebviewSecurity } from "./login-webview-security.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
 import { registerCenterSettingsIpc } from "./center-settings-ipc.ts";
+import { createCenterSwitchPort } from "./center-switch-port.ts";
 import { EDGE_JOIN_LINK_CHANNEL } from "@harness-anything/authorization/gui/edge-join-entry-contract";
 import { edgeJoinLinkFromArgv, registerEdgeJoinEntryIpc } from "./edge-join-entry-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
@@ -498,9 +504,16 @@ export async function startGuiApp(): Promise<void> {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     operationId: randomUUID,
   });
+  const centerSwitchPort = createCenterSwitchPort({
+    userRoot: () => guiDaemonUserRoot(),
+    readOnly: () => guiDaemonReadOnly(),
+  });
   registerCenterSettingsIpc(registrar, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     fleetRequest: (method, params) => requestDaemonAdminRpc(method, params),
+    centerSwitch: centerSwitchPort.centerSwitch,
+    promoteFromEdge: centerSwitchPort.promoteFromEdge,
+    edgeLocalState: centerSwitchPort.edgeLocalState,
     dialog: {
       selectFile: async (kind) => {
         const selected = await dialog.showOpenDialog({

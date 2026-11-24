@@ -2,10 +2,13 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { FleetFieldState, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
 import type { FleetNodeUnregisterInput } from "../../../api/fleet-admin-contract.ts";
+import type { CenterSwitchInput, CenterSwitchReply } from "../../../api/center-settings-contract.ts";
+import type { RepoMode } from "../../components/RepoModeBadge.tsx";
 import { formatNodeDisplay, personShortName } from "../../model/attribution.ts";
 import { formatListTime } from "../../model/time.ts";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";
+import { CenterSwitchPanel } from "./CenterSwitchPanel.tsx";
 import {
   fieldText,
   machineOf,
@@ -64,6 +67,7 @@ function failureFromError(error: unknown): { code?: string; message: string } {
 
 export function NodeDetails({
   repoId = "",
+  repoMode = "remote-center",
   actorPersonId = null,
   node,
   overview,
@@ -76,8 +80,11 @@ export function NodeDetails({
   onOpenNodeBoard,
   onOpenNodeSessions,
   onUnregisterNode,
+  onCenterSwitch,
+  onSwitchCompleted,
 }: {
   readonly repoId?: string;
+  readonly repoMode?: RepoMode;
   readonly actorPersonId?: string | null;
   readonly node: FleetOverviewNode;
   readonly overview: FleetOverviewRead;
@@ -90,10 +97,15 @@ export function NodeDetails({
   readonly onOpenNodeBoard?: (nodeId: string) => void;
   readonly onOpenNodeSessions?: (nodeId: string) => void;
   readonly onUnregisterNode?: (input: FleetNodeUnregisterInput) => Promise<Record<string, unknown>>;
+  readonly onCenterSwitch?: (input: CenterSwitchInput) => Promise<CenterSwitchReply>;
+  readonly onSwitchCompleted?: () => void;
 }) {
   const assignments = node.leases;
   const label = nodeLabelOf(node, peopleById);
   const [unregisterState, setUnregisterState] = useState<UnregisterState>({ step: "idle" });
+  const [switchRequestNonce, setSwitchRequestNonce] = useState(0);
+  const [switchActive, setSwitchActive] = useState(false);
+  const canSetCenter = repoMode === "local" && canManageFleetNodes && node.role === "edge" && Boolean(onCenterSwitch);
   const contextKey = `${repoId}\0${actorPersonId ?? ""}\0${node.nodeId}`;
   const contextRef = useRef(contextKey);
   const opSeqRef = useRef(0);
@@ -102,12 +114,16 @@ export function NodeDetails({
   useEffect(() => {
     opSeqRef.current += 1;
     setUnregisterState({ step: "idle" });
+    setSwitchRequestNonce(0);
+    setSwitchActive(false);
   }, [contextKey]);
 
   useEffect(() => {
     if (!canManageFleetNodes) {
       opSeqRef.current += 1;
       setUnregisterState({ step: "idle" });
+      setSwitchRequestNonce(0);
+      setSwitchActive(false);
     }
   }, [canManageFleetNodes]);
 
@@ -244,7 +260,10 @@ export function NodeDetails({
           {t("collaboration.close")}
         </button>
       </header>
-      {(onOpenNodeBoard || onOpenNodeSessions || (canManageFleetNodes && node.role === "edge" && onUnregisterNode)) && (
+      {(onOpenNodeBoard ||
+        onOpenNodeSessions ||
+        canSetCenter ||
+        (canManageFleetNodes && node.role === "edge" && onUnregisterNode)) && (
         <div className="flex flex-wrap items-center gap-2">
           {onOpenNodeBoard && (
             <button
@@ -266,6 +285,16 @@ export function NodeDetails({
               {t("collaboration.openInSessions")}
             </button>
           )}
+          {canSetCenter && !switchActive && (
+            <button
+              type="button"
+              data-testid="collaboration-node-set-center"
+              onClick={() => setSwitchRequestNonce((count) => count + 1)}
+              className="rounded border border-accent/50 bg-accent/10 px-2 py-1 ui-meta text-accent hover:bg-accent/20"
+            >
+              {t("collaboration.switch.setCenter")}
+            </button>
+          )}
           {canManageFleetNodes && node.role === "edge" && onUnregisterNode && unregisterState.step === "idle" && (
             <button
               type="button"
@@ -277,6 +306,19 @@ export function NodeDetails({
             </button>
           )}
         </div>
+      )}
+      {canSetCenter && onCenterSwitch && (
+        <CenterSwitchPanel
+          repoId={repoId}
+          actorPersonId={actorPersonId}
+          nodeId={node.nodeId}
+          label={label}
+          canSetCenter={canSetCenter}
+          requestNonce={switchRequestNonce}
+          onActiveChange={setSwitchActive}
+          onCenterSwitch={onCenterSwitch}
+          onSwitchCompleted={onSwitchCompleted}
+        />
       )}
       {unregisterState.step !== "idle" && (
         <div

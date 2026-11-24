@@ -2,8 +2,10 @@ export { listenFleetTls } from "./center-listener.ts";
 export {
   centerRelocationRoutingPath,
   readCenterRelocationRouting,
+  readFleetEdgeLocalState,
   relocateFleetCenter,
   type CenterRelocationRoutingV1,
+  type EdgeLocalStateSnapshot,
   type FleetCenterRelocationHooks,
   type FleetCenterRelocationOutcome,
 } from "./center-relocation-command.ts";
