@@ -126,7 +126,8 @@ function launchProcessText(
     readonly maxBuffer?: number;
   },
 ): Promise<ProcessTextOutcome> {
-  if (classifyRemoteGitInvocation(command, args, cwd)) writePortExternalObservation.noteRemoteChildProcess();
+  if (writePortExternalObservation.currentDepth() > 0 && classifyRemoteGitInvocation(command, args, cwd))
+    writePortExternalObservation.noteRemoteChildProcess();
   return new Promise((resolve) => {
     let interactionError: Error | null = null;
     const invocation =
