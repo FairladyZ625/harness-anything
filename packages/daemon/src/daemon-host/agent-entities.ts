@@ -782,6 +782,7 @@ export function prepareAgentEntityInstall(input: {
         : { ...patched.declaration, scope: input.action.scope as AgentDeclarationV1["scope"] };
     if (
       matchingTransfer &&
+      local &&
       declaration.scope === "shared" &&
       typeof input.action.expectedVersion === "number" &&
       input.action.expectedVersion !== local?.revision
@@ -835,6 +836,7 @@ export function prepareAgentEntityInstall(input: {
         : repairableStoredDeclaration(store, kind, declaration.id);
   if (
     matchingTransfer &&
+    local &&
     declaration.scope === "shared" &&
     typeof input.action.expectedVersion === "number" &&
     input.action.expectedVersion !== local?.revision
