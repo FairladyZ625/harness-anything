@@ -31,6 +31,12 @@ test("Windows owns one least-privilege scheduled task per local daemon target", 
   assert.match(content, /<LogonTrigger>/);
   assert.match(content, /<ExecutionTimeLimit>PT0S/);
   assert.match(content, /<MultipleInstancesPolicy>IgnoreNew/);
+  // Task Scheduler must launch powershell.exe through conhost.exe --headless so Windows never
+  // allocates a visible console window before PowerShell parses -WindowStyle Hidden.
+  assert.match(
+    content,
+    /<Exec><Command>conhost\.exe<\/Command><Arguments>--headless powershell\.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand [A-Za-z0-9+/=]+<\/Arguments><\/Exec>/u,
+  );
   // RestartOnFailure never fires for an action's non-zero process exit, so the launcher script owns
   // the supersession relaunch and the XML must not claim restart behavior it does not have.
   assert.ok(!content.includes("<RestartOnFailure>"));
@@ -69,6 +75,10 @@ test("Windows registers, starts, queries and removes only its named task", () =>
   assert.ok(decodedCommand(commands.start).includes(".Run($null)"));
   assert.ok(decodedCommand(commands.state).includes("$r.EnginePID"));
   assert.ok(decodedCommand(commands.state).includes("ParentProcessId"));
+  assert.ok(decodedCommand(commands.state).includes("powershell.exe"));
+  assert.ok(decodedCommand(commands.state).includes("node.exe"));
+  assert.ok(decodedCommand(commands.unload).includes("$r.EnginePID"));
+  assert.ok(decodedCommand(commands.unload).includes("Stop-Process"));
   assert.ok(decodedCommand(commands.unload).includes(".Stop(0)"));
   assert.ok(decodedCommand(commands.unload).includes("DeleteTask"));
 });
