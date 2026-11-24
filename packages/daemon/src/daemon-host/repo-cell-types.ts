@@ -704,6 +704,7 @@ export interface RepoCellApiContext {
   readonly mode: DaemonRepoMode;
   readonly input: {
     readonly repoId: string;
+    readonly userRoot?: string;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly fleetCursorSecret?: () => string | Buffer | Uint8Array | undefined;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;

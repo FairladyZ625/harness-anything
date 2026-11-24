@@ -767,7 +767,7 @@ export async function openRepoWriterCell(
       },
     }),
     scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
-    agentActionRuntime = makeAgentActionRuntime(runtimeContext),
+    agentActionRuntime = makeAgentActionRuntime(runtimeContext, input.userRoot),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
       if (contract.target.kind === "agent" && contract.id === "retire")

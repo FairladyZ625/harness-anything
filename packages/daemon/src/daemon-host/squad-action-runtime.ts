@@ -47,11 +47,11 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
   };
 }
 
-export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
+export function makeAgentActionRuntime(cell: RepoCellRuntimeContext, userRoot?: string): EntityActionCatalogRunner {
   return (contract, action, _binding, opId): WriteReceipt => {
     const revision = cell.projection.readCut().sourceRevision;
     if (contract.id === "list")
-      return cell.readResult(opId, listAgents(cell, action.scope), revision, null) as WriteReceipt;
+      return cell.readResult(opId, listAgents(cell, action.scope, userRoot), revision, null) as WriteReceipt;
     if (contract.id === "inspect")
       return cell.readResult(opId, inspectAgent(cell, squadRequiredText(action.agentId, "agentId")), revision, null);
     if (contract.id === "validate") {
@@ -66,7 +66,7 @@ export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActi
   };
 }
 
-function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all"): object {
+function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRoot?: string): object {
   const agents = cell.projection.listEntities("agent").map(({ value, id, freshness }) => {
     if (freshness === "orphaned")
       return {
@@ -99,9 +99,10 @@ function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all"): objec
       source: `agents/${id}.json`,
     };
   });
-  if (cell.input.userRoot !== undefined) {
+  const localRoot = userRoot ?? cell.input.userRoot;
+  if (localRoot !== undefined) {
     const sharedIds = new Set(agents.map((agent) => (agent as { readonly id: string }).id));
-    for (const declaration of readLocalAgentDeclarations(cell.input.userRoot, cell.input.repoId)) {
+    for (const declaration of readLocalAgentDeclarations(localRoot, cell.input.repoId)) {
       if (sharedIds.has(declaration.id)) {
         const shared = cell.projection.getEntity("agent", declaration.id);
         if (shared && localAgentMatchesShared(declaration, shared.value)) continue;

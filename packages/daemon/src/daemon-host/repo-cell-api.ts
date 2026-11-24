@@ -436,8 +436,8 @@ export function createRepoCellApi(
       readAgentEntityGuiProjection({
         kind: "agent-list",
         projection: context.projection,
-        ...(context.extracted.input.userRoot
-          ? { localAgents: readLocalAgentRecords(context.extracted.input.userRoot, context.input.repoId) }
+        ...(context.input.userRoot
+          ? { localAgents: readLocalAgentRecords(context.input.userRoot, context.input.repoId) }
           : {}),
       }),
     "repo.agent.entity.read": (payload: Readonly<Record<string, unknown>>) =>
@@ -445,8 +445,8 @@ export function createRepoCellApi(
         kind: "agent-inspect",
         entityId: context.requiredCellText(payload.agentId, "agentId"),
         projection: context.projection,
-        ...(context.extracted.input.userRoot
-          ? { localAgents: readLocalAgentRecords(context.extracted.input.userRoot, context.input.repoId) }
+        ...(context.input.userRoot
+          ? { localAgents: readLocalAgentRecords(context.input.userRoot, context.input.repoId) }
           : {}),
       }),
     // The version facets are the same two-hop read the CLI uses: event list → declaration claim →
