@@ -21,4 +21,7 @@ export const INFRASTRUCTURE_COMMANDS = new Set([
   // dec_F5B2CBF8B45042B6DA2824A7FA/CH4: the artifact is built from this workflow run's checkout;
   // refresh the marker after a later consumer checkout so tests do not mistake it for stale.
   'tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt',
+  // When the shared install is cancelled or fails, consumers fail fast with one diagnostic
+  // instead of downloading a missing node-modules artifact (ci-flake report §9 / ROI #2).
+  'echo "::error::Upstream install job ended with result=${{ needs.install.result }}; skipping artifact download" && exit 1',
 ]);
