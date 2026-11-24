@@ -4,12 +4,117 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { inflateSync } from "node:zlib";
 import {
   appIconPath,
   createPackagedRendererUrl,
   packagedRendererIndexPath,
   resolveGuiPackageRoot,
 } from "../src/index.ts";
+
+const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+interface PngIhdr {
+  width: number;
+  height: number;
+  bitDepth: number;
+  colorType: number;
+  compression: number;
+  filter: number;
+  interlace: number;
+}
+
+function paethPredictor(a: number, b: number, c: number): number {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc) return a;
+  if (pb <= pc) return b;
+  return c;
+}
+
+function parsePng(bytes: Buffer): { ihdr: PngIhdr; idatChunks: Buffer[] } {
+  assert.ok(bytes.length >= 33, "PNG file is too small to contain signature and IHDR");
+  assert.deepEqual(bytes.subarray(0, 8), pngSignature, "PNG signature mismatch");
+
+  let offset = 8;
+  let ihdr: PngIhdr | undefined;
+  const idatChunks: Buffer[] = [];
+  let sawIend = false;
+
+  while (offset + 12 <= bytes.length) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    assert.ok(dataEnd + 4 <= bytes.length, `PNG chunk ${type} exceeds file bounds`);
+    const data = bytes.subarray(dataStart, dataEnd);
+
+    if (type === "IHDR") {
+      assert.equal(length, 13, "IHDR chunk must be 13 bytes");
+      ihdr = {
+        width: data.readUInt32BE(0),
+        height: data.readUInt32BE(4),
+        bitDepth: data[8]!,
+        colorType: data[9]!,
+        compression: data[10]!,
+        filter: data[11]!,
+        interlace: data[12]!,
+      };
+    } else if (type === "IDAT") {
+      idatChunks.push(data);
+    } else if (type === "IEND") {
+      sawIend = true;
+      break;
+    }
+
+    offset = dataEnd + 4;
+  }
+
+  assert.ok(ihdr, "PNG is missing IHDR chunk");
+  assert.ok(idatChunks.length > 0, "PNG is missing IDAT chunk");
+  assert.ok(sawIend, "PNG is missing IEND chunk");
+  return { ihdr, idatChunks };
+}
+
+function decodeRgba8Pixels(width: number, height: number, idatChunks: Buffer[]): Uint8Array {
+  const bytesPerPixel = 4;
+  const stride = width * bytesPerPixel;
+  const inflated = inflateSync(Buffer.concat(idatChunks));
+  assert.equal(inflated.length, height * (stride + 1), "decompressed IDAT length does not match 8-bit RGBA scanlines");
+
+  const pixels = new Uint8Array(height * stride);
+  for (let y = 0; y < height; y += 1) {
+    const scanlineOffset = y * (stride + 1);
+    const filterType = inflated[scanlineOffset]!;
+    const rowOffset = y * stride;
+
+    for (let x = 0; x < stride; x += 1) {
+      const rawByte = inflated[scanlineOffset + 1 + x]!;
+      const left = x >= bytesPerPixel ? pixels[rowOffset + x - bytesPerPixel]! : 0;
+      const up = y > 0 ? pixels[rowOffset - stride + x]! : 0;
+      const upLeft = x >= bytesPerPixel && y > 0 ? pixels[rowOffset - stride + x - bytesPerPixel]! : 0;
+
+      let reconstructed: number;
+      if (filterType === 0) {
+        reconstructed = rawByte;
+      } else if (filterType === 1) {
+        reconstructed = (rawByte + left) & 0xff;
+      } else if (filterType === 2) {
+        reconstructed = (rawByte + up) & 0xff;
+      } else if (filterType === 3) {
+        reconstructed = (rawByte + ((left + up) >> 1)) & 0xff;
+      } else if (filterType === 4) {
+        reconstructed = (rawByte + paethPredictor(left, up, upLeft)) & 0xff;
+      } else {
+        assert.fail(`unsupported PNG filter type ${filterType} on scanline ${y}`);
+      }
+      pixels[rowOffset + x] = reconstructed;
+    }
+  }
+  return pixels;
+}
 
 // 外部锚:包根由本测试文件的已知位置算出(<pkg>/test/ 的上一级),不经被测实现,
 // 否则断言会退化成实现与自身的同一性检查。
@@ -55,4 +160,52 @@ test("npm manifest ships the icons directory with the package", () => {
     manifest.files?.includes("icons"),
     "packages/gui package.json files must include icons so the icon ships via npm pack",
   );
+});
+
+// macOS Dock 图标网格要求外圈保留透明安全留白;若退化为 0px 撑满画布的方块/圆角矩形,
+// Dock 图标会在视觉上明显偏大。纯 Node 解析 PNG IHDR + IDAT 保证跨平台 CI 原生可跑。
+test("app icon is a 1024x1024 RGBA PNG with Apple macOS squircle safe margin", () => {
+  const bytes = readFileSync(path.join(packageRoot, "icons/icon.png"));
+  const { ihdr, idatChunks } = parsePng(bytes);
+
+  assert.equal(ihdr.width, 1024, "app icon width must be 1024px");
+  assert.equal(ihdr.height, 1024, "app icon height must be 1024px");
+  assert.equal(ihdr.bitDepth, 8, "app icon bit depth must be 8-bit");
+  assert.equal(ihdr.colorType, 6, "app icon color type must be 6 (RGBA)");
+  assert.equal(ihdr.compression, 0, "app icon must use standard deflate compression");
+  assert.equal(ihdr.filter, 0, "app icon must use standard adaptive filtering");
+  assert.equal(ihdr.interlace, 0, "app icon must be non-interlaced");
+
+  const pixels = decodeRgba8Pixels(ihdr.width, ihdr.height, idatChunks);
+  const alphaAt = (x: number, y: number): number => pixels[(y * ihdr.width + x) * 4 + 3]!;
+
+  const transparentSamples: ReadonlyArray<readonly [number, number, string]> = [
+    [0, 0, "top-left corner"],
+    [1023, 0, "top-right corner"],
+    [0, 1023, "bottom-left corner"],
+    [1023, 1023, "bottom-right corner"],
+    [512, 40, "top safe margin"],
+    [40, 512, "left safe margin"],
+    [983, 512, "right safe margin"],
+  ];
+  for (const [x, y, label] of transparentSamples) {
+    assert.equal(alphaAt(x, y), 0, `${label} (${x},${y}) must be fully transparent`);
+  }
+
+  for (let y = 0; y < 90; y += 1) {
+    for (let x = 0; x < ihdr.width; x += 1) {
+      if (alphaAt(x, y) !== 0) {
+        assert.fail(`top safe band y < 90 must stay transparent; found non-zero alpha at (${x},${y})`);
+      }
+    }
+  }
+
+  let opaqueCenterPixels = 0;
+  for (let y = 256; y < 768; y += 8) {
+    for (let x = 256; x < 768; x += 8) {
+      if (alphaAt(x, y) > 0) opaqueCenterPixels += 1;
+    }
+  }
+  assert.ok(alphaAt(512, 512) > 0, "center pixel (512,512) must be non-transparent");
+  assert.ok(opaqueCenterPixels > 0, "center subject region must contain non-transparent pixels");
 });
