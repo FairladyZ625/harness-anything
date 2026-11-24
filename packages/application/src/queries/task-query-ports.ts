@@ -1,4 +1,4 @@
-import type { TaskProjection, TaskProjectionQueries } from "@harness-anything/kernel";
+import type { TaskProjectionQueries } from "@harness-anything/kernel";
 import type { DecisionActionStatus } from "@harness-anything/kernel/internal/domain/operational-status.ts";
 import type { ProjectionCut } from "./projection-cut.ts";
 
@@ -48,7 +48,7 @@ export interface TaskCoreQueryPorts {
   readonly gitDiff?: (rootDir: string, baselineRef: string, commitSha: string) => string;
   readonly readIncidentActionReceipt?: (rootDir: string, dispatchId: string) => TaskIncidentReceipt | null;
   readonly readReckoningAgenda?: (input: {
-    readonly projection: TaskProjection;
+    readonly projection: TaskProjectionQueries;
     readonly store?: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
   }) => {
     readonly items: readonly {

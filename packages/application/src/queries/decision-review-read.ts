@@ -5,6 +5,7 @@ import {
   type DecisionReviewRequirement,
   type DecisionProjectionRow,
   type TaskProjection,
+  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 export { decisionReviewAwaitRationale, decisionReviewState };
 import type { DecisionFullListRow, DecisionReviewDispatchSummaryRow } from "./query-ports.ts";
@@ -37,13 +38,13 @@ export function decisionFullListRows(input: {
 
 export function readDecisionReviewDispatches(input: {
   readonly rootDir: string;
-  readonly projection: TaskProjection;
+  readonly projection: TaskProjectionQueries;
   readonly decision: DecisionProjectionRow;
 }): readonly DecisionReviewDispatchSummaryRow[] {
   return decisionReviewDispatches(input.projection, [input.decision]).get(input.decision.decisionId) ?? [];
 }
 
-function decisionReviewDispatches(projection: TaskProjection, decisions: readonly DecisionProjectionRow[]) {
+function decisionReviewDispatches(projection: TaskProjectionQueries, decisions: readonly DecisionProjectionRow[]) {
   const summaries = new Map<string, DecisionReviewDispatchSummaryRow[]>();
   if (decisions.length === 0) return summaries;
   const byId = new Map(decisions.map((decision) => [decision.decisionId, decision])),

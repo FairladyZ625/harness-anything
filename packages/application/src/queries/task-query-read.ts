@@ -44,6 +44,7 @@ import {
   type RelationGraphEdgeRow,
   type TaskProjection,
   type TaskProjectionListQuery,
+  type TaskProjectionQueries,
   type TaskRelationProjectionRead,
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
@@ -144,7 +145,7 @@ export interface TaskQueryJudgments {
 export function makeTaskQueryReadModel(input: {
   readonly rootDir: string;
   readonly ports?: TaskCoreQueryPorts;
-  readonly projection: TaskProjection;
+  readonly projection: TaskProjectionQueries;
   readonly readPinnedEntities: TaskProjection["listPinnedEntities"];
   readonly store?: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
   readonly judgments: TaskQueryJudgments;
@@ -1359,7 +1360,7 @@ export function makeTaskQueryReadModel(input: {
   return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
 }
 
-function projectedRuntimeHeaders(rootDir: string, projection: TaskProjection): RuntimeDispatchHeader[] {
+function projectedRuntimeHeaders(rootDir: string, projection: TaskProjectionQueries): RuntimeDispatchHeader[] {
   const headers: RuntimeDispatchHeader[] = [];
   let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
   for (;;) {
@@ -1569,7 +1570,7 @@ function leaseReturnedRows(rows: readonly AgendaSourceRow[]): readonly AgendaSou
  * Per row this reads only that task's execution dispatch index, never the
  * repository-wide dispatch table.
  */
-function hasLiveWorker(projection: TaskProjection, row: AgendaSourceRow): boolean {
+function hasLiveWorker(projection: TaskProjectionQueries, row: AgendaSourceRow): boolean {
   return dispatchLifecycleHasPendingWork(
     row.snapshot.executions
       .filter(({ state }) => state === "active")
@@ -1585,7 +1586,7 @@ function hasLiveWorker(projection: TaskProjection, row: AgendaSourceRow): boolea
 
 /** The owner-action row for a lapsed-lease active execution, or null for every other shape. */
 function restartRow(
-  projection: TaskProjection,
+  projection: TaskProjectionQueries,
   rootDir: string,
   status: "ready" | "pending",
   row: AgendaSourceRow,
@@ -1613,7 +1614,7 @@ function latestExecution(executions: readonly ProjectedExecution[]): ProjectedEx
 
 /** A stopped worker with no accepted submission is actionable even though the task remains active. */
 function unsubmittedDeliveryAttentionRows(
-  projection: TaskProjection,
+  projection: TaskProjectionQueries,
   rows: readonly AgendaSourceRow[],
 ): readonly {
   readonly taskId: string;
