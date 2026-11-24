@@ -42,11 +42,6 @@ export class ListenerKeyExposedError extends Error {
   readonly code = "rbac_listener_key_exposed";
 }
 
-export function assertOwnerOnlyPrivateKeyMode(mode: number, platform: NodeJS.Platform): void {
-  if (platform !== "win32" && (mode & 0o077) !== 0)
-    throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
-}
-
 function selfSignedCertificatePaths(root: string): {
   readonly certificateFile: string;
   readonly certificateKeyFile: string;
@@ -169,7 +164,8 @@ function readRegularFileWithStats(
       "A listener takes --hostname (as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
     );
   }
-  if (options.requireOwnerOnlyMode) assertOwnerOnlyPrivateKeyMode(file.mode, options.platform ?? process.platform);
+  if (options.requireOwnerOnlyMode && (options.platform ?? process.platform) !== "win32" && (file.mode & 0o077) !== 0)
+    throw new ListenerKeyExposedError("The listener's private key must be readable only by its owner (chmod 600).");
   return file;
 }
 
@@ -335,10 +331,11 @@ export function validateCertificateChainAndKeyPair(
 export function listenerMaterialProblem(
   listener: Pick<ManagedRbacListener, "certificateFile" | "certificateKeyFile" | "address" | "hostname">,
   validateCertificateNames?: ManagedRbacHost["validateCertificateNames"],
+  platform: NodeJS.Platform = process.platform,
 ): ListenerMaterialProblem | undefined {
   let keyBytes: Buffer;
   try {
-    keyBytes = readRegularFileWithStats(listener.certificateKeyFile, { requireOwnerOnlyMode: true }).bytes;
+    keyBytes = readRegularFileWithStats(listener.certificateKeyFile, { requireOwnerOnlyMode: true, platform }).bytes;
   } catch {
     return "exposed_key";
   }

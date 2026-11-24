@@ -29,7 +29,7 @@ import {
 } from "@harness-anything/authorization/keycloak";
 import { managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import {
-  assertOwnerOnlyPrivateKeyMode,
+  listenerMaterialProblem,
   type ListenerWriteStage,
 } from "../../authorization/src/keycloak/managed-rbac-listener-certificate.ts";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
@@ -182,10 +182,24 @@ function createHardeningFixture(options: HardeningFixtureOptions = {}) {
   };
 }
 
-test("private-key mode validation follows platform semantics", () => {
-  for (const mode of [0o100644, 0o100666])
-    assert.throws(() => assertOwnerOnlyPrivateKeyMode(mode, "linux"), { code: "rbac_listener_key_exposed" });
-  assert.doesNotThrow(() => assertOwnerOnlyPrivateKeyMode(0o100666, "win32"));
+test("private-key mode validation follows platform semantics", async () => {
+  const sources = mkdtempSync(path.join(tmpdir(), "ha-rbac-key-mode-")),
+    pair = generateCertWithSan(sources, "mode", "center.example.test", "DNS:center.example.test,IP:127.0.0.1");
+  try {
+    const listener = {
+      address: "127.0.0.1",
+      hostname: "center.example.test",
+      certificateFile: pair.certFile,
+      certificateKeyFile: pair.keyFile,
+    };
+    for (const mode of [0o644, 0o666]) {
+      chmodSync(pair.keyFile, mode);
+      assert.equal(listenerMaterialProblem(listener, undefined, "linux"), "exposed_key");
+    }
+    assert.equal(listenerMaterialProblem(listener, undefined, "win32"), undefined);
+  } finally {
+    removeTempRepository(sources);
+  }
 });
 
 function createOpensslCaWorkspace(baseDir: string) {
