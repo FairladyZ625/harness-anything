@@ -54,6 +54,7 @@ export function closeableCenterReplicationSlots(inner: ReplicationSlots): Replic
 export function readListenerCenterRelocated(
   options: FleetCenterOptions,
   repoId?: string,
+  forSwitchoverControl = false,
 ): (CenterMovedDetails & { readonly repoId: string }) | null {
   if (options.centerRelocated) {
     if (repoId === undefined || options.centerRelocated.repoId === repoId) return options.centerRelocated;
@@ -63,7 +64,11 @@ export function readListenerCenterRelocated(
   const targetRepoId = repoId ?? options.centerRepoId;
   const tombstone = readCenterRelocated(root, targetRepoId);
   if (tombstone !== null) return tombstone;
-  return targetRepoId ? readCenterSwitchoverFence(root, targetRepoId) : null;
+  if (!targetRepoId) return null;
+  const fence = readCenterSwitchoverFence(root, targetRepoId);
+  if (fence === null) return null;
+  if (forSwitchoverControl && fence.state === "demoted_edge") return null;
+  return fence;
 }
 
 export function readListenerCenterMigrating(
@@ -122,7 +127,11 @@ export function openCenterRelocationEpochs(
         return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, options.storage?.[repoId]));
       });
   for (const repo of options.host?.status?.().repos ?? []) {
-    if (repo.state === "attached" && readListenerCenterRelocated(options, repo.repoId) === null)
+    if (
+      repo.state === "attached" &&
+      repo.mode === "local" &&
+      readListenerCenterRelocated(options, repo.repoId) === null
+    )
       ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
   }
   // A center must keep using the epoch it acquired, even after another center
@@ -249,8 +258,9 @@ export function createCenterNodePrincipals(input: {
     replicaAdmission = async (
       node: { nodeId: string; repoId: string; accessToken?: string },
       target?: TaskReadAuthorizationTarget,
+      forSwitchoverControl = false,
     ) => {
-      const moved = readListenerCenterRelocated(options, node.repoId);
+      const moved = readListenerCenterRelocated(options, node.repoId, forSwitchoverControl);
       if (moved) throw centerMovedFleetFault(moved);
       nodeGate.assertOpen(node.nodeId);
       if (!options.verifyReplica) return repoAdmission(node, target);

@@ -57,6 +57,13 @@ export interface CenterSwitchoverFenceV1 extends CenterMovedDetails {
   readonly tipHash: string;
   readonly fencedAt: string;
   readonly demotedAt?: string;
+  /** Immutable target TLS authority metadata captured at Phase 1 (F3). */
+  readonly targetCaPath?: string;
+  readonly targetServername?: string;
+  /** Immutable local-path authority captured only when Phase 1 ran in explicit local-path CLI mode (F3). */
+  readonly targetRoot?: string;
+  readonly targetUserRoot?: string;
+  readonly targetStateRoot?: string;
 }
 
 export interface SwitchoverInvalidatedAttemptsV1 {
@@ -230,7 +237,15 @@ function parseSwitchoverFenceFile(file: string, expectedRepoId: string): CenterS
     typeof value.newExternalUrl !== "string" ||
     typeof value.newLoginUrl !== "string" ||
     typeof value.spkiSha256 !== "string" ||
-    typeof value.fencedAt !== "string"
+    typeof value.fencedAt !== "string" ||
+    (value.targetCaPath !== undefined &&
+      (typeof value.targetCaPath !== "string" || !path.isAbsolute(value.targetCaPath))) ||
+    (value.targetServername !== undefined && typeof value.targetServername !== "string") ||
+    (value.targetRoot !== undefined && (typeof value.targetRoot !== "string" || !path.isAbsolute(value.targetRoot))) ||
+    (value.targetUserRoot !== undefined &&
+      (typeof value.targetUserRoot !== "string" || !path.isAbsolute(value.targetUserRoot))) ||
+    (value.targetStateRoot !== undefined &&
+      (typeof value.targetStateRoot !== "string" || !path.isAbsolute(value.targetStateRoot)))
   )
     throw new Error(`Center switchover fence at ${file} is invalid.`);
   return value as CenterSwitchoverFenceV1;

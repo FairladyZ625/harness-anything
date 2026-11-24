@@ -386,6 +386,121 @@ export type FleetFrameV1 =
   | Msg<"fleet.transfer.chunk/v1", { transferId: string; sequence: number; offset: number; dataBase64: string }>
   | Msg<"fleet.transfer.end/v1", { transferId: string; totalBytes: number; sha256: string }>
   | Msg<
+      "fleet.switchover.candidate.register/v1",
+      {
+        repoId: string;
+        targetExternalUrl: string;
+        targetLoginUrl: string;
+        targetSpkiSha256: string;
+        targetServername?: string;
+      }
+    >
+  | Msg<
+      "fleet.switchover.candidate.register.result/v1",
+      { inReplyTo: string; repoId: string; nodeId: string; registeredAt: string }
+    >
+  | Msg<
+      "fleet.switchover.status/v1",
+      {
+        repoId: string;
+        expectedTargetNodeId: string;
+        waitForCut?: Readonly<{
+          finalRevision: number;
+          tipHash: string;
+          history: string;
+          sequence: number;
+          timeoutMs: number;
+        }>;
+      }
+    >
+  | Msg<
+      "fleet.switchover.status.result/v1",
+      {
+        inReplyTo: string;
+        repoId: string;
+        nodeId: string;
+        mode: "local" | "remote-edge" | "remote-proxy" | "remote-center" | null;
+        connected: boolean;
+        syncFailureCode: string | null;
+        availableDiskBytes: number;
+        writerEpoch: number;
+        cut: Readonly<{
+          repoId: string;
+          revision: number;
+          tipHash: string;
+          history: string;
+          sequence: number;
+        }> | null;
+      }
+    >
+  | Msg<
+      "fleet.switchover.activate/v1",
+      {
+        repoId: string;
+        switchoverId: string;
+        expectedTargetNodeId: string;
+        expectedOldEpoch: number;
+        newEpoch: number;
+        frozenCut: Readonly<{
+          repoId: string;
+          finalRevision: number;
+          tipHash: string;
+          history: string;
+          sequence: number;
+        }>;
+        sourceReplicationLogWindow: readonly Readonly<{
+          sequence: number;
+          revision: number;
+          outcomeOpId: string | null;
+          writerJson: string | null;
+        }>[];
+        retentionWindowCommits: number;
+        replicationSlots?: readonly Readonly<{
+          repoId: string;
+          nodeId: string;
+          history: string;
+          ack: Readonly<{
+            durable: Readonly<{ history: string; sequence: number; revision: number }>;
+            applied: Readonly<{ history: string; sequence: number; revision: number }>;
+          }> | null;
+        }>[];
+        targetExternalUrl?: string;
+        targetLoginUrl?: string;
+      }
+    >
+  | Msg<
+      "fleet.switchover.activate.result/v1",
+      {
+        inReplyTo: string;
+        activation: Readonly<{
+          switchoverId: string;
+          repoId: string;
+          oldEpoch: number;
+          newEpoch: number;
+          finalRevision: number;
+          tipHash: string;
+          replicationHistory: string;
+          replicationSequence: number;
+          retainedLogMinSequence: number;
+          retainedLogRowCount: number;
+          promotedAt: string;
+        }>;
+      }
+    >
+  | Msg<
+      "fleet.switchover.invalidate/v1",
+      { repoId: string; switchoverId: string; expectedTargetNodeId: string; cededEpoch: number }
+    >
+  | Msg<
+      "fleet.switchover.invalidate.result/v1",
+      {
+        inReplyTo: string;
+        targetNeverActivated: boolean;
+        targetInvalidated: boolean;
+        observedTargetEpoch: number;
+      }
+    >
+  | Msg<
       "fleet.error/v1",
       {
         inReplyTo: string;
@@ -1119,6 +1234,141 @@ const schemas: Readonly<Record<string, Check>> = {
       Buffer.from(value, "base64").toString("base64") === value,
   }),
   "fleet.transfer.end/v1": shape({ ...common, transferId: id, totalBytes: uint, sha256: sha64 }),
+  "fleet.switchover.candidate.register/v1": optionalShape(
+    {
+      ...common,
+      repoId: id,
+      targetExternalUrl: text,
+      targetLoginUrl: text,
+      targetSpkiSha256: text,
+      targetServername: text,
+    },
+    ["schema", "messageId", "repoId", "targetExternalUrl", "targetLoginUrl", "targetSpkiSha256"],
+  ),
+  "fleet.switchover.candidate.register.result/v1": shape({
+    ...reply,
+    repoId: id,
+    nodeId: text,
+    registeredAt: text,
+  }),
+  "fleet.switchover.status/v1": optionalShape(
+    {
+      ...common,
+      repoId: id,
+      expectedTargetNodeId: text,
+      waitForCut: shape({
+        finalRevision: uint,
+        tipHash: text,
+        history: text,
+        sequence: uint,
+        timeoutMs: uint,
+      }),
+    },
+    ["schema", "messageId", "repoId", "expectedTargetNodeId"],
+  ),
+  "fleet.switchover.status.result/v1": shape({
+    ...reply,
+    repoId: id,
+    nodeId: text,
+    mode: nullable(one("local", "remote-edge", "remote-proxy", "remote-center")),
+    connected: boolean,
+    syncFailureCode: nullable(text),
+    availableDiskBytes: uint,
+    writerEpoch: uint,
+    cut: nullable(
+      shape({
+        repoId: id,
+        revision: uint,
+        tipHash: text,
+        history: text,
+        sequence: uint,
+      }),
+    ),
+  }),
+  "fleet.switchover.activate/v1": optionalShape(
+    {
+      ...common,
+      repoId: id,
+      switchoverId: text,
+      expectedTargetNodeId: text,
+      expectedOldEpoch: positiveInt,
+      newEpoch: positiveInt,
+      frozenCut: shape({
+        repoId: id,
+        finalRevision: uint,
+        tipHash: text,
+        history: text,
+        sequence: uint,
+      }),
+      sourceReplicationLogWindow: array(
+        shape({
+          sequence: uint,
+          revision: uint,
+          outcomeOpId: nullable(text),
+          writerJson: nullable(bodyText),
+        }),
+        4096,
+      ),
+      retentionWindowCommits: uint,
+      replicationSlots: array(
+        shape({
+          repoId: id,
+          nodeId: text,
+          history: text,
+          ack: nullable(
+            shape({
+              durable: shape({ history: text, sequence: uint, revision: uint }),
+              applied: shape({ history: text, sequence: uint, revision: uint }),
+            }),
+          ),
+        }),
+        1024,
+      ),
+      targetExternalUrl: text,
+      targetLoginUrl: text,
+    },
+    [
+      "schema",
+      "messageId",
+      "repoId",
+      "switchoverId",
+      "expectedTargetNodeId",
+      "expectedOldEpoch",
+      "newEpoch",
+      "frozenCut",
+      "sourceReplicationLogWindow",
+      "retentionWindowCommits",
+    ],
+  ),
+  "fleet.switchover.activate.result/v1": shape({
+    ...reply,
+    activation: shape({
+      switchoverId: text,
+      repoId: id,
+      oldEpoch: positiveInt,
+      newEpoch: positiveInt,
+      finalRevision: uint,
+      tipHash: text,
+      replicationHistory: text,
+      replicationSequence: uint,
+      retainedLogMinSequence: uint,
+      retainedLogRowCount: uint,
+      promotedAt: text,
+    }),
+  }),
+  "fleet.switchover.invalidate/v1": shape({
+    ...common,
+    repoId: id,
+    switchoverId: text,
+    expectedTargetNodeId: text,
+    cededEpoch: positiveInt,
+  }),
+  "fleet.switchover.invalidate.result/v1": shape({
+    ...reply,
+    targetNeverActivated: boolean,
+    targetInvalidated: boolean,
+    observedTargetEpoch: uint,
+  }),
   "fleet.error/v1": optionalShape(
     {
       ...reply,

@@ -974,6 +974,8 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       ...(options.sessionCapabilities?.length ? { capabilities: options.sessionCapabilities } : {}),
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
+    const peerCert = socket.getPeerCertificate(true);
+    const peerCertificatePem = peerCert.raw ? new X509Certificate(peerCert.raw).toString() : null;
     return {
       messageId,
       next,
@@ -982,6 +984,7 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       loginAuthority: ready.loginAuthority,
       centerBuildCommit: ready.centerBuildCommit ?? null,
       versionWarning,
+      peerCertificatePem,
       close: peer.close,
     };
   } catch (error) {

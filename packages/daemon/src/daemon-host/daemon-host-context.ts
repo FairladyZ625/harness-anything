@@ -155,6 +155,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly writerEpochLease: (repoId: string, rootDir?: string) => WriterEpochLease;
   readonly writerEpochHighWatermark: (repoId: string) => number;
   readonly retireWriterEpoch: (repoId: string) => void;
+  readonly resetWriterEpochHandle: (repoId: string) => void;
   readonly closeDaemonWriterEpoch: () => void;
   readonly attach: (
     rootDir: string,

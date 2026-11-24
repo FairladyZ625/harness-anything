@@ -276,10 +276,35 @@ test("Phase 1 ceded fence blocks writer-epoch revival across restarts; oldEpoch+
       },
     );
 
-    // Step 1 of audited rollback: prove target never activated epoch 2 and durably invalidate sw_abort_1 on target.
+    // F3 negative control: an empty or nonexistent target directory MUST NOT be mistaken for an unactivated target
+    // and MUST NOT create a new writer-epochs/<repoId>.sqlite or switchover-invalidated/<repoId>.json.
+    const emptyTargetDir = path.join(root, "empty-target-state");
+    mkdirSync(emptyTargetDir, { recursive: true });
+    const emptyInvalidation = invalidateTargetSwitchoverAttempt({
+      targetStateRoot: emptyTargetDir,
+      repoId,
+      switchoverId: "sw_abort_1",
+      cededEpoch: 2,
+    });
+    assert.equal(emptyInvalidation.targetNeverActivated, false);
+    assert.equal(emptyInvalidation.targetInvalidated, false);
+    assert.equal(existsSync(path.join(emptyTargetDir, "writer-epochs", `${repoId}.sqlite`)), false);
+    assert.equal(existsSync(path.join(emptyTargetDir, "switchover-invalidated", `${repoId}.json`)), false);
+    const missingInvalidation = invalidateTargetSwitchoverAttempt({
+      targetStateRoot: path.join(root, "does-not-exist-state"),
+      repoId,
+      switchoverId: "sw_abort_1",
+      cededEpoch: 2,
+    });
+    assert.equal(missingInvalidation.targetNeverActivated, false);
+    assert.equal(missingInvalidation.targetInvalidated, false);
+
+    // Step 1 of audited rollback: prove initialized target never activated epoch 2 and durably invalidate sw_abort_1.
+    mkdirSync(targetState, { recursive: true });
     const invalidated = invalidateTargetSwitchoverAttempt({
       targetStateRoot: targetState,
       targetRootInput: targetRoot,
+      targetReplicaDatabasePath: replicaDbPath,
       repoId,
       switchoverId: "sw_abort_1",
       cededEpoch: 2,

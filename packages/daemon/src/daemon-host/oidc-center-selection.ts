@@ -119,6 +119,7 @@ export function oidcCenterSelections(userRoot: string) {
         return undefined;
       return selection;
     },
+    carryOver: write.bind(undefined),
     write,
   };
 }

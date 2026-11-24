@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { statfsSync } from "node:fs";
+import { readFileSync, statfsSync } from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import os from "node:os";
@@ -30,6 +30,7 @@ import {
   enterCenterMigrating,
   invalidateTargetSwitchoverAttempt,
   markCenterSwitchoverFenceDemoted,
+  openReplicationSlots,
   openSqliteEventStore,
   promoteReplicaForSwitchover,
   publishPendingSqliteGitOutbox,
@@ -40,13 +41,48 @@ import {
   type CenterReplicationLogRow,
 } from "@harness-anything/storage";
 import { daemonIdFromEnv } from "../client/local-daemon-target.ts";
-import { readFleetEdgeConfig, removeFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
-import { localSystemBinding } from "../daemon-host-binding.ts";
+import {
+  fleetEdgeCaPath,
+  readFleetEdgeConfig,
+  removeFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../client/fleet-edge-config.ts";
+import { createIdentitySession } from "../authorization-provider.ts";
+import { localSystemBinding, resolveBoundAccessToken } from "../daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "../host-action-authorization.ts";
+import { oidcCenterSelections } from "../oidc-center-selection.ts";
+import { systemCaCertificates } from "../tls-ca-certificate.ts";
 import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
 import { readReplicaHealth } from "../../fleet-sync/fleet/replica-health.ts";
 import type { FleetCenterRelocationOutcome } from "./center-relocation-command.ts";
+import {
+  activateRemoteSwitchoverClient,
+  centerSwitchoverCandidatePath,
+  centerSymmetricIdentityPath,
+  invalidateRemoteSwitchoverClient,
+  prepareCenterSwitchoverCandidate,
+  prepareCenterSymmetricIdentity,
+  queryRemoteSwitchoverStatusClient,
+  readCenterSwitchoverCandidate,
+  readCenterSymmetricIdentity,
+  type CenterSwitchoverCandidateV1,
+  type CenterSymmetricNodeIdentityV1,
+  type SwitchoverReplicationSlotRow,
+} from "./center-switchover-transport.ts";
+import type { FleetPeerOptions } from "./peer.ts";
 import { waitForFleetReplicaRevision } from "./replica-sync.ts";
+import { requestFleetReplicaToken } from "./replica-token.ts";
+
+export {
+  centerSwitchoverCandidatePath,
+  centerSymmetricIdentityPath,
+  prepareCenterSwitchoverCandidate,
+  prepareCenterSymmetricIdentity,
+  readCenterSwitchoverCandidate,
+  readCenterSymmetricIdentity,
+  type CenterSwitchoverCandidateV1,
+  type CenterSymmetricNodeIdentityV1,
+};
 
 function switchoverCommandError(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
@@ -54,6 +90,13 @@ function switchoverCommandError(code: string, message: string): Error & { readon
 
 export interface FleetCenterSwitchoverCommandHelpers {
   readonly drainLocalDaemonRepoQueue?: (userRoot: string, daemonId: string, repoId: string) => Promise<boolean>;
+  readonly reloadLocalDaemonRepoMode?: (input: {
+    readonly userRoot: string;
+    readonly daemonId: string;
+    readonly repoId: string;
+    readonly rootDir: string;
+    readonly mode: "local" | "remote-edge";
+  }) => Promise<boolean>;
   readonly rebindCenterRelocationRouting?: (input: {
     readonly userRoot: string;
     readonly daemonId: string;
@@ -67,31 +110,6 @@ export interface FleetCenterSwitchoverCommandHelpers {
 
 function isPositiveSafeByteCount(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
-}
-
-export interface CenterSymmetricNodeIdentityV1 {
-  readonly schema: "fleet-center-node-identity/v1";
-  readonly repoId: string;
-  readonly nodeId: string;
-  readonly credential: string;
-  readonly viewRoot: string;
-  readonly quotaBytes: number;
-  readonly updatedAt: string;
-}
-
-export interface CenterSwitchoverCandidateV1 {
-  readonly schema: "fleet-center-switchover-candidate/v1";
-  readonly repoId: string;
-  readonly nodeId: string;
-  readonly targetExternalUrl: string;
-  readonly targetLoginUrl: string;
-  readonly targetSpkiSha256: string;
-  readonly targetRoot: string;
-  readonly targetUserRoot: string;
-  readonly targetStateRoot?: string;
-  readonly targetCaPath?: string;
-  readonly targetServername?: string;
-  readonly updatedAt: string;
 }
 
 export interface FleetCenterSwitchoverHooks {
@@ -147,139 +165,6 @@ export interface FleetCenterSwitchoverHooks {
   readonly invalidateTargetAttempt?: CenterSwitchoverRollbackPorts["invalidateTargetAttempt"];
 }
 
-export function centerSymmetricIdentityPath(userRoot: string, repoId: string): string {
-  return path.join(path.resolve(userRoot), "fleet", "center-node-identity", `${repoId}.json`);
-}
-
-export function prepareCenterSymmetricIdentity(
-  userRoot: string,
-  input: Omit<CenterSymmetricNodeIdentityV1, "schema" | "updatedAt"> & { readonly updatedAt?: string },
-): CenterSymmetricNodeIdentityV1 {
-  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(input.repoId))
-    throw new Error(`Invalid repoId for symmetric center identity: ${input.repoId}`);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.nodeId))
-    throw new Error(`Invalid nodeId for symmetric center identity: ${input.nodeId}`);
-  if (!input.credential || input.credential.trim().length === 0)
-    throw new Error("Symmetric center identity requires a non-empty machine credential.");
-  const storageBytes = input.quotaBytes;
-  if (!isPositiveSafeByteCount(storageBytes))
-    throw new Error("Symmetric center identity requires a positive quotaBytes.");
-  const resolvedViewRoot = path.resolve(input.viewRoot);
-  localRuntimeStateFileSystem.mkdirp(resolvedViewRoot);
-  const record: CenterSymmetricNodeIdentityV1 = {
-    schema: "fleet-center-node-identity/v1",
-    repoId: input.repoId,
-    nodeId: input.nodeId,
-    credential: input.credential,
-    viewRoot: resolvedViewRoot,
-    quotaBytes: storageBytes,
-    updatedAt: input.updatedAt ?? new Date().toISOString(),
-  };
-  writeFileDurably(centerSymmetricIdentityPath(userRoot, input.repoId), `${JSON.stringify(record, null, 2)}\n`, 0o600);
-  return record;
-}
-
-export function readCenterSymmetricIdentity(userRoot: string, repoId: string): CenterSymmetricNodeIdentityV1 | null {
-  const file = centerSymmetricIdentityPath(userRoot, repoId);
-  if (!localRuntimeStateFileSystem.exists(file)) return null;
-  const parsed = JSON.parse(localRuntimeStateFileSystem.readText(file)) as Partial<CenterSymmetricNodeIdentityV1>,
-    storageBytes = parsed.quotaBytes;
-  if (
-    parsed.schema !== "fleet-center-node-identity/v1" ||
-    parsed.repoId !== repoId ||
-    typeof parsed.nodeId !== "string" ||
-    typeof parsed.credential !== "string" ||
-    typeof parsed.viewRoot !== "string" ||
-    !isPositiveSafeByteCount(storageBytes) ||
-    typeof parsed.updatedAt !== "string"
-  )
-    return null;
-  return parsed as CenterSymmetricNodeIdentityV1;
-}
-
-export function centerSwitchoverCandidatePath(userRoot: string, repoId: string, nodeId: string): string {
-  return path.join(path.resolve(userRoot), "fleet", "center-switchover-candidates", repoId, `${nodeId}.json`);
-}
-
-export function prepareCenterSwitchoverCandidate(
-  userRoot: string,
-  input: Omit<CenterSwitchoverCandidateV1, "schema" | "updatedAt"> & { readonly updatedAt?: string },
-): CenterSwitchoverCandidateV1 {
-  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(input.repoId))
-    throw new Error(`Invalid repoId for switchover candidate: ${input.repoId}`);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.nodeId))
-    throw new Error(`Invalid nodeId for switchover candidate: ${input.nodeId}`);
-  const externalUrl = parseCandidateHttpsOrigin(safeParseExternalUrl(input.targetExternalUrl));
-  if (!externalUrl)
-    throw new Error(`Switchover candidate targetExternalUrl must be an HTTPS origin: ${input.targetExternalUrl}`);
-  const loginUrl = parseCandidateLoginUrl(input.targetLoginUrl);
-  if (!loginUrl) throw new Error(`Switchover candidate targetLoginUrl must be an HTTP(S) URL: ${input.targetLoginUrl}`);
-  if (!/^(?:sha256:)?[0-9a-f]{64}$/u.test(input.targetSpkiSha256))
-    throw new Error("Switchover candidate targetSpkiSha256 must be a lowercase SHA-256 digest.");
-  if (!input.targetRoot || !path.isAbsolute(input.targetRoot))
-    throw new Error("Switchover candidate targetRoot must be an absolute path.");
-  if (!input.targetUserRoot || !path.isAbsolute(input.targetUserRoot))
-    throw new Error("Switchover candidate targetUserRoot must be an absolute path.");
-  if (input.targetStateRoot !== undefined && !path.isAbsolute(input.targetStateRoot))
-    throw new Error("Switchover candidate targetStateRoot must be an absolute path.");
-  if (input.targetCaPath !== undefined && !path.isAbsolute(input.targetCaPath))
-    throw new Error("Switchover candidate targetCaPath must be an absolute path.");
-  const record: CenterSwitchoverCandidateV1 = {
-    schema: "fleet-center-switchover-candidate/v1",
-    repoId: input.repoId,
-    nodeId: input.nodeId,
-    targetExternalUrl: externalUrl,
-    targetLoginUrl: input.targetLoginUrl,
-    targetSpkiSha256: input.targetSpkiSha256,
-    targetRoot: path.resolve(input.targetRoot),
-    targetUserRoot: path.resolve(input.targetUserRoot),
-    ...(input.targetStateRoot ? { targetStateRoot: path.resolve(input.targetStateRoot) } : {}),
-    ...(input.targetCaPath ? { targetCaPath: path.resolve(input.targetCaPath) } : {}),
-    ...(input.targetServername ? { targetServername: input.targetServername } : {}),
-    updatedAt: input.updatedAt ?? new Date().toISOString(),
-  };
-  writeFileDurably(
-    centerSwitchoverCandidatePath(userRoot, input.repoId, input.nodeId),
-    `${JSON.stringify(record, null, 2)}\n`,
-    0o600,
-  );
-  return record;
-}
-
-export function readCenterSwitchoverCandidate(
-  userRoot: string,
-  repoId: string,
-  nodeId: string,
-): CenterSwitchoverCandidateV1 | null {
-  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(nodeId)) return null;
-  const file = centerSwitchoverCandidatePath(userRoot, repoId, nodeId);
-  if (!localRuntimeStateFileSystem.exists(file)) return null;
-  const parsed = JSON.parse(localRuntimeStateFileSystem.readText(file)) as Partial<CenterSwitchoverCandidateV1>;
-  if (
-    parsed.schema !== "fleet-center-switchover-candidate/v1" ||
-    parsed.repoId !== repoId ||
-    parsed.nodeId !== nodeId ||
-    typeof parsed.targetExternalUrl !== "string" ||
-    parseCandidateHttpsOrigin(safeParseExternalUrl(parsed.targetExternalUrl)) === null ||
-    typeof parsed.targetLoginUrl !== "string" ||
-    parseCandidateLoginUrl(parsed.targetLoginUrl) === null ||
-    typeof parsed.targetSpkiSha256 !== "string" ||
-    !/^(?:sha256:)?[0-9a-f]{64}$/u.test(parsed.targetSpkiSha256) ||
-    typeof parsed.targetRoot !== "string" ||
-    !path.isAbsolute(parsed.targetRoot) ||
-    typeof parsed.targetUserRoot !== "string" ||
-    !path.isAbsolute(parsed.targetUserRoot) ||
-    (parsed.targetStateRoot !== undefined &&
-      (typeof parsed.targetStateRoot !== "string" || !path.isAbsolute(parsed.targetStateRoot))) ||
-    (parsed.targetCaPath !== undefined &&
-      (typeof parsed.targetCaPath !== "string" || !path.isAbsolute(parsed.targetCaPath))) ||
-    (parsed.targetServername !== undefined && typeof parsed.targetServername !== "string") ||
-    typeof parsed.updatedAt !== "string"
-  )
-    return null;
-  return parsed as CenterSwitchoverCandidateV1;
-}
-
 export async function switchFleetCenter(
   argv: readonly string[],
   defaultUserRoot: string = path.join(os.homedir(), ".harness"),
@@ -315,21 +200,24 @@ async function runForwardSwitchoverCommand(
     sourceStateRoot = path.resolve(flagValue(argv, "--state-root") ?? path.join(sourceUserRoot, "fleet")),
     daemonId = flagValue(argv, "--daemon-id") ?? daemonIdFromEnv(),
     candidate = readCenterSwitchoverCandidate(sourceUserRoot, repoId, targetNodeId),
-    rawTargetRoot = flagValue(argv, "--target-root") ?? candidate?.targetRoot ?? null,
-    rawTargetUserRoot = flagValue(argv, "--target-user-root") ?? candidate?.targetUserRoot ?? null,
-    hasDistinctTargetHost =
+    explicitTargetRoot = flagValue(argv, "--target-root"),
+    explicitTargetUserRoot = flagValue(argv, "--target-user-root"),
+    rawTargetRoot = explicitTargetRoot ?? candidate?.targetRoot ?? null,
+    rawTargetUserRoot = explicitTargetUserRoot ?? candidate?.targetUserRoot ?? null,
+    hasDistinctLocalTargetHost =
       rawTargetRoot !== null &&
       rawTargetUserRoot !== null &&
       !(path.resolve(rawTargetRoot) === sourceRoot && path.resolve(rawTargetUserRoot) === sourceUserRoot),
-    targetRoot = hasDistinctTargetHost ? path.resolve(rawTargetRoot!) : null,
-    targetUserRoot = hasDistinctTargetHost ? path.resolve(rawTargetUserRoot!) : null,
-    targetStateRoot = flagValue(argv, "--target-state-root")
-      ? path.resolve(flagValue(argv, "--target-state-root")!)
-      : candidate?.targetStateRoot
-        ? path.resolve(candidate.targetStateRoot)
-        : targetUserRoot
-          ? path.join(targetUserRoot, "fleet")
-          : null,
+    useLegacyLocalTargetPaths = hasDistinctLocalTargetHost,
+    targetRoot = useLegacyLocalTargetPaths ? path.resolve(rawTargetRoot!) : null,
+    targetUserRoot = useLegacyLocalTargetPaths ? path.resolve(rawTargetUserRoot!) : null,
+    targetStateRoot = useLegacyLocalTargetPaths
+      ? flagValue(argv, "--target-state-root")
+        ? path.resolve(flagValue(argv, "--target-state-root")!)
+        : candidate?.targetStateRoot
+          ? path.resolve(candidate.targetStateRoot)
+          : path.join(targetUserRoot!, "fleet")
+      : null,
     switchoverId = flagValue(argv, "--switchover-id") ?? `sw_${randomUUID().replaceAll("-", "").slice(0, 20)}`,
     maxAllowedLagRevisions = parseNonnegativeInt(flagValue(argv, "--max-lag-revisions"), 1024),
     catchupTimeoutMs = parseNonnegativeInt(flagValue(argv, "--catchup-timeout-ms"), 30_000),
@@ -362,7 +250,7 @@ async function runForwardSwitchoverCommand(
     targetServername = flagValue(argv, "--target-servername") ?? candidate?.targetServername;
 
   // Always resolve source symmetric identity strictly read-only up front so dry-run preflight
-  // and unauthorized/rejected invocations never mutate disk or create directories.
+  // and unauthorized/rejected invocations never mutate disk or create directories (F4).
   const resolvedIdentity = resolveSourceSymmetricIdentity(argv, sourceUserRoot, repoId);
   const hasExplicitSourceIdentityFlags =
     flagValue(argv, "--source-node-id") !== undefined ||
@@ -370,6 +258,26 @@ async function runForwardSwitchoverCommand(
     flagValue(argv, "--source-view-root") !== undefined ||
     flagValue(argv, "--source-quota-bytes") !== undefined;
   let capturedLogWindow: readonly CenterReplicationLogRow[] = [];
+  let capturedTargetCertPem: string | null = null;
+
+  const buildRemotePeerOptions = (timeoutMs?: number): Omit<FleetPeerOptions, "repoId"> => {
+    if (!resolvedIdentity)
+      throw switchoverCommandError(
+        "source_symmetric_identity_missing",
+        "Source symmetric identity is required to authenticate with the remote switchover candidate.",
+      );
+    return buildSwitchoverPeerOptions({
+      sourceUserRoot,
+      sourceRoot,
+      sourceIdentity: resolvedIdentity,
+      targetExternalUrl,
+      targetLoginUrl,
+      targetSpkiSha256,
+      targetCaPath,
+      targetServername,
+      timeoutMs,
+    });
+  };
 
   const ports: CenterSwitchoverPorts = {
     now: hooks?.now,
@@ -384,20 +292,74 @@ async function runForwardSwitchoverCommand(
     },
     inspectPreflight: async ({ repoId: targetRepo, targetNodeId: candidateNode, triggerSource: trigger }) => {
       const centerSnapshot = readCenterFrozenCut({ rootInput: sourceRoot, repoId: targetRepo });
-      const targetEdge = targetUserRoot ? readFleetEdgeConfig(targetUserRoot, targetRepo) : null;
-      const targetReplica =
-        targetRoot && targetUserRoot
-          ? resolveTargetReplicaInfo(targetRoot, targetUserRoot, targetRepo, candidateNode, targetEdge)
-          : { generation: null, cut: null, connected: false, syncFailureCode: "target_candidate_unconfigured" };
-      const tlsProbe = hooks?.probeTls
-        ? await hooks.probeTls(targetExternalUrl, targetCaPath, targetServername)
-        : await defaultProbeTls(targetExternalUrl, targetCaPath, targetServername);
+      let tlsReachable: boolean;
+      let tlsError: string | undefined;
+      let replicaConnected: boolean;
+      let replicaCut: SwitchoverReplicaCut | null = null;
+      let replicaSyncFailureCode: string | null;
+      let availableDiskBytes = 0;
+
+      if (useLegacyLocalTargetPaths && targetRoot && targetUserRoot) {
+        const targetEdge = readFleetEdgeConfig(targetUserRoot, targetRepo);
+        const targetReplica = resolveTargetReplicaInfo(
+          targetRoot,
+          targetUserRoot,
+          targetRepo,
+          candidateNode,
+          targetEdge,
+        );
+        const tlsProbe = hooks?.probeTls
+          ? await hooks.probeTls(targetExternalUrl, targetCaPath, targetServername)
+          : await defaultProbeTls(targetExternalUrl, targetCaPath, targetServername);
+        tlsReachable = tlsProbe.ok;
+        tlsError = tlsProbe.error;
+        replicaConnected = targetReplica.connected;
+        replicaCut = targetReplica.cut;
+        replicaSyncFailureCode = targetReplica.syncFailureCode;
+        availableDiskBytes = availableDiskBytesAt(targetRoot);
+      } else if (!targetExternalUrl || !normalizeSpkiHex(targetSpkiSha256)) {
+        tlsReachable = false;
+        tlsError = "Target candidate endpoint or SPKI is unconfigured.";
+        replicaConnected = false;
+        replicaSyncFailureCode = "target_candidate_unconfigured";
+        availableDiskBytes = 0;
+      } else if (!resolvedIdentity) {
+        const tlsProbe = hooks?.probeTls
+          ? await hooks.probeTls(targetExternalUrl, targetCaPath, targetServername)
+          : await defaultProbeTls(targetExternalUrl, targetCaPath, targetServername);
+        tlsReachable = tlsProbe.ok;
+        tlsError = tlsProbe.error;
+        replicaConnected = false;
+        replicaSyncFailureCode = "source_symmetric_identity_missing";
+      } else {
+        const probe = await probeRemoteSwitchoverStatus(
+          buildRemotePeerOptions(cliOperationalPolicy.defaultValue.probe.timeoutMs),
+          {
+            repoId: targetRepo,
+            expectedTargetNodeId: candidateNode,
+          },
+        );
+        if (probe.ok) {
+          tlsReachable = true;
+          replicaConnected = probe.status.connected;
+          replicaCut = probe.status.cut;
+          replicaSyncFailureCode = probe.status.syncFailureCode;
+          availableDiskBytes = probe.status.availableDiskBytes;
+          capturedTargetCertPem = probe.status.peerCertificatePem ?? capturedTargetCertPem;
+        } else {
+          tlsReachable = false;
+          tlsError = probe.message;
+          replicaConnected = false;
+          replicaSyncFailureCode = probe.code;
+          availableDiskBytes = 0;
+        }
+      }
+
       const authProbe = hooks?.probeAuth
         ? await hooks.probeAuth(targetLoginUrl, targetCaPath)
-        : await defaultProbeAuth(targetLoginUrl, targetCaPath, targetServername);
-      const availableDiskBytes = targetRoot ? availableDiskBytesAt(targetRoot) : 0;
+        : await defaultProbeAuth(targetLoginUrl, targetCaPath, targetServername, capturedTargetCertPem ?? undefined);
       const replicaLagRevisions =
-        targetReplica.cut === null ? null : Math.max(0, centerSnapshot.cut.finalRevision - targetReplica.cut.revision);
+        replicaCut === null ? null : Math.max(0, centerSnapshot.cut.finalRevision - replicaCut.revision);
       const input: SwitchoverPreflightInput = {
         repoId: targetRepo,
         triggerSource: trigger,
@@ -405,13 +367,13 @@ async function runForwardSwitchoverCommand(
         targetNodeId: candidateNode,
         oldEpoch: centerSnapshot.writerEpoch,
         centerHistory: centerSnapshot.cut.history,
-        tlsReachable: tlsProbe.ok,
-        ...(tlsProbe.error ? { tlsError: tlsProbe.error } : {}),
+        tlsReachable,
+        ...(tlsError ? { tlsError } : {}),
         targetExternalUrl,
         targetSpkiSha256,
-        replicaConnected: targetReplica.connected,
-        replicaHistory: targetReplica.cut?.history ?? null,
-        replicaSyncFailureCode: targetReplica.syncFailureCode,
+        replicaConnected,
+        replicaHistory: replicaCut?.history ?? null,
+        replicaSyncFailureCode,
         replicaLagRevisions,
         maxAllowedLagRevisions,
         availableDiskBytes,
@@ -473,19 +435,36 @@ async function runForwardSwitchoverCommand(
           timeoutMs,
         });
       }
-      if (!targetRoot || !targetUserRoot)
-        throw switchoverCommandError(
-          "target_candidate_unconfigured",
-          `No distinct target host configuration is registered for candidate ${candidateNode} on ${targetRepo}.`,
-        );
-      return await waitTargetReplicaCut({
-        targetRoot,
-        targetUserRoot,
-        repoId: targetRepo,
-        targetNodeId: candidateNode,
-        frozenCut,
-        timeoutMs,
-      });
+      if (useLegacyLocalTargetPaths && targetRoot && targetUserRoot) {
+        return await waitTargetReplicaCut({
+          targetRoot,
+          targetUserRoot,
+          repoId: targetRepo,
+          targetNodeId: candidateNode,
+          frozenCut,
+          timeoutMs,
+        });
+      }
+      const status = await queryRemoteSwitchoverStatusClient(
+        buildRemotePeerOptions(Math.max(15_000, timeoutMs + 5_000)),
+        {
+          repoId: targetRepo,
+          expectedTargetNodeId: candidateNode,
+          waitForCut: {
+            finalRevision: frozenCut.finalRevision,
+            tipHash: frozenCut.tipHash,
+            history: frozenCut.history,
+            sequence: frozenCut.sequence,
+            timeoutMs,
+          },
+        },
+      );
+      capturedTargetCertPem = status.peerCertificatePem ?? capturedTargetCertPem;
+      if (status.cut !== null) return status.cut;
+      throw switchoverCommandError(
+        "rpo_zero_catchup_timeout",
+        `Target replica ${candidateNode} is unavailable for ${targetRepo} at RPO=0 barrier.`,
+      );
     },
     persistCededFence: async (fenceInput) => {
       cedeCenterForSwitchover({
@@ -501,6 +480,11 @@ async function runForwardSwitchoverCommand(
         newExternalUrl: fenceInput.targetExternalUrl,
         newLoginUrl: fenceInput.targetLoginUrl,
         spkiSha256: fenceInput.targetSpkiSha256,
+        ...(targetCaPath ? { targetCaPath } : {}),
+        ...(targetServername ? { targetServername } : {}),
+        ...(useLegacyLocalTargetPaths && targetRoot ? { targetRoot } : {}),
+        ...(useLegacyLocalTargetPaths && targetUserRoot ? { targetUserRoot } : {}),
+        ...(useLegacyLocalTargetPaths && targetStateRoot ? { targetStateRoot } : {}),
         now: hooks?.now,
       });
       await hooks?.afterCededFencePersisted?.({
@@ -518,6 +502,31 @@ async function runForwardSwitchoverCommand(
         newEpoch: activationInput.newEpoch,
         targetNodeId: activationInput.targetNodeId,
       });
+      if (!useLegacyLocalTargetPaths) {
+        const replicationSlots = readSourceReplicationSlotRows(sourceStateRoot, activationInput.repoId);
+        const remote = await activateRemoteSwitchoverClient(buildRemotePeerOptions(60_000), {
+          repoId: activationInput.repoId,
+          switchoverId: activationInput.switchoverId,
+          expectedTargetNodeId: activationInput.targetNodeId,
+          expectedOldEpoch: activationInput.expectedOldEpoch,
+          newEpoch: activationInput.newEpoch,
+          frozenCut: activationInput.frozenCut,
+          sourceReplicationLogWindow: capturedLogWindow,
+          retentionWindowCommits,
+          ...(replicationSlots.length > 0 ? { replicationSlots } : {}),
+          ...(targetExternalUrl ? { targetExternalUrl } : {}),
+          ...(targetLoginUrl ? { targetLoginUrl } : {}),
+        });
+        capturedTargetCertPem = remote.peerCertificatePem ?? capturedTargetCertPem;
+        await hooks?.afterTargetActivated?.({
+          repoId: activationInput.repoId,
+          switchoverId: activationInput.switchoverId,
+          newEpoch: remote.activation.newEpoch,
+          targetRoot: "",
+          targetUserRoot: "",
+        });
+        return remote.activation;
+      }
       if (!targetRoot || !targetUserRoot || !targetStateRoot)
         throw switchoverCommandError(
           "target_candidate_unconfigured",
@@ -536,8 +545,6 @@ async function runForwardSwitchoverCommand(
           "replica_unavailable",
           `Target replica generation is unavailable for ${activationInput.repoId} on ${activationInput.targetNodeId}.`,
         );
-      // Persist target's own nodeId/credential/viewRoot as symmetric identity before removing its edge config,
-      // so a later reverse switchover (B -> A) automatically knows how to demote B back to remote-edge.
       if (targetEdge) {
         prepareCenterSymmetricIdentity(targetUserRoot, {
           repoId: activationInput.repoId,
@@ -616,7 +623,20 @@ async function runForwardSwitchoverCommand(
       });
       const parsedTarget = new URL(demoteInput.targetExternalUrl),
         normalizedSpki = normalizeSpkiHex(demoteInput.targetSpkiSha256),
-        caPath = targetCaPath ?? path.join(sourceUserRoot, "fleet", "edge", demoteInput.repoId, "fleet-center-ca.pem");
+        defaultEdgeCaPath = fleetEdgeCaPath(sourceUserRoot, demoteInput.repoId),
+        hasLocalCaFile = targetCaPath !== undefined && localRuntimeStateFileSystem.exists(targetCaPath);
+      let caPath = hasLocalCaFile ? targetCaPath : defaultEdgeCaPath;
+      let spkiPinOnly = false;
+      if (!hasLocalCaFile && capturedTargetCertPem && normalizedSpki) {
+        writeFileDurably(defaultEdgeCaPath, capturedTargetCertPem, 0o600);
+        caPath = defaultEdgeCaPath;
+        spkiPinOnly = true;
+      }
+      let priorOidcSelection = oidcCenterSelections(sourceUserRoot).read(sourceRoot);
+      if (!priorOidcSelection) {
+        const refreshed = await tryRefreshPriorOidcSelection(sourceUserRoot, sourceRoot);
+        if (refreshed.ok) priorOidcSelection = refreshed.selection;
+      }
       localRuntimeStateFileSystem.mkdirp(resolvedIdentity.viewRoot);
       writeFleetEdgeConfig(sourceUserRoot, demoteInput.repoId, {
         repoId: demoteInput.repoId,
@@ -625,13 +645,32 @@ async function runForwardSwitchoverCommand(
         caPath,
         ...(targetServername ? { servername: targetServername } : {}),
         ...(normalizedSpki ? { spkiSha256: normalizedSpki } : {}),
+        ...(spkiPinOnly ? { spkiPinOnly: true } : {}),
         ...(demoteInput.targetLoginUrl ? { loginUrl: demoteInput.targetLoginUrl } : {}),
+        ...(priorOidcSelection?.authority.realm ? { loginRealm: priorOidcSelection.authority.realm } : {}),
+        ...(spkiPinOnly && capturedTargetCertPem ? { loginCertificate: capturedTargetCertPem } : {}),
         nodeId: resolvedIdentity.nodeId,
         credential: resolvedIdentity.credential,
         writerEpoch: demoteInput.newEpoch,
         viewRoot: resolvedIdentity.viewRoot,
         quotaBytes: resolvedIdentity.quotaBytes,
       });
+      if (
+        priorOidcSelection &&
+        demoteInput.targetLoginUrl &&
+        priorOidcSelection.authority.url.replace(/\/$/u, "") === demoteInput.targetLoginUrl.replace(/\/$/u, "")
+      ) {
+        oidcCenterSelections(sourceUserRoot).carryOver(sourceRoot, priorOidcSelection);
+      }
+      if (helpers?.reloadLocalDaemonRepoMode) {
+        await helpers.reloadLocalDaemonRepoMode({
+          userRoot: sourceUserRoot,
+          daemonId,
+          repoId: demoteInput.repoId,
+          rootDir: sourceRoot,
+          mode: "remote-edge",
+        });
+      }
       await hooks?.afterDemotedToEdge?.({
         repoId: demoteInput.repoId,
         switchoverId: demoteInput.switchoverId,
@@ -725,15 +764,15 @@ async function runRollbackCommand(
     reason = flagValue(argv, "--reason")!,
     sourceUserRoot = path.resolve(flagValue(argv, "--user-root") ?? defaultUserRoot),
     sourceStateRoot = path.resolve(flagValue(argv, "--state-root") ?? path.join(sourceUserRoot, "fleet")),
-    targetUserRoot = flagValue(argv, "--target-user-root")
+    explicitTargetUserRoot = flagValue(argv, "--target-user-root")
       ? path.resolve(flagValue(argv, "--target-user-root")!)
       : undefined,
-    targetStateRoot = flagValue(argv, "--target-state-root")
+    explicitTargetStateRoot = flagValue(argv, "--target-state-root")
       ? path.resolve(flagValue(argv, "--target-state-root")!)
-      : targetUserRoot
-        ? path.join(targetUserRoot, "fleet")
+      : explicitTargetUserRoot
+        ? path.join(explicitTargetUserRoot, "fleet")
         : undefined,
-    targetRoot = flagValue(argv, "--target-root") ? path.resolve(flagValue(argv, "--target-root")!) : undefined;
+    explicitTargetRoot = flagValue(argv, "--target-root") ? path.resolve(flagValue(argv, "--target-root")!) : undefined;
 
   const ports: CenterSwitchoverRollbackPorts = {
     now: hooks?.now,
@@ -750,28 +789,71 @@ async function runRollbackCommand(
       readCenterSwitchoverFence(sourceUserRoot, targetRepo),
     invalidateTargetAttempt: async (input) => {
       if (hooks?.invalidateTargetAttempt) return await hooks.invalidateTargetAttempt(input);
-      const candidate = readCenterSwitchoverCandidate(sourceUserRoot, input.repoId, input.targetNodeId),
-        resolvedTargetUserRoot = targetUserRoot ?? candidate?.targetUserRoot,
-        resolvedTargetStateRoot =
-          targetStateRoot ??
-          candidate?.targetStateRoot ??
-          (resolvedTargetUserRoot ? path.join(path.resolve(resolvedTargetUserRoot), "fleet") : undefined),
-        resolvedTargetRoot = targetRoot ?? candidate?.targetRoot;
-      if (!resolvedTargetStateRoot) return { targetNeverActivated: false, targetInvalidated: false };
-      if (
-        resolvedTargetUserRoot &&
-        path.resolve(resolvedTargetUserRoot) === sourceUserRoot &&
-        path.resolve(resolvedTargetStateRoot) === sourceStateRoot
-      )
+      // F3: ALWAYS bind rollback invalidation to the immutable Phase 1 fence record, NEVER re-reading mutable candidate records.
+      const fence = readCenterSwitchoverFence(sourceUserRoot, input.repoId);
+      if (fence === null || fence.switchoverId !== input.switchoverId || fence.targetNodeId !== input.targetNodeId) {
         return { targetNeverActivated: false, targetInvalidated: false };
-      return invalidateTargetSwitchoverAttempt({
-        targetStateRoot: resolvedTargetStateRoot,
-        ...(resolvedTargetRoot ? { targetRootInput: resolvedTargetRoot } : {}),
-        repoId: input.repoId,
-        switchoverId: input.switchoverId,
-        cededEpoch: input.cededEpoch,
-        now: hooks?.now,
-      });
+      }
+      if (fence.targetStateRoot !== undefined) {
+        // Legacy local-path CLI mode: caller must supply the exact matching target state root bound in Phase 1.
+        if (!explicitTargetStateRoot || path.resolve(explicitTargetStateRoot) !== path.resolve(fence.targetStateRoot)) {
+          return { targetNeverActivated: false, targetInvalidated: false };
+        }
+        if (
+          explicitTargetRoot !== undefined &&
+          fence.targetRoot !== undefined &&
+          path.resolve(explicitTargetRoot) !== path.resolve(fence.targetRoot)
+        ) {
+          return { targetNeverActivated: false, targetInvalidated: false };
+        }
+        if (
+          fence.targetUserRoot &&
+          path.resolve(fence.targetUserRoot) === sourceUserRoot &&
+          path.resolve(fence.targetStateRoot) === sourceStateRoot
+        ) {
+          return { targetNeverActivated: false, targetInvalidated: false };
+        }
+        return invalidateTargetSwitchoverAttempt({
+          targetStateRoot: fence.targetStateRoot,
+          ...(fence.targetRoot ? { targetRootInput: fence.targetRoot } : {}),
+          expectedTargetNodeId: fence.targetNodeId,
+          repoId: input.repoId,
+          switchoverId: input.switchoverId,
+          cededEpoch: input.cededEpoch,
+          now: hooks?.now,
+        });
+      }
+      // Cross-host remote mode: forbid redirecting rollback to a local directory; authenticate against the immutable fence TLS authority.
+      if (
+        explicitTargetStateRoot !== undefined ||
+        explicitTargetRoot !== undefined ||
+        explicitTargetUserRoot !== undefined
+      ) {
+        return { targetNeverActivated: false, targetInvalidated: false };
+      }
+      const sourceIdentity = readCenterSymmetricIdentity(sourceUserRoot, input.repoId);
+      if (!sourceIdentity) return { targetNeverActivated: false, targetInvalidated: false };
+      try {
+        const peerOptions = buildSwitchoverPeerOptions({
+          sourceUserRoot,
+          sourceRoot,
+          sourceIdentity,
+          targetExternalUrl: fence.newExternalUrl,
+          targetLoginUrl: fence.newLoginUrl,
+          targetSpkiSha256: fence.spkiSha256,
+          targetCaPath: fence.targetCaPath,
+          targetServername: fence.targetServername,
+          timeoutMs: cliOperationalPolicy.defaultValue.probe.timeoutMs,
+        });
+        return await invalidateRemoteSwitchoverClient(peerOptions, {
+          repoId: input.repoId,
+          switchoverId: input.switchoverId,
+          expectedTargetNodeId: fence.targetNodeId,
+          cededEpoch: input.cededEpoch,
+        });
+      } catch {
+        return { targetNeverActivated: false, targetInvalidated: false };
+      }
     },
     commitAuditedRollback: async (input) =>
       rollbackCenterSwitchover({
@@ -801,6 +883,157 @@ async function runRollbackCommand(
     },
     exitCode: 0,
   };
+}
+
+function buildSwitchoverPeerOptions(input: {
+  readonly sourceUserRoot: string;
+  readonly sourceRoot: string;
+  readonly sourceIdentity: CenterSymmetricNodeIdentityV1;
+  readonly targetExternalUrl: string;
+  readonly targetLoginUrl: string;
+  readonly targetSpkiSha256: string;
+  readonly targetCaPath?: string;
+  readonly targetServername?: string;
+  readonly timeoutMs?: number;
+}): Omit<FleetPeerOptions, "repoId"> {
+  if (!URL.canParse(input.targetExternalUrl))
+    throw switchoverCommandError("target_tls_unreachable", `Invalid target external URL: ${input.targetExternalUrl}`);
+  const parsed = new URL(input.targetExternalUrl),
+    hostname = parsed.hostname.replace(/^\[|\]$/gu, ""),
+    port = parsed.port ? Number(parsed.port) : 443,
+    spkiSha256 = normalizeSpkiHex(input.targetSpkiSha256),
+    hasLocalCa = input.targetCaPath !== undefined && localRuntimeStateFileSystem.exists(input.targetCaPath),
+    caPem = hasLocalCa ? readFileSync(input.targetCaPath!, "utf8") : undefined;
+  if (!spkiSha256)
+    throw switchoverCommandError("target_tls_unreachable", "Target SPKI SHA-256 fingerprint is missing or invalid.");
+  const servername = input.targetServername ?? hostname;
+  return {
+    hostname,
+    port,
+    ca: caPem ?? "",
+    servername,
+    spkiSha256,
+    ...(!hasLocalCa ? { spkiPinOnly: true as const } : {}),
+    nodeId: input.sourceIdentity.nodeId,
+    credential: input.sourceIdentity.credential,
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    readAccessToken: () =>
+      resolveSwitchoverAccessToken({
+        sourceUserRoot: input.sourceUserRoot,
+        sourceRoot: input.sourceRoot,
+        sourceIdentity: input.sourceIdentity,
+        targetLoginUrl: input.targetLoginUrl,
+        caPem,
+        servername,
+      }),
+  };
+}
+
+async function probeRemoteSwitchoverStatus(
+  peerOptions: Omit<FleetPeerOptions, "repoId">,
+  payload: { readonly repoId: string; readonly expectedTargetNodeId: string },
+): Promise<
+  | { readonly ok: true; readonly status: Awaited<ReturnType<typeof queryRemoteSwitchoverStatusClient>> }
+  | { readonly ok: false; readonly message: string; readonly code: string }
+> {
+  try {
+    return { ok: true, status: await queryRemoteSwitchoverStatusClient(peerOptions, payload) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const code =
+      typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : "target_tls_unreachable";
+    return { ok: false, message, code };
+  }
+}
+
+async function tryRefreshPriorOidcSelection(
+  sourceUserRoot: string,
+  sourceRoot: string,
+): Promise<
+  | { readonly ok: true; readonly selection: ReturnType<ReturnType<typeof oidcCenterSelections>["read"]> }
+  | { readonly ok: false; readonly reason: string }
+> {
+  try {
+    await createIdentitySession(sourceUserRoot).status(sourceRoot);
+    return { ok: true, selection: oidcCenterSelections(sourceUserRoot).read(sourceRoot) };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason };
+  }
+}
+
+async function tryResolveLocalIdentityToken(
+  sourceUserRoot: string,
+  sourceRoot: string,
+): Promise<{ readonly ok: true; readonly token: string } | { readonly ok: false; readonly reason: string }> {
+  try {
+    const bound = await createIdentitySession(sourceUserRoot).bind({ transportKind: "unix-socket" }, sourceRoot);
+    const token = await resolveBoundAccessToken(bound);
+    return token ? { ok: true, token } : { ok: false, reason: "no_active_session_token" };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason };
+  }
+}
+
+async function tryRequestMachineReplicaToken(
+  input: Parameters<typeof requestFleetReplicaToken>[0],
+): Promise<{ readonly ok: true; readonly token: string } | { readonly ok: false; readonly reason: string }> {
+  try {
+    return { ok: true, token: await requestFleetReplicaToken(input) };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason };
+  }
+}
+
+async function resolveSwitchoverAccessToken(input: {
+  readonly sourceUserRoot: string;
+  readonly sourceRoot: string;
+  readonly sourceIdentity: CenterSymmetricNodeIdentityV1;
+  readonly targetLoginUrl: string;
+  readonly caPem?: string;
+  readonly servername?: string;
+}): Promise<string | undefined> {
+  // 1. Prefer an active, unexpired local identity session through the canonical IdentitySessionPort.
+  const localToken = await tryResolveLocalIdentityToken(input.sourceUserRoot, input.sourceRoot);
+  if (localToken.ok) return localToken.token;
+  // 2. Fall back to machine replica token when a persisted HTTPS authority is available.
+  const discoveredAuthority = oidcCenterSelections(input.sourceUserRoot).read(input.sourceRoot)?.authority;
+  if (
+    discoveredAuthority &&
+    URL.canParse(discoveredAuthority.url) &&
+    new URL(discoveredAuthority.url).protocol === "https:"
+  ) {
+    const machineToken = await tryRequestMachineReplicaToken({
+      ...discoveredAuthority,
+      nodeId: input.sourceIdentity.nodeId,
+      credential: input.sourceIdentity.credential,
+      ca: discoveredAuthority.certificate ?? input.caPem ?? systemCaCertificates(),
+      ...(input.servername ? { servername: input.servername } : {}),
+    });
+    if (machineToken.ok) return machineToken.token;
+  }
+  return undefined;
+}
+
+function readSourceReplicationSlotRows(
+  sourceStateRoot: string,
+  repoId: string,
+): readonly SwitchoverReplicationSlotRow[] {
+  const slotsPath = path.join(path.resolve(sourceStateRoot), "replication-slots.sqlite");
+  if (!localRuntimeStateFileSystem.exists(slotsPath)) return [];
+  const slots = openReplicationSlots(slotsPath);
+  try {
+    return slots
+      .list()
+      .filter((row) => row.repoId === repoId)
+      .map((row) => ({ repoId: row.repoId, nodeId: row.nodeId, history: row.history, ack: row.ack }));
+  } finally {
+    slots.close();
+  }
 }
 
 function resolveSourceSymmetricIdentity(
@@ -986,12 +1219,15 @@ async function defaultProbeAuth(
   loginUrl: string,
   caPath?: string,
   servername?: string,
+  fallbackCaPem?: string,
 ): Promise<{ readonly ok: boolean; readonly error?: string }> {
   if (!loginUrl) return { ok: false, error: "Target --target-login-url is required." };
   if (!URL.canParse(loginUrl)) return { ok: false, error: `Invalid target login URL: ${loginUrl}` };
   const parsed = new URL(loginUrl),
     ca =
-      caPath && localRuntimeStateFileSystem.exists(caPath) ? localRuntimeStateFileSystem.readText(caPath) : undefined;
+      caPath && localRuntimeStateFileSystem.exists(caPath)
+        ? localRuntimeStateFileSystem.readText(caPath)
+        : fallbackCaPem;
   return await new Promise((resolve) => {
     const client = parsed.protocol === "https:" ? https : http;
     const req = client.request(
@@ -1021,24 +1257,6 @@ function safeParseExternalUrl(value: string): string {
   const parsed = new URL(value);
   if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "") return value;
   return parsed.origin;
-}
-
-function parseCandidateHttpsOrigin(value: string): string | null {
-  if (!URL.canParse(value)) return null;
-  const parsed = new URL(value);
-  return parsed.protocol === "https:" && parsed.username === "" && parsed.password === "" && parsed.pathname === "/"
-    ? parsed.origin
-    : null;
-}
-
-function parseCandidateLoginUrl(value: string): string | null {
-  if (!URL.canParse(value)) return null;
-  const parsed = new URL(value);
-  return (parsed.protocol === "https:" || parsed.protocol === "http:") &&
-    parsed.username === "" &&
-    parsed.password === ""
-    ? parsed.toString()
-    : null;
 }
 
 function normalizeSpkiHex(value: string): string | undefined {

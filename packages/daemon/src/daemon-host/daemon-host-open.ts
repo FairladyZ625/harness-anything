@@ -21,6 +21,11 @@ import {
   prepareFleetCenterAdmission,
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
+import { rebindCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
+import {
+  announceRestoredStandbyCandidate,
+  createHostContextSwitchoverControl,
+} from "./fleet/center-switchover-transport.ts";
 import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 import { centerReviewFailurePrefix } from "./task-review-dispatch.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
@@ -277,6 +282,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       writerEpochFence,
       writerEpochHighWatermark,
       retireWriterEpoch,
+      resetWriterEpochHandle,
       closeDaemonWriterEpoch,
       daemonWriterBinding,
     } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now, storage: input.storage });
@@ -1132,6 +1138,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     writerEpochLease,
     writerEpochHighWatermark,
     retireWriterEpoch,
+    resetWriterEpochHandle,
     closeDaemonWriterEpoch,
     attach,
     localOnly,
@@ -1863,6 +1870,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             : {}),
           userRoot: input.userRoot,
           writerEpochLease: hostContext.writerEpochLease,
+          onSwitchoverControl: createHostContextSwitchoverControl(
+            hostContext,
+            config.stateRoot,
+            rebindCenterRelocationRouting,
+          ),
           payload: config,
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
@@ -1893,7 +1905,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }),
       );
       fleetCenter = started.center;
-      void host.attachmentsSettled().then(() => triggerCenterReviewFallback("fleet-center-restored"));
+      void host.attachmentsSettled().then(() => {
+        triggerCenterReviewFallback("fleet-center-restored");
+        void announceRestoredStandbyCandidate(input.userRoot, authorityRepo, started.center.port, config, oidc);
+      });
       await accessAdmin.resumeEdgeJoinTunnels(started.center.port);
     }
   } catch (error) {

@@ -14,6 +14,7 @@ import {
   openSqliteEventStore,
   publishPendingSqliteGitOutbox,
   promoteFromEdge,
+  promoteFromEdgeAuditPath,
   retireCenter,
   stageCenterRelocation,
   writeFileDurably,
@@ -117,6 +118,7 @@ export function readFleetEdgeLocalState(input: {
   }
   const syncFailureCode =
     health.modelFailure?.code ?? health.syncFailure?.code ?? (hasValidGeneration ? null : "replica_unavailable");
+  const alreadyPromoted = existsSync(promoteFromEdgeAuditPath(path.join(userRoot, "fleet"), repoId));
   return {
     ok: true,
     mode,
@@ -127,7 +129,7 @@ export function readFleetEdgeLocalState(input: {
     localSequence,
     writerEpoch,
     syncFailureCode,
-    canPromote: mode === "remote-edge" && hasValidGeneration,
+    canPromote: mode === "remote-edge" && hasValidGeneration && !alreadyPromoted,
   };
 }
 
@@ -248,6 +250,27 @@ export async function drainLocalDaemonRepoQueue(userRoot: string, daemonId: stri
   );
 }
 
+async function reloadLocalDaemonRepoMode(input: {
+  readonly userRoot: string;
+  readonly daemonId: string;
+  readonly repoId: string;
+  readonly rootDir: string;
+  readonly mode: "local" | "remote-edge";
+}): Promise<boolean> {
+  const endpoint = localUserDaemonEndpoint(input.userRoot, input.daemonId);
+  if (!(await daemonSocketProbe(endpoint))) return false;
+  await requestDaemonJsonRpcAt(
+    endpoint,
+    "daemon.repo.register",
+    { repoId: input.repoId, rootDir: input.rootDir, mode: input.mode },
+    5_000,
+    10_000,
+  );
+  return true;
+}
+
+const activeEdgePromotions = new Map<string, boolean>();
+
 export async function relocateFleetCenter(
   argv: readonly string[],
   defaultUserRoot: string = path.join(os.homedir(), ".harness"),
@@ -262,6 +285,7 @@ export async function relocateFleetCenter(
   if (operation === "switch")
     return await switchFleetCenter(argv, defaultUserRoot, hooks?.switchover, {
       drainLocalDaemonRepoQueue,
+      reloadLocalDaemonRepoMode,
       rebindCenterRelocationRouting,
     });
   return failureOutcome(
@@ -300,6 +324,7 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
     );
   const rootInput = path.resolve(flagValue(argv, "--root")!),
     repoId = flagValue(argv, "--repo")!,
+    stateRoot = path.resolve(flagValue(argv, "--state-root")!),
     edge = readFleetEdgeConfig(userRoot, repoId);
   if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)) throw new Error("--repo must be a valid repository id");
   if (!edge || edge.repoId !== repoId)
@@ -313,74 +338,169 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
     evaluatedAtCut: "host-local:current",
     repoId,
   });
-  const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
-  let singleton = await acquireDaemonSingleton({ userRoot, daemonId, endpoint });
-  let stoppedEdgeDaemon = false;
-  if (!("release" in singleton)) {
-    if (!stopEdgeDaemon)
-      return failureOutcome(
-        "fleet-center-promote-from-edge",
-        "edge_daemon_running",
-        "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
-      );
-    const stopOutcome = await stopRunningEdgeDaemonForPromotion({ userRoot, daemonId, endpoint });
-    if (!stopOutcome.ok) return failureOutcome("fleet-center-promote-from-edge", stopOutcome.code, stopOutcome.hint);
-    singleton = stopOutcome.singleton;
-    stoppedEdgeDaemon = true;
+  // F7: serialize concurrent break-glass attempts per repository and validate registry mode + audit record
+  // BEFORE stopping any running local daemon so a stale retry never tears down a healthy promoted center.
+  const promotionMutexKey = `${userRoot}\0${repoId}`;
+  if (activeEdgePromotions.get(promotionMutexKey) === true) {
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "promotion_in_progress",
+      `Break-glass promotion is already in progress for ${repoId}.`,
+    );
   }
+  activeEdgePromotions.set(promotionMutexKey, true);
   try {
-    const replicaRoot = path.resolve(rootInput, edge.viewRoot, "repos", repoId, "views", edge.nodeId),
-      replica = readReplicaGeneration(replicaRoot);
-    if (!replica || replica.metadata.repoId !== repoId)
-      throw new Error(`edge replica generation is unavailable for repository ${repoId} and node ${edge.nodeId}`);
-    const result = await promoteFromEdge({
+    const preStopRejection = checkPromotionEligibilityBeforeStop({
+      userRoot,
+      stateRoot,
       rootInput,
       repoId,
-      replicaDatabasePath: replica.ledgerPath,
-      replicaGeneration: replica.metadata.ledgerGeneration,
-      replicaPosition: replica.metadata.position,
-      stateRoot: path.resolve(flagValue(argv, "--state-root")!),
-      ...(flagValue(argv, "--holder-id") ? { holderId: flagValue(argv, "--holder-id") } : {}),
-      forceNewEpoch: true,
-      confirmPossibleTailLoss: true,
-      ...(edge.writerEpoch === undefined ? {} : { observedWriterEpoch: edge.writerEpoch }),
-      rbacBackupStatus: rbacStatus as RbacBackupStatus | undefined,
+      edge,
+      requireRegisteredRemoteEdge: stopEdgeDaemon,
     });
-    const registryMode: DaemonRepoMode = switchToLocal ? "local" : "remote-edge";
-    if (switchToLocal) {
-      writeDaemonRegistryRepo({
-        canonicalRoot: rootInput,
-        repoId,
-        mode: "local",
+    if (preStopRejection !== null) return preStopRejection;
+
+    const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+    let singleton = await acquireDaemonSingleton({ userRoot, daemonId, endpoint });
+    let stoppedEdgeDaemon = false;
+    if (!("release" in singleton)) {
+      if (!stopEdgeDaemon)
+        return failureOutcome(
+          "fleet-center-promote-from-edge",
+          "edge_daemon_running",
+          "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
+        );
+      // Re-verify immediately before issuing daemon.stop in case a concurrent process promoted just now.
+      const recheckBeforeStop = checkPromotionEligibilityBeforeStop({
         userRoot,
-        createConvenienceLinks: false,
+        stateRoot,
+        rootInput,
+        repoId,
+        edge,
+        requireRegisteredRemoteEdge: true,
       });
+      if (recheckBeforeStop !== null) return recheckBeforeStop;
+      const stopOutcome = await stopRunningEdgeDaemonForPromotion({ userRoot, daemonId, endpoint });
+      if (!stopOutcome.ok) return failureOutcome("fleet-center-promote-from-edge", stopOutcome.code, stopOutcome.hint);
+      singleton = stopOutcome.singleton;
+      stoppedEdgeDaemon = true;
     }
-    const nextSteps = [
-      "restart_daemon",
-      ...(registryMode === "local" ? [] : ["switch_repo_to_local"]),
-      result.rbacBackupStatus === "verified" ? "verify_rbac_active" : "restore_or_verify_rbac",
-      "start_center_listener",
-      "repoint_other_edges",
-    ];
-    return appliedOutcome({
-      command: "fleet-center-promote-from-edge",
-      outcome: "applied",
-      event: "center_emergency_promoted",
-      ...result,
-      stoppedEdgeDaemon,
-      registryMode,
-      nextSteps,
-      authorizationDecision: ownership,
-      summary: `fleet-center-promote-from-edge: promoted ${result.repoId} at epoch ${String(result.newEpoch)}`,
-      nextAction:
-        result.rbacBackupStatus === "verified"
-          ? "Restart the daemon in local mode, start the new center listener, and repoint edges explicitly."
-          : "Restart the daemon in local mode, verify or restore the RBAC backup before admitting edge writes, start the new center listener, and repoint edges explicitly.",
-    });
+    try {
+      const postLockRejection = checkPromotionEligibilityBeforeStop({
+        userRoot,
+        stateRoot,
+        rootInput,
+        repoId,
+        edge,
+        requireRegisteredRemoteEdge: stopEdgeDaemon,
+      });
+      if (postLockRejection !== null) return postLockRejection;
+      const replicaRoot = path.resolve(rootInput, edge.viewRoot, "repos", repoId, "views", edge.nodeId),
+        replica = readReplicaGeneration(replicaRoot);
+      if (!replica || replica.metadata.repoId !== repoId)
+        throw new Error(`edge replica generation is unavailable for repository ${repoId} and node ${edge.nodeId}`);
+      const result = await promoteFromEdge({
+        rootInput,
+        repoId,
+        replicaDatabasePath: replica.ledgerPath,
+        replicaGeneration: replica.metadata.ledgerGeneration,
+        replicaPosition: replica.metadata.position,
+        stateRoot,
+        ...(flagValue(argv, "--holder-id") ? { holderId: flagValue(argv, "--holder-id") } : {}),
+        forceNewEpoch: true,
+        confirmPossibleTailLoss: true,
+        ...(edge.writerEpoch === undefined ? {} : { observedWriterEpoch: edge.writerEpoch }),
+        rbacBackupStatus: rbacStatus as RbacBackupStatus | undefined,
+      });
+      const registryMode: DaemonRepoMode = switchToLocal ? "local" : "remote-edge";
+      if (switchToLocal) {
+        writeDaemonRegistryRepo({
+          canonicalRoot: rootInput,
+          repoId,
+          mode: "local",
+          userRoot,
+          createConvenienceLinks: false,
+        });
+      }
+      const nextSteps = [
+        "restart_daemon",
+        ...(registryMode === "local" ? [] : ["switch_repo_to_local"]),
+        result.rbacBackupStatus === "verified" ? "verify_rbac_active" : "restore_or_verify_rbac",
+        "start_center_listener",
+        "repoint_other_edges",
+      ];
+      return appliedOutcome({
+        command: "fleet-center-promote-from-edge",
+        outcome: "applied",
+        event: "center_emergency_promoted",
+        ...result,
+        stoppedEdgeDaemon,
+        registryMode,
+        nextSteps,
+        authorizationDecision: ownership,
+        summary: `fleet-center-promote-from-edge: promoted ${result.repoId} at epoch ${String(result.newEpoch)}`,
+        nextAction:
+          result.rbacBackupStatus === "verified"
+            ? "Restart the daemon in local mode, start the new center listener, and repoint edges explicitly."
+            : "Restart the daemon in local mode, verify or restore the RBAC backup before admitting edge writes, start the new center listener, and repoint edges explicitly.",
+      });
+    } finally {
+      singleton.release();
+    }
   } finally {
-    singleton.release();
+    activeEdgePromotions.set(promotionMutexKey, false);
   }
+}
+
+function checkPromotionEligibilityBeforeStop(input: {
+  readonly userRoot: string;
+  readonly stateRoot: string;
+  readonly rootInput: string;
+  readonly repoId: string;
+  readonly edge: NonNullable<ReturnType<typeof readFleetEdgeConfig>>;
+  readonly requireRegisteredRemoteEdge: boolean;
+}): FleetCenterRelocationOutcome | null {
+  if (existsSync(promoteFromEdgeAuditPath(input.stateRoot, input.repoId))) {
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "already_promoted",
+      `An emergency promotion record already exists for ${input.repoId}; refusing to repeat break-glass promotion.`,
+    );
+  }
+  const registered = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+    (entry) => entry.repoId === input.repoId,
+  );
+  if (registered && registered.mode !== "remote-edge") {
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "repo_not_remote_edge",
+      `Repository ${input.repoId} is registered in mode ${registered.mode}, not remote-edge; refusing to stop the local daemon.`,
+    );
+  }
+  if (input.requireRegisteredRemoteEdge && !registered) {
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "repo_not_remote_edge",
+      `Repository ${input.repoId} has no remote-edge registration in this daemon registry; refusing to stop the local daemon.`,
+    );
+  }
+  const replicaRoot = path.resolve(
+    input.rootInput,
+    input.edge.viewRoot,
+    "repos",
+    input.repoId,
+    "views",
+    input.edge.nodeId,
+  );
+  const replica = readReplicaGeneration(replicaRoot);
+  if (!replica || replica.metadata.repoId !== input.repoId) {
+    return failureOutcome(
+      "fleet-center-promote-from-edge",
+      "replica_unavailable",
+      `Edge replica generation is unavailable for repository ${input.repoId} and node ${input.edge.nodeId}.`,
+    );
+  }
+  return null;
 }
 
 async function sendControlledEdgeDaemonStop(

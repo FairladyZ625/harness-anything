@@ -602,6 +602,9 @@
   "collaboration.offline.reason.edgeDaemonRunning": "The local edge daemon is still running; stop it before running break-glass promotion.",
   "collaboration.offline.reason.edgeDaemonStopRefused": "The local edge daemon refused controlled shutdown; promotion was aborted.",
   "collaboration.offline.reason.edgeDaemonStopStalled": "Timed out waiting for the local edge daemon to stop and release its lock; promotion was aborted.",
+  "collaboration.offline.reason.alreadyPromoted": "This repository was already emergency-promoted to a local center; no changes were made.",
+  "collaboration.offline.reason.repoNotRemoteEdge": "This repository is no longer in remote-edge mode; the running local center was left untouched.",
+  "collaboration.offline.reason.promotionInProgress": "A break-glass promotion is already in progress for this repository.",
   "collaboration.offline.reason.missingConfirmation": "Both explicit manual confirmations are required.",
   "collaboration.offline.reason.authorizationDenied": "Current identity is not authorized for break-glass promotion.",
   "collaboration.offline.reason.readOnly": "GUI is attached in read-only mode and rejects break-glass writes."

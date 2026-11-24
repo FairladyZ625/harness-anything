@@ -602,6 +602,9 @@
   "collaboration.offline.reason.edgeDaemonRunning": "本机边缘同步服务仍在运行，请先停止边缘同步服务后再执行破窗提升。",
   "collaboration.offline.reason.edgeDaemonStopRefused": "本机边缘同步服务拒绝安全停机，未执行破窗提升。",
   "collaboration.offline.reason.edgeDaemonStopStalled": "等待本机边缘同步服务停机释放锁超时，未执行破窗提升。",
+  "collaboration.offline.reason.alreadyPromoted": "该仓库已完成破窗提升为本机中心，未重复执行且保持当前服务在线。",
+  "collaboration.offline.reason.repoNotRemoteEdge": "该仓库当前已不是边缘模式，未停止运行中的本机中心服务。",
+  "collaboration.offline.reason.promotionInProgress": "该仓库已有破窗提升请求正在执行，请勿重复提交。",
   "collaboration.offline.reason.missingConfirmation": "缺少必须的双重人工确认。",
   "collaboration.offline.reason.authorizationDenied": "当前身份无权执行破窗提升。",
   "collaboration.offline.reason.readOnly": "当前以只读模式连接后台服务，拒绝破窗写入。"

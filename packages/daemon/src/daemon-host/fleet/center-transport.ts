@@ -570,8 +570,12 @@ export async function serve(
   const dispatch = async (frame: FleetFrameV1) => {
     try {
       const frameRepoId = "repoId" in frame && typeof frame.repoId === "string" ? frame.repoId : undefined;
+      const isSwitchoverTargetControl =
+        frame.schema === "fleet.switchover.status/v1" ||
+        frame.schema === "fleet.switchover.activate/v1" ||
+        frame.schema === "fleet.switchover.invalidate/v1";
       if (frameRepoId !== undefined) {
-        const moved = readListenerCenterRelocated(options, frameRepoId);
+        const moved = readListenerCenterRelocated(options, frameRepoId, isSwitchoverTargetControl);
         if (moved) throw centerMovedFleetFault(moved);
         const writeSchema =
           frame.schema === "fleet.doc.submit/v1" ||
