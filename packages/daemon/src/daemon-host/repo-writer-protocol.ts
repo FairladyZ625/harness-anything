@@ -352,7 +352,7 @@ export interface RepoReadPayload {
   readonly readerId?: string;
   readonly config: Pick<
     import("./repo-cell-types.ts").RepoCellOpenInput,
-    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch"
+    "repoId" | "rootDir" | "userRoot" | "storage" | "mode" | "authoredBranch"
   >;
   readonly method: string;
   readonly args: readonly unknown[];

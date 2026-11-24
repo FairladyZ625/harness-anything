@@ -56,7 +56,15 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 export function makeRepoReadRuntime(
   input: Pick<
     RepoCellOpenInput,
-    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances" | "fleetCursorSecret"
+    | "repoId"
+    | "rootDir"
+    | "userRoot"
+    | "storage"
+    | "mode"
+    | "authoredBranch"
+    | "now"
+    | "runtimeInstances"
+    | "fleetCursorSecret"
   > & { readonly edgeConfig?: () => FleetEdgeConfig | null },
 ) {
   input = { ...input, storage: nodeMaterializationStorage(input) };
@@ -224,6 +232,7 @@ export function makeRepoReadRuntime(
       actionContext = createRepoCellActionContext({
         input: {
           repoId: input.repoId,
+          ...(input.userRoot ? { userRoot: input.userRoot } : {}),
           edgeConfig,
           get nodeTaskMaterializationPolicy() {
             return input.storage?.nodeTaskMaterializationPolicy;
@@ -279,7 +288,7 @@ export function makeRepoReadRuntime(
       }) as RepoCellOperationalContext;
     actionRuntimes = Object.freeze({
       entity: Object.freeze({
-        agent: makeAgentActionRuntime(runtimeContext),
+        agent: makeAgentActionRuntime(runtimeContext, input.userRoot),
         schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
         person: makePersonActionRuntime(runtimeContext),
         squad: makeSquadActionRuntime(runtimeContext),
@@ -290,6 +299,7 @@ export function makeRepoReadRuntime(
         mode: input.mode ?? "local",
         input: {
           repoId: input.repoId,
+          ...(input.userRoot ? { userRoot: input.userRoot } : {}),
           edgeConfig,
           ...(input.fleetCursorSecret ? { fleetCursorSecret: input.fleetCursorSecret } : {}),
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
