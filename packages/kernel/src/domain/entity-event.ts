@@ -28,10 +28,13 @@ import {
   type EntityOwnedContentV1,
 } from "./entity-owned-content.ts";
 import { ENTITY_DOCUMENT_POLICY_ID } from "./base-entity.ts";
+import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import {
   entityContentPath,
   entityContentRoot,
   entityDocumentPath,
+  getEntityKindContract,
   requireEntityStoreKindContract,
   type EntityStoreKindContract,
 } from "./entity-kind-registry.ts";
@@ -637,7 +640,7 @@ function validateReferencePayload(
   let contract: EntityStoreKindContract, descriptor: ArtifactDescriptor;
   try {
     contract = artifactEntityContractFromSnapshot(payload.artifactContract, allowUnknownFields);
-    descriptor = decodeArtifactDescriptor(contract, payload.descriptor);
+    descriptor = decodeArtifactDescriptor(contract, payload.descriptor, allowUnknownFields);
   } catch {
     return ["entity reference artifact contract or descriptor is invalid"];
   }
@@ -669,7 +672,7 @@ function validateReferencePayload(
     payload.resolver !== "reference"
   )
     return ["entity reference source binding is invalid"];
-  const manifestErrors = validateEntityOwnedContent(payload.ownedContent);
+  const manifestErrors = validateEntityOwnedContent(payload.ownedContent, allowUnknownFields);
   if (manifestErrors.length) return manifestErrors;
   const manifest = payload.ownedContent as EntityOwnedContentV1,
     contentRoot = entityContentRoot(contract, String(payload.entityId)),
@@ -751,7 +754,7 @@ function validateDeletedPayload(
     (payload.referenceEntity !== undefined && payload.referenceEntity !== true)
   )
     return ["entity delete payload is invalid"];
-  const errors = validateEntityOwnedContent(payload.ownedContent);
+  const errors = validateEntityOwnedContent(payload.ownedContent, allowUnknownFields);
   if (errors.length) return errors;
   const manifest = payload.ownedContent as EntityOwnedContentV1;
   let contract: EntityStoreKindContract;
@@ -865,15 +868,61 @@ function validateUpsertPayload(
     ])
   )
     return ["entity upsert payload is invalid"];
-  let contract: EntityStoreKindContract;
-  try {
-    contract = requireEntityStoreKindContract(String(payload.entityKind));
-  } catch {
+  const contract = getEntityKindContract(String(payload.entityKind));
+  if (!contract) {
+    if (allowUnknownFields) return validateUnknownKindUpsertPayload(payload, hasFields, schema);
     return ["entity event kind is not registered"];
   }
+  if (contract.entityStore === null || contract.authoring?.kind !== "generic-entity-store")
+    return ["entity event kind is not registered"];
   if (typeof payload.entityId !== "string" || !compiledPattern(contract.id.pattern).test(payload.entityId))
     return ["entity event kind and identity are invalid"];
-  return validateClaim(payload, contract, hasFields, schema, allowUnknownFields);
+  return validateClaim(payload, contract as EntityStoreKindContract, hasFields, schema, allowUnknownFields);
+}
+
+function validateUnknownKindUpsertPayload(
+  payload: Record<string, unknown>,
+  hasFields: typeof hasOnlyFields | typeof hasRequiredFields,
+  schema: unknown,
+): readonly string[] {
+  const claim = payload.declarationDocumentClaim,
+    value = payload.ownedContent;
+  if (
+    typeof payload.entityKind !== "string" ||
+    !payload.entityKind.trim() ||
+    typeof payload.entityId !== "string" ||
+    !payload.entityId.trim() ||
+    !isRecord(claim) ||
+    !hasFields(claim, ["path", "sha256", "size", "mediaType", "policyId"]) ||
+    typeof claim.path !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(String(claim.sha256)) ||
+    !Number.isSafeInteger(claim.size) ||
+    Number(claim.size) < 0 ||
+    typeof claim.mediaType !== "string" ||
+    !claim.mediaType ||
+    !acceptedPolicyIds(schema).includes(String(claim.policyId)) ||
+    validateEntityOwnedContent(value, true).length > 0
+  )
+    return ["entity declaration claim or owned-content manifest is invalid"];
+  try {
+    if (normalizeRelativeDocumentPath(claim.path) !== claim.path)
+      return ["entity declaration claim path is not canonical"];
+  } catch (error) {
+    consumeKnownError(error);
+    return ["entity declaration claim path is invalid"];
+  }
+  const manifest = value as EntityOwnedContentV1,
+    binding = manifest.bindings.find((entry) => entry.path === claim.path),
+    content = manifest.content.find((entry) => entry.sha256 === claim.sha256);
+  return manifest.ownerRef === `${payload.entityKind}/${payload.entityId}` &&
+    binding !== undefined &&
+    content !== undefined &&
+    binding.contentSha256 === claim.sha256 &&
+    binding.policyId === claim.policyId &&
+    content.byteLength === claim.size &&
+    content.mediaType === claim.mediaType
+    ? []
+    : ["entity declaration claim does not match its owned-content manifest"];
 }
 
 function validObservationIdentity(
@@ -931,7 +980,7 @@ function validateClaim(
   // Historical parsing retains the accepted shape; only current writes require an ownership manifest.
   if (payload.ownedContent === undefined)
     return hasFields === hasRequiredFields ? [] : ["entity owned-content manifest is missing"];
-  const manifestErrors = validateEntityOwnedContent(payload.ownedContent);
+  const manifestErrors = validateEntityOwnedContent(payload.ownedContent, hasFields === hasRequiredFields);
   if (manifestErrors.length) return manifestErrors;
   const manifest = payload.ownedContent as EntityOwnedContentV1,
     declarationBinding = manifest.bindings.find(({ path }) => path === claim.path),
@@ -1071,7 +1120,7 @@ function acceptedPolicyIds(schema: unknown): readonly string[] {
     : [ENTITY_DOCUMENT_POLICY_ID];
 }
 
-function isEntityEventEnvelope(schema: unknown, type: unknown): boolean {
+export function isEntityEventEnvelope(schema: unknown, type: unknown): boolean {
   return entityEventEnvelopes.some(
     ([registeredSchema, registeredType]) => registeredSchema === schema && registeredType === type,
   );

@@ -7,7 +7,7 @@ import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/p
 
 type FleetOverview = DaemonGuiReadResultMap["repo.fleet.overview.read"];
 
-test("fleet status renders center-observed online time, build mismatch and timestamped failure", () => {
+test("fleet status renders neutral build skew, center-observed online time and timestamped failure", () => {
   const data = overview(),
     node = data.nodes[2]!;
   const result = {
@@ -16,7 +16,7 @@ test("fleet status renders center-observed online time, build mismatch and times
       {
         ...node,
         online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
-        build: { kind: "value", text: "abcdef (version mismatch; git pull --ff-only, then build CLI and daemon)" },
+        build: { kind: "value", text: "abcdef (build skew, compatible)" },
         watch: {
           kind: "value",
           text: "center phase=awaiting_ack since=2026-11-03T01:00:00.000Z; edge watch unavailable",
@@ -30,7 +30,7 @@ test("fleet status renders center-observed online time, build mismatch and times
   };
   const text = renderDaemonFleetStatus(result as unknown as Record<string, unknown>);
   assert.match(text, /online disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z/u);
-  assert.match(text, /build abcdef \(version mismatch; git pull --ff-only, then build CLI and daemon\)/u);
+  assert.match(text, /build abcdef \(build skew, compatible\)/u);
   assert.match(text, /watch center phase=awaiting_ack since=/u);
   assert.match(text, /lastFailure center_upgrade_required @ .*peer=edge; frame=backup/u);
 });
@@ -236,7 +236,7 @@ test("fleet status render keeps honest three-state fields and never-acked visibl
   );
 });
 
-test("fleet status prints the center and local build identities with the upgrade command", () => {
+test("fleet status does not turn a compatible build difference into an upgrade warning", () => {
   const data = {
     ...overview(),
     versionWarning: {
@@ -246,13 +246,21 @@ test("fleet status prints the center and local build identities with the upgrade
     },
   };
   const text = renderDaemonFleetStatus(data as unknown as Record<string, unknown>);
-  assert.match(
-    text,
-    /WARNING version mismatch center=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa local=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; upgrade with git pull --ff-only, then build CLI and daemon/u,
-  );
+  assert.doesNotMatch(text, /WARNING version mismatch|upgrade with git pull/u);
 });
 
-test("ordinary successful CLI receipts retain the Fleet build warning", () => {
+test("fleet status gives an upgrade instruction for an incompatible edge session", () => {
+  const data = overview();
+  data.nodes[1] = {
+    ...data.nodes[1]!,
+    lastFailure: { kind: "value", text: "edge_upgrade_required @ 2026-11-03T02:00:00.000Z: shape mismatch" },
+  };
+  const text = renderDaemonFleetStatus(data as unknown as Record<string, unknown>);
+  assert.match(text, /WARNING Fleet protocol or event shape is incompatible/u);
+  assert.match(text, /git pull --ff-only, then build CLI and daemon/u);
+});
+
+test("ordinary successful CLI receipts suppress the Fleet build warning", () => {
   const output: string[] = [],
     originalLog = console.log;
   console.log = (line?: unknown) => output.push(String(line ?? ""));
@@ -275,10 +283,7 @@ test("ordinary successful CLI receipts retain the Fleet build warning", () => {
   } finally {
     console.log = originalLog;
   }
-  assert.match(
-    output.join("\n"),
-    /WARNING version mismatch center=center-build local=edge-build; upgrade with git pull --ff-only, then build CLI and daemon/u,
-  );
+  assert.doesNotMatch(output.join("\n"), /WARNING version mismatch|upgrade with git pull/u);
 });
 
 test("a node with no replica row states the gap once, on the reason line", () => {

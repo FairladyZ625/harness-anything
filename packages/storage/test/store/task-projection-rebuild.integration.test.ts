@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -33,8 +34,17 @@ import {
 } from "../../src/store/task-event-store.ts";
 import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts";
 import { openReplicaStore } from "../../src/store/replica-store.ts";
+import { openSqliteEventStore, sqliteContentObjectPath, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "../../src/fleet-basebackup-layout.ts";
+import { hydrateReplicaSeed } from "../../src/fleet-replica-seed.ts";
+import type { BaseBackupMetadata } from "../../src/fleet-basebackup.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { freezeDeclaredWritePlan } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import {
+  artifactImportOperationId,
+  artifactObservationId,
+  canonicalArtifactReferenceSourceIdentity,
+} from "@harness-anything/kernel/internal/domain/artifact-entity.ts";
 import { validateCurrentTaskEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
@@ -59,7 +69,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
-import { sqliteContentObjectPath, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
@@ -1104,6 +1114,365 @@ test("migration truth-gap archives remain queryable after a cold projection rebu
     assert.deepEqual(JSON.parse(row.row_json), migration.payload.entity);
   });
 });
+
+test("replica replay indexes future events, degrades unknown entities and rebuilds a newer cache", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-forward-replay-"));
+  t.after(() => removeTempRepository(rootDir));
+  initRepo(rootDir);
+  const repoId = "forward-replay-edge",
+    seed = makeTaskEventStore({ repoId, rootDir });
+  await seed.drain();
+
+  const knownTaskEvent = structuredClone(lifecycleFixture().events[0]!) as TaskEventV1 & {
+    payload: { task: Record<string, unknown> };
+  };
+  knownTaskEvent.payload.task.futureOptionalField = "center-added";
+
+  const upsertBody = JSON.stringify({ schema: "future-entity/v1", title: "Future entity" }),
+    upsertHash = sha256Text(upsertBody),
+    upsertPath = "entities/future-kind/future-entity.json",
+    unknownKindUpsert = {
+      schema: "entity-event/v1",
+      eventId: "future-kind-upsert-event",
+      workspaceRevision: 2,
+      opId: "future-kind-upsert-op",
+      type: "entity_upserted",
+      actor: { principal: { personId: "person-forward-replay" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-23T00:00:00.000Z",
+      payload: {
+        entityKind: "future-kind",
+        entityId: "future-entity",
+        declarationDocumentClaim: {
+          path: upsertPath,
+          sha256: upsertHash,
+          size: Buffer.byteLength(upsertBody),
+          mediaType: "application/json",
+          policyId: "typed-entity/v1",
+        },
+        ownedContent: {
+          schema: "entity-owned-content/v1",
+          ownerRef: "future-kind/future-entity",
+          schemaId: "schema://future-entity/v1",
+          schemaVersion: 1,
+          content: [{ sha256: upsertHash, byteLength: Buffer.byteLength(upsertBody), mediaType: "application/json" }],
+          bindings: [{ path: upsertPath, contentSha256: upsertHash, policyId: "typed-entity/v1" }],
+          directories: [],
+          retirements: [],
+          directoryRetirements: [],
+        },
+      },
+    },
+    artifactContract = {
+      schema: "artifact-entity-contract/v1",
+      typeIdentity: "future-artifact",
+      kindVersion: 1,
+      descriptorSchemaRef: "schema://artifact-descriptor",
+      idPrefix: "FUT",
+      pathTemplate: "entities/future-artifacts/{id}.json",
+      locatorKinds: ["repository-path"],
+    },
+    entityId = "FUT-00000000000000000000000000000001",
+    locator = { kind: "repository-path", value: "docs/future-artifact.md" } as const,
+    sourceIdentity = canonicalArtifactReferenceSourceIdentity(locator, repoId),
+    declaredContentVersion = "center-version-2",
+    resolution = `reference:${declaredContentVersion}`,
+    unknownDescriptorReference = {
+      schema: "entity-event/v1",
+      eventId: "future-descriptor-event",
+      workspaceRevision: 3,
+      opId: artifactImportOperationId({
+        entityKind: artifactContract.typeIdentity,
+        sourceIdentity,
+        locator,
+        resolution,
+      }),
+      type: "entity_reference_declared",
+      actor: { principal: { personId: "person-forward-replay" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-23T00:00:01.000Z",
+      payload: {
+        entityKind: artifactContract.typeIdentity,
+        entityId,
+        locator,
+        sourceIdentity,
+        resolver: "reference",
+        observationId: artifactObservationId({ entityId, locator, resolution }),
+        artifactContract,
+        declaredContentVersion,
+        descriptor: {
+          schema: artifactContract.descriptorSchemaRef,
+          typeIdentity: artifactContract.typeIdentity,
+          kindVersion: artifactContract.kindVersion,
+          entityId,
+          title: "Future artifact",
+          locator,
+          contentVersion: null,
+          observationMode: "reference",
+          contentState: "unobserved",
+          declaredContentVersion,
+          attributes: { centerAttribute: "retained" },
+          source: sourceIdentity,
+          futureDescriptorField: "center-added",
+        },
+        ownedContent: {
+          schema: "entity-owned-content/v1",
+          ownerRef: `${artifactContract.typeIdentity}/${entityId}`,
+          schemaId: `${artifactContract.descriptorSchemaRef}#${artifactContract.typeIdentity}/v1`,
+          schemaVersion: 1,
+          content: [],
+          bindings: [],
+          directories: [],
+          retirements: [],
+          directoryRetirements: [],
+        },
+      },
+    },
+    schedule = createScheduleV1({
+      scheduleId: "schedule-forward-replay",
+      name: "Forward replay schedule",
+      mode: "detect",
+      spec: {
+        trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-11-23T00:00:00.000Z" },
+        target: { kind: "agent", agentId: "codex" },
+        mission: "Replay a schedule document with a future optional field.",
+      },
+      actor: { principal: { personId: "person-forward-replay" }, executor: null },
+      occurredAt: "2026-11-23T00:00:01.000Z",
+    }),
+    scheduleBundle = compileScheduleDefinitionEvent({
+      type: "schedule_created",
+      schedule,
+      eventId: "forward-schedule-event",
+      opId: "forward-schedule-op",
+      workspaceRevision: 4,
+      actor: { principal: { personId: "person-forward-replay" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-23T00:00:01.000Z",
+    }),
+    scheduleBody = JSON.stringify({ ...JSON.parse(scheduleBundle.blobs[0].body), futureOptionalField: "center-added" }),
+    scheduleHash = sha256Text(scheduleBody),
+    futureScheduleEvent = {
+      ...scheduleBundle.event,
+      payload: {
+        ...scheduleBundle.event.payload,
+        declarationDocumentClaim: {
+          ...scheduleBundle.event.payload.declarationDocumentClaim,
+          sha256: scheduleHash,
+          size: Buffer.byteLength(scheduleBody),
+        },
+      },
+    },
+    unknownFactType = {
+      schema: "fact-event/v1",
+      eventId: "future-fact-type-event",
+      workspaceRevision: 5,
+      opId: "future-fact-type-op",
+      factId: "F-12345678",
+      type: "fact_recorded_with_future_evidence",
+      actor: { principal: { personId: "person-forward-replay" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-23T00:00:02.000Z",
+      payload: { futureEvidence: true },
+    },
+    unknownDecisionType = {
+      schema: "decision-event/v1",
+      eventId: "future-decision-type-event",
+      workspaceRevision: 6,
+      opId: "future-decision-type-op",
+      decisionId: "dec_forward_compat",
+      type: "decision_review_recorded_with_future_fields",
+      actor: { principal: { personId: "person-forward-replay" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-23T00:00:03.000Z",
+      payload: { futureReview: true },
+    },
+    unknownTaskType = {
+      ...knownTaskEvent,
+      eventId: "future-task-type-event",
+      workspaceRevision: 7,
+      opId: "future-task-type-op",
+      type: "task_created_with_future_metadata",
+      payload: { futureMetadata: true },
+      occurredAt: "2026-11-23T00:00:04.000Z",
+    },
+    unknownSchema = {
+      ...knownTaskEvent,
+      schema: "task-event/v2",
+      eventId: "future-schema-event",
+      workspaceRevision: 8,
+      opId: "future-schema-op",
+      type: "task_created_with_future_schema",
+      payload: { futureMetadata: true },
+      occurredAt: "2026-11-23T00:00:05.000Z",
+    },
+    events = [
+      knownTaskEvent,
+      unknownKindUpsert,
+      unknownDescriptorReference,
+      futureScheduleEvent,
+      unknownFactType,
+      unknownDecisionType,
+      unknownTaskType,
+      unknownSchema,
+    ],
+    replica = openReplicaStore({ databasePath: sqliteLedgerPath(rootDir), repoId }),
+    start = replica.position(),
+    eventRows = events.map((event, index) => {
+      const eventJson = serializeCanonicalEventUnchecked(event as never);
+      return {
+        revision: index + 1,
+        opId: event.opId,
+        eventJson,
+        occurredAt: event.occurredAt,
+        recordedAt: "2026-11-23T00:00:10.000Z",
+        digest: `sha256:${sha256Text(eventJson)}`,
+      };
+    });
+  replica.apply(
+    {
+      position: { ...start, sequence: start.sequence + 1, revision: eventRows.length },
+      events: eventRows,
+      outcome: null,
+      writer: null,
+    },
+    [
+      {
+        sha256: upsertHash,
+        size: Buffer.byteLength(upsertBody),
+        mediaType: "application/json",
+        body: upsertBody,
+      },
+      {
+        sha256: scheduleHash,
+        size: Buffer.byteLength(scheduleBody),
+        mediaType: "application/json",
+        body: scheduleBody,
+      },
+    ],
+  );
+  replica.close();
+
+  const reader = makeTaskEventReader({ rootDir, repoId }),
+    projectionPath = path.join(rootDir, ".harness/cache/forward-replay.sqlite");
+  let projection = makeTaskProjection({ rootDir, eventStore: reader, projectionPath });
+  const catchUp = await projection.catchUpAsync!();
+  assert.equal(catchUp.watermark, eventRows.length);
+  assert.equal(projection.read(knownTaskEvent.taskId).snapshot.task?.status, knownTaskEvent.payload.task.status);
+  assert.equal(projection.getEntity("future-kind", "future-entity")?.freshness, "unknown");
+  const futureArtifact = projection.getEntity("future-artifact", entityId);
+  assert.equal(futureArtifact?.freshness, "unknown");
+  assert.equal((futureArtifact?.value.attributes as Record<string, unknown>).centerAttribute, "retained");
+  assert.equal(projection.getEntity("schedule", schedule.scheduleId)?.freshness, "current");
+
+  const index = new DatabaseSync(projectionPath, { readOnly: true });
+  try {
+    const rows = index.prepare("SELECT op_id, event_json FROM event_index ORDER BY workspace_revision").all() as {
+      readonly op_id: string;
+      readonly event_json: string;
+    }[];
+    assert.equal(rows.length, eventRows.length);
+    assert.deepEqual(
+      rows.map((row) => row.op_id),
+      events.map((event) => event.opId),
+    );
+    assert.equal(JSON.parse(rows[0]!.event_json).payload.task.futureOptionalField, "center-added");
+  } finally {
+    index.close();
+  }
+  projection.close();
+
+  const newer = new DatabaseSync(projectionPath);
+  try {
+    newer
+      .prepare("UPDATE projection_meta SET schema_version = ? WHERE singleton = 1")
+      .run(taskProjectionSchemaVersion + 1);
+  } finally {
+    newer.close();
+  }
+  projection = makeTaskProjection({ rootDir, eventStore: reader, projectionPath });
+  const rebuilt = await projection.catchUpAsync!();
+  assert.equal(rebuilt.watermark, eventRows.length);
+  assert.equal(projection.read(knownTaskEvent.taskId).snapshot.task?.status, knownTaskEvent.payload.task.status);
+  projection.close();
+  await reader.drain();
+});
+
+test("replica seed hydration retains an unknown schema event byte-for-byte", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const repoId = "forward-seed-edge",
+      sourcePath = path.join(rootDir, "source-ledger.sqlite"),
+      source = openSqliteEventStore({ repoId, databasePath: sourcePath, generation: 2 }),
+      fence = { repoId, holder: "center", epoch: 1 },
+      task = lifecycleFixture().events[0]!;
+    source.claimWriter(fence);
+    source.appendCommand({
+      fence,
+      intent: { opId: task.opId, intentDigest: `sha256:${sha256Text("forward seed")}`, summary: task.type },
+      events: [task],
+    });
+    const position = source.replicationPosition(),
+      outcome = source.outcomes()[0]!,
+      row = source.eventRows()[0]!,
+      futureEvent = { ...task, schema: "task-event/v2" },
+      futureBytes = serializeCanonicalEventUnchecked(futureEvent as never),
+      ledgerPath = path.join(rootDir, BASE_BACKUP_ARCHIVE_ROOT, "store", "generations", "3", "ledger.sqlite"),
+      seedDirectory = path.dirname(ledgerPath);
+    source.close();
+    mkdirSync(seedDirectory, { recursive: true });
+    const target = openSqliteEventStore({ repoId, databasePath: ledgerPath, generation: 3 });
+    target.close();
+    writeFileSync(
+      path.join(seedDirectory, "canonical-seed.json"),
+      JSON.stringify({
+        events: [{ ...row, eventJson: futureBytes, digest: `sha256:${sha256Text(futureBytes)}` }],
+        outcomes: [outcome],
+        writer: fence,
+      }),
+    );
+    const metadata: BaseBackupMetadata = {
+      schema: "fleet-basebackup/v3",
+      readerProfile: null,
+      repoId,
+      position,
+      ledgerGeneration: 3,
+      projectionSchema: taskProjectionSchemaVersion + 1,
+    };
+
+    await hydrateReplicaSeed(rootDir, metadata);
+
+    const ledger = new DatabaseSync(ledgerPath, { readOnly: true }),
+      projectionPath = path.join(rootDir, BASE_BACKUP_ARCHIVE_ROOT, "cache", "task.sqlite"),
+      projection = new DatabaseSync(projectionPath, { readOnly: true });
+    try {
+      assert.equal(
+        (ledger.prepare("SELECT event_json FROM event WHERE revision = 1").get() as { event_json: string }).event_json,
+        futureBytes,
+      );
+      assert.equal(
+        (
+          projection.prepare("SELECT event_json FROM event_index WHERE workspace_revision = 1").get() as {
+            event_json: string;
+          }
+        ).event_json,
+        futureBytes.trimEnd(),
+      );
+      const summary = JSON.parse(
+        (
+          projection.prepare("SELECT summary_json FROM event_summary WHERE workspace_revision = 1").get() as {
+            summary_json: string;
+          }
+        ).summary_json,
+      ) as { readonly schema: string };
+      assert.equal(summary.schema, "task-event/v2");
+    } finally {
+      projection.close();
+      ledger.close();
+    }
+  });
+});
+
 function taskBundle(event: TaskEventV1): CanonicalWriteBundle {
   return { event, plan: taskLifecycleWritePlan(event), blobs: [] };
 }

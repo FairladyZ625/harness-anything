@@ -7,7 +7,12 @@ import type {
 } from "./vertical-definition.ts";
 import { artifactLocatorKinds } from "./vertical-definition.ts";
 import { artifactEntityIdPattern } from "./entity-ref.ts";
-import { compiledPattern, parseEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import {
+  compiledPattern,
+  parseEntityJsonSchema,
+  type EntityDocumentJsonSchema,
+  type EntityJsonObjectSchema,
+} from "./entity-json-schema.ts";
 import {
   genericAuthoring,
   genericEntityStore,
@@ -241,8 +246,10 @@ function attributeNode(declaration: EntityAttributeDeclaration) {
 export function decodeArtifactDescriptor(
   contract: Pick<EntityKindContract, "kind" | "schema">,
   value: unknown,
+  allowUnknownFields = false,
 ): ArtifactDescriptor {
-  const descriptor = parseEntityJsonSchema(contract.schema, value, `${contract.kind} artifact descriptor`);
+  const decodeValue = allowUnknownFields ? knownDescriptorFields(contract.schema, value) : value,
+    descriptor = parseEntityJsonSchema(contract.schema, decodeValue, `${contract.kind} artifact descriptor`);
   if (!isArtifactDescriptor(descriptor))
     throw new ArtifactEntityContractError("Artifact descriptor fields do not match artifact-descriptor/v1.");
   if (
@@ -263,6 +270,24 @@ export function decodeArtifactDescriptor(
   // `source` is a binding the center records, not a seed the identity is recomputed from: reading an entity
   // never re-derives its id, which is what lets a move keep the id while restating where the material came from.
   return deepFreeze({ ...descriptor, locator });
+}
+
+function knownDescriptorFields(schema: EntityDocumentJsonSchema, value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const known = Object.fromEntries(
+    Object.keys(schema.properties).flatMap((key) => (Object.hasOwn(value, key) ? [[key, value[key]]] : [])),
+  );
+  for (const key of ["locator", "attributes"] as const) {
+    const nestedSchema = schema.properties[key] as EntityJsonObjectSchema | undefined,
+      nestedValue = known[key];
+    if (nestedSchema?.type === "object" && !nestedSchema.additionalProperties && isRecord(nestedValue))
+      known[key] = Object.fromEntries(
+        Object.keys(nestedSchema.properties).flatMap((field) =>
+          Object.hasOwn(nestedValue, field) ? [[field, nestedValue[field]]] : [],
+        ),
+      );
+  }
+  return known;
 }
 
 export function canonicalArtifactLocator(locator: ArtifactLocator): ArtifactLocator {

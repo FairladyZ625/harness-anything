@@ -8,7 +8,6 @@ import { runtimeSessionEntityV1, type RuntimeSession } from "@harness-anything/k
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import {
   deriveEntityProjection,
-  interpretEmbeddedEntityProjections,
   interpretEntityValue,
   type InterpretedEntityValue,
   type InterpretedEntityProjection,
@@ -22,6 +21,7 @@ import { checkedPageLimit } from "./task-query-projection.ts";
 import type { EntityProjectionRow, PinnedEntityProjectionRow } from "@harness-anything/kernel";
 import { entityValueFilterEntries } from "./entity-value-filter.ts";
 import type { EntityFreshness, EntityVersion } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
+import { interpretEmbeddedReplayProjections } from "./entity-declaration-replay.ts";
 
 const UPSERT_ENTITY_SQL = [
   "INSERT INTO entity_projection(entity_kind, entity_id, task_id, workspace_revision,",
@@ -44,7 +44,9 @@ const GET_ENTITY_SQL = [
 
 export function projectEmbeddedCanonicalEntities(db: DatabaseSync, event: CanonicalEventV1): void {
   for (const contract of entityKindContracts)
-    for (const projection of interpretEmbeddedEntityProjections(contract, event))
+    for (const projection of interpretEmbeddedReplayProjections(contract, event, (entityId, value) =>
+      markEntityProjectionUninterpretable(db, contract.kind, entityId, event.workspaceRevision, value),
+    ))
       writeEntityProjection(db, projection, "current", projection.workspaceRevision);
 }
 

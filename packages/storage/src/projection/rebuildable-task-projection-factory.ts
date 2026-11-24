@@ -176,7 +176,7 @@ export function makeTaskProjection(
         options.onValidationProgress,
       );
     } catch (error) {
-      if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
+      if (error instanceof ProjectionSchemaMismatchError) {
         consumeKnownError(error);
         discardDatabase(projectionPath, options.eventStore, "schema_mismatch", options.onValidationProgress);
       } else if (error instanceof ProjectionIdentityMismatchError) consumeKnownError(error);

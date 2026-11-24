@@ -286,6 +286,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateBinding:b232d8ef1778bfdb3875583f500d884e",
             "route": "packages/kernel/src/domain/entity-owned-content.ts#validateBinding"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateBinding:2aba566f30f10812b1dd101d8fb063b6",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateBinding"
           }
         ],
         "order": 8
@@ -297,6 +301,10 @@
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateContentObject:944d1901f9cdf9a714fc7ba95fce9cac",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateContentObject"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateContentObject:706297f3f2cc2366911335a0b787b0ff",
             "route": "packages/kernel/src/domain/entity-owned-content.ts#validateContentObject"
           }
         ],
@@ -310,6 +318,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateDirectory:9635b6579f8dc28a0f5aa686159618ec",
             "route": "packages/kernel/src/domain/entity-owned-content.ts#validateDirectory"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateDirectory:bf1fd5aa88cbcc32df4d6ee28ca73760",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateDirectory"
           }
         ],
         "order": 9
@@ -322,6 +334,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent:22985161d6cbacdb6443918dc48a7abf",
             "route": "packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent:bf8d39f14982655961cdb692a0b1b952",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent"
           }
         ],
         "order": 6
@@ -333,6 +349,10 @@
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateRetirement:a4595a3e5d1fc0f0bce8384de9d198f1",
+            "route": "packages/kernel/src/domain/entity-owned-content.ts#validateRetirement"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateRetirement:6934228a62498f5c87af8cd4d0b53ec0",
             "route": "packages/kernel/src/domain/entity-owned-content.ts#validateRetirement"
           }
         ],
@@ -484,6 +504,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionV1:e45cca57052fa8d8422935c80e8f399f",
             "route": "packages/kernel/src/domain/execution.ts#validateExecutionV1"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateExecutionV1:7a489b7d307126bac5e9cda3441139cf",
+            "route": "packages/kernel/src/domain/execution.ts#validateExecutionV1"
           }
         ],
         "order": 3
@@ -519,6 +543,10 @@
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateSubmissionV1:1a8e62973233a5b7f02237ce0d8ea3f1",
+            "route": "packages/kernel/src/domain/execution.ts#validateSubmissionV1"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/execution.ts#validateSubmissionV1:b947c67d770bad2ab399cb4ccbe2eebc",
             "route": "packages/kernel/src/domain/execution.ts#validateSubmissionV1"
           }
         ],
@@ -894,6 +922,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateClaim:8cf60fcd54c6741b78c39f3741973653",
             "route": "packages/kernel/src/domain/entity-event.ts#validateClaim"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateClaim:7eee13de14148f166ee67e33329fdf37",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateClaim"
           }
         ],
         "order": 53
@@ -905,6 +937,10 @@
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateDeletedPayload:7640dc09a813fb9807bbd275a239ac33",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateDeletedPayload"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateDeletedPayload:79ad8e5ad3aa153db2908a94398d0671",
             "route": "packages/kernel/src/domain/entity-event.ts#validateDeletedPayload"
           }
         ],
@@ -954,6 +990,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateReferencePayload:48a9c55776fb5288db746303db1f6002",
             "route": "packages/kernel/src/domain/entity-event.ts#validateReferencePayload"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateReferencePayload:d6c69bcd549e2308768c65d048cff32a",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateReferencePayload"
           }
         ],
         "order": 48
@@ -965,6 +1005,14 @@
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUpsertPayload:adf093d21873d77be5edcf0ace0d6e3a",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateUpsertPayload"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUpsertPayload:cb2b1dd0d953905e747010c05befbfeb",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateUpsertPayload"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUpsertPayload:12db5ce5418416749e53dfa14cefb13e",
             "route": "packages/kernel/src/domain/entity-event.ts#validateUpsertPayload"
           }
         ],
@@ -1382,6 +1430,30 @@
           }
         ],
         "order": 3
+      },
+      {
+        "id": "entity-event-unknown-kind-upsert",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload",
+        "inputs": [
+          "payload: Record<string, unknown>",
+          "hasFields: strict or replay field checker",
+          "schema: unknown"
+        ],
+        "output": "readonly string[]",
+        "failureCodes": [
+          "invalid_entity_event"
+        ],
+        "explain": "Validate the minimum declaration claim and owned-content manifest required to retain an unknown entity kind during replay.",
+        "consumers": [
+          "packages/kernel/src/domain/entity-event.ts"
+        ],
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload:3600cb27c35d400d058a338c293b946b",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload"
+          }
+        ],
+        "order": 5
       },
       {
         "id": "queryPayloadValidation",
@@ -2012,6 +2084,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:5e4c259247b45a5a3c7dec1851c13376",
             "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:7edbc867ce1df5a8e21ea33871c21693",
+            "route": "packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields"
           }
         ],
         "order": 0
@@ -2392,6 +2468,10 @@
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields:9e3fe3ec586a1d973bfc9c35a72539a4",
             "route": "packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields:86479abbbee15fbb8dcffb49f07eea06",
+            "route": "packages/kernel/src/domain/task-lifecycle-event.ts#validateTaskEventFields"
           }
         ],
         "order": 9
@@ -2475,6 +2555,10 @@
         "sources": [
           {
             "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task.ts#validateTaskV2:e2f7ec1de26e559225ba7b420a9514be",
+            "route": "packages/kernel/src/domain/task.ts#validateTaskV2"
+          },
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/task.ts#validateTaskV2:e1eb571883392cefe1906b72b72c0510",
             "route": "packages/kernel/src/domain/task.ts#validateTaskV2"
           }
         ],

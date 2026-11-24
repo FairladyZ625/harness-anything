@@ -1,4 +1,4 @@
-import { isNonEmptyString, isRecord } from "./contract-validation.ts";
+import { hasOnlyFields, hasRequiredFields, isNonEmptyString, isRecord } from "./contract-validation.ts";
 import { timestamp } from "./timestamp.ts";
 
 export type TaskAssignee =
@@ -17,24 +17,23 @@ export interface TaskClaimant {
 export const taskClaimScopes = ["node", "reserved", "startable"] as const;
 export type TaskClaimScope = (typeof taskClaimScopes)[number];
 
-export function validTaskAssignment(value: unknown): value is TaskAssignment {
+export function validTaskAssignment(value: unknown, allowUnknownFields = false): value is TaskAssignment {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (
     !isRecord(value) ||
-    Object.keys(value).some((key) => !["assignee", "expiresAt"].includes(key)) ||
+    !hasFields(value, ["assignee", "expiresAt"]) ||
     !timestamp(value.expiresAt) ||
     !isRecord(value.assignee)
   )
     return false;
   const assignee = value.assignee;
-  if (assignee.kind === "node")
-    return isNonEmptyString(assignee.nodeId) && Object.keys(assignee).every((key) => ["kind", "nodeId"].includes(key));
-  if (assignee.kind === "team")
-    return isNonEmptyString(assignee.teamId) && Object.keys(assignee).every((key) => ["kind", "teamId"].includes(key));
+  if (assignee.kind === "node") return hasFields(assignee, ["kind", "nodeId"]) && isNonEmptyString(assignee.nodeId);
+  if (assignee.kind === "team") return hasFields(assignee, ["kind", "teamId"]) && isNonEmptyString(assignee.teamId);
   return (
     assignee.kind === "person" &&
     isNonEmptyString(assignee.personId) &&
     (assignee.nodeId === undefined || isNonEmptyString(assignee.nodeId)) &&
-    Object.keys(assignee).every((key) => ["kind", "personId", "nodeId"].includes(key))
+    hasFields(assignee, ["kind", "personId", ...(assignee.nodeId === undefined ? [] : ["nodeId"])])
   );
 }
 

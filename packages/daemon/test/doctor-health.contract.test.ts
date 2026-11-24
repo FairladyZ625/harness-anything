@@ -84,7 +84,7 @@ test("doctor health reports the nine checks and degrades to indeterminate withou
   }
 });
 
-test("doctor health reports a stable actionable Fleet build warning", () => {
+test("doctor health treats protocol-compatible Fleet build differences as healthy", () => {
   assert.deepEqual(
     fleetVersionDoctorCheck([
       "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with git pull --ff-only, then build CLI and daemon.",
@@ -92,10 +92,25 @@ test("doctor health reports a stable actionable Fleet build warning", () => {
     ]),
     {
       id: "fleet-version",
+      status: "ok",
+      count: 0,
+      summary: "Fleet peers are protocol-compatible despite build differences.",
+      next: "Nothing to do.",
+    },
+  );
+});
+
+test("doctor health retains an actionable check for protocol incompatibility", () => {
+  assert.deepEqual(
+    fleetVersionDoctorCheck([
+      "protocol_version_unsupported: center requires fleet protocol v4",
+      "protocol_version_unsupported: center requires fleet protocol v4",
+    ]),
+    {
+      id: "fleet-version",
       status: "warn",
       count: 1,
-      summary:
-        "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with git pull --ff-only, then build CLI and daemon.",
+      summary: "protocol_version_unsupported: center requires fleet protocol v4",
       next: "Run git pull --ff-only, then build CLI and daemon on the center and edge, then reconnect the Fleet session.",
     },
   );

@@ -1,4 +1,4 @@
-import { isNonEmptyString, isRecord, hasOnlyFields } from "./contract-validation.ts";
+import { isNonEmptyString, isRecord, hasOnlyFields, hasRequiredFields } from "./contract-validation.ts";
 import { isNativeCommitSha } from "./submission-digest.ts";
 import type { TaskRiskTierAssessmentV1 } from "./execution.ts";
 
@@ -6,10 +6,14 @@ function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);
 }
 
-export function isTaskRiskTierAssessmentV1(value: unknown): value is TaskRiskTierAssessmentV1 {
+export function isTaskRiskTierAssessmentV1(
+  value: unknown,
+  allowUnknownFields = false,
+): value is TaskRiskTierAssessmentV1 {
+  const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   return (
     isRecord(value) &&
-    hasOnlyFields(value, [
+    hasFields(value, [
       "schema",
       "declaredTier",
       "effectiveTier",
@@ -28,7 +32,7 @@ export function isTaskRiskTierAssessmentV1(value: unknown): value is TaskRiskTie
     value.matchedPathReviewers.every(
       (lane) =>
         isRecord(lane) &&
-        hasOnlyFields(lane, ["agentId", "paths"]) &&
+        hasFields(lane, ["agentId", "paths"]) &&
         isNonEmptyString(lane.agentId) &&
         stringArray(lane.paths),
     ) &&
