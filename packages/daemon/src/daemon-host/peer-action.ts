@@ -363,7 +363,9 @@ export function runPeerAction(
     }
     const toPersonId = requiredString(action.toPersonId, "--to");
     const isHandoff = action.kind === "peer-handoff";
-    const kind = (isHandoff ? "handoff" : (optionalString(action.requestKind) ?? "question")) as PeerRequestKind;
+    const requestedKind = optionalString(action.requestKind),
+      isDelegate = requestedKind === "delegate",
+      kind = (isHandoff ? "handoff" : isDelegate ? "ops-request" : (requestedKind ?? "question")) as PeerRequestKind;
     if (!peerRequestKinds.includes(kind)) reject("invalid_field", `Unsupported peer request kind: ${kind}.`);
 
     const workId = optionalString(action.workId);
@@ -428,11 +430,8 @@ export function runPeerAction(
       summary = requiredString(action.summary, "--summary");
       const providedClaim = optionalString(action.claim),
         providedAction = optionalString(action.requestedAction);
-      claimText =
-        providedClaim ?? ((kind as string) === "delegate" ? summary : requiredString(action.claim, "--claim"));
-      requestedAction =
-        providedAction ??
-        ((kind as string) === "delegate" ? summary : requiredString(action.requestedAction, "--action"));
+      claimText = providedClaim ?? (isDelegate ? summary : requiredString(action.claim, "--claim"));
+      requestedAction = providedAction ?? (isDelegate ? summary : requiredString(action.requestedAction, "--action"));
     }
 
     const requestInput: PeerRequestInput = {

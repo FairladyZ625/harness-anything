@@ -71,6 +71,9 @@ test(
         heartbeatIntervalSec: 300,
       });
       assert.equal(config.ok, true, JSON.stringify(config));
+      const persistedProfiles = (await host.read(repoId, "repo.settings.read", {}, auth)).settings
+        .residentCeoProfilesJson;
+      assert.ok(persistedProfiles?.includes('"person_bob"'));
       const started = await ceo("start");
       assert.equal(started.ok, true, JSON.stringify(started));
 
@@ -97,14 +100,15 @@ test(
       assert.equal((stopped.profile as { status: string }).status, "stopped");
 
       signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+      assert.equal(
+        (await host.read(repoId, "repo.settings.read", {}, auth)).settings.residentCeoProfilesJson,
+        persistedProfiles,
+      );
       const senderView = evidence(
         await host.run(repoId, { kind: "peer-watch", once: true, replyTo: request.requestId }, auth),
       ) as { request: PeerRequestV1 };
       assert.equal(senderView.request.state, "ANSWERED");
-      assert.equal(
-        senderView.request.reply?.structuredBody.claim,
-        "The recipient's resident CEO processed this request.",
-      );
+      assert.equal(senderView.request.reply?.structuredBody.claim, "codex final result");
     } finally {
       await host.close();
       removeTempRepository(parent);

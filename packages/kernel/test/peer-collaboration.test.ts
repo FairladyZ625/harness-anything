@@ -10,6 +10,7 @@ import {
   evaluatePeerExecutionCeiling,
   isPeerFrameCausallyReady,
   matchesPeerWatchFilter,
+  peerRequestKinds,
   reducePeerRequestEvent,
   verifyPeerSenderIdentity,
   type PeerRequestEventV1,
@@ -61,6 +62,13 @@ const claim = (requestRevision = 2, expiresAt = expiry, occurredAt = start, pers
 const terminal = { requestId: "peer_123", requestRevision: 3, claimId: "event-2" };
 const done = (payload = terminal, occurredAt = start) => envelope("peer_request_done", payload, "bob", occurredAt);
 const claimedRequest = () => reducePeerRequestEvent(reducePeerRequestEvent(null, open()), claim());
+
+test("PeerRequest/v1 retains the kind vocabulary accepted by the previous reader", () => {
+  assert.deepEqual(peerRequestKinds, ["question", "ops-request", "merge-request", "handoff"]);
+  assert.throws(() => reducePeerRequestEvent(null, open(request({ kind: "delegate" as never }))), {
+    code: "peer_request_invalid_input",
+  });
+});
 
 test("PeerRequest has a canonical state store and one registered lifecycle vocabulary", () => {
   const kind = requireEntityKindContract("peer-request");

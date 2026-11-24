@@ -1,104 +1,66 @@
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
 import type { ResidentCeoProfile } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 
-interface ResidentCeoProfileStore {
+export interface ResidentCeoProfileStore {
   readonly read: (principalPersonId: string) => Promise<ResidentCeoProfile | null>;
-  readonly list: () => Promise<readonly ResidentCeoProfile[]>;
   readonly write: (profile: ResidentCeoProfile, expectedUpdatedAt: string | null) => Promise<void>;
 }
 
-function profilePath(userRoot: string, principalPersonId: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(principalPersonId))
-    throw new Error("Resident CEO principal id is invalid.");
-  return path.join(userRoot, "resident-ceo", `${principalPersonId}.json`);
-}
+const profileWriteQueues = new Map<string, Promise<void>>();
 
-export function openResidentCeoProfileStore(userRoot: string): ResidentCeoProfileStore {
-  const pendingWrites = new Map<string, Promise<void>>();
-  return {
-    list: async () => {
-      const directory = path.join(userRoot, "resident-ceo");
-      let entries: string[];
-      try {
-        entries = readdirSync(directory).filter((entry) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}\.json$/u.test(entry));
-      } catch (error) {
-        consumeKnownError(error);
-        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
-        throw error;
-      }
-      return entries.map((entry) => {
-        const principalPersonId = entry.slice(0, -5),
-          value: unknown = JSON.parse(readFileSync(path.join(directory, entry), "utf8"));
-        if (!value || typeof value !== "object" || Array.isArray(value))
-          throw new Error(`Resident CEO profile for ${principalPersonId} is malformed.`);
-        const profile = value as ResidentCeoProfile;
-        if (profile.principalPersonId !== principalPersonId || profile.schema !== "resident-ceo-profile/v1")
-          throw new Error(`Resident CEO profile for ${principalPersonId} has an invalid identity or schema.`);
-        return profile;
-      });
-    },
-    read: async (principalPersonId) => {
-      const filePath = profilePath(userRoot, principalPersonId);
-      let contents: string;
-      try {
-        contents = readFileSync(filePath, "utf8");
-      } catch (error) {
-        consumeKnownError(error);
-        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
-        throw error;
-      }
-      const value: unknown = JSON.parse(contents);
-      if (!value || typeof value !== "object" || Array.isArray(value))
-        throw new Error(`Resident CEO profile for ${principalPersonId} is malformed.`);
-      const profile = value as ResidentCeoProfile;
+export function openResidentCeoProfileStore(input: {
+  readonly key: string;
+  readonly readSerialized: () => Promise<string | undefined>;
+  readonly writeSerialized: (value: string) => Promise<void>;
+}): ResidentCeoProfileStore {
+  const readProfiles = async (): Promise<Record<string, ResidentCeoProfile>> => {
+    const serialized = await input.readSerialized();
+    if (serialized === undefined) return {};
+    const value: unknown = JSON.parse(serialized);
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Resident CEO profiles are malformed.");
+    const profiles = value as Record<string, ResidentCeoProfile>;
+    for (const [principalPersonId, profile] of Object.entries(profiles)) {
       if (
         profile.schema !== "resident-ceo-profile/v1" ||
         profile.principalPersonId !== principalPersonId ||
         typeof profile.updatedAt !== "string"
       )
         throw new Error(`Resident CEO profile for ${principalPersonId} has an invalid identity or schema.`);
+    }
+    return profiles;
+  };
+
+  return {
+    read: async (principalPersonId) => {
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(principalPersonId))
+        throw new Error("Resident CEO principal id is invalid.");
+      const profile = (await readProfiles())[principalPersonId] ?? null;
+      if (
+        profile !== null &&
+        (profile.schema !== "resident-ceo-profile/v1" ||
+          profile.principalPersonId !== principalPersonId ||
+          typeof profile.updatedAt !== "string")
+      )
+        throw new Error(`Resident CEO profile for ${principalPersonId} has an invalid identity or schema.`);
       return profile;
     },
     write: async (profile, expectedUpdatedAt) => {
-      const filePath = profilePath(userRoot, profile.principalPersonId),
-        previous = pendingWrites.get(profile.principalPersonId) ?? Promise.resolve();
+      const previous = profileWriteQueues.get(input.key) ?? Promise.resolve();
       let release!: () => void;
       const currentWrite = new Promise<void>((resolve) => (release = resolve));
       const queuedWrite = previous.then(() => currentWrite);
-      pendingWrites.set(profile.principalPersonId, queuedWrite);
+      profileWriteQueues.set(input.key, queuedWrite);
       await previous;
       try {
-        const current = await thisRead(filePath);
+        const profiles = await readProfiles(),
+          current = profiles[profile.principalPersonId] ?? null;
         if ((current?.updatedAt ?? null) !== expectedUpdatedAt)
           throw new Error(`Resident CEO profile for ${profile.principalPersonId} changed before write.`);
-        mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
-        const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-        writeFileSync(temporary, `${JSON.stringify(profile, null, 2)}\n`, { mode: 0o600 });
-        try {
-          renameSync(temporary, filePath);
-        } catch (error) {
-          rmSync(temporary, { force: true });
-          throw error;
-        }
+        await input.writeSerialized(JSON.stringify({ ...profiles, [profile.principalPersonId]: profile }));
       } finally {
         release();
-        if (pendingWrites.get(profile.principalPersonId) === queuedWrite)
-          pendingWrites.delete(profile.principalPersonId);
+        if (profileWriteQueues.get(input.key) === queuedWrite) profileWriteQueues.delete(input.key);
       }
     },
   };
-}
-
-async function thisRead(filePath: string): Promise<ResidentCeoProfile | null> {
-  let contents: string;
-  try {
-    contents = readFileSync(filePath, "utf8");
-  } catch (error) {
-    consumeKnownError(error);
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
-    throw error;
-  }
-  return JSON.parse(contents) as ResidentCeoProfile;
 }

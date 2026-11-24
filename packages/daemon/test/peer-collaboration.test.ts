@@ -107,7 +107,7 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
     );
     assert.equal(delegate.outcome, "applied", JSON.stringify(delegate));
     const { request: delegateRequest } = evidence(delegate) as { request: PeerRequestV1 };
-    assert.equal(delegateRequest.kind, "delegate");
+    assert.equal(delegateRequest.kind, "ops-request");
     assert.equal(delegateRequest.to.personId, "person_bob");
 
     const reply = await cell.run(

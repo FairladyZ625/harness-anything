@@ -1035,6 +1035,16 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     action: { field: "dispatchArchiveRetentionBytes", type: "number" },
     cli: { name: "--dispatch-archive-retention-bytes", kind: "single", regex: "^[0-9]+$" },
   }),
+  defineSettingsField({
+    path: ["residentCeoProfilesJson"],
+    ownership: local,
+    valueKind: "string",
+    defaultValue: undefined,
+    optional: true,
+    description: "Daemon-managed Resident CEO profile state.",
+    effect: "Retains principal-scoped profiles in this repository's local settings.",
+    group: "schedules-nodes",
+  }),
 ] as const);
 
 type DeclaredValue<Declaration extends SettingsFieldDeclaration> = Declaration["valueKind"] extends "enum"

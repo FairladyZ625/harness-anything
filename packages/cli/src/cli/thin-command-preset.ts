@@ -122,11 +122,11 @@ export function parsePreset(
   const position =
       matched && positionalFields
         ? {
-            [positionalFields[0]!]: matched[1],
-            [positionalFields[1]!]: matched[2],
+            [positionalFields[0]!]: matched[1]!,
+            [positionalFields[1]!]: matched[2]!,
           }
         : positionalField
-          ? { [positionalField]: positional }
+          ? { [positionalField]: positional! }
           : {},
     defaults = "actionDefaults" in route ? route.actionDefaults : {},
     kind = "actionKind" in route ? route.actionKind : route.id;

@@ -109,8 +109,22 @@ export function createDaemonHostRuntimeApi(
     codedError: context.hostCodedError,
   });
   let centerStarting = false;
-  const residentCeoProfiles = openResidentCeoProfileStore(context.input.userRoot),
-    residentCeoInboxWatchers = new Map<string, AbortController>();
+  const residentCeoInboxWatchers = new Map<string, AbortController>();
+  const residentCeoProfiles = (repoId: string, auth: DaemonAuthenticationContext) =>
+    openResidentCeoProfileStore({
+      key: repoId,
+      readSerialized: async () => {
+        const result = await context.host.read(repoId, "repo.settings.read", {}, auth);
+        return result.settings.residentCeoProfilesJson;
+      },
+      writeSerialized: async (value) => {
+        const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
+          binding = await context.binding(cell.status().rootDir, auth, undefined, repoId);
+        if (!cell.writeResidentCeoProfilesJson)
+          throw context.hostCodedError("repo_unavailable", "RepoCell has no Resident CEO profile writer.");
+        await cell.writeResidentCeoProfilesJson(value, binding);
+      },
+    });
   context.closeSignal.addEventListener(
     "abort",
     () => {
@@ -191,14 +205,15 @@ export function createDaemonHostRuntimeApi(
     repoId: string,
     requestId: string,
     auth: DaemonAuthenticationContext,
+    response: string,
   ): Promise<void> => {
     const reply = await context.host.run(
       repoId,
       {
         kind: "peer-reply",
         requestId,
-        claim: "The recipient's resident CEO processed this request.",
-        requestedAction: "Contact the recipient for its assessment or further action.",
+        claim: response,
+        requestedAction: "Review this assessment and follow up if further action is needed.",
         idempotencyKey: `resident-ceo-reply-${requestId}`,
       },
       auth,
@@ -209,7 +224,7 @@ export function createDaemonHostRuntimeApi(
   const residentCeoService = (repoId: string, auth: Parameters<typeof context.binding>[1]) => {
     const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
     return makeResidentCeoService({
-      profiles: residentCeoProfiles,
+      profiles: residentCeoProfiles(repoId, auth),
       now: context.now,
       createId: randomUUID,
       runtime: {
@@ -250,7 +265,7 @@ export function createDaemonHostRuntimeApi(
               const response =
                 session.result?.text?.trim() || "The request was received. No response text was produced.";
               if (request.peerRequestId !== undefined)
-                await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth);
+                await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth, response);
               return { response, persistentSessionId: session.session.providerSessionId };
             })(),
           };
@@ -268,14 +283,15 @@ export function createDaemonHostRuntimeApi(
       let afterRevision: number | undefined;
       let nextHeartbeat: number | null = null;
       while (!signal.aborted) {
-        const profile = await residentCeoProfiles.read(principalPersonId);
+        const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
+          profileAuth = await context.oidc.bind({ transportKind: "unix-socket" } as const, cell.status().rootDir),
+          profile = await residentCeoProfiles(repoId, profileAuth).read(principalPersonId);
         if (profile?.status !== "running" || profile.repoId !== repoId) return;
         const intervalMs = profile.heartbeatIntervalSec * 1_000;
         nextHeartbeat ??= Date.now() + intervalMs;
         try {
           guardCenterRelocation(repoId, false);
           await context.attemptHostRecovery(repoId);
-          const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
           const auth = await context.oidc.bind({ transportKind: "unix-socket" } as const, cell.status().rootDir);
           if (auth.sessionUnavailable) throw auth.sessionUnavailable;
           if (auth.oidcPrincipal?.personId !== principalPersonId)
@@ -301,7 +317,12 @@ export function createDaemonHostRuntimeApi(
               continue;
             }
             if (settled.settlement.outcome === "succeeded" && profile.lastWake.peerRequestId !== undefined)
-              await acknowledgeResidentCeoPeer(repoId, profile.lastWake.peerRequestId, auth);
+              await acknowledgeResidentCeoPeer(
+                repoId,
+                profile.lastWake.peerRequestId,
+                auth,
+                settled.result?.text?.trim() || "No response text was produced.",
+              );
             await residentCeoService(repoId, auth).reconcileWake(principalPersonId, wakeId, {
               runtimeSessionId: settled.session.runtimeSessionId,
               succeeded: settled.settlement.outcome === "succeeded",
@@ -373,8 +394,12 @@ export function createDaemonHostRuntimeApi(
   };
   return {
     restoreResidentCeos: async () => {
-      for (const profile of await residentCeoProfiles.list()) {
-        if (profile.status === "running" && profile.repoId !== undefined)
+      for (const repo of readDaemonRegistry({ userRoot: context.input.userRoot }).repos) {
+        if (repo.state !== "enabled" || repo.canonicalRoot === null || !context.cells.has(repo.repoId)) continue;
+        const auth = await context.oidc.bind({ transportKind: "unix-socket" } as const, repo.canonicalRoot);
+        if (auth.sessionUnavailable || !auth.oidcPrincipal) continue;
+        const profile = await residentCeoProfiles(repo.repoId, auth).read(auth.oidcPrincipal.personId);
+        if (profile?.status === "running" && profile.repoId === repo.repoId)
           watchResidentCeoInbox(
             profile.repoId,
             profile.principalPersonId,
@@ -392,7 +417,8 @@ export function createDaemonHostRuntimeApi(
       if (!principalPersonId || auth.executionPrincipal)
         throw context.hostCodedError("authorization_denied", "Resident CEO requires a signed-in person principal.");
       await context.binding(cell.status().rootDir, auth);
-      const saved = await residentCeoProfiles.read(principalPersonId);
+      const profiles = residentCeoProfiles(repoId, auth);
+      const saved = await profiles.read(principalPersonId);
       const receipt = (profile: unknown, summary: string): JsonObject => ({
         ok: true,
         profile: profile as JsonObject | null,
