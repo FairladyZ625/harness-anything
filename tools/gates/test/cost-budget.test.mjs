@@ -768,7 +768,9 @@ test("G38 write-port external-wait registers task-submit and task-push probes", 
   assert.ok(
     budget.writeCostScaling.actionCoverage.measured["task-submit"].measurements.includes("task-submit:write-port"),
   );
-  assert.ok(budget.writeCostScaling.actionCoverage.measured["task-push"]?.measurements.includes("task-push:write-port"));
+  assert.ok(
+    budget.writeCostScaling.actionCoverage.measured["task-push"]?.measurements.includes("task-push:write-port"),
+  );
 });
 
 test("G38 write-port external-wait positive control is red when a round trip exceeds budget", async (t) => {
@@ -839,7 +841,7 @@ function writeSyntheticCostRoot(
       `export const EXTERNAL_WAIT_PROBES = Object.fromEntries(`,
       `  ${JSON.stringify(Object.keys(EXTERNAL_WAIT_PROBES))}.map((id) => [id, {`,
       `    action: id.slice(0, id.indexOf(":")),`,
-      `    async run() { return { networkRoundTrips: 0, remoteChildProcesses: 0 }; },`,
+      `    async measure() { return { networkRoundTrips: 0, remoteChildProcesses: 0 }; },`,
       `  }]),`,
       `);`,
     ].join("\n"),

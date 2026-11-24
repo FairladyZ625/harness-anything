@@ -435,12 +435,9 @@ function readWritePortExternalWaitFile(filePath) {
   const section = parseJsonFile(filePath).writePortExternalWait;
   if (section?.schema !== "write-port-external-wait-budget/v1")
     throw new Error(`${filePath}.writePortExternalWait must use write-port-external-wait-budget/v1`);
-  if (
-    !Array.isArray(section.metrics) ||
-    section.metrics.sort().join() !== [...EXTERNAL_WAIT_METRICS].sort().join()
-  )
+  if (!Array.isArray(section.metrics) || section.metrics.sort().join() !== [...EXTERNAL_WAIT_METRICS].sort().join())
     throw new Error(`${filePath}.writePortExternalWait.metrics must be ${EXTERNAL_WAIT_METRICS.join(", ")}`);
-  const validateMap = (value, label) => {
+  const readExternalWaitMap = (value, label) => {
     if (value === null || typeof value !== "object" || Array.isArray(value))
       throw new Error(`${label} must be an object`);
     for (const [operation, counts] of Object.entries(value)) {
@@ -454,9 +451,9 @@ function readWritePortExternalWaitFile(filePath) {
     return value;
   };
   return {
-    baseline: validateMap(section.baseline, `${filePath}.writePortExternalWait.baseline`),
-    budgets: validateMap(section.budgets, `${filePath}.writePortExternalWait.budgets`),
-    rejectionPaths: validateMap(section.rejectionPaths, `${filePath}.writePortExternalWait.rejectionPaths`),
+    baseline: readExternalWaitMap(section.baseline, `${filePath}.writePortExternalWait.baseline`),
+    budgets: readExternalWaitMap(section.budgets, `${filePath}.writePortExternalWait.budgets`),
+    rejectionPaths: readExternalWaitMap(section.rejectionPaths, `${filePath}.writePortExternalWait.rejectionPaths`),
   };
 }
 
@@ -483,7 +480,7 @@ export async function evaluateWritePortExternalWait({
   const receipts = loadReceipts(receiptsDir);
   const actual = measured ?? {};
   for (const [id, probe] of Object.entries(EXTERNAL_WAIT_PROBES)) {
-    if (actual[id] === undefined) actual[id] = await probe.run(rootDir);
+    if (actual[id] === undefined) actual[id] = await probe.measure(rootDir);
   }
   const errors = [];
   for (const operation of Object.keys(budget.budgets)) {
@@ -513,9 +510,7 @@ export async function evaluateWritePortExternalWait({
     if (!counts) throw new Error(`G38 write-port external-wait is missing rejection measurement ${pathId}`);
     for (const metric of EXTERNAL_WAIT_METRICS) {
       if (counts[metric] > limits[metric])
-        errors.push(
-          `${pathId}.${metric}: rejection path measured ${counts[metric]} exceeds budget ${limits[metric]}`,
-        );
+        errors.push(`${pathId}.${metric}: rejection path measured ${counts[metric]} exceeds budget ${limits[metric]}`);
     }
   }
   return { ok: errors.length === 0, errors, actual, baseline: budget.baseline, budgets: budget.budgets };

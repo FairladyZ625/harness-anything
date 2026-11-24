@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 
 /** G38 write-port external-wait dimension: counts only while a serialized write turn executes work. */
@@ -50,16 +50,14 @@ function remoteUrlLooksRemote(url: string): boolean {
 
 function namedRemoteLooksRemote(cwd: string | undefined, name: string): boolean {
   if (!cwd) return true;
-  try {
-    const url = execFileSync("git", ["remote", "get-url", name], {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    return remoteUrlLooksRemote(url);
-  } catch {
-    return true;
-  }
+  const result = spawnSync("git", ["remote", "get-url", name], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    windowsHide: true,
+  });
+  if (result.error || result.status !== 0) return true;
+  return remoteUrlLooksRemote((result.stdout ?? "").trim());
 }
 
 /** True when a child git invocation would contact a non-local endpoint. */

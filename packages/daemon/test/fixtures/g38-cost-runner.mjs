@@ -171,7 +171,7 @@ export async function measureCostSuitesParallel({
     }
     const externalWaitMeasured = {};
     for (const [id, probe] of Object.entries(EXTERNAL_WAIT_PROBES))
-      externalWaitMeasured[id] = await probe.run(rootDir);
+      externalWaitMeasured[id] = await probe.measure(rootDir);
     return {
       g1Measured: { small: g1Small, large: g1Large, operations, metrics: G1_METRICS },
       collectionMeasured,

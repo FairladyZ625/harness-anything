@@ -3,14 +3,15 @@
 // only while chainRepoCellWrite holds the serialized write turn.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { canonicalRoot, workspaceId } from "../../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { writePortExternalObservation } from "../../src/daemon-host/write-port-external-observation.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "../repo-settings.fixture.ts";
-import { git, initRepo } from "../task-surface.fixtures.ts";
+import { withPolicyGroup } from "../keycloak-policy.fixtures.ts";
+import { initRepo } from "../task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../../tools/fixtures/task-plan.mjs";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -38,7 +39,7 @@ async function withFileOriginFixture(
     readonly taskId: string;
     readonly executionId: string;
     readonly worktree: string;
-    readonly binding: { readonly actor: { readonly principal: { readonly personId: string }; readonly executor: null }; readonly source: "local" };
+    readonly binding: ReturnType<typeof withPolicyGroup>;
   }) => Promise<ExternalWaitCounts>,
 ): Promise<ExternalWaitCounts> {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-g38-external-${label}-`)),
@@ -47,17 +48,21 @@ async function withFileOriginFixture(
     repoId = workspaceId(`g38-external-${label}`),
     taskId = `task_g38_${label}`,
     executionId = `execution_g38_${label}`,
-    binding = {
-      actor: { principal: { personId: "person-g38-external-wait" }, executor: null },
-      source: "local" as const,
-    };
+    binding = withPolicyGroup(
+      {
+        actor: { principal: { personId: "person-g38-external-wait" }, executor: null },
+        source: "local" as const,
+      },
+      "admin",
+    );
   try {
     mkdirSync(rootDir);
     initRepo(rootDir);
+    gitShell(rootDir, "branch", "-M", "main");
     mkdirSync(path.join(rootDir, "harness"), { recursive: true });
     writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n");
     execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", bare], { stdio: "ignore" });
-    gitShell(rootDir, "remote", "add", "origin", `file://${bare}`);
+    gitShell(rootDir, "remote", "add", "origin", pathToFileURL(bare).href);
     gitShell(rootDir, "push", "-q", "origin", "main:main");
     const cell = await openBootstrappedRepoCell({
       repoId,
@@ -119,12 +124,11 @@ export async function measureTaskPushWritePort(_rootDir: string): Promise<Extern
   });
 }
 
-/** Rejection that only needs current snapshot state: second identical submit after freeze. */
+/** Rejection that only needs current snapshot state: submit targeting an unknown execution id. */
 export async function measureTaskSubmitRejectionWritePort(_rootDir: string): Promise<ExternalWaitCounts> {
-  return withFileOriginFixture("submit-reject", async ({ cell, taskId, executionId, binding }) => {
-    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+  return withFileOriginFixture("submit-reject", async ({ cell, taskId, binding }) => {
     writePortExternalObservation.reset();
-    const rejected = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
+    const rejected = await cell.run({ kind: "task-submit", taskId, executionId: "execution_g38_missing" }, binding);
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     return writePortExternalObservation.snapshot();
   });
