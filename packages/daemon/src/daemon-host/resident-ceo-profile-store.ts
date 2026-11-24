@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { ResidentCeoProfile } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 
 interface ResidentCeoProfileStore {
@@ -23,6 +24,7 @@ export function openResidentCeoProfileStore(userRoot: string): ResidentCeoProfil
       try {
         entries = readdirSync(directory).filter((entry) => /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}\.json$/u.test(entry));
       } catch (error) {
+        consumeKnownError(error);
         if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
         throw error;
       }
@@ -43,6 +45,7 @@ export function openResidentCeoProfileStore(userRoot: string): ResidentCeoProfil
       try {
         contents = readFileSync(filePath, "utf8");
       } catch (error) {
+        consumeKnownError(error);
         if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
         throw error;
       }
@@ -93,6 +96,7 @@ async function thisRead(filePath: string): Promise<ResidentCeoProfile | null> {
   try {
     contents = readFileSync(filePath, "utf8");
   } catch (error) {
+    consumeKnownError(error);
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
     throw error;
   }

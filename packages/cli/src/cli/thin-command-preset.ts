@@ -123,7 +123,7 @@ export function parsePreset(
       matched && positionalFields
         ? {
             [positionalFields[0]!]: matched[1],
-            [positionalFields[1]]: matched[2],
+            [positionalFields[1]!]: matched[2],
           }
         : positionalField
           ? { [positionalField]: positional }
