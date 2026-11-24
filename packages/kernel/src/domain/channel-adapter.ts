@@ -327,7 +327,7 @@ export const channelJudgments: readonly OntologyJudgmentDeclaration[] = [
     sources: [
       {
         candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#validateChannelInboxEnvelope",
+          "judgment:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#validateChannelInboxEnvelope:1a5c225ea42c5137c8e802a24053a4d5",
         route: "validateChannelInboxEnvelope",
       },
     ],
@@ -343,7 +343,7 @@ export const channelJudgments: readonly OntologyJudgmentDeclaration[] = [
     sources: [
       {
         candidateId:
-          "judgment:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#validateChannelOutboxMessage",
+          "judgment:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#validateChannelOutboxMessage:1a8beb11a225635a673dcc4be5de34c1",
         route: "validateChannelOutboxMessage",
       },
     ],
@@ -368,12 +368,33 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
     sources: [
       {
         candidateId:
-          "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#CHANNEL_PAGE_LIMIT",
+          "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#CHANNEL_PAGE_LIMIT:3a112e684a63898ad4fd759742b49a9a",
         route: "channel-list",
       },
       {
-        candidateId: "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#channelDedupeKey",
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#CHANNEL_TEXT_LIMIT:d54d7cabd9176f6e1ff7429809e3d0b1",
         route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#CHANNEL_SUMMARY_LIMIT:76da27778b93d01a7158f44bc524778a",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:0434b29be0266d9440715451ee9874bd",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#runChannelAction.limit:fff62423ddf2d7fd97d1e51e8d55a7f3",
+        route: "channel-list",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#runChannelAction.reqRead:78f06c4227ba785282a4e80f837cbc12",
+        route: "channel-list",
       },
     ],
   },
