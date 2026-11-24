@@ -1,7 +1,4 @@
-import {
-  normalizeRelativeDocumentPath,
-  type TaskProjectionQueries,
-} from "@harness-anything/kernel";
+import { normalizeRelativeDocumentPath, type TaskProjectionQueries } from "@harness-anything/kernel";
 
 export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
 

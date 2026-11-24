@@ -1,12 +1,7 @@
 import type { TaskDispatchesPayload } from "@harness-anything/application/queries";
 import type { ActionExecutionClass } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
 import { actionExecutionClasses } from "@harness-anything/kernel/internal/domain/action-execution-class.generated.ts";
-import type {
-  DispatchAttemptOutcome,
-  DispatchLifecycleSummary,
-} from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
-import type * as OperationalStatus from "@harness-anything/kernel/internal/domain/operational-status.ts";
-import type { PackageDisposition } from "@harness-anything/kernel/internal/domain/package-disposition.ts";
+import type { DispatchAttemptOutcome } from "@harness-anything/kernel/internal/domain/dispatch-lifecycle.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { WriteReceiptOutcome } from "@harness-anything/kernel/internal/domain/write-receipt-status.ts";
 import type { DaemonHomeOverviewResult } from "../home/home-overview-types.ts";
@@ -24,17 +19,8 @@ export type { TaskDispatchRow } from "./task-dispatch-contract.ts";
 import type {
   CanonicalEventV1,
   DaemonRepoMode,
-  DecisionAcceptReviewReadiness,
-  DecisionProjectionRow,
-  FreshnessReason,
   ProjectionPage,
-  ProjectionWarning,
-  RelationCoverageRow,
-  RelationFactRow,
-  RelationGraphEdgeRow,
   ReceiptDiagnostic,
-  TaskProjection,
-  TaskWipRootRow,
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
   VerticalDefinition,
@@ -63,42 +49,6 @@ import type { DaemonTaskRuntimeContextResult } from "./daemon-protocol-runtime-c
 import type { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
 import type { ReplicaSyncProgress } from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
-import type {
-  AgendaAnsweredRow,
-  AgendaAwaitsRow,
-  AgendaDecisionReviewRow,
-  AgendaDecisionRow,
-  AgendaExecutionRow,
-  AgendaPinnedEntityRow,
-  AgendaRestartRow,
-  AgendaRulingRow,
-  AgendaTaskRow,
-  AgendaWorkRef,
-  DaemonAgendaResult,
-  DaemonDecisionFullRow,
-  DaemonDecisionListPayload,
-  DaemonDecisionListResult,
-  DaemonDecisionReviewDispatchRow,
-  DaemonDecisionSummaryRow,
-  DaemonFactSummaryRow,
-  DaemonRelationEdgeFacetPayload,
-  DaemonRelationGraphEdgeRow,
-  DaemonRelationGraphFacet,
-  DaemonRelationGraphFacetPayload,
-  DaemonRelationGraphFacetResult,
-  DaemonRelationGraphFullResult,
-  DaemonRelationGraphResult,
-  DaemonTaskDocumentListResult,
-  DaemonTaskSnapshotInvalidRow,
-  DaemonTaskSnapshotListResult,
-  DaemonTaskWipResult,
-  DaemonWorkspaceSummaryResult,
-  ExecutionEvidenceProjection,
-  GuiSubmissionV1,
-  TaskDocumentListEntryRow,
-  TaskPlacementSupplement,
-  TaskWorkspaceView,
-} from "@harness-anything/application/internal/queries/task-query-types.ts";
 export type {
   AgendaAnsweredRow,
   AgendaAwaitsRow,
@@ -136,7 +86,6 @@ export type {
 } from "@harness-anything/application/internal/queries/task-query-types.ts";
 export type { TaskDeliveryStage } from "@harness-anything/application/internal/queries/task-delivery-stage.ts";
 export type { DaemonTaskSnapshotListResult } from "@harness-anything/application/internal/queries/task-query-types.ts";
-import type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
 export type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
 
 export type RuntimeStreamCursor = {
@@ -191,9 +140,6 @@ export function actionRpc<const Id extends string, const Method extends string, 
     ...(options.outputSchemaId === undefined ? {} : { outputSchemaId: options.outputSchemaId }),
   };
 }
-
-type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
-type TaskProjectionWarning = ReturnType<TaskProjection["list"]>["warnings"][number];
 
 export type RpcEnumRule = {
   readonly values: readonly string[];
@@ -838,10 +784,8 @@ export interface DaemonRelationQueryPayload {
   readonly cursor?: string;
 }
 
-
 /** One selector per read. History and live-floor pages preserve their own bounded cursors. */
 export type DaemonTaskDispatchesPayload = TaskDispatchesPayload;
-
 
 export type DaemonTaskDispatchesResultBase = {
   readonly ok: true;
@@ -885,7 +829,6 @@ export type DaemonTaskDispatchesResult = DaemonTaskDispatchesResultBase &
         readonly truncated: boolean;
       }
   );
-
 
 export type DaemonGuiActionResult = JsonObject & {
   readonly schema: "command-receipt/v2";

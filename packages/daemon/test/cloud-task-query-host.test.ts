@@ -9,9 +9,7 @@ test("task claimable fails closed when task-start authority is absent", async ()
     authorizer: {
       authorizeRepositoryRead: async () => ({ outcome: "allowed", personId: "person_owner" }),
     },
-    repositories: new Map([
-      ["repo", { tenantId: "tenant", projectId: "project", readers: [], policyEpoch: 0 }],
-    ]),
+    repositories: new Map([["repo", { tenantId: "tenant", projectId: "project", readers: [], policyEpoch: 0 }]]),
     maxInFlight: 2,
   });
   const response = await host(

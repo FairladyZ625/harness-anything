@@ -239,6 +239,50 @@
         "order": 3
       }
     ],
+    "repository-read": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/projection-task-read.ts#projectionNotReady:0bd8c79509a60240ad607055aa5bbd38",
+        "route": "repository-read",
+        "role": "support",
+        "order": 221
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/projection-task-read.ts#taskNotFoundCodedError:6b5d0ca44e40b032781680764f8ae3e2",
+        "route": "repository-read",
+        "role": "support",
+        "order": 222
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-query-ports.ts#queryCodedError:76b71527291732f252c2f7fe76f88917",
+        "route": "repository-read",
+        "role": "support",
+        "order": 223
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-show-read.ts#taskShowFromProjection:075dcf316b4196718a3fede6787d9008",
+        "route": "repository-read",
+        "role": "support",
+        "order": 126
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-show-read.ts#taskShowFromProjection:0a5a717dc302d9d50514e37a1997805b",
+        "route": "repository-read",
+        "role": "support",
+        "order": 224
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-show-read.ts#taskShowFromProjection:d416c0f2d01980ab4f4d65fd202c0168",
+        "route": "repository-read",
+        "role": "support",
+        "order": 225
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-transition-locate.ts#transitionDocumentAccessError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "repository-read",
+        "role": "support",
+        "order": 226
+      }
+    ],
     "task-submit": [
       {
         "candidateId": "action:packages/application:packages/application/src/commands/submission-artifacts.ts#createSubmissionArtifactReader:a90fd32eb02c5973cfcf0c346fb48244",

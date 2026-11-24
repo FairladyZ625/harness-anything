@@ -5,7 +5,6 @@ import {
   assertTransitionDocumentReady,
   completionContractGap,
   documentWorkspacePath,
-  normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
   sha256Text,

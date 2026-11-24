@@ -23,6 +23,13 @@ export type TaskActionExplanationReadDependencies = Omit<
   "host" | "ports"
 >;
 
+function daemonAuthorizationUnavailableReasonCodes(): readonly string[] {
+  const decision = {
+    reasonCodes: ["keycloak_evaluation_missing"],
+  };
+  return decision.reasonCodes;
+}
+
 function requireTaskActionExplanationBinding(binding: RepoCellBinding | undefined): RepoCellBinding {
   return binding ?? explainAuthenticationRequired();
 }
@@ -34,7 +41,11 @@ export function readTaskActionExplanation(
   return readApplicationTaskActionExplanation(
     {
       ...dependencies,
-      host: { commandUsage: taskActionCommandUsage, artifactKinds: compiledArtifactKinds },
+      host: {
+        commandUsage: taskActionCommandUsage,
+        artifactKinds: compiledArtifactKinds,
+        authorizationUnavailableReasonCodes: daemonAuthorizationUnavailableReasonCodes(),
+      },
       ports: daemonTaskCoreQueryPorts,
     },
     payload,
@@ -126,4 +137,3 @@ export async function preparePersonActionExplanationBinding(
     explanationDecisions: decisions,
   };
 }
-

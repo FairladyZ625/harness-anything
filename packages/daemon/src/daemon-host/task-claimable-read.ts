@@ -45,8 +45,8 @@ export async function readClaimableTasks(input: {
     ...(input.readAssignments ? { readAssignments: input.readAssignments } : {}),
     claimant: { personId, nodeId: source.nodeId, teamIds },
     authorizeRepository: async () => permission,
-    authorizeTask: async (taskId) =>
-      evaluateKeycloakPerson({
+    authorizeTask: async (taskId) => {
+      const taskPermission = await evaluateKeycloakPerson({
         credential: { session: binding.keycloakAuthorization!.session },
         personId,
         action: "task-start",
@@ -56,7 +56,9 @@ export async function readClaimableTasks(input: {
           repoId,
           entityRef: `task/${taskId}`,
         }),
-      }),
+      });
+      return taskPermission;
+    },
     codedError: cellCodedError,
   });
 }

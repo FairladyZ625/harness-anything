@@ -137,16 +137,10 @@ export function taskShowFromProjection(
   actor?: ActorIdentity,
   nodeTaskMaterializationPolicy: NodeTaskMaterializationPolicy = "include_done",
 ): WriteReceipt {
-  return readApplicationTaskShow(
-    rootDir,
-    projection,
-    taskId,
-    directChildCount,
-    actor,
-    nodeTaskMaterializationPolicy,
-    { ...daemonTaskCoreQueryPorts, failRead: failed },
-  );
+  return readApplicationTaskShow(rootDir, projection, taskId, directChildCount, actor, nodeTaskMaterializationPolicy, {
+    ...daemonTaskCoreQueryPorts,
+    failRead: failed,
+  });
 }
 
 export { projectedTaskMaterializationState } from "@harness-anything/application/internal/queries/task-show-read.ts";
-

@@ -117,7 +117,8 @@ const routes = new Map<string, Route>([
         settings,
         now: new Date().toISOString(),
         page: (query) => projection.list(query),
-        readAssignments: async () => assignmentRelations(await projection.readRelationQuery({ relationType: "assigned-to" })),
+        readAssignments: async () =>
+          assignmentRelations(await projection.readRelationQuery({ relationType: "assigned-to" })),
         claimant: claim.claimant,
         authorizeRepository: claim.authorizeRepository,
         authorizeTask: claim.authorizeTask,
@@ -232,10 +233,10 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
         const personId = await authorizeRepository(options.authorizer, token, repoId, signal);
         const scope = repositories.get(repoId);
         if (!scope) throw new QueryFault(404, "repository_not_found");
-        if (routeName === "task-claimable" && !options.authorizeTaskClaim)
-          throw new QueryFault(503, "claim_authorization_unavailable");
+        const claimableRoute = routeName === "task-claimable";
+        if (claimableRoute && !options.authorizeTaskClaim) throw new QueryFault(503, "claim_authorization_unavailable");
         const claim =
-          routeName === "task-claimable" && options.authorizeTaskClaim
+          claimableRoute && options.authorizeTaskClaim
             ? await options.authorizeTaskClaim({ token, repoId, personId, signal })
             : null;
         const context = { search: url.searchParams, personId, claim };
@@ -416,7 +417,9 @@ function requiredTaskId(search: URLSearchParams): string {
   return taskId;
 }
 
-function assignmentRelations(page: { readonly rows: readonly AssignmentRelationLike[] }): readonly AssignmentRelationLike[] {
+function assignmentRelations(page: {
+  readonly rows: readonly AssignmentRelationLike[];
+}): readonly AssignmentRelationLike[] {
   return page.rows.filter(
     (row) =>
       row.relationType === "assigned-to" &&

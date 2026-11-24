@@ -6751,24 +6751,6 @@
         "order": 220
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/projection-readiness.ts#projectionNotReady:0bd8c79509a60240ad607055aa5bbd38",
-        "route": "repository-read",
-        "role": "support",
-        "order": 221
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/projection-readiness.ts#taskNotFoundCodedError:6b5d0ca44e40b032781680764f8ae3e2",
-        "route": "repository-read",
-        "role": "support",
-        "order": 222
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-completion.ts#taskShowFromProjection:075dcf316b4196718a3fede6787d9008",
-        "route": "repository-read",
-        "role": "support",
-        "order": 126
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-read-pool.ts#openRepoReadClient.request.job.settled:d6be87a1ada55d2111056fb29af5e364",
         "route": "repository-read",
         "role": "support",

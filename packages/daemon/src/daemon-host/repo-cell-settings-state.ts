@@ -1,8 +1,6 @@
 import {
   mergeRepositoryLocalSettings,
   projectedRepositorySettings,
-  readEffectiveCloseoutGates,
-  readEffectiveReviewReturnBudget,
   readRepositorySettings,
 } from "@harness-anything/application/internal/queries/task-settings-read.ts";
 export {
@@ -27,11 +25,7 @@ import {
   resolveHarnessLayout,
   serializeLocalSettings,
   stableStringify,
-  validateRepositorySettings,
   writeRepositorySettingsFacet,
-  type CloseoutGate,
-  type CloseoutSnapshot,
-  type CloseoutSettingsV1,
   type LocalSettingsV1,
   type RepositorySettingsV1,
   type SettingsV1,
@@ -99,9 +93,6 @@ export function settingsPrincipalRefusal(
  * already-initialized; that mismatch is what made the settings write loop on brain-os-frontend
  * (793 canonical events, zero settings_changed) while its read stayed uninitialized forever.
  */
-
-
-
 
 /** Read the machine preference file once; absent fields inherit this node's configured role. */
 export function readLocalState(
@@ -267,8 +258,6 @@ export function makeRepoCellSettingsState(
   };
 }
 
-
-
 /** The authored settings value and the document bytes a mint would publish from them. */
 function authoredInitializationOf(settings: SettingsV1, documentBody: string): AuthoredSettingsInitialization {
   const repository = repositorySettings(settings);
@@ -287,7 +276,6 @@ function authoredInitializationOf(settings: SettingsV1, documentBody: string): A
  * returns; automatic continuation after a worker stop has its own fixed task-level allowance
  * (`incidentContinuationBudget`), so raising this setting cannot extend that loop.
  */
-
 
 /**
  * The dispatch-archive retention in force at this projection cut: the repository settings value,
@@ -336,4 +324,3 @@ export function settingsLastChanged(
  * the same projection cut as the task being judged; a repository with no settings entity
  * (or a pre-closeout settings event) reads the same standard default bootstrap would mint.
  */
-

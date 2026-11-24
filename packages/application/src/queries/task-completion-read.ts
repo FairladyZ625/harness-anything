@@ -62,7 +62,8 @@ function projectionExecutorCandidates(
   for (const row of projection.readRuntimeDispatchesByTaskExecution(taskId, executionId)) {
     const payload = row.event.payload;
     if (payload.role === "reviewer" || payload.reviewTarget !== undefined) continue;
-    if (!exact.has(payload.runtimeSessionId)) exact.set(payload.runtimeSessionId, `runtime-session:${payload.runtimeSessionId}`);
+    if (!exact.has(payload.runtimeSessionId))
+      exact.set(payload.runtimeSessionId, `runtime-session:${payload.runtimeSessionId}`);
   }
   return [...exact.values()];
 }

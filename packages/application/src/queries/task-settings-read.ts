@@ -46,7 +46,7 @@ export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "
     throw queryCodedError(
       SETTINGS_ENTITY_MISSING,
       // Actionable, and true: no repository action named `bootstrap` exists (`ha bootstrap` is a
-      // Keycloak operation), waiting cannot mint an entity no event ever wrote, and a projection
+      // account operation), waiting cannot mint an entity no event ever wrote, and a projection
       // rebuild only re-derives existing events — so `ha settings update` is the one command that
       // creates it. It is principal-only by design, which is what the last sentence must say.
       "This repository has no Settings entity yet; its ledger never recorded a settings_changed event. " +

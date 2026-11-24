@@ -1,4 +1,9 @@
-import type { ActorIdentity, CloseoutSnapshot, TaskLifecycleSnapshot, TaskProjectionQueries } from "@harness-anything/kernel";
+import type {
+  ActorIdentity,
+  CloseoutSnapshot,
+  TaskLifecycleSnapshot,
+  TaskProjectionQueries,
+} from "@harness-anything/kernel";
 import {
   factRetirementAssessment,
   readCompletionContext as readApplicationCompletionContext,

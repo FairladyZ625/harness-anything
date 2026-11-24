@@ -1,4 +1,4 @@
-// harness-test-tier: integration
+// harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
 import { join } from "node:path";

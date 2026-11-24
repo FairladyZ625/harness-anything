@@ -72,7 +72,17 @@ test("task show without a settlement port throws task_not_found", () => {
     readTaskIndex: () => ({ rows: [] }),
   } as unknown as TaskProjectionQueries;
   assert.throws(
-    () => taskShowFromProjection("D:/harness-stateless-query", projection, "missing", undefined, undefined, "include_done", {}, {}),
+    () =>
+      taskShowFromProjection(
+        "D:/harness-stateless-query",
+        projection,
+        "missing",
+        undefined,
+        undefined,
+        "include_done",
+        {},
+        {},
+      ),
     (error: unknown) => error instanceof Error && "code" in error && error.code === "task_not_found",
   );
 });

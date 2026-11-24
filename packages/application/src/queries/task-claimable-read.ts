@@ -40,8 +40,6 @@ export async function readClaimableTasks(input: {
 }): Promise<TaskClaimableResult> {
   const { now } = input,
     permission = await input.authorizeRepository();
-  if (permission.reasonCode === "keycloak_unavailable")
-    throw input.codedError("keycloak_unavailable", "Cannot refresh task claim permissions.");
   let sawPermittedTask = permission.outcome === "allowed";
   const scope = input.settings.fleet.claim.scope as TaskClaimScope,
     claimant = input.claimant,

@@ -1,6 +1,9 @@
 import { taskAssignmentMatches, type TaskAssignment, type TaskClaimant } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
-export { assignmentFromRelation, assignmentFromRelations } from "@harness-anything/application/internal/queries/task-assignment-read.ts";
+export {
+  assignmentFromRelation,
+  assignmentFromRelations,
+} from "@harness-anything/application/internal/queries/task-assignment-read.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
 async function principalDirectory(binding: RepoCellBinding) {

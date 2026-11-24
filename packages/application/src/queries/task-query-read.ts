@@ -157,7 +157,7 @@ export function makeTaskQueryReadModel(input: {
     readRuling = ports.readDispatchRuling ?? (() => null),
     readIncident = ports.readIncidentActionReceipt ?? (() => null),
     readReckoning = ports.readReckoningAgenda ?? (() => ({ items: [], reads: [] })),
-    isolateRows = ports.isolateRows ?? (<T,>(rows: readonly T[]) => ({ rows, invalidRows: [] as const })),
+    isolateRows = ports.isolateRows ?? (<T>(rows: readonly T[]) => ({ rows, invalidRows: [] as const })),
     closeout = judgments.closeout,
     blocking = judgments.blocking,
     now = input.now ?? (() => new Date());
@@ -485,7 +485,14 @@ export function makeTaskQueryReadModel(input: {
           capabilities: taskCapabilities(boardRow),
           phase: taskPhase(boardRow),
           risk: taskRisk(boardRow),
-          workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, authoredRoot, linkedWorktree),
+          workspace: taskWorkspaceView(
+            rootDir,
+            row.snapshot.task,
+            row.packagePath,
+            readPresetSnapshot,
+            authoredRoot,
+            linkedWorktree,
+          ),
         };
       }),
       ...cut,
@@ -533,7 +540,14 @@ export function makeTaskQueryReadModel(input: {
       status: lifecycle.status,
       rows: rows.map((row) => ({
         ...row,
-        workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, null, linkedWorktree),
+        workspace: taskWorkspaceView(
+          rootDir,
+          row.snapshot.task,
+          row.packagePath,
+          readPresetSnapshot,
+          null,
+          linkedWorktree,
+        ),
         work: scope.workOf(row.snapshot.task?.metadata?.parentTaskId ?? null),
         blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
           taskId: row.taskId,

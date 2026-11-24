@@ -11,10 +11,6 @@ export {
   validateDaemonTaskDeliveryDiff,
 } from "./protocol/daemon-protocol-task-delivery-diff.ts";
 
-export function readTaskDeliveryDiff(
-  rootDir: string,
-  projection: Pick<TaskProjection, "read">,
-  taskId: string,
-) {
+export function readTaskDeliveryDiff(rootDir: string, projection: Pick<TaskProjection, "read">, taskId: string) {
   return readApplicationTaskDeliveryDiff(rootDir, projection, taskId, daemonTaskCoreQueryPorts.gitDiff);
 }

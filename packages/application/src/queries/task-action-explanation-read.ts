@@ -39,6 +39,8 @@ export interface TaskActionExplanationBinding {
 export interface TaskActionExplanationHost {
   readonly commandUsage: (action: EntityActionContract) => string;
   readonly artifactKinds: (projection: TaskProjection, repositoryId: string) => readonly CompiledArtifactKindContract[];
+  /** Denial codes when a target has no prepared authorization decision. The daemon supplies the provider code. */
+  readonly authorizationUnavailableReasonCodes: readonly string[];
 }
 
 export interface TaskActionExplanationReadDependencies {
@@ -85,14 +87,24 @@ export function readTaskActionExplanation(
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
         binding.explanationDecisions?.get(`${target}:${action.id}`) ??
-        missingExplanationDecision(binding, target, evaluatedAtCut),
+        missingExplanationDecision(
+          binding,
+          target,
+          evaluatedAtCut,
+          dependencies.host.authorizationUnavailableReasonCodes,
+        ),
       usage: dependencies.host.commandUsage,
     }),
     squadService = makeSquadActionExplanationService({
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
         binding.explanationDecisions?.get(`${target}:${action.id}`) ??
-        missingExplanationDecision(binding, target, evaluatedAtCut),
+        missingExplanationDecision(
+          binding,
+          target,
+          evaluatedAtCut,
+          dependencies.host.authorizationUnavailableReasonCodes,
+        ),
     }),
     personService = makePersonActionExplanationService({
       actor: binding.actor,
@@ -103,7 +115,7 @@ export function readTaskActionExplanation(
           subject: target,
           bindingsUsed: [],
           outcome: "denied",
-          reasonCodes: ["keycloak_evaluation_missing"],
+          reasonCodes: dependencies.host.authorizationUnavailableReasonCodes,
           nextActions: ["Retry the explanation after authorization is available."],
           evaluatedAtCut,
         },
@@ -289,6 +301,7 @@ function missingExplanationDecision(
   binding: TaskActionExplanationBinding,
   target: EntityRef,
   evaluatedAtCut: string,
+  reasonCodes: readonly string[],
 ): AuthorizationDecision {
   return {
     policyRef: "authorization-provider@1",
@@ -296,7 +309,7 @@ function missingExplanationDecision(
     subject: target,
     bindingsUsed: [],
     outcome: "denied",
-    reasonCodes: ["keycloak_evaluation_missing"],
+    reasonCodes,
     nextActions: ["Retry the explanation after authorization is available."],
     evaluatedAtCut,
   };
@@ -321,9 +334,9 @@ function catalogExplanation(
   if (kind === "task") return makeTaskActionExplanationService(dependencies).catalog();
   if (kind === "person") return makePersonActionExplanationService(dependencies).catalog();
   if (kind === "squad") return makeSquadActionExplanationService(dependencies).catalog();
-  const artifact = vertical.host.artifactKinds(vertical.projection, vertical.repositoryId).find(
-      ({ typeIdentity }) => typeIdentity === kind,
-    ),
+  const artifact = vertical.host
+      .artifactKinds(vertical.projection, vertical.repositoryId)
+      .find(({ typeIdentity }) => typeIdentity === kind),
     catalog = artifact?.entityKindContract.actionCatalog;
   if (artifact && catalog) {
     const result: EntityActionExplanationSetV1 = {

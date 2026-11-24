@@ -35,7 +35,6 @@ export {
   type TaskListReads,
 } from "@harness-anything/application/internal/queries/task-list-read.ts";
 
-
 export interface TaskQueryCell {
   readonly input: { readonly repoId: string };
   readonly rootDir: string;
