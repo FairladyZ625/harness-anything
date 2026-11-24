@@ -73,10 +73,11 @@ test("local Agents avoid the shared event stream and share/unshare through the c
       readonly agent: { readonly revision: number };
     };
     assert.equal(firstDetail.agent.revision, 1);
+    const updatedDeclaration = { ...declaration, instructions: "Updated local experiment." };
     const updatedLocal = await cell.run(
       {
         kind: "agent-install",
-        declaration: { ...declaration, instructions: "Updated local experiment." },
+        declaration: updatedDeclaration,
         expectedVersion: firstDetail.agent.revision,
         idempotencyKey: "local-update",
       },
@@ -104,7 +105,7 @@ test("local Agents avoid the shared event stream and share/unshare through the c
     assert.equal(existsSync(path.join(userRoot, "local-agents", repoId, "private-helper.json")), false);
     assert.equal(existsSync(path.join(rootDir, "harness", "agents", "private-helper.json")), true);
 
-    writeLocalAgentDeclaration(userRoot, repoId, declaration, 0);
+    writeLocalAgentDeclaration(userRoot, repoId, updatedDeclaration, 0);
     const recoveredPublishList = JSON.parse(String((await cell.run({ kind: "agent-list" }, binding)).evidence));
     assert.deepEqual(
       recoveredPublishList.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
@@ -132,7 +133,7 @@ test("local Agents avoid the shared event stream and share/unshare through the c
     );
     const sharedRevision = recoveredPublish.updatedProjection?.revision;
     assert.equal(typeof sharedRevision, "number");
-    writeLocalAgentDeclaration(userRoot, repoId, declaration, 0);
+    writeLocalAgentDeclaration(userRoot, repoId, updatedDeclaration, 0);
     const recoveredUnshareList = JSON.parse(String((await cell.run({ kind: "agent-list" }, binding)).evidence));
     assert.deepEqual(
       recoveredUnshareList.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
