@@ -175,11 +175,11 @@ export function runChannelAction(
         | ChannelKind
         | undefined;
       const kind: ChannelKind = sourceChannel ??
-        item.source === "peer_request" || item.source === "peer_reply"
+        (item.source === "peer_request" || item.source === "peer_reply"
           ? "a2a-peer"
           : item.source === "external_ingress"
             ? "webhook"
-            : "custom";
+            : "custom");
       if (channelKind && kind !== channelKind) continue;
       items.push(inboxItemToChannelListItem(item, kind));
     }
