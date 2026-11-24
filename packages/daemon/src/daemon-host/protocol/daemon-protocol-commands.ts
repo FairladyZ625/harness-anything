@@ -866,7 +866,7 @@ export const daemonProtocolMethods = Object.freeze([
     phase: "W3",
     method: "daemon.stop",
     requiresRepo: false,
-    params: shape({}),
+    params: shape({ expectedRepoMode: "json?" }),
   },
   {
     id: "daemon.repo.bootstrap",

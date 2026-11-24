@@ -572,6 +572,7 @@ export async function serve(
       const frameRepoId = "repoId" in frame && typeof frame.repoId === "string" ? frame.repoId : undefined;
       const isSwitchoverTargetControl =
         frame.schema === "fleet.switchover.status/v1" ||
+        frame.schema === "fleet.switchover.slots.stage/v1" ||
         frame.schema === "fleet.switchover.activate/v1" ||
         frame.schema === "fleet.switchover.invalidate/v1";
       if (frameRepoId !== undefined) {

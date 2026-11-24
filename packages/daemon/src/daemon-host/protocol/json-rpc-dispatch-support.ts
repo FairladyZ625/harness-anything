@@ -184,11 +184,16 @@ export function daemonStoppingRefusal(method: DaemonRpcMethod, stopping: boolean
   if (!stopping || methodsServedWhileDraining.has(method)) return null;
   return daemonProtocolError(method, "daemon_stopping", "The daemon is draining before it exits.");
 }
+const validExpectedRepoModes: ReadonlySet<string> = new Set(["local", "remote-edge", "remote-proxy", "remote-center"]);
+
 // Stop is the one command that ends the process, so it is reachable only from the local session and
-// only from a composition that owns a shutdown.
+// only from a composition that owns a shutdown. Optional expectedRepoMode enforces an atomic server-side
+// precondition before stopping (F7: prevents cross-process break-glass races from stopping a promoted local center).
 export function daemonStopRefusal(
   authContext: DaemonAuthenticationContext,
   requestShutdown?: () => void,
+  expectedRepoMode?: unknown,
+  readHostRepos?: () => readonly { readonly repoId: string; readonly mode: string | null }[],
 ): DaemonProtocolErrorResult | null {
   if (authContext.transportKind !== "unix-socket" || authContext.nodePrincipal)
     return daemonProtocolError(
@@ -198,6 +203,38 @@ export function daemonStopRefusal(
     );
   if (!requestShutdown)
     return daemonProtocolError("daemon-stop", "shutdown_unavailable", "This daemon composition has no shutdown owner.");
+  if (expectedRepoMode !== undefined) {
+    if (
+      expectedRepoMode === null ||
+      typeof expectedRepoMode !== "object" ||
+      Array.isArray(expectedRepoMode) ||
+      Object.keys(expectedRepoMode).some((key) => key !== "repoId" && key !== "mode")
+    )
+      return daemonProtocolError(
+        "daemon-stop",
+        "invalid_field",
+        "daemon.stop expectedRepoMode must be an object with repoId and mode.",
+      );
+    const { repoId, mode } = expectedRepoMode as { readonly repoId?: unknown; readonly mode?: unknown };
+    if (
+      typeof repoId !== "string" ||
+      repoId.length === 0 ||
+      typeof mode !== "string" ||
+      !validExpectedRepoModes.has(mode)
+    )
+      return daemonProtocolError(
+        "daemon-stop",
+        "invalid_field",
+        "daemon.stop expectedRepoMode requires a non-empty repoId and valid DaemonRepoMode.",
+      );
+    const liveRepo = readHostRepos?.().find((entry) => entry.repoId === repoId);
+    if (!liveRepo || liveRepo.mode !== mode)
+      return daemonProtocolError(
+        "daemon-stop",
+        mode === "remote-edge" ? "repo_not_remote_edge" : "repo_mode_mismatch",
+        `Refusing daemon.stop: repository ${repoId} is running in mode ${liveRepo?.mode ?? "unregistered"}, expected ${mode}.`,
+      );
+  }
   return null;
 }
 

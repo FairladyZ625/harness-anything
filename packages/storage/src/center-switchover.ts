@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -27,6 +28,7 @@ import {
   readCenterSwitchoverFence,
   recordInvalidatedSwitchoverAttempt,
   writeCenterSwitchoverFence,
+  type CenterSwitchoverCededProofV1,
   type CenterSwitchoverFenceV1,
 } from "./center-relocation-state.ts";
 import { sha256File } from "./store/ledger-backup.ts";
@@ -80,6 +82,7 @@ export interface CedeCenterForSwitchoverInput {
   readonly newExternalUrl: string;
   readonly newLoginUrl: string;
   readonly spkiSha256: string;
+  readonly cededProof?: CenterSwitchoverCededProofV1;
   readonly targetCaPath?: string;
   readonly targetServername?: string;
   readonly targetRoot?: string;
@@ -252,12 +255,13 @@ export function cedeCenterForSwitchover(input: CedeCenterForSwitchoverInput): Ce
     newExternalUrl: input.newExternalUrl,
     newLoginUrl: input.newLoginUrl,
     spkiSha256: input.spkiSha256,
+    ...(input.cededProof ? { cededProof: input.cededProof } : {}),
     ...(input.targetCaPath ? { targetCaPath: path.resolve(input.targetCaPath) } : {}),
     ...(input.targetServername ? { targetServername: input.targetServername } : {}),
     ...(input.targetRoot ? { targetRoot: path.resolve(input.targetRoot) } : {}),
     ...(input.targetUserRoot ? { targetUserRoot: path.resolve(input.targetUserRoot) } : {}),
     ...(input.targetStateRoot ? { targetStateRoot: path.resolve(input.targetStateRoot) } : {}),
-    fencedAt: now(),
+    fencedAt: input.cededProof?.fencedAt ?? now(),
   };
   writeCenterSwitchoverFence(input.userRoot, fence);
   return fence;
@@ -535,10 +539,13 @@ export async function promoteReplicaForSwitchover(
   }
 }
 
-function readExistingWriterEpochHighWatermark(stateRoot: string, repoId: string): number | null {
+/** Strictly read-only writer-epoch high watermark probe (zero directory creation, zero WAL/SHM creation when clean, F10). */
+export function readExistingWriterEpochHighWatermark(stateRoot: string, repoId: string): number | null {
   const epochDbPath = path.join(path.resolve(stateRoot), "writer-epochs", `${repoId}.sqlite`);
   if (!localRuntimeStateFileSystem.exists(epochDbPath)) return null;
-  const db = new DatabaseSync(epochDbPath, { readOnly: true });
+  const hasLiveWal = localRuntimeStateFileSystem.exists(`${epochDbPath}-wal`);
+  const target = hasLiveWal ? epochDbPath : `${pathToFileURL(epochDbPath).href}?immutable=1`;
+  const db = new DatabaseSync(target, { readOnly: true });
   try {
     const currentRow = db.prepare("SELECT epoch FROM writer_epochs WHERE repo_id = ?").get(repoId) as
       | { readonly epoch?: unknown }

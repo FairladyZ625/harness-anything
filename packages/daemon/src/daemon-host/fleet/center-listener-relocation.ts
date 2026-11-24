@@ -108,6 +108,7 @@ export function openCenterRelocationEpochs(
   readonly writerEpoch: PersistentWriterEpoch;
   readonly ownedEpochFor: (repoId: string) => WriterEpochLease;
   readonly currentEpochFor: (repoId: string) => WriterEpochLease;
+  readonly clearOwnedEpoch: (repoId: string) => void;
   readonly drainAndCloseWriterEpochs: () => Promise<void>;
 } {
   const writerEpoch = openPersistentWriterEpoch({
@@ -116,7 +117,7 @@ export function openCenterRelocationEpochs(
       now,
       storageByRepo: options.storage,
     }),
-    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
+    ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]> | undefined>(),
     acquireWriterEpoch =
       options.writerEpochLease ??
       ((repoId: string) => {
@@ -147,9 +148,13 @@ export function openCenterRelocationEpochs(
       return acquired;
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
+    clearOwnedEpoch = (repoId: string) => {
+      ownedEpochs.set(repoId, undefined);
+    },
     drainAndCloseWriterEpochs = async () => {
       try {
         for (const [repoId, owned] of ownedEpochs) {
+          if (!owned) continue;
           const current = writerEpoch.current(repoId);
           if (current?.epoch === owned.epoch && current.holderId === owned.holderId)
             await options.host.settleMaterialization(repoId, "fleet center close");
@@ -158,7 +163,7 @@ export function openCenterRelocationEpochs(
         writerEpoch.close();
       }
     };
-  return { writerEpoch, ownedEpochFor, currentEpochFor, drainAndCloseWriterEpochs };
+  return { writerEpoch, ownedEpochFor, currentEpochFor, clearOwnedEpoch, drainAndCloseWriterEpochs };
 }
 
 export function createCenterNodePrincipals(input: {
@@ -169,8 +174,11 @@ export function createCenterNodePrincipals(input: {
 }) {
   const { options, nodeGate, writerEpoch, ownedEpochFor } = input;
   // dec_E610E1D99A39003886D1B5EE7C CH1: device admission and per-request person are independent.
-  const readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
-      const moved = readListenerCenterRelocated(options, node.repoId);
+  const readerAuth = async (
+      node: { nodeId: string; repoId: string; accessToken?: string },
+      forSwitchoverControl = false,
+    ) => {
+      const moved = readListenerCenterRelocated(options, node.repoId, forSwitchoverControl);
       if (moved) throw centerMovedFleetFault(moved);
       nodeGate.assertOpen(node.nodeId);
       const personId = await options.nodeOwner(node.nodeId);
@@ -245,8 +253,9 @@ export function createCenterNodePrincipals(input: {
     repoAdmission = async (
       node: { nodeId: string; repoId: string; accessToken?: string },
       target?: TaskReadAuthorizationTarget,
+      forSwitchoverControl = false,
     ) => {
-      const principal = await readerAuth(node),
+      const principal = await readerAuth(node, forSwitchoverControl),
         decision = await options.host.authorize(node.repoId, "repository-read", principal, target);
       if (decision.outcome !== "allowed")
         throw new FleetFault(
@@ -263,7 +272,7 @@ export function createCenterNodePrincipals(input: {
       const moved = readListenerCenterRelocated(options, node.repoId, forSwitchoverControl);
       if (moved) throw centerMovedFleetFault(moved);
       nodeGate.assertOpen(node.nodeId);
-      if (!options.verifyReplica) return repoAdmission(node, target);
+      if (!options.verifyReplica) return repoAdmission(node, target, forSwitchoverControl);
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
       let machine: DaemonAuthenticationContext | null;
@@ -288,7 +297,7 @@ export function createCenterNodePrincipals(input: {
         }
         throw error;
       }
-      if (!machine) return repoAdmission(node, target);
+      if (!machine) return repoAdmission(node, target, forSwitchoverControl);
       const principal = machine.fleetReplicaPrincipal;
       if (
         !principal ||
@@ -305,6 +314,18 @@ export function createCenterNodePrincipals(input: {
           target?.opaqueDenial ? "Access denied." : "The node owner may not read this repository.",
         );
       return machine;
+    },
+    // F8: Target TLS switchover mutations (activate / invalidate / slots.stage) MUST require a verified
+    // human session authorized for the admin `daemon-fleet-center-switch` policy, never replica-read.
+    switchoverAdminAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+      const principal = await readerAuth(node, true);
+      const decision = await options.host.authorize(node.repoId, "daemon-fleet-center-switch", principal);
+      if (decision.outcome !== "allowed")
+        throw new FleetFault(
+          "authorization_denied",
+          "The request user is not authorized for daemon-fleet-center-switch on this repository.",
+        );
+      return principal;
     };
-  return { readerAuth, principalAuth, writerAuth, repoAdmission, replicaAdmission };
+  return { readerAuth, principalAuth, writerAuth, repoAdmission, replicaAdmission, switchoverAdminAdmission };
 }

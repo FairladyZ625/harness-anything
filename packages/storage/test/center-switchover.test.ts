@@ -1,6 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { backup, DatabaseSync } from "node:sqlite";
@@ -26,6 +35,7 @@ import {
   switchoverActivationAuditPath,
   switchoverRollbackAuditPath,
 } from "../src/index.ts";
+import { readExistingWriterEpochHighWatermark } from "../src/center-switchover.ts";
 import { bundle, eventAt, initRepo } from "./store/task-event-store.fixtures.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -396,6 +406,40 @@ test("Phase 1 ceded fence blocks writer-epoch revival across restarts; oldEpoch+
     );
   } finally {
     closeSqliteEventStoresUnder(root);
+    removeTempRepository(root);
+  }
+});
+
+test("F10: readExistingWriterEpochHighWatermark reads an existing WAL writer-epoch DB with zero file/mtime/directory mutations", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-storage-switchover-f10-")),
+    stateRoot = path.join(root, "fleet"),
+    repoId = "f10-repo";
+  try {
+    assert.equal(readExistingWriterEpochHighWatermark(stateRoot, repoId), null);
+    assert.equal(existsSync(stateRoot), false, "F10: missing stateRoot must not be mkdir'd");
+
+    const authority = openPersistentWriterEpoch({ stateRoot, holderId: "prior-center" });
+    const lease = authority.acquire(repoId, 0);
+    authority.close();
+    assert.equal(lease.epoch, 1);
+
+    const epochsDir = path.join(stateRoot, "writer-epochs");
+    const dbPath = path.join(epochsDir, `${repoId}.sqlite`);
+    const pinnedTime = new Date("2025-01-01T00:00:00.000Z");
+    utimesSync(dbPath, pinnedTime, pinnedTime);
+    utimesSync(epochsDir, pinnedTime, pinnedTime);
+    const dirEntriesBefore = readdirSync(epochsDir).sort();
+    const dbBytesBefore = readFileSync(dbPath);
+    const dbMtimeBefore = statSync(dbPath).mtimeMs;
+    const dirMtimeBefore = statSync(epochsDir).mtimeMs;
+
+    const watermark = readExistingWriterEpochHighWatermark(stateRoot, repoId);
+    assert.equal(watermark, 1);
+    assert.deepEqual(readdirSync(epochsDir).sort(), dirEntriesBefore, "F10: must not create -wal/-shm files");
+    assert.equal(Buffer.compare(readFileSync(dbPath), dbBytesBefore), 0, "F10: DB bytes must be unchanged");
+    assert.equal(statSync(dbPath).mtimeMs, dbMtimeBefore, "F10: DB mtime must be unchanged");
+    assert.equal(statSync(epochsDir).mtimeMs, dirMtimeBefore, "F10: directory mtime must be unchanged");
+  } finally {
     removeTempRepository(root);
   }
 });

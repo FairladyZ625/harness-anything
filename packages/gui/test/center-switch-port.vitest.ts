@@ -1,9 +1,19 @@
 // @vitest-environment node
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import https from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -16,17 +26,25 @@ import {
   localUserDaemonEndpoint,
   requestDaemonJsonRpcAt,
 } from "@harness-anything/daemon/client";
-import { acquireDaemonSingleton, daemonSocketProbe } from "@harness-anything/daemon/internal/daemon-singleton";
+import { requestDaemonShutdownAt } from "../../daemon/src/daemon-host/client/local-json-rpc-shutdown.ts";
 import {
+  acquireDaemonProcessLock,
+  acquireDaemonSingleton,
+  daemonSocketProbe,
+} from "@harness-anything/daemon/internal/daemon-singleton";
+import {
+  activateRemoteSwitchoverClient,
   centerSwitchoverCandidatePath,
   centerSymmetricIdentityPath,
+  invalidateRemoteSwitchoverClient,
   prepareCenterSwitchoverCandidate,
   prepareCenterSymmetricIdentity,
   readCenterSwitchoverCandidate,
   relocateFleetCenter,
+  signSwitchoverCededProof,
 } from "@harness-anything/daemon/internal/fleet/center";
 import { readDaemonRegistry, writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
-import { openPersistentWriterEpoch } from "@harness-anything/storage";
+import { openPersistentWriterEpoch, openReplicationSlots } from "@harness-anything/storage";
 import { auth } from "../../daemon/test/daemon-host-recovery.fixture.ts";
 import { fleetEdgeHostFixture } from "../../daemon/test/fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
@@ -34,6 +52,7 @@ import {
   waitForFleetReplicaReady,
   waitForFleetReplicaRevision,
 } from "../../daemon/src/daemon-host/fleet/replica-sync.ts";
+import { measureSwitchoverRemoteActivationTransfer } from "../../daemon/src/daemon-host/fleet/center-switchover-transport.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { registerCenterSettingsIpc } from "../src/main/center-settings-ipc.ts";
 import { createCenterSwitchPort } from "../src/main/center-switch-port.ts";
@@ -46,14 +65,20 @@ function spkiSha256FromCertPem(certPem: Buffer): string {
     .digest("hex")}`;
 }
 
-function createSelfSignedCert(directory: string): {
+function createSelfSignedCert(
+  directory: string,
+  commonName = "localhost",
+  san = `DNS:${commonName},IP:127.0.0.1`,
+): {
   readonly keyPath: string;
   readonly certPath: string;
+  readonly keyPem: string;
+  readonly certPem: string;
   readonly spkiSha256: string;
 } {
   mkdirSync(directory, { recursive: true });
-  const keyPath = path.join(directory, "candidate-tls.key");
-  const certPath = path.join(directory, "candidate-tls.crt");
+  const keyPath = path.join(directory, `${commonName.replace(/[^a-z0-9.-]/giu, "_")}.key`);
+  const certPath = path.join(directory, `${commonName.replace(/[^a-z0-9.-]/giu, "_")}.crt`);
   execFileSync(
     "openssl",
     [
@@ -67,15 +92,31 @@ function createSelfSignedCert(directory: string): {
       "-out",
       certPath,
       "-subj",
-      "/CN=localhost",
+      `/CN=${commonName}`,
       "-days",
       "1",
       "-addext",
-      "subjectAltName=DNS:localhost,IP:127.0.0.1",
+      `subjectAltName=${san}`,
     ],
     { stdio: "ignore" },
   );
-  return { keyPath, certPath, spkiSha256: spkiSha256FromCertPem(readFileSync(certPath)) };
+  const keyPem = readFileSync(keyPath, "utf8");
+  const certPem = readFileSync(certPath, "utf8");
+  return { keyPath, certPath, keyPem, certPem, spkiSha256: spkiSha256FromCertPem(Buffer.from(certPem, "utf8")) };
+}
+
+async function waitForCondition<T>(
+  probe: () => T | null | undefined,
+  timeoutMs: number,
+  description: string,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = probe();
+    if (value !== null && value !== undefined) return value;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for ${description} after ${String(timeoutMs)}ms.`);
 }
 
 function readLedgerSnapshot(databasePath: string): {
@@ -189,18 +230,20 @@ async function startLiveDaemonSocketServer(input: {
   };
 }
 
-it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS switchover (zero shared disk paths), enforces zero-write dry-run, and binds rollback to immutable Phase 1 authority", async () => {
+it("F1/F3/F4/F10: real GUI centerSwitchPort executes live cross-host two-daemon TLS A->B->A round-trip, enforces zero-write dry-run on BOTH hosts, and binds rollback to immutable Phase 1 authority", async () => {
   await withCleanupContext(async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-gui-cross-host-switch-"));
     const repoId = "lease-repo";
     const nodeAId = "node-two";
     const nodeBId = "node-one";
-    const daemonIdA = "node-a-live-gui";
+    const daemonIdA = "lease-center";
+    const daemonIdB = "edge-daemon";
     const nodeAViewRoot = path.join(root, "node-a-views-not-created-yet");
     let daemonSocketA: Awaited<ReturnType<typeof startLiveDaemonSocketServer>> | null = null;
+    let daemonSocketB: Awaited<ReturnType<typeof startLiveDaemonSocketServer>> | null = null;
 
     try {
-      // 1. Live Center Daemon A (with real local Unix socket server so Phase 0 drain and Phase 3 live demotion execute against running Daemon A).
+      // 1. Live Center Daemon A running its OWN real host-managed Fleet TLS listener (saving center.json for F1/F8).
       const nodeA = await fleetNodeClaimFixture(
         t,
         undefined,
@@ -213,8 +256,27 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
         undefined,
         { replicaAdmission: true },
       );
+      await nodeA.center.close();
+      const certA = createSelfSignedCert(path.join(nodeA.userRoot, "center-a-cert"));
+      writeFileSync(path.join(nodeA.root, "tls.crt"), certA.certPem, "utf8");
+      writeFileSync(path.join(nodeA.root, "tls.key"), certA.keyPem, "utf8");
       nodeA.owners.keycloak.node(nodeAId, "person-one", `secret-${nodeAId}`);
       nodeA.owners.signIn(nodeA.userRoot, nodeAId, nodeA.repo);
+
+      const startA = await nodeA.host.fleet.startCenter(
+        {
+          port: 0,
+          bind: "127.0.0.1",
+          keyPath: certA.keyPath,
+          certPath: certA.certPath,
+          repoId,
+          quotaBytes: 64 * 1024 * 1024,
+        },
+        auth,
+      );
+      assert.equal(startA.ok, true, JSON.stringify(startA));
+      const centerPortA = Number(startA.port);
+      assert.ok(centerPortA > 0);
 
       daemonSocketA = await startLiveDaemonSocketServer({
         userRoot: nodeA.userRoot,
@@ -240,7 +302,7 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       const identityMtimeBefore = statSync(identityPath).mtimeMs;
 
       assert.equal(
-        (await nodeA.command("center-node", { kind: "task-create", taskId: "gui-sw-1", title: "Task 1 on A" })).outcome,
+        (await nodeA.host.run(repoId, { kind: "task-create", taskId: "gui-sw-1", title: "Task 1 on A" }, auth)).outcome,
         "applied",
       );
       const ledgerAPath = path.join(nodeA.repo, ".harness", "store", "generations", "3", "ledger.sqlite");
@@ -249,12 +311,20 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       assert.ok(cutA.writerEpoch >= 1);
 
       // 2. Live independent Edge Daemon B on its OWN private disk, synced over Fleet TLS from Center A.
-      const edgeB = await fleetEdgeHostFixture(t, nodeA, {
-        nodeId: nodeBId,
-        beforeOpen: (_edgeRoot, edgeUser) => {
-          // Bind candidate B to the shared independent Keycloak login surface (dec_AAEC26DBB6F23BDF80876ABB2C CH5 Mode 1).
-          nodeA.owners.bind(edgeUser);
+      const edgeB = await fleetEdgeHostFixture(
+        t,
+        { ...nodeA, center: { port: centerPortA } },
+        {
+          nodeId: nodeBId,
+          beforeOpen: (_edgeRoot, edgeUser) => {
+            nodeA.owners.bind(edgeUser);
+          },
         },
+      );
+      daemonSocketB = await startLiveDaemonSocketServer({
+        userRoot: edgeB.edgeUser,
+        daemonId: daemonIdB,
+        host: edgeB.host,
       });
       const {
         schema: _schema,
@@ -293,9 +363,24 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
         AbortSignal.timeout(30_000),
       );
 
+      // F10 setup: pre-populate an existing writer-epochs SQLite DB on Candidate B (simulating a former center)
+      // and pin both file & directory mtime so we can prove dry-run makes ZERO writes on Target B!
+      const targetEpochsDir = path.join(edgeB.edgeUser, "fleet", "writer-epochs");
+      const targetEpochDbPath = path.join(targetEpochsDir, `${repoId}.sqlite`);
+      const preSeededB = openPersistentWriterEpoch({
+        stateRoot: path.join(edgeB.edgeUser, "fleet"),
+        holderId: "prior-b-center",
+      });
+      preSeededB.acquire(repoId, 0);
+      preSeededB.close();
+      utimesSync(targetEpochDbPath, pinnedTime, pinnedTime);
+      utimesSync(targetEpochsDir, pinnedTime, pinnedTime);
+      const targetEpochEntriesBefore = readdirSync(targetEpochsDir).sort();
+      const targetEpochBytesBefore = readFileSync(targetEpochDbPath);
+      const targetEpochMtimeBefore = statSync(targetEpochDbPath).mtimeMs;
+      const targetEpochsDirMtimeBefore = statSync(targetEpochsDir).mtimeMs;
+
       // 3. F1 real runtime provisioning: Candidate B starts its OWN standby Fleet TLS listener with its own cert.
-      // Daemon B automatically announces its external URL, login URL, and SPKI to Center A over authenticated Fleet TLS!
-      // Notice: this test NEVER calls prepareCenterSwitchoverCandidate and NEVER gives Center A any of B's disk paths!
       const certB = createSelfSignedCert(path.join(edgeB.edgeUser, "candidate-cert"));
       const startB = await edgeB.host.fleet.startCenter(
         {
@@ -318,17 +403,9 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       assert.equal(registeredCandidate.targetExternalUrl, `https://127.0.0.1:${String(candidatePortB)}`);
       assert.equal(registeredCandidate.targetLoginUrl, nodeA.owners.url);
       assert.equal(registeredCandidate.targetSpkiSha256, certB.spkiSha256);
-      assert.equal(registeredCandidate.targetRoot, undefined, "F1: Center A must NOT hold B's local targetRoot");
-      assert.equal(
-        registeredCandidate.targetUserRoot,
-        undefined,
-        "F1: Center A must NOT hold B's local targetUserRoot",
-      );
-      assert.equal(
-        registeredCandidate.targetStateRoot,
-        undefined,
-        "F1: Center A must NOT hold B's local targetStateRoot",
-      );
+      assert.equal(registeredCandidate.targetRoot, undefined);
+      assert.equal(registeredCandidate.targetUserRoot, undefined);
+      assert.equal(registeredCandidate.targetStateRoot, undefined);
 
       let readOnlyMode = true;
       const port = createCenterSwitchPort({
@@ -338,7 +415,7 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       });
       const { preload } = wireCenterSettingsPreload(port);
 
-      // 4. F4 + F1 positive: read-only GUI dry-run probes live Daemon B over SPKI-pinned TLS with ZERO disk writes on A!
+      // 4. F4 + F10 + F1 positive: read-only GUI dry-run probes live Daemon B with ZERO disk writes on BOTH A and B!
       const dryRunReply = await preload.centerSwitch!({
         repoId,
         targetNodeId: nodeBId,
@@ -347,13 +424,29 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       assert.equal(dryRunReply.ok, true, JSON.stringify(dryRunReply));
       assert.equal(dryRunReply.dryRun, true);
       assert.equal(dryRunReply.preflight?.ok, true, JSON.stringify(dryRunReply.preflight));
-      assert.equal(
-        readFileSync(identityPath, "utf8"),
-        identityBytesBefore,
-        "F4: dry-run must not rewrite identity file",
-      );
+      assert.equal(readFileSync(identityPath, "utf8"), identityBytesBefore, "F4: dry-run must not rewrite identity");
       assert.equal(statSync(identityPath).mtimeMs, identityMtimeBefore, "F4: dry-run must preserve identity mtime");
       assert.equal(existsSync(nodeAViewRoot), false, "F4: dry-run must not mkdirp missing viewRoot");
+      assert.deepEqual(
+        readdirSync(targetEpochsDir).sort(),
+        targetEpochEntriesBefore,
+        "F10: dry-run on target with existing writer-epochs DB must not create -wal/-shm files",
+      );
+      assert.equal(
+        Buffer.compare(readFileSync(targetEpochDbPath), targetEpochBytesBefore),
+        0,
+        "F10: target writer-epochs DB bytes must be unchanged",
+      );
+      assert.equal(
+        statSync(targetEpochDbPath).mtimeMs,
+        targetEpochMtimeBefore,
+        "F10: target writer-epochs DB mtime must be unchanged",
+      );
+      assert.equal(
+        statSync(targetEpochsDir).mtimeMs,
+        targetEpochsDirMtimeBefore,
+        "F10: target writer-epochs directory mtime must be unchanged",
+      );
 
       // Read-only mode still rejects mutating switch and rollback.
       const readOnlyLive = await preload.centerSwitch!({ repoId, targetNodeId: nodeBId, dryRun: false });
@@ -386,8 +479,7 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
         JSON.stringify(replicaCheck),
       );
 
-      // 5. F3 positive over live cross-host TLS:
-      // Simulate crash after Phase 1 fence persisted on A (target B never activated).
+      // 5. F3 + F8 positive over live cross-host TLS (audited rollback using durably signed Phase 1 cededProof):
       const swRollbackId = "sw_gui_rb_safe";
       const fencedOutcome = await relocateFleetCenter(
         [
@@ -421,13 +513,11 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       assert.equal(fencedOutcome.receipt.ok, false, JSON.stringify(fencedOutcome.receipt));
       assert.equal(fencedOutcome.receipt.fencedCeded, true, JSON.stringify(fencedOutcome.receipt));
 
-      // Pause A's local center writers briefly only to commit oldEpoch+2 rollback cleanly, while Candidate B stays LIVE!
       await daemonSocketA.stop();
       daemonSocketA = null;
-      await nodeA.center.close();
       await nodeA.closeHost(nodeA.host);
 
-      // Audited rollback via REAL GUI preload dials LIVE Candidate B over SPKI-pinned TLS (`fleet.switchover.invalidate/v1`)!
+      // Audited rollback via REAL GUI preload dials LIVE Candidate B with signed cededProof (`fleet.switchover.invalidate/v1`)!
       const rollbackReply = await preload.centerSwitch!({
         repoId,
         abortRollback: true,
@@ -438,17 +528,11 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       assert.equal(rollbackReply.phase, "aborted_rolled_back");
       assert.equal(rollbackReply.rollback?.rollbackEpoch, cutA.writerEpoch + 2);
       const invalidatedPathB = path.join(edgeB.edgeUser, "fleet", "switchover-invalidated", `${repoId}.json`);
-      assert.equal(
-        existsSync(invalidatedPathB),
-        true,
-        "F3: live target B must durably persist invalidation on B's disk",
-      );
+      assert.equal(existsSync(invalidatedPathB), true);
       assert.ok(readFileSync(invalidatedPathB, "utf8").includes(swRollbackId));
 
-      // Reopen live Center A at oldEpoch + 2 (with live Unix socket server) and write a post-rollback task;
-      // BOTH Daemon A and Daemon B remain LIVE through the entire live switchover!
+      // Reopen live Center A at oldEpoch + 2 (automatically restores A's Fleet TLS center from center.json!).
       const hostA2 = await nodeA.openHost();
-      const centerA2 = await nodeA.openCenter(hostA2, nodeA.center.port);
       daemonSocketA = await startLiveDaemonSocketServer({
         userRoot: nodeA.userRoot,
         daemonId: daemonIdA,
@@ -471,8 +555,7 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
         AbortSignal.timeout(30_000),
       );
 
-      // 6. F1 LIVE CROSS-HOST SWITCHOVER A -> B WHILE BOTH DAEMONS REMAIN RUNNING!
-      // Neither Daemon A nor Daemon B is stopped, and Source A has ZERO knowledge of B's filesystem paths!
+      // 6. F1 LIVE CROSS-HOST ROUND-TRIP: A -> B -> A WHILE BOTH DAEMONS REMAIN CONTINUOUSLY RUNNING!
       const swLiveId = "sw_gui_live_ab";
       const liveReply = await preload.centerSwitch!({
         repoId,
@@ -486,22 +569,18 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       assert.equal(
         readDaemonRegistry({ userRoot: edgeB.edgeUser }).repos.find((r) => r.repoId === repoId)?.mode,
         "local",
-        "F1: live target B must switch to local center mode",
       );
       assert.equal(
         readDaemonRegistry({ userRoot: nodeA.userRoot }).repos.find((r) => r.repoId === repoId)?.mode,
         "remote-edge",
-        "F1: live source A must demote to remote-edge mode",
       );
       const promotedB = readLedgerSnapshot(
         path.join(edgeB.edgeRoot, ".harness", "store", "generations", "3", "ledger.sqlite"),
       );
-      assert.equal(promotedB.history, cutA.history, "F1: planned switchover must preserve replication history");
+      assert.equal(promotedB.history, cutA.history);
       assert.equal(promotedB.writerEpoch, epochBeforeLive + 1);
 
-      // 7. F1 live continuity proof:
-      // New Center B (still running, never restarted!) immediately accepts a brand-new write,
-      // and Demoted Old Center A (reloaded live in-place to remote-edge!) automatically replicates it from B!
+      // Live write on New Center B -> Demoted live Daemon A replicates it immediately!
       const writeOnNewCenterB = await edgeB.host.run(
         repoId,
         { kind: "task-create", taskId: "sw-written-on-b", title: "Live write on New Center B" },
@@ -511,15 +590,13 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
       const cutAfterBWrite = readLedgerSnapshot(
         path.join(edgeB.edgeRoot, ".harness", "store", "generations", "3", "ledger.sqlite"),
       );
-      assert.ok(cutAfterBWrite.revision > cutAfterRb.revision, "F1: New Center B must advance canonical revision");
-
+      assert.ok(cutAfterBWrite.revision > cutAfterRb.revision);
       assert.equal(
         await waitForFleetReplicaReady(
           { viewRoot: nodeAViewRoot, repoId, nodeId: nodeAId },
           AbortSignal.timeout(30_000),
         ),
         true,
-        "F1: Demoted live Daemon A must connect to New Center B and publish its replica",
       );
       await waitForFleetReplicaRevision(
         { viewRoot: nodeAViewRoot, repoId, nodeId: nodeAId },
@@ -527,76 +604,125 @@ it("F1/F3/F4: real GUI centerSwitchPort executes live cross-host two-daemon TLS 
         AbortSignal.timeout(30_000),
       );
 
-      // 8. F3 HARD NEGATIVE CONTROL:
-      // Original target B HAS already activated `swLiveId`. Now simulate a crash window where A still holds
-      // `fenced_ceded` AND an attacker/misconfiguration rewrites A's candidate record to point to an EMPTY directory!
-      // Rollback MUST ignore the tampered candidate record, verify against the immutable Phase 1 fence authority (B),
-      // hard-refuse rollback, leave A fenced (`CENTER_MOVED`), and create ZERO files in the empty directory!
+      // F1 REVERSE CANDIDATE AUTO-PROVISIONING: Demoted Daemon A (keeping its existing TLS listener running!)
+      // automatically registers itself as a network-only switchover candidate on New Center B!
+      const reverseCandidateA = await waitForCondition(
+        () => readCenterSwitchoverCandidate(edgeB.edgeUser, repoId, nodeAId),
+        15_000,
+        "F1: demoted live Daemon A auto-registering as candidate on Center B",
+      );
+      assert.equal(reverseCandidateA.targetExternalUrl, `https://127.0.0.1:${String(centerPortA)}`);
+      assert.equal(reverseCandidateA.targetSpkiSha256, certA.spkiSha256);
+      assert.equal(reverseCandidateA.targetRoot, undefined, "F1: Center B must NOT hold A's local targetRoot");
+      assert.equal(reverseCandidateA.targetUserRoot, undefined);
+      assert.equal(reverseCandidateA.targetStateRoot, undefined);
+
+      // Use the EXACT SAME GUI createCenterSwitchPort on Center B to preflight & switchback B -> A!
+      const portB = createCenterSwitchPort({
+        userRoot: () => edgeB.edgeUser,
+        readOnly: () => false,
+        daemonId: () => daemonIdB,
+      });
+      const { preload: preloadB } = wireCenterSettingsPreload(portB);
+      const dryRunBA = await preloadB.centerSwitch!({ repoId, targetNodeId: nodeAId, dryRun: true });
+      assert.equal(dryRunBA.ok, true, JSON.stringify(dryRunBA));
+      assert.equal(dryRunBA.preflight?.ok, true, JSON.stringify(dryRunBA.preflight));
+
+      const swBackId = "sw_gui_live_ba";
+      const liveBackReply = await preloadB.centerSwitch!({
+        repoId,
+        targetNodeId: nodeAId,
+        dryRun: false,
+        switchoverId: swBackId,
+      });
+      assert.equal(liveBackReply.ok, true, JSON.stringify(liveBackReply));
+      assert.equal(liveBackReply.phase, "demoted_edge");
+      assert.equal(liveBackReply.activation?.newEpoch, cutAfterBWrite.writerEpoch + 1);
+      assert.equal(
+        readDaemonRegistry({ userRoot: nodeA.userRoot }).repos.find((r) => r.repoId === repoId)?.mode,
+        "local",
+      );
+      assert.equal(
+        readDaemonRegistry({ userRoot: edgeB.edgeUser }).repos.find((r) => r.repoId === repoId)?.mode,
+        "remote-edge",
+      );
+      const restoredA = readLedgerSnapshot(ledgerAPath);
+      assert.equal(restoredA.history, cutA.history, "F1: round-trip A->B->A must preserve replication history");
+      assert.equal(restoredA.writerEpoch, cutAfterBWrite.writerEpoch + 1);
+
+      // Restored live Center A accepts a new write, and demoted live Daemon B immediately replicates it from A!
+      const writeBackOnA = await hostA2.run(
+        repoId,
+        { kind: "task-create", taskId: "sw-back-on-a", title: "Live write after A->B->A round-trip" },
+        auth,
+      );
+      assert.equal(writeBackOnA.outcome, "applied", JSON.stringify(writeBackOnA));
+      const cutAfterRoundTrip = readLedgerSnapshot(ledgerAPath);
+      assert.ok(cutAfterRoundTrip.revision > cutAfterBWrite.revision);
+      await waitForFleetReplicaRevision(
+        { viewRoot: edgeB.viewRoot, repoId, nodeId: nodeBId },
+        cutAfterRoundTrip.revision,
+        AbortSignal.timeout(30_000),
+      );
+
+      // 7. F3 HARD NEGATIVE CONTROL (tampered empty candidate directory must be ignored and untouched):
       const emptyTargetRoot = path.join(root, "tampered-empty-root");
       const emptyTargetUser = path.join(root, "tampered-empty-user");
       const emptyTargetState = path.join(emptyTargetUser, "fleet");
       mkdirSync(emptyTargetRoot, { recursive: true });
       mkdirSync(emptyTargetState, { recursive: true });
-      prepareCenterSwitchoverCandidate(nodeA.userRoot, {
+      prepareCenterSwitchoverCandidate(edgeB.edgeUser, {
         repoId,
-        nodeId: nodeBId,
+        nodeId: nodeAId,
         targetExternalUrl: "https://127.0.0.1:1",
         targetLoginUrl: nodeA.owners.url,
-        targetSpkiSha256: certB.spkiSha256,
+        targetSpkiSha256: certA.spkiSha256,
         targetRoot: emptyTargetRoot,
         targetUserRoot: emptyTargetUser,
         targetStateRoot: emptyTargetState,
       });
-      assert.equal(existsSync(centerSwitchoverCandidatePath(nodeA.userRoot, repoId, nodeBId)), true);
+      assert.equal(existsSync(centerSwitchoverCandidatePath(edgeB.edgeUser, repoId, nodeAId)), true);
 
-      const fencePathA = path.join(nodeA.userRoot, "fleet", "center-switchover-fence", `${repoId}.json`);
-      const fenceA = JSON.parse(readFileSync(fencePathA, "utf8")) as Record<string, unknown>;
-      writeFileSync(fencePathA, `${JSON.stringify({ ...fenceA, state: "fenced_ceded" }, null, 2)}\n`, "utf8");
+      const fencePathB = path.join(edgeB.edgeUser, "fleet", "center-switchover-fence", `${repoId}.json`);
+      const fenceB = JSON.parse(readFileSync(fencePathB, "utf8")) as Record<string, unknown>;
+      writeFileSync(fencePathB, `${JSON.stringify({ ...fenceB, state: "fenced_ceded" }, null, 2)}\n`, "utf8");
       writeDaemonRegistryRepo({
-        canonicalRoot: nodeA.repo,
+        canonicalRoot: edgeB.edgeRoot,
         repoId,
         mode: "local",
-        userRoot: nodeA.userRoot,
+        userRoot: edgeB.edgeUser,
         createConvenienceLinks: false,
       });
 
-      const refusedRollback = await preload.centerSwitch!({
+      const refusedRollback = await preloadB.centerSwitch!({
         repoId,
         abortRollback: true,
-        switchoverId: swLiveId,
-        reason: "Must refuse rollback because original target B already activated (ignoring tampered empty candidate)",
+        switchoverId: swBackId,
+        reason: "Must refuse rollback because original target A already activated",
       });
       assert.equal(refusedRollback.ok, false, JSON.stringify(refusedRollback));
       assert.equal(refusedRollback.code, "target_activation_not_disproven");
-      assert.equal(existsSync(fencePathA), true, "F3: source fence must remain intact when rollback is refused");
-      const fenceAfterRefusal = JSON.parse(readFileSync(fencePathA, "utf8")) as { readonly state?: string };
-      assert.equal(fenceAfterRefusal.state, "fenced_ceded");
-      assert.equal(
-        existsSync(path.join(emptyTargetState, "writer-epochs", `${repoId}.sqlite`)),
-        false,
-        "F3: tampered empty target directory must NEVER get a newly created writer-epoch DB",
-      );
-      assert.equal(
-        existsSync(path.join(emptyTargetState, "switchover-invalidated", `${repoId}.json`)),
-        false,
-        "F3: tampered empty target directory must NEVER get an invalidation record",
-      );
-      // Confirm old center A still cannot acquire a write lease while fenced!
-      const fencedAuthorityA = openPersistentWriterEpoch({
-        stateRoot: nodeA.writerEpochStateRoot,
-        holderId: "fenced-center-a-check",
+      assert.equal(existsSync(fencePathB), true);
+      assert.equal((JSON.parse(readFileSync(fencePathB, "utf8")) as { readonly state?: string }).state, "fenced_ceded");
+      assert.equal(existsSync(path.join(emptyTargetState, "writer-epochs", `${repoId}.sqlite`)), false);
+      assert.equal(existsSync(path.join(emptyTargetState, "switchover-invalidated", `${repoId}.json`)), false);
+      const fencedAuthorityB = openPersistentWriterEpoch({
+        stateRoot: path.join(edgeB.edgeUser, "fleet"),
+        holderId: "fenced-center-b-check",
       });
       try {
-        assert.throws(() => fencedAuthorityA.acquire(repoId, epochBeforeLive), { code: "CENTER_MOVED" });
+        assert.throws(() => fencedAuthorityB.acquire(repoId, cutAfterBWrite.writerEpoch), { code: "CENTER_MOVED" });
       } finally {
-        fencedAuthorityA.close();
+        fencedAuthorityB.close();
       }
 
+      await daemonSocketB.stop();
+      daemonSocketB = null;
       await daemonSocketA.stop();
       daemonSocketA = null;
-      await centerA2.close();
       await nodeA.closeHost(hostA2);
     } finally {
+      if (daemonSocketB) await daemonSocketB.stop();
       if (daemonSocketA) await daemonSocketA.stop();
       removeTempRepository(root);
     }
@@ -845,6 +971,89 @@ it("F2/F7: real GUI promoteFromEdge stops live edge daemon, rotates history, swi
       assert.equal(unexpectedStopRequested, false, "F7: daemon command retry MUST NOT send daemon.stop");
       assert.equal(await daemonSocketProbe(endpoint), true, "F7: healthy local center socket must remain online");
 
+      // F7 CROSS-PROCESS ATOMIC PRECONDITION + REAL DUAL-PROCESS RACE:
+      // 1) Even if a racing second process already passed its pre-stop checks before the promoted center restarted,
+      //    sending `daemon.stop` with `expectedRepoMode: { repoId, mode: "remote-edge" }` is atomically refused by
+      //    the running `local` center daemon without initiating shutdown!
+      const atomicRefusal = await requestDaemonShutdownAt(endpoint, 5_000, 5_000, {
+        expectedRepoMode: { repoId, mode: "remote-edge" },
+      });
+      assert.equal(atomicRefusal.stopReply?.ok, false, JSON.stringify(atomicRefusal));
+      assert.equal(atomicRefusal.stopReply?.code, "repo_not_remote_edge", JSON.stringify(atomicRefusal));
+      assert.equal(
+        unexpectedStopRequested,
+        false,
+        "F7: atomic expectedRepoMode mismatch MUST NOT stop healthy local center",
+      );
+      assert.equal(await daemonSocketProbe(endpoint), true, "F7: healthy local center socket must remain online");
+
+      // 2) Real separate OS child process competing under cross-process promotion lock AND against the healthy local center:
+      const relocationModuleUrl = new URL(
+        "../../daemon/src/daemon-host/fleet/center-relocation-command.ts",
+        import.meta.url,
+      ).href;
+      const runChildPromote = async (): Promise<{ readonly exitCode: number; readonly code?: string }> =>
+        await new Promise((resolve, reject) => {
+          const child = spawn(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `import { relocateFleetCenter } from ${JSON.stringify(relocationModuleUrl)};
+               const out = await relocateFleetCenter(${JSON.stringify([
+                 "fleet",
+                 "center",
+                 "promote-from-edge",
+                 "--root",
+                 edgeB.edgeRoot,
+                 "--repo",
+                 repoId,
+                 "--user-root",
+                 edgeB.edgeUser,
+                 "--state-root",
+                 path.join(edgeB.edgeUser, "fleet"),
+                 "--daemon-id",
+                 daemonId,
+                 "--force-new-epoch",
+                 "--confirm-possible-tail-loss",
+                 "--stop-edge-daemon",
+                 "--switch-to-local",
+               ])}, ${JSON.stringify(edgeB.edgeUser)});
+               process.stdout.write(JSON.stringify({ exitCode: out.exitCode, code: out.receipt.code }));`,
+            ],
+            { stdio: ["ignore", "pipe", "pipe"] },
+          );
+          let stdout = "",
+            stderr = "";
+          child.stdout.on("data", (chunk: Buffer) => {
+            stdout += chunk.toString("utf8");
+          });
+          child.stderr.on("data", (chunk: Buffer) => {
+            stderr += chunk.toString("utf8");
+          });
+          child.once("error", reject);
+          child.once("close", (code) => {
+            if (code !== 0) reject(new Error(`Child promote exited ${String(code)}: ${stderr}`));
+            else resolve(JSON.parse(stdout) as { readonly exitCode: number; readonly code?: string });
+          });
+        });
+
+      const promotionLockPath = path.join(path.dirname(auditPath), `.${repoId}.promote.lock`);
+      const heldLock = await acquireDaemonProcessLock(promotionLockPath);
+      assert.equal(heldLock.owner, true);
+      try {
+        const lockedChildResult = await runChildPromote();
+        assert.equal(lockedChildResult.exitCode, 2, JSON.stringify(lockedChildResult));
+        assert.equal(lockedChildResult.code, "promotion_in_progress", JSON.stringify(lockedChildResult));
+      } finally {
+        heldLock.release();
+      }
+      const racingChildResult = await runChildPromote();
+      assert.equal(racingChildResult.exitCode, 2, JSON.stringify(racingChildResult));
+      assert.equal(racingChildResult.code, "already_promoted", JSON.stringify(racingChildResult));
+      assert.equal(unexpectedStopRequested, false, "F7: racing child process MUST NOT stop healthy local center");
+      assert.equal(await daemonSocketProbe(endpoint), true, "F7: healthy local center socket must remain online");
+
       // Prove the healthy local center daemon socket is actively serving JSON-RPC requests!
       const liveStatus = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 5_000, 5_000);
       assert.equal(liveStatus.daemonId, daemonId, JSON.stringify(liveStatus));
@@ -856,6 +1065,508 @@ it("F2/F7: real GUI promoteFromEdge stops live edge daemon, rotates history, swi
     } finally {
       if (promotedCenterServer) await promotedCenterServer.stop();
       if (runningServer) await runningServer.stop();
+    }
+  });
+}, 180_000);
+
+it("F8/F9/F11: target TLS rejects repository-read & forged ceded proofs, separates independent HTTPS IdP TLS trust, rejects untransferable payloads pre-Phase-1, and migrates >1024 replication slots in bounded batches", async () => {
+  await withCleanupContext(async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-gui-f8-f9-f11-"));
+    const repoId = "lease-repo";
+    const nodeAId = "node-two";
+    const nodeBId = "node-one";
+    const readerNodeId = "node-reader-only";
+    const daemonIdA = "lease-center";
+    const nodeAViewRoot = path.join(root, "node-a-views");
+    let daemonSocketA: Awaited<ReturnType<typeof startLiveDaemonSocketServer>> | null = null;
+    let idpServer: https.Server | null = null;
+
+    try {
+      // 1. Live Center A with real host-managed Fleet TLS listener (distinct Fleet CA #1: fleet-a.example.test).
+      const nodeA = await fleetNodeClaimFixture(
+        t,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined,
+        { replicaAdmission: true },
+      );
+      await nodeA.center.close();
+      const certA = createSelfSignedCert(
+        path.join(nodeA.userRoot, "cert-a"),
+        "fleet-a.example.test",
+        "DNS:fleet-a.example.test,DNS:localhost,IP:127.0.0.1",
+      );
+      writeFileSync(path.join(nodeA.root, "tls.crt"), certA.certPem, "utf8");
+      writeFileSync(path.join(nodeA.root, "tls.key"), certA.keyPem, "utf8");
+      nodeA.owners.keycloak.node(nodeAId, "person-one", `secret-${nodeAId}`);
+      nodeA.owners.signIn(nodeA.userRoot, nodeAId, nodeA.repo);
+
+      // Register a pure repository-read user + node (NO daemon-fleet-center-switch permission!) for F8 negative control.
+      nodeA.owners.keycloak.account("person-reader");
+      nodeA.owners.keycloak.permit("person-reader", repoId, ["repository-read"]);
+      nodeA.owners.keycloak.node(readerNodeId, "person-reader", `secret-${readerNodeId}`);
+      nodeA.owners.keycloak.interactiveSession(
+        "person-reader",
+        readerNodeId,
+        nodeA.owners.url,
+        `device-token-${readerNodeId}`,
+      );
+
+      const startA = await nodeA.host.fleet.startCenter(
+        {
+          port: 0,
+          bind: "127.0.0.1",
+          keyPath: certA.keyPath,
+          certPath: certA.certPath,
+          repoId,
+          quotaBytes: 64 * 1024 * 1024,
+        },
+        auth,
+      );
+      assert.equal(startA.ok, true, JSON.stringify(startA));
+      const centerPortA = Number(startA.port);
+
+      daemonSocketA = await startLiveDaemonSocketServer({
+        userRoot: nodeA.userRoot,
+        daemonId: daemonIdA,
+        host: nodeA.host,
+      });
+      prepareCenterSymmetricIdentity(nodeA.userRoot, {
+        repoId,
+        nodeId: nodeAId,
+        credential: `secret-${nodeAId}`,
+        viewRoot: nodeAViewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+      });
+
+      assert.equal(
+        (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f8-9-11-seed", title: "Seed" }, auth)).outcome,
+        "applied",
+      );
+      const ledgerAPath = path.join(nodeA.repo, ".harness", "store", "generations", "3", "ledger.sqlite");
+      const cutA = readLedgerSnapshot(ledgerAPath);
+
+      // 2. Live Candidate Edge B with its OWN Fleet cert (CA #2: fleet-b.example.test)
+      //    AND an independent HTTPS IdP server with a COMPLETELY DIFFERENT CA (#3: idp.example.test)!
+      const edgeB = await fleetEdgeHostFixture(
+        t,
+        { ...nodeA, center: { port: centerPortA } },
+        {
+          nodeId: nodeBId,
+          beforeOpen: (_edgeRoot, edgeUser) => {
+            nodeA.owners.bind(edgeUser);
+          },
+        },
+      );
+      const {
+        schema: _schema,
+        loginUrl: _loginUrl,
+        loginRealm: _loginRealm,
+        loginServername: _loginServername,
+        loginBrowserUrl: _loginBrowserUrl,
+        loginCertificate: _loginCertificate,
+        waitTimeoutMs: _waitTimeoutMs,
+        ...initialConn
+      } = edgeB.config;
+      const syncRes = await edgeB.rpc.handle({
+        jsonrpc: "2.0",
+        id: 401,
+        method: "daemon.fleet.edge.sync",
+        params: { payload: { ...initialConn, workspaceRoot: edgeB.edgeRoot, timeoutMs: 30_000 } },
+      });
+      assert.equal((syncRes as { readonly result?: { readonly ok?: boolean } }).result?.ok, true);
+      assert.equal(
+        await waitForFleetReplicaReady(
+          { viewRoot: edgeB.viewRoot, repoId, nodeId: nodeBId },
+          AbortSignal.timeout(30_000),
+        ),
+        true,
+      );
+      await waitForFleetReplicaRevision(
+        { viewRoot: edgeB.viewRoot, repoId, nodeId: nodeBId },
+        cutA.revision,
+        AbortSignal.timeout(30_000),
+      );
+
+      const certB = createSelfSignedCert(
+        path.join(edgeB.edgeUser, "cert-fleet-b"),
+        "fleet-b.example.test",
+        "DNS:fleet-b.example.test,IP:127.0.0.1",
+      );
+      const startB = await edgeB.host.fleet.startCenter(
+        {
+          port: 0,
+          bind: "127.0.0.1",
+          keyPath: certB.keyPath,
+          certPath: certB.certPath,
+          repoId,
+          quotaBytes: 64 * 1024 * 1024,
+        },
+        auth,
+      );
+      assert.equal(startB.ok, true, JSON.stringify(startB));
+      const candidatePortB = Number(startB.port);
+
+      // Start an independent HTTPS IdP server on 127.0.0.1 with its own CA & DNS name `idp.example.test`.
+      const certIdp = createSelfSignedCert(
+        path.join(root, "cert-idp"),
+        "idp.example.test",
+        "DNS:idp.example.test,IP:127.0.0.1",
+      );
+      idpServer = https.createServer({ key: certIdp.keyPem, cert: certIdp.certPem }, (_req, res) => {
+        res.writeHead(200);
+        res.end();
+      });
+      await new Promise<void>((resolve) => idpServer!.listen(0, "127.0.0.1", resolve));
+      const idpAddress = idpServer.address() as { readonly port: number };
+      const independentLoginUrl = `https://127.0.0.1:${String(idpAddress.port)}`;
+
+      // F8 SECURITY CONTRACT TESTS against LIVE Candidate B:
+      const validSignedProof = signSwitchoverCededProof({
+        repoId,
+        switchoverId: "sw_f8_auth_check",
+        sourceNodeId: nodeAId,
+        targetNodeId: nodeBId,
+        oldEpoch: cutA.writerEpoch,
+        cededEpoch: cutA.writerEpoch + 1,
+        finalRevision: cutA.revision,
+        tipHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        fencedAt: new Date().toISOString(),
+        sourceKeyPem: certA.keyPem,
+        sourceCertificatePem: certA.certPem,
+      });
+      const readerPeerOptions = {
+        hostname: "127.0.0.1",
+        port: candidatePortB,
+        ca: certB.certPem,
+        servername: "fleet-b.example.test",
+        spkiSha256: certB.spkiSha256.slice("sha256:".length),
+        nodeId: readerNodeId,
+        credential: `secret-${readerNodeId}`,
+        readAccessToken: async () => `device-token-${readerNodeId}`,
+      };
+      // F8.1: Pure repository-read principal calling activate MUST be hard-rejected with authorization_denied!
+      await assert.rejects(
+        activateRemoteSwitchoverClient(readerPeerOptions, {
+          repoId,
+          switchoverId: "sw_f8_auth_check",
+          expectedTargetNodeId: nodeBId,
+          expectedOldEpoch: cutA.writerEpoch,
+          newEpoch: cutA.writerEpoch + 1,
+          frozenCut: {
+            repoId,
+            finalRevision: cutA.revision,
+            tipHash: validSignedProof.tipHash,
+            history: cutA.history,
+            sequence: cutA.revision,
+          },
+          sourceReplicationLogWindow: [],
+          retentionWindowCommits: 100,
+          cededProof: { ...validSignedProof, sourceNodeId: readerNodeId },
+        }),
+        (error: unknown) => {
+          assert.equal((error as { readonly code?: unknown }).code, "authorization_denied", String(error));
+          return true;
+        },
+      );
+      // F8.2: Pure repository-read principal calling invalidate MUST be hard-rejected with authorization_denied!
+      await assert.rejects(
+        invalidateRemoteSwitchoverClient(readerPeerOptions, {
+          repoId,
+          switchoverId: "sw_f8_auth_check",
+          expectedTargetNodeId: nodeBId,
+          cededEpoch: cutA.writerEpoch + 1,
+          cededProof: { ...validSignedProof, sourceNodeId: readerNodeId },
+        }),
+        (error: unknown) => {
+          assert.equal((error as { readonly code?: unknown }).code, "authorization_denied", String(error));
+          return true;
+        },
+      );
+      // F8.3: Missing human admin session (replica machine / unauthenticated token) MUST be rejected!
+      await assert.rejects(
+        activateRemoteSwitchoverClient(
+          {
+            hostname: "127.0.0.1",
+            port: candidatePortB,
+            ca: certB.certPem,
+            servername: "fleet-b.example.test",
+            spkiSha256: certB.spkiSha256.slice("sha256:".length),
+            nodeId: nodeAId,
+            credential: `secret-${nodeAId}`,
+          },
+          {
+            repoId,
+            switchoverId: "sw_f8_auth_check",
+            expectedTargetNodeId: nodeBId,
+            expectedOldEpoch: cutA.writerEpoch,
+            newEpoch: cutA.writerEpoch + 1,
+            frozenCut: {
+              repoId,
+              finalRevision: cutA.revision,
+              tipHash: validSignedProof.tipHash,
+              history: cutA.history,
+              sequence: cutA.revision,
+            },
+            sourceReplicationLogWindow: [],
+            retentionWindowCommits: 100,
+            cededProof: validSignedProof,
+          },
+        ),
+        (error: unknown) => {
+          assert.equal((error as { readonly code?: unknown }).code, "authentication_required", String(error));
+          return true;
+        },
+      );
+      // F8.4: Authorized admin with a forged cededProof (signed by untrusted certB key instead of Center A's key!) MUST be rejected!
+      const forgedProof = signSwitchoverCededProof({
+        repoId,
+        switchoverId: "sw_f8_forged",
+        sourceNodeId: nodeAId,
+        targetNodeId: nodeBId,
+        oldEpoch: cutA.writerEpoch,
+        cededEpoch: cutA.writerEpoch + 1,
+        finalRevision: cutA.revision,
+        tipHash: validSignedProof.tipHash,
+        fencedAt: new Date().toISOString(),
+        sourceKeyPem: certB.keyPem,
+        sourceCertificatePem: certB.certPem,
+      });
+      const adminPeerOptions = {
+        hostname: "127.0.0.1",
+        port: candidatePortB,
+        ca: certB.certPem,
+        servername: "fleet-b.example.test",
+        spkiSha256: certB.spkiSha256.slice("sha256:".length),
+        nodeId: nodeAId,
+        credential: `secret-${nodeAId}`,
+        readAccessToken: async () => `device-token-${nodeAId}`,
+      };
+      await assert.rejects(
+        activateRemoteSwitchoverClient(adminPeerOptions, {
+          repoId,
+          switchoverId: "sw_f8_forged",
+          expectedTargetNodeId: nodeBId,
+          expectedOldEpoch: cutA.writerEpoch,
+          newEpoch: cutA.writerEpoch + 1,
+          frozenCut: {
+            repoId,
+            finalRevision: cutA.revision,
+            tipHash: validSignedProof.tipHash,
+            history: cutA.history,
+            sequence: cutA.revision,
+          },
+          sourceReplicationLogWindow: [],
+          retentionWindowCommits: 100,
+          cededProof: forgedProof,
+        }),
+        (error: unknown) => {
+          assert.equal((error as { readonly code?: unknown }).code, "switchover_ceded_proof_invalid", String(error));
+          return true;
+        },
+      );
+      await assert.rejects(
+        invalidateRemoteSwitchoverClient(adminPeerOptions, {
+          repoId,
+          switchoverId: "sw_f8_forged",
+          expectedTargetNodeId: nodeBId,
+          cededEpoch: cutA.writerEpoch + 1,
+          cededProof: forgedProof,
+        }),
+        (error: unknown) => {
+          assert.equal((error as { readonly code?: unknown }).code, "switchover_ceded_proof_invalid", String(error));
+          return true;
+        },
+      );
+      // Target B must remain untouched in remote-edge mode!
+      assert.equal(
+        readDaemonRegistry({ userRoot: edgeB.edgeUser }).repos.find((r) => r.repoId === repoId)?.mode,
+        "remote-edge",
+      );
+
+      // F9 SEPARATE HTTPS LOGIN TRUST TESTS (Fleet CA #2 `fleet-b.example.test` vs Independent IdP CA #3 `idp.example.test`):
+      // Negative control: without loginCertificate, probing the untrusted self-signed IdP fails (Fleet cert is NOT forced onto IdP!).
+      prepareCenterSwitchoverCandidate(nodeA.userRoot, {
+        repoId,
+        nodeId: nodeBId,
+        targetExternalUrl: `https://127.0.0.1:${String(candidatePortB)}`,
+        targetLoginUrl: independentLoginUrl,
+        targetSpkiSha256: certB.spkiSha256,
+        targetServername: "fleet-b.example.test",
+      });
+      const portA = createCenterSwitchPort({
+        userRoot: () => nodeA.userRoot,
+        readOnly: () => false,
+        daemonId: () => daemonIdA,
+      });
+      const { preload: preloadA } = wireCenterSettingsPreload(portA);
+      const untrustedIdpDryRun = await preloadA.centerSwitch!({ repoId, targetNodeId: nodeBId, dryRun: true });
+      assert.equal(untrustedIdpDryRun.ok, false, JSON.stringify(untrustedIdpDryRun));
+      assert.ok(
+        untrustedIdpDryRun.preflight?.blockingCodes.includes("auth_surface_unreachable"),
+        JSON.stringify(untrustedIdpDryRun.preflight),
+      );
+
+      // Positive control: with loginCertificate + loginServername for the independent IdP (`idp.example.test`, CA #3),
+      // CH5 preflight PASSES even though Fleet uses a different CA (#2) and different DNS name (`fleet-b.example.test`)!
+      prepareCenterSwitchoverCandidate(nodeA.userRoot, {
+        repoId,
+        nodeId: nodeBId,
+        targetExternalUrl: `https://127.0.0.1:${String(candidatePortB)}`,
+        targetLoginUrl: independentLoginUrl,
+        targetSpkiSha256: certB.spkiSha256,
+        targetServername: "fleet-b.example.test",
+        targetLoginCertificate: certIdp.certPem,
+        targetLoginServername: "idp.example.test",
+      });
+      const separateIdpDryRun = await preloadA.centerSwitch!({ repoId, targetNodeId: nodeBId, dryRun: true });
+      assert.equal(separateIdpDryRun.ok, true, JSON.stringify(separateIdpDryRun));
+      assert.equal(separateIdpDryRun.preflight?.ok, true, JSON.stringify(separateIdpDryRun.preflight));
+
+      // F11 (>1024 REPLICATION SLOTS + PRE-CEDE TRANSFER VALIDATION):
+      // Seed 1,030 replication slots on Source Center A (> 1024 old single-frame cap!).
+      const sourceSlotsPath = path.join(nodeA.writerEpochStateRoot, "replication-slots.sqlite");
+      const seededSlots = openReplicationSlots(sourceSlotsPath);
+      const totalSeededSlots = 1030;
+      try {
+        for (let i = 0; i < totalSeededSlots; i += 1) {
+          const slotNodeId = `edge-slot-${String(i).padStart(4, "0")}`;
+          const lease = seededSlots.claim({ repoId, nodeId: slotNodeId }, cutA.history);
+          seededSlots.acknowledge(
+            lease,
+            {
+              durable: { history: cutA.history, sequence: cutA.revision, revision: cutA.revision },
+              applied: { history: cutA.history, sequence: cutA.revision, revision: cutA.revision },
+            },
+            { history: cutA.history, sequence: cutA.revision, revision: cutA.revision },
+          );
+        }
+      } finally {
+        seededSlots.close();
+      }
+
+      // F11 negative control 1: validateSwitchoverRemoteActivationTransfer rejects >100,000 slots & >4096 log window!
+      const oversizeLogRows = Array.from({ length: 4097 }, (_, idx) => ({
+        sequence: idx,
+        revision: idx,
+        outcomeOpId: null,
+        writerJson: null,
+      }));
+      const invalidTransfer = measureSwitchoverRemoteActivationTransfer({
+        repoId,
+        switchoverId: "sw_f11_oversize",
+        expectedTargetNodeId: nodeBId,
+        expectedOldEpoch: cutA.writerEpoch,
+        newEpoch: cutA.writerEpoch + 1,
+        frozenCut: {
+          repoId,
+          finalRevision: cutA.revision,
+          tipHash: validSignedProof.tipHash,
+          history: cutA.history,
+          sequence: cutA.revision,
+        },
+        sourceReplicationLogWindow: oversizeLogRows,
+        retentionWindowCommits: 5000,
+        replicationSlots: [],
+        cededProof: validSignedProof,
+      });
+      assert.equal(invalidTransfer.ok, false);
+
+      // F11 negative control 2: an untransferable pre-Phase-1 failure (missing source TLS key for signing)
+      // rejects BEFORE Phase 1 fence is written, leaving Source A unfenced and writable!
+      const prePhase1Failure = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--source-key",
+          path.join(root, "nonexistent.key"),
+          "--switchover-id",
+          "sw_f11_pre_cede_reject",
+        ],
+        nodeA.userRoot,
+      );
+      assert.equal(prePhase1Failure.receipt.ok, false, JSON.stringify(prePhase1Failure.receipt));
+      assert.equal(
+        prePhase1Failure.receipt.fencedCeded,
+        undefined,
+        "F11: pre-cede rejection MUST NOT leave source fenced",
+      );
+      assert.equal(
+        existsSync(path.join(nodeA.userRoot, "fleet", "center-switchover-fence", `${repoId}.json`)),
+        false,
+        "F11: no Phase 1 fence file may exist after pre-cede rejection",
+      );
+      // Confirm Source A remains 100% writable!
+      const postRejectWrite = await nodeA.host.run(
+        repoId,
+        { kind: "task-create", taskId: "f11-still-writable", title: "Writable after pre-cede reject" },
+        auth,
+      );
+      assert.equal(postRejectWrite.outcome, "applied", JSON.stringify(postRejectWrite));
+      const cutBefore1030 = readLedgerSnapshot(ledgerAPath);
+      await waitForFleetReplicaRevision(
+        { viewRoot: edgeB.viewRoot, repoId, nodeId: nodeBId },
+        cutBefore1030.revision,
+        AbortSignal.timeout(30_000),
+      );
+
+      // F8 + F9 + F11 POSITIVE: Authorized switchover with independent HTTPS IdP AND 1,030 (>1024) replication slots
+      // succeeds cleanly via bounded batched staging (`fleet.switchover.slots.stage/v1`) + signed cededProof!
+      const live1030 = await preloadA.centerSwitch!({
+        repoId,
+        targetNodeId: nodeBId,
+        dryRun: false,
+        switchoverId: "sw_f8_f9_f11_1030",
+      });
+      assert.equal(live1030.ok, true, JSON.stringify(live1030));
+      assert.equal(live1030.phase, "demoted_edge");
+      assert.equal(
+        readDaemonRegistry({ userRoot: edgeB.edgeUser }).repos.find((r) => r.repoId === repoId)?.mode,
+        "local",
+      );
+
+      // Verify ALL 1,030 replication slots (and their durable/applied ACKs) were migrated intact onto Target B!
+      const targetSlotsPath = path.join(edgeB.edgeUser, "fleet", "replication-slots.sqlite");
+      assert.equal(existsSync(targetSlotsPath), true, "F11: target must have migrated replication-slots.sqlite");
+      const migratedSlots = openReplicationSlots(targetSlotsPath);
+      try {
+        const rows = migratedSlots.list().filter((row) => row.repoId === repoId);
+        assert.ok(
+          rows.length >= totalSeededSlots,
+          `F11: expected >= ${String(totalSeededSlots)} slots, got ${String(rows.length)}`,
+        );
+        const firstSlot = rows.find((r) => r.nodeId === "edge-slot-0000");
+        const lastSlot = rows.find((r) => r.nodeId === "edge-slot-1029");
+        assert.ok(firstSlot && firstSlot.ack?.durable.revision === cutA.revision, JSON.stringify(firstSlot));
+        assert.ok(lastSlot && lastSlot.ack?.applied.revision === cutA.revision, JSON.stringify(lastSlot));
+      } finally {
+        migratedSlots.close();
+      }
+
+      await daemonSocketA.stop();
+      daemonSocketA = null;
+    } finally {
+      if (idpServer) await new Promise<void>((resolve) => idpServer!.close(() => resolve()));
+      if (daemonSocketA) await daemonSocketA.stop();
+      removeTempRepository(root);
     }
   });
 }, 180_000);

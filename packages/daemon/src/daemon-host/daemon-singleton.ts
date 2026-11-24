@@ -39,15 +39,37 @@ export function readDaemonPid(userRoot: string, daemonId: string): number | null
 export function readDaemonSingletonLockPid(userRoot: string, daemonId: string): number | null {
   return readPidFile(daemonSingletonLockPath(userRoot, daemonId));
 }
+/**
+ * Generic cross-process O_EXCL PID lock file (F7: serializes cross-process break-glass promotion
+ * across eligibility verification, daemon shutdown, singleton claim, and promotion audit write).
+ */
+export async function acquireDaemonProcessLock(
+  lockPath: string,
+  pid: number = process.pid,
+): Promise<
+  { readonly owner: true; readonly release: () => void } | { readonly owner: false; readonly pid: number | null }
+> {
+  const result = await acquireDaemonAutostartFlight({
+    userRoot: path.dirname(lockPath),
+    daemonId: "",
+    lockPath,
+    pid,
+  });
+  return result.owner ? { owner: true, release: result.release } : { owner: false, pid: readPidFile(lockPath) };
+}
+
 export async function acquireDaemonAutostartFlight(input: {
   readonly userRoot: string;
   readonly daemonId: string;
+  readonly lockPath?: string;
   readonly pid?: number;
 }): Promise<{ readonly owner: boolean; readonly release: () => void }> {
   const { processLockHolderDead } = await import("./process-port.ts");
   const pid = input.pid ?? process.pid,
-    lockPath = daemonAutostartLockPath(input.userRoot, input.daemonId);
-  /* @gate-identity state-store/runtime-instance.daemon-singleton */ mkdirSync(input.userRoot, { recursive: true });
+    lockPath = input.lockPath ?? daemonAutostartLockPath(input.userRoot, input.daemonId);
+  /* @gate-identity state-store/runtime-instance.daemon-singleton */ mkdirSync(path.dirname(lockPath), {
+    recursive: true,
+  });
   for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
       /* @gate-identity state-store/runtime-instance.daemon-singleton */ writeFileSync(lockPath, `${pid}\n`, {

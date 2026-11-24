@@ -44,6 +44,21 @@ export interface CenterMigratingStateV1 {
  * cannot acquire <= cededEpoch and returns CENTER_MOVED; it can be lifted only by audited oldEpoch+2 rollback
  * or a later switchback promotion at newEpoch > cededEpoch.
  */
+export interface CenterSwitchoverCededProofV1 {
+  readonly schema: "center-switchover-ceded-proof/v1";
+  readonly repoId: string;
+  readonly switchoverId: string;
+  readonly sourceNodeId: string;
+  readonly targetNodeId: string;
+  readonly oldEpoch: number;
+  readonly cededEpoch: number;
+  readonly finalRevision: number;
+  readonly tipHash: string;
+  readonly fencedAt: string;
+  readonly sourceCertificatePem: string;
+  readonly signatureBase64: string;
+}
+
 export interface CenterSwitchoverFenceV1 extends CenterMovedDetails {
   readonly schema: "center-switchover-fence/v1";
   readonly switchoverId: string;
@@ -57,6 +72,8 @@ export interface CenterSwitchoverFenceV1 extends CenterMovedDetails {
   readonly tipHash: string;
   readonly fencedAt: string;
   readonly demotedAt?: string;
+  /** Cryptographic proof signed by the source center's Fleet TLS key binding this persisted Phase 1 fence (F8). */
+  readonly cededProof?: CenterSwitchoverCededProofV1;
   /** Immutable target TLS authority metadata captured at Phase 1 (F3). */
   readonly targetCaPath?: string;
   readonly targetServername?: string;
@@ -217,6 +234,35 @@ export function centerSwitchoverFencePath(userRoot: string, repoId: string): str
   return path.join(path.resolve(userRoot), "fleet", "center-switchover-fence", `${repoId}.json`);
 }
 
+function parseCededProof(value: unknown, expectedRepoId: string): CenterSwitchoverCededProofV1 | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const proof = value as Partial<CenterSwitchoverCededProofV1>;
+  const valid =
+    proof.schema === "center-switchover-ceded-proof/v1" &&
+    proof.repoId === expectedRepoId &&
+    typeof proof.switchoverId === "string" &&
+    proof.switchoverId.length > 0 &&
+    typeof proof.sourceNodeId === "string" &&
+    proof.sourceNodeId.length > 0 &&
+    typeof proof.targetNodeId === "string" &&
+    proof.targetNodeId.length > 0 &&
+    Number.isSafeInteger(proof.oldEpoch) &&
+    Number(proof.oldEpoch) >= 1 &&
+    Number.isSafeInteger(proof.cededEpoch) &&
+    Number(proof.cededEpoch) >= Number(proof.oldEpoch) + 1 &&
+    Number.isSafeInteger(proof.finalRevision) &&
+    Number(proof.finalRevision) >= 0 &&
+    typeof proof.tipHash === "string" &&
+    proof.tipHash.length > 0 &&
+    typeof proof.fencedAt === "string" &&
+    proof.fencedAt.length > 0 &&
+    typeof proof.sourceCertificatePem === "string" &&
+    proof.sourceCertificatePem.length > 0 &&
+    typeof proof.signatureBase64 === "string" &&
+    proof.signatureBase64.length > 0;
+  return valid ? (proof as CenterSwitchoverCededProofV1) : null;
+}
+
 function parseSwitchoverFenceFile(file: string, expectedRepoId: string): CenterSwitchoverFenceV1 {
   const value = JSON.parse(localRuntimeStateFileSystem.readText(file)) as Partial<CenterSwitchoverFenceV1>;
   if (
@@ -238,6 +284,7 @@ function parseSwitchoverFenceFile(file: string, expectedRepoId: string): CenterS
     typeof value.newLoginUrl !== "string" ||
     typeof value.spkiSha256 !== "string" ||
     typeof value.fencedAt !== "string" ||
+    (value.cededProof !== undefined && parseCededProof(value.cededProof, expectedRepoId) === null) ||
     (value.targetCaPath !== undefined &&
       (typeof value.targetCaPath !== "string" || !path.isAbsolute(value.targetCaPath))) ||
     (value.targetServername !== undefined && typeof value.targetServername !== "string") ||

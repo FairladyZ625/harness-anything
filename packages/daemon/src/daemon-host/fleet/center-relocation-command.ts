@@ -25,7 +25,7 @@ import { daemonIdFromEnv, localUserDaemonEndpoint } from "../client/local-daemon
 import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { requestDaemonJsonRpcAt } from "../client/local-json-rpc-client.ts";
 import { requestDaemonShutdownAt } from "../client/local-json-rpc-shutdown.ts";
-import { acquireDaemonSingleton, daemonSocketProbe } from "../daemon-singleton.ts";
+import { acquireDaemonProcessLock, acquireDaemonSingleton, daemonSocketProbe } from "../daemon-singleton.ts";
 import { localSystemBinding } from "../daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "../host-action-authorization.ts";
 import {
@@ -338,8 +338,8 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
     evaluatedAtCut: "host-local:current",
     repoId,
   });
-  // F7: serialize concurrent break-glass attempts per repository and validate registry mode + audit record
-  // BEFORE stopping any running local daemon so a stale retry never tears down a healthy promoted center.
+  // F7: serialize concurrent break-glass attempts BOTH in-process (same PID) and cross-process (O_EXCL lockfile)
+  // covering eligibility verification through atomic mode-checked daemon.stop, promotion audit write, and registry switch.
   const promotionMutexKey = `${userRoot}\0${repoId}`;
   if (activeEdgePromotions.get(promotionMutexKey) === true) {
     return failureOutcome(
@@ -349,7 +349,18 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
     );
   }
   activeEdgePromotions.set(promotionMutexKey, true);
+  let crossProcessLock: { readonly owner: true; readonly release: () => void } | null = null;
   try {
+    const lockPath = path.join(path.dirname(promoteFromEdgeAuditPath(stateRoot, repoId)), `.${repoId}.promote.lock`);
+    const claimedProcessLock = await acquireDaemonProcessLock(lockPath);
+    if (!claimedProcessLock.owner) {
+      return failureOutcome(
+        "fleet-center-promote-from-edge",
+        "promotion_in_progress",
+        `Break-glass promotion is already in progress for ${repoId} in another process (pid ${String(claimedProcessLock.pid ?? "unknown")}).`,
+      );
+    }
+    crossProcessLock = claimedProcessLock;
     const preStopRejection = checkPromotionEligibilityBeforeStop({
       userRoot,
       stateRoot,
@@ -380,7 +391,7 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
         requireRegisteredRemoteEdge: true,
       });
       if (recheckBeforeStop !== null) return recheckBeforeStop;
-      const stopOutcome = await stopRunningEdgeDaemonForPromotion({ userRoot, daemonId, endpoint });
+      const stopOutcome = await stopRunningEdgeDaemonForPromotion({ userRoot, daemonId, endpoint, repoId });
       if (!stopOutcome.ok) return failureOutcome("fleet-center-promote-from-edge", stopOutcome.code, stopOutcome.hint);
       singleton = stopOutcome.singleton;
       stoppedEdgeDaemon = true;
@@ -448,6 +459,7 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
       singleton.release();
     }
   } finally {
+    crossProcessLock?.release();
     activeEdgePromotions.set(promotionMutexKey, false);
   }
 }
@@ -505,11 +517,15 @@ function checkPromotionEligibilityBeforeStop(input: {
 
 async function sendControlledEdgeDaemonStop(
   endpoint: string,
+  repoId: string,
 ): Promise<
   { readonly socketClosed: true } | { readonly socketClosed: false; readonly code: string; readonly hint: string }
 > {
   try {
-    const exchange = await requestDaemonShutdownAt(endpoint);
+    // F7: Server-side atomic mode precondition prevents a racing late stop from shutting down a promoted `local` center daemon.
+    const exchange = await requestDaemonShutdownAt(endpoint, undefined, undefined, {
+      expectedRepoMode: { repoId, mode: "remote-edge" },
+    });
     if (exchange.stopReply && !exchange.stopReply.ok)
       return {
         socketClosed: false,
@@ -538,6 +554,7 @@ async function stopRunningEdgeDaemonForPromotion(input: {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly endpoint: string;
+  readonly repoId: string;
 }): Promise<
   | {
       readonly ok: true;
@@ -546,7 +563,7 @@ async function stopRunningEdgeDaemonForPromotion(input: {
   | { readonly ok: false; readonly code: string; readonly hint: string }
 > {
   if (await daemonSocketProbe(input.endpoint)) {
-    const stopResult = await sendControlledEdgeDaemonStop(input.endpoint);
+    const stopResult = await sendControlledEdgeDaemonStop(input.endpoint, input.repoId);
     if (!stopResult.socketClosed) return { ok: false, code: stopResult.code, hint: stopResult.hint };
   }
   const stopSteps = cliOperationalPolicy.defaultValue.daemon.stopAttempts,

@@ -49,6 +49,7 @@ import {
 } from "../client/fleet-edge-config.ts";
 import { createIdentitySession } from "../authorization-provider.ts";
 import { localSystemBinding, resolveBoundAccessToken } from "../daemon-host-binding.ts";
+import { readFleetCenterConfig } from "../fleet-center-config.ts";
 import { requireAuthorizedHostAction } from "../host-action-authorization.ts";
 import { oidcCenterSelections } from "../oidc-center-selection.ts";
 import { systemCaCertificates } from "../tls-ca-certificate.ts";
@@ -65,7 +66,10 @@ import {
   queryRemoteSwitchoverStatusClient,
   readCenterSwitchoverCandidate,
   readCenterSymmetricIdentity,
+  signSwitchoverCededProof,
+  measureSwitchoverRemoteActivationTransfer,
   type CenterSwitchoverCandidateV1,
+  type CenterSwitchoverCededProofV1,
   type CenterSymmetricNodeIdentityV1,
   type SwitchoverReplicationSlotRow,
 } from "./center-switchover-transport.ts";
@@ -247,7 +251,31 @@ async function runForwardSwitchoverCommand(
       : candidate?.targetCaPath
         ? path.resolve(candidate.targetCaPath)
         : undefined,
-    targetServername = flagValue(argv, "--target-servername") ?? candidate?.targetServername;
+    targetServername = flagValue(argv, "--target-servername") ?? candidate?.targetServername,
+    targetLoginCaPath = flagValue(argv, "--target-login-ca")
+      ? path.resolve(flagValue(argv, "--target-login-ca")!)
+      : undefined,
+    priorKnownAuthority = oidcCenterSelections(sourceUserRoot).read(sourceRoot)?.authority,
+    loginSameOriginAsFleet = sameHttpOrigin(targetLoginUrl, targetExternalUrl),
+    targetLoginCertificate =
+      targetLoginCaPath && localRuntimeStateFileSystem.exists(targetLoginCaPath)
+        ? localRuntimeStateFileSystem.readText(targetLoginCaPath)
+        : (candidate?.targetLoginCertificate ??
+          (priorKnownAuthority && sameHttpOrigin(priorKnownAuthority.url, targetLoginUrl)
+            ? priorKnownAuthority.certificate
+            : undefined)),
+    targetLoginServername =
+      flagValue(argv, "--target-login-servername") ??
+      candidate?.targetLoginServername ??
+      (priorKnownAuthority && sameHttpOrigin(priorKnownAuthority.url, targetLoginUrl)
+        ? priorKnownAuthority.servername
+        : undefined),
+    explicitSourceKeyPath = flagValue(argv, "--source-key")
+      ? path.resolve(flagValue(argv, "--source-key")!)
+      : undefined,
+    explicitSourceCertPath = flagValue(argv, "--source-cert")
+      ? path.resolve(flagValue(argv, "--source-cert")!)
+      : undefined;
 
   // Always resolve source symmetric identity strictly read-only up front so dry-run preflight
   // and unauthorized/rejected invocations never mutate disk or create directories (F4).
@@ -258,6 +286,8 @@ async function runForwardSwitchoverCommand(
     flagValue(argv, "--source-view-root") !== undefined ||
     flagValue(argv, "--source-quota-bytes") !== undefined;
   let capturedLogWindow: readonly CenterReplicationLogRow[] = [];
+  let capturedReplicationSlots: readonly SwitchoverReplicationSlotRow[] = [];
+  let capturedCededProof: CenterSwitchoverCededProofV1 | null = null;
   let capturedTargetCertPem: string | null = null;
 
   const buildRemotePeerOptions = (timeoutMs?: number): Omit<FleetPeerOptions, "repoId"> => {
@@ -275,6 +305,8 @@ async function runForwardSwitchoverCommand(
       targetSpkiSha256,
       targetCaPath,
       targetServername,
+      targetLoginCertificate,
+      targetLoginServername,
       timeoutMs,
     });
   };
@@ -355,9 +387,23 @@ async function runForwardSwitchoverCommand(
         }
       }
 
+      // F9: Separate login surface TLS trust from Fleet TLS trust. Only fall back to Fleet CA/cert/servername
+      // when targetLoginUrl explicitly shares the exact same origin as targetExternalUrl; independent HTTPS
+      // IdPs use their own loginCertificate/loginServername or system CA + targetLoginUrl's own hostname.
+      const effectiveLoginCaPem =
+        targetLoginCertificate ??
+        (loginSameOriginAsFleet
+          ? targetCaPath && localRuntimeStateFileSystem.exists(targetCaPath)
+            ? localRuntimeStateFileSystem.readText(targetCaPath)
+            : (capturedTargetCertPem ?? undefined)
+          : undefined);
+      const effectiveLoginServername = targetLoginServername ?? (loginSameOriginAsFleet ? targetServername : undefined);
       const authProbe = hooks?.probeAuth
-        ? await hooks.probeAuth(targetLoginUrl, targetCaPath)
-        : await defaultProbeAuth(targetLoginUrl, targetCaPath, targetServername, capturedTargetCertPem ?? undefined);
+        ? await hooks.probeAuth(
+            targetLoginUrl,
+            targetLoginCaPath ?? (loginSameOriginAsFleet ? targetCaPath : undefined),
+          )
+        : await defaultProbeAuth(targetLoginUrl, effectiveLoginCaPem, effectiveLoginServername);
       const replicaLagRevisions =
         replicaCut === null ? null : Math.max(0, centerSnapshot.cut.finalRevision - replicaCut.revision);
       const input: SwitchoverPreflightInput = {
@@ -467,6 +513,58 @@ async function runForwardSwitchoverCommand(
       );
     },
     persistCededFence: async (fenceInput) => {
+      const fencedAt = (hooks?.now ?? (() => new Date().toISOString()))();
+      let cededProof: CenterSwitchoverCededProofV1 | undefined;
+      if (!useLegacyLocalTargetPaths) {
+        const sourceTlsMaterial = resolveSourceCenterTlsMaterial({
+          sourceUserRoot,
+          daemonId,
+          explicitKeyPath: explicitSourceKeyPath,
+          explicitCertPath: explicitSourceCertPath,
+        });
+        if (!sourceTlsMaterial) {
+          throw switchoverCommandError(
+            "source_center_tls_key_missing",
+            "Source center Fleet TLS key/certificate is required to sign the switchover ceded proof before Phase 1 fencing.",
+          );
+        }
+        cededProof = signSwitchoverCededProof({
+          repoId: fenceInput.repoId,
+          switchoverId: fenceInput.switchoverId,
+          sourceNodeId: fenceInput.sourceNodeId,
+          targetNodeId: fenceInput.targetNodeId,
+          oldEpoch: fenceInput.oldEpoch,
+          cededEpoch: fenceInput.cededEpoch,
+          finalRevision: fenceInput.frozenCut.finalRevision,
+          tipHash: fenceInput.frozenCut.tipHash,
+          fencedAt,
+          sourceKeyPem: sourceTlsMaterial.keyPem,
+          sourceCertificatePem: sourceTlsMaterial.certPem,
+        });
+        // F11: Validate complete replication slot batching & activation transfer payload BEFORE persisting Phase 1 fence!
+        capturedReplicationSlots = readSourceReplicationSlotRows(sourceStateRoot, fenceInput.repoId);
+        const transferCheck = measureSwitchoverRemoteActivationTransfer({
+          repoId: fenceInput.repoId,
+          switchoverId: fenceInput.switchoverId,
+          expectedTargetNodeId: fenceInput.targetNodeId,
+          expectedOldEpoch: fenceInput.oldEpoch,
+          newEpoch: fenceInput.cededEpoch,
+          frozenCut: fenceInput.frozenCut,
+          sourceReplicationLogWindow: capturedLogWindow,
+          retentionWindowCommits,
+          replicationSlots: capturedReplicationSlots,
+          cededProof,
+          ...(targetExternalUrl ? { targetExternalUrl } : {}),
+          ...(targetLoginUrl ? { targetLoginUrl } : {}),
+        });
+        if (!transferCheck.ok) {
+          throw switchoverCommandError(
+            "switchover_payload_untransferable",
+            `Switchover activation payload cannot be transferred safely before ceding authority: ${transferCheck.detail}`,
+          );
+        }
+        capturedCededProof = cededProof;
+      }
       cedeCenterForSwitchover({
         userRoot: sourceUserRoot,
         stateRoot: sourceStateRoot,
@@ -480,12 +578,13 @@ async function runForwardSwitchoverCommand(
         newExternalUrl: fenceInput.targetExternalUrl,
         newLoginUrl: fenceInput.targetLoginUrl,
         spkiSha256: fenceInput.targetSpkiSha256,
+        ...(cededProof ? { cededProof } : {}),
         ...(targetCaPath ? { targetCaPath } : {}),
         ...(targetServername ? { targetServername } : {}),
         ...(useLegacyLocalTargetPaths && targetRoot ? { targetRoot } : {}),
         ...(useLegacyLocalTargetPaths && targetUserRoot ? { targetUserRoot } : {}),
         ...(useLegacyLocalTargetPaths && targetStateRoot ? { targetStateRoot } : {}),
-        now: hooks?.now,
+        now: () => fencedAt,
       });
       await hooks?.afterCededFencePersisted?.({
         repoId: fenceInput.repoId,
@@ -503,7 +602,12 @@ async function runForwardSwitchoverCommand(
         targetNodeId: activationInput.targetNodeId,
       });
       if (!useLegacyLocalTargetPaths) {
-        const replicationSlots = readSourceReplicationSlotRows(sourceStateRoot, activationInput.repoId);
+        if (!capturedCededProof) {
+          throw switchoverCommandError(
+            "switchover_ceded_proof_missing",
+            "Missing signed Phase 1 ceded proof for remote switchover activation.",
+          );
+        }
         const remote = await activateRemoteSwitchoverClient(buildRemotePeerOptions(60_000), {
           repoId: activationInput.repoId,
           switchoverId: activationInput.switchoverId,
@@ -513,7 +617,8 @@ async function runForwardSwitchoverCommand(
           frozenCut: activationInput.frozenCut,
           sourceReplicationLogWindow: capturedLogWindow,
           retentionWindowCommits,
-          ...(replicationSlots.length > 0 ? { replicationSlots } : {}),
+          ...(capturedReplicationSlots.length > 0 ? { replicationSlots: capturedReplicationSlots } : {}),
+          cededProof: capturedCededProof,
           ...(targetExternalUrl ? { targetExternalUrl } : {}),
           ...(targetLoginUrl ? { targetLoginUrl } : {}),
         });
@@ -637,6 +742,25 @@ async function runForwardSwitchoverCommand(
         const refreshed = await tryRefreshPriorOidcSelection(sourceUserRoot, sourceRoot);
         if (refreshed.ok) priorOidcSelection = refreshed.selection;
       }
+      const demotedLoginCertificate =
+        targetLoginCertificate ??
+        (priorOidcSelection &&
+        demoteInput.targetLoginUrl &&
+        sameHttpOrigin(priorOidcSelection.authority.url, demoteInput.targetLoginUrl)
+          ? priorOidcSelection.authority.certificate
+          : undefined) ??
+        (sameHttpOrigin(demoteInput.targetLoginUrl, demoteInput.targetExternalUrl) &&
+        spkiPinOnly &&
+        capturedTargetCertPem
+          ? capturedTargetCertPem
+          : undefined);
+      const demotedLoginServername =
+        targetLoginServername ??
+        (priorOidcSelection &&
+        demoteInput.targetLoginUrl &&
+        sameHttpOrigin(priorOidcSelection.authority.url, demoteInput.targetLoginUrl)
+          ? priorOidcSelection.authority.servername
+          : undefined);
       localRuntimeStateFileSystem.mkdirp(resolvedIdentity.viewRoot);
       writeFleetEdgeConfig(sourceUserRoot, demoteInput.repoId, {
         repoId: demoteInput.repoId,
@@ -648,7 +772,8 @@ async function runForwardSwitchoverCommand(
         ...(spkiPinOnly ? { spkiPinOnly: true } : {}),
         ...(demoteInput.targetLoginUrl ? { loginUrl: demoteInput.targetLoginUrl } : {}),
         ...(priorOidcSelection?.authority.realm ? { loginRealm: priorOidcSelection.authority.realm } : {}),
-        ...(spkiPinOnly && capturedTargetCertPem ? { loginCertificate: capturedTargetCertPem } : {}),
+        ...(demotedLoginCertificate ? { loginCertificate: demotedLoginCertificate } : {}),
+        ...(demotedLoginServername ? { loginServername: demotedLoginServername } : {}),
         nodeId: resolvedIdentity.nodeId,
         credential: resolvedIdentity.credential,
         writerEpoch: demoteInput.newEpoch,
@@ -832,7 +957,7 @@ async function runRollbackCommand(
         return { targetNeverActivated: false, targetInvalidated: false };
       }
       const sourceIdentity = readCenterSymmetricIdentity(sourceUserRoot, input.repoId);
-      if (!sourceIdentity) return { targetNeverActivated: false, targetInvalidated: false };
+      if (!sourceIdentity || !fence.cededProof) return { targetNeverActivated: false, targetInvalidated: false };
       try {
         const peerOptions = buildSwitchoverPeerOptions({
           sourceUserRoot,
@@ -850,6 +975,7 @@ async function runRollbackCommand(
           switchoverId: input.switchoverId,
           expectedTargetNodeId: fence.targetNodeId,
           cededEpoch: input.cededEpoch,
+          cededProof: fence.cededProof,
         });
       } catch {
         return { targetNeverActivated: false, targetInvalidated: false };
@@ -894,6 +1020,8 @@ function buildSwitchoverPeerOptions(input: {
   readonly targetSpkiSha256: string;
   readonly targetCaPath?: string;
   readonly targetServername?: string;
+  readonly targetLoginCertificate?: string;
+  readonly targetLoginServername?: string;
   readonly timeoutMs?: number;
 }): Omit<FleetPeerOptions, "repoId"> {
   if (!URL.canParse(input.targetExternalUrl))
@@ -922,9 +1050,12 @@ function buildSwitchoverPeerOptions(input: {
         sourceUserRoot: input.sourceUserRoot,
         sourceRoot: input.sourceRoot,
         sourceIdentity: input.sourceIdentity,
+        targetExternalUrl: input.targetExternalUrl,
         targetLoginUrl: input.targetLoginUrl,
-        caPem,
-        servername,
+        fleetCaPem: caPem,
+        fleetServername: servername,
+        loginCaPem: input.targetLoginCertificate,
+        loginServername: input.targetLoginServername,
       }),
   };
 }
@@ -993,30 +1124,66 @@ async function resolveSwitchoverAccessToken(input: {
   readonly sourceUserRoot: string;
   readonly sourceRoot: string;
   readonly sourceIdentity: CenterSymmetricNodeIdentityV1;
+  readonly targetExternalUrl: string;
   readonly targetLoginUrl: string;
-  readonly caPem?: string;
-  readonly servername?: string;
+  readonly fleetCaPem?: string;
+  readonly fleetServername?: string;
+  readonly loginCaPem?: string;
+  readonly loginServername?: string;
 }): Promise<string | undefined> {
   // 1. Prefer an active, unexpired local identity session through the canonical IdentitySessionPort.
   const localToken = await tryResolveLocalIdentityToken(input.sourceUserRoot, input.sourceRoot);
   if (localToken.ok) return localToken.token;
-  // 2. Fall back to machine replica token when a persisted HTTPS authority is available.
+  // 2. Fall back to machine replica token when a persisted HTTPS authority is available (using login TLS trust, never Fleet TLS trust for independent IdPs).
   const discoveredAuthority = oidcCenterSelections(input.sourceUserRoot).read(input.sourceRoot)?.authority;
   if (
     discoveredAuthority &&
     URL.canParse(discoveredAuthority.url) &&
     new URL(discoveredAuthority.url).protocol === "https:"
   ) {
+    const matchesTargetLogin = sameHttpOrigin(discoveredAuthority.url, input.targetLoginUrl);
+    const matchesFleetOrigin = sameHttpOrigin(discoveredAuthority.url, input.targetExternalUrl);
+    const ca =
+      discoveredAuthority.certificate ??
+      (matchesTargetLogin ? input.loginCaPem : undefined) ??
+      (matchesFleetOrigin ? input.fleetCaPem : undefined) ??
+      systemCaCertificates();
+    const servername =
+      discoveredAuthority.servername ??
+      (matchesTargetLogin ? input.loginServername : undefined) ??
+      (matchesFleetOrigin ? input.fleetServername : undefined);
     const machineToken = await tryRequestMachineReplicaToken({
       ...discoveredAuthority,
       nodeId: input.sourceIdentity.nodeId,
       credential: input.sourceIdentity.credential,
-      ca: discoveredAuthority.certificate ?? input.caPem ?? systemCaCertificates(),
-      ...(input.servername ? { servername: input.servername } : {}),
+      ca,
+      ...(servername ? { servername } : {}),
     });
     if (machineToken.ok) return machineToken.token;
   }
   return undefined;
+}
+
+function resolveSourceCenterTlsMaterial(input: {
+  readonly sourceUserRoot: string;
+  readonly daemonId: string;
+  readonly explicitKeyPath?: string;
+  readonly explicitCertPath?: string;
+}): { readonly keyPem: string; readonly certPem: string } | null {
+  const savedConfig = readFleetCenterConfig(input.sourceUserRoot, input.daemonId);
+  const keyPath = input.explicitKeyPath ?? savedConfig?.keyPath;
+  const certPath = input.explicitCertPath ?? savedConfig?.certPath;
+  if (!keyPath || !certPath) return null;
+  if (!localRuntimeStateFileSystem.exists(keyPath) || !localRuntimeStateFileSystem.exists(certPath)) return null;
+  return {
+    keyPem: readFileSync(keyPath, "utf8"),
+    certPem: readFileSync(certPath, "utf8"),
+  };
+}
+
+function sameHttpOrigin(left: string, right: string): boolean {
+  if (!left || !right || !URL.canParse(left) || !URL.canParse(right)) return false;
+  return new URL(left).origin === new URL(right).origin;
 }
 
 function readSourceReplicationSlotRows(
@@ -1217,17 +1384,12 @@ async function defaultProbeTls(
 
 async function defaultProbeAuth(
   loginUrl: string,
-  caPath?: string,
-  servername?: string,
-  fallbackCaPem?: string,
+  loginCaPem?: string,
+  loginServername?: string,
 ): Promise<{ readonly ok: boolean; readonly error?: string }> {
   if (!loginUrl) return { ok: false, error: "Target --target-login-url is required." };
   if (!URL.canParse(loginUrl)) return { ok: false, error: `Invalid target login URL: ${loginUrl}` };
-  const parsed = new URL(loginUrl),
-    ca =
-      caPath && localRuntimeStateFileSystem.exists(caPath)
-        ? localRuntimeStateFileSystem.readText(caPath)
-        : fallbackCaPem;
+  const parsed = new URL(loginUrl);
   return await new Promise((resolve) => {
     const client = parsed.protocol === "https:" ? https : http;
     const req = client.request(
@@ -1235,8 +1397,8 @@ async function defaultProbeAuth(
       {
         method: "HEAD",
         timeout: cliOperationalPolicy.defaultValue.probe.timeoutMs,
-        ...(parsed.protocol === "https:" && ca ? { ca } : {}),
-        ...(parsed.protocol === "https:" && servername ? { servername } : {}),
+        ...(parsed.protocol === "https:" && loginCaPem ? { ca: loginCaPem } : {}),
+        ...(parsed.protocol === "https:" && loginServername ? { servername: loginServername } : {}),
       },
       (res) => {
         res.resume();

@@ -179,12 +179,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
-    { writerEpoch, ownedEpochFor, currentEpochFor, drainAndCloseWriterEpochs } = openCenterRelocationEpochs(
-      options,
-      centerRelocated,
-      now,
-    ),
-    { readerAuth, writerAuth, repoAdmission, replicaAdmission } = createCenterNodePrincipals({
+    { writerEpoch, ownedEpochFor, currentEpochFor, clearOwnedEpoch, drainAndCloseWriterEpochs } =
+      openCenterRelocationEpochs(options, centerRelocated, now),
+    { readerAuth, writerAuth, repoAdmission, replicaAdmission, switchoverAdminAdmission } = createCenterNodePrincipals({
       options,
       nodeGate: nodeAdmission,
       writerEpoch,
@@ -1570,6 +1567,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       frame,
       control: switchoverControl,
       admit: (node, forSwitchoverControl) => replicaAdmission(node, undefined, forSwitchoverControl),
+      admitSwitchoverAdmin: (node) => switchoverAdminAdmission(node),
+      onActivated: clearOwnedEpoch,
     });
     if (switchoverDelivery !== null) return switchoverDelivery;
     if (frame.schema === "fleet.operational.read/v1") {

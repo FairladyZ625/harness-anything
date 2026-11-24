@@ -10,16 +10,23 @@ export {
   type FleetCenterRelocationOutcome,
 } from "./center-relocation-command.ts";
 export {
+  SWITCHOVER_SLOT_BATCH_SIZE,
+  activateRemoteSwitchoverClient,
   announceSwitchoverCandidateToCenter,
   centerSwitchoverCandidatePath,
   centerSymmetricIdentityPath,
+  computeSwitchoverSlotsDigest,
   createDaemonSwitchoverControlHandler,
+  invalidateRemoteSwitchoverClient,
   prepareCenterSwitchoverCandidate,
   prepareCenterSymmetricIdentity,
+  queryRemoteSwitchoverStatusClient,
   readCenterSwitchoverCandidate,
   readCenterSymmetricIdentity,
   registerSwitchoverCandidateClient,
+  signSwitchoverCededProof,
   type CenterSwitchoverCandidateV1,
+  type CenterSwitchoverCededProofV1,
   type CenterSymmetricNodeIdentityV1,
   type FleetSwitchoverControlPort,
 } from "./center-switchover-transport.ts";

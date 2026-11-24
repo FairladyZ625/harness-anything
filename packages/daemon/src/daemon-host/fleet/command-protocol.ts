@@ -393,6 +393,8 @@ export type FleetFrameV1 =
         targetLoginUrl: string;
         targetSpkiSha256: string;
         targetServername?: string;
+        targetLoginCertificate?: string;
+        targetLoginServername?: string;
       }
     >
   | Msg<
@@ -434,6 +436,50 @@ export type FleetFrameV1 =
       }
     >
   | Msg<
+      "fleet.switchover.slots.stage/v1",
+      {
+        repoId: string;
+        switchoverId: string;
+        expectedTargetNodeId: string;
+        batchIndex: number;
+        totalBatches: number;
+        totalSlots: number;
+        slots: readonly Readonly<{
+          repoId: string;
+          nodeId: string;
+          history: string;
+          ack: Readonly<{
+            durable: Readonly<{ history: string; sequence: number; revision: number }>;
+            applied: Readonly<{ history: string; sequence: number; revision: number }>;
+          }> | null;
+        }>[];
+        cededProof: Readonly<{
+          schema: "center-switchover-ceded-proof/v1";
+          repoId: string;
+          switchoverId: string;
+          sourceNodeId: string;
+          targetNodeId: string;
+          oldEpoch: number;
+          cededEpoch: number;
+          finalRevision: number;
+          tipHash: string;
+          fencedAt: string;
+          sourceCertificatePem: string;
+          signatureBase64: string;
+        }>;
+      }
+    >
+  | Msg<
+      "fleet.switchover.slots.stage.result/v1",
+      {
+        inReplyTo: string;
+        repoId: string;
+        switchoverId: string;
+        batchIndex: number;
+        receivedSlots: number;
+      }
+    >
+  | Msg<
       "fleet.switchover.activate/v1",
       {
         repoId: string;
@@ -464,6 +510,22 @@ export type FleetFrameV1 =
             applied: Readonly<{ history: string; sequence: number; revision: number }>;
           }> | null;
         }>[];
+        stagedSlotCount?: number;
+        stagedSlotsDigest?: string;
+        cededProof: Readonly<{
+          schema: "center-switchover-ceded-proof/v1";
+          repoId: string;
+          switchoverId: string;
+          sourceNodeId: string;
+          targetNodeId: string;
+          oldEpoch: number;
+          cededEpoch: number;
+          finalRevision: number;
+          tipHash: string;
+          fencedAt: string;
+          sourceCertificatePem: string;
+          signatureBase64: string;
+        }>;
         targetExternalUrl?: string;
         targetLoginUrl?: string;
       }
@@ -489,7 +551,26 @@ export type FleetFrameV1 =
     >
   | Msg<
       "fleet.switchover.invalidate/v1",
-      { repoId: string; switchoverId: string; expectedTargetNodeId: string; cededEpoch: number }
+      {
+        repoId: string;
+        switchoverId: string;
+        expectedTargetNodeId: string;
+        cededEpoch: number;
+        cededProof: Readonly<{
+          schema: "center-switchover-ceded-proof/v1";
+          repoId: string;
+          switchoverId: string;
+          sourceNodeId: string;
+          targetNodeId: string;
+          oldEpoch: number;
+          cededEpoch: number;
+          finalRevision: number;
+          tipHash: string;
+          fencedAt: string;
+          sourceCertificatePem: string;
+          signatureBase64: string;
+        }>;
+      }
     >
   | Msg<
       "fleet.switchover.invalidate.result/v1",
@@ -626,6 +707,31 @@ const uploadSize: Check = (value) => uint(value) && Number(value) <= FLEET_UPLOA
   });
 const boolean: Check = (value) => typeof value === "boolean",
   positiveInt: Check = (value) => Number.isSafeInteger(value) && Number(value) > 0;
+const switchoverReplicationSlotShape = shape({
+  repoId: id,
+  nodeId: text,
+  history: text,
+  ack: nullable(
+    shape({
+      durable: shape({ history: text, sequence: uint, revision: uint }),
+      applied: shape({ history: text, sequence: uint, revision: uint }),
+    }),
+  ),
+});
+const switchoverCededProofShape = shape({
+  schema: one("center-switchover-ceded-proof/v1"),
+  repoId: id,
+  switchoverId: text,
+  sourceNodeId: text,
+  targetNodeId: text,
+  oldEpoch: positiveInt,
+  cededEpoch: positiveInt,
+  finalRevision: uint,
+  tipHash: text,
+  fencedAt: text,
+  sourceCertificatePem: bodyText,
+  signatureBase64: bodyText,
+});
 const optionalShape =
   (fields: Readonly<Record<string, Check>>, required: readonly string[]): Check =>
   (value) =>
@@ -1242,6 +1348,8 @@ const schemas: Readonly<Record<string, Check>> = {
       targetLoginUrl: text,
       targetSpkiSha256: text,
       targetServername: text,
+      targetLoginCertificate: bodyText,
+      targetLoginServername: text,
     },
     ["schema", "messageId", "repoId", "targetExternalUrl", "targetLoginUrl", "targetSpkiSha256"],
   ),
@@ -1285,6 +1393,24 @@ const schemas: Readonly<Record<string, Check>> = {
       }),
     ),
   }),
+  "fleet.switchover.slots.stage/v1": shape({
+    ...common,
+    repoId: id,
+    switchoverId: text,
+    expectedTargetNodeId: text,
+    batchIndex: uint,
+    totalBatches: positiveInt,
+    totalSlots: uint,
+    slots: array(switchoverReplicationSlotShape, 512),
+    cededProof: switchoverCededProofShape,
+  }),
+  "fleet.switchover.slots.stage.result/v1": shape({
+    ...reply,
+    repoId: id,
+    switchoverId: text,
+    batchIndex: uint,
+    receivedSlots: uint,
+  }),
   "fleet.switchover.activate/v1": optionalShape(
     {
       ...common,
@@ -1310,20 +1436,10 @@ const schemas: Readonly<Record<string, Check>> = {
         4096,
       ),
       retentionWindowCommits: uint,
-      replicationSlots: array(
-        shape({
-          repoId: id,
-          nodeId: text,
-          history: text,
-          ack: nullable(
-            shape({
-              durable: shape({ history: text, sequence: uint, revision: uint }),
-              applied: shape({ history: text, sequence: uint, revision: uint }),
-            }),
-          ),
-        }),
-        1024,
-      ),
+      replicationSlots: array(switchoverReplicationSlotShape, 1024),
+      stagedSlotCount: uint,
+      stagedSlotsDigest: sha64,
+      cededProof: switchoverCededProofShape,
       targetExternalUrl: text,
       targetLoginUrl: text,
     },
@@ -1338,6 +1454,7 @@ const schemas: Readonly<Record<string, Check>> = {
       "frozenCut",
       "sourceReplicationLogWindow",
       "retentionWindowCommits",
+      "cededProof",
     ],
   ),
   "fleet.switchover.activate.result/v1": shape({
@@ -1362,6 +1479,7 @@ const schemas: Readonly<Record<string, Check>> = {
     switchoverId: text,
     expectedTargetNodeId: text,
     cededEpoch: positiveInt,
+    cededProof: switchoverCededProofShape,
   }),
   "fleet.switchover.invalidate.result/v1": shape({
     ...reply,

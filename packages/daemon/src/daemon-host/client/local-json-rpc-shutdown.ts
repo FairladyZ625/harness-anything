@@ -12,12 +12,20 @@ export interface DaemonShutdownExchange {
   readonly stopReply: DaemonStopReply | null;
 }
 
+export interface DaemonShutdownPrecondition {
+  readonly expectedRepoMode?: {
+    readonly repoId: string;
+    readonly mode: "local" | "remote-edge" | "remote-proxy" | "remote-center";
+  };
+}
+
 // Stop is a business request: it must follow a successful identity handshake. The line client
 // owns framing and version refusal, just as it does for ordinary requests and persistent readers.
 export async function requestDaemonShutdownAt(
   socketPath: string,
   timeoutMs: number = daemonProtocolFleetPolicy.defaultValue.client.requestTimeoutMs,
   responseTimeoutMs: number = daemonProtocolFleetPolicy.defaultValue.client.shutdownResponseTimeoutMs,
+  precondition?: DaemonShutdownPrecondition,
 ): Promise<DaemonShutdownExchange> {
   const socket = await connectSocket(socketPath, timeoutMs),
     client = new JsonRpcLineClient(socket, socket);
@@ -27,7 +35,11 @@ export async function requestDaemonShutdownAt(
     const hello = await client.request("protocol.hello", executionCredentialParams(), responseTimeoutMs);
     daemonCommit = jsonRpcRecord(hello.build) && typeof hello.build.commit === "string" ? hello.build.commit : null;
     helloAnswered = true;
-    const result = await client.request("daemon.stop", {}, responseTimeoutMs),
+    const result = await client.request(
+        "daemon.stop",
+        precondition?.expectedRepoMode ? { expectedRepoMode: precondition.expectedRepoMode } : {},
+        responseTimeoutMs,
+      ),
       error = jsonRpcRecord(result.error) ? result.error : null;
     return {
       daemonCommit,

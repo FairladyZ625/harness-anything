@@ -647,6 +647,8 @@ export function createDaemonHostRuntimeApi(
                   ...(request.externalUrl ? { listenerExternalUrl: request.externalUrl } : {}),
                   listenerCertPath: path.resolve(request.certPath),
                   ...(discoveredLogin?.url ? { fallbackLoginUrl: discoveredLogin.url } : {}),
+                  ...(discoveredLogin?.certificate ? { fallbackLoginCertificate: discoveredLogin.certificate } : {}),
+                  ...(discoveredLogin?.servername ? { fallbackLoginServername: discoveredLogin.servername } : {}),
                   readAccessToken: candidateTokenReader,
                 });
               }
