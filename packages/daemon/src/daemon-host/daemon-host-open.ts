@@ -1621,10 +1621,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       // the daemon's handles. The first failure still surfaces once teardown has completed.
       let failure: unknown;
       const teardown: readonly (readonly [phase: string, step: () => Promise<unknown>])[] = [
-        ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
         ["auto-claim.close", () => autoClaimLoop.close()],
         ["auto-dispatch.close", () => autoDispatchLoop.close()],
         ["center-review-fallback.close", () => centerReviewLoop.close()],
+        ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
         [
           "replica-sync.close",
           () => {
