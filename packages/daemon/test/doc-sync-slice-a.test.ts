@@ -14,6 +14,7 @@ import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/stora
 import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, parseDocWriteIntent, sha256Text } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/daemon-host/doc-sync-actions.ts";
+import { settleAuthoredMaterialization } from "../src/daemon-host/repo-cell-materialization.ts";
 import { adjudicateDocIntent } from "../src/daemon-host/doc-sync-adjudication.ts";
 import { detail, touch } from "../src/daemon-host/doc-sync-details.ts";
 import { scanDocCandidates } from "../src/daemon-host/doc-sync-candidate-scanner.ts";
@@ -287,6 +288,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
         ),
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForWorktree(seed, created);
       return String((created as Record<string, unknown>).packagePath);
     } finally {
       await seed.close();
@@ -312,6 +314,19 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       "unsupported JSONL remains visible with a reason without loading its bytes",
     );
     write(rootDir, "events/segments/manifest.json", "{}\n");
+    const taskPlan = path.join(rootDir, "harness", packagePath, "task_plan.md");
+    writeFileSync(taskPlan, `${readFileSync(taskPlan, "utf8")}\n## Authored drift\n`);
+    await assert.rejects(
+      settleAuthoredMaterialization(
+        {
+          materializationHealth: () => ({ state: "ok", pendingWalEvents: 1, lastCheckpointRevision: 0 }),
+          settlePendingMaterialization: async () => undefined,
+        },
+        "scanner fixture submit",
+      ),
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    );
+    await cell.settlePendingMaterialization("scanner fixture authored documents before submit");
     const submitted = await cell.run({ kind: "doc-submit", paths: [prose, "events/segments/manifest.json"] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
@@ -326,7 +341,6 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       [["events/segments/manifest.json", "canonical-event"]],
       "the batch commits every eligible candidate and reports the blocked manifest with its route",
     );
-
     const residual = (await cell.run(
       { kind: "doc-submit", paths: ["events/segments/manifest.json"] },
       binding,
@@ -862,6 +876,7 @@ test("new non-textual artifacts are directly eligible while binary replacement o
     assert.deepEqual(status.detail?.unresolvedTouches, []);
     const submittedFresh = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
     assert.equal(submittedFresh.outcome, "applied");
+    await waitForWorktree(cell, submittedFresh as { readonly opId: string });
 
     write(rootDir, tracked, "textual baseline\n");
     const submitted = await cell.run({ kind: "doc-submit", paths: [tracked] }, binding);
@@ -931,7 +946,8 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
     ownerId: "doc-pending",
   });
   try {
-    await cell.run({ kind: "task-create", taskId: "task-pending", title: "Pending" }, binding);
+    const created = await cell.run({ kind: "task-create", taskId: "task-pending", title: "Pending" }, binding);
+    await waitForWorktree(cell, created);
     write(rootDir, "context/pending.md", "# Pending\n");
     const applied = await cell.run({ kind: "doc-submit", paths: ["context/pending.md"] }, binding);
     assert.equal(applied.outcome, "applied");

@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "nod
 import path from "node:path";
 import test from "node:test";
 import { connect, createServer } from "node:tls";
+import { createServer as createNetServer, type Socket } from "node:net";
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
@@ -693,6 +694,7 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
   const fixture = await fleetFixture(t);
   for (const mode of ["timeout", "remote-error", "unexpected-frame"] as const) {
     const closed = Promise.withResolvers<void>(),
+      helloObserved = Promise.withResolvers<void>(),
       server = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
         fixture.track(() => socket.destroy());
         socket.once("close", closed.resolve);
@@ -701,6 +703,7 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
           for (const line of decoder.push(chunk)) {
             const hello = parseFleetFrame(line);
             assert.equal(hello.schema, "fleet.session.hello/v1");
+            helloObserved.resolve();
             // Withhold a response entirely to exercise the handshake timeout without a sleep.
             if (mode === "timeout") continue;
             socket.write(
@@ -728,7 +731,7 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
     });
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("hello test server did not bind");
-    await assert.rejects(
+    const failedHello = assert.rejects(
       readFleetRepositoryMetadataClient({
         readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: address.port,
@@ -736,7 +739,7 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
         nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
         repoId: fixture.subject.repoId,
-        timeoutMs: mode === "timeout" ? 5 : 5_000,
+        timeoutMs: mode === "timeout" ? 1_000 : 5_000,
       }),
       mode === "timeout"
         ? /Fleet response timeout/u
@@ -744,8 +747,34 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
           ? /hello_rejected/u
           : /session ready expected/u,
     );
+    await Promise.all([helloObserved.promise, failedHello]);
     // A rejected open must release its own socket; the fixture has not reclaimed it yet.
     await closed.promise;
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+test("Fleet connection timeout remains distinct from response timeout", async () => {
+  const sockets: Socket[] = [],
+    server = createNetServer((socket) => sockets.push(socket));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    await assert.rejects(
+      openPeer({
+        port: address.port,
+        ca: "unused until TLS completes",
+        nodeId: "edge-connection-timeout",
+        credential: "test-credential",
+        timeoutMs: 1_000,
+      }),
+      /Fleet connection timeout/u,
+    );
+  } finally {
+    for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
@@ -827,23 +856,27 @@ test(
     assert.equal(uploadConflict.schema, "fleet.error/v1");
     if (uploadConflict.schema === "fleet.error/v1") assert.equal(uploadConflict.code, "upload_conflict");
     console.log("tls-session-checkpoint: upload-conflict");
-    fixture.setOwnerLookupDelay(50);
-    await assert.rejects(
-      runFleetRoundTrip({
-        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
-        port: center.port,
-        ca: fixture.cert,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        executionId: fixture.subject.executionId,
-        viewRoot: path.join(fixture.root, "timeout-edge"),
-        changes: [{ path: fixture.path, body: "timeout" }],
-        timeoutMs: 5,
-      }),
-      /Fleet response timeout/u,
-    );
-    fixture.setOwnerLookupDelay(0);
+    const ownerLookup = fixture.blockOwnerLookup(),
+      timedOutRoundTrip = assert.rejects(
+        runFleetRoundTrip({
+          readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+          port: center.port,
+          ca: fixture.cert,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId: fixture.subject.repoId,
+          executionId: fixture.subject.executionId,
+          viewRoot: path.join(fixture.root, "timeout-edge"),
+          changes: [{ path: fixture.path, body: "timeout" }],
+          timeoutMs: 1_000,
+        }),
+        /Fleet response timeout/u,
+      );
+    try {
+      await Promise.all([ownerLookup.entered, timedOutRoundTrip]);
+    } finally {
+      ownerLookup.release();
+    }
     console.log("tls-session-checkpoint: delayed-client-timeout");
     const spoofed = await peer.raw({
       schema: "fleet.upload.begin/v1",

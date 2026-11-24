@@ -1178,6 +1178,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
         };
       },
     });
+    let extraStore: ReturnType<typeof makeTaskEventStore> | undefined;
     try {
       const receipt = await cell.spawnRuntime(
           {
@@ -1208,10 +1209,10 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       const read = await cell.read("repo.agentRuntime.sessions.read", {
           runtimeSessionId: receipt.runtimeSessionId,
         }),
-        events = makeTaskEventStore({
+        events = (extraStore = makeTaskEventStore({
           repoId: "runtime-bearer-confidentiality",
           rootDir: root,
-        }).read().events,
+        })).read().events,
         stream = JSON.stringify(readDispatchStream(root, receipt.dispatchId)),
         config = readFileSync(
           path.join(userRoot, "runtime-instances", "codex-private", "home", ".codex", "config.toml"),
@@ -1222,7 +1223,11 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       for (const value of [receipt, read, events, stream])
         assert.doesNotMatch(JSON.stringify(value), new RegExp(secret, "u"));
     } finally {
-      await cell.close();
+      try {
+        await extraStore?.drain();
+      } finally {
+        await cell.close();
+      }
     }
   } finally {
     removeTempRepository(parent);
