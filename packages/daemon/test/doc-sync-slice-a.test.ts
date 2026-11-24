@@ -288,6 +288,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
         ),
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForWorktree(seed, created);
       return String((created as Record<string, unknown>).packagePath);
     } finally {
       await seed.close();
@@ -340,6 +341,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       [["events/segments/manifest.json", "canonical-event"]],
       "the batch commits every eligible candidate and reports the blocked manifest with its route",
     );
+    await waitForWorktree(cell, submitted);
 
     const residual = (await cell.run(
       { kind: "doc-submit", paths: ["events/segments/manifest.json"] },
@@ -876,6 +878,7 @@ test("new non-textual artifacts are directly eligible while binary replacement o
     assert.deepEqual(status.detail?.unresolvedTouches, []);
     const submittedFresh = (await cell.run({ kind: "doc-submit", paths: [fresh] }, binding)) as Record<string, unknown>;
     assert.equal(submittedFresh.outcome, "applied");
+    await waitForWorktree(cell, submittedFresh as { readonly opId: string });
 
     write(rootDir, tracked, "textual baseline\n");
     const submitted = await cell.run({ kind: "doc-submit", paths: [tracked] }, binding);
@@ -945,7 +948,8 @@ test("a committed DocEvent reports pending with its stable receipt id until L2 r
     ownerId: "doc-pending",
   });
   try {
-    await cell.run({ kind: "task-create", taskId: "task-pending", title: "Pending" }, binding);
+    const created = await cell.run({ kind: "task-create", taskId: "task-pending", title: "Pending" }, binding);
+    await waitForWorktree(cell, created);
     write(rootDir, "context/pending.md", "# Pending\n");
     const applied = await cell.run({ kind: "doc-submit", paths: ["context/pending.md"] }, binding);
     assert.equal(applied.outcome, "applied");
