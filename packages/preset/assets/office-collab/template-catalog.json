@@ -177,20 +177,6 @@
       ]
     },
     {
-      "id": "office/keep-file",
-      "version": "1",
-      "documentKind": "keep-file",
-      "slot": "task.artifacts.keep",
-      "materializeAs": "artifacts/.gitkeep",
-      "frontmatterSchema": "none",
-      "requiredAnchors": [],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": [], "bodyPath": "templates/task.keep/zh-CN.md" },
-        { "locale": "en-US", "anchors": [], "bodyPath": "templates/task.keep/en-US.md" }
-      ]
-    },
-    {
       "id": "office/deliverable-brief",
       "version": "1",
       "documentKind": "deliverable-brief",

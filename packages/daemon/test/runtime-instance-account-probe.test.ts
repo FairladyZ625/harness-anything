@@ -6,8 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { findExhaustedSubscriptionQuotaWindow } from "@harness-anything/kernel";
+import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { createRuntimeInstanceAccountProbe } from "../src/daemon-host/runtime-instance-account-probe.ts";
-import { parseAgyQuotaResponse } from "../src/daemon-host/runtime-subscription-quota-probe.ts";
+import {
+  agyNonInteractiveProbeEnv,
+  parseAgyQuotaResponse,
+} from "../src/daemon-host/runtime-subscription-quota-probe.ts";
+import { auth } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -314,7 +320,7 @@ test("AGY quota probe prefers native /usage SUCCESS envelope, falls back on top-
         noBrowser: process.env.NO_BROWSER,
         noAutoUpdate: process.env.AGY_CLI_DISABLE_AUTO_UPDATE,
         noUpdateNotifier: process.env.NO_UPDATE_NOTIFIER,
-        ssh: Boolean(process.env.SSH_CONNECTION),
+        sshConnection: process.env.SSH_CONNECTION ?? null,
       }) + "\\n");
       if (process.env.EXPIRED_LOGIN === "1") {
         // Deliberately ignore BROWSER="false" and try to launch OS browser via PATH.
@@ -414,7 +420,22 @@ test("AGY quota probe prefers native /usage SUCCESS envelope, falls back on top-
     assert.equal(events[0]?.noBrowser, "1");
     assert.equal(events[0]?.noAutoUpdate, "true");
     assert.equal(events[0]?.noUpdateNotifier, "1");
-    assert.equal(events[0]?.ssh, true);
+    assert.equal(events[0]?.sshConnection, null);
+
+    // Existing SSH_CONNECTION (e.g. isolatedEnvironment or real SSH session) is preserved verbatim.
+    const isolatedQuota = await probe.probeQuota({
+      kindId: "agy",
+      credentialSource: "instance",
+      executablePath: agyUsage,
+      env: { ...baseEnv, SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 22" },
+      now: () => "2026-11-21T10:00:00.000Z",
+    });
+    assert.ok(isolatedQuota);
+    const eventsAfterIsolated = readFileSync(traceFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    assert.equal(eventsAfterIsolated[1]?.sshConnection, "127.0.0.1 0 127.0.0.1 22");
 
     // Top-level /usage status: "ERROR" (even exit 0 with buckets) rejects and falls back cleanly to /quota.
     const fallbackQuota = await probe.probeQuota({
@@ -442,5 +463,358 @@ test("AGY quota probe prefers native /usage SUCCESS envelope, falls back on top-
     assert.throws(() => readFileSync(browserMarker, "utf8"), /ENOENT/u);
   } finally {
     removeTempRepository(root);
+  }
+});
+
+test("agyNonInteractiveProbeEnv never fabricates SSH_CONNECTION and passes through existing values", () => {
+  const operatorEnv = agyNonInteractiveProbeEnv({ HOME: "/tmp/operator", PATH: "/usr/bin" }, "darwin");
+  assert.equal(operatorEnv.SSH_CONNECTION, undefined);
+  assert.equal(operatorEnv.CI, "1");
+  assert.equal(operatorEnv.BROWSER, "false");
+  assert.equal(operatorEnv.NO_BROWSER, "1");
+  assert.equal(operatorEnv.AGY_CLI_DISABLE_AUTO_UPDATE, "true");
+  assert.equal(operatorEnv.NO_UPDATE_NOTIFIER, "1");
+
+  const isolatedEnv = agyNonInteractiveProbeEnv(
+    { HOME: "/tmp/isolated", PATH: "/usr/bin", SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 22" },
+    "darwin",
+  );
+  assert.equal(isolatedEnv.SSH_CONNECTION, "127.0.0.1 0 127.0.0.1 22");
+});
+
+test("warmAuthReadiness probes enabled unchecked instances, skips disabled, deduplicates concurrent calls, and cancels cleanly", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-warmup-")),
+    bin = path.join(userRoot, "bin"),
+    trace = path.join(userRoot, "probe-trace.jsonl"),
+    startedFlag = path.join(userRoot, "models-started"),
+    releaseFlag = path.join(userRoot, "models-release"),
+    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(trace, "");
+  writeProviderExecutable(
+    agyPath,
+    `
+      const fs = require("node:fs");
+      const args = process.argv.slice(2);
+      const home = process.env.HOME ?? "";
+      fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args }) + "\\n");
+      if (args[0] === "models") {
+        if (home.includes("agy-dedup")) {
+          fs.writeFileSync(${JSON.stringify(startedFlag)}, "started");
+          while (!fs.existsSync(${JSON.stringify(releaseFlag)})) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+          }
+        }
+        console.log("gemini-4-hydrogen-low\\tmodel");
+      } else if (args[0] === "-p" && args[1] === "/usage") {
+        console.log(JSON.stringify({
+          status: "SUCCESS",
+          command: {
+            name: "usage",
+            data: {
+              plan: "Pro",
+              groups: [{ group_id: "gemini", buckets: [{ bucket_id: "weekly", remaining_fraction: 0.9, reset_time: "2026-11-30T00:00:00.000Z" }] }]
+            }
+          }
+        }));
+      } else process.exit(2);
+    `,
+  );
+  const agyWitness = {
+    installationId: "agy-warmup-installation",
+    kindId: "agy" as const,
+    executablePath: agyPath,
+    version: "1.2.2",
+    observedAt: "2026-11-24T00:00:00.000Z",
+  };
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+      discover: () => [agyWitness],
+      now: () => "2026-11-24T00:00:00.000Z",
+    });
+    for (const [instanceId, enabled] of [
+      ["agy-dedup", true],
+      ["agy-ready", true],
+      ["agy-disabled", false],
+    ] as const) {
+      store.command({
+        kind: "runtime-instance-create",
+        instanceId,
+        name: instanceId,
+        kindId: "agy",
+        installationId: agyWitness.installationId,
+        providerId: "google",
+        models: ["gemini-4-hydrogen-low"],
+        enabled,
+        authMode: "subscription",
+        credentialSource: "instance",
+      });
+    }
+    assert.ok(store.listPublic().every((row) => row.authReadiness.code === "runtime_auth_not_checked"));
+
+    const warming = store.warmAuthReadiness();
+    for (let attempt = 0; attempt < 200 && !existsSync(startedFlag); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(existsSync(startedFlag), true, "background warmup should start probing agy-dedup");
+
+    // Foreground authStatus + refreshAccount concurrent with in-flight warmup must coalesce.
+    const foregroundAuth = store.authStatus("agy-dedup");
+    const foregroundRefresh = store.refreshAccount("agy-dedup");
+    writeFileSync(releaseFlag, "release");
+
+    const [, authResult, refreshResult] = await Promise.all([warming, foregroundAuth, foregroundRefresh]);
+    assert.equal(authResult.status, "ready");
+    assert.equal(refreshResult.readiness.status, "ready");
+
+    const publicRows = store.listPublic();
+    assert.equal(publicRows.length, 2);
+    for (const row of publicRows) {
+      assert.equal(row.authReadiness.status, "ready");
+      assert.deepEqual(row.availableModels, ["gemini-4-hydrogen-low"]);
+      assert.equal(row.quota?.windows[0]?.remainingFraction, 0.9);
+    }
+
+    const events = readFileSync(trace, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { readonly home: string; readonly args: readonly string[] });
+    const dedupModelCalls = events.filter(({ home, args }) => home.includes("agy-dedup") && args[0] === "models");
+    assert.equal(dedupModelCalls.length, 1, "concurrent warm + authStatus + refreshAccount must invoke CLI once");
+    const disabledCalls = events.filter(({ home }) => home.includes("agy-disabled"));
+    assert.equal(disabledCalls.length, 0, "disabled instances must be skipped by warmAuthReadiness");
+
+    // Aborting warmAuthReadiness on a cold store exits cleanly without unhandledRejection or stale readiness.
+    rmSync(startedFlag, { force: true });
+    rmSync(releaseFlag, { force: true });
+    const coldStore = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+      discover: () => [agyWitness],
+      now: () => "2026-11-24T00:00:00.000Z",
+    });
+    const controller = new AbortController();
+    const abortableWarm = coldStore.warmAuthReadiness(controller.signal);
+    for (let attempt = 0; attempt < 200 && !existsSync(startedFlag); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    controller.abort(new Error("test abort"));
+    await abortableWarm;
+    assert.equal(
+      coldStore.listPublic().find(({ instanceId }) => instanceId === "agy-dedup")?.authReadiness.code,
+      "runtime_auth_not_checked",
+    );
+    assert.equal(unhandled.length, 0);
+  } finally {
+    writeFileSync(releaseFlag, "release");
+    process.removeListener("unhandledRejection", onUnhandled);
+    removeTempRepository(userRoot);
+  }
+});
+
+test("openDaemonHost with runtimeAuthWarmup warms enabled instances at startup and drains cleanly on close", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-host-warmup-")),
+    bin = path.join(userRoot, "bin"),
+    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+  mkdirSync(bin, { recursive: true });
+  writeProviderExecutable(
+    agyPath,
+    `
+      const args = process.argv.slice(2);
+      if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel");
+      else if (args[0] === "-p" && args[1] === "/usage") {
+        console.log(JSON.stringify({
+          status: "SUCCESS",
+          command: { name: "usage", data: { plan: "Pro", groups: [{ group_id: "gemini", buckets: [{ bucket_id: "weekly", remaining_fraction: 0.98 }] }] } }
+        }));
+      } else process.exit(2);
+    `,
+  );
+  const agyWitness = {
+    installationId: "agy-host-warmup-installation",
+    kindId: "agy" as const,
+    executablePath: agyPath,
+    version: "1.2.2",
+    observedAt: "2026-11-24T00:00:00.000Z",
+  };
+  const seed = openRuntimeInstanceStore({ userRoot, platform: "darwin", discover: () => [agyWitness] });
+  seed.command({
+    kind: "runtime-instance-create",
+    instanceId: "agy-host-warmed",
+    name: "AGY Host Warmed",
+    kindId: "agy",
+    installationId: agyWitness.installationId,
+    providerId: "google",
+    models: ["gemini-4-hydrogen-low"],
+    authMode: "subscription",
+    credentialSource: "operator",
+    isolationState: "operator-environment",
+  });
+  const host = await openDaemonHost({
+    daemonId: "runtime-auth-warmup-test",
+    userRoot,
+    runtimeDiscover: () => [agyWitness],
+    runtimeEnv: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+    runtimeAuthWarmup: true,
+  });
+  try {
+    let status: string | undefined;
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const listed = (await host.runtimeInstance("daemon.runtimeInstance.list", { all: true }, auth)) as {
+        readonly instances: readonly {
+          readonly instanceId: string;
+          readonly authReadiness: { readonly status: string };
+        }[];
+      };
+      status = listed.instances.find(({ instanceId }) => instanceId === "agy-host-warmed")?.authReadiness.status;
+      if (status === "ready") break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(status, "ready", "daemon startup warmup should populate cached readiness without foreground probe");
+  } finally {
+    await host.close();
+    removeTempRepository(userRoot);
+  }
+});
+
+test("backgroundAuthWarmup refreshes a single enabled instance on create, update reset, and completeAuthSession, and single-flight keeps waiting callers alive when one waiter aborts", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-mutation-warmup-")),
+    bin = path.join(userRoot, "bin"),
+    startedFlag = path.join(userRoot, "waiter-started"),
+    releaseFlag = path.join(userRoot, "waiter-release"),
+    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+  mkdirSync(bin, { recursive: true });
+  writeProviderExecutable(
+    agyPath,
+    `
+      const fs = require("node:fs");
+      const args = process.argv.slice(2);
+      if (args[0] === "models") {
+        if (process.env.HOLD_PROBE === "1") {
+          fs.writeFileSync(${JSON.stringify(startedFlag)}, "started");
+          while (!fs.existsSync(${JSON.stringify(releaseFlag)})) {
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+          }
+        }
+        console.log("gemini-4-hydrogen-low\\tmodel");
+      } else if (args[0] === "-p" && args[1] === "/usage") {
+        console.log(JSON.stringify({
+          status: "SUCCESS",
+          command: { name: "usage", data: { plan: "Pro", groups: [{ group_id: "gemini", buckets: [{ bucket_id: "weekly", remaining_fraction: 0.95 }] }] } }
+        }));
+      } else process.exit(2);
+    `,
+  );
+  const agyWitness = {
+    installationId: "agy-mutation-installation",
+    kindId: "agy" as const,
+    executablePath: agyPath,
+    version: "1.2.2",
+    observedAt: "2026-11-24T00:00:00.000Z",
+  };
+  const waitReady = async (store: ReturnType<typeof openRuntimeInstanceStore>, instanceId: string) => {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const row = store.listPublic().find((entry) => entry.instanceId === instanceId);
+      if (row?.authReadiness.status === "ready") return row;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    return store.listPublic().find((entry) => entry.instanceId === instanceId);
+  };
+  const store = openRuntimeInstanceStore({
+    userRoot,
+    platform: "darwin",
+    env: { PATH: bin, HOME: path.join(userRoot, "operator-home") },
+    discover: () => [agyWitness],
+    backgroundAuthWarmup: true,
+    now: () => "2026-11-24T00:00:00.000Z",
+  });
+  try {
+    // 1. Create enabled instance triggers background single-instance warmup.
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-mutated",
+      name: "AGY Mutated",
+      kindId: "agy",
+      installationId: agyWitness.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      authMode: "subscription",
+      credentialSource: "instance",
+    });
+    assert.equal((await waitReady(store, "agy-mutated"))?.authReadiness.status, "ready");
+
+    // 2. Credential source change resets readiness and triggers a fresh single-instance warmup.
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-mutated",
+      credentialSource: "operator",
+      isolationState: "operator-environment",
+    });
+    assert.equal((await waitReady(store, "agy-mutated"))?.authReadiness.status, "ready");
+
+    // 3. completeAuthSession after login triggers background warmup.
+    const cut = store.beginAuthSession("agy-mutated", "login-key", undefined, "login");
+    assert.ok(cut);
+    store.completeAuthSession("agy-mutated", "login-key", "login", 0, cut);
+    assert.equal((await waitReady(store, "agy-mutated"))?.authReadiness.status, "ready");
+
+    // 4. Enabling a previously disabled unchecked instance triggers background warmup.
+    store.create({
+      schemaVersion: 2,
+      instanceId: "agy-later-enabled",
+      name: "AGY Later Enabled",
+      kindId: "agy",
+      installationId: agyWitness.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      availableModels: ["gemini-4-hydrogen-low"],
+      defaultModel: "gemini-4-hydrogen-low",
+      enabled: false,
+      isolationState: "enforced",
+      auth: { mode: "subscription" },
+      credentialSource: "instance",
+      agy: {},
+    });
+    store.command({
+      kind: "runtime-instance-update",
+      instanceId: "agy-later-enabled",
+      enabled: true,
+    });
+    assert.equal((await waitReady(store, "agy-later-enabled"))?.authReadiness.status, "ready");
+  } finally {
+    await store.closeAuthWarmup();
+  }
+
+  // 5. Aborting one waiter in a shared single-flight probe does not abort the remaining waiter.
+  const holdStore = openRuntimeInstanceStore({
+    userRoot,
+    platform: "darwin",
+    env: { PATH: bin, HOME: path.join(userRoot, "operator-home"), HOLD_PROBE: "1" },
+    discover: () => [agyWitness],
+    now: () => "2026-11-24T00:00:00.000Z",
+  });
+  try {
+    const controller = new AbortController();
+    const waiter1 = holdStore.refreshAccount("agy-mutated", undefined, controller.signal);
+    for (let attempt = 0; attempt < 200 && !existsSync(startedFlag); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    const waiter2 = holdStore.refreshAccount("agy-mutated");
+    // Allow waiter2 to pass async setup (refreshInstallations / credential lookup) and attach to the shared in-flight probe.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const waiter1Rejection = assert.rejects(waiter1, /caller-1 cancelled/u);
+    controller.abort(new Error("caller-1 cancelled"));
+    await waiter1Rejection;
+    writeFileSync(releaseFlag, "release");
+    const result2 = await waiter2;
+    assert.equal(result2.readiness.status, "ready");
+  } finally {
+    writeFileSync(releaseFlag, "release");
+    await holdStore.closeAuthWarmup();
+    removeTempRepository(userRoot);
   }
 });

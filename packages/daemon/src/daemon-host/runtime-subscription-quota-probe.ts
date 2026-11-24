@@ -160,13 +160,14 @@ export function agyNonInteractiveProbeEnv(
     ...env,
     // Enforce non-interactive headless background execution: suppress browser launch (both via
     // env conventions and by shadowing OS URL launchers on PATH) and CLI auto-update (`"true"`).
+    // Never fabricate SSH_CONNECTION here: isolated instances already set it in isolatedEnvironment,
+    // while operator-environment instances rely on it staying unset for host Keychain login.
     PATH: guardedPath,
     CI: "1",
     BROWSER: "false",
     NO_BROWSER: "1",
     AGY_CLI_DISABLE_AUTO_UPDATE: "true",
     NO_UPDATE_NOTIFIER: "1",
-    ...(env.SSH_CONNECTION ? {} : { SSH_CONNECTION: "127.0.0.1 0 127.0.0.1 22" }),
   };
 }
 

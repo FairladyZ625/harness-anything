@@ -516,7 +516,7 @@ export function resolveDefaultPresetSelection(
     readonly presetId?: string;
     readonly preferredPresetId?: string;
   },
-): { readonly presetId: string; readonly profileId: string } {
+): { readonly presetId: string; readonly profileId: string; readonly outputShape: string } {
   const assetsRoot = input.assetsRoot ?? resolveVerticalAssetsRoot(input.verticalId, input.repoRoot),
     assets = loadCanonicalAssets(assetsRoot),
     bundledRoot = input.bundledRoot ?? path.join(assetsRoot, "presets"),
@@ -556,7 +556,11 @@ export function resolveDefaultPresetSelection(
           (selectable.length ? ` Selectable default presets: ${selectable.join(", ")}.` : ""),
       );
     }
-    return { presetId: selected.id, profileId: selected.decoded.manifest.defaultProfile };
+    return {
+      presetId: selected.id,
+      profileId: selected.decoded.manifest.defaultProfile,
+      outputShape: selected.decoded.manifest.outputShape,
+    };
   }
   if (candidates.length === 0)
     throw presetFailure("preset_not_found", `Vertical ${input.verticalId} has no selectable default preset.`);
@@ -564,5 +568,9 @@ export function resolveDefaultPresetSelection(
       input.preferredPresetId ??
       (input.verticalId === INITIAL_SETTINGS_V1.defaultVertical ? INITIAL_SETTINGS_V1.defaultPreset : undefined),
     chosen = (preferred ? candidates.find((candidate) => candidate.id === preferred) : undefined) ?? candidates[0]!;
-  return { presetId: chosen.id, profileId: chosen.decoded!.manifest.defaultProfile };
+  return {
+    presetId: chosen.id,
+    profileId: chosen.decoded!.manifest.defaultProfile,
+    outputShape: chosen.decoded!.manifest.outputShape,
+  };
 }
