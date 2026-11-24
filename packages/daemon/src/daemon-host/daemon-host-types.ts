@@ -344,6 +344,8 @@ export interface DaemonHostOpenInput {
     | readonly RuntimeInstallationWitness[]
     | Promise<readonly RuntimeInstallationWitness[]>;
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  /** Enables one-shot background provider auth readiness warmup on startup and instance mutations. */
+  readonly runtimeAuthWarmup?: boolean;
   /** Reads the operator's GitHub token for a launch; tests substitute it so no host login is read. */
   readonly runtimeGithubToken?: (environment: NodeJS.ProcessEnv) => Promise<string | null>;
   readonly runtimeCredentialPort?: CredentialPort;

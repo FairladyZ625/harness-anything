@@ -222,6 +222,108 @@ test("AGY and AGY ACP enforce file token storage in isolatedEnvironment without 
   assert.equal(launchEnvironment(agyOperatorConfig, { PATH: "/opt/test/bin" }).SSH_CONNECTION, undefined);
 });
 
+test("AGY operator-environment probes keep SSH_CONNECTION unset for Keychain login while isolated probes enforce SSH_CONNECTION", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-agy-operator-ssh-contract-")),
+    operatorHome = path.join(userRoot, "operator-home"),
+    bin = path.join(userRoot, "bin"),
+    trace = path.join(userRoot, "trace.jsonl"),
+    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+  mkdirSync(operatorHome, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(trace, "");
+  // Emulate macOS agy CLI: operator-environment relies on Keychain (which fails when SSH_CONNECTION is set),
+  // while isolated instances rely on SSH_CONNECTION="127.0.0.1 0 127.0.0.1 22" + file token.
+  writeProviderExecutable(
+    agyPath,
+    `
+      const fs = require("node:fs"), path = require("node:path");
+      const args = process.argv.slice(2);
+      const home = process.env.HOME ?? "";
+      const ssh = process.env.SSH_CONNECTION ?? null;
+      fs.appendFileSync(${JSON.stringify(trace)}, JSON.stringify({ home, args, ssh }) + "\\n");
+      const isOperator = home === ${JSON.stringify(operatorHome)} || !fs.existsSync(path.join(home, ".gemini", "antigravity-oauth-token"));
+      if (isOperator && ssh !== null) {
+        console.error("Please sign in");
+        process.exit(1);
+      }
+      if (!isOperator && ssh !== "127.0.0.1 0 127.0.0.1 22") {
+        console.error("Isolated instance missing file-token SSH_CONNECTION");
+        process.exit(1);
+      }
+      if (args[0] === "models") {
+        console.log("gemini-4-hydrogen-low\\tmodel");
+      } else if (args[0] === "-p" && args[1] === "/usage") {
+        console.log(JSON.stringify({
+          status: "SUCCESS",
+          command: { name: "usage", data: { plan: "Pro", groups: [{ group_id: "gemini", buckets: [{ bucket_id: "weekly", remaining_fraction: 0.98 }] }] } }
+        }));
+      } else process.exit(2);
+    `,
+  );
+  const agyWitness: RuntimeInstallationWitness = {
+    installationId: "agy-installation",
+    kindId: "agy",
+    executablePath: agyPath,
+    version: "1.2.2",
+    observedAt: "2026-11-24T00:00:00.000Z",
+  };
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      platform: "darwin",
+      env: { PATH: bin, HOME: operatorHome },
+      discover: () => [agyWitness],
+      now: () => "2026-11-24T00:00:00.000Z",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-operator-host",
+      name: "AGY Operator Host",
+      kindId: "agy",
+      installationId: agyWitness.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      authMode: "subscription",
+      credentialSource: "operator",
+      isolationState: "operator-environment",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "agy-isolated-file",
+      name: "AGY Isolated File",
+      kindId: "agy",
+      installationId: agyWitness.installationId,
+      providerId: "google",
+      models: ["gemini-4-hydrogen-low"],
+      authMode: "subscription",
+      credentialSource: "instance",
+      isolationState: "enforced",
+    });
+    writeFileSync(
+      path.join(userRoot, "runtime-instances", "agy-isolated-file", "home", ".gemini", "antigravity-oauth-token"),
+      "isolated-token",
+      { mode: 0o600 },
+    );
+
+    assert.equal((await store.authStatus("agy-operator-host")).status, "ready");
+    assert.equal((await store.authStatus("agy-isolated-file")).status, "ready");
+    const rows = readFileSync(trace, "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) =>
+          JSON.parse(line) as { readonly home: string; readonly args: readonly string[]; readonly ssh: string | null },
+      );
+    assert.equal(rows.length, 4);
+    assert.deepEqual(
+      rows.map(({ ssh }) => ssh),
+      [null, null, "127.0.0.1 0 127.0.0.1 22", "127.0.0.1 0 127.0.0.1 22"],
+    );
+  } finally {
+    removeTempRepository(userRoot);
+  }
+});
+
 test("ACP account probes use native login status and record catalogs from the isolated environment", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-acp-native-probe-")),
     bin = path.join(userRoot, "bin");

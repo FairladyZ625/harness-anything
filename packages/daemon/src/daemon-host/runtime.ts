@@ -66,6 +66,7 @@ export async function startDaemon(input: {
   readonly openCell?: DaemonHostOpenInput["openCell"];
   readonly runtimeDiscover?: DaemonHostOpenInput["runtimeDiscover"];
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  readonly runtimeAuthWarmup?: DaemonHostOpenInput["runtimeAuthWarmup"];
   readonly cloudRuntime?: DaemonHostOpenInput["cloudRuntime"];
   /** Reads the operator's GitHub token once per launch; set by the resident daemon entry. */
   readonly runtimeGithubToken?: DaemonHostOpenInput["runtimeGithubToken"];
@@ -319,6 +320,7 @@ export async function startDaemon(input: {
     host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
+        runtimeAuthWarmup: input.runtimeAuthWarmup ?? !process.env.NODE_TEST_CONTEXT,
         endpoint,
         authenticateExecutionPrincipal,
         recordLifecycle,
