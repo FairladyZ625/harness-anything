@@ -84,6 +84,18 @@ test("nested closeout headings are rejected while standard PR sections pass", ()
   assert.equal(example.ok, true, example.issues.join("\n"));
 });
 
+test("heading lint respects longer Markdown fence closers and resumes after them", () => {
+  const fenced = checkPrBody(filledBody("\n```markdown\n# Closeout\n### 摘要\n````"));
+  assert.equal(fenced.ok, true, fenced.issues.join("\n"));
+
+  const visibleAfterFence = checkPrBody(
+    filledBody("\n```markdown\nexample\n````\n\n# Closeout\n\n```markdown\n# Closeout\n```"),
+  );
+  assert.equal(visibleAfterFence.ok, false);
+  assert.equal(visibleAfterFence.nestedCloseout.issues.length, 1);
+  assert.match(visibleAfterFence.issues.join("\n"), /nests the source heading/u);
+});
+
 test("a template body with one edited line is no longer verbatim-unfilled, but placeholder sections are still named", () => {
   const edited = pullRequestTemplate.replace("- Not run: none", "- Not run: none yet");
   const result = checkPrBody(edited, { prTemplate: pullRequestTemplate });
@@ -495,4 +507,13 @@ test("PR lint CLI rejects nested closeout headings and accepts a standard render
   assert.equal(nested.status, 1, nested.stderr);
   assert.match(nested.stderr, /nests the source heading `# Closeout`/u);
   assert.match(nested.stderr, /level-three closeout heading/u);
+
+  const longClosingFence = run(filledBody("\n```markdown\n# Closeout\n### 摘要\n````"));
+  assert.equal(longClosingFence.status, 0, longClosingFence.stderr);
+
+  const visibleAfterLongFence = run(
+    filledBody("\n```markdown\nexample\n````\n\n# Closeout\n\n```markdown\n# Closeout\n```"),
+  );
+  assert.equal(visibleAfterLongFence.status, 1, visibleAfterLongFence.stderr);
+  assert.match(visibleAfterLongFence.stderr, /nests the source heading `# Closeout`/u);
 });

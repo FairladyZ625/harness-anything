@@ -37,17 +37,17 @@
       "slot": "task.closeout",
       "materializeAs": "closeout.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Summary", "## Verification"],
+      "requiredAnchors": ["## Summary", "## What Changed", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
         {
           "locale": "zh-CN",
-          "anchors": ["## Summary", "## Verification"],
+          "anchors": ["## Summary", "## What Changed", "## Verification"],
           "bodyPath": "templates/task.closeout.lightweight/zh-CN.md"
         },
         {
           "locale": "en-US",
-          "anchors": ["## Summary", "## Verification"],
+          "anchors": ["## Summary", "## What Changed", "## Verification"],
           "bodyPath": "templates/task.closeout.lightweight/en-US.md"
         }
       ]

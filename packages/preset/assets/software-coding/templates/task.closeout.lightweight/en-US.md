@@ -10,6 +10,10 @@ it happens.
 
 Summarize the completed behavior change. The submission freezes machine-derived delivery facts in `commitSha`, `changedFiles`, and, for code cuts, `productionDelta`; refer to those fields instead of hand-copying their values here.
 
+## What Changed
+
+List the concrete changes delivered. Keep this separate from the outcome summary.
+
 ## Verification
 
 One test command and its receipt: the command you ran and its result (exit code or pass count). Attach any further applicable checks and accepted residual risks inside this section; this profile carries no separate Residual Risk or Same Mechanism Elsewhere sections.

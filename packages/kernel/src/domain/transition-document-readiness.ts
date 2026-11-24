@@ -491,11 +491,10 @@ function* markdownSectionSpans(body: string): Generator<readonly [string, string
   let heading: string | null = null;
   let content: string[] = [];
   let fence: { marker: string; length: number } | null = null;
+  let htmlComment = false;
   for (const line of body.split(/\r?\n/u)) {
-    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
-    if (fence === null && delimiter) {
-      fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
-    } else if (fence !== null) {
+    if (fence !== null) {
+      const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
       if (
         delimiter &&
         delimiter[1]![0] === fence.marker &&
@@ -506,7 +505,28 @@ function* markdownSectionSpans(body: string): Generator<readonly [string, string
       content.push(line);
       continue;
     }
-    const match = fence === null ? /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line) : null;
+    let visibleLine = "";
+    for (let index = 0; index < line.length; ) {
+      if (htmlComment) {
+        const end = line.indexOf("-->", index);
+        if (end < 0) break;
+        htmlComment = false;
+        index = end + 3;
+      } else if (line.startsWith("<!--", index)) {
+        htmlComment = true;
+        index += 4;
+      } else {
+        visibleLine += line[index];
+        index += 1;
+      }
+    }
+    const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(visibleLine);
+    if (delimiter) {
+      fence = { marker: delimiter[1]![0]!, length: delimiter[1]!.length };
+      content.push(line);
+      continue;
+    }
+    const match = /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(visibleLine);
     if (match) {
       if (heading !== null) yield [heading, content.join("\n").trim()];
       heading = match[1]!;

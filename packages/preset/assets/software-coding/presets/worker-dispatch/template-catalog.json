@@ -97,6 +97,7 @@
       "frontmatterSchema": "task-package/v2",
       "requiredAnchors": [
         "## Summary",
+        "## What Changed",
         "## Verification"
       ],
       "fallbackLocale": "en-US",
@@ -105,6 +106,7 @@
           "locale": "zh-CN",
           "anchors": [
             "## Summary",
+            "## What Changed",
             "## Verification"
           ],
           "bodyPath": "templates/task.closeout.lightweight/zh-CN.md"
@@ -113,6 +115,7 @@
           "locale": "en-US",
           "anchors": [
             "## Summary",
+            "## What Changed",
             "## Verification"
           ],
           "bodyPath": "templates/task.closeout.lightweight/en-US.md"

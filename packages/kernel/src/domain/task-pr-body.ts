@@ -41,8 +41,7 @@ const CHINESE_HEADING = /^#\s+中文\s*$/mu;
 
 const MACHINE_READABLE_DECLARATIONS = "Machine-Readable Declarations";
 
-const LIGHTWEIGHT_PROFILE = "lightweight",
-  LIGHTWEIGHT_RESIDUAL_RISK = "Accepted residual risks are recorded in the Verification section.";
+const DEFAULT_RESIDUAL_RISK = "Accepted residual risks are recorded in the Verification section.";
 
 function pathCode(value: string): string {
   const encoded = JSON.stringify(value),
@@ -75,10 +74,11 @@ function findSection(sections: readonly (readonly [string, string])[], aliases: 
   return matched.length > 0 ? matched.join("\n\n") : undefined;
 }
 
-function authoredSources(
-  closeout: string,
-  profileId: string | null,
-): {
+function hasAuthoredProse(content: string | undefined): boolean {
+  return (content ?? "").replace(/<!--[\s\S]*?-->/gu, "").trim().length > 0;
+}
+
+function authoredSources(closeout: string): {
   readonly sources: Record<string, string | undefined>;
   readonly chinese: Readonly<Record<string, string | undefined>>;
 } {
@@ -87,12 +87,12 @@ function authoredSources(
     sources: Record<string, string | undefined> = Object.fromEntries(
       PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]),
     );
-  if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
+  sources["Residual Risk"] ??= DEFAULT_RESIDUAL_RISK;
   return { sources, chinese };
 }
 
 function requirePrCloseoutSections(sources: Readonly<Record<string, string | undefined>>): void {
-  const missing = PR_SECTIONS.filter(({ title, required }) => required && !sources[title]?.trim()).map(
+  const missing = PR_SECTIONS.filter(({ title, required }) => required && !hasAuthoredProse(sources[title])).map(
     ({ title }) => title,
   );
   if (missing.length > 0)
@@ -271,7 +271,7 @@ export function renderTaskPrBody(input: TaskPrBodyRenderInput): string {
     authored = typeof input.closeout === "string" ? stripCloseoutFactsRegion(input.closeout) : "",
     stripped = withoutFacts(withoutChineseSection(body)),
     baseline = withoutFacts(template),
-    { sources, chinese } = authoredSources(authored, input.profileId),
+    { sources, chinese } = authoredSources(authored),
     dependencyDescription = input.dependencyDescription ?? "none";
   requirePrCloseoutSections(sources);
   let rendered = stripped;

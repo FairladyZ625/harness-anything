@@ -695,17 +695,22 @@ test("a dependency cut never leaves none, and a duplicated authored declaration 
   assert.notDeepEqual(validateDependencyDeclaration(submission.changedFiles, duplicated), []);
 });
 
-test("PR renderer rejects lightweight closeouts missing the required What Changed heading", () => {
-  assert.throws(
-    () =>
-      renderTaskPrBody({
-        taskId,
-        receipt: receipt(codeSubmission, { profileId: "lightweight" }),
-        template,
-        closeout: withChinese(lightweightCloseout),
-      }),
-    /non-empty level-two sections ## What Changed/u,
-  );
+test("the lightweight closeout skeleton renders through the normal PR publication path", () => {
+  const authored = withChinese(
+      lightweightCloseout.replace(
+        "List the concrete changes delivered. Keep this separate from the outcome summary.",
+        "The renderer now receives distinct summary and change sections.",
+      ),
+    ),
+    body = renderTaskPrBody({
+      taskId,
+      receipt: receipt(codeSubmission, { profileId: "lightweight" }),
+      template,
+      closeout: authored,
+    });
+  assert.match(body, /## What Changed\n\nThe renderer now receives distinct summary and change sections\./u);
+  assert.match(body, /## Residual Risk\n\nAccepted residual risks are recorded in the Verification section\./u);
+  assertPassesPrBodyCheck(body);
 });
 
 test("a closeout without required English level-two headings is rejected with repair guidance", () => {
@@ -770,6 +775,45 @@ test("PR renderer publishes authored prose without judging placeholders or decla
   const placeholder = render(codeSubmission, { closeout: closeout.replace(residualRisk, "none") });
   assert.match(placeholder, /## Residual Risk\n\nnone/u, "author's claim is preserved without inventing risk findings");
   assert.equal(checkPrBody(placeholder).ok, false, "standalone PR lint retains its own contract");
+});
+
+test("an omitted optional Residual Risk section replaces the PR template placeholder", () => {
+  const authored = closeout.replace(/## Residual Risk[\s\S]*?(?=## Same Mechanism Elsewhere)/u, ""),
+    body = render(codeSubmission, { closeout: authored });
+  assert.match(body, /## Residual Risk\n\nAccepted residual risks are recorded in the Verification section\./u);
+  assert.doesNotMatch(body, /## Residual Risk\n\n-/u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("closeout headings inside HTML comments do not satisfy publication sections", () => {
+  const commented = `# Closeout
+
+<!--
+## Summary
+
+Example summary.
+
+## What Changed
+
+Example changes.
+
+## Verification
+
+Example verification.
+-->
+
+## 摘要
+
+中文摘要。
+
+## 验证
+
+中文验证。
+`;
+  assert.throws(
+    () => render(codeSubmission, { closeout: commented }),
+    /non-empty level-two sections ## Summary, ## What Changed, ## Verification/u,
+  );
 });
 
 test("a closeout containing only unknown sections is rejected with required heading names", () => {

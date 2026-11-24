@@ -6,6 +6,10 @@
 
 总结完成的行为变化。submission 会冻结 `commitSha`、`changedFiles` 和代码 cut 的 `productionDelta` 等机器派生事实；直接引用这些字段，不要手抄数值。
 
+## What Changed
+
+列出实际交付的具体改动，与概要分开填写。
+
 ## Verification
 
 一行测试命令与回执：写下你跑的命令和它的结果（退出码或通过计数）。其余适用的检查与已接受的残余风险，如有就附在本段内；本 profile 不设独立的 Residual Risk 与 Same Mechanism Elsewhere 段。
