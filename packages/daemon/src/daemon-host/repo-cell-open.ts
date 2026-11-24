@@ -10,6 +10,7 @@ import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { createEntityStore } from "@harness-anything/storage";
+import { readLocalAgentRecord, removeLocalAgentDeclaration, writeLocalAgentDeclaration } from "./local-agent-store.ts";
 
 import {
   bindWriterGenerationToken,
@@ -517,6 +518,8 @@ export async function openRepoWriterCell(
         declaration = readAgentDeclaration({
           rootDir,
           agentId,
+          ...(input.userRoot ? { userRoot: input.userRoot } : {}),
+          repoId: input.repoId,
           entityStore,
           verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
         });
@@ -529,6 +532,8 @@ export async function openRepoWriterCell(
         leaderId,
         ...(workerId ? { workerId } : {}),
         entityStore: createEntityStore(store),
+        ...(input.userRoot ? { userRoot: input.userRoot } : {}),
+        repoId: input.repoId,
         verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
       }),
     onRuntimeOutcome: (event) => {
@@ -796,12 +801,21 @@ export async function openRepoWriterCell(
           entityStore: createEntityStore(store),
           projection,
           runtimeInstances: input.runtimeInstances?.(),
+          ...(input.userRoot
+            ? {
+                localAgent: (agentId: string) => readLocalAgentRecord(input.userRoot!, input.repoId, agentId),
+              }
+            : {}),
           replay: existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind,
         });
       return {
         ...action,
         declaration: prepared.declaration,
         entityId: prepared.declaration.id,
+        ...(prepared.localPublishExpectedVersion === undefined
+          ? {}
+          : { expectedVersion: prepared.localPublishExpectedVersion }),
+        ...(prepared.localUnshareVersion === undefined ? {} : { localUnshareVersion: prepared.localUnshareVersion }),
         preparedEntityAction: { report: prepared.report },
       };
     };
@@ -809,6 +823,71 @@ export async function openRepoWriterCell(
   const entityActionRuntimes: EntityActionCatalogRuntimes = {
     commitRuntimeSession: (bundle: Parameters<typeof commitRuntimeSettlement>[1], binding: RepoCellBinding) =>
       commitRuntimeSettlement(runtimeContext, bundle, binding),
+    localAgentInstall: ({ action, opId, authorizationDecision }) => {
+      if (!input.userRoot)
+        throw cellCodedError("local_agent_store_unavailable", "The daemon user root is required for local Agents.");
+      const declaration = action.declaration as import("@harness-anything/kernel").AgentDeclarationV1,
+        current = readLocalAgentRecord(input.userRoot, input.repoId, declaration.id),
+        expectedVersion =
+          typeof action.localUnshareVersion === "number"
+            ? (current?.revision ?? 0)
+            : typeof action.expectedVersion === "number"
+              ? action.expectedVersion
+              : (current?.revision ?? 0),
+        revision = writeLocalAgentDeclaration(input.userRoot, input.repoId, declaration, expectedVersion),
+        cut = projection.readCut();
+      return {
+        outcome: "applied",
+        effects: [],
+        opId,
+        revision,
+        expectedVersion: revision,
+        updatedProjection: null,
+        evidence: JSON.stringify(action.preparedEntityAction ?? { entityId: declaration.id }),
+        proof: {
+          committedRevision: revision,
+          appliedCut: cut.watermark,
+          durable: true,
+          canonicalVisible: false,
+          worktreeVisible: false,
+        },
+        authorizationDecision,
+      };
+    },
+    afterAgentInstall: ({ action, receipt }) => {
+      const declaration = action.declaration as import("@harness-anything/kernel").AgentDeclarationV1;
+      if (
+        declaration.scope === "shared" &&
+        input.userRoot &&
+        receipt.proof?.durable === true &&
+        readLocalAgentRecord(input.userRoot, input.repoId, declaration.id)
+      )
+        removeLocalAgentDeclaration(input.userRoot, input.repoId, declaration.id);
+    },
+    afterLocalAgentInstall: async ({ action, binding, opId }) => {
+      const expectedVersion = action.localUnshareVersion,
+        declaration = action.declaration as import("@harness-anything/kernel").AgentDeclarationV1;
+      if (expectedVersion === undefined) return;
+      if (!input.userRoot) throw cellCodedError("local_agent_store_unavailable", "The daemon user root is required.");
+      try {
+        const deletion = await entityActionExecutor.run(
+          {
+            kind: "agent-delete",
+            agentId: declaration.id,
+            reason: "Agent returned to local scope.",
+            expectedVersion,
+          },
+          binding,
+          `${opId}:unshare`,
+          entityActionRuntimes,
+        );
+        if (deletion.outcome !== "applied")
+          throw cellCodedError("agent_unshare_incomplete", `Agent ${declaration.id} remains shared.`);
+      } catch (error) {
+        removeLocalAgentDeclaration(input.userRoot, input.repoId, declaration.id);
+        throw error;
+      }
+    },
     entity: {
       agent: agentActionRuntime,
       schedule: scheduleActionRuntime,

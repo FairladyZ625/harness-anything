@@ -1,5 +1,6 @@
 import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
+import { localAgentMatchesShared, readLocalAgentDeclaration } from "./local-agent-store.ts";
 import {
   withoutLegacyAgentInstanceBindings,
   type AgentState,
@@ -30,7 +31,7 @@ export function readProjectedAgentDeclaration(value: unknown): ProjectedAgentDec
 
 export interface AgentDeclarationResolution {
   readonly declaration: ProjectedAgentDeclaration;
-  readonly layer: "installed" | "bundled";
+  readonly layer: "local" | "installed" | "bundled";
 }
 
 export const agentDeclarationInvalidCode = "agent_declaration_invalid" as const;
@@ -122,9 +123,15 @@ export function readAgentDeclarationResolution(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly userRoot?: string;
+  readonly repoId?: string;
   readonly verticalId?: string;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
+  const local =
+    input.userRoot !== undefined && input.repoId !== undefined
+      ? readLocalAgentDeclaration(input.userRoot, input.repoId, input.agentId)
+      : null;
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
   let stored: ReturnType<AgentDeclarationReader["get"]>;
   try {
@@ -135,7 +142,12 @@ export function readAgentDeclarationResolution(input: {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
     throw agentDeclarationInvalidError(input.agentId, error);
   }
+  if (local && stored && !localAgentMatchesShared(local, stored.value))
+    throw Object.assign(new Error(`Agent ${input.agentId} exists in both local and shared scope.`), {
+      code: "agent_scope_conflict",
+    });
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
+  if (local) return { declaration: local, layer: "local" };
   const bundled = input.verticalId ? readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir) : null;
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
@@ -144,6 +156,8 @@ export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly userRoot?: string;
+  readonly repoId?: string;
   readonly verticalId?: string;
 }): ProjectedAgentDeclaration {
   const resolved = readAgentDeclarationResolution(input);

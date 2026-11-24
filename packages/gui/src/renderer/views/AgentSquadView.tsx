@@ -211,6 +211,7 @@ export function AgentSquadView({
         ? agentDraftFrom(await agentEntityClient.showAgent(repoId, request.templateId))
         : {
             name: request.name,
+            scope: request.scope,
             role: "worker" as const,
             runtimes: [],
             preset: "",
@@ -226,7 +227,9 @@ export function AgentSquadView({
             hostAccessExplicit: false,
             fallback: undefined,
           };
-      const saved = await workspace.saveAgent(agentDeclarationFrom(request.id, { ...draft, name: request.name }));
+      const saved = await workspace.saveAgent(
+        agentDeclarationFrom(request.id, { ...draft, name: request.name, scope: request.scope }),
+      );
       if (saved === null) return;
     } else {
       let draft;

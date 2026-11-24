@@ -1241,6 +1241,36 @@ test("Agent and Squad declaration commands route reads directly and writes throu
     false,
   );
 });
+
+test("Agent CLI exposes local-by-default create, scoped list filters, and explicit transfer actions", () => {
+  const created = parseThinCommand(["agent", "create", "--source", "agent.json"]),
+    shared = parseThinCommand(["agent", "create", "--source", "agent.json", "--scope", "shared"]),
+    filtered = parseThinCommand(["agent", "list", "--scope", "local"]),
+    published = parseThinCommand(["agent", "share", "private-helper"]),
+    returned = parseThinCommand(["agent", "unshare", "team-helper"]);
+  assert.equal(created.ok, true);
+  if (created.ok) assert.equal(created.command.action.scope, "local");
+  assert.equal(shared.ok, true);
+  if (shared.ok) assert.equal(shared.command.action.scope, "shared");
+  assert.equal(filtered.ok, true);
+  if (filtered.ok) assert.equal(filtered.command.action.scope, "local");
+  assert.equal(published.ok, true);
+  if (published.ok)
+    assert.deepEqual(published.command.action, {
+      kind: "agent-install",
+      agentId: "private-helper",
+      scope: "shared",
+      localAgentTransfer: true,
+    });
+  assert.equal(returned.ok, true);
+  if (returned.ok)
+    assert.deepEqual(returned.command.action, {
+      kind: "agent-install",
+      agentId: "team-helper",
+      scope: "local",
+      localAgentTransfer: true,
+    });
+});
 test("runtime instance create leaves installation discovery to the daemon when omitted", () => {
   const parsed = parseThinCommand([
     "runtime",

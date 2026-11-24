@@ -17,6 +17,16 @@ export function entityActionCommandTopology(
   command: CommandTopology,
   action: Readonly<Record<string, unknown>> & { readonly kind?: string },
 ): CommandTopology {
+  if (action.kind === "agent-install" && (action.scope === "local" || action.localAgentTransfer === true))
+    return {
+      ...command,
+      admission: {
+        local: "direct",
+        "remote-proxy": "rejected",
+        "remote-center": "direct",
+        "remote-edge": "direct",
+      },
+    };
   const localOnlyFields = action.kind ? (getExecutableEntityAction(action.kind)?.execution?.localOnlyFields ?? []) : [],
     mutationFields = Object.keys(action).filter(
       (field) => !["kind", "idempotencyKey", "expectedVersion"].includes(field),

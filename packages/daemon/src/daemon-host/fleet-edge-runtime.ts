@@ -65,6 +65,8 @@ import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { runtimeRecoveryError } from "./runtime-recovery-watch.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { localAgentMatchesShared, readLocalAgentDeclaration } from "./local-agent-store.ts";
+import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { mergeRepositoryLocalSettings, readLocalState } from "./repo-cell-settings-state.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import {
@@ -1100,6 +1102,8 @@ export function openFleetEdgeRuntime(input: {
             ...(squadId ? { squadId } : {}),
             leaderId,
             ...(workerId ? { workerId } : {}),
+            userRoot: daemonUserRoot(),
+            repoId: request.repoId,
             verticalId: verticalId ?? readSettings().defaultVertical,
             entityStore: {
               get: (kind, id) => projection.getEntity(kind, id),
@@ -1911,7 +1915,13 @@ function mirroredAgentDeclaration(
   agentId: string,
   verticalId?: string,
 ): RuntimeAgent {
-  const declaration = findMirroredAgentDeclaration(request, agentId, verticalId);
+  const local = readLocalAgentDeclaration(daemonUserRoot(), request.repoId, agentId),
+    shared = findMirroredAgentDeclaration(request, agentId);
+  if (local && shared && !localAgentMatchesShared(local, shared))
+    throw edgeRuntimeError("agent_scope_conflict", `Agent ${agentId} exists in both local and shared scope.`);
+  if (shared) return shared;
+  if (local) return local;
+  const declaration = verticalId ? readBundledAgentDeclaration(agentId, verticalId, request.workspaceRoot) : null;
   if (declaration) return declaration;
   throw edgeRuntimeError(
     "agent_not_found",

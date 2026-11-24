@@ -101,6 +101,22 @@ export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: (...args: Parameters<EntityActionCatalogRunner>) => Promise<WriteReceipt>;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
+  readonly localAgentInstall?: (input: {
+    readonly action: CommandAction;
+    readonly binding: CommandBinding;
+    readonly opId: string;
+    readonly authorizationDecision: AuthorizationDecision;
+  }) => WriteReceipt | Promise<WriteReceipt>;
+  readonly afterAgentInstall?: (input: {
+    readonly action: CommandAction;
+    readonly receipt: WriteReceipt;
+  }) => void | Promise<void>;
+  readonly afterLocalAgentInstall?: (input: {
+    readonly action: CommandAction;
+    readonly binding: CommandBinding;
+    readonly opId: string;
+    readonly receipt: WriteReceipt;
+  }) => void | Promise<void>;
   readonly commitRuntimeSession?: (bundle: RuntimeSessionBundle, binding: CommandBinding) => Promise<WriteReceipt>;
 }
 
@@ -241,6 +257,21 @@ export function makeEntityActionCatalogExecutor(input: {
     executableAction(contract, action.kind);
     const prepare = runtimes.prepare?.[contract.target.kind],
       preparedAction = prepare?.(contract, action, binding, opId) ?? action;
+    if (
+      contract.id === "install" &&
+      contract.target.kind === "agent" &&
+      (preparedAction.declaration as { readonly scope?: unknown } | undefined)?.scope === "local"
+    ) {
+      if (!runtimes.localAgentInstall) reject("unsupported_command", "Local Agent storage is unavailable.");
+      const authorizationDecision = decisionAuthorization(preparedAction, binding, opId, input),
+        result = runtimes.localAgentInstall({ action: preparedAction, binding, opId, authorizationDecision });
+      const settleLocal = async (receipt: WriteReceipt): Promise<WriteReceipt> => {
+        const derived = deriveActionResult(contract, preparedAction, receipt);
+        await runtimes.afterLocalAgentInstall?.({ action: preparedAction, binding, opId, receipt: derived });
+        return derived;
+      };
+      return result instanceof Promise ? result.then(settleLocal) : settleLocal(result);
+    }
     if (contract.execution.implementation === "catalog-runtime") {
       const runtime = contract.target.kind === "task" ? runtimes.task : runtimes.entity?.[contract.target.kind];
       if (!runtime)
@@ -255,8 +286,22 @@ export function makeEntityActionCatalogExecutor(input: {
     if (
       contract.execution.implementation !== "task-lifecycle" &&
       contract.execution.implementation !== "task-completion"
-    )
-      return runCompiled(preparedAction, binding, opId, runtimes);
+    ) {
+      const result = runCompiled(preparedAction, binding, opId, runtimes);
+      if (
+        contract.id !== "install" ||
+        contract.target.kind !== "agent" ||
+        (preparedAction.declaration as { readonly scope?: unknown } | undefined)?.scope !== "shared" ||
+        !runtimes.afterAgentInstall
+      )
+        return result;
+      return result instanceof Promise
+        ? result.then(async (receipt) => {
+            await runtimes.afterAgentInstall!({ action: preparedAction, receipt });
+            return receipt;
+          })
+        : (runtimes.afterAgentInstall({ action: preparedAction, receipt: result }), result);
+    }
     if (!runtimes.task)
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",

@@ -46,6 +46,8 @@ export interface AgentDeclarationV1 {
   readonly name: string;
   readonly instructions: string;
   readonly runtimes: readonly AgentRuntimeTargetV1[];
+  /** Missing scope is the historical shared declaration, retained for existing team ledgers. */
+  readonly scope?: "local" | "shared";
   readonly selectionStrategy?: RuntimeSelectionStrategy;
   readonly permissionMode?: AgentPermissionMode;
   readonly mcpPolicy?: AgentMcpPolicy;
@@ -107,6 +109,12 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
           },
         },
       },
+    },
+    scope: {
+      type: "string",
+      enum: ["local", "shared"],
+      description: "Whether this declaration is private to this node or published to the project.",
+      "x-error": "must be local or shared.",
     },
     selectionStrategy: {
       type: "string",
@@ -206,7 +214,8 @@ export function validateSquadDeclarationV1(value: unknown): readonly string[] {
   return validateEntityJsonSchema(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
 }
 export function parseAgentDeclarationV1(value: unknown): AgentDeclarationV1 {
-  return parse(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
+  const declaration = parse(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
+  return { ...declaration, scope: declaration.scope ?? "shared" };
 }
 
 /** Canonical declaration reads project the historical fields away without changing the source blob. */

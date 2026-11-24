@@ -934,6 +934,7 @@ function bootstrapMessage(
       ...(input.storage ? { storage: input.storage } : {}),
       repoId: input.repoId,
       rootDir: input.rootDir,
+      ...(input.userRoot ? { userRoot: input.userRoot } : {}),
       ownerId: input.ownerId,
       writerGeneration,
       ...(input.mode ? { mode: input.mode } : {}),

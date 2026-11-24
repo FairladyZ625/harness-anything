@@ -146,7 +146,8 @@ function FilterMenu({
     filters.runtimeKinds.length +
     filters.layers.length +
     (filters.inSquadOnly ? 1 : 0) +
-    (filters.lifecycle === "retired" ? 1 : 0);
+    (filters.lifecycle === "retired" ? 1 : 0) +
+    (filters.scope === "all" ? 0 : 1);
   return (
     <div ref={containerRef} className="shrink-0">
       <button
@@ -179,6 +180,32 @@ function FilterMenu({
           className="absolute right-0 top-full z-30 mt-1.5 flex w-[272px] max-w-full flex-col
             gap-2.5 rounded border border-border-strong bg-surface-raised p-2.5 shadow-lg"
         >
+          <div>
+            <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.filterScope")}</p>
+            <span role="group" aria-label={t("agentRuntime.filterScope")} data-testid="agent-squad-filter-scope">
+              <FilterChips
+                chips={[
+                  {
+                    key: "all",
+                    label: t("agentRuntime.filterAll"),
+                    count: agents.filter(isAvailableAgentEntityRow).length,
+                  },
+                  {
+                    key: "local",
+                    label: t("agentRuntime.scopeLocal"),
+                    count: agents.filter(isAvailableAgentEntityRow).filter((agent) => agent.scope === "local").length,
+                  },
+                  {
+                    key: "shared",
+                    label: t("agentRuntime.scopeShared"),
+                    count: agents.filter(isAvailableAgentEntityRow).filter((agent) => agent.scope === "shared").length,
+                  },
+                ]}
+                value={filters.scope}
+                onChange={(scope) => patch({ scope: scope as AgentSquadFilters["scope"] })}
+              />
+            </span>
+          </div>
           {retiredCount > 0 && (
             <div>
               <p className="mb-1.5 ui-micro text-text-faint">{t("agentRuntime.filterLifecycle")}</p>

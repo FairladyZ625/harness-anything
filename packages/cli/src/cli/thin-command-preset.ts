@@ -111,6 +111,7 @@ export function parsePreset(
       json,
     );
   const payload: Record<string, unknown> = { ...projectFlags(route.id, f, inputs) };
+  if (route.id === "agent-create" && payload.scope === undefined) payload.scope = "local";
   for (const input of route.inputs as readonly (ThinCliInput & { readonly field: string; readonly codec?: "json" })[])
     if (input.codec === "json" && typeof payload[input.field] === "string")
       try {

@@ -287,6 +287,10 @@ export function IdentityRail({
                     <span className="flex min-w-0 items-center gap-2">
                       <Avatar id={agent.id} />
                       <span className="min-w-0 truncate font-medium">{agent.name}</span>
+                      <StatusTag
+                        tone="neutral"
+                        label={t(agent.scope === "local" ? "agentRuntime.scopeLocal" : "agentRuntime.scopeShared")}
+                      />
                     </span>
                   }
                   // 右侧唯一关键量:首选模型(能区分这一行的信息);候选清单型 model
@@ -304,6 +308,10 @@ export function IdentityRail({
                     <span className="flex min-w-0 items-center gap-2">
                       <Avatar id={agent.id} />
                       <span className="min-w-0 truncate font-medium">{agent.name}</span>
+                      <StatusTag
+                        tone="neutral"
+                        label={t(agent.scope === "local" ? "agentRuntime.scopeLocal" : "agentRuntime.scopeShared")}
+                      />
                       <StatusTag tone="cancel" label={t("agentRuntime.retiredTag")} />
                     </span>
                   }

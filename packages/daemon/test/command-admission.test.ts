@@ -452,6 +452,24 @@ test("Settings locale-only updates use local admission while repository fields k
   );
 });
 
+test("local Agent writes and explicit scope transfers are admitted on their originating edge", () => {
+  const descriptor = new Map(daemonProtocolCommands.map((command) => [command.id, command])).get("agent-install")!;
+  for (const action of [
+    { kind: "agent-install", scope: "local" },
+    { kind: "agent-install", scope: "shared", localAgentTransfer: true },
+  ])
+    assert.deepEqual(entityActionCommandTopology(descriptor, action).admission, {
+      local: "direct",
+      "remote-proxy": "rejected",
+      "remote-center": "direct",
+      "remote-edge": "direct",
+    });
+  assert.deepEqual(
+    entityActionCommandTopology(descriptor, { kind: "agent-install", scope: "shared" }).admission,
+    descriptor.admission,
+  );
+});
+
 test("Person delegation Actions are admin Actions and forward from an edge", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
   for (const id of ["people-delegate", "people-revoke-delegation"]) {

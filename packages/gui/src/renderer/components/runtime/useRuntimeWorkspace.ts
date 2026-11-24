@@ -364,6 +364,13 @@ export function useAgentSquadWorkspace(repoId: string) {
         channel.reportError(saveFailureHint(saved));
         return null;
       }
+      if (declaration.scope === "local") {
+        await Promise.all([
+          client.invalidateQueries({ queryKey: ["agents", repoId], refetchType: "active" }),
+          client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" }),
+        ]);
+        return saved;
+      }
       const settled = await settleEntitySaveReceipt(repoId, saved);
       if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
         channel.reportError(

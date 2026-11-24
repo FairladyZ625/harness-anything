@@ -30,6 +30,7 @@ export interface RepoWriterBootstrapV1 {
     readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;
     readonly repoId: string;
     readonly rootDir: string;
+    readonly userRoot?: string;
     readonly ownerId: string;
     readonly writerGeneration?: number;
     readonly mode?: DaemonRepoMode;

@@ -17,7 +17,7 @@ type NewEntityRequestBase = {
   readonly templateId: string | null;
 };
 export type NewEntityRequest =
-  | (NewEntityRequestBase & { readonly kind: "agent" })
+  | (NewEntityRequestBase & { readonly kind: "agent"; readonly scope: "local" | "shared" })
   | (NewEntityRequestBase & { readonly kind: "squad"; readonly leaderTurnBudget: string | null });
 export const entitySlug = (value: string): boolean => /^[a-z0-9][a-z0-9-]{0,63}$/u.test(value.trim());
 
@@ -54,6 +54,7 @@ export function NewEntityDialog({
     [id, setId] = useState(initialId ?? ""),
     [name, setName] = useState(""),
     [leaderTurnBudget, setLeaderTurnBudget] = useState("");
+  const [scope, setScope] = useState<"local" | "shared">("local");
   // 组件随退场动画常驻,重新打开时回到初始表单——与旧的条件挂载逐次新建等价。
   useLayoutEffect(() => {
     if (!open) return;
@@ -62,6 +63,7 @@ export function NewEntityDialog({
     setId(initialId ?? "");
     setName("");
     setLeaderTurnBudget("");
+    setScope("local");
   }, [open, initialId]);
   const collision = taken.includes(id.trim()),
     validBudget = Number.isSafeInteger(Number(leaderTurnBudget)) && Number(leaderTurnBudget) >= 1,
@@ -110,7 +112,7 @@ export function NewEntityDialog({
                       templateId,
                       leaderTurnBudget: templateId === null ? leaderTurnBudget : null,
                     }
-                  : { kind, id: id.trim(), name: name.trim(), templateId },
+                  : { kind, id: id.trim(), name: name.trim(), templateId, scope },
               )
             }
           >
@@ -120,6 +122,20 @@ export function NewEntityDialog({
       }
     >
       {actionError ? <ActionError>{actionError}</ActionError> : null}
+      {kind === "agent" && (
+        <label className="mb-3 flex items-center gap-2 ui-meta text-text-muted">
+          <span>{t("agentRuntime.newAgentScope")}</span>
+          <select
+            data-testid="new-agent-scope"
+            value={scope}
+            onChange={(event) => setScope(event.target.value as "local" | "shared")}
+            className="h-7 rounded-xs border border-border bg-surface px-2 text-text"
+          >
+            <option value="local">{t("agentRuntime.scopeLocal")}</option>
+            <option value="shared">{t("agentRuntime.scopeShared")}</option>
+          </select>
+        </label>
+      )}
       <div className="grid gap-2.5 sm:grid-cols-2">
         {kind === "agent"
           ? agents.map((agent) => (

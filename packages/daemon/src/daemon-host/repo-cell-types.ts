@@ -593,6 +593,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly store: CanonicalEventStore;
   readonly input: {
     readonly repoId: string;
+    readonly userRoot?: string;
     readonly edgeConfig?: () => import("./client/fleet-edge-config.ts").FleetEdgeConfig | null;
     readonly nodeTaskMaterializationPolicy?: NodeTaskMaterializationPolicy;
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;

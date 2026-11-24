@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { createEntityStore } from "../../../storage/src/index.ts";
-import { validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
+import { parseAgentDeclarationV1, validateAgentDeclarationV1 } from "../../src/domain/agent-squad-schema.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import { type EntityEventV1 } from "../../src/domain/entity-event.ts";
 import { assertContentInputs } from "../../src/ports/canonical-event-validation.ts";
@@ -168,6 +168,13 @@ test("Agent declaration hostAccess admits exactly isolated, operator, and bypass
       /must be isolated, operator, or bypass/u,
       hostAccess,
     );
+});
+
+test("Agent declaration scope defaults historical declarations to shared", () => {
+  assert.equal(parseAgentDeclarationV1(agent).scope, "shared");
+  assert.equal(parseAgentDeclarationV1({ ...agent, scope: "local" }).scope, "local");
+  assert.equal(parseAgentDeclarationV1({ ...agent, scope: "shared" }).scope, "shared");
+  assert.match(validateAgentDeclarationV1({ ...agent, scope: "node" }).join("\n"), /must be local or shared/u);
 });
 
 test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {

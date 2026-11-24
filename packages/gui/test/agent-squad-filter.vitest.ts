@@ -27,6 +27,7 @@ const agent = (
 ): AgentEntityRow => ({
   id,
   name: overrides.name ?? id,
+  scope: overrides.scope ?? "shared",
   runtimes: [],
   instance: null,
   permissionMode: null,
@@ -97,6 +98,17 @@ describe("agent squad filters", () => {
     expect(filterSquads(squads, { ...DEFAULT_AGENT_SQUAD_FILTERS, layers: ["builtin"] }).map((row) => row.id)).toEqual(
       [],
     );
+  });
+
+  it("filters local and project-shared Agents independently", () => {
+    const scoped = [agent("private-helper", { scope: "local" }), agent("team-reviewer", { scope: "shared" })];
+    expect(filterAgents(scoped, [], { ...DEFAULT_AGENT_SQUAD_FILTERS, scope: "local" }).map((row) => row.id)).toEqual([
+      "private-helper",
+    ]);
+    expect(filterAgents(scoped, [], { ...DEFAULT_AGENT_SQUAD_FILTERS, scope: "shared" }).map((row) => row.id)).toEqual([
+      "team-reviewer",
+    ]);
+    expect(hasActiveAgentSquadFilters({ ...DEFAULT_AGENT_SQUAD_FILTERS, scope: "local" })).toBe(true);
   });
 
   it("aggregates filter options from the live catalog rows only", () => {
@@ -267,6 +279,30 @@ describe("agent squad filter bar and rail", () => {
       }),
     );
     expect(remount.querySelector('[data-testid="agent-squad-filter-toggle"]')?.textContent).toMatch(/1/u);
+  });
+
+  it("shows local/shared scope counts and emits the selected Agent scope", async () => {
+    const scopedAgents = [agent("private-helper", { scope: "local" }), agent("team-reviewer", { scope: "shared" })];
+    let latest = DEFAULT_AGENT_SQUAD_FILTERS;
+    await mount(
+      createElement(AgentSquadFilterBar, {
+        agents: scopedAgents,
+        squads: [],
+        filters: DEFAULT_AGENT_SQUAD_FILTERS,
+        onChange: (next: AgentSquadFilters) => {
+          latest = next;
+        },
+      }),
+    );
+    await act(async () => {
+      byTestId("agent-squad-filter-toggle").click();
+    });
+    const chips = [...byTestId("agent-squad-filter-scope").querySelectorAll("button")];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["All2", "Local1", "Project shared1"]);
+    await act(async () => {
+      chips[1]!.click();
+    });
+    expect(latest.scope).toBe("local");
   });
 
   it("clears the query via the clear button", async () => {
