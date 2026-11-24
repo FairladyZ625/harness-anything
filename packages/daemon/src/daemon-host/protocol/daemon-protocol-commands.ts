@@ -503,6 +503,7 @@ type ResidentCeoCliCommand = CommandTopology & {
   readonly id: string;
   readonly phase: string;
   readonly path: readonly string[];
+  readonly syntaxPath?: readonly string[];
   readonly summary: string;
   readonly usage: string;
   readonly method: string;

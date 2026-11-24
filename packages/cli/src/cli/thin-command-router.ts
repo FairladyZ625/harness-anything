@@ -218,6 +218,8 @@ export function parseRouted(
   if (route.id === "ledger-reconcile") return parseLedgerReconcileRouted(route, args, rootDir, repoId, json, inputs);
   if (route.id === "ledger-audit-export")
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
+  if (route.path[0] === "ceo")
+    return parseProjected(route.id, args.slice(route.path.length), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);

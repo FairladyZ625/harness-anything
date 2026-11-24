@@ -7,7 +7,7 @@ import type { ResidentCeoProfile } from "@harness-anything/kernel/internal/domai
 function fixture() {
   let profile: ResidentCeoProfile | null = null;
   let now = "2026-11-24T00:00:00.000Z";
-  const runs: { readonly persistentSessionId: string | null }[] = [];
+  const runs: { readonly persistentSessionId: string | null; readonly peerRequestId?: string }[] = [];
   const service = makeResidentCeoService({
     profiles: {
       read: async () => profile,
@@ -18,7 +18,10 @@ function fixture() {
     },
     runtime: {
       run: async (request) => {
-        runs.push(request);
+        runs.push({
+          persistentSessionId: request.persistentSessionId,
+          ...(request.peerRequestId === undefined ? {} : { peerRequestId: request.peerRequestId }),
+        });
         return {
           runtimeSessionId: `session-${runs.length}`,
           response: Promise.resolve({
@@ -57,11 +60,12 @@ test("chat and peer wakes resume the same persistent session and record a receip
   await service.start("person_owner");
   const first = await service.wake("person_owner", "human-chat", "Please review the current plan.");
   setNow("2026-11-24T00:00:30.000Z");
-  const second = await service.wake("person_owner", "peer-request", "Peer request: prepare a handoff.");
+  const second = await service.wake("person_owner", "peer-request", "Peer request: prepare a handoff.", "peer_request_1");
   assert.equal(first.response, "reply-1");
   assert.equal(second.response, "reply-2");
   assert.equal(runs[0]?.persistentSessionId, null);
   assert.equal(runs[1]?.persistentSessionId, "provider-session-1");
+  assert.equal(runs[1]?.peerRequestId, "peer_request_1");
   assert.equal(second.profile.persistentSessionId, "provider-session-2");
   assert.equal(second.profile.lastWake?.cause, "peer-request");
   assert.equal(second.profile.lastWake?.status, "succeeded");
