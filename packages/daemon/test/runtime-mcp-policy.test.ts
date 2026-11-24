@@ -285,13 +285,7 @@ test("Runtime instance update with cleared mcpPolicy deletes persisted override 
 });
 
 test("agent-install sets and clears mcpPolicy by source or agentId, updates inspect, and returns dispatch to instance default", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-clear-mcp-"));
-  initRepo(rootDir);
-  const cell = await openRepoCell({
-      repoId: workspaceId("agent-mcp-policy"),
-      rootDir: canonicalRoot(rootDir),
-      ownerId: "agent-mcp-policy-test",
-    }),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-clear-mcp-")),
     binding = withPolicyGroup(
       {
         actor: { principal: { personId: "person-agent-mcp" }, executor: null },
@@ -299,7 +293,16 @@ test("agent-install sets and clears mcpPolicy by source or agentId, updates insp
       },
       "contributor",
     );
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+    extraStore: ReturnType<typeof makeTaskEventStore> | undefined,
+    projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("agent-mcp-policy"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "agent-mcp-policy-test",
+    });
     const manifestPath = path.join(rootDir, "mcp-worker.json");
     writeFileSync(
       manifestPath,
@@ -377,9 +380,10 @@ test("agent-install sets and clears mcpPolicy by source or agentId, updates insp
     const inspectV3 = await cell.run({ kind: "agent-inspect", agentId: "mcp-worker" }, binding);
     const inspectedAgent = JSON.parse(String(inspectV3.evidence)).agent as Record<string, unknown>;
     assert.equal(Object.hasOwn(inspectedAgent, "mcpPolicy"), false);
-    const projection = makeTaskProjection({
+    extraStore = makeTaskEventStore({ repoId: "agent-mcp-policy", rootDir: canonicalRoot(rootDir) });
+    projection = makeTaskProjection({
       rootDir: canonicalRoot(rootDir),
-      eventStore: makeTaskEventStore({ repoId: "agent-mcp-policy", rootDir: canonicalRoot(rootDir) }),
+      eventStore: extraStore,
     });
     projection.catchUp();
     const guiDetail = readAgentEntityGuiProjection({
@@ -397,7 +401,18 @@ test("agent-install sets and clears mcpPolicy by source or agentId, updates insp
       "inherit",
     );
   } finally {
-    await cell.close();
-    removeTempRepository(rootDir);
+    try {
+      projection?.close();
+    } finally {
+      try {
+        await extraStore?.drain();
+      } finally {
+        try {
+          await cell?.close();
+        } finally {
+          removeTempRepository(rootDir);
+        }
+      }
+    }
   }
 });
