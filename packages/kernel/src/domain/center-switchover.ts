@@ -402,3 +402,202 @@ export function evaluateSwitchoverRollbackEligibility(
     rollbackEpoch: computeSwitchoverRollbackEpoch(input.oldEpoch, input.cededEpoch),
   };
 }
+
+export type FleetEdgeTrustAnchors = {
+  readonly caPaths?: readonly string[];
+  readonly spkiSha256?: readonly string[];
+};
+
+export interface CenterMovedRoutingPayload {
+  readonly repoId: string;
+  readonly newExternalUrl: string;
+  readonly newLoginUrl: string;
+  readonly newEpoch: number;
+  readonly spkiSha256: string;
+}
+
+export interface EdgeAutoRepointTlsEvidence {
+  readonly verifiedByCaPath?: string | null;
+  readonly observedPeerSpkiSha256?: string | null;
+}
+
+export interface EdgeAutoRepointDecisionInput {
+  readonly expectedRepoId: string;
+  readonly localWriterEpoch: number;
+  readonly trustAnchors: FleetEdgeTrustAnchors | undefined;
+  readonly centerMoved: CenterMovedRoutingPayload;
+  readonly tlsEvidence?: EdgeAutoRepointTlsEvidence;
+}
+
+export type EdgeAutoRepointRejectionCode =
+  | "center_moved_repo_mismatch"
+  | "center_moved_invalid_target"
+  | "center_moved_epoch_not_advanced"
+  | "center_moved_no_trust_anchors"
+  | "center_moved_untrusted_target";
+
+export type EdgeAutoRepointDecisionVerdict =
+  | {
+      readonly ok: true;
+      readonly matchedTrustAnchorKind: "ca_path" | "spki_pin";
+      readonly matchedCaPath: string | null;
+      readonly normalizedTargetSpkiSha256: string;
+      readonly targetHost: string;
+      readonly targetPort: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: EdgeAutoRepointRejectionCode;
+      readonly detail: string;
+    };
+
+export function normalizeSpkiSha256(value: string): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!SPKI_SHA256_PATTERN.test(trimmed)) return null;
+  return trimmed.startsWith("sha256:") ? trimmed.slice("sha256:".length) : trimmed;
+}
+
+export function normalizeFleetEdgeTrustAnchors(
+  anchors: FleetEdgeTrustAnchors | undefined,
+):
+  | { readonly ok: true; readonly value: FleetEdgeTrustAnchors | undefined }
+  | { readonly ok: false; readonly detail: string } {
+  if (anchors === undefined) return { ok: true, value: undefined };
+  const caPaths: string[] = [],
+    seenCaPaths = new Set<string>(),
+    spkiSha256: string[] = [],
+    seenSpki = new Set<string>();
+  if (anchors.caPaths !== undefined) {
+    if (!Array.isArray(anchors.caPaths)) return { ok: false, detail: "trustAnchors.caPaths must be an array." };
+    for (const rawPath of anchors.caPaths) {
+      if (typeof rawPath !== "string" || rawPath.trim().length === 0 || rawPath.includes("\0"))
+        return { ok: false, detail: "trustAnchors.caPaths entries must be non-empty paths." };
+      if (!seenCaPaths.has(rawPath)) {
+        seenCaPaths.add(rawPath);
+        caPaths.push(rawPath);
+      }
+    }
+  }
+  if (anchors.spkiSha256 !== undefined) {
+    if (!Array.isArray(anchors.spkiSha256)) return { ok: false, detail: "trustAnchors.spkiSha256 must be an array." };
+    for (const rawSpki of anchors.spkiSha256) {
+      const normalized = normalizeSpkiSha256(rawSpki);
+      if (normalized === null)
+        return {
+          ok: false,
+          detail: "trustAnchors.spkiSha256 entries must be lowercase SHA-256 digests (optional sha256: prefix).",
+        };
+      if (!seenSpki.has(normalized)) {
+        seenSpki.add(normalized);
+        spkiSha256.push(normalized);
+      }
+    }
+  }
+  if (caPaths.length === 0 && spkiSha256.length === 0) return { ok: true, value: undefined };
+  return {
+    ok: true,
+    value: {
+      ...(caPaths.length > 0 ? { caPaths } : {}),
+      ...(spkiSha256.length > 0 ? { spkiSha256 } : {}),
+    },
+  };
+}
+
+/**
+ * Pure trust-anchor and epoch-advance gate for controlled edge auto-repoint (dec_AAEC26DBB6F23BDF80876ABB2C CH4/RJ3).
+ * Never treats `centerMoved.spkiSha256` as a trust root: authorization comes strictly from pre-provisioned local
+ * `trustAnchors` (`caPaths` and/or `spkiSha256` allowlist) combined with strictly advancing `newEpoch > localWriterEpoch`.
+ */
+export function evaluateEdgeAutoRepointTarget(input: EdgeAutoRepointDecisionInput): EdgeAutoRepointDecisionVerdict {
+  const { centerMoved } = input;
+  if (centerMoved.repoId !== input.expectedRepoId)
+    return {
+      ok: false,
+      code: "center_moved_repo_mismatch",
+      detail: `CENTER_MOVED targets repository ${centerMoved.repoId}, expected ${input.expectedRepoId}.`,
+    };
+  const normalizedMovedSpki = normalizeSpkiSha256(centerMoved.spkiSha256);
+  if (
+    !isHttpsOriginUrl(centerMoved.newExternalUrl) ||
+    !isHttpOrHttpsUrl(centerMoved.newLoginUrl) ||
+    normalizedMovedSpki === null
+  )
+    return {
+      ok: false,
+      code: "center_moved_invalid_target",
+      detail: "CENTER_MOVED routing payload must provide an HTTPS external origin, valid login URL, and SHA-256 SPKI.",
+    };
+  if (
+    !Number.isSafeInteger(input.localWriterEpoch) ||
+    input.localWriterEpoch < 1 ||
+    !Number.isSafeInteger(centerMoved.newEpoch) ||
+    centerMoved.newEpoch <= input.localWriterEpoch
+  )
+    return {
+      ok: false,
+      code: "center_moved_epoch_not_advanced",
+      detail: `CENTER_MOVED newEpoch (${String(centerMoved.newEpoch)}) must be strictly greater than local writerEpoch (${String(input.localWriterEpoch)}).`,
+    };
+  const normalizedAnchors = normalizeFleetEdgeTrustAnchors(input.trustAnchors);
+  if (!normalizedAnchors.ok || normalizedAnchors.value === undefined)
+    return {
+      ok: false,
+      code: "center_moved_no_trust_anchors",
+      detail:
+        "Auto-repoint refused: fleet-edge.json has no pre-provisioned trustAnchors; CENTER_MOVED.spkiSha256 is never treated as a trust root. Verify the new center out-of-band and run `ha daemon fleet edge repoint`.",
+    };
+  const caPaths = normalizedAnchors.value.caPaths ?? [],
+    spkiPins = normalizedAnchors.value.spkiSha256 ?? [],
+    spkiPinSet = new Set(spkiPins),
+    parsedExternal = new URL(centerMoved.newExternalUrl),
+    targetHost = parsedExternal.hostname.replace(/^\[|\]$/gu, ""),
+    targetPort = parsedExternal.port ? Number(parsedExternal.port) : 443;
+
+  if (input.tlsEvidence === undefined) {
+    if (caPaths.length === 0 && !spkiPinSet.has(normalizedMovedSpki))
+      return {
+        ok: false,
+        code: "center_moved_untrusted_target",
+        detail:
+          "Auto-repoint refused: CENTER_MOVED target SPKI is not present in local pre-provisioned trustAnchors.spkiSha256.",
+      };
+    return {
+      ok: true,
+      matchedTrustAnchorKind: spkiPinSet.has(normalizedMovedSpki) ? "spki_pin" : "ca_path",
+      matchedCaPath: null,
+      normalizedTargetSpkiSha256: normalizedMovedSpki,
+      targetHost,
+      targetPort,
+    };
+  }
+
+  const observedPeerSpki =
+    typeof input.tlsEvidence.observedPeerSpkiSha256 === "string"
+      ? normalizeSpkiSha256(input.tlsEvidence.observedPeerSpkiSha256)
+      : null;
+  if (observedPeerSpki === null || observedPeerSpki !== normalizedMovedSpki)
+    return {
+      ok: false,
+      code: "center_moved_untrusted_target",
+      detail: "Auto-repoint refused: target TLS certificate SPKI does not match the CENTER_MOVED routing fingerprint.",
+    };
+  const verifiedByCaPath = input.tlsEvidence.verifiedByCaPath ?? null,
+    caMatched = verifiedByCaPath !== null && caPaths.includes(verifiedByCaPath),
+    spkiMatched = spkiPinSet.has(observedPeerSpki);
+  if (!caMatched && !spkiMatched)
+    return {
+      ok: false,
+      code: "center_moved_untrusted_target",
+      detail:
+        "Auto-repoint refused: target certificate neither chains to a pre-provisioned local trustAnchors.caPaths CA nor matches local trustAnchors.spkiSha256.",
+    };
+  return {
+    ok: true,
+    matchedTrustAnchorKind: caMatched ? "ca_path" : "spki_pin",
+    matchedCaPath: caMatched ? verifiedByCaPath : null,
+    normalizedTargetSpkiSha256: observedPeerSpki,
+    targetHost,
+    targetPort,
+  };
+}

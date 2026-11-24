@@ -416,7 +416,7 @@ export async function runWalReceiver(input: {
     };
     const handshake = await peer.receive(signal);
     if (handshake.type === "replica.reject")
-      throw Object.assign(new Error(handshake.message), { code: handshake.code });
+      throw new ReplicationError(handshake.message, handshake.code, handshake.centerMoved);
     if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied") {
       if (!input.resumeOnly) await rejectUnauthorizedRead();
       throw new ReplicationError(
@@ -546,7 +546,7 @@ export async function runWalReceiver(input: {
     for (;;) {
       signal.throwIfAborted();
       const frame = await peer.receive(signal);
-      if (frame.type === "replica.failure") throw new ReplicationError(frame.message, frame.code);
+      if (frame.type === "replica.failure") throw new ReplicationError(frame.message, frame.code, frame.centerMoved);
       if (input.resumeOnly && (frame.type === "replica.backup" || frame.type === "replica.resync"))
         throw new ReplicationError("Repoint requires incremental replication.", "replication_resume_unavailable");
       if (frame.type === "replica.commit" || frame.type === "replica.backup") frameSize = frame.size;

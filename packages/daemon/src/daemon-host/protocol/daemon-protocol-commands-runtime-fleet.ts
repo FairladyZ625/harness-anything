@@ -733,6 +733,24 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         },
         { pathKind: "non-path", regex: "^[1-9][0-9]{0,9}$" },
       ),
+      cliInput(
+        "--trust-ca",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "host-path" },
+      ),
+      cliInput(
+        "--trust-spki-sha256",
+        "repeated",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { pathKind: "non-path", regex: "^(?:sha256:)?[a-f0-9]{64}$" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -769,6 +787,15 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { pathKind: "non-path", regex: "^[1-9][0-9]{0,9}$" },
       ),
+      cliInput("--trust-ca", "repeated", false, { code: "invalid_field" }, { pathKind: "host-path" }),
+      cliInput(
+        "--trust-spki-sha256",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^(?:sha256:)?[a-f0-9]{64}$" },
+      ),
+      cliInput("--allow-basebackup", "boolean", false, { code: "invalid_field" }),
     ],
   }),
 ] as const);

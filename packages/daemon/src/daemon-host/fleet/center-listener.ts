@@ -108,7 +108,11 @@ import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 import { createBaseBackupQueue } from "../../fleet-sync/fleet/basebackup-queue.ts";
 import { forwardingIntentForAction, forwardingIntentIssue } from "./forwarding-intent.ts";
-import { fleetErrorCode, sendCenterMovedReplicaReject } from "./center-listener-errors.ts";
+import {
+  fleetErrorCode,
+  sendCenterMovedReplicaFailure,
+  sendCenterMovedReplicaReject,
+} from "./center-listener-errors.ts";
 import { readCenterRepointLineage } from "./center-listener-repoint.ts";
 import { awaitWithSignal, delay } from "./center-listener-async.ts";
 import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
@@ -578,12 +582,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     };
     const source = {
       authorize: async () => {
-        writerEpoch.assert(frame.repoId, owned.epoch, owned.holderId);
         try {
+          writerEpoch.assert(frame.repoId, owned.epoch, owned.holderId);
           await admitReplica(nodeId, frame.repoId, accessToken);
         } catch (error) {
           if (error instanceof FleetFault && error.code === "authorization_denied")
             await peer.send({ type: "replica.resync", reason: "authorization_denied" });
+          await sendCenterMovedReplicaFailure({ peer, error });
           throw error;
         }
       },
@@ -860,10 +865,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") reclaimConsumedClaims(extracted, repo.repoId);
   const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
-    if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
-      throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const moved = readListenerCenterRelocated(options, repoId);
     if (moved) throw centerMovedFleetFault(moved);
+    if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
+      throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken);
     // The request user's repository-read authority admits this node's replica (CH1).
     const principal = await replicaAdmission(a),

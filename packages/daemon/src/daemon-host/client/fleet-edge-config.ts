@@ -6,10 +6,15 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { readDaemonRegistry } from "@harness-anything/kernel";
+import {
+  normalizeFleetEdgeTrustAnchors,
+  type FleetEdgeTrustAnchors,
+} from "@harness-anything/kernel/internal/domain/center-switchover.ts";
 // The durable-write helper is imported from its module, not the storage barrel: this file is
 // loaded by the thin CLI on every task read/write command, and the barrel pulls the whole
 // storage graph (pglite, pg, projections) into that process for one synchronous write.
 import { removeFileDurably, writeFileDurably } from "../../../../storage/src/durable-file.ts";
+export type { FleetEdgeTrustAnchors };
 export interface FleetEdgeConfig {
   readonly repoId: string;
   readonly host: string;
@@ -17,6 +22,7 @@ export interface FleetEdgeConfig {
   readonly caPath: string;
   readonly servername?: string;
   readonly spkiSha256?: string;
+  readonly trustAnchors?: FleetEdgeTrustAnchors;
   readonly loginUrl?: string;
   readonly loginRealm?: string;
   readonly loginServername?: string;
@@ -127,6 +133,17 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string, remoteEdge
     fail("maxAgeMs must be a non-negative integer when present");
   if (maxLagRevisions !== undefined && (!Number.isSafeInteger(maxLagRevisions) || maxLagRevisions < 0))
     fail("maxLagRevisions must be a non-negative integer when present");
+  let trustAnchors: FleetEdgeTrustAnchors | undefined;
+  if (row.trustAnchors !== undefined) {
+    if (row.trustAnchors === null || typeof row.trustAnchors !== "object" || Array.isArray(row.trustAnchors))
+      fail("trustAnchors must be a JSON object when present");
+    const rawAnchors = row.trustAnchors as Record<string, unknown>;
+    if (Object.keys(rawAnchors).some((key) => key !== "caPaths" && key !== "spkiSha256"))
+      fail("trustAnchors may only contain caPaths and spkiSha256");
+    const parsedAnchors = normalizeFleetEdgeTrustAnchors(rawAnchors as FleetEdgeTrustAnchors);
+    if (!parsedAnchors.ok) return fail(parsedAnchors.detail);
+    trustAnchors = parsedAnchors.value;
+  }
   return {
     repoId: text("repoId")!,
     host: text("host")!,
@@ -134,6 +151,7 @@ export function readFleetEdgeConfig(userRoot: string, repoId: string, remoteEdge
     caPath: text("caPath")!,
     ...(text("servername") ? { servername: text("servername") } : {}),
     ...(text("spkiSha256") ? { spkiSha256: text("spkiSha256") } : {}),
+    ...(trustAnchors ? { trustAnchors } : {}),
     ...(text("loginUrl") ? { loginUrl: text("loginUrl") } : {}),
     ...(text("loginRealm") ? { loginRealm: text("loginRealm") } : {}),
     ...(text("loginServername") ? { loginServername: text("loginServername") } : {}),
@@ -161,6 +179,19 @@ export function writeFleetEdgeConfig(userRoot: string, repoId: string, config: F
 export function removeFleetEdgeConfig(userRoot: string, repoId: string): void {
   for (const file of [fleetEdgeConfigPath(userRoot, repoId), fleetEdgeCaPath(userRoot, repoId)])
     if (existsSync(file)) removeFileDurably(file);
+}
+export function writeFleetEdgePinnedCaCert(
+  userRoot: string,
+  repoId: string,
+  spkiSha256: string,
+  chainPem: string,
+): string {
+  const filePath = path.join(fleetEdgeConfigDir(userRoot, repoId), `pinned-center-${spkiSha256.slice(0, 16)}.pem`);
+  writeFileDurably(filePath, chainPem, 0o600);
+  return filePath;
+}
+export function removeFleetEdgePinnedCaCert(filePath: string): void {
+  if (existsSync(filePath)) removeFileDurably(filePath);
 }
 function canonicalComparePath(target: string): string {
   const resolved = path.resolve(target);

@@ -1,5 +1,6 @@
 import { consumeKnownError } from "@harness-anything/kernel";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import type { CenterMovedDetails } from "@harness-anything/storage";
 import { runDaemonRetry } from "../daemon-retry.ts";
 import { deterministicReplicaConfirmFailure } from "../runtime-recovery-watch.ts";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
@@ -21,6 +22,7 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
   readonly onConfirmed?: (changedPaths?: readonly string[], signal?: AbortSignal) => void | Promise<void>;
   readonly onConfirmedFailure?: (error: unknown) => void;
   readonly onFailure?: (error: unknown) => void;
+  readonly onCenterMoved?: (details: CenterMovedDetails) => void;
   readonly onReplicaHealthChange?: () => void;
   readonly confirmTimeoutMs?: number;
 }
@@ -35,7 +37,10 @@ const waiters = new Map<string, Set<Waiter>>();
 const revisionWaiters = new Map<string, Set<RevisionWaiter>>();
 const readyWaiters = new Map<string, Set<ReadyWaiter>>();
 /** Running streams by key; `down` holds the last failure until the next connection attempt. */
-const streams = new Map<string, { down: unknown; connection: AbortController; superseded: AbortController }>();
+const streams = new Map<
+  string,
+  { down: unknown; handedOff: boolean; connection: AbortController; superseded: AbortController }
+>();
 const syncKey = (options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">): string =>
   `${options.viewRoot}\u0000${options.repoId}\u0000${options.nodeId}`;
 
@@ -48,6 +53,10 @@ export function failFleetReplicaSync(
     stream = streams.get(key);
   if (!stream) return;
   stream.down = error;
+  if (stream.handedOff) {
+    streams.delete(key);
+    settleReady(key, false);
+  }
   settle(key, null, null, streamDown(error));
   stream.connection.abort(error);
 }
@@ -219,7 +228,12 @@ export function waitForFleetReplicaReady(
 export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<void> {
   const key = syncKey(options),
     previous = streams.get(key),
-    stream = { down: null as unknown, connection: new AbortController(), superseded: new AbortController() },
+    stream = {
+      down: null as unknown,
+      handedOff: false,
+      connection: new AbortController(),
+      superseded: new AbortController(),
+    },
     stopSignal = options.signal
       ? AbortSignal.any([options.signal, stream.superseded.signal])
       : stream.superseded.signal,
@@ -417,6 +431,17 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       const error = attempt.failed ? attempt.error : null;
       // Release any hung confirmation tied to the dropped connection so reconnects can re-confirm.
       abortActiveConfirmation(streamDown(error ?? new Error("replication stream ended")), true);
+      const centerMoved = attempt.failed ? centerMovedFromSyncError(attempt.error) : null;
+      if (attempt.failed && centerMoved !== null && options.onCenterMoved) {
+        stream.down = attempt.error;
+        stream.handedOff = true;
+        settleReady(key, false);
+        observe(replicaFailure(attempt.error, "CENTER_MOVED"));
+        options.onReplicaHealthChange?.();
+        options.onFailure?.(attempt.error);
+        options.onCenterMoved(centerMoved);
+        return;
+      }
       const retryDelay = replicaRetryDelay(
         error,
         isDeterministicReplicaFailure(error) ? deterministicFailures++ : failures++,
@@ -448,8 +473,8 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       });
     }
   } finally {
-    // A restarted stream for the same view already owns the key and its waiters.
-    if (streams.get(key) === stream) {
+    // A restarted stream or an active CENTER_MOVED auto-repoint handoff owns the key and its waiters.
+    if (streams.get(key) === stream && !stream.handedOff) {
       streams.delete(key);
       settle(key, null, null, new FleetReplicaStreamDownError("replica stream stopped"));
       settleReady(key, false);
@@ -470,4 +495,27 @@ async function runSyncAttempt(
   } catch (error) {
     return { failed: true, error };
   }
+}
+
+function centerMovedFromSyncError(error: unknown): CenterMovedDetails | null {
+  if (typeof error !== "object" || error === null) return null;
+  const candidate = error as { readonly code?: unknown; readonly centerMoved?: unknown };
+  if (candidate.code !== "CENTER_MOVED") return null;
+  const details = candidate.centerMoved as Partial<CenterMovedDetails> | undefined;
+  if (
+    !details ||
+    typeof details !== "object" ||
+    typeof details.newExternalUrl !== "string" ||
+    typeof details.newLoginUrl !== "string" ||
+    typeof details.newEpoch !== "number" ||
+    !Number.isSafeInteger(details.newEpoch) ||
+    typeof details.spkiSha256 !== "string"
+  )
+    return null;
+  return {
+    newExternalUrl: details.newExternalUrl,
+    newLoginUrl: details.newLoginUrl,
+    newEpoch: details.newEpoch,
+    spkiSha256: details.spkiSha256,
+  };
 }

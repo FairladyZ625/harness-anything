@@ -1,13 +1,20 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { TextDecoder } from "node:util";
-import type { ReplicationCommit, ReplicationPosition, SqliteEventRow } from "@harness-anything/storage";
-import type { BaseBackupMetadata } from "@harness-anything/storage";
+import type {
+  BaseBackupMetadata,
+  CenterMovedDetails,
+  ReplicationCommit,
+  ReplicationPosition,
+  SqliteEventRow,
+} from "@harness-anything/storage";
 
 export class ReplicationError extends Error {
   readonly code: string;
-  constructor(message: string, code = "replica_protocol_error") {
+  readonly centerMoved?: CenterMovedDetails;
+  constructor(message: string, code = "replica_protocol_error", centerMoved?: CenterMovedDetails) {
     super(message);
     this.code = code;
+    if (centerMoved) this.centerMoved = centerMoved;
   }
 }
 
@@ -44,8 +51,24 @@ export type ReplicationFrame =
       readonly message: string;
       readonly centerBuildCommit: string | null;
       readonly taskEventShapeVersion: number;
+      readonly centerMoved?: {
+        readonly newExternalUrl: string;
+        readonly newLoginUrl: string;
+        readonly newEpoch: number;
+        readonly spkiSha256: string;
+      };
     }
-  | { readonly type: "replica.failure"; readonly code: string; readonly message: string }
+  | {
+      readonly type: "replica.failure";
+      readonly code: string;
+      readonly message: string;
+      readonly centerMoved?: {
+        readonly newExternalUrl: string;
+        readonly newLoginUrl: string;
+        readonly newEpoch: number;
+        readonly spkiSha256: string;
+      };
+    }
   | {
       readonly type: "replica.backup";
       readonly metadata: BaseBackupMetadata;
@@ -133,6 +156,30 @@ const isReplicaAccept = (value: unknown): boolean =>
       capabilities: isCapabilities,
     },
   );
+const isCenterMoved = (value: unknown): boolean =>
+  shape(value, { newExternalUrl: text, newLoginUrl: text, newEpoch: uint, spkiSha256: text });
+const isReplicaReject = (value: unknown): boolean =>
+  optionalShape(
+    value,
+    {
+      type: (v: unknown) => v === "replica.reject",
+      code: text,
+      message: text,
+      centerBuildCommit: (v: unknown) => v === null || text(v),
+      taskEventShapeVersion: uint,
+    },
+    { centerMoved: isCenterMoved },
+  );
+const isReplicaFailure = (value: unknown): boolean =>
+  optionalShape(
+    value,
+    {
+      type: (v: unknown) => v === "replica.failure",
+      code: text,
+      message: text,
+    },
+    { centerMoved: isCenterMoved },
+  );
 const isReplicaBackup = (value: unknown): boolean =>
   optionalShape(
     value,
@@ -196,13 +243,6 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
       { code: "center_upgrade_required" },
     );
   const types: Record<string, Record<string, Check>> = {
-    "replica.reject": {
-      code: text,
-      message: text,
-      centerBuildCommit: (v) => v === null || text(v),
-      taskEventShapeVersion: uint,
-    },
-    "replica.failure": { code: text, message: text },
     "replica.data": {
       offset: uint,
       data: (v) =>
@@ -236,9 +276,13 @@ function parseReplicationFrameValue(value: unknown): ReplicationFrame {
       ? isReplicaStart(value)
       : value.type === "replica.accept"
         ? isReplicaAccept(value)
-        : value.type === "replica.backup"
-          ? isReplicaBackup(value)
-          : Boolean(fields && shape(value, { type: (v) => v === value.type, ...fields }));
+        : value.type === "replica.reject"
+          ? isReplicaReject(value)
+          : value.type === "replica.failure"
+            ? isReplicaFailure(value)
+            : value.type === "replica.backup"
+              ? isReplicaBackup(value)
+              : Boolean(fields && shape(value, { type: (v) => v === value.type, ...fields }));
   if (!valid) throw new Error("invalid replication frame");
   return value as unknown as ReplicationFrame;
 }

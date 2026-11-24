@@ -181,6 +181,7 @@ import {
 } from "./authorization-provider.ts";
 
 import { openSkillEvalProduction } from "./skill-eval-production.ts";
+import { createFleetEdgeAutoRepointCoordinator } from "./fleet-edge-auto-repoint.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 import { createFleetReplicaAccessTokenReader } from "./fleet/replica-token.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
@@ -1627,10 +1628,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
         [
           "replica-sync.close",
-          () => {
+          async () => {
             for (const { controller } of replicaSyncControllers.values()) controller.abort();
             replicaSyncControllers.clear();
-            return Promise.resolve();
+            await autoRepointCoordinator.close();
           },
         ],
         [
@@ -1655,8 +1656,22 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (failure !== undefined) throw failure;
     },
   };
+  const refreshRepoReplicaStatus = (repoId: string): void => {
+    const cell = cells.get(repoId);
+    if (cell?.refreshReplicaStatus) publishRepoStatus?.(repoId, cell.refreshReplicaStatus());
+  };
+  const autoRepointCoordinator = createFleetEdgeAutoRepointCoordinator({
+    userRoot: input.userRoot,
+    closeSignal: closeController.signal,
+    isClosing: () => closing,
+    withReplicaSyncFence,
+    startReplicaSyncs: (repoId) => startReplicaSyncs(repoId),
+    refreshEdgeReplicaStatus: refreshRepoReplicaStatus,
+    recordLifecycle: input.recordLifecycle,
+  });
   const startReplicaSyncs = (admittedRepoId?: string): void => {
     if (closing) return;
+    if (admittedRepoId) autoRepointCoordinator.clearLatch(admittedRepoId);
     if (initialAttachments && !initialAttachmentsSettled) {
       if (!replicaSyncStartQueued) {
         replicaSyncStartQueued = true;
@@ -1695,6 +1710,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const { writerEpoch: _writerEpoch, resumeOnly: _resumeOnly, ...streamConfig } = config;
       const running = replicaSyncControllers.get(repo.repoId),
         connection = JSON.stringify([rootDir, streamConfig]);
+      if (autoRepointCoordinator.isLatched(repo.repoId, connection)) continue;
       if (running?.config === connection) continue;
       fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
@@ -1711,12 +1727,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         readUserAccessToken: async () =>
           resolveBoundAccessToken(await oidc.bind({ transportKind: "unix-socket" }, rootDir)),
       });
-      const refreshEdgeReplicaStatus = (): void => {
-        const cell = cells.get(repo.repoId);
-        if (!cell?.refreshReplicaStatus) return;
-        const status = cell.refreshReplicaStatus();
-        publishRepoStatus?.(repo.repoId, status);
-      };
+      const refreshEdgeReplicaStatus = (): void => refreshRepoReplicaStatus(repo.repoId);
       const task = runFleetReplicaSync({
         readAccessToken,
         hostname: config.host,
@@ -1816,6 +1827,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             error: error instanceof Error ? error.message : String(error),
           });
         },
+        onCenterMoved: autoRepointCoordinator.onCenterMovedFor(
+          repo.repoId,
+          config.nodeId,
+          rootDir,
+          viewRoot,
+          connection,
+        ),
       });
       replicaSync.task = task;
       replicaSyncTasks.add(task);
@@ -1828,6 +1846,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (activeRemoteEdges.has(repoId)) continue;
       controller.abort();
       replicaSyncControllers.delete(repoId);
+      autoRepointCoordinator.clearLatch(repoId);
       fleetVersionWarnings.delete(repoId);
       runtimeRecoveryWatch.observeConfirm(repoId, null, now());
     }

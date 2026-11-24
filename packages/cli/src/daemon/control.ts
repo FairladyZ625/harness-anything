@@ -30,7 +30,7 @@ import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { ensureCliDaemonRunning } from "./autostart.ts";
 import { firstCliCommandIndex } from "../cli/command-index.ts";
-import { daemonFailure, daemonOption } from "./control-support.ts";
+import { daemonFailure, daemonOption, resolveFleetEdgeSyncInputs } from "./control-support.ts";
 import { assessDaemonStatus, status } from "./control-status.ts";
 import { fleetRepointControl } from "./fleet-repoint-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
@@ -400,67 +400,50 @@ async function fleetControl(
       "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
     );
   const byteCountFlag = "--quota-bytes";
-  const required = center ? ["--port", "--repo", byteCountFlag] : [],
-    missing = required.filter((name) => !flag(name));
-  if (missing.length > 0)
-    return reject(
-      "missing_field",
-      `Add ${missing.join(" ")} to ${center ? "start the fleet TLS center" : "mirror the fleet center ledger"}.`,
-    );
-  const centerStart = center ? fleetCenterStartPayload(argv) : null;
-  if (centerStart && !("payload" in centerStart)) return reject(centerStart.code, centerStart.nextAction);
-  const edgeTarget = edge
-    ? await resolveLocalDaemonTarget({
+  let socketPath = localUserDaemonEndpoint(userRoot, daemonId),
+    payload: JsonObject;
+  if (center) {
+    const missing = ["--port", "--repo", byteCountFlag].filter((name) => !flag(name));
+    if (missing.length > 0) return reject("missing_field", `Add ${missing.join(" ")} to start the fleet TLS center.`);
+    const centerStart = fleetCenterStartPayload(argv);
+    if (!("payload" in centerStart)) return reject(centerStart.code, centerStart.nextAction);
+    payload = centerStart.payload as JsonObject;
+  } else {
+    const edgeTarget = await resolveLocalDaemonTarget({
         rootDir: path.resolve(flag("--root") ?? process.cwd()),
         repoIdOverride: flag("--repo"),
         registrationMode: "remote-edge",
         userRoot,
         daemonId,
-      })
-    : null;
-  const edgeConfig = edge ? readFleetEdgeConfig(userRoot, edgeTarget!.repoId) : null;
-  const edgeFlags = {
-    host: "--host",
-    port: "--port",
-    caPath: "--ca",
-    nodeId: "--node-id",
-    viewRoot: "--view-root",
-    quotaBytes: byteCountFlag,
-  } as const;
-  const edgeValue = (name: keyof typeof edgeFlags): string | number | undefined =>
-    flag(edgeFlags[name]) ?? edgeConfig?.[name];
-  if (edge && Object.keys(edgeFlags).some((name) => edgeValue(name as keyof typeof edgeFlags) === undefined))
-    return reject("missing_field", "Add edge connection fields or populate the node fleet-edge.json.");
-  if (!fleetNumber.port.test(String(edgeValue("port"))) || !fleetNumber.quota.test(String(edgeValue("quotaBytes"))))
-    return reject(
-      "invalid_field",
-      "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
-    );
-  // The machine credential the center issued at node registration: named on the command line, or kept
-  // off it in the node's fleet-edge.json.
-  const credential = flag("--credential") ?? edgeConfig?.credential;
-  if (edge && credential === undefined)
-    return reject("missing_field", "Add --credential, or set credential in the node fleet-edge.json.");
-  const edgePayload = () => ({
-    host: edgeValue("host"),
-    port: Number(edgeValue("port")),
-    caPath: path.resolve(String(edgeValue("caPath"))),
-    spkiSha256: edgeConfig?.spkiSha256,
-    nodeId: edgeValue("nodeId"),
-    credential,
-    repoId: edgeTarget!.repoId,
-    viewRoot: path.resolve(String(edgeValue("viewRoot"))),
-    quotaBytes: Number(edgeValue("quotaBytes")),
-    workspaceRoot: edgeTarget!.canonicalRoot,
-    ...((flag("--servername") ?? edgeConfig?.servername)
-      ? { servername: flag("--servername") ?? edgeConfig?.servername }
-      : {}),
-    timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000,
-  });
-  const payload = (centerStart ? centerStart.payload : edgePayload()) as JsonObject;
+      }),
+      edgeConfig = readFleetEdgeConfig(userRoot, edgeTarget.repoId),
+      edgeInputs = resolveFleetEdgeSyncInputs(argv, edgeConfig);
+    if (!edgeInputs.ok) return reject(edgeInputs.code, edgeInputs.nextAction);
+    if (!fleetNumber.port.test(String(edgeInputs.port)) || !fleetNumber.quota.test(String(edgeInputs.quotaBytes)))
+      return reject(
+        "invalid_field",
+        "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
+      );
+    socketPath = edgeTarget.socketPath;
+    payload = {
+      host: edgeInputs.host,
+      port: Number(edgeInputs.port),
+      caPath: path.resolve(edgeInputs.caPath),
+      spkiSha256: edgeConfig?.spkiSha256,
+      ...(edgeInputs.trustAnchors ? { trustAnchors: edgeInputs.trustAnchors } : {}),
+      nodeId: edgeInputs.nodeId,
+      credential: edgeInputs.credential,
+      repoId: edgeTarget.repoId,
+      viewRoot: path.resolve(edgeInputs.viewRoot),
+      quotaBytes: Number(edgeInputs.quotaBytes),
+      workspaceRoot: edgeTarget.canonicalRoot,
+      ...(edgeInputs.servername ? { servername: edgeInputs.servername } : {}),
+      timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000,
+    } as JsonObject;
+  }
   try {
     const result = await requestDaemonJsonRpcAt(
-      edgeTarget?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId),
+      socketPath,
       center ? "daemon.fleet.center.start" : "daemon.fleet.edge.sync",
       { payload },
       75,

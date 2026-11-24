@@ -7,9 +7,12 @@ import {
   computeSwitchoverRollbackEpoch,
   computeSwitchoverTargetEpoch,
   createCenterSwitchoverState,
+  evaluateEdgeAutoRepointTarget,
   evaluateRpoZeroCatchupBarrier,
   evaluateSwitchoverPreflight,
   evaluateSwitchoverRollbackEligibility,
+  normalizeFleetEdgeTrustAnchors,
+  normalizeSpkiSha256,
   transitionCenterSwitchoverState,
   type SwitchoverFrozenCut,
   type SwitchoverPreflightInput,
@@ -228,4 +231,148 @@ test("epoch invariants and rollback eligibility enforce oldEpoch+1 fence and old
   });
   assert.equal(uninvalidated.ok, false);
   assert.equal(uninvalidated.code, "target_attempt_not_invalidated");
+});
+
+test("trust-anchor auto-repoint gate enforces pre-provisioned CA/SPKI anchors, strict epoch advance, and never trusts CENTER_MOVED.spkiSha256", () => {
+  const spkiB = "b".repeat(64);
+  const spkiRogue = "e".repeat(64);
+  const baseMoved = {
+    repoId: "fleet-repo",
+    newExternalUrl: "https://node-b.example.invalid:9443",
+    newLoginUrl: "https://login.example.invalid:8443",
+    newEpoch: 5,
+    spkiSha256: `sha256:${spkiB}`,
+  };
+
+  assert.equal(normalizeSpkiSha256(`sha256:${spkiB}`), spkiB);
+  assert.equal(normalizeSpkiSha256(spkiB), spkiB);
+  assert.equal(normalizeSpkiSha256("not-a-digest"), null);
+  assert.equal(normalizeSpkiSha256("A".repeat(64)), null);
+
+  const normalized = normalizeFleetEdgeTrustAnchors({
+    caPaths: ["/etc/ha/cluster-ca.pem", "/etc/ha/cluster-ca.pem"],
+    spkiSha256: [`sha256:${spkiB}`, spkiB],
+  });
+  assert.equal(normalized.ok, true);
+  assert.deepEqual(normalized.ok ? normalized.value : null, {
+    caPaths: ["/etc/ha/cluster-ca.pem"],
+    spkiSha256: [spkiB],
+  });
+
+  // 1. Missing or empty local trustAnchors MUST hard-reject (never treat CENTER_MOVED.spkiSha256 as trust root).
+  for (const anchors of [undefined, {}, { caPaths: [], spkiSha256: [] }]) {
+    const noAnchors = evaluateEdgeAutoRepointTarget({
+      expectedRepoId: "fleet-repo",
+      localWriterEpoch: 4,
+      trustAnchors: anchors,
+      centerMoved: baseMoved,
+    });
+    assert.equal(noAnchors.ok, false);
+    assert.equal(noAnchors.code, "center_moved_no_trust_anchors");
+  }
+
+  // 2. Non-advancing epoch (equal or regressed) MUST hard-reject.
+  for (const staleEpoch of [4, 3, 0]) {
+    const stale = evaluateEdgeAutoRepointTarget({
+      expectedRepoId: "fleet-repo",
+      localWriterEpoch: 4,
+      trustAnchors: { spkiSha256: [spkiB] },
+      centerMoved: { ...baseMoved, newEpoch: staleEpoch },
+    });
+    assert.equal(stale.ok, false);
+    assert.equal(stale.code, "center_moved_epoch_not_advanced");
+  }
+
+  // 3. Repo mismatch & invalid URL/SPKI MUST hard-reject.
+  const wrongRepo = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "other-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { spkiSha256: [spkiB] },
+    centerMoved: baseMoved,
+  });
+  assert.equal(wrongRepo.ok, false);
+  assert.equal(wrongRepo.code, "center_moved_repo_mismatch");
+
+  const nonHttps = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { spkiSha256: [spkiB] },
+    centerMoved: { ...baseMoved, newExternalUrl: "http://node-b.example.invalid:9443" },
+  });
+  assert.equal(nonHttps.ok, false);
+  assert.equal(nonHttps.code, "center_moved_invalid_target");
+
+  // 4. SPKI allowlist: pre-connect rejects unlisted SPKI; listed SPKI passes only when observed peer cert matches.
+  const unlistedPreConnect = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { spkiSha256: [spkiB] },
+    centerMoved: { ...baseMoved, spkiSha256: `sha256:${spkiRogue}` },
+  });
+  assert.equal(unlistedPreConnect.ok, false);
+  assert.equal(unlistedPreConnect.code, "center_moved_untrusted_target");
+
+  const spkiPinPass = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { spkiSha256: [spkiB] },
+    centerMoved: baseMoved,
+    tlsEvidence: { verifiedByCaPath: null, observedPeerSpkiSha256: spkiB },
+  });
+  assert.deepEqual(spkiPinPass, {
+    ok: true,
+    matchedTrustAnchorKind: "spki_pin",
+    matchedCaPath: null,
+    normalizedTargetSpkiSha256: spkiB,
+    targetHost: "node-b.example.invalid",
+    targetPort: 9443,
+  });
+
+  // MITM presenting a different peer SPKI than CENTER_MOVED or untrusted peer SPKI MUST hard-reject.
+  const mitmMismatch = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { spkiSha256: [spkiB, spkiRogue] },
+    centerMoved: baseMoved,
+    tlsEvidence: { verifiedByCaPath: null, observedPeerSpkiSha256: spkiRogue },
+  });
+  assert.equal(mitmMismatch.ok, false);
+  assert.equal(mitmMismatch.code, "center_moved_untrusted_target");
+
+  // 5. Cluster CA trust anchor: passes only when target cert verified against a pre-provisioned CA path.
+  const caPass = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { caPaths: ["/etc/ha/cluster-ca.pem"] },
+    centerMoved: baseMoved,
+    tlsEvidence: { verifiedByCaPath: "/etc/ha/cluster-ca.pem", observedPeerSpkiSha256: spkiB },
+  });
+  assert.deepEqual(caPass, {
+    ok: true,
+    matchedTrustAnchorKind: "ca_path",
+    matchedCaPath: "/etc/ha/cluster-ca.pem",
+    normalizedTargetSpkiSha256: spkiB,
+    targetHost: "node-b.example.invalid",
+    targetPort: 9443,
+  });
+
+  const rogueCaReject = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { caPaths: ["/etc/ha/cluster-ca.pem"] },
+    centerMoved: baseMoved,
+    tlsEvidence: { verifiedByCaPath: "/tmp/rogue-ca.pem", observedPeerSpkiSha256: spkiB },
+  });
+  assert.equal(rogueCaReject.ok, false);
+  assert.equal(rogueCaReject.code, "center_moved_untrusted_target");
+
+  const unverifiedCaReject = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 4,
+    trustAnchors: { caPaths: ["/etc/ha/cluster-ca.pem"] },
+    centerMoved: baseMoved,
+    tlsEvidence: { verifiedByCaPath: null, observedPeerSpkiSha256: spkiB },
+  });
+  assert.equal(unverifiedCaReject.ok, false);
+  assert.equal(unverifiedCaReject.code, "center_moved_untrusted_target");
 });

@@ -1,4 +1,4 @@
-import { FleetFault } from "./center-types.ts";
+import { centerMovedDetails, type CenterMovedDetails } from "@harness-anything/storage";
 import type { ReplicationPeer } from "../../fleet-sync/fleet/protocol.ts";
 
 export function fleetErrorCode(error: unknown): string | null {
@@ -7,18 +7,58 @@ export function fleetErrorCode(error: unknown): string | null {
     : null;
 }
 
+function centerMovedPayloadFromError(
+  error: unknown,
+): { readonly message: string; readonly centerMoved?: CenterMovedDetails } | null {
+  if (fleetErrorCode(error) !== "CENTER_MOVED") return null;
+  const candidate = error as { readonly message?: unknown; readonly centerMoved?: unknown },
+    raw = candidate.centerMoved,
+    moved =
+      typeof raw === "object" &&
+      raw !== null &&
+      typeof (raw as Partial<CenterMovedDetails>).newExternalUrl === "string" &&
+      typeof (raw as Partial<CenterMovedDetails>).newLoginUrl === "string" &&
+      Number.isSafeInteger((raw as Partial<CenterMovedDetails>).newEpoch) &&
+      typeof (raw as Partial<CenterMovedDetails>).spkiSha256 === "string"
+        ? centerMovedDetails(raw as CenterMovedDetails)
+        : undefined;
+  return {
+    message:
+      typeof candidate.message === "string" && candidate.message.length > 0
+        ? candidate.message
+        : "The center has moved; repoint this edge before retrying.",
+    ...(moved ? { centerMoved: moved } : {}),
+  };
+}
+
 export async function sendCenterMovedReplicaReject(input: {
   readonly peer: ReplicationPeer;
   readonly error: unknown;
   readonly centerBuildCommit: string | null;
   readonly taskEventShapeVersion: number;
 }): Promise<void> {
-  if (!(input.error instanceof FleetFault) || input.error.code !== "CENTER_MOVED") return;
+  const moved = centerMovedPayloadFromError(input.error);
+  if (!moved) return;
   await input.peer.send({
     type: "replica.reject",
-    code: input.error.code,
-    message: input.error.message,
+    code: "CENTER_MOVED",
+    message: moved.message,
     centerBuildCommit: input.centerBuildCommit,
     taskEventShapeVersion: input.taskEventShapeVersion,
+    ...(moved.centerMoved ? { centerMoved: moved.centerMoved } : {}),
+  });
+}
+
+export async function sendCenterMovedReplicaFailure(input: {
+  readonly peer: ReplicationPeer;
+  readonly error: unknown;
+}): Promise<void> {
+  const moved = centerMovedPayloadFromError(input.error);
+  if (!moved) return;
+  await input.peer.send({
+    type: "replica.failure",
+    code: "CENTER_MOVED",
+    message: moved.message,
+    ...(moved.centerMoved ? { centerMoved: moved.centerMoved } : {}),
   });
 }
