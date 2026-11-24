@@ -18,6 +18,15 @@ const binding = withPolicyGroup(
   "contributor",
 );
 
+function assertNoSharedAgentEvent(rootDir: string, repoId: string, opId: string): void {
+  const localStore = openSqliteEventStore({ repoId, rootInput: rootDir, readOnly: true });
+  try {
+    assert.equal(localStore.event(opId), null);
+  } finally {
+    localStore.close();
+  }
+}
+
 test("local Agents avoid the shared event stream and share/unshare through the canonical writer", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-scope-")),
     userRoot = path.join(rootDir, ".daemon-user"),
@@ -156,7 +165,8 @@ test("local Agents avoid the shared event stream and share/unshare through the c
       binding,
     );
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
-    await waitForFixturePublication(cell, returned.opId, binding);
+    assertNoSharedAgentEvent(rootDir, repoId, returned.opId);
+    await waitForFixturePublication(cell, `agent-unshare-${returned.opId}`, binding);
     assert.equal(existsSync(path.join(rootDir, "harness", "agents", "private-helper.json")), false);
     assert.equal(existsSync(path.join(userRoot, "local-agents", repoId, "private-helper.json")), true);
     const returnedLocal = JSON.parse(
@@ -166,6 +176,10 @@ test("local Agents avoid the shared event stream and share/unshare through the c
       returnedLocal.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
       [[declaration.id, "local"]],
     );
+    const returnedInspection = JSON.parse(
+      String((await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding)).evidence),
+    );
+    assert.equal(returnedInspection.agent.scope, "local");
 
     const guiPublished = await cell.run(
       {
@@ -190,9 +204,15 @@ test("local Agents avoid the shared event stream and share/unshare through the c
       binding,
     );
     assert.equal(guiReturned.outcome, "applied", JSON.stringify(guiReturned));
-    await waitForFixturePublication(cell, guiReturned.opId, binding);
+    assertNoSharedAgentEvent(rootDir, repoId, guiReturned.opId);
+    await waitForFixturePublication(cell, `agent-unshare-${guiReturned.opId}`, binding);
     assert.equal(existsSync(path.join(rootDir, "harness", "agents", "private-helper.json")), false);
     assert.equal(existsSync(path.join(userRoot, "local-agents", repoId, "private-helper.json")), true);
+    const guiReturnedLocal = JSON.parse(String((await cell.run({ kind: "agent-list", scope: "local" }, binding)).evidence));
+    assert.deepEqual(
+      guiReturnedLocal.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
+      [[declaration.id, "local"]],
+    );
   } finally {
     await cell.close();
     removeTempRepository(rootDir);
