@@ -58,7 +58,11 @@ describe("resident CEO view", () => {
       instances: [{ instanceId: "instance-one", name: "Local provider", enabled: true, models: ["model-one"], defaultModel: "model-one" }],
     });
     api.chatResidentCeo.mockResolvedValue({ ok: true, profile, response: "The current plan is ready." });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    queryClient.setQueryData(["resident-ceo", "repo-one"], { ok: true, profile });
+    queryClient.setQueryData(["runtime-instances", "machine", "repo-one"], {
+      instances: [{ instanceId: "instance-one", name: "Local provider", enabled: true, models: ["model-one"], defaultModel: "model-one" }],
+    });
     const container = document.createElement("div");
     document.body.append(container);
     const root = createRoot(container);

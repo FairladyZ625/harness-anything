@@ -28,7 +28,7 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
   const selectedModel = useMemo(
     () =>
       model ||
-      (profile?.runtimeInstanceId === selectedInstance?.instanceId ? profile.model : "") ||
+      (profile !== null && profile.runtimeInstanceId === selectedInstance?.instanceId ? profile.model : "") ||
       selectedInstance?.defaultModel ||
       models[0] ||
       "",
