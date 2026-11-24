@@ -133,6 +133,18 @@
       "decision": "dec_659E15CFEC2FD7E254BE02EB89",
       "errors": "edge replay does not recognize a future entity kind or entity schema",
       "reason": "After the persisted event envelope and content claims have been validated, an unrecognized entity kind or newer entity schema is retained in event_index and document storage and marked uninterpretable instead of stopping replication. This only affects the replay projection path."
+    },
+    "packages/daemon/src/daemon-host/local-agent-store.ts#readLocalAgentRecords": {
+      "task": "task_9c7b8ee6ffeb6c26b56511dcd8",
+      "decision": "dec_166C5D2EAB57F8BCA3F15107E2",
+      "errors": "ENOENT for a node-local Agent directory before the first local declaration",
+      "reason": "The user-state local Agent directory is optional until a local declaration is created. A missing directory is the canonical empty local scope and returns an empty list; malformed records and all other filesystem errors propagate."
+    },
+    "packages/daemon/src/daemon-host/local-agent-store.ts#readLocalAgentRecord": {
+      "task": "task_9c7b8ee6ffeb6c26b56511dcd8",
+      "decision": "dec_166C5D2EAB57F8BCA3F15107E2",
+      "errors": "ENOENT for one node-local Agent record during a concurrent remove or before creation",
+      "reason": "A missing per-Agent local record means that identity has no local declaration at this read cut. The reader returns null so list and resolution can continue, while malformed JSON, invalid schema, and other I/O failures remain visible."
     }
   },
   "packages/daemon/src/daemon-host/task-worktree.ts#prepareTaskStartWorktree": {
