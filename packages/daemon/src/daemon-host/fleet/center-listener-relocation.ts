@@ -130,7 +130,7 @@ export function openCenterRelocationEpochs(
   for (const repo of options.host?.status?.().repos ?? []) {
     if (
       repo.state === "attached" &&
-      repo.mode === "local" &&
+      (repo.mode === undefined || repo.mode === "local") &&
       readListenerCenterRelocated(options, repo.repoId) === null
     )
       ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
