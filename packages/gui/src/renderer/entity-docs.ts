@@ -1147,7 +1147,16 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "catalog",
     title: "目录与配置",
     summary: "脚手架、默认值、人员,以及承载它们的账本流:文档、迁移、脚本执行与 vertical 声明。",
-    docs: [presetDoc, settingsDoc, personDoc, documentDoc, migrationDoc, scriptExecutionDoc, verticalDeclarationDoc, channelDoc],
+    docs: [
+      presetDoc,
+      settingsDoc,
+      personDoc,
+      documentDoc,
+      migrationDoc,
+      scriptExecutionDoc,
+      verticalDeclarationDoc,
+      channelDoc,
+    ],
   },
 ];
 

@@ -105,9 +105,9 @@ test("channel adapter: webhook deliver idempotency, a2a-peer bridge, list and ou
     assert.equal(peerReceipt.request.to.personId, "person_bob");
 
     // 4. Channel list: bob sees a2a-peer and webhook items
-    const bobList = evidence(
-      await cell.run({ kind: "channel-list", channelKind: "a2a-peer" }, bobBinding),
-    ) as { items: readonly { channelKind: string; peerRequestId?: string }[] };
+    const bobList = evidence(await cell.run({ kind: "channel-list", channelKind: "a2a-peer" }, bobBinding)) as {
+      items: readonly { channelKind: string; peerRequestId?: string }[];
+    };
     assert.ok(bobList.items.length >= 1);
     assert.equal(bobList.items[0]!.channelKind, "a2a-peer");
 
@@ -155,10 +155,7 @@ test("channel adapter: webhook deliver idempotency, a2a-peer bridge, list and ou
       },
       aliceBinding,
     );
-    assert.equal(
-      (evidence(repeatedSend) as { receipt: { status: string } }).receipt.status,
-      "duplicate",
-    );
+    assert.equal((evidence(repeatedSend) as { receipt: { status: string } }).receipt.status, "duplicate");
 
     const loopback = await cell.run(
       {

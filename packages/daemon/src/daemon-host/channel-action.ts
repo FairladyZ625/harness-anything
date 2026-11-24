@@ -174,7 +174,8 @@ export function runChannelAction(
       const sourceChannel = /^channel:(cli|gui|a2a-peer|webhook|lark|custom):/u.exec(item.sourceRef)?.[1] as
         | ChannelKind
         | undefined;
-      const kind: ChannelKind = sourceChannel ??
+      const kind: ChannelKind =
+        sourceChannel ??
         (item.source === "peer_request" || item.source === "peer_reply"
           ? "a2a-peer"
           : item.source === "external_ingress"

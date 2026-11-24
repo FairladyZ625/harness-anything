@@ -104,9 +104,9 @@ export interface ChannelDeliveryReceipt {
 /** Port contract: any channel adapter implements deliver + list. */
 export interface ChannelAdapterPort {
   readonly channelKind: ChannelKind;
-  deliver(envelope: ChannelInboxEnvelope): Promise<ChannelDeliveryReceipt>;
-  list(filter: ChannelListFilter): Promise<ChannelListResult>;
-  send(message: ChannelOutboxMessage): Promise<ChannelDeliveryReceipt>;
+  deliver(envelope: ChannelInboxEnvelope): ChannelDeliveryReceipt;
+  list(filter: ChannelListFilter): ChannelListResult;
+  send(message: ChannelOutboxMessage): ChannelDeliveryReceipt;
 }
 
 export interface ChannelListFilter {
@@ -382,6 +382,11 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
         candidateId:
           "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#CHANNEL_SUMMARY_LIMIT:76da27778b93d01a7158f44bc524778a",
         route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/status-word-register.ts#statusWordRegister.meaning.pending_retry:f8f9d5608d562a84d2808d2886613589",
+        route: "channel-delivery-receipt",
       },
       {
         candidateId:

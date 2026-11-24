@@ -94,11 +94,11 @@ export function daemonRpcRoutingDeclarations(
           ? nodeLocalWriteCommandTopology
           : action?.residency.scope === "host-local" && action.executionClass === "admin"
             ? hostAdminCommandTopology
-          : action?.executionClass === "repo-write" && method.commandClass === "repo-write"
-            ? centerForwardWriteCommandTopology
-            : method.commandClass === "repo-read" && readMethods.has(method.method)
-              ? repoReadCommandTopology
-              : hostMethodTopology.get(method.method);
+            : action?.executionClass === "repo-write" && method.commandClass === "repo-write"
+              ? centerForwardWriteCommandTopology
+              : method.commandClass === "repo-read" && readMethods.has(method.method)
+                ? repoReadCommandTopology
+                : hostMethodTopology.get(method.method);
     if (!topology) missing(method.method);
     return [
       {

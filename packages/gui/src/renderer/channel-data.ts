@@ -1,5 +1,4 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { consumeKnownError } from "../api/error-consumption.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
@@ -33,22 +32,17 @@ export const channelQueryKeys = {
 
 function parseChannelListEvidence(evidence: string | undefined): ChannelListSuccess {
   if (!evidence) return { ok: true, items: [], nextCursor: null, watermark: 0 };
-  try {
-    const parsed = JSON.parse(evidence) as {
-      items?: ChannelListItem[];
-      nextCursor?: string | null;
-      watermark?: number;
-    };
-    return {
-      ok: true,
-      items: parsed.items ?? [],
-      nextCursor: parsed.nextCursor ?? null,
-      watermark: parsed.watermark ?? 0,
-    };
-  } catch (cause) {
-    consumeKnownError(cause);
-    throw cause instanceof Error ? cause : new Error("Channel list evidence parse failed.");
-  }
+  const parsed = JSON.parse(evidence) as {
+    items?: ChannelListItem[];
+    nextCursor?: string | null;
+    watermark?: number;
+  };
+  return {
+    ok: true,
+    items: parsed.items ?? [],
+    nextCursor: parsed.nextCursor ?? null,
+    watermark: parsed.watermark ?? 0,
+  };
 }
 
 function channelReceipt(value: unknown) {

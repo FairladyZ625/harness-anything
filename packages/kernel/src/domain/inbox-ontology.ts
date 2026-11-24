@@ -54,7 +54,7 @@ export const inboxPolicies = [
     ownerRef: "runtime-session/inbox_item_enqueued",
     unit: "inbox admission",
     bounds:
-      "external_ingress is admitted only as quarantined_external and only into the quarantined_external consumerKind; peer_request and peer_reply require interactive_watch.",
+      "external_ingress is admitted only as quarantined_external and only into the quarantined_external consumerKind; channel_message is dispatchable only for a person: inbox with the interactive_watch consumerKind; peer_request and peer_reply require interactive_watch.",
     defaultValue: "quarantined_external",
     version: 2,
     scope: "Inbox events until verified host isolation exists (R4)",
@@ -64,6 +64,7 @@ export const inboxPolicies = [
       inboxSource("reduceInboxItem.item.status:d91a350dc6eb2c6f420694fcd95c75f1"),
       inboxSource("enqueuedIssues:1fea5df76694395d7b799c3b236d1508"),
       inboxSource("enqueuedIssues.consumerKind:610cfd0bf7fd352a34dc7f040d91a4c1"),
+      inboxSource("enqueuedIssues:0f8cc454517758951ef05f34971347a8"),
     ].map((candidateId) => ({ candidateId, route: "readInbox" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];

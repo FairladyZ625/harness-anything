@@ -502,6 +502,7 @@ const channelProtocolCommands = [
     path: ["channel", "deliver"],
     summary: "Deliver a standardized channel envelope through the authorized Inbox adapter.",
     method: "repo.task.run",
+    inputs: [],
     payloadFields: [
       { field: "channelKind", type: "string", required: true },
       { field: "envelopeId", type: "string", required: false },
@@ -527,6 +528,7 @@ const channelProtocolCommands = [
     path: ["channel", "send"],
     summary: "Route an Outbox message through a registered channel adapter and record its receipt.",
     method: "repo.task.run",
+    inputs: [],
     payloadFields: [
       { field: "channelKind", type: "string", required: true },
       { field: "messageId", type: "string", required: false },
