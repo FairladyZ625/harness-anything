@@ -32,9 +32,11 @@ test("write-port external-wait counts only while the serialized turn runs", asyn
   });
 });
 
-test("classifyRemoteGitInvocation treats unknown remotes conservatively", async () => {
-  assert.equal(await classifyRemoteGitInvocation("git", ["fetch", "--quiet", "origin"], "/tmp/unset"), true);
-  assert.equal(await classifyRemoteGitInvocation("git", ["rev-parse", "HEAD"], "/tmp/unset"), false);
+test("classifyRemoteGitInvocation treats unknown remotes conservatively", async (t) => {
+  const cwd = mkdtempSync(path.join(tmpdir(), "ha-g38-no-git-config-"));
+  t.after(() => removeTempRepository(cwd));
+  assert.equal(await classifyRemoteGitInvocation("git", ["fetch", "--quiet", "origin"], cwd), true);
+  assert.equal(await classifyRemoteGitInvocation("git", ["rev-parse", "HEAD"], cwd), false);
 });
 
 test("classifyRemoteGitInvocation handles the raw Windows Git push before cmd.exe wrapping", async () => {
