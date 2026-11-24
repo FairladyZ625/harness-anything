@@ -838,6 +838,7 @@ export async function openRepoWriterCell(
         cut = projection.readCut();
       return {
         outcome: "applied",
+        status: "settled_no_write",
         effects: [],
         opId,
         revision,
