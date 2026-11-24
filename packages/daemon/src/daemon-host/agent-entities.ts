@@ -1,6 +1,6 @@
 import { readAnyBundledAgentDeclaration } from "@harness-anything/preset";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
-import { localAgentMatchesShared } from "./local-agent-store.ts";
+import { localAgentMatchesShared, type LocalAgentRecord } from "./local-agent-store.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -199,7 +199,7 @@ export function readAgentEntityGuiProjection<
   readonly kind: K;
   readonly entityId?: string;
   readonly projection: Pick<TaskProjection, "listEntities" | "getEntity">;
-  readonly localAgents?: readonly AgentDeclarationV1[];
+  readonly localAgents?: readonly LocalAgentRecord[];
 }): K extends "agent-list"
   ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>
   : K extends "squad-list"
@@ -209,11 +209,11 @@ export function readAgentEntityGuiProjection<
       : Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }> {
   if (input.kind === "agent-list") {
     const entities = readyEntityList(input.projection, "agent"),
-      localAgents = (input.localAgents ?? []).filter((agent) => {
-        const shared = input.projection.getEntity("agent", agent.id);
+      localAgents = (input.localAgents ?? []).filter(({ declaration }) => {
+        const shared = input.projection.getEntity("agent", declaration.id);
         if (shared === null) return true;
-        if (!localAgentMatchesShared(agent, shared.value))
-          throw entityError("agent_scope_conflict", `Agent ${agent.id} exists in both local and shared scope.`);
+        if (!localAgentMatchesShared(declaration, shared.value))
+          throw entityError("agent_scope_conflict", `Agent ${declaration.id} exists in both local and shared scope.`);
         return false;
       });
     return {
@@ -221,7 +221,7 @@ export function readAgentEntityGuiProjection<
       ok: true,
       agents: [
         ...entities.map((row) => agentEntityCatalogRow(row)),
-        ...localAgents.map((agent) => ({
+        ...localAgents.map(({ declaration: agent }) => ({
           id: agent.id,
           name: agent.name,
           scope: "local" as const,
@@ -249,11 +249,12 @@ export function readAgentEntityGuiProjection<
   }
   const entityId = requiredEntityText(input.entityId, "entityId");
   if (input.kind === "agent-inspect") {
-    const local = input.localAgents?.find((agent) => agent.id === entityId),
+    const localRecord = input.localAgents?.find((record) => record.declaration.id === entityId),
+      local = localRecord?.declaration,
       shared = input.projection.getEntity("agent", entityId);
     if (local && shared && !localAgentMatchesShared(local, shared.value))
       throw entityError("agent_scope_conflict", `Agent ${entityId} exists in both local and shared scope.`);
-    if (local && shared === null) {
+    if (localRecord && shared === null) {
       const hostAccess = resolveAgentHostAccess(local.hostAccess);
       return {
         schema: "agent-entity-detail/v1",
@@ -273,7 +274,7 @@ export function readAgentEntityGuiProjection<
           skills: local.skills ?? [],
           prompts: local.prompts ?? [],
           preset: local.preset ?? null,
-          revision: 1,
+          revision: localRecord.revision,
           retirement: null,
         },
       } as never;

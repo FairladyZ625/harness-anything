@@ -32,7 +32,7 @@ import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { prepareCenterReviewFallback } from "./task-review-dispatch.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
-import { readLocalAgentDeclarations } from "./local-agent-store.ts";
+import { readLocalAgentRecords } from "./local-agent-store.ts";
 
 import { dossierReads } from "./dossier-actions.ts";
 import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
@@ -437,7 +437,7 @@ export function createRepoCellApi(
         kind: "agent-list",
         projection: context.projection,
         ...(context.extracted.input.userRoot
-          ? { localAgents: readLocalAgentDeclarations(context.extracted.input.userRoot, context.input.repoId) }
+          ? { localAgents: readLocalAgentRecords(context.extracted.input.userRoot, context.input.repoId) }
           : {}),
       }),
     "repo.agent.entity.read": (payload: Readonly<Record<string, unknown>>) =>
@@ -446,7 +446,7 @@ export function createRepoCellApi(
         entityId: context.requiredCellText(payload.agentId, "agentId"),
         projection: context.projection,
         ...(context.extracted.input.userRoot
-          ? { localAgents: readLocalAgentDeclarations(context.extracted.input.userRoot, context.input.repoId) }
+          ? { localAgents: readLocalAgentRecords(context.extracted.input.userRoot, context.input.repoId) }
           : {}),
       }),
     // The version facets are the same two-hop read the CLI uses: event list → declaration claim →

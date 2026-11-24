@@ -64,6 +64,24 @@ test("local Agents avoid the shared event stream and share/unshare through the c
       localRows.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
       [[declaration.id, "local"]],
     );
+    const firstDetail = (await cell.read("repo.agent.entity.read", { agentId: declaration.id })) as {
+      readonly agent: { readonly revision: number };
+    };
+    assert.equal(firstDetail.agent.revision, 1);
+    const updatedLocal = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: { ...declaration, instructions: "Updated local experiment." },
+        expectedVersion: firstDetail.agent.revision,
+        idempotencyKey: "local-update",
+      },
+      binding,
+    );
+    assert.equal(updatedLocal.outcome, "applied", JSON.stringify(updatedLocal));
+    const updatedDetail = (await cell.read("repo.agent.entity.read", { agentId: declaration.id })) as {
+      readonly agent: { readonly revision: number };
+    };
+    assert.equal(updatedDetail.agent.revision, 2);
 
     const published = await cell.run(
       {
@@ -71,7 +89,7 @@ test("local Agents avoid the shared event stream and share/unshare through the c
         agentId: declaration.id,
         scope: "shared",
         localAgentTransfer: true,
-        expectedVersion: 1,
+        expectedVersion: updatedDetail.agent.revision,
         idempotencyKey: "local-publish",
       },
       binding,

@@ -9,7 +9,16 @@ import {
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";
 
+export interface LocalAgentRecord {
+  readonly declaration: AgentDeclarationV1;
+  readonly revision: number;
+}
+
 export function readLocalAgentDeclarations(userRoot: string, repoId: string): readonly AgentDeclarationV1[] {
+  return readLocalAgentRecords(userRoot, repoId).map(({ declaration }) => declaration);
+}
+
+export function readLocalAgentRecords(userRoot: string, repoId: string): readonly LocalAgentRecord[] {
   const directory = localAgentDirectory(userRoot, repoId);
   assertLocalAgentDirectory(directory);
   let entries;
@@ -24,8 +33,8 @@ export function readLocalAgentDeclarations(userRoot: string, repoId: string): re
   }
   return entries
     .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-    .map((entry) => readLocalAgentRecord(userRoot, repoId, entry.name.slice(0, -5))?.declaration ?? null)
-    .filter((declaration): declaration is AgentDeclarationV1 => declaration?.scope === "local");
+    .map((entry) => readLocalAgentRecord(userRoot, repoId, entry.name.slice(0, -5)))
+    .filter((record): record is LocalAgentRecord => record?.declaration.scope === "local");
 }
 
 export function readLocalAgentDeclaration(
