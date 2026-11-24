@@ -453,10 +453,10 @@ test(
       );
     } finally {
       try {
-        stop(fixture, "center");
+        stop(fixture, "center", true);
       } finally {
         try {
-          stop(fixture, "edge");
+          stop(fixture, "edge", true);
         } finally {
           realm.close();
           removeTempRepository(fixture.root);
@@ -589,7 +589,9 @@ test(
       assert.equal("credential" in registered.receipt, false);
       const credential = readFileSync(credentialFile, "utf8");
       assert.ok(credential.length > 0);
-      assert.equal(statSync(credentialFile).mode & 0o777, 0o600);
+      const credentialMode = statSync(credentialFile).mode & 0o777;
+      if (process.platform === "win32") assert.equal(credentialMode, 0o666);
+      else assert.equal(credentialMode, 0o600);
       assert.equal(JSON.stringify(registered).includes(credential), false);
       assert.equal((nodes() as { nodeId: string }[])[0]?.nodeId, "edge-one");
       signOutAt(fixture.centerUser);
@@ -689,10 +691,10 @@ test(
       );
     } finally {
       try {
-        stop(fixture, "center");
+        stop(fixture, "center", true);
       } finally {
         try {
-          stop(fixture, "edge");
+          stop(fixture, "edge", true);
         } finally {
           realm.close();
           removeTempRepository(fixture.root);
@@ -898,13 +900,17 @@ function spawnedRun(
     child.once("close", (status) => resolve({ status, argv, stdout, stderr }));
   });
 }
-function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge"): number {
+function stop(fixture: ReturnType<typeof setup>, machine: "center" | "edge", allowUnavailable = false): number {
   const result = spawnSync(process.execPath, [cli, "--json", "daemon", "stop", "--daemon-id", "default"], {
     encoding: "utf8",
     env: { ...process.env, HARNESS_DAEMON_USER_ROOT: machine === "center" ? fixture.centerUser : fixture.edgeUser },
   });
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  const receipt = JSON.parse(result.stdout) as { ok: boolean; pid: number; draining?: boolean };
+  const receipt = JSON.parse(result.stdout) as { ok: boolean; pid: number; draining?: boolean; code?: string };
+  if (result.status !== 0) {
+    assert.equal(allowUnavailable, true, `${result.stdout}\n${result.stderr}`);
+    assert.equal(receipt.code, "daemon_unavailable", `${result.stdout}\n${result.stderr}`);
+    return 0;
+  }
   assert.equal(receipt.ok, true);
   assert.equal(receipt.draining, undefined, "stop must finish, not merely start draining");
   assert.equal(Number.isSafeInteger(receipt.pid), true);

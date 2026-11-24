@@ -1,11 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import {
+  closeWriterEpochFenceDescriptor,
+  openPersistentWriterEpoch,
+  withFollowerEpochFenceDescriptor,
+  withWriterEpochFenceDescriptor,
+} from "../src/writer-epoch.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // dec_04A9211B073F29F0FC1E1CA573 CH2 / F2: each mutation lane excludes takeover,
@@ -49,4 +54,49 @@ test("follower publication leaves canonical append writable and both lanes fence
   } finally {
     restarted.close();
   }
+});
+
+test("temporary repository cleanup releases cached writer epoch descriptors by state root", (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-epoch-cleanup-")),
+    stateRoot = path.join(rootDir, "user", "fleet"),
+    otherRoot = mkdtempSync(path.join(tmpdir(), "ha-epoch-other-")),
+    otherStateRoot = path.join(otherRoot, "user", "fleet"),
+    repoId = "cleanup-probe",
+    otherRepoId = "other-probe",
+    authority = openPersistentWriterEpoch({ stateRoot, holderId: "fixture" }),
+    lease = authority.acquire(repoId),
+    otherAuthority = openPersistentWriterEpoch({ stateRoot: otherStateRoot, holderId: "other-fixture" }),
+    otherLease = otherAuthority.acquire(otherRepoId),
+    descriptor = {
+      schema: "harness-writer-epoch-fence/v1" as const,
+      stateRoot,
+      repoId,
+      holderId: lease.holderId,
+      epoch: lease.epoch,
+    },
+    otherDescriptor = {
+      schema: "harness-writer-epoch-fence/v1" as const,
+      stateRoot: otherStateRoot,
+      repoId: otherRepoId,
+      holderId: otherLease.holderId,
+      epoch: otherLease.epoch,
+    };
+  t.after(() => {
+    removeTempRepository(rootDir);
+    otherAuthority.close();
+    removeTempRepository(otherRoot);
+  });
+  authority.close();
+  otherAuthority.close();
+  withWriterEpochFenceDescriptor(descriptor, () => undefined);
+  withFollowerEpochFenceDescriptor(descriptor, () => undefined);
+  withWriterEpochFenceDescriptor(otherDescriptor, () => undefined);
+
+  closeWriterEpochFenceDescriptor(descriptor);
+  removeTempRepository(rootDir);
+  assert.doesNotThrow(() => withWriterEpochFenceDescriptor(otherDescriptor, () => undefined));
+  removeTempRepository(otherRoot);
+
+  assert.equal(existsSync(rootDir), false);
+  assert.equal(existsSync(otherRoot), false);
 });

@@ -13,10 +13,12 @@ import { promisify } from "node:util";
 import { chromium } from "playwright-core";
 import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { readDaemonLifecycleGeneration } from "@harness-anything/daemon/internal/lifecycle-log";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import { makeAgentRuntimeStreamHub } from "../../daemon/test/fixtures/runtime-stream.ts";
 import type { RuntimeSession } from "@harness-anything/kernel";
 import { startBrowserGuiFixture } from "./gui-browser-broker.fixture.ts";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import {
   daemonId,
   environment,
@@ -201,7 +203,9 @@ test("headless Chromium receives the hub snapshot and releases its socket on abo
 
 test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-browser-broker-")),
-    guiPackageRoot = path.join(root, "packages/gui");
+    guiPackageRoot = path.join(root, "packages/gui"),
+    previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
+  process.env.HARNESS_DAEMON_USER_ROOT = path.join(root, "isolated-user");
   const broker = await startBrowserGuiFixture(guiPackageRoot, root, "<!doctype html><title>GUI</title>");
   try {
     const url = new URL(broker.url),
@@ -266,12 +270,16 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
     assert.equal(admittedWrite.headers["access-control-allow-origin"], undefined);
   } finally {
     await broker.close();
+    if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     removeTempRepository(root);
   }
 });
 
 test("browser GUI embedding requires an explicit matching parent without changing RPC authentication", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-parent-"));
+  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-parent-")),
+    previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT;
+  process.env.HARNESS_DAEMON_USER_ROOT = path.join(root, "isolated-user");
   mkdirSync(path.join(root, "dist"));
   writeFileSync(path.join(root, "dist/index.html"), "<!doctype html><title>Embedded GUI</title><p>Embedded GUI</p>");
   const parent = createServer((_request, response) => response.end("<!doctype html><title>Parent</title>"));
@@ -341,6 +349,8 @@ test("browser GUI embedding requires an explicit matching parent without changin
   } finally {
     await browser?.close();
     await new Promise<void>((resolve, reject) => parent.close((error) => (error ? reject(error) : resolve())));
+    if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+    else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     removeTempRepository(root);
   }
 });
@@ -368,11 +378,17 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
     startDaemon(root, userRoot);
     run(root, userRoot, ["daemon", "repo", "register", "--repo-id", "browser-e2e", "--root", root, "--no-link"]);
     run(root, userRoot, ["task", "create", "--id", "task-browser-e2e", "--admin", "--title", "Browser E2E task"]);
-    execFileSync("npm", ["run", "build", "--workspace", "@harness-anything/gui"], {
-      cwd: path.resolve("."),
-      env: environment(root, userRoot),
-      stdio: "pipe",
-    });
+    const npmArgs = ["run", "build", "--workspace", "@harness-anything/gui"],
+      npmCli = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+    execFileSync(
+      process.platform === "win32" ? process.execPath : "npm",
+      process.platform === "win32" ? [npmCli, ...npmArgs] : npmArgs,
+      {
+        cwd: path.resolve("."),
+        env: environment(root, userRoot),
+        stdio: "pipe",
+      },
+    );
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     process.env.HARNESS_DAEMON_ID = daemonId;
     broker = await startBrowserGuiBroker(path.resolve("packages/gui"), root, parentOrigin);
@@ -423,6 +439,7 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
       const unavailableBody = unavailableResponse.json();
       assert.equal((await unavailableBody).error.code, "daemon_unavailable");
       startDaemon(root, userRoot);
+      await waitForInitialAttachments(userRoot);
       const recoveredResponse = page.waitForResponse(
         (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 200,
         { timeout: 30_000 },
@@ -437,7 +454,7 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
   } finally {
     if (broker) await broker.close();
     await new Promise<void>((resolve, reject) => parentServer.close((error) => (error ? reject(error) : resolve())));
-    runMaybe(root, userRoot, ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
     if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
@@ -461,8 +478,8 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
       secondStore = seedSettingsEvent({ rootDir: secondRoot, repoId: "browser-write-second", keepOpen: true });
     assert.ok(firstStore && secondStore);
     const initialRevision = firstStore.read().revision;
-    void firstStore.drain();
-    void secondStore.drain();
+    await firstStore.drain();
+    await secondStore.drain();
     startDaemon(firstRoot, userRoot);
     run(firstRoot, userRoot, [
       "daemon",
@@ -513,7 +530,7 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     assert.match(readFileSync(path.join(secondRoot, "harness/harness.yaml"), "utf8"), /reviewReturnBudget: 6/u);
   } finally {
     if (broker) await broker.close();
-    runMaybe(firstRoot, userRoot, ["daemon", "stop"]);
+    stopDaemon(firstRoot, userRoot);
     if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
@@ -561,7 +578,30 @@ async function settleBrowserWrite(url: URL, token: string, repoId: string, opId:
     }),
   );
   assert.equal(settled.status, 200, settled.body);
-  assert.equal((JSON.parse(settled.body) as { readonly wait?: { readonly state?: string } }).wait?.state, "satisfied");
+  assert.equal(
+    (JSON.parse(settled.body) as { readonly wait?: { readonly state?: string } }).wait?.state,
+    "satisfied",
+    settled.body,
+  );
+}
+
+function stopDaemon(root: string, userRoot: string): void {
+  const stopped = runMaybe(root, userRoot, ["daemon", "stop"]);
+  assert.equal(stopped.status, 0, `${stopped.stderr}\n${stopped.stdout}`);
+  const receipt = JSON.parse(stopped.stdout) as { readonly draining?: boolean };
+  assert.equal(receipt.draining, undefined, "fixture cleanup waits for the daemon to release its writers");
+}
+
+async function waitForInitialAttachments(userRoot: string): Promise<void> {
+  await waitForValue(() => {
+    const records = readDaemonLifecycleGeneration(userRoot, daemonId);
+    let startedPid: number | undefined;
+    for (const record of records) {
+      if (record.event === "process_start") startedPid = record.pid;
+      if (record.event === "attachments_settled" && record.pid === startedPid) return true;
+    }
+    return null;
+  }, "restarted daemon initial attachments");
 }
 
 function chromiumExecutable(parent: string): string {
@@ -575,10 +615,10 @@ function chromiumExecutable(parent: string): string {
     candidates = [configured, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
   const executable = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));
   if (executable) return executable;
-  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, browserName);
-    assert.ok(cached, "isolated dependency preparation did not cache Playwright Chromium");
-    return cached;
+  const configuredBrowsersPath = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  if (configuredBrowsersPath) {
+    const cached = findFile(configuredBrowsersPath, browserName);
+    if (cached) return cached;
   }
   process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(parent, "playwright-browsers");
   execFileSync(process.execPath, [path.resolve("node_modules/playwright-core/cli.js"), "install", "chromium"], {
@@ -590,6 +630,7 @@ function chromiumExecutable(parent: string): string {
 }
 
 function findFile(directory: string, name: string): string | null {
+  if (!existsSync(directory)) return null;
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) {

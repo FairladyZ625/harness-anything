@@ -15,6 +15,7 @@ import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
+import { readDaemonLifecycleGeneration } from "@harness-anything/daemon/internal/lifecycle-log";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -120,7 +121,7 @@ export function writeProgressProvider(target: string, version: string): void {
   writeFileSync(target, next);
 }
 
-export function createRuntimeFixture(context: TestContext) {
+export async function createRuntimeFixture(context: TestContext) {
   const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -169,7 +170,11 @@ export function createRuntimeFixture(context: TestContext) {
   ownDaemonFixture({ parent, userRoot, daemonId, env }, context);
   realm.bind(userRoot);
   signInAt(userRoot, "owner");
-  assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+  const started = runMaybe(root, env, ["daemon", "start", "--service"]);
+  if (started.status !== 0) {
+    assert.equal(started.receipt.code, "daemon_starting", `${started.stderr}\n${JSON.stringify(started.receipt)}`);
+  }
+  await waitForRuntimeDaemonIdentity(userRoot, daemonId);
   run(root, env, [
     "runtime",
     "instance",
@@ -206,6 +211,15 @@ export function createRuntimeFixture(context: TestContext) {
   ]);
   run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
   return { parent, root, userRoot, daemonId, env, version };
+}
+
+async function waitForRuntimeDaemonIdentity(userRoot: string, daemonId: string): Promise<void> {
+  await waitForValue(() => {
+    const generation = readDaemonLifecycleGeneration(userRoot, daemonId);
+    const failure = generation.find((record) => record.event === "rbac_resume_failed");
+    if (failure) throw new Error(`runtime fixture daemon identity resume failed: ${failure.error ?? "unknown error"}`);
+    return generation.find((record) => record.event === "identity_ready") ?? null;
+  }, "runtime fixture daemon identity readiness");
 }
 
 export function seedTask(root: string, env: NodeJS.ProcessEnv, scenario: string) {

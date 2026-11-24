@@ -114,7 +114,9 @@ export type {
 } from "../storage-backend.ts";
 export {
   assertWriterEpochFenceDescriptor,
+  closeWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
+  closeWriterEpochFenceDescriptorsUnder,
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,

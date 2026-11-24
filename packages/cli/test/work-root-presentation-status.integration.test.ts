@@ -16,7 +16,7 @@ import { installIdentities, runAsync, runMaybe, seedTask } from "./runtime-cli.f
 // `ha work list` and the GUI overview consume. The root's own event status stays planned (its
 // completion stays explicit); only the presented status derives from the subtree.
 test("ha work list presents a planned work as active once a subtask starts", async (context) => {
-  const { root, env } = createRuntimeFixture(context);
+  const { root, env } = await createRuntimeFixture(context);
   gitRepository(root);
   assert.equal(run(root, env, ["daemon", "stop"]).ok, true);
   let decisionId: string;
@@ -92,7 +92,7 @@ test(
   "Concurrent fact writes preserve runtime progress attribution and task wait artifacts",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     installIdentities(fixture.parent, fixture.root, fixture.env);
     const { root, env } = fixture;
     const { taskId, executionId, packagePath } = seedTask(root, env, "progress");

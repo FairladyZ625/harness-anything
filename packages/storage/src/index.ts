@@ -77,6 +77,7 @@ export type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./fleet-repli
 export {
   advancePersistentWriterEpochFloor,
   assertWriterEpochFenceDescriptor,
+  closeWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
   migrateLegacyWriterEpochDatabase,
   openPersistentWriterEpoch,

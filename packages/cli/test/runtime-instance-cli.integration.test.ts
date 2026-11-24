@@ -355,7 +355,7 @@ function runMaybe(
 }
 
 test("Repository writes commit while an exit callback is still running", { timeout: 300_000 }, async (context) => {
-  const fixture = createRuntimeFixture(context);
+  const fixture = await createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env } = fixture;
   const { taskId, executionId } = seedTask(root, env, "notification-queue");

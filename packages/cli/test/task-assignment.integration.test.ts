@@ -24,8 +24,8 @@ import {
   workerWorktreeBoundary,
 } from "./runtime-cli.fixtures.ts";
 
-test("CLI assignment freezes expiry and a center start preserves it across release", (context) => {
-  const { root, env } = createRuntimeFixture(context),
+test("CLI assignment freezes expiry and a center start preserves it across release", async (context) => {
+  const { root, env } = await createRuntimeFixture(context),
     { taskId, executionId } = seedTask(root, env, "assignment");
   const show = () => JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence));
   const before = show();
@@ -60,7 +60,7 @@ test(
   "Delegated dispatches archive identity, mission and separate reports and reject invalid delegates",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { parent, root, env, userRoot, daemonId } = fixture;
     installIdentities(parent, root, env);
     // The stub worker completes its provider turn but never commits, so every task-bound dispatch in

@@ -54,7 +54,7 @@ test(
   "parked runtime awaits omit the repo-read response deadline at the transport seam",
   { timeout: 300_000 },
   async (context) => {
-    const { root, env } = createRuntimeFixture(context);
+    const { root, env } = await createRuntimeFixture(context);
     const deadlines: unknown[] = [];
     const captureDeadline =
       <Args extends unknown[], Result>(_request: (...args: Args) => Promise<Result>) =>
@@ -94,7 +94,7 @@ test(
   "Task dispatch rejects an incomplete plan then automatically acquires its lease",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     installIdentities(fixture.parent, fixture.root, fixture.env);
     const { root, env } = fixture;
     const taskId = "task-runtime-automatic-lease";
@@ -167,7 +167,7 @@ test(
 );
 
 const cancellationResumeTest = async (context: TestContext) => {
-  const fixture = createRuntimeFixture(context);
+  const fixture = await createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env, userRoot, daemonId } = fixture;
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "cancel-resume");
@@ -349,7 +349,7 @@ test(
   "rejected task resume stream cleanup follows the observed lease stop proof",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     installIdentities(fixture.parent, fixture.root, fixture.env);
     const { root, env } = fixture,
       { taskId, executionId } = seedTask(root, env, "rejected-resume-stop-proof");
@@ -428,7 +428,7 @@ test(
   "Detached runtime results are retrieved from another CLI process over a reused connection",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { root, env, userRoot, daemonId } = fixture;
     const detachedProcess = runMaybe(root, env, [
         "runtime",
@@ -474,7 +474,7 @@ test(
   "ha agent run with CLAUDE_CODE_SESSION_ID hands off a bare-person lease and supports --recover-dispatch and --resume-dispatch",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     installIdentities(fixture.parent, fixture.root, fixture.env);
     const { root, env } = fixture,
       { taskId, executionId } = seedTask(root, env, "claude-session-executor-recovery"),

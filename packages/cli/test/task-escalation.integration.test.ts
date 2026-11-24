@@ -26,7 +26,7 @@ import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-p
 import { renderedRulingContract, writeIdentity, workerWorktreeBoundary } from "./runtime-cli.fixtures.ts";
 
 test("a worker escalation blocks its task until the owner answers and resumes with that answer", async (context) => {
-  const fixture = createRuntimeFixture(context),
+  const fixture = await createRuntimeFixture(context),
     { parent, root, env } = fixture,
     task = seedTask(root, env, "worker-escalation"),
     answer = "Keep the original ownership boundary; the owner will handle the shared host change.",
@@ -168,7 +168,7 @@ test(
   "Daemon request contracts receive executor attribution only on declared surfaces",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { root, env } = fixture;
     const { taskId, executionId } = seedTask(root, env, "executor");
     run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
@@ -215,7 +215,7 @@ test(
   "CLI installs identities, updates squads and assembles wildcard worker prompts",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { parent, root, env } = fixture;
     const { squadSource } = installIdentities(parent, root, env);
     const agents = JSON.parse(String(run(root, env, ["agent", "list"]).evidence)) as { agents: Array<{ id: string }> },

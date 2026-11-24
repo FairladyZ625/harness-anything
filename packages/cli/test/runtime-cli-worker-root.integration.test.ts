@@ -28,7 +28,7 @@ import {
 // F-3AC0AFF0: a worker handed ledger paths that resolve only under the canonical checkout takes that checkout for
 // its repository root and edits source there. A task-worktree dispatch names one root, and every path resolves in it.
 test("a task-worktree dispatch hands the worker only paths under its own root, ledger included", async (context) => {
-  const fixture = createRuntimeFixture(context),
+  const fixture = await createRuntimeFixture(context),
     { parent, root, env } = fixture;
   gitRepository(root);
   installIdentities(parent, root, env);
@@ -134,7 +134,7 @@ for (const afterResult of [false, true])
       skip: process.platform === "win32" ? "requires POSIX SIGKILL kill point semantics" : false,
     },
     async (context) => {
-      const { parent, root, env, version } = createRuntimeFixture(context);
+      const { parent, root, env, version } = await createRuntimeFixture(context);
       installIdentities(parent, root, env);
       const pidPath = path.join(parent, "lost-provider.pid");
       writeProviderExecutable(

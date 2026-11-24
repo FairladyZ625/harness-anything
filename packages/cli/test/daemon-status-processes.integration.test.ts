@@ -15,14 +15,14 @@ import {
   localUserDaemonEndpoint,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { status } from "../src/daemon/control-status.ts";
+import { cliDaemonServeLaunch } from "../src/daemon/client.ts";
+import { readDaemonLifecycleGeneration } from "@harness-anything/daemon/internal/lifecycle-log";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import { type TestContext } from "node:test";
-import { spawnSync } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
 import { type Socket } from "node:net";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import {
-  cli,
-  cliEnv,
   connectSocket,
   currentDaemonProtocolVersion,
   JsonRpcLineClient,
@@ -267,19 +267,20 @@ const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
     endpoint = localUserDaemonEndpoint(fixture.userRoot, "default");
   let actionSocket: Socket | undefined,
     queuedClient: JsonRpcLineClient | undefined,
+    daemonProcess: ReturnType<typeof spawn> | undefined,
     scriptRequest: Promise<Record<string, unknown>> | undefined,
     queuedWrite: Promise<Record<string, unknown>> | undefined;
   try {
     writeFileSync(blocker, "blocked\n", "utf8");
-    const launched = spawnSync(
-      process.execPath,
-      [cli, "--root", fixture.root, "--json", "daemon", "start", "--service"],
-      {
-        encoding: "utf8",
-        env: { ...cliEnv(fixture.root, fixture.userRoot), HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker },
-      },
-    );
-    assert.equal(launched.status, 0, `${launched.stderr}\n${launched.stdout}`);
+    const launch = cliDaemonServeLaunch(fixture.userRoot, "default");
+    daemonProcess = spawn(launch.command, launch.args, {
+      env: { ...launch.env, HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: blocker },
+      detached: process.platform !== "win32",
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    await once(daemonProcess, "spawn");
+    await waitForDaemonIdentityReady(daemonProcess, fixture.userRoot);
     register(fixture.root, fixture.userRoot, blockedRepoId);
     register(otherRoot, fixture.userRoot, otherRepoId);
     assert.equal(
@@ -333,7 +334,7 @@ const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
     );
 
     actionSocket.destroy();
-    await waitForProcessExit(childPid);
+    await waitForProcessExit(childPid, process.platform === "win32" ? 10_000 : 2_000);
     const writeReceipt = await queuedWrite;
     context.diagnostic(
       `vertical child after client disconnect: ${JSON.stringify({ writeOutcome: writeReceipt.outcome, blockerStillPresent: existsSync(blocker), childAlive: processAlive(childPid) })}`,
@@ -350,6 +351,10 @@ const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
     rmSync(blocker, { force: true });
     await queuedWrite?.catch(() => undefined);
     queuedClient?.close();
+    if (daemonProcess?.pid !== undefined && daemonProcess.exitCode === null) {
+      runAutostartCli(fixture.root, fixture.userRoot, ["daemon", "stop", "--daemon-id", "default"]);
+      await waitForProcessExit(daemonProcess.pid, process.platform === "win32" ? 10_000 : 2_000);
+    }
   }
 };
 test(
@@ -357,3 +362,13 @@ test(
   { timeout: 120_000 },
   disconnectBlockedVerticalScriptTest,
 );
+
+async function waitForDaemonIdentityReady(daemon: ReturnType<typeof spawn>, userRoot: string): Promise<void> {
+  await waitForValue(() => {
+    const generation = readDaemonLifecycleGeneration(userRoot, "default");
+    const failure = generation.find((record) => record.event === "rbac_resume_failed");
+    if (failure) throw new Error(`daemon identity resume failed: ${failure.error ?? "unknown error"}`);
+    assert.equal(daemon.exitCode, null, `daemon exited before identity readiness with ${daemon.exitCode}`);
+    return generation.find((record) => record.event === "identity_ready") ?? null;
+  }, "daemon identity readiness");
+}
