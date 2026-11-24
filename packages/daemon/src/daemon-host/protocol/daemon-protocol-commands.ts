@@ -480,12 +480,73 @@ const peerProtocolCommands = (
   return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });
 
+const channelProtocolCommands = [
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "channel-list",
+    phase: "W3",
+    path: ["channel", "list"],
+    summary: "List unified Inbox and Outbox channel records for the authenticated principal.",
+    method: "repo.task.read",
+    repositoryRead: true,
+    inputs: [],
+    payloadFields: [
+      { field: "channelKind", type: "string", required: false },
+      { field: "direction", type: "string", required: false },
+      { field: "limit", type: "number", required: false },
+      { field: "cursor", type: "string", required: false },
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "channel-deliver",
+    phase: "W3",
+    path: ["channel", "deliver"],
+    summary: "Deliver a standardized channel envelope through the authorized Inbox adapter.",
+    method: "repo.task.run",
+    payloadFields: [
+      { field: "channelKind", type: "string", required: true },
+      { field: "envelopeId", type: "string", required: false },
+      { field: "principalPersonId", type: "string", required: false },
+      { field: "summary", type: "string", required: true },
+      { field: "body", type: "string", required: false },
+      { field: "senderRef", type: "string", required: false },
+      { field: "route", type: "string", required: false },
+      { field: "correlationId", type: "string", required: false },
+      { field: "workId", type: "string", required: false },
+      { field: "lane", type: "string", required: false },
+      { field: "anchorRef", type: "string", required: false },
+      { field: "toPersonId", type: "string", required: false },
+      { field: "claim", type: "string", required: false },
+      { field: "requestedAction", type: "string", required: false },
+      { field: "requestKind", type: "string", required: false },
+      { field: "idempotencyKey", type: "string", required: false },
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "channel-send",
+    phase: "W3",
+    path: ["channel", "send"],
+    summary: "Route an Outbox message through a registered channel adapter and record its receipt.",
+    method: "repo.task.run",
+    payloadFields: [
+      { field: "channelKind", type: "string", required: true },
+      { field: "messageId", type: "string", required: false },
+      { field: "recipientRef", type: "string", required: true },
+      { field: "summary", type: "string", required: true },
+      { field: "body", type: "string", required: false },
+      { field: "route", type: "string", required: false },
+      { field: "correlationId", type: "string", required: false },
+      { field: "idempotencyKey", type: "string", required: false },
+    ],
+  }),
+];
+
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...entityPinProtocolCommands,
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
   ...todoProtocolCommands,
   ...peerProtocolCommands,
+  ...channelProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,
