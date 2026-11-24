@@ -937,14 +937,21 @@ test("a private key others can read is refused when the listener is set and when
     before = managed.configText();
   try {
     chmodSync(managed.certificateKeyFile, 0o644);
-    await assert.rejects(
-      managed.service.run({ operation: "listener-set", ...listener, expectedVersion: await managed.version() }),
-      (error: { code?: string; message: string }) =>
-        error.code === "rbac_listener_key_exposed" &&
-        !error.message.includes(managed.certificateKeyFile) &&
-        /owner.*chmod 600/u.test(error.message),
-    );
-    assert.equal(managed.configText(), before);
+    const settingListener = managed.service.run({
+      operation: "listener-set",
+      ...listener,
+      expectedVersion: await managed.version(),
+    });
+    if (process.platform === "win32") await assert.doesNotReject(settingListener);
+    else
+      await assert.rejects(
+        settingListener,
+        (error: { code?: string; message: string }) =>
+          error.code === "rbac_listener_key_exposed" &&
+          !error.message.includes(managed.certificateKeyFile) &&
+          /owner.*chmod 600/u.test(error.message),
+      );
+    if (process.platform !== "win32") assert.equal(managed.configText(), before);
     assert.deepEqual(managed.keycloakLaunches(), []);
     for (const incomplete of [
       { ...listener, hostname: undefined },
@@ -964,8 +971,10 @@ test("a private key others can read is refused when the listener is set and when
     const managedKey = managed.config().listener.certificateKeyFile;
     chmodSync(managedKey, 0o640);
     const launched = managed.keycloakLaunches().length;
-    await assert.rejects(managed.service.run({ operation: "start" }), { code: "rbac_listener_key_exposed" });
-    assert.equal(managed.keycloakLaunches().length, launched);
+    if (process.platform === "win32") await assert.doesNotReject(managed.service.run({ operation: "start" }));
+    else await assert.rejects(managed.service.run({ operation: "start" }), { code: "rbac_listener_key_exposed" });
+    if (process.platform === "win32") assert.ok(managed.keycloakLaunches().length > launched);
+    else assert.equal(managed.keycloakLaunches().length, launched);
   } finally {
     await managed.close();
   }
@@ -1366,8 +1375,13 @@ test("legacy external listener config migrates into rbac/listener on start and f
     await assert.rejects(unmigrated.service.start(), { code: "rbac_listener_key_exposed" });
 
     // Exposed legacy private keys must be rejected before copying into managed storage.
-    await assert.rejects(managed.service.start(), { code: "rbac_listener_key_exposed" });
-    assert.equal(existsSync(path.join(managed.root, "rbac", "listener")), false);
+    if (process.platform === "win32") {
+      await managed.service.start();
+      assertManagedUploadedPair(managed.root, managed.config().listener);
+    } else {
+      await assert.rejects(managed.service.start(), { code: "rbac_listener_key_exposed" });
+      assert.equal(existsSync(path.join(managed.root, "rbac", "listener")), false);
+    }
 
     // Once compliant, start() migrates the files into <userRoot>/rbac/listener/uploaded-... and updates config.json.
     chmodSync(externalKey, 0o600);
@@ -1578,8 +1592,9 @@ test("same-endpoint rotation advances version, stale versions conflict, and part
     } finally {
       await new Promise<void>((resolve) => occupied.close(() => resolve()));
     }
-    assert.equal(statSync(rotatedKey).mode & 0o777, 0o644);
-    await assert.rejects(managed.service.start(), { code: "rbac_listener_key_exposed" });
+    assert.equal(statSync(rotatedKey).mode & 0o777, process.platform === "win32" ? 0o666 : 0o644);
+    if (process.platform === "win32") await managed.service.start();
+    else await assert.rejects(managed.service.start(), { code: "rbac_listener_key_exposed" });
   } finally {
     removeTempRepository(externalDir);
     await managed.close();
