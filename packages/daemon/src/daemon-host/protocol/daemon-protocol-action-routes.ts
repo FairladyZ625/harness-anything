@@ -45,6 +45,7 @@ function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcSha
 export const daemonActionRoutes = Object.freeze([
   {
     id: "ceo-config",
+    hostAuthority: "own-session",
     phase: "ResidentCeo",
     method: "repo.residentCeo.config",
     actionKind: "ceo-config",
@@ -57,6 +58,7 @@ export const daemonActionRoutes = Object.freeze([
   },
   {
     id: "ceo-start",
+    hostAuthority: "own-session",
     phase: "ResidentCeo",
     method: "repo.residentCeo.start",
     actionKind: "ceo-start",
@@ -66,6 +68,7 @@ export const daemonActionRoutes = Object.freeze([
   },
   {
     id: "ceo-stop",
+    hostAuthority: "own-session",
     phase: "ResidentCeo",
     method: "repo.residentCeo.stop",
     actionKind: "ceo-stop",
@@ -75,6 +78,7 @@ export const daemonActionRoutes = Object.freeze([
   },
   {
     id: "ceo-status",
+    hostAuthority: "own-session",
     phase: "ResidentCeo",
     method: "repo.residentCeo.status",
     actionKind: "ceo-status",
@@ -84,6 +88,7 @@ export const daemonActionRoutes = Object.freeze([
   },
   {
     id: "ceo-chat",
+    hostAuthority: "own-session",
     phase: "ResidentCeo",
     method: "repo.residentCeo.chat",
     actionKind: "ceo-chat",

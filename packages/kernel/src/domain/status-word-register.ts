@@ -15,6 +15,27 @@ export type RbacBackupStatus = (typeof rbacBackupStatuses)[number];
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...consumerStatusWordRegister,
+  ...(["stopped", "running"] as const).map((word) => ({
+    word,
+    entity: "RuntimeSession" as const,
+    field: "resident CEO status",
+    meaning:
+      word === "running"
+        ? "The resident CEO accepts scheduled and event-driven wakeups."
+        : "The resident CEO is stopped and does not accept wakeups.",
+    divergence: "entity-scoped" as const,
+  })),
+  ...(["running", "succeeded", "failed"] as const).map((word) => ({
+    word,
+    entity: "RuntimeSession" as const,
+    field: "resident CEO wake status",
+    meaning: {
+      running: "A resident CEO turn is currently executing.",
+      succeeded: "A resident CEO turn completed with a response.",
+      failed: "A resident CEO turn failed before producing a response.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
   ...rbacBackupStatuses.map((word) => ({

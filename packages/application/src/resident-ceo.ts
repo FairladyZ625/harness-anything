@@ -38,10 +38,14 @@ export interface ResidentCeoServiceInput {
 }
 
 export function makeResidentCeoService(input: ResidentCeoServiceInput) {
-  const requiredProfile = async (principalPersonId: string): Promise<ResidentCeoProfile> => {
+  const requiredProfile = async (principalPersonId: string, repoId?: string): Promise<ResidentCeoProfile> => {
     const profile = await input.profiles.read(principalPersonId);
     if (profile === null) throw new Error(`Resident CEO is not configured for ${principalPersonId}.`);
     assertResidentCeoPrincipal(profile, principalPersonId);
+    if (repoId !== undefined && profile.repoId !== repoId)
+      throw Object.assign(new Error("Resident CEO profile is configured for another repository."), {
+        code: "resident_ceo_repo_mismatch",
+      });
     return profile;
   };
 
@@ -107,17 +111,23 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       await input.profiles.write(next, null);
       return next;
     },
-    start: async (principalPersonId: string) => {
-      const profile = await requiredProfile(principalPersonId);
+    start: async (principalPersonId: string, repoId?: string) => {
+      const profile = await requiredProfile(principalPersonId, repoId);
       return update(profile, { ...profile, status: "running", updatedAt: input.now() });
     },
-    stop: async (principalPersonId: string) => {
-      const profile = await requiredProfile(principalPersonId);
+    stop: async (principalPersonId: string, repoId?: string) => {
+      const profile = await requiredProfile(principalPersonId, repoId);
       return update(profile, { ...profile, status: "stopped", updatedAt: input.now() });
     },
     status: requiredProfile,
-    wake: async (principalPersonId: string, cause: ResidentCeoWakeCause, message: string, peerRequestId?: string) => {
-      let profile = await requiredProfile(principalPersonId);
+    wake: async (
+      principalPersonId: string,
+      cause: ResidentCeoWakeCause,
+      message: string,
+      peerRequestId?: string,
+      repoId?: string,
+    ) => {
+      let profile = await requiredProfile(principalPersonId, repoId);
       if (profile.status !== "running") throw new Error("Resident CEO is stopped.");
       if (cause === "heartbeat" && !residentCeoWakeDue(profile, Date.parse(input.now())))
         return { profile, response: null } as const;
@@ -153,7 +163,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         });
       } catch (error) {
         const completedAt = input.now();
-        profile = await requiredProfile(principalPersonId);
+        profile = await requiredProfile(principalPersonId, repoId);
         const failed = residentCeoWakeReceipt({
           profile,
           wakeId,
@@ -170,7 +180,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           residentCeoProfile: saved,
         });
       }
-      profile = await requiredProfile(principalPersonId);
+      profile = await requiredProfile(principalPersonId, repoId);
       profile = await update(
         profile,
         residentCeoWakeReceipt({
@@ -189,7 +199,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         completedResponse = await run.response;
       } catch (error) {
         const completedAt = input.now();
-        profile = await requiredProfile(principalPersonId);
+        profile = await requiredProfile(principalPersonId, repoId);
         const failed = residentCeoWakeReceipt({
           profile,
           wakeId,
@@ -207,7 +217,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         });
       }
       const completedAt = input.now();
-      const current = await requiredProfile(principalPersonId);
+      const current = await requiredProfile(principalPersonId, repoId);
       const completed = residentCeoWakeReceipt({
         profile: current,
         wakeId,

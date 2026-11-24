@@ -50,6 +50,18 @@ test("resident CEO config, start, and stop preserve principal ownership", async 
   await assert.rejects(service.status("person_other"), /belongs to person_owner/u);
 });
 
+test("resident CEO actions reject a profile bound to another repository", async () => {
+  const { service } = fixture();
+  await service.configure("person_owner", {
+    repoId: "repo-one",
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+  });
+  await assert.rejects(service.start("person_owner", "repo-two"), { code: "resident_ceo_repo_mismatch" });
+  assert.equal((await service.status("person_owner"))?.status, "stopped");
+});
+
 test("chat and peer wakes resume the same persistent session and record a receipt", async () => {
   const { service, runs, setNow } = fixture();
   await service.configure("person_owner", {

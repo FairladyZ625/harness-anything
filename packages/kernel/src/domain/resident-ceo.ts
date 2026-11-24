@@ -1,9 +1,12 @@
 export const RESIDENT_CEO_PROFILE_SCHEMA = "resident-ceo-profile/v1" as const;
 export const RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC = 30;
 export const RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC = 86_400;
+export const residentCeoProfileStatuses = ["stopped", "running"] as const;
+export const residentCeoWakeStatuses = ["running", "succeeded", "failed"] as const;
 
 export type ResidentCeoWakeCause = "heartbeat" | "peer-request" | "human-chat";
-export type ResidentCeoWakeStatus = "running" | "succeeded" | "failed";
+export type ResidentCeoProfileStatus = (typeof residentCeoProfileStatuses)[number];
+export type ResidentCeoWakeStatus = (typeof residentCeoWakeStatuses)[number];
 
 export interface ResidentCeoWakeReceipt {
   readonly wakeId: string;
@@ -24,7 +27,7 @@ export interface ResidentCeoProfile {
   readonly model: string;
   readonly heartbeatIntervalSec: number;
   readonly persistentSessionId: string | null;
-  readonly status: "stopped" | "running";
+  readonly status: ResidentCeoProfileStatus;
   readonly lastWake: ResidentCeoWakeReceipt | null;
   readonly updatedAt: string;
 }

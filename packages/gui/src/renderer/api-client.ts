@@ -4,6 +4,9 @@ import { daemonControlPhaseWords } from "../api/renderer-dto.ts";
 import { repoCellStateWords } from "../api/renderer-dto.ts";
 import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
 
+type ResidentCeoProfileStatus = "stopped" | "running";
+type ResidentCeoWakeStatus = "running" | "succeeded" | "failed";
+
 import type {
   DaemonGuiReadPayloadMap,
   DaemonHomeOverviewResult,
@@ -222,13 +225,13 @@ export interface ResidentCeoProfileRead {
   readonly model: string;
   readonly heartbeatIntervalSec: number;
   readonly persistentSessionId: string | null;
-  readonly status: "stopped" | "running";
+  readonly status: ResidentCeoProfileStatus;
   readonly lastWake: {
     readonly wakeId: string;
     readonly cause: "heartbeat" | "peer-request" | "human-chat";
     readonly requestedAt: string;
     readonly completedAt: string | null;
-    readonly status: "running" | "succeeded" | "failed";
+    readonly status: ResidentCeoWakeStatus;
     readonly runtimeSessionId: string | null;
     readonly detail: string | null;
   } | null;

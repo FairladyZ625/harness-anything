@@ -8,6 +8,76 @@
         "order": 1
       }
     ],
+    "ceo-config": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:2cb7617831c6f6b1acd5f344ae63516a",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:a9637743a7b2557a75019c7ea86e30f8",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:bae4b47c29e7621386db1d3af29cea30",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.reconcileWake:0278ea962c8506506e07e06388dbcab3",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.requiredProfile:75e4389a91bf1e37243cc4391c5a1ffd",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.start:9856e66b68f74a37a5e3be74792febad",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.stop:d71178959a95782291e4d22e1a44dfae",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.update:0485e7675edfe724c3e72033805d3505",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake.saved:88078d24618db723ce588296d03316a8",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake.saved:f1afbc5b25626aab2da6e8afeba06f5c",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake.saved:f1afbc5b25626aab2da6e8afeba06f5c:2",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:21df208ad79d05fd4f9b209f45a030f2",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:21df208ad79d05fd4f9b209f45a030f2:2",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:57750f1230d8a50817065395165b8353",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:bae4b47c29e7621386db1d3af29cea30",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:ceb285bdce5151f391a0182f23f5def7",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:dad50c53c7568b3be50b6d6244249ad7",
+        "route": "ceo-config"
+      }
+    ],
     "daemon-local-state": [
       {
         "candidateId": "action:packages/application:packages/application/src/commands/agent-scope-service.ts#deleteLocalAgent:6b30e5c92ac63d9e9ec0bf09021024ff",

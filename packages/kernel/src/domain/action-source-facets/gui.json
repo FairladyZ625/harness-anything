@@ -57,6 +57,38 @@
         "order": 6
       }
     ],
+    "ceo-chat": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.chatResidentCeo:0f1e602c0d9447527bb1c7748ef191a0",
+        "route": "ceo-chat",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "ceo-config": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.configureResidentCeo:55485421110997325bd7affb84a0058e",
+        "route": "ceo-config",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "ceo-start": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.startResidentCeo:fd8ad10a065fd548ee2c623bb08a3d76",
+        "route": "ceo-start",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
+    "ceo-stop": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.stopResidentCeo:d6fd9502e4d625c4918f0ced130fcb99",
+        "route": "ceo-stop",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
+      }
+    ],
     "daemon-connection-add": [
       {
         "candidateId": "action:packages/gui:packages/gui/src/preload/electron-preload.ts#exposedHarnessApi.connections.register:056b19f60a08561c93d6c6dff402f8dd",
@@ -1782,6 +1814,12 @@
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
         "order": 193
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getResidentCeo.result:dae0ed4f2def70b54b0fa509d99cc37b",
+        "route": "ceo-status",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke"
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/api-client.ts#harnessClient.getSettings:5e9de5f5760dd2a71da35460db58fdd1",
