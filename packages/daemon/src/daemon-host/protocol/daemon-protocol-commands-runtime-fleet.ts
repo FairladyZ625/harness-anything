@@ -628,6 +628,23 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     ],
   }),
   defineHostAdminCommand({
+    id: "daemon-fleet-center-switch",
+    hostAuthority: "local-transport",
+    phase: "Fleet-Wiring",
+    path: ["daemon", "fleet", "center", "switch"],
+    summary: "Run candidate preflight, two-phase RPO=0 reversible center switchover, or audited oldEpoch+2 rollback.",
+    method: "daemon.fleet.center.switch",
+    inputs: [
+      cliInput("--root", "single", true, { code: "missing_field" }, { pathKind: "host-path" }),
+      cliInput("--repo", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--to", "single", false, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }),
+      cliInput("--abort-rollback", "boolean", false, { code: "invalid_field" }),
+      cliInput("--switchover-id", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+      cliInput("--reason", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+    ],
+  }),
+  defineHostAdminCommand({
     id: "daemon-fleet-edge-sync",
     hostAuthority: "local-transport",
     phase: "Fleet-Wiring",

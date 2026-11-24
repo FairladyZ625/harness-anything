@@ -183,7 +183,7 @@ export async function performOpenRegistered(
       mode: repo.mode,
       ownerId: context.input.daemonId,
       storage: resolvedStorage,
-      defaultWriterEpochFence: context.writerEpochFence(repo.repoId),
+      ...(repo.mode === "remote-edge" ? {} : { defaultWriterEpochFence: context.writerEpochFence(repo.repoId) }),
       ...(context.input.now ? { now: context.input.now } : {}),
       runtimeDaemonRoute: context.runtimeDaemonRoute,
       ...(context.fleetCursorSecret ? { fleetCursorSecret: context.fleetCursorSecret } : {}),

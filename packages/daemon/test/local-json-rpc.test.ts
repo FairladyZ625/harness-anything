@@ -712,7 +712,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_2f3c763ad41a0af8acd75c418c: break-glass edge replica promotion (182 -> 183).
   // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D): ha peer ask/reply/promote/handoff (183 -> 187).
   // task_264a7b96ca095b51af03dc8686: ha peer accept-handoff/takeover/checkpoint (187 -> 190).
-  assert.equal(actionDeclarations.length, 190);
+  // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3): ha fleet center switch (190 -> 191).
+  assert.equal(actionDeclarations.length, 191);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),

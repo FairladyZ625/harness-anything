@@ -20,6 +20,7 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["daemon-control-request", "admin"],
     ["daemon-fleet-center-promote-from-edge", "admin"],
     ["daemon-fleet-center-start", "admin"],
+    ["daemon-fleet-center-switch", "admin"],
     ["daemon-fleet-edge-sync", "admin"],
     ["daemon-local-state", "admin"],
     ["daemon-node-auto-claim", "admin"],

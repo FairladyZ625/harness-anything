@@ -32,6 +32,7 @@ export interface SqliteBaseBackupInput {
   readonly projectionPath: string;
   readonly directory: string;
   readonly mode?: BaseBackupMode;
+  readonly replicaLogWindowCommits?: number;
 }
 export interface PostgresBaseBackupInput {
   readonly readerProfile?: BaseBackupMetadata["readerProfile"];

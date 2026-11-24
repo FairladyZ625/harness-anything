@@ -15,6 +15,12 @@
         "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/center-switchover.ts#promoteReplicaForSwitchover:1ab06882c3dd9be7079bc1495ce96a49",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/local/local-layout-file-system.ts#localLedgerBackupFileSystem.remove"
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/durable-file.ts#openAuditRevisionScratch.abort:174298e6746a6151a6dc28eccbac5a1d",
         "route": "daemon-local-state",
         "role": "technical-port",

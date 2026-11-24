@@ -65,7 +65,8 @@ test("retired People mutations are absent from the durable authorization invento
   // task_2f3c763ad41a0af8acd75c418c adds daemon-fleet-center-promote-from-edge (176 -> 177).
   // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D) adds peer-ask/reply/promote/handoff (177 -> 181).
   // task_264a7b96ca095b51af03dc8686 adds peer-accept-handoff/takeover/checkpoint (181 -> 184).
-  assert.equal(durablePolicyActions.length, 184);
+  // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3) adds daemon-fleet-center-switch (184 -> 185).
+  assert.equal(durablePolicyActions.length, 185);
   for (const kind of ["cli-local-effects", "package-assets-build", "daemon-local-state", "preset-convert-local"]) {
     assert.equal(durablePolicyActions.includes(kind), false);
     assert.equal(durableActionKinds.includes(kind), false);

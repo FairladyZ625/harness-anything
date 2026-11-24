@@ -107,6 +107,7 @@ import {
   dispatchDisplayStatuses,
 } from "./dispatch-lifecycle.ts";
 import { inboxStatusVocabularies } from "./status-word-register-inbox.ts";
+import { centerSwitchoverFenceStates, centerSwitchoverPhases } from "./center-switchover.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 export { rbacBackupStatuses };
@@ -124,6 +125,25 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "rbacBackupStatuses",
     words: rbacBackupStatuses,
     note: "Operator evidence about whether the separate RBAC backup is available before emergency promotion.",
+  },
+  {
+    id: "migration.center-switchover-phase",
+    entity: "Migration",
+    field: "center switchover phase",
+    module: "packages/kernel/src/domain/center-switchover.ts",
+    anchor: "centerSwitchoverPhases",
+    words: centerSwitchoverPhases,
+    note: "Two-phase reversible center switchover state machine phases (dec_AAEC26DBB6F23BDF80876ABB2C).",
+  },
+  {
+    id: "migration.center-switchover-fence-state",
+    entity: "Migration",
+    field: "center switchover phase",
+    module: "packages/kernel/src/domain/center-switchover.ts",
+    anchor: "centerSwitchoverFenceStates",
+    words: centerSwitchoverFenceStates,
+    subsetOf: "migration.center-switchover-phase",
+    note: "Persisted reversible switchover fence states on the old center.",
   },
   {
     id: "gate-run.state",

@@ -257,6 +257,53 @@ test("ha fleet center export, retire, and import route through daemon control, v
     ]);
     assert.equal(tampered.exitCode, 1);
     assert.equal(JSON.parse(tampered.stdout[0]!).ok, false);
+
+    // Slice 1: ha fleet center switch CLI routing & fail-closed validation (without breaking v0 commands above).
+    const switchMissing = await captureCli(["fleet", "center", "switch", "--json"]);
+    assert.equal(switchMissing.exitCode, 2);
+    assert.equal(JSON.parse(switchMissing.stdout[0]!).code, "missing_field");
+
+    const switchRollbackMissing = await captureCli([
+      "daemon",
+      "fleet",
+      "center",
+      "switch",
+      "--abort-rollback",
+      "--root",
+      source,
+      "--repo",
+      "reloc-cli",
+      "--json",
+    ]);
+    assert.equal(switchRollbackMissing.exitCode, 2);
+    assert.equal(JSON.parse(switchRollbackMissing.stdout[0]!).code, "missing_field");
+
+    const switchDryRun = await captureCli([
+      "fleet",
+      "center",
+      "switch",
+      "--root",
+      source,
+      "--repo",
+      "reloc-cli",
+      "--to",
+      "node-b",
+      "--user-root",
+      newUserRoot,
+      "--dry-run",
+      "--json",
+    ]);
+    // Without symmetric identity/target endpoints, dry-run returns structured preflight failure with zero mutations.
+    assert.equal(switchDryRun.exitCode, 2);
+    const dryRunReceipt = JSON.parse(switchDryRun.stdout[0]!) as {
+      readonly ok: boolean;
+      readonly command: string;
+      readonly preflight?: { readonly ok: boolean; readonly checks: readonly unknown[] };
+    };
+    assert.equal(dryRunReceipt.ok, false);
+    assert.equal(dryRunReceipt.command, "fleet-center-switch");
+    assert.equal(dryRunReceipt.preflight?.ok, false);
+    assert.ok((dryRunReceipt.preflight?.checks.length ?? 0) >= 6);
   } finally {
     closeSqliteEventStoresUnder(root);
     removeTempRepository(root);

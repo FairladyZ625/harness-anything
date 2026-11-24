@@ -3,6 +3,7 @@ import {
   openPersistentWriterEpoch,
   readCenterMigrating,
   readCenterRelocated,
+  readCenterSwitchoverFence,
   readLedgerWriterEpoch,
   type CenterMigratingStateV1,
   type PersistentWriterEpoch,
@@ -11,7 +12,7 @@ import {
 } from "@harness-anything/storage";
 import type { TaskReadAuthorizationTarget } from "../host-action-authorization.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { CenterMovedDetails, CenterRelocatedTombstoneV1, FleetCenterOptions } from "./center-types.ts";
+import type { CenterMovedDetails, FleetCenterOptions } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import type { createNodeRetirementAdmission } from "./node-retirement.ts";
 
@@ -53,13 +54,16 @@ export function closeableCenterReplicationSlots(inner: ReplicationSlots): Replic
 export function readListenerCenterRelocated(
   options: FleetCenterOptions,
   repoId?: string,
-): CenterRelocatedTombstoneV1 | null {
+): (CenterMovedDetails & { readonly repoId: string }) | null {
   if (options.centerRelocated) {
     if (repoId === undefined || options.centerRelocated.repoId === repoId) return options.centerRelocated;
   }
   const root = listenerRelocationRoot(options);
   if (root === null) return null;
-  return readCenterRelocated(root, repoId ?? options.centerRepoId);
+  const targetRepoId = repoId ?? options.centerRepoId;
+  const tombstone = readCenterRelocated(root, targetRepoId);
+  if (tombstone !== null) return tombstone;
+  return targetRepoId ? readCenterSwitchoverFence(root, targetRepoId) : null;
 }
 
 export function readListenerCenterMigrating(
@@ -93,7 +97,7 @@ export function centerMigratingFleetFault(repoId: string): FleetFault {
 
 export function openCenterRelocationEpochs(
   options: FleetCenterOptions,
-  _centerRelocated: CenterRelocatedTombstoneV1 | null,
+  _centerRelocated: (CenterMovedDetails & { readonly repoId: string }) | null,
   now: () => string,
 ): {
   readonly writerEpoch: PersistentWriterEpoch;
