@@ -13,13 +13,18 @@ import {
 import path from "node:path";
 import {
   consumeKnownError,
-  deriveTaskWorktreeBinding,
-  isTerminalStatus,
   type TaskProjection,
   type TaskV2,
   type TaskWorktreeBindingV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import {
+  presetSnapshotReader as readPresetSnapshotReader,
+  taskClosed as taskClosedFromProjection,
+  taskOutputShape as readTaskOutputShape,
+  taskWorktreeBinding as readTaskWorktreeBinding,
+  taskWorkspaceView as readTaskWorkspaceView,
+} from "@harness-anything/application/internal/queries/task-workspace-read.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
@@ -59,11 +64,7 @@ export type PresetSnapshotRead = (digest: string) => unknown;
 
 /** One reader per request: tasks compiled from the same preset share one snapshot read. */
 export function presetSnapshotReader(projection: Pick<TaskProjection, "readPresetSnapshot">): PresetSnapshotRead {
-  const snapshots = new Map<string, unknown>();
-  return (digest) => {
-    if (!snapshots.has(digest)) snapshots.set(digest, projection.readPresetSnapshot(digest).snapshot);
-    return snapshots.get(digest);
-  };
+  return readPresetSnapshotReader(projection);
 }
 
 /** The task's declared output shape: the compiled preset snapshot's profile field, or null before it compiles. */
@@ -71,12 +72,7 @@ export function taskOutputShape(
   task: { readonly presetSnapshotDigest?: string | null } | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
 ): string | null {
-  if (!task?.presetSnapshotDigest) return null;
-  const snapshot = readPresetSnapshot(task.presetSnapshotDigest) as {
-      readonly profile?: { readonly outputShape?: unknown };
-    } | null,
-    outputShape = snapshot?.profile?.outputShape;
-  return typeof outputShape === "string" ? outputShape : null;
+  return readTaskOutputShape(task, readPresetSnapshot);
 }
 
 /** The binding is derived, never stored (dec_01KY4Y2MW94HM5QK5Q1208XJZ5): id, class and output shape. */
@@ -84,10 +80,7 @@ export function taskWorktreeBinding(
   task: TaskV2 | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
 ): TaskWorktreeBindingV1 | null {
-  const outputShape = taskOutputShape(task, readPresetSnapshot);
-  return task && outputShape
-    ? deriveTaskWorktreeBinding({ taskId: task.taskId, taskClass: task.taskClass, outputShape })
-    : null;
+  return readTaskWorktreeBinding(task, readPresetSnapshot);
 }
 
 /** What a node checks out for a task: its binding while the task is open, nothing once it is closed. */
@@ -110,18 +103,7 @@ export function taskWorkspaceView(
   /** The authored root, resolved once by the caller; null where only a worktree is shown (the agenda reads no files). */
   authoredRoot: string | null,
 ): TaskWorkspaceView | null {
-  const binding = taskWorktreeBinding(task, readPresetSnapshot);
-  if (task && binding) {
-    const present = isLinkedWorktree(path.join(rootDir, binding.path));
-    return {
-      kind: "worktree",
-      ...binding,
-      state: present ? (taskClosed(task) ? "retained" : "materialized") : taskClosed(task) ? "reclaimed" : "bound",
-    };
-  }
-  if (!task || !packagePath || authoredRoot === null) return null;
-  const packageRoot = path.join(authoredRoot, ...packagePath.split("/"));
-  return { kind: "task-package", path: path.relative(rootDir, packageRoot).split(path.sep).join("/") };
+  return readTaskWorkspaceView(rootDir, task, packagePath, readPresetSnapshot, authoredRoot, isLinkedWorktree);
 }
 
 type WorktreeBaseUnavailableReason = "unborn" | "detached" | "no_resolvable_default_base";
@@ -892,7 +874,7 @@ export function taskClosed(task: {
   readonly status: TaskV2["status"];
   readonly packageDisposition?: string | undefined;
 }): boolean {
-  return isTerminalStatus(task.status) || (task.packageDisposition ?? "active") !== "active";
+  return taskClosedFromProjection(task);
 }
 
 function errorText(error: unknown): string {

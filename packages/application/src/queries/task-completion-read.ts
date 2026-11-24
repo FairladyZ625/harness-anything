@@ -1,0 +1,426 @@
+import path from "node:path";
+import {
+  assessFactRetirement,
+  consumeKnownError,
+  currentExecutionCuts,
+  currentSubmittedExecutions,
+  deliveryTargetRef,
+  INITIAL_SETTINGS_V1,
+  hasEffectiveReviewForExecution,
+  normalizeDomainError,
+  resolveHarnessLayout,
+  reviewsForExecution,
+  type CloseoutSnapshot,
+  type ActorIdentity,
+  type CompletionDeliveryStatus,
+  taskCompletionAction,
+  taskCompletionNext,
+  type CompletionReadinessContext,
+  type FactRetirementAssessment,
+  type FactStillHoldsAttestation,
+  type TaskProjectionQueries,
+  type TaskLifecycleSnapshot,
+  type RepositorySettingsV1,
+  reviewReverifyRoute,
+  reviewDispatchFailureGuidance,
+} from "@harness-anything/kernel";
+import { locateTaskTransitionDocument } from "./task-transition-locate.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-workspace-read.ts";
+import { readEffectiveCloseoutGates } from "./task-settings-read.ts";
+import { requireCurrentTaskProjection } from "./projection-task-read.ts";
+import type { DaemonTaskCompletionResult } from "./task-completion-types.ts";
+import { cutReviewTargetKey, readCutReviewDispatchStates } from "./review-dispatch-failure-read.ts";
+import { queryCodedError, type TaskCoreQueryPorts, type TaskGitProbe } from "./task-query-ports.ts";
+
+type ReviewDispatchDiagnostic = ReturnType<typeof reviewDispatchFailureGuidance> & { readonly executionId: string };
+type CompletionContext = CompletionReadinessContext & {
+  readonly reviewDispatchFailures?: readonly ReviewDispatchDiagnostic[];
+};
+
+const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+function completionErrorCode(error: unknown): string {
+  const normalized = normalizeDomainError(error);
+  switch (normalized._tag) {
+    case "LeaseConflictError":
+    case "TaskNotFoundError":
+    case "InvalidWritePlanError":
+    case "ProtocolVersionMismatchError":
+    case "OtherCodedError":
+      return normalized.code;
+    case "UnclassifiedError":
+      return "service_rejected";
+  }
+}
+
+function projectionExecutorCandidates(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  executionId: string,
+): readonly string[] {
+  const exact = new Map<string, string>();
+  for (const row of projection.readRuntimeDispatchesByTaskExecution(taskId, executionId)) {
+    const payload = row.event.payload;
+    if (payload.role === "reviewer" || payload.reviewTarget !== undefined) continue;
+    if (!exact.has(payload.runtimeSessionId)) exact.set(payload.runtimeSessionId, `runtime-session:${payload.runtimeSessionId}`);
+  }
+  return [...exact.values()];
+}
+
+/** Canonical completion inputs shared by command and GUI projection consumers. */
+export function readCompletionContext(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  snapshot: TaskLifecycleSnapshot,
+  status: "ready" | "pending",
+  rootDir?: string,
+  actor?: ActorIdentity,
+  ports?: TaskCoreQueryPorts,
+): CompletionContext {
+  const taskRead = projection.read(taskId),
+    contractPath = taskRead.packagePath ? `${taskRead.packagePath}/task-contract.json` : null,
+    completedArchive =
+      taskRead.snapshot.task?.status === "done" && (taskRead.snapshot.task.packageDisposition ?? "active") !== "active",
+    contractDocument =
+      contractPath === null
+        ? null
+        : (projection.readDocument(contractPath).document ??
+          (completedArchive ? (projection.readDocumentHistory?.(contractPath).document ?? null) : null)),
+    unavailable: CompletionReadinessContext = {
+      closeout: "missing",
+      closeoutPath: "",
+      eligibleDirtyPaths: [],
+      projectionStatus: status,
+    },
+    availability = taskCompletionNext(snapshot, unavailable);
+  if (
+    availability.blocker?.code === "projection_unknown" ||
+    !snapshot.task ||
+    !taskRead.packagePath ||
+    !contractDocument
+  )
+    return {
+      closeout: "missing",
+      closeoutPath: "",
+      eligibleDirtyPaths: [],
+      projectionStatus: "pending",
+    };
+  // Completion names its next step for packages of any generation. The contract declaring no
+  // closeout document stays a step to take; an unwritten one is read when submit derives its
+  // prose, where the Submission schema — not a scaffold comparison — decides the empty claim.
+  const closeout = locateTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }),
+    projectionStatus = projection.readRelationQuery({
+      source: `task/${taskId}`,
+      relationType: "produces",
+      state: "active",
+    }).status,
+    closeoutGates = readEffectiveCloseoutGates(projection, snapshot),
+    reviewCuts =
+      snapshot.task?.status === "in_review" && closeoutGates.review !== false
+        ? currentSubmittedExecutions(snapshot)
+        : [],
+    // The executor gate only asks for dispatch proof while an independent review is still owed.
+    // Reading lineage otherwise would add a dispatch scan to every task read for a value no
+    // judgment consumes, and a read that cannot answer it would turn into a false "no dispatch".
+    executorlessReview = reviewCuts.find(
+      (execution) => execution.actor.executor === null && reviewsForExecution(snapshot.reviews, execution).length === 0,
+    ),
+    unreviewedCuts = reviewCuts.filter(
+      (execution) => !hasEffectiveReviewForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
+    ),
+    recordedFailure = snapshot.task.reviewDispatchFailure,
+    reviewCutStates = readCutReviewDispatchStates(
+      projection,
+      unreviewedCuts.map((execution) => ({ taskId, execution, ...(recordedFailure ? { recordedFailure } : {}) })),
+    ),
+    onlyCut = reviewCuts.length === 1 ? reviewCuts[0] : undefined,
+    onlyCutState = onlyCut ? reviewCutStates.get(cutReviewTargetKey(taskId, onlyCut.executionId)) : undefined,
+    reviewDispatchFailures = unreviewedCuts.flatMap(({ executionId }) => {
+      const failure = reviewCutStates.get(cutReviewTargetKey(taskId, executionId))?.latestFailure;
+      return failure
+        ? [
+            {
+              executionId,
+              ...reviewDispatchFailureGuidance(taskId, failure, reviewCuts.length > 1 ? executionId : undefined),
+            },
+          ]
+        : [];
+    }),
+    common = {
+      ...(actor === undefined ? {} : { actor }),
+      activeReviewDispatchIds: onlyCutState?.activeDispatches.map(({ event }) => event.payload.dispatchId) ?? [],
+      latestReviewDispatchFailure: onlyCutState?.latestFailure ?? null,
+      reviewDispatchFailures,
+      closeoutGates,
+      ...(executorlessReview
+        ? {
+            executorDeclarationCandidates: ports?.executorDeclarationCandidates
+              ? ports.executorDeclarationCandidates(projection, taskId, executorlessReview.executionId)
+              : projectionExecutorCandidates(projection, taskId, executorlessReview.executionId),
+          }
+        : {}),
+      delivery: readCompletionDeliveryStatus(projection, snapshot, rootDir, ports?.git),
+      eligibleDirtyPaths: [],
+      projectionStatus,
+      childTaskCount: projection.readTaskChildCounts([taskId])[taskId] ?? 0,
+    };
+  return closeout.path === null
+    ? { ...common, closeout: "missing", closeoutPath: "" }
+    : { ...common, closeout: "ready", closeoutPath: closeout.path };
+}
+
+export function readCompletionDeliveryStatus(
+  projection: TaskProjectionQueries,
+  snapshot: CloseoutSnapshot,
+  rootDir?: string,
+  git?: TaskGitProbe,
+): CompletionDeliveryStatus {
+  const projected = projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined,
+    delivery = projected?.delivery ?? INITIAL_SETTINGS_V1.delivery,
+    cuts = currentExecutionCuts(snapshot),
+    execution = cuts.length === 1 ? cuts[0] : undefined,
+    files = execution?.submission?.changedFiles,
+    packagePath =
+      files?.length && rootDir && snapshot.task?.taskId ? projection.read(snapshot.task.taskId).packagePath : undefined,
+    packagePrefix =
+      packagePath && rootDir
+        ? `${path
+            .relative(rootDir, path.join(resolveHarnessLayout(rootDir).authoredRoot, packagePath))
+            .split(path.sep)
+            .join("/")}/`
+        : undefined,
+    // Use the accepted manifest, never today's Git diff: old task-package-only cuts already
+    // reviewed and consented have no repository delivery to merge. Missing facts stay conservative.
+    packageOnly =
+      files !== undefined && files.every((file) => packagePrefix !== undefined && file.startsWith(packagePrefix)),
+    required =
+      delivery.requireMerged &&
+      execution?.submission?.commitSha != null &&
+      !packageOnly &&
+      taskOutputShape(snapshot.task, presetSnapshotReader(projection)) !== "task-package-artifact",
+    mergeSha =
+      execution?.schema === "execution/v1"
+        ? execution.annotations
+            ?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))
+            ?.note.slice(17)
+        : undefined,
+    submissionCommitSha = execution?.submission?.commitSha ?? undefined,
+    rebaseEquivalent =
+      execution?.schema === "execution/v1"
+        ? execution.annotations
+            ?.filter((entry) => entry.kind === "correction")
+            .map((entry) => {
+              const match = /^rebase-equivalent:([0-9a-f]{40})->([0-9a-f]{40}):base=([0-9a-f]{40})$/u.exec(entry.note);
+              return match === null ? undefined : { frozen: match[1], head: match[2], base: match[3] };
+            })
+            .findLast((value) => value !== undefined)
+        : undefined,
+    equivalentRebaseAccepted =
+      rebaseEquivalent !== undefined &&
+      rootDir !== undefined &&
+      git !== undefined &&
+      submissionCommitSha !== undefined &&
+      execution?.submission?.productionDelta?.baseSha !== undefined &&
+      rebaseEquivalent.frozen === submissionCommitSha &&
+      git.rebaseEquivalentDelivery(
+        rootDir,
+        execution.submission.productionDelta.baseSha,
+        submissionCommitSha,
+        rebaseEquivalent.base,
+        rebaseEquivalent.head,
+      ),
+    deliveryCommitSha = equivalentRebaseAccepted ? rebaseEquivalent.head : submissionCommitSha,
+    baseline = execution?.deliveryBaseline,
+    baselineRef = baseline === undefined ? null : baseline.kind === "empty-tree" ? EMPTY_TREE_SHA : baseline.commitSha,
+    targetRef = deliveryTargetRef(delivery);
+  let merged: boolean | null = null,
+    deliveryIssue: "merge-not-on-target" | "delivery-not-contained" | "delivery-evidence-unavailable" | undefined;
+  if (
+    required &&
+    rootDir !== undefined &&
+    git !== undefined &&
+    mergeSha !== undefined &&
+    git.hasCommit(rootDir, mergeSha) &&
+    git.hasCommit(rootDir, targetRef)
+  ) {
+    if (!git.isAncestor(rootDir, mergeSha, targetRef)) {
+      merged = false;
+      deliveryIssue = "merge-not-on-target";
+    } else if (deliveryCommitSha === undefined || !git.hasCommit(rootDir, deliveryCommitSha)) {
+      deliveryIssue = "delivery-evidence-unavailable";
+    } else {
+      const containment = git.deliveryContainment(rootDir, baselineRef, deliveryCommitSha, mergeSha);
+      if (containment === "unavailable") deliveryIssue = "delivery-evidence-unavailable";
+      else {
+        merged = containment === "contained";
+        if (!merged) deliveryIssue = "delivery-not-contained";
+      }
+    }
+  }
+  return {
+    required,
+    merged,
+    targetBranch: delivery.targetBranch,
+    ...(delivery.targetRef !== undefined ? { targetRef: delivery.targetRef } : {}),
+    ...(mergeSha !== undefined ? { mergeSha } : {}),
+    ...(deliveryIssue === "delivery-not-contained" && deliveryCommitSha !== undefined ? { deliveryCommitSha } : {}),
+    ...(deliveryIssue !== undefined ? { deliveryIssue } : {}),
+  };
+}
+
+export function requireFactRetirementAssessment(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  stillHoldsAttestations: readonly FactStillHoldsAttestation[],
+): FactRetirementAssessment {
+  const assessment = factRetirementAssessment(projection, taskId, stillHoldsAttestations);
+  if ("unavailable" in assessment) throw queryCodedError("content_not_ready", assessment.unavailable);
+  return assessment;
+}
+
+export function factRetirementAssessment(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  stillHoldsAttestations: readonly FactStillHoldsAttestation[],
+): FactRetirementAssessment | { readonly unavailable: string } {
+  const taskRef = `task/${taskId}`,
+    taskRelationReads = [
+      projection.readRelationQuery({ source: taskRef, state: "active", limit: 500 }),
+      projection.readRelationQuery({ target: taskRef, state: "active", limit: 500 }),
+    ];
+  if (taskRelationReads.some((read) => read.page?.nextCursor))
+    return { unavailable: `Task ${taskId} exceeds the 500-edge Fact retirement budget.` };
+  const relationRead = {
+      ...taskRelationReads[0],
+      rows: [
+        ...new Map(taskRelationReads.flatMap((read) => read.rows).map((edge) => [edge.relationId, edge])).values(),
+      ],
+    },
+    relationReady = taskRelationReads.every((read) => read.status === "ready");
+  if (!relationReady)
+    return { unavailable: `Relation projection is not ready for Fact retirement assessment on Task ${taskId}.` };
+  const decisionIds = [
+      ...new Set(
+        relationRead.rows.flatMap((edge) => {
+          if (
+            edge.state !== "active" ||
+            edge.relationType !== "derives" ||
+            edge.targetRef !== taskRef ||
+            typeof edge.sourceRef !== "string"
+          )
+            return [];
+          const source = /^decision\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})(?:\/[A-Za-z0-9][A-Za-z0-9_-]*)?$/u.exec(
+            edge.sourceRef,
+          );
+          return source?.[1] ? [source[1]] : [];
+        }),
+      ),
+    ],
+    decisionRead = projection.readDecisions(decisionIds),
+    decisionReady = decisionRead.status === "ready";
+  if (!decisionReady)
+    return { unavailable: `Decision projection is not ready for Fact retirement assessment on Task ${taskId}.` };
+  const claimRefs = decisionRead.decisions.flatMap((decision) =>
+      decision.claims
+        .filter((claim) => claim.loadBearing)
+        .map((claim) => `decision/${decision.decisionId}/${claim.id}`),
+    ),
+    producedFactRefs = relationRead.rows
+      .filter((edge) => edge.relationType === "produces" && edge.sourceRef === taskRef)
+      .map((edge) => edge.targetRef),
+    narrowReads = [...claimRefs, ...producedFactRefs].map((source) =>
+      projection.readRelationQuery({ source, state: "active", limit: 500 }),
+    );
+  if (narrowReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
+    return { unavailable: `Task ${taskId} Fact retirement neighborhood is not ready or exceeds budget.` };
+  const upstreamFactRefs = narrowReads
+      .flatMap((read) => read.rows)
+      .filter((edge) => edge.relationType === "evidenced-by")
+      .map((edge) => edge.targetRef),
+    livenessReads = upstreamFactRefs.map((target) =>
+      projection.readRelationQuery({ target, relationType: "supersedes-fact", state: "active", limit: 500 }),
+    );
+  if (livenessReads.some((read) => read.status !== "ready" || read.page?.nextCursor))
+    return { unavailable: `Task ${taskId} Fact liveness neighborhood is not ready or exceeds budget.` };
+  return assessFactRetirement({
+    taskId,
+    decisions: decisionRead.decisions,
+    relations: [
+      ...relationRead.rows,
+      ...narrowReads.flatMap((read) => read.rows),
+      ...livenessReads.flatMap((read) => read.rows),
+    ],
+    stillHoldsAttestations,
+  });
+}
+
+export function readTaskCompletion(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  rootDir?: string,
+  actor?: ActorIdentity,
+  ports?: TaskCoreQueryPorts,
+): {
+  readonly completion: DaemonTaskCompletionResult;
+  readonly reviewDispatchFailures: readonly ReviewDispatchDiagnostic[];
+} {
+  // The same judgment task show, task dispatches, task read-set, task review and the task document
+  // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
+  // not-found naming the id — never an ok-shaped completion for a task that does not exist.
+  const read = requireCurrentTaskProjection(projection, taskId, "task completion read"),
+    context = readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir, actor, ports),
+    { blocker } = taskCompletionNext(read.snapshot, context),
+    // The action, not just the blocker's narration: once no blocker remains the reader must see
+    // `ha task complete`, otherwise a submitted low-risk cut reads as a dead end and invites a
+    // review dispatch its frozen contract refuses.
+    next = taskCompletionAction(read.snapshot, context);
+  // Surface the upstream Facts that still need an explicit disposition before the agent runs
+  // complete, so fact_retirement_undeclared never arrives as a surprise. The assessment needs
+  // relation/decision projections that can lag the task read; a lagging neighborhood is reported
+  // as null rather than blocking the whole completion read.
+  let factRetirement: DaemonTaskCompletionResult["factRetirement"] = null;
+  const producesReady = context.projectionStatus === "ready";
+  if (read.snapshot.task && context.closeoutGates?.factDisposition && producesReady)
+    try {
+      const assessment = requireFactRetirementAssessment(projection, taskId, []);
+      if (assessment.undischarged.length) factRetirement = { undischarged: assessment.undischarged };
+    } catch (error) {
+      if (completionErrorCode(error) !== "content_not_ready") throw error;
+      consumeKnownError(error);
+    }
+  return {
+    completion: {
+      ok: true,
+      taskId,
+      completionNext: next,
+      completionBlocker: blocker === null ? null : { code: blocker.code, gate: blocker.gate },
+      factRetirement,
+      reviewReverify: read.snapshot.task ? reviewReverifyView(read.snapshot, read.snapshot.task.iteration) : null,
+    },
+    reviewDispatchFailures: context.reviewDispatchFailures ?? [],
+  };
+}
+
+/** The kernel reverify route for the task's current round, shaped for CLI and GUI display. */
+function reviewReverifyView(
+  snapshot: Omit<Parameters<typeof reviewReverifyRoute>[0], "execution">,
+  iteration: number,
+): DaemonTaskCompletionResult["reviewReverify"] {
+  const route = reviewReverifyRoute({
+    reviews: snapshot.reviews,
+    reviewResponses: snapshot.reviewResponses,
+    execution: { iteration },
+  });
+  return {
+    route: route.kind,
+    findings:
+      route.kind === "full"
+        ? []
+        : route.findings.map(({ reviewId, finding, reverify, adopted }) => ({
+            reviewId,
+            findingId: finding.findingId,
+            reverify,
+            adopted,
+          })),
+  };
+}

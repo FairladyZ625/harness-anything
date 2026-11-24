@@ -62,8 +62,8 @@ export const dispatchLifecyclePolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/runtime-instance-scheduling.ts#runtimeSteering.codex.strategy:5dc5f329f5b0f1fdf005e4997f8915a6",
       "policy:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-control.ts#steerRuntime.refuse:1e1fcd3898c968cf1017328d0d3f16b5",
       "policy:packages/daemon:packages/daemon/src/daemon-host/dispatch-read.ts#unsettledCutReviewDispatches.rows.shallow:00191b086680e4e98da6ac785758b04a",
-      "policy:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
-      "policy:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
+      "policy:packages/application:packages/application/src/queries/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
+      "policy:packages/application:packages/application/src/queries/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceDispatchLifecycle:c41671665f96a2179bde52064ae469c8",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceDispatchLifecycle:b9f7804a5216d05b525d0a06811c57cd",
       "policy:packages/kernel:packages/kernel/src/domain/dispatch-lifecycle.ts#reduceDispatchLifecycle.ruling:009d57c1b7f3765c6a9fd1b3f0b1a793",
@@ -208,7 +208,7 @@ export const dispatchLifecycleJudgment = {
   failureCodes: [],
   explain:
     "Project the center lifecycle cut, including unavailable/pending state; consumers only compose those policies over their indexed execution rows.",
-  consumers: ["packages/daemon/src/daemon-host/task-query-read.ts"],
+  consumers: ["packages/application/src/queries/task-query-read.ts"],
   sources: [],
 } as const satisfies OntologyJudgmentDeclaration;
 // Source identities and values for daemon policy declarations registered by EntityKindContract.

@@ -64,7 +64,7 @@ export const storageReadPolicy = {
     "policy:packages/application:packages/application/src/queries/repo-cell-read-payloads.ts#agendaQueryFromPayload:10015b6d19caf66f27f6afb9f5793cbe",
     "policy:packages/application:packages/application/src/queries/repo-cell-read-payloads.ts#taskDispatchesPayloadFromCell:1e410a47b8130f415656caf06dbafb0b",
     "policy:packages/application:packages/application/src/queries/repo-cell-read-payloads.ts#taskDispatchesPayloadFromCell:a3a2f89ba4366a78072518509837feab",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-query.ts#taskListPayload.filters:0dc800d70d87d9bed556be8cc5352f37",
+    "policy:packages/application:packages/application/src/queries/task-list-read.ts#taskListPayload.filters:0dc800d70d87d9bed556be8cc5352f37",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-in-flight-work.ts#readRepoInFlightWork.leases.leaseOnly:7d0d008d737a90dacc53b3213c67778a",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-in-flight-work.ts#readRepoInFlightWork.leases:695ebba4b9ab3fb8b008ea95e7ff5ab6",
     "policy:packages/application:packages/application/src/queries/repo-query-payload.ts#queryPayloadFacets:19c0f6299471f260fbf794e097e5a2b3",

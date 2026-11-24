@@ -15,7 +15,7 @@ test("G0-3 reports the base advisory and points to an L1 read injected into a na
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   writeRepoFile(
     rootDir,
-    "packages/daemon/src/daemon-host/task-query-read.ts",
+    "packages/application/src/queries/task-query-read.ts",
     [
       'import { readMarkdown } from "@harness-anything/kernel";',
       "function relationGraphPage() {",

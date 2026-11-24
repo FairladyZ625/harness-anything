@@ -135,6 +135,42 @@
         "order": 241
       },
       {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-action-explanation-read.ts#explainAuthenticationRequired:39b0fd5569ad6c02644258162ffbba5b",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1211
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-action-explanation-read.ts#invalidCommand:b3045874813b9fd4fd7564f0557af352",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1212
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-query-read.ts#projectExecutionEvidence.outputs.evidenceId:79aca20e9f4ef50ef2da1ba9bf211f4b",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1215
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-query-read.ts#projectExecutionEvidence.outputs.evidenceId:a7d9cc699b50fdbda858cdfb5a071bb0",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1214
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-wip-settings.ts#taskRootThresholdError:8ba312f018f153d265fdf06be7131aee",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1218
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/task-wip-settings.ts#taskWipLimitError:724434f5a0d3fddd4006e7d08b3c5ea1",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1217
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/task-lifecycle-service.ts#makeTaskLifecycleService.executeInternal:521816cc1a3527f62031e0b042727ea9",
         "route": "daemon-local-state",
         "role": "technical-port",

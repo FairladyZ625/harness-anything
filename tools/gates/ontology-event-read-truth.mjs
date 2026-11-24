@@ -5,7 +5,7 @@ import ts from "typescript";
 import { exitCodeFor, lineNumber, parseCommonArgs, parseTypeScript } from "./ontology-gate-lib.mjs";
 
 const eventReadPaths = Object.freeze([
-  "packages/daemon/src/daemon-host/task-query-read.ts",
+  "packages/application/src/queries/task-query-read.ts",
   "packages/daemon/src/daemon-host/repo-cell-task-query.ts",
   "packages/daemon/src/daemon-host/agent-runtime-read.ts",
 ]);

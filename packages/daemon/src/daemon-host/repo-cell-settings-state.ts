@@ -1,11 +1,22 @@
+import {
+  mergeRepositoryLocalSettings,
+  projectedRepositorySettings,
+  readEffectiveCloseoutGates,
+  readEffectiveReviewReturnBudget,
+  readRepositorySettings,
+} from "@harness-anything/application/internal/queries/task-settings-read.ts";
+export {
+  mergeRepositoryLocalSettings,
+  projectedRepositorySettings,
+  readEffectiveCloseoutGates,
+  readEffectiveReviewReturnBudget,
+  readRepositorySettings,
+} from "@harness-anything/application/internal/queries/task-settings-read.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   consumeKnownError,
-  DEFAULT_CLOSEOUT_SETTINGS,
-  effectiveCloseoutGates,
-  currentExecutionCuts,
   INITIAL_SETTINGS_V1,
   SETTINGS_ID,
   compileSettingsChangedEvent,
@@ -35,12 +46,11 @@ import type {
   RepoCellActionContext,
   RepoCellSettingsState,
 } from "./repo-cell-types.ts";
-import type { PresetSnapshotV1 } from "@harness-anything/preset";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-types.ts";
 
 /** The code a reader sees when the ledger never minted Settings, as distinct from a cut still catching up. */
-export const SETTINGS_ENTITY_MISSING = "settings_entity_missing" as const;
+export { SETTINGS_ENTITY_MISSING } from "@harness-anything/application/internal/queries/task-settings-read.ts";
 
 /**
  * Which command a mint is being written for. Each one brings its own authority: `settings-update` is
@@ -89,36 +99,9 @@ export function settingsPrincipalRefusal(
  * already-initialized; that mismatch is what made the settings write loop on brain-os-frontend
  * (793 canonical events, zero settings_changed) while its read stayed uninitialized forever.
  */
-export function projectedRepositorySettings(
-  projection: Pick<TaskProjectionQueries, "getEntity">,
-): RepositorySettingsV1 | null {
-  const row = projection.getEntity("settings", SETTINGS_ID);
-  if (row === null || row === undefined) return null;
-  const value = row.value as unknown;
-  if (value === null || value === undefined || typeof value !== "object" || Array.isArray(value)) return null;
-  if (Object.keys(value).length === 0) return null;
-  return repositorySettings(value as RepositorySettingsV1);
-}
 
-export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "getEntity">): RepositorySettingsV1 {
-  const projected = projectedRepositorySettings(projection);
-  if (projected === null)
-    throw cellCodedError(
-      SETTINGS_ENTITY_MISSING,
-      // Actionable, and true: no repository action named `bootstrap` exists (`ha bootstrap` is a
-      // Keycloak operation), waiting cannot mint an entity no event ever wrote, and a projection
-      // rebuild only re-derives existing events — so `ha settings update` is the one command that
-      // creates it. It is principal-only by design, which is what the last sentence must say.
-      "This repository has no Settings entity yet; its ledger never recorded a settings_changed event. " +
-        "Run `ha settings update` as a person (for example `ha settings update --locale en-US`): " +
-        "it creates the entity from the authored harness/harness.yaml. Repository settings are " +
-        "principal-owned, so this cannot be done inside an agent session — ask the principal to run it " +
-        "in their own terminal.",
-    );
-  const errors = validateRepositorySettings(projected);
-  if (errors.length) throw cellCodedError("projection_invalid", errors.join("; "));
-  return projected;
-}
+
+
 
 /** Read the machine preference file once; absent fields inherit this node's configured role. */
 export function readLocalState(
@@ -284,15 +267,7 @@ export function makeRepoCellSettingsState(
   };
 }
 
-export function mergeRepositoryLocalSettings(repository: RepositorySettingsV1, local: LocalSettingsV1): SettingsV1 {
-  const { schema: _localSchema, runtime, decisions, ...preferences } = local;
-  return {
-    ...repository,
-    ...preferences,
-    runtime: { ...repository.runtime, ...runtime },
-    ...(decisions === undefined ? {} : { decisions: { ...repository.decisions, ...decisions } }),
-  } as unknown as SettingsV1;
-}
+
 
 /** The authored settings value and the document bytes a mint would publish from them. */
 function authoredInitializationOf(settings: SettingsV1, documentBody: string): AuthoredSettingsInitialization {
@@ -312,12 +287,7 @@ function authoredInitializationOf(settings: SettingsV1, documentBody: string): A
  * returns; automatic continuation after a worker stop has its own fixed task-level allowance
  * (`incidentContinuationBudget`), so raising this setting cannot extend that loop.
  */
-export function readEffectiveReviewReturnBudget(projection: Pick<TaskProjectionQueries, "getEntity">): number {
-  const projected = projection.getEntity("settings", "repository")?.value as
-    | { readonly reviewReturnBudget?: number }
-    | undefined;
-  return projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget;
-}
+
 
 /**
  * The dispatch-archive retention in force at this projection cut: the repository settings value,
@@ -366,21 +336,4 @@ export function settingsLastChanged(
  * the same projection cut as the task being judged; a repository with no settings entity
  * (or a pre-closeout settings event) reads the same standard default bootstrap would mint.
  */
-export function readEffectiveCloseoutGates(
-  projection: Pick<TaskProjectionQueries, "getEntity" | "readPresetSnapshot">,
-  snapshot: CloseoutSnapshot,
-): Readonly<Record<CloseoutGate, boolean>> {
-  const cuts = currentExecutionCuts(snapshot);
-  if (cuts.length === 1) return cuts[0]!.submission!.completionContract!.closeoutGates;
-  const preset = snapshot.task?.presetSnapshotDigest
-    ? (projection.readPresetSnapshot(snapshot.task.presetSnapshotDigest).snapshot as PresetSnapshotV1)
-    : undefined;
-  const projected = projection.getEntity("settings", "repository")?.value as
-    | { readonly closeout?: CloseoutSettingsV1 }
-    | undefined;
-  return effectiveCloseoutGates(
-    projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS,
-    snapshot.task?.closeoutOverrides,
-    preset?.completion.closeoutDefaults,
-  );
-}
+
