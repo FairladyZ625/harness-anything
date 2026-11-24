@@ -4,23 +4,6 @@ export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retir
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export { decisionProviderVendors } from "./decision-provider.ts";
-export {
-  assertResidentCeoPrincipal,
-  createResidentCeoProfile,
-  ResidentCeoProfileError,
-  residentCeoWakeDue,
-  residentCeoWakeReceipt,
-  RESIDENT_CEO_MAX_HEARTBEAT_INTERVAL_SEC,
-  RESIDENT_CEO_MIN_HEARTBEAT_INTERVAL_SEC,
-  RESIDENT_CEO_PROFILE_SCHEMA,
-} from "./resident-ceo.ts";
-export type {
-  ResidentCeoProfile,
-  ResidentCeoProfileInput,
-  ResidentCeoWakeCause,
-  ResidentCeoWakeReceipt,
-  ResidentCeoWakeStatus,
-} from "./resident-ceo.ts";
 export type {
   AdvisoryDecision,
   DecisionOption,
