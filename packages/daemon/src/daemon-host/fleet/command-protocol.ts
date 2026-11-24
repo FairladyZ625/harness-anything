@@ -413,6 +413,8 @@ export type FleetFrameV1 =
           sequence: number;
           timeoutMs: number;
         }>;
+        requireSwitchoverAdmin?: boolean;
+        sourceCertificatePem?: string;
       }
     >
   | Msg<
@@ -1371,6 +1373,8 @@ const schemas: Readonly<Record<string, Check>> = {
         sequence: uint,
         timeoutMs: uint,
       }),
+      requireSwitchoverAdmin: boolean,
+      sourceCertificatePem: bodyText,
     },
     ["schema", "messageId", "repoId", "expectedTargetNodeId"],
   ),

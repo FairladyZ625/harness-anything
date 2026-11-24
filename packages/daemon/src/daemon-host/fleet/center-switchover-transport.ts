@@ -146,6 +146,7 @@ export interface FleetSwitchoverControlPort {
     readonly repoId: string;
     readonly expectedTargetNodeId: string;
     readonly waitForCut?: SwitchoverStatusWaitCut;
+    readonly sourceCertificatePem?: string;
   }) => Promise<SwitchoverStatusResult>;
   readonly stageSlots?: (input: SwitchoverStageSlotsRequest) => Promise<SwitchoverStageSlotsResult>;
   readonly activate?: (input: SwitchoverActivateRequest) => Promise<SwitchoverTargetActivationReceipt>;
@@ -402,6 +403,112 @@ function normalizeSpkiDigestHex(value: string): string {
   return value.startsWith("sha256:") ? value.slice("sha256:".length) : value;
 }
 
+function certWithinWindow(cert: X509Certificate, nowMs: number): boolean {
+  const from = Date.parse(cert.validFrom);
+  const to = Date.parse(cert.validTo);
+  return Number.isFinite(from) && Number.isFinite(to) && nowMs >= from && nowMs <= to;
+}
+
+function chainReachesTrustAnchor(
+  leaf: X509Certificate,
+  intermediates: readonly X509Certificate[],
+  anchors: readonly X509Certificate[],
+  nowMs: number,
+): boolean {
+  const maxChainDepth = 8;
+  const visited = new Set<string>([leaf.fingerprint256]);
+  const queue: Array<{ readonly cert: X509Certificate; readonly depth: number }> = [{ cert: leaf, depth: 0 }];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const anchored = anchors.some(
+      (anchor) =>
+        certWithinWindow(anchor, nowMs) &&
+        (current.cert.raw.equals(anchor.raw) ||
+          (current.cert.checkIssued(anchor) && current.cert.verify(anchor.publicKey))),
+    );
+    if (anchored) return true;
+    if (current.depth >= maxChainDepth) continue;
+    for (const issuer of intermediates) {
+      if (visited.has(issuer.fingerprint256)) continue;
+      if (!certWithinWindow(issuer, nowMs) || !issuer.ca) continue;
+      if (current.cert.checkIssued(issuer) && current.cert.verify(issuer.publicKey)) {
+        visited.add(issuer.fingerprint256);
+        queue.push({ cert: issuer, depth: current.depth + 1 });
+      }
+    }
+  }
+  return false;
+}
+
+/** F8: Verify source Fleet certificate chain (leaf + intermediates -> configured center CA anchor, hostname/IP SAN, SPKI pin, validity). */
+function verifySwitchoverSourceCertificateTrust(input: {
+  readonly sourceCertificatePem: string;
+  readonly edge: FleetEdgeConfig;
+  readonly userRoot: string;
+  readonly repoId: string;
+}): X509Certificate {
+  const { edge } = input;
+  const reject = (detail: string): never => {
+    throw new FleetFault("switchover_ceded_proof_invalid", detail);
+  };
+  let presentedChain: readonly X509Certificate[];
+  try {
+    presentedChain = parseCertificateChain(input.sourceCertificatePem);
+  } catch (error) {
+    throw new FleetFault(
+      "switchover_ceded_proof_invalid",
+      `Switchover ceded proof carries an unreadable source certificate: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
+  const sourceCert = presentedChain[0];
+  if (!sourceCert) {
+    reject("Switchover ceded proof carries no X.509 source certificate.");
+  }
+  const nowMs = Date.now();
+  if (!certWithinWindow(sourceCert!, nowMs)) {
+    reject("Switchover ceded proof source certificate is outside its validity window.");
+  }
+  const sourceSpki = normalizeSpkiDigestHex(spkiSha256FromCertificatePem(sourceCert!.toString()));
+  if (edge.spkiSha256 && sourceSpki !== normalizeSpkiDigestHex(edge.spkiSha256)) {
+    reject(
+      "Switchover ceded proof source certificate SPKI does not match this repository's configured center authority.",
+    );
+  }
+  const expectedHost = (edge.servername ?? edge.host).replace(/^\[|\]$/gu, "");
+  const hostMatched =
+    isIP(expectedHost) !== 0
+      ? sourceCert!.checkIP(expectedHost) !== undefined
+      : sourceCert!.checkHost(expectedHost) !== undefined;
+  if (!hostMatched) {
+    reject(`Switchover ceded proof source certificate does not match configured center host ${expectedHost}.`);
+  }
+  if (edge.spkiPinOnly === true && Boolean(edge.spkiSha256)) {
+    return sourceCert!;
+  }
+  const caPath = path.isAbsolute(edge.caPath)
+    ? edge.caPath
+    : path.resolve(fleetEdgeConfigDir(input.userRoot, input.repoId), edge.caPath);
+  if (!localRuntimeStateFileSystem.exists(caPath)) {
+    reject("Configured source center CA bundle is unavailable to verify switchover ceded proof.");
+  }
+  let trustedAnchors: readonly X509Certificate[];
+  try {
+    trustedAnchors = parseCertificateChain(readFileSync(caPath, "utf8"));
+  } catch (error) {
+    throw new FleetFault(
+      "switchover_ceded_proof_invalid",
+      `Configured source center CA bundle is unreadable: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
+  if (
+    trustedAnchors.length === 0 ||
+    !chainReachesTrustAnchor(sourceCert!, presentedChain.slice(1), trustedAnchors, nowMs)
+  ) {
+    reject("Switchover ceded proof source certificate chain is not trusted by this repository's configured center CA.");
+  }
+  return sourceCert!;
+}
+
 function verifySwitchoverCededProof(input: {
   readonly proof: CenterSwitchoverCededProofV1;
   readonly edge: FleetEdgeConfig;
@@ -432,48 +539,13 @@ function verifySwitchoverCededProof(input: {
   ) {
     reject("Switchover ceded proof does not match the authenticated source node, repository, switchoverId, or epoch.");
   }
-  let sourceCert: X509Certificate;
-  try {
-    sourceCert = new X509Certificate(proof.sourceCertificatePem);
-  } catch (error) {
-    throw new FleetFault(
-      "switchover_ceded_proof_invalid",
-      `Switchover ceded proof carries an unreadable source certificate: ${error instanceof Error ? error.message : String(error)}.`,
-    );
-  }
-  const nowMs = Date.now();
-  if (nowMs < Date.parse(sourceCert!.validFrom) || nowMs > Date.parse(sourceCert!.validTo)) {
-    reject("Switchover ceded proof source certificate is outside its validity window.");
-  }
-  const sourceSpki = normalizeSpkiDigestHex(spkiSha256FromCertificatePem(proof.sourceCertificatePem));
-  if (edge.spkiSha256 && sourceSpki !== normalizeSpkiDigestHex(edge.spkiSha256)) {
-    reject(
-      "Switchover ceded proof source certificate SPKI does not match this repository's configured center authority.",
-    );
-  }
-  const expectedHost = (edge.servername ?? edge.host).replace(/^\[|\]$/gu, "");
-  const hostMatched =
-    isIP(expectedHost) !== 0
-      ? sourceCert!.checkIP(expectedHost) !== undefined
-      : sourceCert!.checkHost(expectedHost) !== undefined;
-  if (!hostMatched) {
-    reject(`Switchover ceded proof source certificate does not match configured center host ${expectedHost}.`);
-  }
-  const caPath = path.isAbsolute(edge.caPath)
-    ? edge.caPath
-    : path.resolve(fleetEdgeConfigDir(input.userRoot, input.repoId), edge.caPath);
-  if (!localRuntimeStateFileSystem.exists(caPath)) {
-    reject("Configured source center CA bundle is unavailable to verify switchover ceded proof.");
-  }
-  const trustedCerts = parseCertificateChain(readFileSync(caPath, "utf8"));
-  const trustedByCa = trustedCerts.some(
-    (caCert) =>
-      sourceCert!.raw.equals(caCert.raw) || (sourceCert!.checkIssued(caCert) && sourceCert!.verify(caCert.publicKey)),
-  );
-  if (!trustedByCa && !(edge.spkiPinOnly === true && Boolean(edge.spkiSha256))) {
-    reject("Switchover ceded proof source certificate is not trusted by this repository's configured center CA.");
-  }
-  const publicKey = sourceCert!.publicKey;
+  const sourceCert = verifySwitchoverSourceCertificateTrust({
+    sourceCertificatePem: proof.sourceCertificatePem,
+    edge,
+    userRoot: input.userRoot,
+    repoId: input.repoId,
+  });
+  const publicKey = sourceCert.publicKey;
   const algorithm =
     publicKey.asymmetricKeyType === "ed25519" || publicKey.asymmetricKeyType === "ed448" ? null : "sha256";
   const signatureBytes = Buffer.from(proof.signatureBase64, "base64");
@@ -609,7 +681,7 @@ export function createDaemonSwitchoverControlHandler(input: {
       return { repoId: saved.repoId, nodeId: saved.nodeId, registeredAt: saved.updatedAt };
     },
 
-    status: async ({ repoId, expectedTargetNodeId, waitForCut }) => {
+    status: async ({ repoId, expectedTargetNodeId, waitForCut, sourceCertificatePem }) => {
       const repo = readDaemonRegistry({ userRoot }).repos.find((entry) => entry.repoId === repoId);
       const edge = readFleetEdgeConfig(userRoot, repoId);
       const localNodeId = resolveLocalNodeId(repoId);
@@ -618,6 +690,9 @@ export function createDaemonSwitchoverControlHandler(input: {
           "target_node_mismatch",
           `Switchover target node mismatch for ${repoId}: expected ${expectedTargetNodeId}, found ${localNodeId ?? "unconfigured"}.`,
         );
+      }
+      if (sourceCertificatePem && edge) {
+        verifySwitchoverSourceCertificateTrust({ sourceCertificatePem, edge, userRoot, repoId });
       }
       if (!repo || repo.canonicalRoot === null) {
         return {
@@ -964,13 +1039,18 @@ export async function handleSwitchoverFleetFrame(input: {
     });
   }
   if (frame.schema === "fleet.switchover.status/v1") {
-    await admit({ nodeId, repoId: frame.repoId, accessToken: frame.accessToken }, true);
+    if (frame.requireSwitchoverAdmin === true) {
+      await admitSwitchoverAdmin({ nodeId, repoId: frame.repoId, accessToken: frame.accessToken });
+    } else {
+      await admit({ nodeId, repoId: frame.repoId, accessToken: frame.accessToken }, true);
+    }
     if (!control?.status)
       throw new FleetFault("switchover_control_unavailable", "Switchover status probe is unavailable.");
     const result = await control.status({
       repoId: frame.repoId,
       expectedTargetNodeId: frame.expectedTargetNodeId,
       ...(frame.waitForCut ? { waitForCut: frame.waitForCut } : {}),
+      ...(frame.sourceCertificatePem ? { sourceCertificatePem: frame.sourceCertificatePem } : {}),
     });
     return immediate({
       schema: "fleet.switchover.status.result/v1",
@@ -1083,6 +1163,8 @@ export async function queryRemoteSwitchoverStatusClient(
     readonly repoId: string;
     readonly expectedTargetNodeId: string;
     readonly waitForCut?: SwitchoverStatusWaitCut;
+    readonly requireSwitchoverAdmin?: boolean;
+    readonly sourceCertificatePem?: string;
   },
 ): Promise<SwitchoverStatusResult & { readonly peerCertificatePem: string | null }> {
   const peer = await openPeer(options);
@@ -1097,6 +1179,8 @@ export async function queryRemoteSwitchoverStatusClient(
         repoId: payload.repoId,
         expectedTargetNodeId: payload.expectedTargetNodeId,
         ...(payload.waitForCut ? { waitForCut: payload.waitForCut } : {}),
+        ...(payload.requireSwitchoverAdmin ? { requireSwitchoverAdmin: true } : {}),
+        ...(payload.sourceCertificatePem ? { sourceCertificatePem: payload.sourceCertificatePem } : {}),
       },
       timeoutMs,
     );
@@ -1117,7 +1201,83 @@ export async function queryRemoteSwitchoverStatusClient(
   }
 }
 
-/** F11: Pre-validate that every outbound slot batch and the final activation frame pass closed wire schema & size caps BEFORE Phase 1 cedes write authority. */
+function peerUpperBoundMessageId(callerNodeId: string | undefined, sequence: number): string {
+  const prefix = callerNodeId && /^[A-Za-z0-9_-]+$/u.test(callerNodeId) ? callerNodeId : "switchover";
+  const tsLength = Math.max(10, Date.now().toString(36).length);
+  const seqDigits = String(Math.max(1000, sequence));
+  const candidate = `${prefix}_${"z".repeat(tsLength)}_${seqDigits}`;
+  return candidate.length <= 96 ? candidate : candidate.slice(0, 96);
+}
+
+function buildSwitchoverStageSlotsFrame(input: {
+  readonly messageId: string;
+  readonly repoId: string;
+  readonly switchoverId: string;
+  readonly expectedTargetNodeId: string;
+  readonly batchIndex: number;
+  readonly totalBatches: number;
+  readonly totalSlots: number;
+  readonly slots: readonly SwitchoverReplicationSlotRow[];
+  readonly cededProof: CenterSwitchoverCededProofV1;
+  readonly accessToken?: string;
+}): FleetFrameV1 {
+  return {
+    schema: "fleet.switchover.slots.stage/v1",
+    messageId: input.messageId,
+    repoId: input.repoId,
+    switchoverId: input.switchoverId,
+    expectedTargetNodeId: input.expectedTargetNodeId,
+    batchIndex: input.batchIndex,
+    totalBatches: input.totalBatches,
+    totalSlots: input.totalSlots,
+    slots: input.slots,
+    cededProof: input.cededProof,
+    ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+  };
+}
+
+function buildSwitchoverActivateFrame(input: {
+  readonly messageId: string;
+  readonly repoId: string;
+  readonly switchoverId: string;
+  readonly expectedTargetNodeId: string;
+  readonly expectedOldEpoch: number;
+  readonly newEpoch: number;
+  readonly frozenCut: SwitchoverFrozenCut;
+  readonly sourceReplicationLogWindow: readonly CenterReplicationLogRow[];
+  readonly retentionWindowCommits: number;
+  readonly replicationSlots?: readonly SwitchoverReplicationSlotRow[];
+  readonly stagedSlotCount?: number;
+  readonly stagedSlotsDigest?: string;
+  readonly cededProof: CenterSwitchoverCededProofV1;
+  readonly targetExternalUrl?: string;
+  readonly targetLoginUrl?: string;
+  readonly accessToken?: string;
+}): FleetFrameV1 {
+  return {
+    schema: "fleet.switchover.activate/v1",
+    messageId: input.messageId,
+    repoId: input.repoId,
+    switchoverId: input.switchoverId,
+    expectedTargetNodeId: input.expectedTargetNodeId,
+    expectedOldEpoch: input.expectedOldEpoch,
+    newEpoch: input.newEpoch,
+    frozenCut: input.frozenCut,
+    sourceReplicationLogWindow: input.sourceReplicationLogWindow,
+    retentionWindowCommits: input.retentionWindowCommits,
+    ...(input.replicationSlots && input.replicationSlots.length > 0
+      ? { replicationSlots: input.replicationSlots }
+      : {}),
+    ...(input.stagedSlotCount !== undefined ? { stagedSlotCount: input.stagedSlotCount } : {}),
+    ...(input.stagedSlotsDigest ? { stagedSlotsDigest: input.stagedSlotsDigest } : {}),
+    cededProof: input.cededProof,
+    ...(input.targetExternalUrl ? { targetExternalUrl: input.targetExternalUrl } : {}),
+    ...(input.targetLoginUrl ? { targetLoginUrl: input.targetLoginUrl } : {}),
+    ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+  };
+}
+
+/** F11: Pre-validate that every outbound slot batch and the final activation frame (including auth fields and peer messageId budget) pass closed wire schema & 64 MiB caps BEFORE Phase 1 cedes write authority. */
 export function measureSwitchoverRemoteActivationTransfer(input: {
   readonly repoId: string;
   readonly switchoverId: string;
@@ -1131,6 +1291,8 @@ export function measureSwitchoverRemoteActivationTransfer(input: {
   readonly cededProof: CenterSwitchoverCededProofV1;
   readonly targetExternalUrl?: string;
   readonly targetLoginUrl?: string;
+  readonly callerNodeId?: string;
+  readonly accessToken?: string;
 }): { readonly ok: true } | { readonly ok: false; readonly detail: string } {
   if (input.replicationSlots.length > MAX_STAGED_SLOTS_PER_SWITCHOVER) {
     return {
@@ -1139,7 +1301,9 @@ export function measureSwitchoverRemoteActivationTransfer(input: {
     };
   }
   const useBatchedStaging = input.replicationSlots.length > SWITCHOVER_SLOT_BATCH_SIZE;
+  const callerNodeId = input.callerNodeId ?? input.cededProof.sourceNodeId;
   try {
+    let sequence = 0;
     if (useBatchedStaging) {
       const totalBatches = Math.ceil(input.replicationSlots.length / SWITCHOVER_SLOT_BATCH_SIZE);
       for (let batchIndex = 0; batchIndex < totalBatches; batchIndex += 1) {
@@ -1147,46 +1311,50 @@ export function measureSwitchoverRemoteActivationTransfer(input: {
           batchIndex * SWITCHOVER_SLOT_BATCH_SIZE,
           (batchIndex + 1) * SWITCHOVER_SLOT_BATCH_SIZE,
         );
-        const bytes = measureFleetTransferPayload({
-          schema: "fleet.switchover.slots.stage/v1",
-          messageId: `precheck_batch_${String(batchIndex)}`,
-          repoId: input.repoId,
-          switchoverId: input.switchoverId,
-          expectedTargetNodeId: input.expectedTargetNodeId,
-          batchIndex,
-          totalBatches,
-          totalSlots: input.replicationSlots.length,
-          slots: batch,
-          cededProof: input.cededProof,
-        });
+        const bytes = measureFleetTransferPayload(
+          buildSwitchoverStageSlotsFrame({
+            messageId: peerUpperBoundMessageId(callerNodeId, sequence++),
+            repoId: input.repoId,
+            switchoverId: input.switchoverId,
+            expectedTargetNodeId: input.expectedTargetNodeId,
+            batchIndex,
+            totalBatches,
+            totalSlots: input.replicationSlots.length,
+            slots: batch,
+            cededProof: input.cededProof,
+            ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+          }),
+        );
         if (bytes > FLEET_UPLOAD_MAX_BYTES) {
           return { ok: false, detail: `Switchover slot batch ${String(batchIndex)} exceeds 64 MiB transfer limit.` };
         }
       }
     }
-    const activateBytes = measureFleetTransferPayload({
-      schema: "fleet.switchover.activate/v1",
-      messageId: "precheck_activate",
-      repoId: input.repoId,
-      switchoverId: input.switchoverId,
-      expectedTargetNodeId: input.expectedTargetNodeId,
-      expectedOldEpoch: input.expectedOldEpoch,
-      newEpoch: input.newEpoch,
-      frozenCut: input.frozenCut,
-      sourceReplicationLogWindow: input.sourceReplicationLogWindow,
-      retentionWindowCommits: input.retentionWindowCommits,
-      ...(useBatchedStaging
-        ? {
-            stagedSlotCount: input.replicationSlots.length,
-            stagedSlotsDigest: computeSwitchoverSlotsDigest(input.replicationSlots),
-          }
-        : input.replicationSlots.length > 0
-          ? { replicationSlots: input.replicationSlots }
-          : {}),
-      cededProof: input.cededProof,
-      ...(input.targetExternalUrl ? { targetExternalUrl: input.targetExternalUrl } : {}),
-      ...(input.targetLoginUrl ? { targetLoginUrl: input.targetLoginUrl } : {}),
-    });
+    const activateBytes = measureFleetTransferPayload(
+      buildSwitchoverActivateFrame({
+        messageId: peerUpperBoundMessageId(callerNodeId, sequence++),
+        repoId: input.repoId,
+        switchoverId: input.switchoverId,
+        expectedTargetNodeId: input.expectedTargetNodeId,
+        expectedOldEpoch: input.expectedOldEpoch,
+        newEpoch: input.newEpoch,
+        frozenCut: input.frozenCut,
+        sourceReplicationLogWindow: input.sourceReplicationLogWindow,
+        retentionWindowCommits: input.retentionWindowCommits,
+        ...(useBatchedStaging
+          ? {
+              stagedSlotCount: input.replicationSlots.length,
+              stagedSlotsDigest: computeSwitchoverSlotsDigest(input.replicationSlots),
+            }
+          : input.replicationSlots.length > 0
+            ? { replicationSlots: input.replicationSlots }
+            : {}),
+        cededProof: input.cededProof,
+        ...(input.targetExternalUrl ? { targetExternalUrl: input.targetExternalUrl } : {}),
+        ...(input.targetLoginUrl ? { targetLoginUrl: input.targetLoginUrl } : {}),
+        ...(input.accessToken ? { accessToken: input.accessToken } : {}),
+      }),
+    );
     if (activateBytes > FLEET_UPLOAD_MAX_BYTES) {
       return { ok: false, detail: "Switchover activation payload exceeds 64 MiB transfer limit." };
     }
@@ -1217,8 +1385,7 @@ export async function activateRemoteSwitchoverClient(
           (batchIndex + 1) * SWITCHOVER_SLOT_BATCH_SIZE,
         );
         const stageReply = await peer.request(
-          {
-            schema: "fleet.switchover.slots.stage/v1",
+          buildSwitchoverStageSlotsFrame({
             messageId: peer.messageId(),
             repoId: payload.repoId,
             switchoverId: payload.switchoverId,
@@ -1228,7 +1395,7 @@ export async function activateRemoteSwitchoverClient(
             totalSlots: slots.length,
             slots: batch,
             cededProof: payload.cededProof,
-          },
+          }),
           options.timeoutMs ?? 60_000,
         );
         if (stageReply.schema !== "fleet.switchover.slots.stage.result/v1")
@@ -1238,8 +1405,7 @@ export async function activateRemoteSwitchoverClient(
       stagedSlotsDigest = computeSwitchoverSlotsDigest(slots);
     }
     const reply = await peer.request(
-      {
-        schema: "fleet.switchover.activate/v1",
+      buildSwitchoverActivateFrame({
         messageId: peer.messageId(),
         repoId: payload.repoId,
         switchoverId: payload.switchoverId,
@@ -1255,7 +1421,7 @@ export async function activateRemoteSwitchoverClient(
         cededProof: payload.cededProof,
         ...(payload.targetExternalUrl ? { targetExternalUrl: payload.targetExternalUrl } : {}),
         ...(payload.targetLoginUrl ? { targetLoginUrl: payload.targetLoginUrl } : {}),
-      },
+      }),
       options.timeoutMs ?? 60_000,
     );
     if (reply.schema !== "fleet.switchover.activate.result/v1")
