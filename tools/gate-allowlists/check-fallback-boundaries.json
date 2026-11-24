@@ -113,7 +113,7 @@
     "packages/daemon/src/fleet-sync/cloud-query-host.ts#createCloudQueryHost": {
       "task": "task_e2d18ded84556e7edb8342b321",
       "decision": null,
-      "errors": "QueryFault, task_not_found, PG statement_timeout (57014), keycloak_admin_rejected / daemon_error, abort/timeout, and unexpected read failures mapped to HTTP error responses",
+      "errors": "QueryFault, task_not_found, PG statement_timeout (57014), identity_unavailable / daemon_error, abort/timeout, and unexpected read failures mapped to HTTP error responses",
       "reason": "The stateless cloud query Fetch handler is an HTTP protocol boundary that must return explicit HTTP error responses (400/401/403/404/499/500/503/504) with cache-control: no-store and forward unexpected failures to options.onError; it never substitutes a successful read payload. Timed-out requests also consume the trailing background settlement rejection via consumeKnownError after already returning 499/504."
     },
     "packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker": {

@@ -2,19 +2,31 @@ import { readPersonalAgendaAwaitsFromAsyncProjection } from "@harness-anything/a
 import { readCollaboratorTaskPageFromAsyncProjection } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 import { workTopologyFromAsyncProjection } from "@harness-anything/application/internal/queries/work-topology-read.ts";
 import { workspaceSummaryFromProjectionRead } from "@harness-anything/application/internal/queries/workspace-summary-read.ts";
-import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak/internal/keycloak-policy-adapter";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { withPgProjectionReadSession } from "@harness-anything/storage/pg/read-only";
 
 type ReadSession = Parameters<typeof withPgProjectionReadSession>[1];
 type Projection = Parameters<Parameters<typeof withPgProjectionReadSession>[2]>[0];
-type KeycloakConfig = ConstructorParameters<typeof KeycloakPolicyAdapter>[0];
 type QueryContext = {
   readonly search: URLSearchParams;
   readonly personId: string;
 };
 type Route = (projection: Projection, context: QueryContext) => Promise<unknown>;
+
+export type CloudQueryAuthorizationResult =
+  | { readonly outcome: "allowed"; readonly personId: string }
+  | { readonly outcome: "unauthenticated" }
+  | { readonly outcome: "denied" }
+  | { readonly outcome: "unavailable" };
+
+export interface CloudQueryAuthorizer {
+  readonly authorizeRepositoryRead: (input: {
+    readonly token: string;
+    readonly repoId: string;
+    readonly signal: AbortSignal;
+  }) => Promise<CloudQueryAuthorizationResult>;
+}
 
 const routes = new Map<string, Route>([
   [
@@ -46,15 +58,14 @@ const routes = new Map<string, Route>([
   ],
 ]);
 
-interface CloudQueryHostOptions {
+export interface CloudQueryHostOptions {
   readonly pool: Parameters<typeof withPgProjectionReadSession>[0];
-  readonly keycloak: KeycloakConfig;
+  readonly authorizer: CloudQueryAuthorizer;
   /** Deployment-owned repository admission. Values determine the PG tenant, project, epoch and reader scope. */
   readonly repositories: ReadonlyMap<string, ReadSession["scope"]>;
   /** A replica sheds overload before OIDC and PG receive work. */
   readonly maxInFlight: number;
   readonly timeoutMs?: number;
-  readonly fetch?: typeof globalThis.fetch;
   readonly onError?: (error: unknown) => void;
 }
 
@@ -72,12 +83,7 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
     !isWithinBounds(options.maxInFlight, minimumLimit, Number.MAX_SAFE_INTEGER)
   )
     throw new RangeError("Cloud query admission requires positive, bounded limits.");
-  const realm = new URL(options.keycloak.url);
-  if (realm.protocol !== "https:" || realm.username || realm.password || realm.search || realm.hash)
-    throw new TypeError("Cloud queries require a configured HTTPS Keycloak authority.");
-  const userinfoUrl = `${realm.href.replace(/\/$/u, "")}/realms/${encodeURIComponent(options.keycloak.realm)}/protocol/openid-connect/userinfo`;
   const repositories = new Map(options.repositories);
-  const fetchPort = options.fetch ?? globalThis.fetch;
   let inFlight = 0;
   return async (request) => {
     const url = new URL(request.url);
@@ -94,11 +100,9 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
     const signal = AbortSignal.any([request.signal, AbortSignal.timeout(timeoutMs)]);
     const deadlineAt = Date.now() + timeoutMs;
     const work = (async () => {
-      const fetchAuthority: typeof globalThis.fetch = (url, init) =>
-        fetchPort(url, { ...init, signal, redirect: "error" });
       try {
         signal.throwIfAborted();
-        const personId = await authorizeRepository(userinfoUrl, options.keycloak, fetchAuthority, token, repoId);
+        const personId = await authorizeRepository(options.authorizer, token, repoId, signal);
         const scope = repositories.get(repoId);
         if (!scope) throw new QueryFault(404, "repository_not_found");
         const value = await withPgProjectionReadSession(
@@ -116,7 +120,7 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
         const code = error instanceof Error && "code" in error ? error.code : undefined;
         if (code === "task_not_found") return fault(404, code);
         if (code === "57014") return fault(504, "query_timeout");
-        if (code === "keycloak_admin_rejected" || code === "daemon_error") return fault(503, "identity_unavailable");
+        if (code === "identity_unavailable" || code === "daemon_error") return fault(503, "identity_unavailable");
         options.onError?.(error);
         return fault(500, "query_failed");
       } finally {
@@ -140,26 +144,17 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
 }
 
 async function authorizeRepository(
-  userinfoUrl: string,
-  config: KeycloakConfig,
-  fetchAuthority: typeof globalThis.fetch,
+  authorizer: CloudQueryAuthorizer,
   token: string,
   repoId: string,
+  signal: AbortSignal,
 ): Promise<string> {
-  const identity = await fetchAuthority(userinfoUrl, { headers: { authorization: `Bearer ${token}` } });
-  if (identity.status === 401 || identity.status === 403) throw new QueryFault(401, "authentication_required");
-  if (!identity.ok) throw new QueryFault(503, "identity_unavailable");
-  const { harness_person_id: personId } = (await identity.json()) as { readonly harness_person_id?: unknown };
-  if (typeof personId !== "string" || !personId || personId.includes("/"))
-    throw new QueryFault(401, "authentication_required");
-  const adapter = new KeycloakPolicyAdapter(config, fetchAuthority);
-  const decision = await adapter.authorize({
-    userAccessToken: token,
-    action: "repository-read",
-    resource: { kind: "repository", repoId },
-  });
+  const decision = await authorizer.authorizeRepositoryRead({ token, repoId, signal });
+  if (decision.outcome === "unauthenticated") throw new QueryFault(401, "authentication_required");
+  if (decision.outcome === "unavailable") throw new QueryFault(503, "identity_unavailable");
   if (decision.outcome !== "allowed") throw new QueryFault(403, "authorization_denied");
-  return personId;
+  if (!decision.personId || decision.personId.includes("/")) throw new QueryFault(401, "authentication_required");
+  return decision.personId;
 }
 
 function isWithinBounds(value: number, minimum: number, maximum: number): boolean {

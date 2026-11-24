@@ -1805,6 +1805,54 @@
         "order": 78
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#beginCanonicalJsonTextFieldHash.hash:666f5d83ff22eb47d3ebb6f831c61daf",
+        "route": "repository-read",
+        "role": "support",
+        "order": 96
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#beginCanonicalJsonTextFieldHash.hash:9def313cc35a2590c5446387c79e5ea8",
+        "route": "repository-read",
+        "role": "support",
+        "order": 95
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunks:07b947e08ffee0620d9112203dd2b3a9",
+        "route": "repository-read",
+        "role": "support",
+        "order": 91
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunks:0f6d7b743e376d6ad2f679a838806250",
+        "route": "repository-read",
+        "role": "support",
+        "order": 89
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunks:2c898441519862da940868da2871d3c4",
+        "route": "repository-read",
+        "role": "support",
+        "order": 90
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunksAsync:07b947e08ffee0620d9112203dd2b3a9",
+        "route": "repository-read",
+        "role": "support",
+        "order": 94
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunksAsync:0f6d7b743e376d6ad2f679a838806250",
+        "route": "repository-read",
+        "role": "support",
+        "order": 92
+      },
+      {
+        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunksAsync:2c898441519862da940868da2871d3c4",
+        "route": "repository-read",
+        "role": "support",
+        "order": 93
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/projection/event-summary-read-index.ts#pendingReadIndex:c66c7437fc4afa61d7d295784228ceb2",
         "route": "repository-read",
         "role": "support",
@@ -1863,54 +1911,6 @@
         "route": "repository-read",
         "role": "support",
         "order": 88
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#beginCanonicalJsonTextFieldHash.hash:666f5d83ff22eb47d3ebb6f831c61daf",
-        "route": "repository-read",
-        "role": "support",
-        "order": 96
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#beginCanonicalJsonTextFieldHash.hash:9def313cc35a2590c5446387c79e5ea8",
-        "route": "repository-read",
-        "role": "support",
-        "order": 95
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunks:07b947e08ffee0620d9112203dd2b3a9",
-        "route": "repository-read",
-        "role": "support",
-        "order": 91
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunks:0f6d7b743e376d6ad2f679a838806250",
-        "route": "repository-read",
-        "role": "support",
-        "order": 89
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunks:2c898441519862da940868da2871d3c4",
-        "route": "repository-read",
-        "role": "support",
-        "order": 90
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunksAsync:07b947e08ffee0620d9112203dd2b3a9",
-        "route": "repository-read",
-        "role": "support",
-        "order": 94
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunksAsync:0f6d7b743e376d6ad2f679a838806250",
-        "route": "repository-read",
-        "role": "support",
-        "order": 92
-      },
-      {
-        "candidateId": "action:packages/storage:packages/storage/src/projection/canonical-json.ts#hashCanonicalJsonTextFieldChunksAsync:2c898441519862da940868da2871d3c4",
-        "route": "repository-read",
-        "role": "support",
-        "order": 93
       },
       {
         "candidateId": "action:packages/storage:packages/storage/src/projection/relation-cycle-audit-projection.ts#readRelationCycleAudit:2a5defa1bfdeb70797ebdfb39d4cec9a",
