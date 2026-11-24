@@ -88,7 +88,10 @@ const installArtifactConsumers = () =>
 
 test("every node-modules consumer fails fast when upstream install does not succeed", () => {
   const consumers = installArtifactConsumers();
-  assert.ok(consumers.length >= 9, "expected every shared node_modules artifact consumer with a fail-fast step to be covered");
+  assert.ok(
+    consumers.length >= 9,
+    "expected every shared node_modules artifact consumer with a fail-fast step to be covered",
+  );
   for (const job of consumers) {
     const label = job.split(":")[0];
     assert.match(job, /name: Fail fast when the shared install did not succeed/u, label);
