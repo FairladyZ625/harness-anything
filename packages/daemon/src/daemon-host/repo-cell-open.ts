@@ -749,7 +749,11 @@ export async function openRepoWriterCell(
     },
     getSquadCoordinator: () => squadCoordinator,
   });
-  const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
+  const runtimeContext = Object.assign(extracted, {
+    input: { ...extracted.input, ...(input.userRoot === undefined ? {} : { userRoot: input.userRoot }) },
+    mode,
+    runtimeSpawner,
+  });
   runtimeContext satisfies RepoCellRuntimeContext;
   const settings = makeRepoCellSettingsState({
       input: extracted.input,
