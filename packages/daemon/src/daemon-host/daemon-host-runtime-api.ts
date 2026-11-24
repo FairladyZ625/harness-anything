@@ -68,6 +68,11 @@ import {
 import { makeResidentCeoService } from "@harness-anything/application/internal/commands/resident-ceo.ts";
 import type { PeerRequestV1 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
 import { openResidentCeoProfileStore } from "./resident-ceo-profile-store.ts";
+import { runtimeDispatchIdentity } from "./task-dispatch-recovery.ts";
+
+function residentCeoDispatchKey(principalPersonId: string, wakeId: string): string {
+  return `resident-ceo:${principalPersonId}:${wakeId}`;
+}
 
 export function createDaemonHostRuntimeApi(
   context: DaemonHostApiContext,
@@ -182,6 +187,25 @@ export function createDaemonHostRuntimeApi(
     throwIfCenterRelocated(userRoot, repoId, { repoMode });
     if (mutating) throwIfCenterMigrating(userRoot, repoId);
   };
+  const acknowledgeResidentCeoPeer = async (
+    repoId: string,
+    requestId: string,
+    auth: DaemonAuthenticationContext,
+  ): Promise<void> => {
+    const reply = await context.host.run(
+      repoId,
+      {
+        kind: "peer-reply",
+        requestId,
+        claim: "The recipient's resident CEO processed this request.",
+        requestedAction: "Contact the recipient for its assessment or further action.",
+        idempotencyKey: `resident-ceo-reply-${requestId}`,
+      },
+      auth,
+    );
+    if (reply.outcome !== "applied" && reply.outcome !== "no_changes")
+      throw context.hostCodedError(reply.code ?? "resident_ceo_reply_unconfirmed", "Peer reply was not confirmed.");
+  };
   const residentCeoService = (repoId: string, auth: Parameters<typeof context.binding>[1]) => {
     const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
     return makeResidentCeoService({
@@ -201,7 +225,7 @@ export function createDaemonHostRuntimeApi(
                 mcpPolicy: "disabled",
                 cwd: { scope: "repo-root" },
                 taskId: null,
-                dispatchKey: `resident-ceo:${request.principalPersonId}:${request.wakeId}`,
+                dispatchKey: residentCeoDispatchKey(request.principalPersonId, request.wakeId),
                 idempotencyKey: `resident-ceo:${request.wakeId}`,
               },
               auth,
@@ -226,24 +250,8 @@ export function createDaemonHostRuntimeApi(
                 );
               const response =
                 session.result?.text?.trim() || "The request was received. No response text was produced.";
-              if (request.peerRequestId !== undefined) {
-                const reply = await context.host.run(
-                  repoId,
-                  {
-                    kind: "peer-reply",
-                    requestId: request.peerRequestId,
-                    claim: response,
-                    requestedAction: "The recipient's resident CEO provided this assessment.",
-                    idempotencyKey: `resident-ceo-reply-${request.peerRequestId}`,
-                  },
-                  auth,
-                );
-                if (reply.outcome !== "applied" && reply.outcome !== "no_changes")
-                  throw context.hostCodedError(
-                    reply.code ?? "resident_ceo_reply_unconfirmed",
-                    "Peer reply was not confirmed.",
-                  );
-              }
+              if (request.peerRequestId !== undefined)
+                await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth);
               return { response, persistentSessionId: session.session.providerSessionId };
             })(),
           };
@@ -251,7 +259,7 @@ export function createDaemonHostRuntimeApi(
       },
     });
   };
-  const watchResidentCeoInbox = (repoId: string, principalPersonId: string): void => {
+  const watchResidentCeoInbox = (repoId: string, principalPersonId: string, recoveringWakeId?: string): void => {
     residentCeoInboxWatchers.get(principalPersonId)?.abort();
     if (context.closeSignal.aborted) return;
     const controller = new AbortController();
@@ -277,6 +285,33 @@ export function createDaemonHostRuntimeApi(
               "Resident CEO requires its principal's local session.",
             );
           signal.throwIfAborted();
+          if (profile.lastWake?.status === "running" && profile.lastWake.wakeId === recoveringWakeId) {
+            const { wakeId } = profile.lastWake;
+            const { runtimeSessionId } = runtimeDispatchIdentity(
+              repoId,
+              residentCeoDispatchKey(principalPersonId, wakeId),
+            );
+            const settled = await context.host.read(
+              repoId,
+              "repo.agentRuntime.sessions.read",
+              { runtimeSessionId: profile.lastWake.runtimeSessionId ?? runtimeSessionId },
+              auth,
+            );
+            if (settled.settlement === null || settled.settlement.outcome === "unknown") {
+              await delay(intervalMs, undefined, { signal, ref: false });
+              continue;
+            }
+            if (settled.settlement.outcome === "succeeded" && profile.lastWake.peerRequestId !== undefined)
+              await acknowledgeResidentCeoPeer(repoId, profile.lastWake.peerRequestId, auth);
+            await residentCeoService(repoId, auth).reconcileWake(principalPersonId, wakeId, {
+              runtimeSessionId: settled.session.runtimeSessionId,
+              succeeded: settled.settlement.outcome === "succeeded",
+              persistentSessionId: settled.session.providerSessionId,
+              detail: settled.settlement.reason,
+            });
+            recoveringWakeId = undefined;
+            continue;
+          }
           if (afterRevision === undefined) {
             const page = await cell.read("repo.events.read", { afterRevision: 0, limit: 1 }, undefined, signal);
             afterRevision = page.headRevision;
@@ -341,7 +376,11 @@ export function createDaemonHostRuntimeApi(
     restoreResidentCeos: async () => {
       for (const profile of await residentCeoProfiles.list()) {
         if (profile.status === "running" && profile.repoId !== undefined)
-          watchResidentCeoInbox(profile.repoId, profile.principalPersonId);
+          watchResidentCeoInbox(
+            profile.repoId,
+            profile.principalPersonId,
+            profile.lastWake?.status === "running" ? profile.lastWake.wakeId : undefined,
+          );
       }
     },
     residentCeo: async (repoId, operation, payload, auth): Promise<JsonObject> => {

@@ -101,7 +101,10 @@ test(
         await host.run(repoId, { kind: "peer-watch", once: true, replyTo: request.requestId }, auth),
       ) as { request: PeerRequestV1 };
       assert.equal(senderView.request.state, "ANSWERED");
-      assert.equal(senderView.request.reply?.structuredBody.claim, chat.response);
+      assert.equal(
+        senderView.request.reply?.structuredBody.claim,
+        "The recipient's resident CEO processed this request.",
+      );
     } finally {
       await host.close();
       removeTempRepository(parent);

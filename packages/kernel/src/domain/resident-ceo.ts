@@ -12,6 +12,7 @@ export interface ResidentCeoWakeReceipt {
   readonly completedAt: string | null;
   readonly status: ResidentCeoWakeStatus;
   readonly runtimeSessionId: string | null;
+  readonly peerRequestId?: string;
   readonly detail: string | null;
 }
 
@@ -94,6 +95,7 @@ export function residentCeoWakeReceipt(input: {
   readonly completedAt: string | null;
   readonly status: ResidentCeoWakeStatus;
   readonly runtimeSessionId: string | null;
+  readonly peerRequestId?: string;
   readonly persistentSessionId?: string | null;
   readonly detail?: string | null;
 }): ResidentCeoProfile {
@@ -104,6 +106,7 @@ export function residentCeoWakeReceipt(input: {
     completedAt: input.completedAt,
     status: input.status,
     runtimeSessionId: input.runtimeSessionId,
+    ...(input.peerRequestId === undefined ? {} : { peerRequestId: input.peerRequestId }),
     detail: input.detail ?? null,
   };
   return {

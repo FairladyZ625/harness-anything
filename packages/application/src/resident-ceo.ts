@@ -55,6 +55,35 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
   };
 
   return {
+    reconcileWake: async (
+      principalPersonId: string,
+      wakeId: string,
+      settlement: {
+        readonly runtimeSessionId: string;
+        readonly succeeded: boolean;
+        readonly persistentSessionId: string | null;
+        readonly detail: string | null;
+      },
+    ) => {
+      const profile = await requiredProfile(principalPersonId);
+      const wake = profile.lastWake;
+      if (wake?.status !== "running" || wake.wakeId !== wakeId) return profile;
+      return update(
+        profile,
+        residentCeoWakeReceipt({
+          profile,
+          wakeId,
+          cause: wake.cause,
+          requestedAt: wake.requestedAt,
+          completedAt: input.now(),
+          status: settlement.succeeded ? "succeeded" : "failed",
+          runtimeSessionId: settlement.runtimeSessionId,
+          ...(wake.peerRequestId === undefined ? {} : { peerRequestId: wake.peerRequestId }),
+          ...(settlement.succeeded ? { persistentSessionId: settlement.persistentSessionId } : {}),
+          detail: settlement.detail,
+        }),
+      );
+    },
     configure: async (principalPersonId: string, configuration: Omit<ResidentCeoProfileInput, "principalPersonId">) => {
       const previous = await input.profiles.read(principalPersonId);
       if (previous !== null) assertResidentCeoPrincipal(previous, principalPersonId);
@@ -107,6 +136,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           completedAt: null,
           status: "running",
           runtimeSessionId: null,
+          ...(peerRequestId === undefined ? {} : { peerRequestId }),
         }),
       );
       let run: Awaited<ReturnType<ResidentCeoRuntime["run"]>>;
@@ -132,6 +162,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           completedAt,
           status: "failed",
           runtimeSessionId: null,
+          ...(peerRequestId === undefined ? {} : { peerRequestId }),
           detail: error instanceof Error ? error.message : String(error),
         });
         const saved = await update(profile, failed);
@@ -150,6 +181,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           completedAt: null,
           status: "running",
           runtimeSessionId: run.runtimeSessionId,
+          ...(peerRequestId === undefined ? {} : { peerRequestId }),
         }),
       );
       let completedResponse: Awaited<Awaited<ReturnType<ResidentCeoRuntime["run"]>>["response"]>;
@@ -166,6 +198,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           completedAt,
           status: "failed",
           runtimeSessionId: run.runtimeSessionId,
+          ...(peerRequestId === undefined ? {} : { peerRequestId }),
           detail: error instanceof Error ? error.message : String(error),
         });
         const saved = await update(profile, failed);
@@ -183,6 +216,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
         completedAt,
         status: "succeeded",
         runtimeSessionId: run.runtimeSessionId,
+        ...(peerRequestId === undefined ? {} : { peerRequestId }),
         ...(current.repoId === profile.repoId &&
         current.runtimeInstanceId === profile.runtimeInstanceId &&
         current.model === profile.model
