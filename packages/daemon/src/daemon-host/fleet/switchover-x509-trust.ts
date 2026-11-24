@@ -559,11 +559,24 @@ function rfc822MatchesSubtree(candidate: string, constraint: string): boolean {
   return candDomain === consDomain;
 }
 
-function uriMatchesSubtree(candidate: string, constraint: string): boolean {
+const DNS_FQDN_RE =
+  /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+(?![0-9]+$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u;
+const DNS_WILDCARD_OR_FQDN_RE =
+  /^(?:\*|[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.(?![0-9]+$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u;
+const URI_AUTHORITY_SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u;
+
+function extractConstrainedUriHost(candidate: string): string | null {
+  if (!URI_AUTHORITY_SCHEME_RE.test(candidate)) return null;
   const parsed = URL.parse(candidate);
-  if (!parsed) return false;
-  const host = parsed.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
-  if (!host) return false;
+  if (!parsed) return null;
+  const rawHost = parsed.hostname;
+  if (!rawHost || rawHost.startsWith("[") || rawHost.endsWith("]") || isIP(rawHost) !== 0) return null;
+  const normalizedHost = rawHost.endsWith(".") ? rawHost.slice(0, -1) : rawHost;
+  if (normalizedHost.length > 253 || !DNS_FQDN_RE.test(normalizedHost)) return null;
+  return normalizedHost.toLowerCase();
+}
+
+function uriHostMatchesSubtree(host: string, constraint: string): boolean {
   const cons = constraint.toLowerCase();
   if (cons.startsWith(".")) {
     return host.length > cons.length && host.endsWith(cons);
@@ -584,11 +597,11 @@ function extractSubjectAttrTexts(rdns: DerName, oidHex: string): readonly string
 }
 
 function certSatisfiesNameConstraints(sub: ParsedCertData, isLeaf: boolean, nc: ParsedNameConstraints): boolean {
-  // dNSName (+ CN fallback on leaf when no DNS SAN is present, matching OpenSSL v3_ncons.c)
+  // dNSName (+ CN-to-DNS fallback on leaf when no DNS SAN is present, matching OpenSSL cn2dnsid v3_ncons.c:316-440)
   const dnsCandidates: string[] = [...sub.san.dnsNames];
   if (isLeaf && dnsCandidates.length === 0) {
     for (const cn of extractSubjectAttrTexts(sub.subjectRdns, OID_COMMON_NAME_HEX)) {
-      if (isIP(cn) === 0) dnsCandidates.push(cn);
+      if (cn.length <= 253 && isIP(cn) === 0 && DNS_WILDCARD_OR_FQDN_RE.test(cn)) dnsCandidates.push(cn);
     }
   }
   const permDns = nc.permitted.filter((s): s is Extract<NameConstraintSubtree, { kind: "dns" }> => s.kind === "dns");
@@ -620,28 +633,36 @@ function certSatisfiesNameConstraints(sub: ParsedCertData, isLeaf: boolean, nc: 
     if (exclDir.some((s) => directoryNameMatchesSubtree(cand, s.rdns))) return false;
   }
 
-  // rfc822Name (+ emailAddress attribute in Subject DN when no rfc822Name SAN)
-  const rfc822Candidates: string[] = [...sub.san.rfc822Names];
-  if (rfc822Candidates.length === 0) {
-    rfc822Candidates.push(...extractSubjectAttrTexts(sub.subjectRdns, OID_EMAIL_ADDRESS_HEX));
-  }
+  // rfc822Name: check ALL rfc822Name SANs AND all Subject DN emailAddress attributes (OpenSSL v3_ncons.c:257-312).
+  const rfc822Candidates: string[] = [
+    ...sub.san.rfc822Names,
+    ...extractSubjectAttrTexts(sub.subjectRdns, OID_EMAIL_ADDRESS_HEX),
+  ];
   const permMail = nc.permitted.filter(
     (s): s is Extract<NameConstraintSubtree, { kind: "rfc822" }> => s.kind === "rfc822",
   );
   const exclMail = nc.excluded.filter(
     (s): s is Extract<NameConstraintSubtree, { kind: "rfc822" }> => s.kind === "rfc822",
   );
-  for (const cand of rfc822Candidates) {
-    if (permMail.length > 0 && !permMail.some((s) => rfc822MatchesSubtree(cand, s.value))) return false;
-    if (exclMail.some((s) => rfc822MatchesSubtree(cand, s.value))) return false;
+  if (permMail.length > 0 || exclMail.length > 0) {
+    for (const cand of rfc822Candidates) {
+      const atIdx = cand.lastIndexOf("@");
+      if (atIdx <= 0 || atIdx === cand.length - 1) return false;
+      if (permMail.length > 0 && !permMail.some((s) => rfc822MatchesSubtree(cand, s.value))) return false;
+      if (exclMail.some((s) => rfc822MatchesSubtree(cand, s.value))) return false;
+    }
   }
 
-  // uniformResourceIdentifier
+  // uniformResourceIdentifier (RFC 5280 §4.2.1.10: authority URI with non-IP FQDN host required whenever constrained)
   const permUri = nc.permitted.filter((s): s is Extract<NameConstraintSubtree, { kind: "uri" }> => s.kind === "uri");
   const exclUri = nc.excluded.filter((s): s is Extract<NameConstraintSubtree, { kind: "uri" }> => s.kind === "uri");
-  for (const cand of sub.san.uris) {
-    if (permUri.length > 0 && !permUri.some((s) => uriMatchesSubtree(cand, s.value))) return false;
-    if (exclUri.some((s) => uriMatchesSubtree(cand, s.value))) return false;
+  if (permUri.length > 0 || exclUri.length > 0) {
+    for (const cand of sub.san.uris) {
+      const uriHost = extractConstrainedUriHost(cand);
+      if (uriHost === null) return false;
+      if (permUri.length > 0 && !permUri.some((s) => uriHostMatchesSubtree(uriHost, s.value))) return false;
+      if (exclUri.some((s) => uriHostMatchesSubtree(uriHost, s.value))) return false;
+    }
   }
 
   return true;

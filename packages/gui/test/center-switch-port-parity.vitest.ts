@@ -155,6 +155,12 @@ function createIntermediateCertChain(
   readonly excludedIpViolatingChainPath: string;
   readonly excludedDnsViolatingChainPath: string;
   readonly unknownCriticalExtChainPath: string;
+  readonly emailBothViolatingChainPath: string;
+  readonly urnExclUriViolatingChainPath: string;
+  readonly ipUriExclViolatingChainPath: string;
+  readonly ipSanDescCnPermittedChainPath: string;
+  readonly ipSanSingleCnPermittedChainPath: string;
+  readonly ipSanDnsCnViolatingChainPath: string;
   readonly spkiSha256: string;
 } {
   mkdirSync(directory, { recursive: true });
@@ -430,8 +436,14 @@ function createIntermediateCertChain(
     "utf8",
   );
 
-  // Helper to build additional intermediate CA chains wrapping the EXACT SAME leaf CSR/SPKI & SAN.
-  const buildInterChain = (slug: string, interSubject: string, interExtContent: string): string => {
+  // Helper to build additional intermediate CA chains wrapping the EXACT SAME leaf private key (SPKI),
+  // optionally customizing leaf subject/SAN while preserving the exact leaf SPKI pin.
+  const buildInterChain = (
+    slug: string,
+    interSubject: string,
+    interExtContent: string,
+    leafOverride?: { readonly subject?: string; readonly san?: string },
+  ): string => {
     const ik = path.join(directory, `${slug}-inter.key`);
     const ic = path.join(directory, `${slug}-inter.csr`);
     const ie = path.join(directory, `${slug}-inter.ext`);
@@ -465,13 +477,29 @@ function createIntermediateCertChain(
       ],
       { stdio: "ignore" },
     );
+    let csrForLeaf = leafCsrPath;
+    if (leafOverride?.subject) {
+      csrForLeaf = path.join(directory, `${slug}-leaf.csr`);
+      execFileSync("openssl", ["req", "-new", "-key", leafKeyPath, "-out", csrForLeaf, "-subj", leafOverride.subject], {
+        stdio: "ignore",
+      });
+    }
+    let extForLeaf = leafExtPath;
+    if (leafOverride?.san) {
+      extForLeaf = path.join(directory, `${slug}-leaf.ext`);
+      writeFileSync(
+        extForLeaf,
+        `basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=${leafOverride.san}\n`,
+        "utf8",
+      );
+    }
     execFileSync(
       "openssl",
       [
         "x509",
         "-req",
         "-in",
-        leafCsrPath,
+        csrForLeaf,
         "-CA",
         ip,
         "-CAkey",
@@ -482,7 +510,7 @@ function createIntermediateCertChain(
         "-days",
         "1",
         "-extfile",
-        leafExtPath,
+        extForLeaf,
       ],
       { stdio: "ignore" },
     );
@@ -517,6 +545,48 @@ function createIntermediateCertChain(
     "/CN=Fleet Test Unknown Critical Ext CA",
     "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n1.2.3.4.5.6.7.8.9=critical,ASN1:UTF8String:unsupported-critical-ext\n",
   );
+  const emailBothViolatingChainPath = buildInterChain(
+    "nc-email-both-bad",
+    "/CN=Fleet Test Excluded Email CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;email:.bad.example\n",
+    {
+      subject: `/CN=${commonName}/emailAddress=ops@sub.bad.example`,
+      san: `${san},email:ops@good.example`,
+    },
+  );
+  const urnExclUriViolatingChainPath = buildInterChain(
+    "nc-urn-excl-uri-bad",
+    "/CN=Fleet Test Excluded URI URN CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;URI:.blocked.example\n",
+    { san: `${san},URI:urn:example:foo` },
+  );
+  const ipUriExclViolatingChainPath = buildInterChain(
+    "nc-ip-excl-uri-bad",
+    "/CN=Fleet Test Excluded URI IP CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;URI:.blocked.example\n",
+    { san: `${san},URI:https://127.0.0.1/path` },
+  );
+  const ipSanNcExt =
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,permitted;DNS:example.com,permitted;IP:127.0.0.1/255.255.255.255\n";
+  const ipSanDescCnPermittedChainPath = buildInterChain(
+    "nc-ip-desc-cn-ok",
+    "/CN=Fleet Test IP Desc CN CA",
+    ipSanNcExt,
+    {
+      subject: "/CN=Production Center A",
+      san: "IP:127.0.0.1",
+    },
+  );
+  const ipSanSingleCnPermittedChainPath = buildInterChain(
+    "nc-ip-single-cn-ok",
+    "/CN=Fleet Test IP Single CN CA",
+    ipSanNcExt,
+    { subject: "/CN=CenterA", san: "IP:127.0.0.1" },
+  );
+  const ipSanDnsCnViolatingChainPath = buildInterChain("nc-ip-dns-cn-bad", "/CN=Fleet Test IP DNS CN CA", ipSanNcExt, {
+    subject: "/CN=evil.other.test",
+    san: "IP:127.0.0.1",
+  });
 
   return {
     rootCaPath,
@@ -535,6 +605,12 @@ function createIntermediateCertChain(
     excludedIpViolatingChainPath,
     excludedDnsViolatingChainPath,
     unknownCriticalExtChainPath,
+    emailBothViolatingChainPath,
+    urnExclUriViolatingChainPath,
+    ipUriExclViolatingChainPath,
+    ipSanDescCnPermittedChainPath,
+    ipSanSingleCnPermittedChainPath,
+    ipSanDnsCnViolatingChainPath,
     spkiSha256: spkiSha256FromCertPem(Buffer.from(leafPem, "utf8")),
   };
 }
@@ -996,6 +1072,16 @@ it("F8/F12/F11: intermediate CA chain switchover & rollback, pre-Phase-1 target 
           label: "F8.1g unknown critical CA ext",
           chainPath: chainA.unknownCriticalExtChainPath,
         },
+        {
+          id: "sw_f8_email_both",
+          label: "F8.1i excluded Subject emailAddress alongside permitted email SAN",
+          chainPath: chainA.emailBothViolatingChainPath,
+        },
+        {
+          id: "sw_f8_urn_excl_uri",
+          label: "F8.1j URN SAN under excluded-only URI constraint",
+          chainPath: chainA.urnExclUriViolatingChainPath,
+        },
       ];
       for (const tc of negativeParityCases) {
         const tlsProbe = await probeTlsHandshake({
@@ -1034,6 +1120,35 @@ it("F8/F12/F11: intermediate CA chain switchover & rollback, pre-Phase-1 target 
         assert.equal(existsSync(fencePathA), false, `${tc.label}: must fail BEFORE Phase 1 fence`);
       }
 
+      // F8.1k NEGATIVE (RFC 5280 §4.2.1.10): IP-literal URI host under excluded-only URI constraint MUST be rejected pre-Phase-1.
+      const ipUriReject = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--source-cert",
+          chainA.ipUriExclViolatingChainPath,
+          "--switchover-id",
+          "sw_f8_ip_uri_excl",
+        ],
+        nodeA.userRoot,
+      );
+      assert.equal(ipUriReject.receipt.ok, false, `F8.1k ip_uri_excl: ${JSON.stringify(ipUriReject.receipt)}`);
+      assert.equal(ipUriReject.receipt.fencedCeded, undefined);
+      assert.equal(existsSync(fencePathA), false, "F8.1k: IP-literal URI host must fail BEFORE Phase 1 fence");
+
       // F8.1h POSITIVE PARITY: Real OpenSSL tls.connect AND relocateFleetCenter (--dry-run) MUST BOTH accept a valid nameConstraints-permitted chain!
       const permittedTlsProbe = await probeTlsHandshake({
         keyPem: chainA.leafKeyPem,
@@ -1071,6 +1186,89 @@ it("F8/F12/F11: intermediate CA chain switchover & rollback, pre-Phase-1 target 
       );
       assert.equal(permittedDryRun.receipt.ok, true, `F8.1h: ${JSON.stringify(permittedDryRun.receipt)}`);
       assert.equal(existsSync(fencePathA), false);
+
+      // F8.1l-n IP-HOST CN-TO-DNS PARITY: When Edge B configures IP host 127.0.0.1 (no DNS servername),
+      // BOTH tls.connect AND live relocateFleetCenter MUST accept IP-SAN certs with descriptive CN ("Production Center A")
+      // or single-word CN ("CenterA") under permitted;DNS:example.com, while rejecting DNS-like CN ("evil.other.test").
+      const edgeBConfigFile = path.join(edgeB.edgeUser, "fleet", "edge", repoId, "fleet-edge.json");
+      const savedEdgeBConfigRaw = readFileSync(edgeBConfigFile, "utf8");
+      try {
+        const parsedEdgeBConfig = JSON.parse(savedEdgeBConfigRaw) as Record<string, unknown>;
+        delete parsedEdgeBConfig.servername;
+        writeFileSync(edgeBConfigFile, `${JSON.stringify(parsedEdgeBConfig, null, 2)}\n`, "utf8");
+
+        for (const okIpCase of [
+          { label: "F8.1l ip_san_desc_cn", chainPath: chainA.ipSanDescCnPermittedChainPath },
+          { label: "F8.1m ip_san_single_cn", chainPath: chainA.ipSanSingleCnPermittedChainPath },
+        ]) {
+          const ipTlsOk = await probeTlsHandshake({
+            keyPem: chainA.leafKeyPem,
+            certChainPem: readFileSync(okIpCase.chainPath, "utf8"),
+            caPem: chainA.rootCaPem,
+          });
+          assert.equal(ipTlsOk.ok, true, `${okIpCase.label}: tls.connect must accept (${ipTlsOk.errorCode})`);
+          const ipDryOk = await relocateFleetCenter(
+            [
+              "fleet",
+              "center",
+              "switch",
+              "--root",
+              nodeA.repo,
+              "--repo",
+              repoId,
+              "--user-root",
+              nodeA.userRoot,
+              "--state-root",
+              nodeA.writerEpochStateRoot,
+              "--daemon-id",
+              daemonIdA,
+              "--to",
+              nodeBId,
+              "--dry-run",
+              "--source-cert",
+              okIpCase.chainPath,
+            ],
+            nodeA.userRoot,
+          );
+          assert.equal(ipDryOk.receipt.ok, true, `${okIpCase.label}: ${JSON.stringify(ipDryOk.receipt)}`);
+        }
+
+        const badDnsCnTls = await probeTlsHandshake({
+          keyPem: chainA.leafKeyPem,
+          certChainPem: readFileSync(chainA.ipSanDnsCnViolatingChainPath, "utf8"),
+          caPem: chainA.rootCaPem,
+        });
+        assert.equal(badDnsCnTls.ok, false, "F8.1n ip_san_dns_cn: tls.connect must reject DNS-like CN");
+        const badDnsCnSw = await relocateFleetCenter(
+          [
+            "fleet",
+            "center",
+            "switch",
+            "--root",
+            nodeA.repo,
+            "--repo",
+            repoId,
+            "--user-root",
+            nodeA.userRoot,
+            "--state-root",
+            nodeA.writerEpochStateRoot,
+            "--daemon-id",
+            daemonIdA,
+            "--to",
+            nodeBId,
+            "--source-cert",
+            chainA.ipSanDnsCnViolatingChainPath,
+            "--switchover-id",
+            "sw_f8_ip_dns_cn",
+          ],
+          nodeA.userRoot,
+        );
+        assert.equal(badDnsCnSw.receipt.ok, false, `F8.1n ip_san_dns_cn: ${JSON.stringify(badDnsCnSw.receipt)}`);
+        assert.equal(badDnsCnSw.receipt.fencedCeded, undefined);
+        assert.equal(existsSync(fencePathA), false);
+      } finally {
+        writeFileSync(edgeBConfigFile, savedEdgeBConfigRaw, "utf8");
+      }
 
       assert.equal(
         (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f8-pathlen-ok", title: "Writable" }, auth))
@@ -1692,6 +1890,98 @@ it("F8 RFC 5280 nameConstraints edge cases: CN fallback, IPv6 32B, directoryName
       verifyCertificateChainAgainstAnchors({ presentedChainPem: unsupportedGn.chainPem, anchorBundlePem: rootPem }),
       false,
     );
+    // 7. Review-dispatch_5f322ae9 F8 parity cases:
+    // (a) email_both: excluded Subject emailAddress alongside permitted rfc822Name SAN -> BOTH verifier & tls.connect reject.
+    const emailBoth = makeChain(
+      "email-both",
+      "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;email:.bad.example\n",
+      "/C=US/O=Acme/CN=app.example.com/emailAddress=ops@sub.bad.example",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,IP:127.0.0.1,email:ops@good.example\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: emailBoth.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+    assert.equal(
+      (await probeTlsHandshake({ keyPem: emailBoth.keyPem, certChainPem: emailBoth.chainPem, caPem: rootPem })).ok,
+      false,
+    );
+
+    // (b) Excluded-only URI constraints: urn:example:foo rejected by BOTH verifier & tls.connect; IPv4/IPv6/missing-host URIs rejected per RFC 5280 §4.2.1.10; valid non-excluded FQDN URI accepted by BOTH.
+    const exclUriCa =
+      "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;URI:.blocked.example\n";
+    const urnExclUri = makeChain(
+      "urn-excl-uri",
+      exclUriCa,
+      "/C=US/O=Acme/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,IP:127.0.0.1,URI:urn:example:foo\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: urnExclUri.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+    assert.equal(
+      (await probeTlsHandshake({ keyPem: urnExclUri.keyPem, certChainPem: urnExclUri.chainPem, caPem: rootPem })).ok,
+      false,
+    );
+    for (const badExclUri of [
+      { slug: "ip-uri-excl", uri: "https://127.0.0.1/path" },
+      { slug: "ip6-uri-excl", uri: "https://[::1]/path" },
+      { slug: "nohost-uri-excl", uri: "https:///path" },
+    ]) {
+      const c = makeChain(
+        badExclUri.slug,
+        exclUriCa,
+        "/C=US/O=Acme/CN=app.example.com",
+        `basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,IP:127.0.0.1,URI:${badExclUri.uri}\n`,
+      );
+      assert.equal(
+        verifyCertificateChainAgainstAnchors({ presentedChainPem: c.chainPem, anchorBundlePem: rootPem }),
+        false,
+        badExclUri.slug,
+      );
+    }
+    const okExclUri = makeChain(
+      "fqdn-uri-excl-ok",
+      exclUriCa,
+      "/C=US/O=Acme/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,IP:127.0.0.1,URI:https://good.example/path\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: okExclUri.chainPem, anchorBundlePem: rootPem }),
+      true,
+    );
+    assert.equal(
+      (await probeTlsHandshake({ keyPem: okExclUri.keyPem, certChainPem: okExclUri.chainPem, caPem: rootPem })).ok,
+      true,
+    );
+
+    // (c) OpenSSL cn2dnsid parity on IP-SAN certs under permitted;DNS:example.com:
+    // descriptive CN ("Production Center A") & single-word CN ("CenterA") ACCEPTED by BOTH; DNS-like CN ("evil.other.test") REJECTED by BOTH.
+    const permDnsIpCa =
+      "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,permitted;DNS:example.com,permitted;IP:127.0.0.1/255.255.255.255\n";
+    for (const cnCase of [
+      { slug: "ip-san-desc-cn", cn: "Production Center A", expected: true },
+      { slug: "ip-san-single-cn", cn: "CenterA", expected: true },
+      { slug: "ip-san-dns-cn", cn: "evil.other.test", expected: false },
+    ]) {
+      const c = makeChain(
+        cnCase.slug,
+        permDnsIpCa,
+        `/C=US/O=Acme/CN=${cnCase.cn}`,
+        "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n",
+      );
+      assert.equal(
+        verifyCertificateChainAgainstAnchors({ presentedChainPem: c.chainPem, anchorBundlePem: rootPem }),
+        cnCase.expected,
+        cnCase.slug,
+      );
+      assert.equal(
+        (await probeTlsHandshake({ keyPem: c.keyPem, certChainPem: c.chainPem, caPem: rootPem })).ok,
+        cnCase.expected,
+        `${cnCase.slug} tls.connect`,
+      );
+    }
   } finally {
     removeTempRepository(dir);
   }
