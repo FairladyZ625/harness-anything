@@ -14,6 +14,7 @@ import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/stora
 import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, parseDocWriteIntent, sha256Text } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/daemon-host/doc-sync-actions.ts";
+import { settleAuthoredMaterialization } from "../src/daemon-host/repo-cell-materialization.ts";
 import { adjudicateDocIntent } from "../src/daemon-host/doc-sync-adjudication.ts";
 import { detail, touch } from "../src/daemon-host/doc-sync-details.ts";
 import { scanDocCandidates } from "../src/daemon-host/doc-sync-candidate-scanner.ts";
@@ -312,6 +313,19 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       "unsupported JSONL remains visible with a reason without loading its bytes",
     );
     write(rootDir, "events/segments/manifest.json", "{}\n");
+    const taskPlan = path.join(rootDir, "harness", packagePath, "task_plan.md");
+    writeFileSync(taskPlan, `${readFileSync(taskPlan, "utf8")}\n## Authored drift\n`);
+    await assert.rejects(
+      settleAuthoredMaterialization(
+        {
+          materializationHealth: () => ({ state: "ok", pendingWalEvents: 1, lastCheckpointRevision: 0 }),
+          settlePendingMaterialization: async () => undefined,
+        },
+        "scanner fixture submit",
+      ),
+      (error: unknown) => (error as { readonly code?: string }).code === "materialization_failed",
+    );
+    await cell.settlePendingMaterialization("scanner fixture authored documents before submit");
     const submitted = await cell.run({ kind: "doc-submit", paths: [prose, "events/segments/manifest.json"] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);

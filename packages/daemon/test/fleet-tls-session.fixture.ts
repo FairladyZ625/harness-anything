@@ -71,9 +71,9 @@ export async function fleetFixture(
     certFile = path.join(root, "tls.crt"),
     emptyPath = path.join(root, "empty-path"),
     owned = reclaimer();
-  let ownerLookupFailure: Error | null = null;
-  let ownerLookupDelayMs = 0,
+  let ownerLookupFailure: Error | null = null,
     authenticateBarrier: { readonly started: () => void; readonly wait: Promise<boolean> } | null = null;
+  let ownerLookupBarrier: { readonly entered: () => void; readonly wait: Promise<void> } | null = null;
   let taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   const transportErrors: unknown[] = [];
@@ -201,12 +201,27 @@ export async function fleetFixture(
     hold: owned.hold,
     userRoot,
     owners,
-    setOwnerLookupDelay: (value: number) => {
-      ownerLookupDelayMs = value;
-    },
     /** Makes the registry owner lookup throw a non-contract error, as a crashed handler would. */
     failOwnerLookup: (error: Error | null) => {
       ownerLookupFailure = error;
+    },
+    blockOwnerLookup: () => {
+      let entered!: () => void, release!: () => void;
+      const enteredPromise = new Promise<void>((resolve) => {
+          entered = resolve;
+        }),
+        wait = new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+        barrier = { entered, wait };
+      ownerLookupBarrier = barrier;
+      return {
+        entered: enteredPromise,
+        release: () => {
+          if (ownerLookupBarrier === barrier) ownerLookupBarrier = null;
+          release();
+        },
+      };
     },
     blockTaskRelease: () => {
       let started!: () => void, release!: () => void;
@@ -304,7 +319,11 @@ export async function fleetFixture(
             return machines.has(nodeId) && credential === "machine-secret";
           },
           nodeOwner: async (nodeId) => {
-            if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
+            const barrier = ownerLookupBarrier;
+            if (barrier) {
+              barrier.entered();
+              await barrier.wait;
+            }
             if (ownerLookupFailure) throw ownerLookupFailure;
             return owners.nodeOwner(nodeId);
           },
