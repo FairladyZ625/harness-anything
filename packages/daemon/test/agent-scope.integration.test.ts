@@ -208,7 +208,9 @@ test("local Agents avoid the shared event stream and share/unshare through the c
     await waitForFixturePublication(cell, `agent-unshare-${guiReturned.opId}`, binding);
     assert.equal(existsSync(path.join(rootDir, "harness", "agents", "private-helper.json")), false);
     assert.equal(existsSync(path.join(userRoot, "local-agents", repoId, "private-helper.json")), true);
-    const guiReturnedLocal = JSON.parse(String((await cell.run({ kind: "agent-list", scope: "local" }, binding)).evidence));
+    const guiReturnedLocal = JSON.parse(
+      String((await cell.run({ kind: "agent-list", scope: "local" }, binding)).evidence),
+    );
     assert.deepEqual(
       guiReturnedLocal.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
       [[declaration.id, "local"]],

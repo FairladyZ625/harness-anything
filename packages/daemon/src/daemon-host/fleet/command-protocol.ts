@@ -744,16 +744,17 @@ const optionalShape =
  * its input contract closes the wire object. Adding a command never requires a
  * second fleet list or validator. */
 const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
+  isFleetForwardCommand = (command: (typeof daemonProtocolCommands)[number]) =>
+    (command.admission["remote-edge"] === "via-center-forward" && command.path[0] !== "schedule") ||
+    // Execution-bound doc-show resolves frozen submission blobs at the center.
+    command.id === "doc-show" ||
+    // Cross-machine BFF/CLI remote runtime control executes through center single-write queue.
+    command.id === "runtime-cancel" ||
+    command.id === "runtime-steer",
   fleetCommand = (kind: string) =>
+    daemonProtocolCommands.find((command) => command.id === kind && isFleetForwardCommand(command)) ??
     daemonProtocolCommands.find(
-      (command) =>
-        ("actionKind" in command ? command.actionKind : command.id) === kind &&
-        ((command.admission["remote-edge"] === "via-center-forward" && command.path[0] !== "schedule") ||
-          // Execution-bound doc-show resolves frozen submission blobs at the center.
-          command.id === "doc-show" ||
-          // Cross-machine BFF/CLI remote runtime control executes through center single-write queue.
-          command.id === "runtime-cancel" ||
-          command.id === "runtime-steer"),
+      (command) => "actionKind" in command && command.actionKind === kind && isFleetForwardCommand(command),
     ),
   declaredActionFields = (kind: string): readonly EntityActionInputField[] | null => {
     if (kind === "runtime-cancel")

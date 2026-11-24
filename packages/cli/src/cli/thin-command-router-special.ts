@@ -18,7 +18,7 @@ export function parseRoutedSpecial(
   if (route.id === "agent-list")
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (route.id === "agent-share" || route.id === "agent-unshare") {
-    const agentId = args[route.path.length - 1];
+    const agentId = args[route.path.length];
     if (!nonEmpty(agentId))
       return rejected("missing_field", `Use ha agent ${route.id === "agent-share" ? "share" : "unshare"} <id>.`, json);
     return accepted(
