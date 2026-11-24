@@ -327,6 +327,22 @@ const peerProtocolCommands = (
       ],
     },
     {
+      id: "delegate",
+      read: false,
+      summary: "Assign work to another principal as a PeerRequest and atomically enqueue its Inbox wakeup.",
+      fields: [
+        peerCliText("toPersonId", true, "--to"),
+        peerCliText("summary", true, "--title"),
+        peerCliText("claim", true, "--claim"),
+        peerCliText("requestedAction", true, "--action"),
+        peerCliText("workId", false, "--work"),
+        peerCliText("lane", false, "--lane"),
+        peerCliIdempotency,
+      ],
+      actionKind: "peer-ask",
+      actionDefaults: { requestKind: "delegate" },
+    },
+    {
       id: "reply",
       read: false,
       summary: "Reply to, complete, or reject a PeerRequest under Tier-A authorization ceilings.",
@@ -444,7 +460,7 @@ const peerProtocolCommands = (
       ],
     },
   ] as const
-).map(({ id, read, summary, fields }) => {
+).map(({ id, read, summary, fields, ...routeOptions }) => {
   const hasPositional =
       id === "reply" ||
       id === "promote" ||
@@ -462,6 +478,7 @@ const peerProtocolCommands = (
     summary,
     method: read ? "repo.task.read" : "repo.task.run",
     repositoryRead: read,
+    ...routeOptions,
     positional: hasPositional ? positionalField : undefined,
     positionalInputs: hasPositional ? [{ name: positionalName, pathKind: "non-path", pathReader: "none" }] : [],
     inputs: (fields as readonly EntityActionInputField[]).flatMap((field) =>
@@ -480,12 +497,65 @@ const peerProtocolCommands = (
   return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });
 
+const residentCeoProtocolCommands = Object.freeze([
+  defineCenterForwardWriteCommand({
+    id: "ceo-config",
+    phase: "ResidentCeo",
+    path: ["ceo", "config"],
+    summary: "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval.",
+    method: "repo.residentCeo.config",
+    payloadFields: [],
+    inputs: [
+      peerCliText("runtimeInstanceId", true, "--instance"),
+      peerCliText("model", true, "--model"),
+      peerCliNum("heartbeatIntervalSec", "--heartbeat-interval-sec"),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "ceo-start",
+    phase: "ResidentCeo",
+    path: ["ceo", "start"],
+    summary: "Start the signed-in person's resident CEO.",
+    method: "repo.residentCeo.start",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "ceo-stop",
+    phase: "ResidentCeo",
+    path: ["ceo", "stop"],
+    summary: "Stop the signed-in person's resident CEO.",
+    method: "repo.residentCeo.stop",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "ceo-status",
+    phase: "ResidentCeo",
+    path: ["ceo", "status"],
+    summary: "Read the signed-in person's resident CEO status and most recent wake receipt.",
+    method: "repo.residentCeo.status",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "ceo-chat",
+    phase: "ResidentCeo",
+    path: ["ceo", "chat"],
+    summary: "Send a message to the signed-in person's resident CEO and continue its persistent provider session.",
+    method: "repo.residentCeo.chat",
+    payloadFields: [],
+    inputs: [peerCliText("message", true, "--message")],
+  }),
+]);
+
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...entityPinProtocolCommands,
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
   ...todoProtocolCommands,
   ...peerProtocolCommands,
+  ...residentCeoProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,
@@ -632,7 +702,7 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
         : command && "actionDefaults" in command
           ? command.actionDefaults
           : {};
-  return { ...defaults, kind: "actionKind" in descriptor ? descriptor.actionKind : descriptor.id, ...payload };
+  return { ...defaults, kind: "actionKind" in descriptor ? descriptor.actionKind ?? descriptor.id : descriptor.id, ...payload };
 }
 
 /** Socket reads share the host's repository-read admission without declaring GUI routes. */
@@ -685,7 +755,7 @@ export const daemonRepositoryReadMethods = Object.freeze([
 ] as const);
 
 const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolCommands)[number]> = new Map(
-    [...daemonProtocolCommands].reverse().map((entry) => ["actionKind" in entry ? entry.actionKind : entry.id, entry]),
+    [...daemonProtocolCommands].reverse().map((entry) => ["actionKind" in entry ? entry.actionKind ?? entry.id : entry.id, entry]),
   ),
   // Methods with their own server branch (agenda, the runtime overview) never travel the
   // contracted command family, but the execution-scope precheck resolves every method through

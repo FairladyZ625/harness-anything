@@ -30,7 +30,7 @@ export const peerRequestEventTypes = [
   "peer_request_promoted",
 ] as const;
 
-export const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff"] as const;
+export const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff", "delegate"] as const;
 export type PeerRequestKind = (typeof peerRequestKinds)[number];
 
 export interface PeerStructuredBody {

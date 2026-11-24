@@ -43,6 +43,7 @@ export type ViewId =
   | "artifacts"
   | "agentSquad"
   | "providers"
+  | "residentCeo"
   | "tokenUsage"
   | "terminal"
   | "browser"

@@ -96,6 +96,22 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
     assert.equal(watchWork.matched, true);
     assert.equal(watchWork.request.requestId, workReq.requestId);
 
+    const delegate = await cell.run(
+      {
+        kind: "peer-ask",
+        toPersonId: "person_bob",
+        requestKind: "delegate",
+        summary: "Prepare the migration review",
+        claim: "The migration is ready for independent review.",
+        requestedAction: "Review the migration and return findings.",
+      },
+      aliceBinding,
+    );
+    assert.equal(delegate.outcome, "applied", JSON.stringify(delegate));
+    const { request: delegateRequest } = evidence(delegate) as { request: PeerRequestV1 };
+    assert.equal(delegateRequest.kind, "delegate");
+    assert.equal(delegateRequest.to.personId, "person_bob");
+
     const reply = await cell.run(
       {
         kind: "peer-reply",

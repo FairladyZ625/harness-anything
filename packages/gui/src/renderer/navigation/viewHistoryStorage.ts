@@ -65,6 +65,7 @@ const VIEW_ID_LIST = [
   "artifacts",
   "agentSquad",
   "providers",
+  "residentCeo",
   "tokenUsage",
   "terminal",
   "browser",

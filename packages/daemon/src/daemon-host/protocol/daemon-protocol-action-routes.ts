@@ -43,6 +43,46 @@ function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcSha
 }
 
 export const daemonActionRoutes = Object.freeze([
+  {
+    id: "ceo-config",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.config",
+    actionKind: "ceo-config",
+    requiresRepo: true,
+    params: shape({ payload: shape({ runtimeInstanceId: "string", model: "string", heartbeatIntervalSec: "number" }) }),
+  },
+  {
+    id: "ceo-start",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.start",
+    actionKind: "ceo-start",
+    requiresRepo: true,
+    params: shape({ payload: shape({}) }),
+  },
+  {
+    id: "ceo-stop",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.stop",
+    actionKind: "ceo-stop",
+    requiresRepo: true,
+    params: shape({ payload: shape({}) }),
+  },
+  {
+    id: "ceo-status",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.status",
+    actionKind: "ceo-status",
+    requiresRepo: true,
+    params: shape({ payload: shape({}) }),
+  },
+  {
+    id: "ceo-chat",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.chat",
+    actionKind: "ceo-chat",
+    requiresRepo: true,
+    params: shape({ payload: shape({ message: "string" }) }),
+  },
   actionRpc(
     "agentRuntime.handoff",
     "repo.agentRuntime.handoff",

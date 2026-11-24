@@ -139,6 +139,12 @@ export interface DaemonHost {
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
   ) => Promise<JsonObject>;
+  readonly residentCeo: (
+    repoId: string,
+    operation: "config" | "start" | "stop" | "status" | "chat",
+    payload: JsonObject,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<JsonObject>;
   readonly cancelRuntime: (
     repoId: string,
     payload: JsonObject,

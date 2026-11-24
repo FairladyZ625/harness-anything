@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
 import { fleetEdgeConfigDir, readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
@@ -62,6 +63,8 @@ import {
   orchestrateRuntimeSessionsAwait,
   type RuntimeOrchestrationContext,
 } from "./runtime-orchestration.ts";
+import { makeResidentCeoService } from "@harness-anything/application/commands";
+import { openResidentCeoProfileStore } from "./resident-ceo-profile-store.ts";
 
 export function createDaemonHostRuntimeApi(
   context: DaemonHostApiContext,
@@ -75,6 +78,7 @@ export function createDaemonHostRuntimeApi(
   | "batchRuntime"
   | "awaitRuntimeSessions"
   | "runtimeIngress"
+  | "residentCeo"
   | "terminalAttach"
   | "terminalAction"
   | "authorize"
@@ -97,6 +101,8 @@ export function createDaemonHostRuntimeApi(
     codedError: context.hostCodedError,
   });
   let centerStarting = false;
+  const residentCeoProfiles = openResidentCeoProfileStore(context.input.userRoot),
+    residentCeoTimers = new Map<string, NodeJS.Timeout>();
   const runtimeNodeId = (repoId?: string): string => {
     if (repoId === undefined) return "center";
     const repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
@@ -165,7 +171,132 @@ export function createDaemonHostRuntimeApi(
     throwIfCenterRelocated(userRoot, repoId, { repoMode });
     if (mutating) throwIfCenterMigrating(userRoot, repoId);
   };
+  const residentCeoService = (repoId: string, auth: Parameters<typeof context.binding>[1]) => {
+    const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+    return makeResidentCeoService({
+      profiles: residentCeoProfiles,
+      now: context.now,
+      createId: randomUUID,
+      runtime: {
+        run: async (request) => {
+          const binding = await context.binding(cell.status().rootDir, auth),
+            receipt = await cell.spawnRuntime(
+              {
+                runtimeInstanceId: request.runtimeInstanceId,
+                model: request.model,
+                ...(request.persistentSessionId ? { providerSessionId: request.persistentSessionId } : {}),
+                prompt: request.message,
+                permissionMode: "read-only",
+                cwd: { scope: "repo-root" },
+                taskId: null,
+                dispatchKey: `resident-ceo:${request.principalPersonId}:${request.wakeId}`,
+                idempotencyKey: `resident-ceo:${request.wakeId}`,
+              } as JsonObject,
+              binding,
+            ),
+            runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
+          if (runtimeSessionId === null)
+            throw context.hostCodedError("runtime_spawn_failed", "Resident CEO runtime did not return a session id.");
+          return {
+            runtimeSessionId,
+            persistentSessionId: request.persistentSessionId,
+            response: (async () => {
+              await cell.awaitRuntimeOutcome(runtimeSessionId);
+              const session = await context.host.read(
+                repoId,
+                "repo.agentRuntime.sessions.read",
+                { runtimeSessionId },
+                auth,
+              );
+              if (session.settlement === null || session.settlement.outcome !== "succeeded")
+                throw context.hostCodedError(
+                  "resident_ceo_runtime_failed",
+                  session.settlement?.reason ?? "Resident CEO runtime did not complete successfully.",
+                );
+              return {
+                response: session.result?.text ?? "",
+                persistentSessionId: session.session.providerSessionId,
+              };
+            })(),
+          };
+        },
+      },
+    });
+  };
+  const scheduleResidentCeoHeartbeat = (
+    repoId: string,
+    principalPersonId: string,
+    auth: Parameters<typeof context.binding>[1],
+    intervalSec: number,
+  ): void => {
+    const existing = residentCeoTimers.get(principalPersonId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      residentCeoTimers.delete(principalPersonId);
+      void residentCeoService(repoId, auth)
+        .wake(principalPersonId, "heartbeat", "Check the canonical inbox and respond to actionable requests.")
+        .then(({ profile }) => {
+          if (profile.status === "running")
+            scheduleResidentCeoHeartbeat(repoId, principalPersonId, auth, profile.heartbeatIntervalSec);
+        })
+        .catch((error: unknown) => {
+          console.error(error);
+          void residentCeoService(repoId, auth)
+            .status(principalPersonId)
+            .then((profile) => {
+              if (profile.status === "running")
+                scheduleResidentCeoHeartbeat(repoId, principalPersonId, auth, profile.heartbeatIntervalSec);
+            })
+            .catch((statusError: unknown) => console.error(statusError));
+        });
+    }, intervalSec * 1_000);
+    timer.unref();
+    residentCeoTimers.set(principalPersonId, timer);
+  };
   return {
+    residentCeo: async (repoId, operation, payload, auth) => {
+      context.requireHostMode(repoId, commandDescriptorForAction(`ceo-${operation}`), auth);
+      await context.attemptHostRecovery(repoId);
+      guardCenterRelocation(repoId, operation !== "status");
+      const principalPersonId = auth.oidcPrincipal?.personId;
+      if (!principalPersonId || auth.executionPrincipal)
+        throw context.hostCodedError("authorization_denied", "Resident CEO requires a signed-in person principal.");
+      const service = residentCeoService(repoId, auth);
+      if (operation === "config") {
+        const profile = await service.configure(principalPersonId, {
+          runtimeInstanceId: String(payload.runtimeInstanceId ?? ""),
+          model: String(payload.model ?? ""),
+          heartbeatIntervalSec: Number(payload.heartbeatIntervalSec),
+        });
+        return { ok: true, profile: profile as unknown as JsonObject };
+      }
+      if (operation === "start") {
+        const profile = await service.start(principalPersonId);
+        scheduleResidentCeoHeartbeat(repoId, principalPersonId, auth, profile.heartbeatIntervalSec);
+        return { ok: true, profile: profile as unknown as JsonObject };
+      }
+      if (operation === "stop") {
+        const profile = await service.stop(principalPersonId);
+        const timer = residentCeoTimers.get(principalPersonId);
+        if (timer) clearTimeout(timer);
+        residentCeoTimers.delete(principalPersonId);
+        return { ok: true, profile: profile as unknown as JsonObject };
+      }
+      if (operation === "status") {
+        const savedProfile = await residentCeoProfiles.read(principalPersonId);
+        if (savedProfile === null) return { ok: true, profile: null } as JsonObject;
+        const profile = await service.status(principalPersonId);
+        if (profile.status === "running")
+          scheduleResidentCeoHeartbeat(repoId, principalPersonId, auth, profile.heartbeatIntervalSec);
+        return { ok: true, profile: profile as unknown as JsonObject };
+      }
+      const result = await service.wake(principalPersonId, "human-chat", String(payload.message ?? ""));
+      return {
+        ok: true,
+        profile: result.profile as unknown as JsonObject,
+        ...(result.response === null ? {} : { response: result.response }),
+      } as JsonObject;
+    },
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);

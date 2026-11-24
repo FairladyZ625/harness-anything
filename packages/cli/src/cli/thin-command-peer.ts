@@ -5,6 +5,7 @@ import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./
 
 export const peerRouteParsers: readonly (readonly [string, typeof parsePeer])[] = [
   ["peer-ask", parsePeer],
+  ["peer-delegate", parsePeer],
   ["peer-reply", parsePeer],
   ["peer-watch", parsePeer],
   ["peer-inbox", parsePeer],
@@ -23,6 +24,19 @@ export function parsePeer(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
+  if (route.id === "peer-delegate") {
+    return parseProjected(
+      route.id,
+      args.slice(2),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      { kind: "peer-ask" },
+      { requestKind: "delegate" },
+      route.method,
+    );
+  }
   const hasPositional =
     route.id === "peer-reply" ||
     route.id === "peer-promote" ||
