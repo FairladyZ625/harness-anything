@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { TestContext } from "node:test";
+import tls from "node:tls";
 import { it } from "vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import {
@@ -36,6 +37,7 @@ import {
   measureFleetTransferPayload,
 } from "../../daemon/src/daemon-host/fleet/command-protocol.ts";
 import { measureSwitchoverRemoteActivationTransfer } from "../../daemon/src/daemon-host/fleet/center-switchover-transport.ts";
+import { verifyCertificateChainAgainstAnchors } from "../../daemon/src/daemon-host/fleet/switchover-x509-trust.ts";
 import { readCenterFrozenCut } from "../../storage/src/center-switchover.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { registerCenterSettingsIpc } from "../src/main/center-settings-ipc.ts";
@@ -89,6 +91,49 @@ function createSelfSignedCert(
   return { keyPath, certPath, keyPem, certPem, spkiSha256: spkiSha256FromCertPem(Buffer.from(certPem, "utf8")) };
 }
 
+async function probeTlsHandshake(input: {
+  readonly keyPem: string;
+  readonly certChainPem: string;
+  readonly caPem: string;
+  readonly servername?: string;
+}): Promise<{ readonly ok: boolean; readonly errorCode?: string }> {
+  const server = tls.createServer({ key: input.keyPem, cert: input.certChainPem }, (socket) => {
+    socket.end();
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  try {
+    return await new Promise<{ readonly ok: boolean; readonly errorCode?: string }>((resolve) => {
+      let settled = false;
+      const done = (result: { readonly ok: boolean; readonly errorCode?: string }) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
+      const socket = tls.connect({
+        host: "127.0.0.1",
+        port,
+        ca: input.caPem,
+        ...(input.servername ? { servername: input.servername } : {}),
+        rejectUnauthorized: true,
+      });
+      socket.once("secureConnect", () => {
+        socket.end();
+        done({ ok: true });
+      });
+      socket.once("error", (err: NodeJS.ErrnoException) => {
+        done({ ok: false, errorCode: err.code ?? err.message });
+      });
+    });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 function createIntermediateCertChain(
   directory: string,
   commonName: string,
@@ -105,6 +150,11 @@ function createIntermediateCertChain(
   readonly fullChainPem: string;
   readonly pathLenViolatingChainPath: string;
   readonly missingKeyCertSignChainPath: string;
+  readonly permittedNameConstraintsChainPath: string;
+  readonly permittedDnsViolatingChainPath: string;
+  readonly excludedIpViolatingChainPath: string;
+  readonly excludedDnsViolatingChainPath: string;
+  readonly unknownCriticalExtChainPath: string;
   readonly spkiSha256: string;
 } {
   mkdirSync(directory, { recursive: true });
@@ -380,6 +430,94 @@ function createIntermediateCertChain(
     "utf8",
   );
 
+  // Helper to build additional intermediate CA chains wrapping the EXACT SAME leaf CSR/SPKI & SAN.
+  const buildInterChain = (slug: string, interSubject: string, interExtContent: string): string => {
+    const ik = path.join(directory, `${slug}-inter.key`);
+    const ic = path.join(directory, `${slug}-inter.csr`);
+    const ie = path.join(directory, `${slug}-inter.ext`);
+    const ip = path.join(directory, `${slug}-inter.crt`);
+    const lp = path.join(directory, `${slug}-leaf.crt`);
+    const cp = path.join(directory, `${slug}-chain.crt`);
+    execFileSync(
+      "openssl",
+      ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", ik, "-out", ic, "-subj", interSubject],
+      { stdio: "ignore" },
+    );
+    writeFileSync(ie, interExtContent, "utf8");
+    execFileSync(
+      "openssl",
+      [
+        "x509",
+        "-req",
+        "-in",
+        ic,
+        "-CA",
+        rootCaPath,
+        "-CAkey",
+        rootKeyPath,
+        "-CAcreateserial",
+        "-out",
+        ip,
+        "-days",
+        "2",
+        "-extfile",
+        ie,
+      ],
+      { stdio: "ignore" },
+    );
+    execFileSync(
+      "openssl",
+      [
+        "x509",
+        "-req",
+        "-in",
+        leafCsrPath,
+        "-CA",
+        ip,
+        "-CAkey",
+        ik,
+        "-CAcreateserial",
+        "-out",
+        lp,
+        "-days",
+        "1",
+        "-extfile",
+        leafExtPath,
+      ],
+      { stdio: "ignore" },
+    );
+    writeFileSync(cp, `${readFileSync(lp, "utf8").trim()}\n${readFileSync(ip, "utf8").trim()}\n`, "utf8");
+    return cp;
+  };
+
+  const permittedDnsConstraints =
+    commonName === "localhost" ? "permitted;DNS:localhost" : `permitted;DNS:${commonName},permitted;DNS:localhost`;
+  const permittedNameConstraintsChainPath = buildInterChain(
+    "nc-permitted-ok",
+    "/CN=Fleet Test Permitted NC CA",
+    `basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,${permittedDnsConstraints},permitted;IP:127.0.0.1/255.255.255.255\n`,
+  );
+  const permittedDnsViolatingChainPath = buildInterChain(
+    "nc-permitted-dns-bad",
+    "/CN=Fleet Test Permitted DNS Bad CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,permitted;DNS:other.example.invalid\n",
+  );
+  const excludedIpViolatingChainPath = buildInterChain(
+    "nc-excluded-ip-bad",
+    "/CN=Fleet Test Excluded IP Bad CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;IP:127.0.0.0/255.0.0.0\n",
+  );
+  const excludedDnsViolatingChainPath = buildInterChain(
+    "nc-excluded-dns-bad",
+    "/CN=Fleet Test Excluded DNS Bad CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\nnameConstraints=critical,excluded;DNS:localhost\n",
+  );
+  const unknownCriticalExtChainPath = buildInterChain(
+    "unknown-crit-ext",
+    "/CN=Fleet Test Unknown Critical Ext CA",
+    "basicConstraints=critical,CA:TRUE,pathlen:0\nkeyUsage=critical,keyCertSign,cRLSign\n1.2.3.4.5.6.7.8.9=critical,ASN1:UTF8String:unsupported-critical-ext\n",
+  );
+
   return {
     rootCaPath,
     rootCaPem,
@@ -392,6 +530,11 @@ function createIntermediateCertChain(
     fullChainPem,
     pathLenViolatingChainPath,
     missingKeyCertSignChainPath,
+    permittedNameConstraintsChainPath,
+    permittedDnsViolatingChainPath,
+    excludedIpViolatingChainPath,
+    excludedDnsViolatingChainPath,
+    unknownCriticalExtChainPath,
     spkiSha256: spkiSha256FromCertPem(Buffer.from(leafPem, "utf8")),
   };
 }
@@ -825,6 +968,110 @@ it("F8/F12/F11: intermediate CA chain switchover & rollback, pre-Phase-1 target 
       assert.equal(missingKeyCertSign.receipt.ok, false, JSON.stringify(missingKeyCertSign.receipt));
       assert.equal(missingKeyCertSign.receipt.fencedCeded, undefined);
       assert.equal(existsSync(fencePathA), false, "F8.1c: CA missing keyCertSign must fail pre-Phase-1");
+
+      // F8.1d-g NEGATIVE PARITY: Real OpenSSL tls.connect AND relocateFleetCenter MUST BOTH reject
+      // permitted-DNS violation, excluded-IP violation, excluded-DNS violation, and unknown critical CA extension pre-Phase-1!
+      const negativeParityCases: ReadonlyArray<{
+        readonly id: string;
+        readonly label: string;
+        readonly chainPath: string;
+      }> = [
+        {
+          id: "sw_f8_nc_perm_dns",
+          label: "F8.1d permitted-DNS violation",
+          chainPath: chainA.permittedDnsViolatingChainPath,
+        },
+        {
+          id: "sw_f8_nc_excl_ip",
+          label: "F8.1e excluded-IP violation",
+          chainPath: chainA.excludedIpViolatingChainPath,
+        },
+        {
+          id: "sw_f8_nc_excl_dns",
+          label: "F8.1f excluded-DNS violation",
+          chainPath: chainA.excludedDnsViolatingChainPath,
+        },
+        {
+          id: "sw_f8_unknown_crit",
+          label: "F8.1g unknown critical CA ext",
+          chainPath: chainA.unknownCriticalExtChainPath,
+        },
+      ];
+      for (const tc of negativeParityCases) {
+        const tlsProbe = await probeTlsHandshake({
+          keyPem: chainA.leafKeyPem,
+          certChainPem: readFileSync(tc.chainPath, "utf8"),
+          caPem: chainA.rootCaPem,
+          servername: "localhost",
+        });
+        assert.equal(tlsProbe.ok, false, `${tc.label}: real OpenSSL tls.connect must reject chain`);
+        const swReject = await relocateFleetCenter(
+          [
+            "fleet",
+            "center",
+            "switch",
+            "--root",
+            nodeA.repo,
+            "--repo",
+            repoId,
+            "--user-root",
+            nodeA.userRoot,
+            "--state-root",
+            nodeA.writerEpochStateRoot,
+            "--daemon-id",
+            daemonIdA,
+            "--to",
+            nodeBId,
+            "--source-cert",
+            tc.chainPath,
+            "--switchover-id",
+            tc.id,
+          ],
+          nodeA.userRoot,
+        );
+        assert.equal(swReject.receipt.ok, false, `${tc.label}: ${JSON.stringify(swReject.receipt)}`);
+        assert.equal(swReject.receipt.fencedCeded, undefined);
+        assert.equal(existsSync(fencePathA), false, `${tc.label}: must fail BEFORE Phase 1 fence`);
+      }
+
+      // F8.1h POSITIVE PARITY: Real OpenSSL tls.connect AND relocateFleetCenter (--dry-run) MUST BOTH accept a valid nameConstraints-permitted chain!
+      const permittedTlsProbe = await probeTlsHandshake({
+        keyPem: chainA.leafKeyPem,
+        certChainPem: readFileSync(chainA.permittedNameConstraintsChainPath, "utf8"),
+        caPem: chainA.rootCaPem,
+        servername: "localhost",
+      });
+      assert.equal(
+        permittedTlsProbe.ok,
+        true,
+        `F8.1h: tls.connect must accept valid nameConstraints chain (${permittedTlsProbe.errorCode})`,
+      );
+      const permittedDryRun = await relocateFleetCenter(
+        [
+          "fleet",
+          "center",
+          "switch",
+          "--root",
+          nodeA.repo,
+          "--repo",
+          repoId,
+          "--user-root",
+          nodeA.userRoot,
+          "--state-root",
+          nodeA.writerEpochStateRoot,
+          "--daemon-id",
+          daemonIdA,
+          "--to",
+          nodeBId,
+          "--dry-run",
+          "--source-cert",
+          chainA.permittedNameConstraintsChainPath,
+        ],
+        nodeA.userRoot,
+      );
+      assert.equal(permittedDryRun.receipt.ok, true, `F8.1h: ${JSON.stringify(permittedDryRun.receipt)}`);
+      assert.equal(existsSync(fencePathA), false);
+
       assert.equal(
         (await nodeA.host.run(repoId, { kind: "task-create", taskId: "f8-pathlen-ok", title: "Writable" }, auth))
           .outcome,
@@ -1206,3 +1453,246 @@ it("F8/F12/F11: intermediate CA chain switchover & rollback, pre-Phase-1 target 
     }
   });
 }, 180_000);
+
+it("F8 RFC 5280 nameConstraints edge cases: CN fallback, IPv6 32B, directoryName, rfc822, URI, min/max & unsupported GeneralName", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "harness-f8-nc-edges-"));
+  try {
+    const rk = path.join(dir, "root.key");
+    const rc = path.join(dir, "root.crt");
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        rk,
+        "-out",
+        rc,
+        "-subj",
+        "/C=US/O=Acme/CN=NC Edge Root CA",
+        "-days",
+        "2",
+        "-addext",
+        "basicConstraints=critical,CA:TRUE",
+        "-addext",
+        "keyUsage=critical,keyCertSign,cRLSign",
+      ],
+      { stdio: "ignore" },
+    );
+    const rootPem = readFileSync(rc, "utf8");
+
+    const makeChain = (
+      slug: string,
+      interExt: string,
+      leafSubj: string,
+      leafExt: string,
+    ): { keyPem: string; chainPem: string } => {
+      const ik = path.join(dir, `${slug}-i.key`),
+        icr = path.join(dir, `${slug}-i.csr`),
+        ie = path.join(dir, `${slug}-i.ext`),
+        ic = path.join(dir, `${slug}-i.crt`),
+        lk = path.join(dir, `${slug}-l.key`),
+        lcr = path.join(dir, `${slug}-l.csr`),
+        le = path.join(dir, `${slug}-l.ext`),
+        lc = path.join(dir, `${slug}-l.crt`);
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-new",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          ik,
+          "-out",
+          icr,
+          "-subj",
+          "/C=US/O=Acme/CN=Edge Inter",
+        ],
+        { stdio: "ignore" },
+      );
+      writeFileSync(ie, interExt, "utf8");
+      execFileSync(
+        "openssl",
+        [
+          "x509",
+          "-req",
+          "-in",
+          icr,
+          "-CA",
+          rc,
+          "-CAkey",
+          rk,
+          "-CAcreateserial",
+          "-out",
+          ic,
+          "-days",
+          "2",
+          "-extfile",
+          ie,
+        ],
+        { stdio: "ignore" },
+      );
+      execFileSync(
+        "openssl",
+        ["req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", lk, "-out", lcr, "-subj", leafSubj],
+        { stdio: "ignore" },
+      );
+      writeFileSync(le, leafExt, "utf8");
+      execFileSync(
+        "openssl",
+        [
+          "x509",
+          "-req",
+          "-in",
+          lcr,
+          "-CA",
+          ic,
+          "-CAkey",
+          ik,
+          "-CAcreateserial",
+          "-out",
+          lc,
+          "-days",
+          "1",
+          "-extfile",
+          le,
+        ],
+        { stdio: "ignore" },
+      );
+      return {
+        keyPem: readFileSync(lk, "utf8"),
+        chainPem: `${readFileSync(lc, "utf8").trim()}\n${readFileSync(ic, "utf8").trim()}\n`,
+      };
+    };
+
+    const fullNcInterExt = [
+      "basicConstraints=critical,CA:TRUE,pathlen:0",
+      "keyUsage=critical,keyCertSign,cRLSign",
+      "nameConstraints=critical,permitted;DNS:example.com,permitted;IP:127.0.0.1/255.255.255.255,permitted;IP:fd00::/ffff::,permitted;dirName:dir_sect,permitted;URI:.example.com,excluded;email:.bad.example",
+      "[dir_sect]",
+      "C=US",
+      "O=Acme",
+    ].join("\n");
+
+    // 1. Valid across CN fallback (no DNS SAN), IPv6 32-byte mask, dirName prefix, URI, rfc822
+    const okFull = makeChain(
+      "ok-full",
+      fullNcInterExt,
+      "/C=US/O=Acme/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1,IP:fd00::1,URI:https://node.example.com/fleet,email:ops@good.example\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: okFull.chainPem, anchorBundlePem: rootPem }),
+      true,
+    );
+    assert.equal(
+      (await probeTlsHandshake({ keyPem: okFull.keyPem, certChainPem: okFull.chainPem, caPem: rootPem })).ok,
+      true,
+    );
+
+    // 2. CN fallback violation (no DNS SAN, CN=evil.invalid fails permitted;DNS:example.com)
+    const badCn = makeChain(
+      "bad-cn",
+      fullNcInterExt,
+      "/C=US/O=Acme/CN=evil.invalid",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: badCn.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+    assert.equal(
+      (await probeTlsHandshake({ keyPem: badCn.keyPem, certChainPem: badCn.chainPem, caPem: rootPem })).ok,
+      false,
+    );
+
+    // 3. IPv6 32-byte addr+mask violation (fe80::1 outside fd00::/16)
+    const badIpv6 = makeChain(
+      "bad-ipv6",
+      fullNcInterExt,
+      "/C=US/O=Acme/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,IP:fe80::1\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: badIpv6.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+
+    // 4. directoryName RDN prefix violation (O=Other fails permitted C=US,O=Acme)
+    const badDir = makeChain(
+      "bad-dir",
+      fullNcInterExt,
+      "/C=US/O=Other/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,IP:127.0.0.1\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: badDir.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+
+    // 5. excluded rfc822Name violation & permitted URI violation
+    const badEmail = makeChain(
+      "bad-email",
+      fullNcInterExt,
+      "/C=US/O=Acme/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,email:ops@sub.bad.example\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: badEmail.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+    const badUri = makeChain(
+      "bad-uri",
+      fullNcInterExt,
+      "/C=US/O=Acme/CN=app.example.com",
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com,URI:https://evil.invalid/x\n",
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: badUri.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+
+    // 6. Fail-closed DER edge cases: non-zero minimum [0]=1, present maximum [1]=2, unsupported GeneralName tag [8] registeredID
+    const leafBaseExt =
+      "basicConstraints=CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:app.example.com\n";
+    const nonZeroMin = makeChain(
+      "nc-min1",
+      "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n2.5.29.30=critical,DER:3014a0123010820b6578616d706c652e636f6d800101\n",
+      "/C=US/O=Acme/CN=app.example.com",
+      leafBaseExt,
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: nonZeroMin.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+
+    const presentMax = makeChain(
+      "nc-max2",
+      "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n2.5.29.30=critical,DER:3014a0123010820b6578616d706c652e636f6d810102\n",
+      "/C=US/O=Acme/CN=app.example.com",
+      leafBaseExt,
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: presentMax.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+
+    const unsupportedGn = makeChain(
+      "nc-unsup-gn",
+      "basicConstraints=critical,CA:TRUE\nkeyUsage=critical,keyCertSign\n2.5.29.30=critical,DER:300ba009300788052a864886f7\n",
+      "/C=US/O=Acme/CN=app.example.com",
+      leafBaseExt,
+    );
+    assert.equal(
+      verifyCertificateChainAgainstAnchors({ presentedChainPem: unsupportedGn.chainPem, anchorBundlePem: rootPem }),
+      false,
+    );
+  } finally {
+    removeTempRepository(dir);
+  }
+}, 60_000);
