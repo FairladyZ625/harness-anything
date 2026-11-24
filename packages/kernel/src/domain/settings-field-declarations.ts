@@ -1044,6 +1044,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     description: "Daemon-managed Resident CEO profile state.",
     effect: "Retains principal-scoped profiles in this repository's local settings.",
     group: "schedules-nodes",
+    action: { field: "residentCeoProfilesJson", type: "string" },
   }),
 ] as const);
 

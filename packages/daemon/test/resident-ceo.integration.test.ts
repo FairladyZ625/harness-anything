@@ -100,10 +100,21 @@ test(
       assert.equal((stopped.profile as { status: string }).status, "stopped");
 
       signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
-      assert.equal(
-        (await host.read(repoId, "repo.settings.read", {}, auth)).settings.residentCeoProfilesJson,
-        persistedProfiles,
+      const forgedProfiles = JSON.parse(persistedProfiles ?? "{}") as Record<string, Record<string, unknown>>;
+      forgedProfiles.person_bob!.model = "unauthorized-model";
+      const unauthorizedUpdate = await host.run(
+        repoId,
+        { kind: "settings-update", residentCeoProfilesJson: JSON.stringify(forgedProfiles) },
+        auth,
       );
+      assert.equal(unauthorizedUpdate.outcome, "op_rejected");
+      const finalProfiles = JSON.parse(
+        (await host.read(repoId, "repo.settings.read", {}, auth)).settings.residentCeoProfilesJson ?? "{}",
+      ) as Record<string, { status: string; persistentSessionId: string | null; lastWake: { status: string } | null }>;
+      assert.ok(persistedProfiles?.includes('"person_bob"'));
+      assert.equal(finalProfiles.person_bob?.status, "stopped");
+      assert.equal(finalProfiles.person_bob?.persistentSessionId, "codex-provider-session");
+      assert.equal(finalProfiles.person_bob?.lastWake?.status, "succeeded");
       const senderView = evidence(
         await host.run(repoId, { kind: "peer-watch", once: true, replyTo: request.requestId }, auth),
       ) as { request: PeerRequestV1 };

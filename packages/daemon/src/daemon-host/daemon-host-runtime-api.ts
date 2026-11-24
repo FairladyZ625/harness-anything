@@ -381,7 +381,9 @@ export function createDaemonHostRuntimeApi(
             await delay(Math.max(1, waitMs - (Date.now() - started)), undefined, { signal, ref: false });
         } catch (error) {
           if (signal.aborted) return;
-          consumeKnownError(error);
+          process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
+            code: "RESIDENT_CEO_INBOX_RETRY",
+          });
           await delay(intervalMs, undefined, { signal, ref: false });
         }
       }

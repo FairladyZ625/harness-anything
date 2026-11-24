@@ -8,7 +8,7 @@ import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { resolveHarnessLayout, sha256Bytes, stableStringify } from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { writeFileDurably, removeFileDurably } from "../../../storage/src/durable-file.ts";
 import {
@@ -1268,50 +1268,6 @@ export function createRepoCellApi(
     const completed = await continueBuiltin(action, binding, receipt);
     return settleWriteReceipt(context, action, completed, signal);
   };
-  const writeResidentCeoProfilesJson: RepoCell["writeResidentCeoProfilesJson"] = async (serialized, binding) => {
-    if (binding.actor.executor !== null)
-      throw context.cellCodedError("authorization_denied", "Resident CEO profiles require a person principal.");
-    context.queueDepth += 1;
-    const pending = chainRepoCellWrite(
-      context.tail,
-      () => {
-        if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-        assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
-        const parseProfiles = (value: string | undefined): Record<string, unknown> => {
-          if (value === undefined) return {};
-          const parsed: unknown = JSON.parse(value);
-          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
-            throw context.cellCodedError("invalid_field", "Resident CEO profile state must be a JSON object.");
-          return parsed as Record<string, unknown>;
-        };
-        const current = context.settings.readLocal(),
-          currentProfiles = parseProfiles(current.residentCeoProfilesJson),
-          nextProfiles = parseProfiles(serialized),
-          principalId = binding.actor.principal.personId,
-          currentOthers = Object.fromEntries(Object.entries(currentProfiles).filter(([id]) => id !== principalId)),
-          nextOthers = Object.fromEntries(Object.entries(nextProfiles).filter(([id]) => id !== principalId));
-        if (stableStringify(currentOthers) !== stableStringify(nextOthers))
-          throw context.cellCodedError(
-            "authorization_denied",
-            "A principal can update only their Resident CEO profile.",
-          );
-        if (current.residentCeoProfilesJson !== serialized)
-          context.settings.writeLocal({ ...current, residentCeoProfilesJson: serialized });
-      },
-      {
-        queue: context.writeQueue,
-        label: { command: "resident-ceo-profile-update", requestId: null },
-        onDequeued: () => {
-          context.queueDepth -= 1;
-        },
-      },
-    );
-    context.tail = pending.then(
-      () => undefined,
-      () => undefined,
-    );
-    await pending;
-  };
   const close = async () => {
     if (context.state === "closed") return;
     // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
@@ -1338,7 +1294,6 @@ export function createRepoCellApi(
       scheduleOccurrenceSettlementOwner(context.projection, dispatchId),
     hasBuiltinExecutor: async (claimFence) => builtinRuns.has(claimFence),
     run: runCommand,
-    writeResidentCeoProfilesJson,
     recordReviewDispatchFailure: (taskId, failure, binding) =>
       runCommand(
         {

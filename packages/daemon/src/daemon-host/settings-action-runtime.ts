@@ -7,6 +7,7 @@ import {
   isSettingsEvent,
   readGateSettings,
   resolveHarnessLayout,
+  stableStringify,
   writeGatesFacet,
   type EntityActionCompileInput,
   type GateWitnessMappingV1,
@@ -75,7 +76,7 @@ export function makeSettingsActionRuntime(
       revision = settingsSingletonRevision(cell.projection),
       opId = settingsOperationId(cell, action, binding, revision, catalogOpId),
       targetRef = contract.target.refTemplate.replace("{id}", SETTINGS_ID),
-      local = localSettingsFromAction(cell, action, settingsState),
+      local = localSettingsFromAction(cell, action, binding, settingsState),
       existing = cell.store.readEvent(opId);
     if (existing) {
       if (!isSettingsEvent(existing))
@@ -93,6 +94,7 @@ export function makeSettingsActionRuntime(
       "runtimeAllowedInstances",
       "runtimeAgentBindings",
       "decisionsProvider",
+      "residentCeoProfilesJson",
     ]);
     if (
       local !== null &&
@@ -236,9 +238,26 @@ function mergedSettings(
 function localSettingsFromAction(
   cell: SettingsActionCell,
   action: RepoTaskAction,
+  binding: RepoCellBinding,
   settingsState: Pick<RepoCellSettingsState, "readLocal">,
 ): LocalSettingsV1 | null {
   try {
+    if (typeof action.residentCeoProfilesJson === "string") {
+      const parseProfiles = (value: string | undefined): Record<string, unknown> => {
+        if (value === undefined) return {};
+        const parsed: unknown = JSON.parse(value);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
+          throw cell.cellCodedError("invalid_field", "Resident CEO profile state must be a JSON object.");
+        return parsed as Record<string, unknown>;
+      };
+      const previous = parseProfiles(settingsState.readLocal().residentCeoProfilesJson),
+        next = parseProfiles(action.residentCeoProfilesJson),
+        principalId = binding.actor.principal.personId,
+        previousOthers = Object.fromEntries(Object.entries(previous).filter(([id]) => id !== principalId)),
+        nextOthers = Object.fromEntries(Object.entries(next).filter(([id]) => id !== principalId));
+      if (stableStringify(previousOthers) !== stableStringify(nextOthers))
+        throw cell.cellCodedError("authorization_denied", "A principal can update only their Resident CEO profile.");
+    }
     const applied = SETTINGS_DECLARATION_RUNTIME.applyLocalAction(
       settingsState.readLocal() as unknown as Readonly<Record<string, unknown>>,
       action as unknown as Readonly<Record<string, unknown>>,

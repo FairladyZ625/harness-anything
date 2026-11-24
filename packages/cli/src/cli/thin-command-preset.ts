@@ -1,5 +1,13 @@
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import {
+  accepted,
+  nonEmpty,
+  promptInput,
+  readFlags,
+  rejectInput,
+  rejected,
+  taskActionMethodFor,
+} from "./thin-command-flags.ts";
 import { projectFlags } from "./thin-command-projection.ts";
 import { parseTaskCreate } from "./thin-command-task-create.ts";
 import type { ProtocolCommand, ThinCliInput, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -130,5 +138,11 @@ export function parsePreset(
           : {},
     defaults = "actionDefaults" in route ? route.actionDefaults : {},
     kind = "actionKind" in route ? route.actionKind : route.id;
-  return accepted(rootDir, repoId, json, { ...defaults, kind, ...position, ...payload }, route.method);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    { ...defaults, kind, ...position, ...payload },
+    route.method ?? taskActionMethodFor(kind),
+  );
 }
