@@ -415,3 +415,103 @@ test("dec_88CAA23DE4907261D7ECB107ED/CH1: changedAuthorizationScope resolves nam
   const clientScope = changedAuthorizationScope(graph, inputs, ["packages/daemon/src/daemon-host/client/rpc.ts"]);
   assert.deepEqual([...clientScope.descriptorIds], ["gui.write"]);
 });
+
+// dec_AAEC26DBB6F23BDF80876ABB2C/CH5: center-settings preload Switchover v1 Slice 3 operations
+// bind their owning governed actions and fail closed on mismatched routes or unknown operations.
+test("dec_AAEC26DBB6F23BDF80876ABB2C/CH5: center-settings preload proves center-switch, promote-from-edge, and edge-local-state", () => {
+  const centerPreload = "packages/gui/src/preload/center-settings-preload.ts";
+  const centerContract = "packages/gui/src/api/center-settings-contract.ts";
+  const centerFiles = [centerPreload, centerContract];
+  const graphForCenterPreload = (mutation) => {
+    const texts = Object.fromEntries(
+      centerFiles.map((file) => [file, readFileSync(path.join(repoRoot, file), "utf8")]),
+    );
+    if (mutation) texts[mutation[0]] = replaceSourceOnce(texts[mutation[0]], mutation[1], mutation[2]);
+    const { rootDir } = makeRepo(texts);
+    symlinkSync(realpathSync(path.join(repoRoot, "node_modules")), path.join(rootDir, "node_modules"), "dir");
+    return buildFlowGraph(rootDir, { anchorRoot: repoRoot, sourceFiles: [centerPreload], lexicalFiles: centerFiles });
+  };
+  const slice3Cases = [
+    {
+      fragment: "center-settings-preload.ts#centerSettingsPreloadApi.centerSwitch:",
+      actionKind: "daemon-fleet-center-switch",
+      route: "daemon-fleet-center-switch",
+      wrongActionKind: "repository-read",
+      wrongRoute: "edge-local-state",
+      descriptorId: "daemon-fleet-center-switch",
+      operationLiteral: 'operation: "center-switch"',
+    },
+    {
+      fragment: "center-settings-preload.ts#centerSettingsPreloadApi.promoteFromEdge:",
+      actionKind: "daemon-fleet-center-promote-from-edge",
+      route: "daemon-fleet-center-promote-from-edge",
+      wrongActionKind: "repository-read",
+      wrongRoute: "edge-local-state",
+      descriptorId: "daemon-fleet-center-promote-from-edge",
+      operationLiteral: 'operation: "promote-from-edge"',
+    },
+    {
+      fragment: "center-settings-preload.ts#centerSettingsPreloadApi.edgeLocalState:",
+      actionKind: "repository-read",
+      route: "edge-local-state",
+      wrongActionKind: "daemon-fleet-center-switch",
+      wrongRoute: "daemon-fleet-center-switch",
+      descriptorId: null,
+      operationLiteral: 'operation: "edge-local-state"',
+    },
+  ];
+  const graph = graphForCenterPreload();
+  for (const entry of slice3Cases) {
+    const action = inputs.constants.actionDeclarations.find((candidate) => candidate.kind === entry.actionKind);
+    const wrongAction = inputs.constants.actionDeclarations.find(
+      (candidate) => candidate.kind === entry.wrongActionKind,
+    );
+    assert.ok(action, entry.actionKind);
+    assert.ok(wrongAction, entry.wrongActionKind);
+    const source = action.ontology?.sources?.find((candidate) => candidate.candidateId?.includes(entry.fragment));
+    assert.ok(source, entry.fragment);
+    const node = sourceWitnesses(graph, [source]).get(source.candidateId);
+    assert.ok(node, source.candidateId);
+    assert.ok(clientEntryEvidence(graph, node, source, action, inputs.descriptors), `${entry.fragment} positive proof`);
+    assert.equal(
+      clientEntryEvidence(graph, node, { ...source, route: entry.wrongRoute }, wrongAction, inputs.descriptors),
+      null,
+      `${entry.fragment} must fail closed on wrong action/route`,
+    );
+    if (entry.descriptorId !== null) {
+      assert.equal(
+        clientEntryEvidence(
+          graph,
+          node,
+          source,
+          action,
+          inputs.descriptors.filter((descriptor) => descriptor.id !== entry.descriptorId),
+        ),
+        null,
+        `${entry.fragment} must fail closed when owning descriptor is missing`,
+      );
+    }
+    const mutatedPreloadText = replaceSourceOnce(
+      readFileSync(path.join(repoRoot, centerPreload), "utf8"),
+      entry.operationLiteral,
+      'operation: "unmapped-center-op"',
+    );
+    const mutatedCandidate = scanOntologyText(centerPreload, mutatedPreloadText).find((candidate) =>
+      candidate.id.includes(entry.fragment),
+    );
+    assert.ok(mutatedCandidate, `${entry.fragment} mutated candidate`);
+    const mutatedSource = { ...source, candidateId: mutatedCandidate.id };
+    const mutatedGraph = graphForCenterPreload([
+      centerPreload,
+      entry.operationLiteral,
+      'operation: "unmapped-center-op"',
+    ]);
+    const mutatedNode = sourceWitnesses(mutatedGraph, [mutatedSource]).get(mutatedSource.candidateId);
+    assert.ok(mutatedNode, `${entry.fragment} mutated witness`);
+    assert.equal(
+      clientEntryEvidence(mutatedGraph, mutatedNode, mutatedSource, action, inputs.descriptors),
+      null,
+      `${entry.fragment} must fail closed on unmapped operation`,
+    );
+  }
+});

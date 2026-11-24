@@ -10,10 +10,14 @@ export {
   type FleetCenterRelocationOutcome,
 } from "./center-relocation-command.ts";
 export {
+  centerSwitchoverCandidatePath,
   centerSymmetricIdentityPath,
+  prepareCenterSwitchoverCandidate,
   prepareCenterSymmetricIdentity,
+  readCenterSwitchoverCandidate,
   readCenterSymmetricIdentity,
   switchFleetCenter,
+  type CenterSwitchoverCandidateV1,
   type CenterSymmetricNodeIdentityV1,
   type FleetCenterSwitchoverHooks,
 } from "./center-switchover-command.ts";

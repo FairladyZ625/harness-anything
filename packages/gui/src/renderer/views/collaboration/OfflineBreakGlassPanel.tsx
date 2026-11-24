@@ -38,10 +38,34 @@ const DISCONNECT_REASON_LABEL: Readonly<Record<string, MessageKey>> = {
   replica_health_unreadable: "collaboration.offline.reason.healthUnreadable",
   repo_canonical_root_missing: "collaboration.offline.reason.rootMissing",
   edge_daemon_running: "collaboration.offline.reason.edgeDaemonRunning",
+  edge_daemon_stop_refused: "collaboration.offline.reason.edgeDaemonStopRefused",
+  edge_daemon_stop_stalled: "collaboration.offline.reason.edgeDaemonStopStalled",
   missing_confirmation: "collaboration.offline.reason.missingConfirmation",
   authorization_denied: "collaboration.offline.reason.authorizationDenied",
   gui_read_only: "collaboration.offline.reason.readOnly",
 };
+
+const NEXT_STEP_LABEL: Readonly<Record<string, MessageKey>> = {
+  restart_daemon: "collaboration.offline.nextStep.restartDaemon",
+  switch_repo_to_local: "collaboration.offline.nextStep.switchRepoToLocal",
+  verify_rbac_active: "collaboration.offline.nextStep.verifyRbacActive",
+  restore_or_verify_rbac: "collaboration.offline.nextStep.restoreOrVerifyRbac",
+  start_center_listener: "collaboration.offline.nextStep.startCenterListener",
+  repoint_other_edges: "collaboration.offline.nextStep.repointOtherEdges",
+};
+
+function resolveNextStepCodes(reply: Extract<PromoteFromEdgeReply, { readonly ok: true }>): readonly string[] {
+  if (Array.isArray(reply.nextSteps) && reply.nextSteps.length > 0) {
+    return reply.nextSteps.filter((step) => NEXT_STEP_LABEL[step] !== undefined);
+  }
+  return [
+    "restart_daemon",
+    ...(reply.registryMode === "local" ? [] : ["switch_repo_to_local"]),
+    reply.rbacBackupStatus === "verified" ? "verify_rbac_active" : "restore_or_verify_rbac",
+    "start_center_listener",
+    "repoint_other_edges",
+  ];
+}
 
 function disconnectReasonText(code: string | null): string {
   if (!code) return t("collaboration.offline.reason.centerUnreachable");
@@ -63,7 +87,14 @@ type LocalReadState =
 type PromoteState =
   | { readonly kind: "idle" }
   | { readonly kind: "submitting" }
-  | { readonly kind: "succeeded"; readonly newEpoch: number; readonly nextAction: string | null }
+  | {
+      readonly kind: "succeeded";
+      readonly newEpoch: number;
+      readonly stoppedEdgeDaemon: boolean;
+      readonly registryMode: string | null;
+      readonly rbacBackupStatus: string | null;
+      readonly nextSteps: readonly string[];
+    }
   | { readonly kind: "error"; readonly code: string; readonly detail: string };
 
 export function OfflineBreakGlassPanel({
@@ -88,13 +119,17 @@ export function OfflineBreakGlassPanel({
   const contextRef = useRef(repoId);
   const readSeqRef = useRef(0);
   const promoteSeqRef = useRef(0);
+  const onReadEdgeLocalStateRef = useRef(onReadEdgeLocalState);
+  const onPromotedRef = useRef(onPromoted);
   contextRef.current = repoId;
+  onReadEdgeLocalStateRef.current = onReadEdgeLocalState;
+  onPromotedRef.current = onPromoted;
 
   const loadLocalState = useCallback(() => {
     const targetRepoId = repoId;
     const seq = ++readSeqRef.current;
     setReadState({ kind: "loading" });
-    void onReadEdgeLocalState(targetRepoId).then(
+    void onReadEdgeLocalStateRef.current(targetRepoId).then(
       (reply) => {
         if (readSeqRef.current !== seq || contextRef.current !== targetRepoId) return;
         if (reply.ok) {
@@ -123,8 +158,10 @@ export function OfflineBreakGlassPanel({
         });
       },
     );
-  }, [onReadEdgeLocalState, repoId]);
+  }, [repoId]);
 
+  // Reset confirmation checkboxes and promotion receipt ONLY when the selected repository changes,
+  // never on parent system-status polling re-renders.
   useEffect(() => {
     promoteSeqRef.current += 1;
     setExpanded(false);
@@ -151,9 +188,12 @@ export function OfflineBreakGlassPanel({
           setPromoteState({
             kind: "succeeded",
             newEpoch: reply.newEpoch,
-            nextAction: reply.nextAction ?? null,
+            stoppedEdgeDaemon: reply.stoppedEdgeDaemon === true,
+            registryMode: reply.registryMode ?? null,
+            rbacBackupStatus: reply.rbacBackupStatus ?? null,
+            nextSteps: resolveNextStepCodes(reply),
           });
-          onPromoted?.();
+          onPromotedRef.current?.();
           return;
         }
         const code = reply.error?.code ?? reply.code;
@@ -316,10 +356,36 @@ export function OfflineBreakGlassPanel({
                   )}
 
                   {promoteState.kind === "succeeded" ? (
-                    <p role="status" data-testid="collaboration-break-glass-succeeded" className="text-status-done">
-                      {t("collaboration.offline.promoteSucceeded", { epoch: promoteState.newEpoch })}
-                      {promoteState.nextAction ? ` ${promoteState.nextAction}` : ""}
-                    </p>
+                    <div
+                      role="status"
+                      data-testid="collaboration-break-glass-succeeded"
+                      className="flex flex-col gap-1.5 text-status-done"
+                    >
+                      <p>{t("collaboration.offline.promoteSucceeded", { epoch: promoteState.newEpoch })}</p>
+                      <ul
+                        data-testid="collaboration-break-glass-completed-stages"
+                        className="list-disc pl-4 ui-micro text-text-muted"
+                      >
+                        {promoteState.stoppedEdgeDaemon && <li>{t("collaboration.offline.stageStoppedEdgeDaemon")}</li>}
+                        <li>{t("collaboration.offline.stagePromotedRotated", { epoch: promoteState.newEpoch })}</li>
+                        {promoteState.registryMode === "local" && (
+                          <li>{t("collaboration.offline.stageSwitchedLocal")}</li>
+                        )}
+                      </ul>
+                      <div className="pt-0.5">
+                        <p className="ui-micro font-medium text-text">{t("collaboration.offline.nextStepsTitle")}</p>
+                        <ol
+                          data-testid="collaboration-break-glass-next-steps"
+                          className="list-decimal pl-4 ui-micro text-text-muted"
+                        >
+                          {promoteState.nextSteps.map((stepCode) => (
+                            <li key={stepCode} data-step={stepCode}>
+                              {t(NEXT_STEP_LABEL[stepCode]!)}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2 pt-1">
                       <Button

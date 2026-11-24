@@ -4,6 +4,7 @@ import { pageEntryIdentity } from "./components/primitives/page-entry-identity.t
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DecisionState, TaskRow } from "./model/types.ts";
+import type { CenterSwitchInput, PromoteFromEdgeInput } from "../api/center-settings-contract.ts";
 import type { WorkspaceSummaryRead } from "../api/renderer-dto.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { FleetVersionWarningBanner } from "./components/FleetVersionWarningBanner.tsx";
@@ -133,6 +134,28 @@ function AppShell() {
   // 当前项目上报主进程 + 「在新窗口打开」入口(浏览器壳为 null)。
   const openProjectInNewWindow = useProjectWindowHost(activeRepoId);
   const projectId = activeRepoId ?? "unselected";
+  // Stable callbacks for CollaborationView / OfflineBreakGlassPanel so 10s system-status polling
+  // re-renders never reset in-progress break-glass confirmations or discard pending receipts.
+  const handleCenterSwitch = useCallback(async (input: CenterSwitchInput) => {
+    const api = guiHostBridge()?.centerSettings?.centerSwitch;
+    if (!api) return { ok: false as const, code: "bridge_unavailable" };
+    return api(input);
+  }, []);
+  const handlePromoteFromEdge = useCallback(async (input: PromoteFromEdgeInput) => {
+    const api = guiHostBridge()?.centerSettings?.promoteFromEdge;
+    if (!api) return { ok: false as const, code: "bridge_unavailable" };
+    return api(input);
+  }, []);
+  const handleReadEdgeLocalState = useCallback(async (targetRepoId: string) => {
+    const api = guiHostBridge()?.centerSettings?.edgeLocalState;
+    if (!api) return { ok: false as const, code: "bridge_unavailable" };
+    return api({ repoId: targetRepoId });
+  }, []);
+  const handleCenterChanged = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["fleet-overview", projectId] });
+    void queryClient.invalidateQueries({ queryKey: ["center", "fleet-status"] });
+    void queryClient.invalidateQueries({ queryKey: ["system"] });
+  }, [projectId, queryClient]);
   // 已注册 kind 清单(内核内建 + 本仓 vertical 声明):图筛选、命令面板与实体页同源于此。
   const entityKinds = useEntityKindOptions(projectId);
   const governedEntities = useGovernedEntityRows(projectId);
@@ -1062,26 +1085,10 @@ function AppShell() {
                     }
                     return res;
                   }}
-                  onCenterSwitch={async (input) => {
-                    const api = guiHostBridge()?.centerSettings?.centerSwitch;
-                    if (!api) return { ok: false, code: "bridge_unavailable" };
-                    return api(input);
-                  }}
-                  onPromoteFromEdge={async (input) => {
-                    const api = guiHostBridge()?.centerSettings?.promoteFromEdge;
-                    if (!api) return { ok: false, code: "bridge_unavailable" };
-                    return api(input);
-                  }}
-                  onReadEdgeLocalState={async (targetRepoId) => {
-                    const api = guiHostBridge()?.centerSettings?.edgeLocalState;
-                    if (!api) return { ok: false, code: "bridge_unavailable" };
-                    return api({ repoId: targetRepoId });
-                  }}
-                  onCenterChanged={() => {
-                    void queryClient.invalidateQueries({ queryKey: ["fleet-overview", projectId] });
-                    void queryClient.invalidateQueries({ queryKey: ["center", "fleet-status"] });
-                    void queryClient.invalidateQueries({ queryKey: ["system"] });
-                  }}
+                  onCenterSwitch={handleCenterSwitch}
+                  onPromoteFromEdge={handlePromoteFromEdge}
+                  onReadEdgeLocalState={handleReadEdgeLocalState}
+                  onCenterChanged={handleCenterChanged}
                 />
               ) : view === "graph" ? (
                 <EntityWorkspace

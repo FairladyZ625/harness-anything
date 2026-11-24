@@ -79,6 +79,21 @@ export interface CenterSymmetricNodeIdentityV1 {
   readonly updatedAt: string;
 }
 
+export interface CenterSwitchoverCandidateV1 {
+  readonly schema: "fleet-center-switchover-candidate/v1";
+  readonly repoId: string;
+  readonly nodeId: string;
+  readonly targetExternalUrl: string;
+  readonly targetLoginUrl: string;
+  readonly targetSpkiSha256: string;
+  readonly targetRoot: string;
+  readonly targetUserRoot: string;
+  readonly targetStateRoot?: string;
+  readonly targetCaPath?: string;
+  readonly targetServername?: string;
+  readonly updatedAt: string;
+}
+
 export interface FleetCenterSwitchoverHooks {
   readonly now?: () => string;
   readonly probeTls?: (
@@ -182,6 +197,89 @@ export function readCenterSymmetricIdentity(userRoot: string, repoId: string): C
   return parsed as CenterSymmetricNodeIdentityV1;
 }
 
+export function centerSwitchoverCandidatePath(userRoot: string, repoId: string, nodeId: string): string {
+  return path.join(path.resolve(userRoot), "fleet", "center-switchover-candidates", repoId, `${nodeId}.json`);
+}
+
+export function prepareCenterSwitchoverCandidate(
+  userRoot: string,
+  input: Omit<CenterSwitchoverCandidateV1, "schema" | "updatedAt"> & { readonly updatedAt?: string },
+): CenterSwitchoverCandidateV1 {
+  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(input.repoId))
+    throw new Error(`Invalid repoId for switchover candidate: ${input.repoId}`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(input.nodeId))
+    throw new Error(`Invalid nodeId for switchover candidate: ${input.nodeId}`);
+  const externalUrl = parseCandidateHttpsOrigin(safeParseExternalUrl(input.targetExternalUrl));
+  if (!externalUrl)
+    throw new Error(`Switchover candidate targetExternalUrl must be an HTTPS origin: ${input.targetExternalUrl}`);
+  const loginUrl = parseCandidateLoginUrl(input.targetLoginUrl);
+  if (!loginUrl) throw new Error(`Switchover candidate targetLoginUrl must be an HTTP(S) URL: ${input.targetLoginUrl}`);
+  if (!/^(?:sha256:)?[0-9a-f]{64}$/u.test(input.targetSpkiSha256))
+    throw new Error("Switchover candidate targetSpkiSha256 must be a lowercase SHA-256 digest.");
+  if (!input.targetRoot || !path.isAbsolute(input.targetRoot))
+    throw new Error("Switchover candidate targetRoot must be an absolute path.");
+  if (!input.targetUserRoot || !path.isAbsolute(input.targetUserRoot))
+    throw new Error("Switchover candidate targetUserRoot must be an absolute path.");
+  if (input.targetStateRoot !== undefined && !path.isAbsolute(input.targetStateRoot))
+    throw new Error("Switchover candidate targetStateRoot must be an absolute path.");
+  if (input.targetCaPath !== undefined && !path.isAbsolute(input.targetCaPath))
+    throw new Error("Switchover candidate targetCaPath must be an absolute path.");
+  const record: CenterSwitchoverCandidateV1 = {
+    schema: "fleet-center-switchover-candidate/v1",
+    repoId: input.repoId,
+    nodeId: input.nodeId,
+    targetExternalUrl: externalUrl,
+    targetLoginUrl: input.targetLoginUrl,
+    targetSpkiSha256: input.targetSpkiSha256,
+    targetRoot: path.resolve(input.targetRoot),
+    targetUserRoot: path.resolve(input.targetUserRoot),
+    ...(input.targetStateRoot ? { targetStateRoot: path.resolve(input.targetStateRoot) } : {}),
+    ...(input.targetCaPath ? { targetCaPath: path.resolve(input.targetCaPath) } : {}),
+    ...(input.targetServername ? { targetServername: input.targetServername } : {}),
+    updatedAt: input.updatedAt ?? new Date().toISOString(),
+  };
+  writeFileDurably(
+    centerSwitchoverCandidatePath(userRoot, input.repoId, input.nodeId),
+    `${JSON.stringify(record, null, 2)}\n`,
+    0o600,
+  );
+  return record;
+}
+
+export function readCenterSwitchoverCandidate(
+  userRoot: string,
+  repoId: string,
+  nodeId: string,
+): CenterSwitchoverCandidateV1 | null {
+  if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId) || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(nodeId)) return null;
+  const file = centerSwitchoverCandidatePath(userRoot, repoId, nodeId);
+  if (!localRuntimeStateFileSystem.exists(file)) return null;
+  const parsed = JSON.parse(localRuntimeStateFileSystem.readText(file)) as Partial<CenterSwitchoverCandidateV1>;
+  if (
+    parsed.schema !== "fleet-center-switchover-candidate/v1" ||
+    parsed.repoId !== repoId ||
+    parsed.nodeId !== nodeId ||
+    typeof parsed.targetExternalUrl !== "string" ||
+    parseCandidateHttpsOrigin(safeParseExternalUrl(parsed.targetExternalUrl)) === null ||
+    typeof parsed.targetLoginUrl !== "string" ||
+    parseCandidateLoginUrl(parsed.targetLoginUrl) === null ||
+    typeof parsed.targetSpkiSha256 !== "string" ||
+    !/^(?:sha256:)?[0-9a-f]{64}$/u.test(parsed.targetSpkiSha256) ||
+    typeof parsed.targetRoot !== "string" ||
+    !path.isAbsolute(parsed.targetRoot) ||
+    typeof parsed.targetUserRoot !== "string" ||
+    !path.isAbsolute(parsed.targetUserRoot) ||
+    (parsed.targetStateRoot !== undefined &&
+      (typeof parsed.targetStateRoot !== "string" || !path.isAbsolute(parsed.targetStateRoot))) ||
+    (parsed.targetCaPath !== undefined &&
+      (typeof parsed.targetCaPath !== "string" || !path.isAbsolute(parsed.targetCaPath))) ||
+    (parsed.targetServername !== undefined && typeof parsed.targetServername !== "string") ||
+    typeof parsed.updatedAt !== "string"
+  )
+    return null;
+  return parsed as CenterSwitchoverCandidateV1;
+}
+
 export async function switchFleetCenter(
   argv: readonly string[],
   defaultUserRoot: string = path.join(os.homedir(), ".harness"),
@@ -216,9 +314,22 @@ async function runForwardSwitchoverCommand(
     sourceUserRoot = path.resolve(flagValue(argv, "--user-root") ?? defaultUserRoot),
     sourceStateRoot = path.resolve(flagValue(argv, "--state-root") ?? path.join(sourceUserRoot, "fleet")),
     daemonId = flagValue(argv, "--daemon-id") ?? daemonIdFromEnv(),
-    targetRoot = path.resolve(flagValue(argv, "--target-root") ?? sourceRoot),
-    targetUserRoot = path.resolve(flagValue(argv, "--target-user-root") ?? sourceUserRoot),
-    targetStateRoot = path.resolve(flagValue(argv, "--target-state-root") ?? path.join(targetUserRoot, "fleet")),
+    candidate = readCenterSwitchoverCandidate(sourceUserRoot, repoId, targetNodeId),
+    rawTargetRoot = flagValue(argv, "--target-root") ?? candidate?.targetRoot ?? null,
+    rawTargetUserRoot = flagValue(argv, "--target-user-root") ?? candidate?.targetUserRoot ?? null,
+    hasDistinctTargetHost =
+      rawTargetRoot !== null &&
+      rawTargetUserRoot !== null &&
+      !(path.resolve(rawTargetRoot) === sourceRoot && path.resolve(rawTargetUserRoot) === sourceUserRoot),
+    targetRoot = hasDistinctTargetHost ? path.resolve(rawTargetRoot!) : null,
+    targetUserRoot = hasDistinctTargetHost ? path.resolve(rawTargetUserRoot!) : null,
+    targetStateRoot = flagValue(argv, "--target-state-root")
+      ? path.resolve(flagValue(argv, "--target-state-root")!)
+      : candidate?.targetStateRoot
+        ? path.resolve(candidate.targetStateRoot)
+        : targetUserRoot
+          ? path.join(targetUserRoot, "fleet")
+          : null,
     switchoverId = flagValue(argv, "--switchover-id") ?? `sw_${randomUUID().replaceAll("-", "").slice(0, 20)}`,
     maxAllowedLagRevisions = parseNonnegativeInt(flagValue(argv, "--max-lag-revisions"), 1024),
     catchupTimeoutMs = parseNonnegativeInt(flagValue(argv, "--catchup-timeout-ms"), 30_000),
@@ -239,14 +350,25 @@ async function runForwardSwitchoverCommand(
       "Numeric switchover options must be nonnegative integers.",
     );
 
-  const rawExternalUrl = flagValue(argv, "--target-external-url") ?? "",
+  const rawExternalUrl = flagValue(argv, "--target-external-url") ?? candidate?.targetExternalUrl ?? "",
     targetExternalUrl = rawExternalUrl ? safeParseExternalUrl(rawExternalUrl) : "",
-    targetLoginUrl = flagValue(argv, "--target-login-url") ?? "",
-    targetSpkiSha256 = flagValue(argv, "--target-spki-sha256") ?? "",
-    targetCaPath = flagValue(argv, "--target-ca") ? path.resolve(flagValue(argv, "--target-ca")!) : undefined,
-    targetServername = flagValue(argv, "--target-servername");
+    targetLoginUrl = flagValue(argv, "--target-login-url") ?? candidate?.targetLoginUrl ?? "",
+    targetSpkiSha256 = flagValue(argv, "--target-spki-sha256") ?? candidate?.targetSpkiSha256 ?? "",
+    targetCaPath = flagValue(argv, "--target-ca")
+      ? path.resolve(flagValue(argv, "--target-ca")!)
+      : candidate?.targetCaPath
+        ? path.resolve(candidate.targetCaPath)
+        : undefined,
+    targetServername = flagValue(argv, "--target-servername") ?? candidate?.targetServername;
 
+  // Always resolve source symmetric identity strictly read-only up front so dry-run preflight
+  // and unauthorized/rejected invocations never mutate disk or create directories.
   const resolvedIdentity = resolveSourceSymmetricIdentity(argv, sourceUserRoot, repoId);
+  const hasExplicitSourceIdentityFlags =
+    flagValue(argv, "--source-node-id") !== undefined ||
+    flagValue(argv, "--source-credential") !== undefined ||
+    flagValue(argv, "--source-view-root") !== undefined ||
+    flagValue(argv, "--source-quota-bytes") !== undefined;
   let capturedLogWindow: readonly CenterReplicationLogRow[] = [];
 
   const ports: CenterSwitchoverPorts = {
@@ -262,15 +384,18 @@ async function runForwardSwitchoverCommand(
     },
     inspectPreflight: async ({ repoId: targetRepo, targetNodeId: candidateNode, triggerSource: trigger }) => {
       const centerSnapshot = readCenterFrozenCut({ rootInput: sourceRoot, repoId: targetRepo });
-      const targetEdge = readFleetEdgeConfig(targetUserRoot, targetRepo);
-      const targetReplica = resolveTargetReplicaInfo(targetRoot, targetUserRoot, targetRepo, candidateNode, targetEdge);
+      const targetEdge = targetUserRoot ? readFleetEdgeConfig(targetUserRoot, targetRepo) : null;
+      const targetReplica =
+        targetRoot && targetUserRoot
+          ? resolveTargetReplicaInfo(targetRoot, targetUserRoot, targetRepo, candidateNode, targetEdge)
+          : { generation: null, cut: null, connected: false, syncFailureCode: "target_candidate_unconfigured" };
       const tlsProbe = hooks?.probeTls
         ? await hooks.probeTls(targetExternalUrl, targetCaPath, targetServername)
         : await defaultProbeTls(targetExternalUrl, targetCaPath, targetServername);
       const authProbe = hooks?.probeAuth
         ? await hooks.probeAuth(targetLoginUrl, targetCaPath)
-        : await defaultProbeAuth(targetLoginUrl, targetCaPath);
-      const availableDiskBytes = availableDiskBytesAt(targetRoot);
+        : await defaultProbeAuth(targetLoginUrl, targetCaPath, targetServername);
+      const availableDiskBytes = targetRoot ? availableDiskBytesAt(targetRoot) : 0;
       const replicaLagRevisions =
         targetReplica.cut === null ? null : Math.max(0, centerSnapshot.cut.finalRevision - targetReplica.cut.revision);
       const input: SwitchoverPreflightInput = {
@@ -348,6 +473,11 @@ async function runForwardSwitchoverCommand(
           timeoutMs,
         });
       }
+      if (!targetRoot || !targetUserRoot)
+        throw switchoverCommandError(
+          "target_candidate_unconfigured",
+          `No distinct target host configuration is registered for candidate ${candidateNode} on ${targetRepo}.`,
+        );
       return await waitTargetReplicaCut({
         targetRoot,
         targetUserRoot,
@@ -388,6 +518,11 @@ async function runForwardSwitchoverCommand(
         newEpoch: activationInput.newEpoch,
         targetNodeId: activationInput.targetNodeId,
       });
+      if (!targetRoot || !targetUserRoot || !targetStateRoot)
+        throw switchoverCommandError(
+          "target_candidate_unconfigured",
+          `No distinct target host configuration is registered for candidate ${activationInput.targetNodeId} on ${activationInput.repoId}.`,
+        );
       const targetEdge = readFleetEdgeConfig(targetUserRoot, activationInput.repoId);
       const targetReplica = resolveTargetReplicaInfo(
         targetRoot,
@@ -460,6 +595,15 @@ async function runForwardSwitchoverCommand(
     },
     demoteSourceToEdge: async (demoteInput) => {
       if (!resolvedIdentity) throw new Error("Symmetric source identity disappeared during switchover demotion.");
+      if (hasExplicitSourceIdentityFlags || readCenterSymmetricIdentity(sourceUserRoot, demoteInput.repoId) === null) {
+        prepareCenterSymmetricIdentity(sourceUserRoot, {
+          repoId: demoteInput.repoId,
+          nodeId: resolvedIdentity.nodeId,
+          credential: resolvedIdentity.credential,
+          viewRoot: resolvedIdentity.viewRoot,
+          quotaBytes: resolvedIdentity.quotaBytes,
+        });
+      }
       const demotedAt = (hooks?.now ?? (() => new Date().toISOString()))();
       markCenterSwitchoverFenceDemoted(sourceUserRoot, demoteInput.repoId, demoteInput.switchoverId, demotedAt);
       clearCenterMigrating(sourceUserRoot, demoteInput.repoId);
@@ -532,6 +676,7 @@ async function runForwardSwitchoverCommand(
         phase: result.phase,
         ...(result.preflight ? { preflight: result.preflight } : {}),
         ...(result.barrierIssues ? { barrierIssues: result.barrierIssues } : {}),
+        ...(result.state ? { state: result.state } : {}),
         ...(result.fencedCeded ? { fencedCeded: true } : {}),
         error: { code: result.code, hint: result.detail },
       },
@@ -605,10 +750,23 @@ async function runRollbackCommand(
       readCenterSwitchoverFence(sourceUserRoot, targetRepo),
     invalidateTargetAttempt: async (input) => {
       if (hooks?.invalidateTargetAttempt) return await hooks.invalidateTargetAttempt(input);
-      if (!targetStateRoot) return { targetNeverActivated: false, targetInvalidated: false };
+      const candidate = readCenterSwitchoverCandidate(sourceUserRoot, input.repoId, input.targetNodeId),
+        resolvedTargetUserRoot = targetUserRoot ?? candidate?.targetUserRoot,
+        resolvedTargetStateRoot =
+          targetStateRoot ??
+          candidate?.targetStateRoot ??
+          (resolvedTargetUserRoot ? path.join(path.resolve(resolvedTargetUserRoot), "fleet") : undefined),
+        resolvedTargetRoot = targetRoot ?? candidate?.targetRoot;
+      if (!resolvedTargetStateRoot) return { targetNeverActivated: false, targetInvalidated: false };
+      if (
+        resolvedTargetUserRoot &&
+        path.resolve(resolvedTargetUserRoot) === sourceUserRoot &&
+        path.resolve(resolvedTargetStateRoot) === sourceStateRoot
+      )
+        return { targetNeverActivated: false, targetInvalidated: false };
       return invalidateTargetSwitchoverAttempt({
-        targetStateRoot,
-        ...(targetRoot ? { targetRootInput: targetRoot } : {}),
+        targetStateRoot: resolvedTargetStateRoot,
+        ...(resolvedTargetRoot ? { targetRootInput: resolvedTargetRoot } : {}),
         repoId: input.repoId,
         switchoverId: input.switchoverId,
         cededEpoch: input.cededEpoch,
@@ -656,14 +814,25 @@ function resolveSourceSymmetricIdentity(
     viewRoot = flagValue(argv, "--source-view-root") ?? existing?.viewRoot,
     rawBytes = flagValue(argv, "--source-quota-bytes"),
     storageBytes = rawBytes ? parseNonnegativeInt(rawBytes, 0) : (existing?.quotaBytes ?? 64 * 1024 * 1024);
-  if (!nodeId || !credential || !viewRoot || !isPositiveSafeByteCount(storageBytes)) return null;
-  return prepareCenterSymmetricIdentity(sourceUserRoot, {
+  if (
+    !nodeId ||
+    !credential ||
+    credential.trim().length === 0 ||
+    !viewRoot ||
+    !isPositiveSafeByteCount(storageBytes) ||
+    !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(nodeId)
+  )
+    return null;
+  return {
+    schema: "fleet-center-node-identity/v1",
     repoId,
     nodeId,
     credential,
-    viewRoot,
+    viewRoot: path.resolve(viewRoot),
     quotaBytes: storageBytes,
-  });
+    updatedAt: existing?.updatedAt ?? "",
+  };
 }
 
 function resolveTargetReplicaInfo(
@@ -816,6 +985,7 @@ async function defaultProbeTls(
 async function defaultProbeAuth(
   loginUrl: string,
   caPath?: string,
+  servername?: string,
 ): Promise<{ readonly ok: boolean; readonly error?: string }> {
   if (!loginUrl) return { ok: false, error: "Target --target-login-url is required." };
   if (!URL.canParse(loginUrl)) return { ok: false, error: `Invalid target login URL: ${loginUrl}` };
@@ -830,6 +1000,7 @@ async function defaultProbeAuth(
         method: "HEAD",
         timeout: cliOperationalPolicy.defaultValue.probe.timeoutMs,
         ...(parsed.protocol === "https:" && ca ? { ca } : {}),
+        ...(parsed.protocol === "https:" && servername ? { servername } : {}),
       },
       (res) => {
         res.resume();
@@ -850,6 +1021,24 @@ function safeParseExternalUrl(value: string): string {
   const parsed = new URL(value);
   if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "") return value;
   return parsed.origin;
+}
+
+function parseCandidateHttpsOrigin(value: string): string | null {
+  if (!URL.canParse(value)) return null;
+  const parsed = new URL(value);
+  return parsed.protocol === "https:" && parsed.username === "" && parsed.password === "" && parsed.pathname === "/"
+    ? parsed.origin
+    : null;
+}
+
+function parseCandidateLoginUrl(value: string): string | null {
+  if (!URL.canParse(value)) return null;
+  const parsed = new URL(value);
+  return (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+    parsed.username === "" &&
+    parsed.password === ""
+    ? parsed.toString()
+    : null;
 }
 
 function normalizeSpkiHex(value: string): string | undefined {

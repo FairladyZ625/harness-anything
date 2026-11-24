@@ -507,6 +507,7 @@ export async function startGuiApp(): Promise<void> {
   const centerSwitchPort = createCenterSwitchPort({
     userRoot: () => guiDaemonUserRoot(),
     readOnly: () => guiDaemonReadOnly(),
+    daemonId: () => guiGlobalDaemonTarget().daemonId,
   });
   registerCenterSettingsIpc(registrar, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),

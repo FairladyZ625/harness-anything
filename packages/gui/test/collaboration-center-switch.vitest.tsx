@@ -448,7 +448,11 @@ describe("Slice 3 GUI: 候选预检、一键设为中心与离线破窗", () => 
       oldEpoch: 4,
       newEpoch: 5,
       finalRevision: 188,
-      nextAction: "Start the new center and repoint edges explicitly.",
+      stoppedEdgeDaemon: true,
+      registryMode: "local",
+      rbacBackupStatus: "unknown",
+      nextSteps: ["restart_daemon", "restore_or_verify_rbac", "start_center_listener", "repoint_other_edges"],
+      nextAction: "RAW ENGLISH DAEMON TEXT THAT MUST NOT APPEAR IN ZH-CN UI",
     }));
     const onCenterChanged = vi.fn();
 
@@ -502,8 +506,135 @@ describe("Slice 3 GUI: 候选预检、一键设为中心与离线破窗", () => 
       forceNewEpoch: true,
       confirmPossibleTailLoss: true,
     });
-    expect(view.host.querySelector('[data-testid="collaboration-break-glass-succeeded"]')?.textContent).toContain("#5");
+    const succeeded = view.host.querySelector('[data-testid="collaboration-break-glass-succeeded"]')!;
+    expect(succeeded.textContent).toContain("#5");
+    // Must render localized stages & ordered recovery steps, never leaking raw English nextAction prose.
+    expect(succeeded.textContent).not.toContain("RAW ENGLISH DAEMON TEXT");
+    expect(
+      view.host.querySelector('[data-testid="collaboration-break-glass-completed-stages"]')?.textContent,
+    ).toContain("local");
+    const nextSteps = Array.from(
+      view.host.querySelectorAll('[data-testid="collaboration-break-glass-next-steps"] li'),
+    ).map((li) => li.getAttribute("data-step"));
+    expect(nextSteps).toEqual([
+      "restart_daemon",
+      "restore_or_verify_rbac",
+      "start_center_listener",
+      "repoint_other_edges",
+    ]);
     expect(onCenterChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("F5 回归：父组件高频重渲染（10s 状态轮询 + 新回调引用）不清空破窗勾选且不丢弃在途提升回执", async () => {
+    const readLocalState = vi.fn(async (repoId: string) => ({
+      ok: true as const,
+      mode: "remote-edge",
+      repoId,
+      nodeId: "edge-mac-poll",
+      configuredCenter: { host: "10.0.1.9", port: 7545 },
+      localRevision: 188,
+      localSequence: 188,
+      writerEpoch: 4,
+      syncFailureCode: "replica_unavailable",
+      canPromote: true,
+    }));
+    let resolvePromote!: (reply: PromoteFromEdgeReply) => void;
+    const pendingPromote = new Promise<PromoteFromEdgeReply>((resolve) => {
+      resolvePromote = resolve;
+    });
+    const promoteSpy = vi.fn(() => pendingPromote);
+    const onCenterChanged = vi.fn();
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    mounted.push({ root, host });
+
+    const renderWithPollingTick = (repoId: string, now: string) => {
+      act(() => {
+        root.render(
+          <CollaborationView
+            repoId={repoId}
+            mode="remote-edge"
+            overview={null}
+            overviewError="replica_unavailable"
+            onOpenTask={() => {}}
+            onNavigateEntity={() => {}}
+            // Deliberately pass fresh inline closures on every parent tick to prove resilience
+            // even if a parent rerenders with new function identities.
+            onReadEdgeLocalState={(id) => readLocalState(id)}
+            onPromoteFromEdge={(input) => promoteSpy(input)}
+            onCenterChanged={() => onCenterChanged()}
+            now={now}
+          />,
+        );
+      });
+    };
+
+    renderWithPollingTick("repo-poll", "2026-11-24T00:01:00.000Z");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readLocalState).toHaveBeenCalledTimes(1);
+
+    // Expand form and check both confirmations.
+    await act(async () => {
+      host.querySelector<HTMLElement>('[data-testid="collaboration-break-glass-toggle"]')!.click();
+    });
+    await act(async () => {
+      host.querySelector<HTMLElement>('[data-testid="collaboration-break-glass-confirm-tail-loss"]')!.click();
+      host.querySelector<HTMLElement>('[data-testid="collaboration-break-glass-confirm-new-epoch"]')!.click();
+    });
+
+    // Simulate 10s system-status polling ticks BEFORE submit: checkboxes & expanded form MUST survive.
+    renderWithPollingTick("repo-poll", "2026-11-24T00:01:10.000Z");
+    renderWithPollingTick("repo-poll", "2026-11-24T00:01:20.000Z");
+    expect(readLocalState).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('[data-testid="collaboration-break-glass-form"]')).not.toBeNull();
+    expect(
+      host.querySelector<HTMLInputElement>('[data-testid="collaboration-break-glass-confirm-tail-loss"]')!.checked,
+    ).toBe(true);
+    expect(
+      host.querySelector<HTMLInputElement>('[data-testid="collaboration-break-glass-confirm-new-epoch"]')!.checked,
+    ).toBe(true);
+
+    // Submit promotion while keeping the promise pending, then fire more polling ticks.
+    await act(async () => {
+      host.querySelector<HTMLElement>('[data-testid="collaboration-break-glass-submit"]')!.click();
+    });
+    expect(promoteSpy).toHaveBeenCalledTimes(1);
+    renderWithPollingTick("repo-poll", "2026-11-24T00:01:30.000Z");
+    renderWithPollingTick("repo-poll", "2026-11-24T00:01:40.000Z");
+
+    // Resolve pending promotion AFTER parent re-renders: receipt MUST NOT be discarded!
+    await act(async () => {
+      resolvePromote({
+        ok: true,
+        repoId: "repo-poll",
+        oldEpoch: 4,
+        newEpoch: 5,
+        stoppedEdgeDaemon: true,
+        registryMode: "local",
+        rbacBackupStatus: "verified",
+        nextSteps: ["restart_daemon", "verify_rbac_active", "start_center_listener", "repoint_other_edges"],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(host.querySelector('[data-testid="collaboration-break-glass-succeeded"]')?.textContent).toContain("#5");
+    expect(onCenterChanged).toHaveBeenCalledTimes(1);
+
+    // Switching to a DIFFERENT repoId MUST reset the panel and re-read local state.
+    renderWithPollingTick("repo-other", "2026-11-24T00:01:50.000Z");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(readLocalState).toHaveBeenCalledTimes(2);
+    expect(readLocalState).toHaveBeenLastCalledWith("repo-other");
+    expect(host.querySelector('[data-testid="collaboration-break-glass-form"]')).toBeNull();
+    expect(host.querySelector('[data-testid="collaboration-break-glass-succeeded"]')).toBeNull();
   });
 
   it("纯授权拒绝（authorization_denied）不误触发离线破窗面板", async () => {

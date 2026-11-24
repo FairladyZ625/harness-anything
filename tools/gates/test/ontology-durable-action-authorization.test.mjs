@@ -818,11 +818,12 @@ partitionedTest(
     // dec_89D06D7360CBEC09795F7B12EC adds four existing routes to the non-main GUI client census:
     // runtime-instance-list, provider-list, provider-show, and provider-probe.
     // dec_4276A0CEACD4D402F122295925/CH1 adds 4 dossier-client routes (+1 action kind: dossier-synthesize).
-    assert.equal(allGuiClientActions.length, 87);
+    // dec_AAEC26DBB6F23BDF80876ABB2C/CH5 adds 3 center-settings preload callsites (+2 action kinds: fleet-center-switchover, fleet-center-relocate).
+    assert.equal(allGuiClientActions.length, 89);
     const expectedGuiClientCount = allGuiClientActions
       .flatMap((action) => action.ontology?.sources ?? [])
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
-    assert.equal(expectedGuiClientCount, 248);
+    assert.equal(expectedGuiClientCount, 251);
     // dec_89D06D7360CBEC09795F7B12EC/CH3. The transport keeps a typed host-local cancellation port.
     assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 113);
 

@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { readDaemonRegistry, type DaemonRepoMode } from "@harness-anything/kernel/daemon-registry";
+import {
+  readDaemonRegistry,
+  writeDaemonRegistryRepo,
+  type DaemonRepoMode,
+} from "@harness-anything/kernel/daemon-registry";
+import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import {
   exportCenterRelocation,
@@ -18,6 +23,7 @@ import {
 import { daemonIdFromEnv, localUserDaemonEndpoint } from "../client/local-daemon-target.ts";
 import { readFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { requestDaemonJsonRpcAt } from "../client/local-json-rpc-client.ts";
+import { requestDaemonShutdownAt } from "../client/local-json-rpc-shutdown.ts";
 import { acquireDaemonSingleton, daemonSocketProbe } from "../daemon-singleton.ts";
 import { localSystemBinding } from "../daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "../host-action-authorization.ts";
@@ -282,7 +288,9 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
       `Add ${missing.join(" ")} to promote the edge replica.`,
     );
   const userRoot = path.resolve(flagValue(argv, "--user-root") ?? defaultUserRoot),
-    daemonId = flagValue(argv, "--daemon-id") ?? daemonIdFromEnv();
+    daemonId = flagValue(argv, "--daemon-id") ?? daemonIdFromEnv(),
+    stopEdgeDaemon = argv.includes("--stop-edge-daemon"),
+    switchToLocal = argv.includes("--switch-to-local");
   const rbacStatus = flagValue(argv, "--rbac-backup-status");
   if (rbacStatus !== undefined && !(rbacBackupStatuses as readonly string[]).includes(rbacStatus))
     return failureOutcome(
@@ -305,17 +313,21 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
     evaluatedAtCut: "host-local:current",
     repoId,
   });
-  const singleton = await acquireDaemonSingleton({
-    userRoot,
-    daemonId,
-    endpoint: localUserDaemonEndpoint(userRoot, daemonId),
-  });
-  if (singleton.claim === "incumbent")
-    return failureOutcome(
-      "fleet-center-promote-from-edge",
-      "edge_daemon_running",
-      "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
-    );
+  const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+  let singleton = await acquireDaemonSingleton({ userRoot, daemonId, endpoint });
+  let stoppedEdgeDaemon = false;
+  if (!("release" in singleton)) {
+    if (!stopEdgeDaemon)
+      return failureOutcome(
+        "fleet-center-promote-from-edge",
+        "edge_daemon_running",
+        "Stop the edge daemon before promotion so its receiver cannot replace or collect the published replica generation.",
+      );
+    const stopOutcome = await stopRunningEdgeDaemonForPromotion({ userRoot, daemonId, endpoint });
+    if (!stopOutcome.ok) return failureOutcome("fleet-center-promote-from-edge", stopOutcome.code, stopOutcome.hint);
+    singleton = stopOutcome.singleton;
+    stoppedEdgeDaemon = true;
+  }
   try {
     const replicaRoot = path.resolve(rootInput, edge.viewRoot, "repos", repoId, "views", edge.nodeId),
       replica = readReplicaGeneration(replicaRoot);
@@ -334,21 +346,107 @@ async function promoteEdge(argv: readonly string[], defaultUserRoot: string): Pr
       ...(edge.writerEpoch === undefined ? {} : { observedWriterEpoch: edge.writerEpoch }),
       rbacBackupStatus: rbacStatus as RbacBackupStatus | undefined,
     });
+    const registryMode: DaemonRepoMode = switchToLocal ? "local" : "remote-edge";
+    if (switchToLocal) {
+      writeDaemonRegistryRepo({
+        canonicalRoot: rootInput,
+        repoId,
+        mode: "local",
+        userRoot,
+        createConvenienceLinks: false,
+      });
+    }
+    const nextSteps = [
+      "restart_daemon",
+      ...(registryMode === "local" ? [] : ["switch_repo_to_local"]),
+      result.rbacBackupStatus === "verified" ? "verify_rbac_active" : "restore_or_verify_rbac",
+      "start_center_listener",
+      "repoint_other_edges",
+    ];
     return appliedOutcome({
       command: "fleet-center-promote-from-edge",
       outcome: "applied",
       event: "center_emergency_promoted",
       ...result,
+      stoppedEdgeDaemon,
+      registryMode,
+      nextSteps,
       authorizationDecision: ownership,
       summary: `fleet-center-promote-from-edge: promoted ${result.repoId} at epoch ${String(result.newEpoch)}`,
       nextAction:
         result.rbacBackupStatus === "verified"
-          ? "Start the new center and repoint edges explicitly."
-          : "Verify or restore the RBAC backup before admitting edge writes, then repoint edges explicitly.",
+          ? "Restart the daemon in local mode, start the new center listener, and repoint edges explicitly."
+          : "Restart the daemon in local mode, verify or restore the RBAC backup before admitting edge writes, start the new center listener, and repoint edges explicitly.",
     });
   } finally {
     singleton.release();
   }
+}
+
+async function sendControlledEdgeDaemonStop(
+  endpoint: string,
+): Promise<
+  { readonly socketClosed: true } | { readonly socketClosed: false; readonly code: string; readonly hint: string }
+> {
+  try {
+    const exchange = await requestDaemonShutdownAt(endpoint);
+    if (exchange.stopReply && !exchange.stopReply.ok)
+      return {
+        socketClosed: false,
+        code: exchange.stopReply.code ?? "edge_daemon_stop_refused",
+        hint: exchange.stopReply.message ?? "Local edge daemon refused controlled shutdown before promotion.",
+      };
+    return { socketClosed: true };
+  } catch (error) {
+    const errCode =
+      typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : "";
+    if (errCode === "ENOENT" || errCode === "ECONNREFUSED" || errCode === "EPIPE" || errCode === "ECONNRESET") {
+      // Socket already closed before or during shutdown exchange; lock release is verified by acquireDaemonSingleton.
+      return { socketClosed: true };
+    }
+    return {
+      socketClosed: false,
+      code: "edge_daemon_stop_refused",
+      hint: `Could not stop local edge daemon before promotion: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function stopRunningEdgeDaemonForPromotion(input: {
+  readonly userRoot: string;
+  readonly daemonId: string;
+  readonly endpoint: string;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly singleton: Extract<Awaited<ReturnType<typeof acquireDaemonSingleton>>, { readonly claim: "acquired" }>;
+    }
+  | { readonly ok: false; readonly code: string; readonly hint: string }
+> {
+  if (await daemonSocketProbe(input.endpoint)) {
+    const stopResult = await sendControlledEdgeDaemonStop(input.endpoint);
+    if (!stopResult.socketClosed) return { ok: false, code: stopResult.code, hint: stopResult.hint };
+  }
+  const stopSteps = cliOperationalPolicy.defaultValue.daemon.stopAttempts,
+    pollMs = cliOperationalPolicy.defaultValue.daemon.stopPollMs;
+  for (let step = 0; step < stopSteps; step += 1) {
+    const claimed = await acquireDaemonSingleton({
+      userRoot: input.userRoot,
+      daemonId: input.daemonId,
+      endpoint: input.endpoint,
+    });
+    const releaseHandle = (claimed as { readonly release?: () => void }).release;
+    if (releaseHandle)
+      return { ok: true, singleton: claimed as Extract<typeof claimed, { readonly release: () => void }> };
+    await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
+  }
+  return {
+    ok: false,
+    code: "edge_daemon_stop_stalled",
+    hint: "Timed out waiting for the local edge daemon to drain and release its lock before break-glass promotion.",
+  };
 }
 
 async function exportBundle(

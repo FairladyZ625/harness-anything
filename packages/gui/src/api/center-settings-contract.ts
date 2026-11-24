@@ -157,6 +157,9 @@ export type PromoteFromEdgeReply =
       readonly finalRevision?: number;
       readonly replicationHistory?: string;
       readonly rbacBackupStatus?: string;
+      readonly stoppedEdgeDaemon?: boolean;
+      readonly registryMode?: string;
+      readonly nextSteps?: readonly string[];
       readonly summary?: string;
       readonly nextAction?: string;
     }

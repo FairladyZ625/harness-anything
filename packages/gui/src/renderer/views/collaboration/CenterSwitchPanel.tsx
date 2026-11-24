@@ -32,6 +32,10 @@ const SWITCH_CODE_LABEL = new Map<string, MessageKey>([
   ["insufficient_disk_space", "collaboration.switch.code.insufficientDiskSpace"],
   ["auth_surface_unreachable", "collaboration.switch.code.authUnreachable"],
   ["source_symmetric_identity_missing", "collaboration.switch.code.symmetricIdentityMissing"],
+  ["target_candidate_unconfigured", "collaboration.switch.code.candidateUnconfigured"],
+  ["target_activation_not_disproven", "collaboration.switch.code.rollbackTargetNotDisproven"],
+  ["target_attempt_not_invalidated", "collaboration.switch.code.rollbackTargetNotInvalidated"],
+  ["switchover_fence_missing", "collaboration.switch.code.fenceMissing"],
   ["rpo_zero_barrier_unmet", "collaboration.switch.code.rpoZeroBarrierUnmet"],
   ["rpo_zero_catchup_timeout", "collaboration.switch.code.rpoZeroTimeout"],
   ["target_activation_failed", "collaboration.switch.code.targetActivationFailed"],
@@ -42,6 +46,9 @@ const SWITCH_CODE_LABEL = new Map<string, MessageKey>([
 ]);
 
 function switchCodeLabel(code: string): string {
+  if (code === "sync_failure:target_candidate_unconfigured") {
+    return t("collaboration.switch.code.candidateUnconfigured");
+  }
   if (code.startsWith("sync_failure:")) return t("collaboration.switch.code.replicaSyncFailure");
   const key = SWITCH_CODE_LABEL.get(code);
   return key === undefined ? t("collaboration.switch.code.unknown") : t(key);
@@ -118,7 +125,11 @@ export function CenterSwitchPanel({
   const contextRef = useRef(contextKey);
   const opSeqRef = useRef(0);
   const lastNonceRef = useRef(0);
+  const onCenterSwitchRef = useRef(onCenterSwitch);
+  const onSwitchCompletedRef = useRef(onSwitchCompleted);
   contextRef.current = contextKey;
+  onCenterSwitchRef.current = onCenterSwitch;
+  onSwitchCompletedRef.current = onSwitchCompleted;
 
   const resetToIdle = useCallback(() => {
     opSeqRef.current += 1;
@@ -149,7 +160,7 @@ export function CenterSwitchPanel({
     const seq = ++opSeqRef.current;
     onActiveChange(true);
     setState({ step: "preflighting" });
-    void onCenterSwitch({ repoId: targetRepoId, targetNodeId, dryRun: true }).then(
+    void onCenterSwitchRef.current({ repoId: targetRepoId, targetNodeId, dryRun: true }).then(
       (reply) => {
         if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
         if (reply.preflight) {
@@ -184,7 +195,7 @@ export function CenterSwitchPanel({
         setState({ step: "preflight_error", code, detail });
       },
     );
-  }, [canSetCenter, contextKey, nodeId, onActiveChange, onCenterSwitch, repoId]);
+  }, [canSetCenter, contextKey, nodeId, onActiveChange, repoId]);
 
   useEffect(() => {
     if (requestNonce > 0 && requestNonce !== lastNonceRef.current) {
@@ -202,56 +213,58 @@ export function CenterSwitchPanel({
     const switchoverId = state.switchoverId;
     const seq = ++opSeqRef.current;
     setState({ step: "switching", preflight, ...(switchoverId ? { switchoverId } : {}) });
-    void onCenterSwitch({
-      repoId: targetRepoId,
-      targetNodeId,
-      dryRun: false,
-      ...(switchoverId ? { switchoverId } : {}),
-    }).then(
-      (reply) => {
-        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
-        if (reply.ok) {
+    void onCenterSwitchRef
+      .current({
+        repoId: targetRepoId,
+        targetNodeId,
+        dryRun: false,
+        ...(switchoverId ? { switchoverId } : {}),
+      })
+      .then(
+        (reply) => {
+          if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+          if (reply.ok) {
+            setState({
+              step: "succeeded",
+              newEpoch: reply.activation?.newEpoch ?? reply.state?.targetEpoch ?? null,
+              summary: reply.summary ?? null,
+            });
+            onSwitchCompletedRef.current?.();
+            return;
+          }
+          const failure = extractFailure(reply);
           setState({
-            step: "succeeded",
-            newEpoch: reply.activation?.newEpoch ?? reply.state?.targetEpoch ?? null,
-            summary: reply.summary ?? null,
+            step: "switch_failed",
+            code: failure.code,
+            detail: failure.detail,
+            fencedCeded: reply.fencedCeded === true,
+            switchoverId: reply.state?.switchoverId ?? switchoverId ?? null,
+            rollbackReason: "",
+            rollbackError: null,
+            rollingBack: false,
           });
-          onSwitchCompleted?.();
-          return;
-        }
-        const failure = extractFailure(reply);
-        setState({
-          step: "switch_failed",
-          code: failure.code,
-          detail: failure.detail,
-          fencedCeded: reply.fencedCeded === true,
-          switchoverId: reply.state?.switchoverId ?? switchoverId ?? null,
-          rollbackReason: "",
-          rollbackError: null,
-          rollingBack: false,
-        });
-      },
-      (error: unknown) => {
-        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
-        const code =
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          typeof (error as { code?: unknown }).code === "string"
-            ? (error as { code: string }).code
-            : "center_switch_failed";
-        setState({
-          step: "switch_failed",
-          code,
-          detail: error instanceof Error ? error.message : String(error),
-          fencedCeded: false,
-          switchoverId: switchoverId ?? null,
-          rollbackReason: "",
-          rollbackError: null,
-          rollingBack: false,
-        });
-      },
-    );
+        },
+        (error: unknown) => {
+          if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+          const code =
+            error &&
+            typeof error === "object" &&
+            "code" in error &&
+            typeof (error as { code?: unknown }).code === "string"
+              ? (error as { code: string }).code
+              : "center_switch_failed";
+          setState({
+            step: "switch_failed",
+            code,
+            detail: error instanceof Error ? error.message : String(error),
+            fencedCeded: false,
+            switchoverId: switchoverId ?? null,
+            rollbackReason: "",
+            rollbackError: null,
+            rollingBack: false,
+          });
+        },
+      );
   };
 
   const confirmRollback = () => {
@@ -264,38 +277,40 @@ export function CenterSwitchPanel({
     const requestContext = contextKey;
     const seq = ++opSeqRef.current;
     setState({ ...current, rollingBack: true, rollbackError: null });
-    void onCenterSwitch({
-      repoId,
-      abortRollback: true,
-      switchoverId,
-      reason,
-    }).then(
-      (reply) => {
-        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
-        if (reply.ok) {
+    void onCenterSwitchRef
+      .current({
+        repoId,
+        abortRollback: true,
+        switchoverId,
+        reason,
+      })
+      .then(
+        (reply) => {
+          if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+          if (reply.ok) {
+            setState({
+              step: "rolled_back",
+              rollbackEpoch: reply.rollback?.rollbackEpoch ?? null,
+            });
+            onSwitchCompletedRef.current?.();
+            return;
+          }
+          const failure = extractFailure(reply);
           setState({
-            step: "rolled_back",
-            rollbackEpoch: reply.rollback?.rollbackEpoch ?? null,
+            ...current,
+            rollingBack: false,
+            rollbackError: switchCodeLabel(failure.code),
           });
-          onSwitchCompleted?.();
-          return;
-        }
-        const failure = extractFailure(reply);
-        setState({
-          ...current,
-          rollingBack: false,
-          rollbackError: switchCodeLabel(failure.code),
-        });
-      },
-      (error: unknown) => {
-        if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
-        setState({
-          ...current,
-          rollingBack: false,
-          rollbackError: error instanceof Error ? error.message : String(error),
-        });
-      },
-    );
+        },
+        (error: unknown) => {
+          if (opSeqRef.current !== seq || contextRef.current !== requestContext) return;
+          setState({
+            ...current,
+            rollingBack: false,
+            rollbackError: error instanceof Error ? error.message : String(error),
+          });
+        },
+      );
   };
 
   if (state.step === "idle") return null;
