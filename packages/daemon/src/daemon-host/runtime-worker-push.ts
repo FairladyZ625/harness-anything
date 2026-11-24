@@ -9,6 +9,7 @@ import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRefAsync } from "./schedule-occurrence-workspace.ts";
 import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 import { daemonRuntimePolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
+import { classifyRemoteGitInvocation, writePortExternalObservation } from "./write-port-external-observation.ts";
 
 const execFileAsync = promisify(execFile),
   detailLimit = daemonRuntimePolicy.defaultValue.runtime.workerPushDetailLimit,
@@ -314,6 +315,8 @@ export async function pushWorkerBranch(input: {
       ],
       env,
     );
+    if (classifyRemoteGitInvocation(invocation.command, invocation.args, input.cwd))
+      writePortExternalObservation.noteRemoteChildProcess();
     await execFileAsync(invocation.command, invocation.args, {
       env,
       maxBuffer: detailLimit * 2,

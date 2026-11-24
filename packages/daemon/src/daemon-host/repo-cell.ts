@@ -57,6 +57,7 @@ import {
   withFollowerEpochFenceDescriptorAsync,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
+import { writePortExternalObservation } from "./write-port-external-observation.ts";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 export type {
@@ -412,7 +413,7 @@ export function chainRepoCellWrite<T>(
     .then(() => {
       options?.onDequeued?.();
       if (entry !== null && options !== undefined) entry.startedAtMs = options.queue.nowMs();
-      return writeSlot(work);
+      return writePortExternalObservation.runInWritePort(() => writeSlot(work));
     })
     .finally(() => {
       // Slot acquisition can reject an aborted request without ever invoking work().

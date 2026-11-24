@@ -9,12 +9,14 @@ import {
   evaluateCostBudget,
   evaluateCollectionCosts,
   evaluateG1WriteCostScaling,
+  evaluateWritePortExternalWait,
   G1_OPERATION_NAMES,
   main as runCostBudgetMain,
   measureCosts,
   measureG1WriteCostScaling,
   readCostFixture,
 } from "../cost-budget.mjs";
+import { EXTERNAL_WAIT_PROBES } from "../../../packages/daemon/test/fixtures/g38-external-wait-cost.mjs";
 import { measureCostSuitesParallel } from "../../../packages/daemon/test/fixtures/g38-cost-runner.mjs";
 import {
   measureTaskSubmitArtifacts,
@@ -758,6 +760,50 @@ test("terminal settlement scales with degree and cold materialization excludes d
   );
 });
 
+test("G38 write-port external-wait registers task-submit and task-push probes", () => {
+  const budget = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
+  assert.deepEqual(budget.writePortExternalWait.metrics, ["networkRoundTrips", "remoteChildProcesses"]);
+  assert.equal(EXTERNAL_WAIT_PROBES["task-submit:write-port"]?.action, "task-submit");
+  assert.equal(EXTERNAL_WAIT_PROBES["task-push:write-port"]?.action, "task-push");
+  assert.ok(
+    budget.writeCostScaling.actionCoverage.measured["task-submit"].measurements.includes("task-submit:write-port"),
+  );
+  assert.ok(budget.writeCostScaling.actionCoverage.measured["task-push"]?.measurements.includes("task-push:write-port"));
+});
+
+test("G38 write-port external-wait positive control is red when a round trip exceeds budget", async (t) => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-g38-external-wait-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  mkdirSync(path.join(rootDir, "tools/gates"), { recursive: true });
+  const source = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
+  writeFileSync(path.join(rootDir, "tools/gates/cost-budget.json"), `${JSON.stringify(source)}\n`);
+  const measured = {
+    "task-submit:write-port": { networkRoundTrips: 1, remoteChildProcesses: 0 },
+    "task-push:write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+    "task-submit:rejection-write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+  };
+  const result = await evaluateWritePortExternalWait({ rootDir, measured });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /task-submit\.networkRoundTrips: measured 1 exceeds budget 0/u);
+});
+
+test("G38 write-port rejection paths keep zero external-wait budget", async (t) => {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "ha-g38-external-reject-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  mkdirSync(path.join(rootDir, "tools/gates"), { recursive: true });
+  const source = JSON.parse(readFileSync(new URL("../cost-budget.json", import.meta.url), "utf8"));
+  writeFileSync(path.join(rootDir, "tools/gates/cost-budget.json"), `${JSON.stringify(source)}\n`);
+  const result = await evaluateWritePortExternalWait({
+    rootDir,
+    measured: {
+      "task-submit:write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+      "task-push:write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+      "task-submit:rejection-write-port": { networkRoundTrips: 0, remoteChildProcesses: 0 },
+    },
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
+
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 
 function writeSyntheticCostRoot(
@@ -787,6 +833,17 @@ function writeSyntheticCostRoot(
     ].join("\n"),
   );
   const probeEntries = Object.entries(COLLECTION_PROBES).map(([id, probe]) => [id, { growth: probe.growth ?? null }]);
+  writeFileSync(
+    path.join(fixtureDir, "g38-external-wait-cost.mjs"),
+    [
+      `export const EXTERNAL_WAIT_PROBES = Object.fromEntries(`,
+      `  ${JSON.stringify(Object.keys(EXTERNAL_WAIT_PROBES))}.map((id) => [id, {`,
+      `    action: id.slice(0, id.indexOf(":")),`,
+      `    async run() { return { networkRoundTrips: 0, remoteChildProcesses: 0 }; },`,
+      `  }]),`,
+      `);`,
+    ].join("\n"),
+  );
   writeFileSync(
     path.join(fixtureDir, "g38-collection-cost.mjs"),
     [
