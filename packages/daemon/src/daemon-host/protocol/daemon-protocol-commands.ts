@@ -333,8 +333,8 @@ const peerProtocolCommands = (
       fields: [
         peerCliText("toPersonId", true, "--to"),
         peerCliText("summary", true, "--title"),
-        peerCliText("claim", true, "--claim"),
-        peerCliText("requestedAction", true, "--action"),
+        peerCliText("claim", false, "--claim"),
+        peerCliText("requestedAction", false, "--action"),
         peerCliText("workId", false, "--work"),
         peerCliText("lane", false, "--lane"),
         peerCliIdempotency,

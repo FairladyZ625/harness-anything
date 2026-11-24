@@ -426,8 +426,10 @@ export function runPeerAction(
       }
     } else {
       summary = requiredString(action.summary, "--summary");
-      claimText = requiredString(action.claim, "--claim");
-      requestedAction = requiredString(action.requestedAction, "--action");
+      const providedClaim = optionalString(action.claim),
+        providedAction = optionalString(action.requestedAction);
+      claimText = providedClaim ?? (kind === "delegate" ? summary : requiredString(action.claim, "--claim"));
+      requestedAction = providedAction ?? (kind === "delegate" ? summary : requiredString(action.requestedAction, "--action"));
     }
 
     const requestInput: PeerRequestInput = {

@@ -82,10 +82,6 @@ test("peer delegate CLI compiles to the canonical PeerRequest ask action", () =>
     "person_bob",
     "--title",
     "Review the migration",
-    "--claim",
-    "The migration is ready for review.",
-    "--action",
-    "Review the migration and return findings.",
   ]);
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
@@ -95,8 +91,8 @@ test("peer delegate CLI compiles to the canonical PeerRequest ask action", () =>
     requestKind: "delegate",
     toPersonId: "person_bob",
     summary: "Review the migration",
-    claim: "The migration is ready for review.",
-    requestedAction: "Review the migration and return findings.",
+    claim: "Review the migration",
+    requestedAction: "Review the migration",
   });
 });
 

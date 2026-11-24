@@ -85,3 +85,21 @@ test("heartbeat wakes only when due and persists the current session pointer", a
   assert.equal(next.response, "reply-2");
   assert.equal(runs[1]?.persistentSessionId, "provider-session-1");
 });
+
+test("changing provider instance or model clears an incompatible provider session pointer", async () => {
+  const { service } = fixture();
+  await service.configure("person_owner", {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+  });
+  await service.start("person_owner");
+  await service.wake("person_owner", "human-chat", "Continue this session.");
+  const changed = await service.configure("person_owner", {
+    runtimeInstanceId: "instance-two",
+    model: "model-two",
+    heartbeatIntervalSec: 60,
+  });
+  assert.equal(changed.persistentSessionId, null);
+  assert.equal(changed.status, "running");
+});

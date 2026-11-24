@@ -102,8 +102,6 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
         toPersonId: "person_bob",
         requestKind: "delegate",
         summary: "Prepare the migration review",
-        claim: "The migration is ready for independent review.",
-        requestedAction: "Review the migration and return findings.",
       },
       aliceBinding,
     );

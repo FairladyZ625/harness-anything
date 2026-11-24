@@ -24,6 +24,7 @@ export interface ResidentCeoRuntime {
     readonly cause: ResidentCeoWakeCause;
     readonly message: string;
     readonly wakeId: string;
+    readonly peerRequestId?: string;
   }) => Promise<{
     readonly runtimeSessionId: string;
     readonly response: Promise<{ readonly response: string; readonly persistentSessionId: string | null }>;
@@ -64,7 +65,10 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       const next = previous
         ? {
             ...created,
-            persistentSessionId: previous.persistentSessionId,
+            persistentSessionId:
+              previous.runtimeInstanceId === created.runtimeInstanceId && previous.model === created.model
+                ? previous.persistentSessionId
+                : null,
             status: previous.status,
             lastWake: previous.lastWake,
           }
@@ -81,7 +85,12 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
       return update(profile, { ...profile, status: "stopped", updatedAt: input.now() });
     },
     status: requiredProfile,
-    wake: async (principalPersonId: string, cause: ResidentCeoWakeCause, message: string) => {
+    wake: async (
+      principalPersonId: string,
+      cause: ResidentCeoWakeCause,
+      message: string,
+      peerRequestId?: string,
+    ) => {
       let profile = await requiredProfile(principalPersonId);
       if (profile.status !== "running") throw new Error("Resident CEO is stopped.");
       if (cause === "heartbeat" && !residentCeoWakeDue(profile, Date.parse(input.now())))
@@ -112,6 +121,7 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           cause,
           message,
           wakeId,
+          ...(peerRequestId === undefined ? {} : { peerRequestId }),
         });
       } catch (error) {
         const completedAt = input.now();

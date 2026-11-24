@@ -64,6 +64,7 @@ import {
   type RuntimeOrchestrationContext,
 } from "./runtime-orchestration.ts";
 import { makeResidentCeoService } from "@harness-anything/application/commands";
+import type { PeerRequestV1 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
 import { openResidentCeoProfileStore } from "./resident-ceo-profile-store.ts";
 
 export function createDaemonHostRuntimeApi(
@@ -102,7 +103,8 @@ export function createDaemonHostRuntimeApi(
   });
   let centerStarting = false;
   const residentCeoProfiles = openResidentCeoProfileStore(context.input.userRoot),
-    residentCeoTimers = new Map<string, NodeJS.Timeout>();
+    residentCeoTimers = new Map<string, NodeJS.Timeout>(),
+    residentCeoInboxWatchers = new Map<string, AbortController>();
   const runtimeNodeId = (repoId?: string): string => {
     if (repoId === undefined) return "center";
     const repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
@@ -213,10 +215,20 @@ export function createDaemonHostRuntimeApi(
                   "resident_ceo_runtime_failed",
                   session.settlement?.reason ?? "Resident CEO runtime did not complete successfully.",
                 );
-              return {
-                response: session.result?.text ?? "",
-                persistentSessionId: session.session.providerSessionId,
-              };
+              const response = session.result?.text ?? "";
+              if (request.peerRequestId !== undefined) {
+                await cell.executeAction(
+                  {
+                    kind: "peer-reply",
+                    requestId: request.peerRequestId,
+                    claim: response.slice(0, 2_000),
+                    requestedAction: response.slice(0, 2_000),
+                    idempotencyKey: `resident-ceo-${request.wakeId}`,
+                  },
+                  binding,
+                );
+              }
+              return { response, persistentSessionId: session.session.providerSessionId };
             })(),
           };
         },
@@ -253,6 +265,91 @@ export function createDaemonHostRuntimeApi(
     timer.unref();
     residentCeoTimers.set(principalPersonId, timer);
   };
+  const watchResidentCeoInbox = (
+    repoId: string,
+    principalPersonId: string,
+    auth: Parameters<typeof context.binding>[1],
+  ): void => {
+    residentCeoInboxWatchers.get(principalPersonId)?.abort();
+    const controller = new AbortController();
+    residentCeoInboxWatchers.set(principalPersonId, controller);
+    const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+    const pendingPeerRequest = (): { readonly request?: PeerRequestV1; readonly sourceRevision: number } => {
+      let cursor: string | undefined,
+        sourceRevision = cell.projection.readCut().sourceRevision;
+      do {
+        const inbox = cell.projection.readInbox({
+          by: "queue",
+          status: "pending",
+          consumerKind: "interactive_watch",
+          inboxId: `person:${principalPersonId}`,
+          limit: 200,
+          ...(cursor === undefined ? {} : { cursor }),
+        });
+        if (inbox.status !== "ready") return { sourceRevision };
+        sourceRevision = inbox.sourceRevision;
+        for (const item of inbox.items) {
+          if (item.source !== "peer_request") continue;
+          const read = cell.projection.readPeerRequests({ by: "id", requestId: item.sourceRef });
+          const request = read.status === "ready" ? read.requests[0] : undefined;
+          if (request?.state === "OPEN") return { request, sourceRevision };
+        }
+        cursor = inbox.nextCursor ?? undefined;
+      } while (cursor !== undefined);
+      return { sourceRevision };
+    };
+    void (async () => {
+      let afterRevision = cell.store.readHead()?.revision ?? 0;
+      while (!controller.signal.aborted) {
+        const pending = pendingPeerRequest(),
+          request = pending.request;
+        if (request !== undefined) {
+          const body = request.structuredBody;
+          const message = [
+            `PeerRequest ${request.requestId} from ${request.from.personId}`,
+            request.summary,
+            `Claim: ${body.claim}`,
+            `Requested action: ${body.requestedAction}`,
+            ...(body.rootCause ? [`Root cause: ${body.rootCause}`] : []),
+            ...(body.verification ? [`Verification: ${body.verification}`] : []),
+            "Respond with the work performed and verification. The daemon will return your response to the requester.",
+          ].join("\n");
+          const result = await residentCeoService(repoId, auth).wake(
+            principalPersonId,
+            "peer-request",
+            message,
+            request.requestId,
+          );
+          if (result.response === null && result.profile.lastWake?.status === "running") {
+            const runtimeSessionId = result.profile.lastWake.runtimeSessionId;
+            if (runtimeSessionId !== null) await cell.awaitRuntimeOutcome(runtimeSessionId);
+            else {
+              const page = await cell.read(
+                "repo.events.read",
+                { afterRevision, limit: 200, waitMs: 25_000 },
+                await context.binding(cell.status().rootDir, auth),
+                controller.signal,
+              );
+              afterRevision = page.nextAfterRevision;
+            }
+          }
+          afterRevision = Math.max(afterRevision, pending.sourceRevision);
+          continue;
+        }
+        const page = await cell.read(
+          "repo.events.read",
+          { afterRevision, limit: 200, waitMs: 25_000 },
+          await context.binding(cell.status().rootDir, auth),
+          controller.signal,
+        );
+        afterRevision = page.nextAfterRevision;
+      }
+    })().catch((error: unknown) => {
+      if (!controller.signal.aborted) console.error(error);
+      if (residentCeoInboxWatchers.get(principalPersonId) === controller)
+        residentCeoInboxWatchers.delete(principalPersonId);
+    });
+  };
   return {
     residentCeo: async (repoId, operation, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction(`ceo-${operation}`), auth);
@@ -273,6 +370,7 @@ export function createDaemonHostRuntimeApi(
       if (operation === "start") {
         const profile = await service.start(principalPersonId);
         scheduleResidentCeoHeartbeat(repoId, principalPersonId, auth, profile.heartbeatIntervalSec);
+        watchResidentCeoInbox(repoId, principalPersonId, auth);
         return { ok: true, profile: profile as unknown as JsonObject };
       }
       if (operation === "stop") {
@@ -280,6 +378,8 @@ export function createDaemonHostRuntimeApi(
         const timer = residentCeoTimers.get(principalPersonId);
         if (timer) clearTimeout(timer);
         residentCeoTimers.delete(principalPersonId);
+        residentCeoInboxWatchers.get(principalPersonId)?.abort();
+        residentCeoInboxWatchers.delete(principalPersonId);
         return { ok: true, profile: profile as unknown as JsonObject };
       }
       if (operation === "status") {
@@ -288,6 +388,7 @@ export function createDaemonHostRuntimeApi(
         const profile = await service.status(principalPersonId);
         if (profile.status === "running")
           scheduleResidentCeoHeartbeat(repoId, principalPersonId, auth, profile.heartbeatIntervalSec);
+        if (profile.status === "running") watchResidentCeoInbox(repoId, principalPersonId, auth);
         return { ok: true, profile: profile as unknown as JsonObject };
       }
       const result = await service.wake(principalPersonId, "human-chat", String(payload.message ?? ""));
