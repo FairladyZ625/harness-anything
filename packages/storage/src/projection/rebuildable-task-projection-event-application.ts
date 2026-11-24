@@ -447,9 +447,13 @@ function applyEventProjection(
         throw new Error(`schedule definition blob ${claim.sha256} is not JSON`);
       }
       value = projectScheduleHistory(value);
-      const documentDefinition = projectScheduleHistory(scheduleDefinition(value as ScheduleV1)),
+      const documentTarget = isRecord(value) && isRecord(value.spec) ? value.spec.target : null,
+        documentDefinition = projectScheduleHistory(scheduleDefinition(value as ScheduleV1)),
         eventDefinition = projectScheduleHistory(scheduleDefinition(event.payload.schedule));
+      // `spec.target.cwd` is a retired historical field owned by legacy generation conversion,
+      // not a forward-compatible future field, so projection replay must still reject it.
       if (
+        (isRecord(documentTarget) && Object.hasOwn(documentTarget, "cwd")) ||
         validateScheduleDefinitionV1(value, true).length > 0 ||
         !replayShapeMatches(eventDefinition, documentDefinition)
       )
