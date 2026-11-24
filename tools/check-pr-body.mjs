@@ -285,11 +285,26 @@ export function checkUnfilledPrTemplate(body, template) {
 
 export function checkPrBody(body, context = {}) {
   const unfilledTemplate = checkUnfilledPrTemplate(body, context.prTemplate);
+  const nestedHeadings = [];
+  maskInvisibleTemplateText(body)
+    .split(/\r?\n/u)
+    .forEach((line, index) => {
+      if (/^ {0,3}#\s+Closeout\s*#*\s*$/iu.test(line))
+        nestedHeadings.push(
+          `PR body line ${index + 1} nests the source heading \`# Closeout\`; render authored closeout sections under the existing PR headings.`,
+        );
+      else if (/^ {0,3}###[ \t]+(?:摘要|验证)(?:[ \t#].*)?$/u.test(line))
+        nestedHeadings.push(
+          `PR body line ${index + 1} contains an unsplit level-three closeout heading; use the rendered PR section headings and keep closeout prose under level-two headings.`,
+        );
+    });
+  const nestedCloseout = { ok: nestedHeadings.length === 0, issues: nestedHeadings };
   const placeholderResidue = checkTemplatePlaceholderResidue(body);
   const placeholderSections = checkPlaceholderOnlySections(body);
   const eventMigration = checkEventMigrationDeclaration(body, context.eventMigration);
   const issues = [
     ...unfilledTemplate.issues,
+    ...nestedCloseout.issues,
     ...placeholderResidue.issues,
     ...placeholderSections.issues,
     ...eventMigration.issues,
@@ -298,6 +313,7 @@ export function checkPrBody(body, context = {}) {
     ok: issues.length === 0,
     eventMigration,
     unfilledTemplate,
+    nestedCloseout,
     placeholderResidue,
     placeholderSections,
     issues,

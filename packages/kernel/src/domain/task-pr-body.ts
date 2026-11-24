@@ -31,10 +31,10 @@ const START = SUBMISSION_FACTS_START,
 // feeds each one. The closeout is the single authoring place (dec_BB2BCE9F995CD3A126E2918734 CH1),
 // so no second PR-body template lives here.
 const PR_SECTIONS = Object.freeze([
-  { title: "Summary", aliases: Object.freeze(["summary"]) },
-  { title: "What Changed", aliases: Object.freeze(["what changed"]) },
-  { title: "Verification", aliases: Object.freeze(["verification"]) },
-  { title: "Residual Risk", aliases: Object.freeze(["residual risk"]) },
+  { title: "Summary", aliases: Object.freeze(["summary"]), required: true },
+  { title: "What Changed", aliases: Object.freeze(["what changed"]), required: true },
+  { title: "Verification", aliases: Object.freeze(["verification"]), required: true },
+  { title: "Residual Risk", aliases: Object.freeze(["residual risk"]), required: false },
 ]);
 
 const CHINESE_HEADING = /^#\s+中文\s*$/mu;
@@ -87,9 +87,19 @@ function authoredSources(
     sources: Record<string, string | undefined> = Object.fromEntries(
       PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]),
     );
-  sources["What Changed"] ??= sources.Summary;
   if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
   return { sources, chinese };
+}
+
+function requirePrCloseoutSections(sources: Readonly<Record<string, string | undefined>>): void {
+  const missing = PR_SECTIONS.filter(({ title, required }) => required && !sources[title]?.trim()).map(
+    ({ title }) => title,
+  );
+  if (missing.length > 0)
+    throw new Error(
+      `closeout.md must include non-empty level-two sections ${missing.map((title) => `## ${title}`).join(", ")}; ` +
+        "add those headings and move the corresponding prose under each heading before rendering the PR body",
+    );
 }
 
 function escapeRegExp(value: string): string {
@@ -263,6 +273,7 @@ export function renderTaskPrBody(input: TaskPrBodyRenderInput): string {
     baseline = withoutFacts(template),
     { sources, chinese } = authoredSources(authored, input.profileId),
     dependencyDescription = input.dependencyDescription ?? "none";
+  requirePrCloseoutSections(sources);
   let rendered = stripped;
   if (new RegExp(`^##[ \\t]+${MACHINE_READABLE_DECLARATIONS}[ \\t]*$`, "mu").test(rendered)) {
     const { start, end } = sectionBounds(rendered, MACHINE_READABLE_DECLARATIONS);
@@ -274,9 +285,7 @@ export function renderTaskPrBody(input: TaskPrBodyRenderInput): string {
   for (const { title } of PR_SECTIONS) {
     if (normalizedSection(stripped, title) !== normalizedSection(baseline, title)) continue;
     const content = sources[title];
-    // CH2: headings are authoring conventions, not a second admission contract. When a
-    // heading is absent, publish the author's original document in its original order.
-    rendered = fillSection(rendered, title, content?.trim() ? content : authored);
+    if (content?.trim()) rendered = fillSection(rendered, title, content);
   }
   rendered = declareProtectedSurfaces(
     rendered,
