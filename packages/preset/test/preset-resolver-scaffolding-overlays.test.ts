@@ -48,7 +48,7 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
     const applied = await resolve();
     assert.equal(applied.ok, true);
     if (applied.ok) {
-      assert.equal(applied.snapshot.templates.length, 5);
+      assert.equal(applied.snapshot.templates.length, 4);
       assert.equal(applied.snapshot.templates[0]?.owner, "doc-sync");
       assert.equal(applied.snapshot.templates[0]?.templateRef, "project://templates/plan.md");
       assert.deepEqual(

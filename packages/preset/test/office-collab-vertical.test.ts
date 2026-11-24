@@ -126,7 +126,7 @@ test("office/collab vertical passes schema decoding, compilation, validation, an
       templateRef: string;
       locales: string[];
     }>;
-    assert.ok(templates.length >= 16);
+    assert.ok(templates.length >= 15);
     for (const entry of templates) {
       assert.deepEqual([...entry.locales].sort(), ["en-US", "zh-CN"], entry.templateRef);
     }

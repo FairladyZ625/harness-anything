@@ -339,6 +339,7 @@ export function projectionManagedPath(path: string): boolean {
     path.startsWith("facts/") ||
     path.startsWith("decisions/decision-") ||
     path.startsWith("tasks/") ||
+    path.startsWith("entities/") ||
     /\.(?:md|mdx|markdown)$/u.test(path)
   );
 }

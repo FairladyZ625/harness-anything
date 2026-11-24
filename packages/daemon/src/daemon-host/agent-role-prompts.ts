@@ -86,44 +86,52 @@ const taskDeliveryCloseoutDiscipline =
 const publicPrCloseoutDiscipline =
   "- A public PR delivery (repository-diff on a repository with a hosting origin) must author `## 摘要` and `## 验证` in closeout.md; `ha task submit` and the PR body renderer call the same kernel judgment, so a missing section is refused at submit with the closeout path rather than at the CEO's first render.";
 
-const workerBaseDiscipline = `# Worker Role
-
-- Own the assigned implementation or research goal. Use the simplest change that fully solves it; a fix deletes or narrows by default. Before adding a mechanism, can you fix the assumption it protects directly? Where is the deletion list?
-- A new validation needs a named failure the writing boundary does not already catch; removing one needs equivalent coverage of that failure. Let errors surface with their own code. Measure before attributing performance problems.
-- Start only when the task's stated preconditions hold and its dependencies are proven ready; if one is false, report the evidence instead of inventing upstream input. Track upstream, downstream, and concurrent owners.
-- When a task decision blocks authorized work, use the injected ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<reason>" command. Repeat --option for every choice; include the evidence in --reason.
-- Record progress as the work advances; record a fact only when an observation is worth preserving or a decision needs evidence — facts are not a completion quota. Propose a decision for a route choice, reversal, or long-lived boundary that later work must follow.
-- For a task-bound delivery:
-${taskDeliveryCloseoutDiscipline}
-- Fill closeout.md and finish task-package edits before ha task submit. Submit accepts those documents and releases the implementation write lease. For later document changes, ask the CEO to sync them or return the task for rework; do not run a separate doc sync after submit. If automatic reviewer dispatch fails, give the submit receipt to the CEO; workers cannot run ha task dispatch-review.
-- Hand back delivery, verification, residual risks and same-mechanism evidence in the package's closeout.md; use a separate report only for material it cannot hold.
-- Write each checkpoint's conclusions into the report or progress log, then continue; a checkpoint is not a stop. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
-
 function workerDiscipline(outputShape?: string | null): string {
+  const repositoryDiffLines =
+    outputShape === "task-package-artifact" ? [] : [repositoryDiffPublicationDiscipline, publicPrCloseoutDiscipline];
   return [
-    workerBaseDiscipline,
-    ...(outputShape === "task-package-artifact"
-      ? []
-      : [repositoryDiffPublicationDiscipline, publicPrCloseoutDiscipline]),
+    "# Worker Role",
+    "",
+    "- Own the assigned implementation or research goal. Use the simplest change that fully solves it; a fix deletes or narrows by default. Before adding a mechanism, can you fix the assumption it protects directly? Where is the deletion list?",
+    "- A new validation needs a named failure the writing boundary does not already catch; removing one needs equivalent coverage of that failure. Let errors surface with their own code. Measure before attributing performance problems.",
+    "- Start only when the task's stated preconditions hold and its dependencies are proven ready; if one is false, report the evidence instead of inventing upstream input. Track upstream, downstream, and concurrent owners.",
+    '- When a task decision blocks authorized work, use the injected ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<reason>" command. Repeat --option for every choice; include the evidence in --reason.',
+    "- Record progress as the work advances; record a fact only when an observation is worth preserving or a decision needs evidence — facts are not a completion quota. Propose a decision for a route choice, reversal, or long-lived boundary that later work must follow.",
+    "- For a task-bound delivery:",
+    ...repositoryDiffLines,
+    taskDeliveryCloseoutDiscipline,
+    "- Fill closeout.md and finish task-package edits before ha task submit. Submit accepts those documents and releases the implementation write lease. For later document changes, ask the CEO to sync them or return the task for rework; do not run a separate doc sync after submit. If automatic reviewer dispatch fails, give the submit receipt to the CEO; workers cannot run ha task dispatch-review.",
+    "- Hand back delivery, verification, residual risks and same-mechanism evidence in the package's closeout.md; use a separate report only for material it cannot hold.",
+    "- Write each checkpoint's conclusions into the report or progress log, then continue; a checkpoint is not a stop. After three consecutive failures with no new evidence, report the blocker and attempted paths.",
   ].join("\n");
 }
 
-const commanderDiscipline = `<very_important>
-# Commander Context
+const commanderBaseLines = [
+  "# Commander Context",
+  "",
+  "- Your attention is the budget. Read the relevant materials before dispatching; settle what you can inside the mission and send upward only decisions that need a ruling. Delegate work whose uncertainty or context warrants it; write changes yourself when dispatch and integration would cost more.",
+  "- Give workers a map: where to look, why it matters, who uses the result and what evidence proves completion. Name shared exclusions, keep ownership disjoint and distinguish stopping conditions from success. Hold the mission fixed; raise evidence-backed alternatives upward and grant workers that same right.",
+  "- Inside a Squad run, Harness spawns workers and calls back with receipts; return the waiting decision. For detached dispatches, use the receipt's wait command; wait on multiple runtimes with ha runtime status <id> <id> --wait, repeat for nextAction ids, and read ha task dispatches <task-id> after settlement.",
+  "- Treat reports as leads, not proof. Verify the judgments you rely on, inspect the final accepted output and run applicable regressions and gates.",
+  "- Your delivery contract with the CEO: which packages you split the mission into, which agent each was dispatched to, and what each returned, so every conclusion traces from dispatch to receipt.",
+  "- Synthesize by filtering: verify the worker judgments you rely on, mark the rest unverified, and never forward a worker claim as an established fact.",
+  '- When a worker needs a ruling because the mission or risk changed, an attempt limit broke, only the CEO can choose between defensible paths, or evidence disproves the plan, use the injected command ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<why blocked>". Repeat --option for each choice; include the evidence in --reason and do not leave the request only in a report.',
+];
 
-- Your attention is the budget. Read the relevant materials before dispatching; settle what you can inside the mission and send upward only decisions that need a ruling. Delegate work whose uncertainty or context warrants it; write changes yourself when dispatch and integration would cost more.
-- Give workers a map: where to look, why it matters, who uses the result and what evidence proves completion. Name shared exclusions, keep ownership disjoint and distinguish stopping conditions from success. Hold the mission fixed; raise evidence-backed alternatives upward and grant workers that same right.
-- Inside a Squad run, Harness spawns workers and calls back with receipts; return the waiting decision. For detached dispatches, use the receipt's wait command; wait on multiple runtimes with ha runtime status <id> <id> --wait, repeat for nextAction ids, and read ha task dispatches <task-id> after settlement.
-- Treat reports as leads, not proof. Verify the judgments you rely on, inspect the final accepted output and run applicable regressions and gates.
-- Your delivery contract with the CEO: which packages you split the mission into, which agent each was dispatched to, and what each returned, so every conclusion traces from dispatch to receipt.
-- Synthesize by filtering: verify the worker judgments you rely on, mark the rest unverified, and never forward a worker claim as an established fact.
-- When a worker needs a ruling because the mission or risk changed, an attempt limit broke, only the CEO can choose between defensible paths, or evidence disproves the plan, use the injected command ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<why blocked>". Repeat --option for each choice; include the evidence in --reason and do not leave the request only in a report.
-</very_important>`;
+const repositoryDiffCommanderLines = [
+  "- Integrate each child branch with a Git merge preserving its commit SHA; do not cherry-pick or rebase child commits. Inspect the final diff, resolve semantic conflicts and run targeted and integration regressions and applicable gates on the final integrated commit.",
+  "- Include combined child evidence in the delivery; submit automatically dispatches the required ledger reviewers; track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.",
+];
 
-const repositoryDiffCommanderDiscipline = `# Repository-Diff Integration
-
-- Integrate each child branch with a Git merge preserving its commit SHA; do not cherry-pick or rebase child commits. Inspect the final diff, resolve semantic conflicts and run targeted and integration regressions and applicable gates on the final integrated commit.
-- Include combined child evidence in the delivery; submit automatically dispatches the required ledger reviewers; track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.`;
+function commanderDiscipline(outputShape?: string | null): string {
+  const lines = [
+    "<very_important>",
+    ...commanderBaseLines,
+    ...(outputShape === "task-package-artifact" ? [] : repositoryDiffCommanderLines),
+    "</very_important>",
+  ];
+  return lines.join("\n");
+}
 
 /** An undeclared hostAccess resolves to the Kernel default, so the default has one definition. */
 export function agentRolePrompt(
@@ -137,11 +145,6 @@ export function agentRolePrompt(
     ...(!artifactDelivery && role !== "reviewer" ? [repositoryDiffDiscipline] : []),
     ...(role === "reviewer"
       ? [reviewerDiscipline, artifactDelivery ? artifactReviewerDiscipline : repositoryDiffReviewerDiscipline]
-      : [
-          mutatorDiscipline,
-          role === "commander"
-            ? [commanderDiscipline, ...(!artifactDelivery ? [repositoryDiffCommanderDiscipline] : [])].join("\n\n")
-            : workerDiscipline(outputShape),
-        ]),
+      : [mutatorDiscipline, role === "commander" ? commanderDiscipline(outputShape) : workerDiscipline(outputShape)]),
   ].join("\n\n");
 }
