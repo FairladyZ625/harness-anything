@@ -546,7 +546,7 @@ export function makeRepoReadRuntime(
       query((projection) => readRepoInFlightWork({ projection, repoId: input.repoId, queueDepth })),
     close: async () => {
       closed = true;
-      reader.close();
+      await reader.close();
       await ledgerReader?.drain();
       ledgerReader = null;
     },

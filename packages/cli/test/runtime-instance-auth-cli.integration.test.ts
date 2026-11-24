@@ -202,7 +202,7 @@ test(
   "Missing and nonzero callbacks preserve runtime outcome and redact callback environment",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     installIdentities(fixture.parent, fixture.root, fixture.env);
     const { parent, root, env } = fixture;
     const { taskId, executionId, artifactRoot } = seedTask(root, env, "notification-failure");

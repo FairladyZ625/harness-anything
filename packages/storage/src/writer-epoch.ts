@@ -641,21 +641,25 @@ export function openPersistentWriterEpoch(options: {
 // Descriptor checks reuse one authority per state root for the life of this thread. A repo writer
 // is one worker thread serving one repository, so its epoch database opens once per writer, not
 // once per check; the authority itself keys databases per repository.
-const descriptorAuthorities = new Map<string, PersistentWriterEpoch>();
+const descriptorAuthorities = new Map<
+  string,
+  { readonly stateRoot: string; readonly authority: PersistentWriterEpoch }
+>();
 
 function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): PersistentWriterEpoch {
   validateWriterEpochFenceDescriptor(descriptor);
   const key = `${descriptor.stateRoot}\0${descriptor.repoId}`;
-  let authority = descriptorAuthorities.get(key);
-  if (!authority) {
-    authority = openPersistentWriterEpoch({
+  let entry = descriptorAuthorities.get(key);
+  if (!entry) {
+    const authority = openPersistentWriterEpoch({
       stateRoot: descriptor.stateRoot,
       holderId: descriptor.holderId,
       storage: writerEpochStorage(descriptor),
     });
-    descriptorAuthorities.set(key, authority);
+    entry = { stateRoot: descriptor.stateRoot, authority };
+    descriptorAuthorities.set(key, entry);
   }
-  return authority;
+  return entry.authority;
 }
 
 export function withWriterEpochFenceDescriptor<T>(descriptor: WriterEpochFenceDescriptor, operation: () => T): T {
@@ -693,8 +697,26 @@ export function assertWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDes
 }
 
 export function closeWriterEpochFenceDescriptors(): void {
-  for (const authority of descriptorAuthorities.values()) authority.close();
+  for (const { authority } of descriptorAuthorities.values()) authority.close();
   descriptorAuthorities.clear();
+}
+
+export function closeWriterEpochFenceDescriptor(input: { readonly stateRoot: string; readonly repoId: string }): void {
+  const key = `${input.stateRoot}\0${input.repoId}`,
+    entry = descriptorAuthorities.get(key);
+  if (!entry) return;
+  entry.authority.close();
+  descriptorAuthorities.delete(key);
+}
+
+export function closeWriterEpochFenceDescriptorsUnder(rootDir: string): void {
+  const root = path.resolve(rootDir);
+  for (const [key, entry] of descriptorAuthorities) {
+    const relative = path.relative(root, path.resolve(entry.stateRoot));
+    if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue;
+    entry.authority.close();
+    descriptorAuthorities.delete(key);
+  }
 }
 
 function leaseFromRow(row: EpochRow): WriterEpochLease {

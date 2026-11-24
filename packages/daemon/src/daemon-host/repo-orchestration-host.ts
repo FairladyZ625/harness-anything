@@ -39,6 +39,7 @@ import {
 import type { LiveDescendantProbeResult, RuntimeProcess } from "./runtime-spawn.ts";
 import {
   assertWriterEpochFenceDescriptor,
+  closeWriterEpochFenceDescriptor,
   withWriterEpochFenceDescriptor,
   configureWriterEpochStorage,
 } from "@harness-anything/storage";
@@ -46,7 +47,12 @@ import {
 /** Host lifecycle and preparation stay in the daemon; only canonical commits cross into the Worker. */
 export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBootstrapV1): void {
   const nativePost = worker.postMessage.bind(worker),
-    commits = canonicalCommitClient(nativePost, bootstrap.commitState);
+    commits = canonicalCommitClient(nativePost, bootstrap.commitState),
+    writerEpochDescriptors = new Map<
+      string,
+      Pick<NonNullable<SerializableRepoCellBindingV1["writerEpochFence"]>, "stateRoot" | "repoId">
+    >();
+  if (bootstrap.config.defaultWriterEpochFence) trackWriterEpochDescriptor(bootstrap.config.defaultWriterEpochFence);
   let receive: ((message: unknown) => void) | undefined;
   const parentPort = {
     on: (_event: string, listener: (message: unknown) => void) => {
@@ -662,8 +668,14 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           for (const request of activeRequests.values()) request.abort.abort();
           await Promise.all(pendingRequests);
           await cell?.settlePendingMaterialization("writer shutdown");
-          await cell?.close();
-          cell = null;
+          try {
+            await cell?.close();
+          } finally {
+            cell = null;
+            for (const descriptor of writerEpochDescriptors.values())
+              closeWriterEpochFenceDescriptor(descriptor);
+            writerEpochDescriptors.clear();
+          }
           commits.close();
         }
         postReceipt(control.requestId, null);
@@ -766,6 +778,7 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
     currentCenter: NonNullable<RepoCellOpenInput["keycloakCenter"]>,
   ): RepoCellBinding | undefined {
     if (!binding) return undefined;
+    if (descriptor) trackWriterEpochDescriptor(descriptor);
     // Structured clone hands the worker two distinct objects for the same fence, so equality is decided
     // field by field; a stringify comparison would reserialize both descriptors on every request.
     if (!sameWriterEpochFence(descriptor ?? null, binding.writerEpochFence ?? null))
@@ -819,7 +832,13 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
   }
 
   function assertWriterEpoch(descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null): void {
-    if (descriptor) assertWriterEpochFenceDescriptor(descriptor);
+    if (!descriptor) return;
+    trackWriterEpochDescriptor(descriptor);
+    assertWriterEpochFenceDescriptor(descriptor);
+  }
+
+  function trackWriterEpochDescriptor(descriptor: NonNullable<SerializableRepoCellBindingV1["writerEpochFence"]>): void {
+    writerEpochDescriptors.set(`${descriptor.stateRoot}\0${descriptor.repoId}`, descriptor);
   }
 
   function sameWriterEpochFence(

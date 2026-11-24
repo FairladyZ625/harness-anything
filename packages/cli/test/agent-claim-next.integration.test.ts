@@ -208,7 +208,7 @@ test(
   "Task-bound batch enforces one lease holder and archives successful dispatches",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { parent, root, env } = fixture;
     installIdentities(parent, root, env);
     const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "batch");

@@ -8,7 +8,7 @@ import { createRuntimeFixture, installIdentities, published, run, runMaybe, seed
 // Issue #4431: a task started in an unborn repository records "no workspace here"; a later task-bound
 // dispatch must still refuse before provider launch instead of letting resolveDispatchCwd use the root.
 test("a task-bound dispatch after a start refuses an unborn repository before launch", async (context) => {
-  const fixture = createRuntimeFixture(context),
+  const fixture = await createRuntimeFixture(context),
     { parent, root, env } = fixture;
   // No gitRepository(root): the project repository is left exactly as ha init made it, with an unborn main.
   installIdentities(parent, root, env);

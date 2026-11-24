@@ -562,7 +562,7 @@ export async function openRepoCellProxy(
       if (replicaOnly) lastPublishedReplicaStatus = closedStatus;
       input.onStatus?.(closedStatus);
       input.onMetricsStatus?.(closedStatus);
-      runtime.close();
+      await runtime.close();
       await terminal.close();
       try {
         await supervisor.close();

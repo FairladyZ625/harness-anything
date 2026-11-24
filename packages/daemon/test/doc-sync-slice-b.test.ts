@@ -201,8 +201,8 @@ test("local selection and assignment claim normalize to the same doc event throu
     );
     assert.equal(localResult.outcome, "applied", JSON.stringify(localResult));
     assert.equal(remoteResult.outcome, "applied", JSON.stringify(remoteResult));
-    const localEvent = withTaskEventReader("local", local.rootDir, (reader) => reader.readEvent(localResult.opId));
-    const remoteEvent = withTaskEventReader("remote", remote.rootDir, (reader) => reader.readEvent(remoteResult.opId));
+    const localEvent = await withTaskEventReader("local", local.rootDir, (reader) => reader.readEvent(localResult.opId));
+    const remoteEvent = await withTaskEventReader("remote", remote.rootDir, (reader) => reader.readEvent(remoteResult.opId));
     assert.equal(localEvent?.schema, "doc-event/v1");
     assert.equal(remoteEvent?.schema, "doc-event/v1");
     if (localEvent?.schema === "doc-event/v1" && remoteEvent?.schema === "doc-event/v1")
@@ -283,7 +283,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
       mediaType: "text/markdown",
       workspaceRevision: first.revision,
     });
-    const { event, blob } = withTaskEventReader("decision-prose", fixture.rootDir, (reader) => {
+    const { event, blob } = await withTaskEventReader("decision-prose", fixture.rootDir, (reader) => {
       const event = reader.readEvent(first.opId);
       return {
         event,
@@ -508,7 +508,7 @@ test("claim-check keeps large bodies out of commands and recycles missing, hash,
     assert.equal(JSON.stringify(action).includes(body), false);
     const result = await local.cell.run(action, localBinding);
     assert.equal(result.outcome, "applied", JSON.stringify(result));
-    const event = withTaskEventReader("large", local.rootDir, (reader) => reader.readEvent(result.opId));
+    const event = await withTaskEventReader("large", local.rootDir, (reader) => reader.readEvent(result.opId));
     assert.equal(JSON.stringify(event).includes(body), false);
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(event.payload.changes[0]?.candidate, {
@@ -623,7 +623,7 @@ test("task artifact json and log files ride doc sync under the held task lease",
     >;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForFixturePublication(cell, String(submitted.opId), workerBinding);
-    const event = withTaskEventReader(repoId, rootDir, (reader) => reader.readEvent(String(submitted.opId)));
+    const event = await withTaskEventReader(repoId, rootDir, (reader) => reader.readEvent(String(submitted.opId)));
     assert.equal(event?.schema, "doc-event/v1");
     if (event?.schema === "doc-event/v1")
       assert.deepEqual(
@@ -904,12 +904,16 @@ function ledgerCut(value: unknown) {
   return { repoId: cut.repoId, revision: cut.revision, headDigest: cut.headDigest };
 }
 
-function withTaskEventReader<A>(repoId: string, rootDir: string, read: (reader: ReturnType<typeof makeTaskEventReader>) => A): A {
+async function withTaskEventReader<A>(
+  repoId: string,
+  rootDir: string,
+  read: (reader: ReturnType<typeof makeTaskEventReader>) => A,
+): Promise<A> {
   const reader = makeTaskEventReader({ repoId, rootDir });
   try {
     return read(reader);
   } finally {
-    reader.close();
+    await reader.drain();
   }
 }
 

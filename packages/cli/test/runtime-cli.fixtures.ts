@@ -121,7 +121,7 @@ export function writeProgressProvider(target: string, version: string): void {
   writeFileSync(target, next);
 }
 
-export function createRuntimeFixture(context: TestContext) {
+export async function createRuntimeFixture(context: TestContext) {
   const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -174,7 +174,7 @@ export function createRuntimeFixture(context: TestContext) {
   if (started.status !== 0) {
     assert.equal(started.receipt.code, "daemon_starting", `${started.stderr}\n${JSON.stringify(started.receipt)}`);
   }
-  waitForRuntimeDaemonIdentity(userRoot, daemonId);
+  await waitForRuntimeDaemonIdentity(userRoot, daemonId);
   run(root, env, [
     "runtime",
     "instance",
@@ -213,17 +213,13 @@ export function createRuntimeFixture(context: TestContext) {
   return { parent, root, userRoot, daemonId, env, version };
 }
 
-function waitForRuntimeDaemonIdentity(userRoot: string, daemonId: string): void {
-  const deadline = Date.now() + 30_000,
-    waitBuffer = new Int32Array(new SharedArrayBuffer(4));
-  for (;;) {
+async function waitForRuntimeDaemonIdentity(userRoot: string, daemonId: string): Promise<void> {
+  await waitForValue(() => {
     const generation = readDaemonLifecycleGeneration(userRoot, daemonId);
-    if (generation.some((record) => record.event === "identity_ready")) return;
     const failure = generation.find((record) => record.event === "rbac_resume_failed");
     if (failure) throw new Error(`runtime fixture daemon identity resume failed: ${failure.error ?? "unknown error"}`);
-    assert.ok(Date.now() < deadline, "runtime fixture daemon identity did not become ready within 30s");
-    Atomics.wait(waitBuffer, 0, 0, 20);
-  }
+    return generation.find((record) => record.event === "identity_ready") ?? null;
+  }, "runtime fixture daemon identity readiness");
 }
 
 export function seedTask(root: string, env: NodeJS.ProcessEnv, scenario: string) {

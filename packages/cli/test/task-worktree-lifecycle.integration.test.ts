@@ -21,7 +21,7 @@ test(
   "a task's worktree is bound at create, checked out on start or dispatch, and reclaimed when it closes",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context),
+    const fixture = await createRuntimeFixture(context),
       { parent, root, env } = fixture;
     gitRepository(root);
     installIdentities(parent, root, env);
@@ -175,7 +175,7 @@ test(
   "a repository with no npm, no remote and a master branch runs its declared setup in a task-id worktree",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context),
+    const fixture = await createRuntimeFixture(context),
       { root, env } = fixture,
       marker = path.join(path.dirname(root), "setup-ran.txt"),
       gate = path.join(path.dirname(root), "allow-second-step");
@@ -259,7 +259,7 @@ for (const { name, command } of [
   },
 ])
   test(`a long worktree setup holds only its own ${name}, never the repository's other writes`, async (context) => {
-    const fixture = createRuntimeFixture(context),
+    const fixture = await createRuntimeFixture(context),
       { parent, root, env } = fixture,
       running = path.join(path.dirname(root), "setup-running"),
       release = path.join(path.dirname(root), "setup-release");

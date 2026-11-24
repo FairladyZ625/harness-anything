@@ -435,7 +435,7 @@ test(
   "A detached runtime worker survives daemon restart and remains cancellable",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { root, env } = fixture;
     const restartDetached = runRuntimeCli(root, env, ["runtime", "run", "cli-worker", "--prompt", "hold", "--detach"]),
       restartSessionId = String(restartDetached.runtimeSessionId),
@@ -479,7 +479,7 @@ test(
   "Read-only dispatch contracts and closed batch and wire payloads are enforced",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { root, env } = fixture;
     const { taskId, executionId } = seedTask(root, env, "validation");
     runRuntimeCli(root, env, ["task", "start", taskId, "--execution-id", executionId]);

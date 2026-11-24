@@ -28,7 +28,7 @@ import {
 // The old sequence needed a manual copy: artifact add refused an outside source, and the mission
 // file could then only be updated by hand. This is the one path the errors now point at.
 test("a scratchpad mission is published, edited, and dispatched by name without a manual copy", async (context) => {
-  const fixture = createRuntimeFixture(context),
+  const fixture = await createRuntimeFixture(context),
     { parent, root, env } = fixture;
   installIdentities(parent, root, env);
   const { taskId, executionId, packagePath } = seedTask(root, env, "mission-write"),
@@ -73,8 +73,8 @@ test("a scratchpad mission is published, edited, and dispatched by name without 
   assert.doesNotMatch(String(preview.receipt.prompt), /mission v1/u);
 });
 
-test("task start returns non-blocking structured risk-tier advice for a low lightweight task", (context) => {
-  const { root, env } = createRuntimeFixture(context),
+test("task start returns non-blocking structured risk-tier advice for a low lightweight task", async (context) => {
+  const { root, env } = await createRuntimeFixture(context),
     taskId = "task-start-risk-advice",
     created = run(root, env, [
       "task",
@@ -112,7 +112,7 @@ test(
   "Named missions reject invalid inputs and task-derived missions carry dispatch preconditions",
   { timeout: 300_000 },
   async (context) => {
-    const fixture = createRuntimeFixture(context);
+    const fixture = await createRuntimeFixture(context);
     const { parent, root, env, userRoot, daemonId } = fixture;
     installIdentities(parent, root, env);
     const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");

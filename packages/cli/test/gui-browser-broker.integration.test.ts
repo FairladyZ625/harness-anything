@@ -13,10 +13,12 @@ import { promisify } from "node:util";
 import { chromium } from "playwright-core";
 import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { readDaemonLifecycleGeneration } from "@harness-anything/daemon/internal/lifecycle-log";
 import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import { makeAgentRuntimeStreamHub } from "../../daemon/test/fixtures/runtime-stream.ts";
 import type { RuntimeSession } from "@harness-anything/kernel";
 import { startBrowserGuiFixture } from "./gui-browser-broker.fixture.ts";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import {
   daemonId,
   environment,
@@ -374,9 +376,9 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
       process.platform === "win32" ? process.execPath : "npm",
       process.platform === "win32" ? [npmCli, ...npmArgs] : npmArgs,
       {
-      cwd: path.resolve("."),
-      env: environment(root, userRoot),
-      stdio: "pipe",
+        cwd: path.resolve("."),
+        env: environment(root, userRoot),
+        stdio: "pipe",
       },
     );
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
@@ -429,6 +431,7 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
       const unavailableBody = unavailableResponse.json();
       assert.equal((await unavailableBody).error.code, "daemon_unavailable");
       startDaemon(root, userRoot);
+      await waitForInitialAttachments(userRoot);
       const recoveredResponse = page.waitForResponse(
         (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 200,
         { timeout: 30_000 },
@@ -443,7 +446,7 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
   } finally {
     if (broker) await broker.close();
     await new Promise<void>((resolve, reject) => parentServer.close((error) => (error ? reject(error) : resolve())));
-    runMaybe(root, userRoot, ["daemon", "stop"]);
+    stopDaemon(root, userRoot);
     if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
@@ -467,8 +470,8 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
       secondStore = seedSettingsEvent({ rootDir: secondRoot, repoId: "browser-write-second", keepOpen: true });
     assert.ok(firstStore && secondStore);
     const initialRevision = firstStore.read().revision;
-    void firstStore.drain();
-    void secondStore.drain();
+    await firstStore.drain();
+    await secondStore.drain();
     startDaemon(firstRoot, userRoot);
     run(firstRoot, userRoot, [
       "daemon",
@@ -519,7 +522,7 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     assert.match(readFileSync(path.join(secondRoot, "harness/harness.yaml"), "utf8"), /reviewReturnBudget: 6/u);
   } finally {
     if (broker) await broker.close();
-    runMaybe(firstRoot, userRoot, ["daemon", "stop"]);
+    stopDaemon(firstRoot, userRoot);
     if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
     if (previousDaemonId === undefined) delete process.env.HARNESS_DAEMON_ID;
@@ -567,7 +570,30 @@ async function settleBrowserWrite(url: URL, token: string, repoId: string, opId:
     }),
   );
   assert.equal(settled.status, 200, settled.body);
-  assert.equal((JSON.parse(settled.body) as { readonly wait?: { readonly state?: string } }).wait?.state, "satisfied");
+  assert.equal(
+    (JSON.parse(settled.body) as { readonly wait?: { readonly state?: string } }).wait?.state,
+    "satisfied",
+    settled.body,
+  );
+}
+
+function stopDaemon(root: string, userRoot: string): void {
+  const stopped = runMaybe(root, userRoot, ["daemon", "stop"]);
+  assert.equal(stopped.status, 0, `${stopped.stderr}\n${stopped.stdout}`);
+  const receipt = JSON.parse(stopped.stdout) as { readonly draining?: boolean };
+  assert.equal(receipt.draining, undefined, "fixture cleanup waits for the daemon to release its writers");
+}
+
+async function waitForInitialAttachments(userRoot: string): Promise<void> {
+  await waitForValue(() => {
+    const records = readDaemonLifecycleGeneration(userRoot, daemonId);
+    let startedPid: number | undefined;
+    for (const record of records) {
+      if (record.event === "process_start") startedPid = record.pid;
+      if (record.event === "attachments_settled" && record.pid === startedPid) return true;
+    }
+    return null;
+  }, "restarted daemon initial attachments");
 }
 
 function chromiumExecutable(parent: string): string {

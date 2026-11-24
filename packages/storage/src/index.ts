@@ -76,6 +76,7 @@ export { replicaDeliveryLeases } from "./fleet-replica-delivery-lease.ts";
 export type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./fleet-replica-delivery-lease.ts";
 export {
   assertWriterEpochFenceDescriptor,
+  closeWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
   migrateLegacyWriterEpochDatabase,
   openPersistentWriterEpoch,

@@ -7,8 +7,8 @@ import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { createRuntimeFixture, published, run, runMaybe } from "./runtime-cli.fixtures.ts";
 
-test("CLI plan-file rejection directs repair to its input and the same create succeeds after repair", (context) => {
-  const { root, env } = createRuntimeFixture(context),
+test("CLI plan-file rejection directs repair to its input and the same create succeeds after repair", async (context) => {
+  const { root, env } = await createRuntimeFixture(context),
     taskId = "task_cli_plan_guidance",
     source = "plans/input.md",
     plan = realizedTaskPlan("CLI input repair"),

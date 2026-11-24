@@ -17,6 +17,7 @@ import {
 import { status } from "../src/daemon/control-status.ts";
 import { cliDaemonServeLaunch } from "../src/daemon/client.ts";
 import { readDaemonLifecycleGeneration } from "@harness-anything/daemon/internal/lifecycle-log";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import { type TestContext } from "node:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { type Socket } from "node:net";
@@ -351,7 +352,7 @@ const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
     await queuedWrite?.catch(() => undefined);
     queuedClient?.close();
     if (daemonProcess?.pid !== undefined && daemonProcess.exitCode === null) {
-      runAutostartCli(fixture.root, fixture.userRoot, ["daemon", "stop"]);
+      runAutostartCli(fixture.root, fixture.userRoot, ["daemon", "stop", "--daemon-id", "default"]);
       await waitForProcessExit(daemonProcess.pid, process.platform === "win32" ? 10_000 : 2_000);
     }
   }
@@ -365,16 +366,12 @@ test(
 async function waitForDaemonIdentityReady(
   daemon: ReturnType<typeof spawn>,
   userRoot: string,
-  timeoutMs = 30_000,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
+  await waitForValue(() => {
     const generation = readDaemonLifecycleGeneration(userRoot, "default");
-    if (generation.some((record) => record.event === "identity_ready")) return;
     const failure = generation.find((record) => record.event === "rbac_resume_failed");
     if (failure) throw new Error(`daemon identity resume failed: ${failure.error ?? "unknown error"}`);
     assert.equal(daemon.exitCode, null, `daemon exited before identity readiness with ${daemon.exitCode}`);
-    assert.ok(Date.now() < deadline, `daemon identity did not become ready within ${timeoutMs}ms`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+    return generation.find((record) => record.event === "identity_ready") ?? null;
+  }, "daemon identity readiness");
 }
