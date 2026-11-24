@@ -882,7 +882,7 @@ export async function openRepoWriterCell(
             expectedVersion,
           },
           binding,
-          `${opId}:unshare`,
+          `agent-unshare-${opId}`,
           entityActionRuntimes,
         );
         if (deletion.outcome !== "applied")
