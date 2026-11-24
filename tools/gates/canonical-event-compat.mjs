@@ -45,7 +45,7 @@ import {
   validateDaemonTaskSnapshotList,
   validateDaemonWorkspaceSummary,
 } from "../../packages/daemon/src/daemon-host/protocol/daemon-protocol.contract.ts";
-import { makeTaskQueryReadModel } from "../../packages/daemon/src/daemon-host/task-query-read.ts";
+import { makeTaskQueryReadModel } from "../../packages/application/src/queries/task-query-read.ts";
 import { workspaceSummaryFromReads } from "@harness-anything/application/queries";
 import { git, pathExistsAt, pullRequestBase, repoRoot } from "./git.mjs";
 

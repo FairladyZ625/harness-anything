@@ -1,4 +1,4 @@
-import { isTerminalStatus, type TaskProjection } from "@harness-anything/kernel";
+import { isTerminalStatus, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { decodeEvidencePayload } from "@harness-anything/application/internal/queries/evidence-payload.ts";
 import { readScheduleRuns, type ScheduleRunsResult } from "./schedule-runs-read.ts";
 
@@ -44,7 +44,7 @@ export interface ReckoningAgendaRead {
 
 /** Derive attention from occurrence-owned reports without writing a finding entity. */
 export function readReckoningAgenda(input: {
-  readonly projection: TaskProjection;
+  readonly projection: TaskProjectionQueries;
   readonly store?: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
 }): ReckoningAgendaRead {
   if (input.store === undefined || typeof input.projection.listEntities !== "function") return { items: [], reads: [] };
@@ -67,7 +67,7 @@ export function readReckoningAgenda(input: {
 
 export function deriveScheduleItems(
   read: ScheduleRunsResult,
-  projection: TaskProjection,
+  projection: TaskProjectionQueries,
 ): readonly ReckoningAgendaItem[] {
   const rows = [...read.runs]
     // Manual success reports are outside the Schedule cadence. A missed row
@@ -151,7 +151,7 @@ export function deriveScheduleItems(
   return items.sort((left, right) => right.since.localeCompare(left.since) || left.ref.localeCompare(right.ref));
 }
 
-function ownerTaskIsOpen(ownerTaskRef: string, projection: TaskProjection): boolean {
+function ownerTaskIsOpen(ownerTaskRef: string, projection: TaskProjectionQueries): boolean {
   const match = /^task\/(.+)$/u.exec(ownerTaskRef);
   if (match === null) return false;
   const task = projection.read(match[1]!).snapshot.task;

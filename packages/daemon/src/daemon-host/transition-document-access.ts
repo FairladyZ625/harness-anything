@@ -5,7 +5,6 @@ import {
   assertTransitionDocumentReady,
   completionContractGap,
   documentWorkspacePath,
-  normalizeRelativeDocumentPath,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
   sha256Text,
@@ -19,6 +18,9 @@ import { safeTemplatePath } from "@harness-anything/preset/internal/preset-mater
 import { builtinVerticalRoots, defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { CatalogSource } from "@harness-anything/preset/internal/preset-resolver-types";
 import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
+import { locateTaskTransitionDocument } from "@harness-anything/application/internal/queries/task-transition-locate.ts";
+
+export { locateTaskTransitionDocument };
 
 export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
 
@@ -138,62 +140,6 @@ function loadCatalogAssets(verticalId?: string, rootDir?: string): CatalogSource
  * written; with the readiness contract its scaffold declares, or null when none resolves. A
  * projection that has not caught up counts as written so the reader reports it.
  */
-export function locateTaskTransitionDocument(input: {
-  readonly projection: TaskProjectionQueries;
-  readonly taskId: string;
-  readonly slot: TaskTransitionDocumentSlot;
-}) {
-  const task = input.projection.read(input.taskId);
-  if (task.watermark < task.sourceRevision || !task.snapshot.task || !task.packagePath)
-    throw transitionDocumentAccessError(
-      "content_not_ready",
-      `Task ${input.taskId} package projection is not ready for ${input.slot}.`,
-    );
-  const packagePath = task.packagePath,
-    contractPath = `${packagePath}/task-contract.json`,
-    activeContractRead = input.projection.readDocument(contractPath),
-    completedArchive =
-      task.snapshot.task.status === "done" && (task.snapshot.task.packageDisposition ?? "active") !== "active",
-    contractRead =
-      activeContractRead.document || !completedArchive
-        ? activeContractRead
-        : (input.projection.readDocumentHistory?.(contractPath) ?? activeContractRead);
-  if (contractRead.watermark < contractRead.sourceRevision || !contractRead.document)
-    throw transitionDocumentAccessError(
-      "content_not_ready",
-      `Task ${input.taskId} contract projection is not ready for ${input.slot}.`,
-    );
-  let contract: unknown;
-  try {
-    contract = JSON.parse(contractRead.document.body);
-  } catch {
-    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} contract document is invalid.`);
-  }
-  const row = contract && typeof contract === "object" && !Array.isArray(contract) ? contract : null,
-    documents =
-      row && Array.isArray((row as { readonly documents?: unknown }).documents)
-        ? (row as { readonly documents: readonly unknown[] }).documents
-        : [],
-    descriptor = documents.find(
-      (value): value is TransitionDocumentDescriptor & { readonly slot: string; readonly path: string } =>
-        value !== null &&
-        typeof value === "object" &&
-        !Array.isArray(value) &&
-        (value as { readonly slot?: unknown }).slot === input.slot &&
-        typeof (value as { readonly path?: unknown }).path === "string",
-    );
-  if (!descriptor) return { packagePath, contract, descriptor, path: null };
-  let documentPath: string;
-  try {
-    documentPath = normalizeRelativeDocumentPath(`${packagePath}/${descriptor.path}`);
-  } catch {
-    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} path is invalid.`);
-  }
-  if (!documentPath.startsWith(`${packagePath}/`))
-    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} leaves its package.`);
-  return { packagePath, contract, descriptor, path: documentPath };
-}
-
 export function readTaskTransitionDocument(input: {
   readonly rootDir?: string;
   readonly projection: TaskProjectionQueries;

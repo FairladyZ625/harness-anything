@@ -180,8 +180,8 @@ export {
   taskWipRootRowFields,
 } from "./task-wip-policy.ts";
 export type { TaskWipRootRow, TaskWipSnapshotEntryV1 } from "./task-wip-policy.ts";
-export { deriveTaskWorktreeBinding } from "./task-worktree.ts";
-export type { TaskWorktreeBindingV1 } from "./task-worktree.ts";
+export { deriveTaskWorktreeBinding } from "./repository-diff-binding.ts";
+export type { TaskWorktreeBindingV1 } from "./repository-diff-binding.ts";
 
 export { parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef } from "./entity-ref.ts";

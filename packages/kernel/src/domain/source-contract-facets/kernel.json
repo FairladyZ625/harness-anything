@@ -1980,7 +1980,7 @@
         "failureCodes": [],
         "explain": "Judge whether a submitted Execution has at least one approved Review on its current submission cut and no undisposed changes_requested Review.",
         "consumers": [
-          "packages/daemon/src/daemon-host/task-query-read.ts"
+          "packages/application/src/queries/task-query-read.ts"
         ],
         "sources": [
           {
@@ -1990,7 +1990,7 @@
         ],
         "consumerRules": [
           {
-            "pathPattern": "^packages/daemon/",
+            "pathPattern": "^packages/(?:application|daemon)/",
             "pattern": "disposedReviewIds[\\s\\S]{0,240}verdict\\s*===\\s*[\"']changes_requested[\"']\\s*&&\\s*!disposed\\.has",
             "reason": "consume the kernel hasApprovedReviewForExecution verdict",
             "flags": "u"
@@ -2011,8 +2011,8 @@
         "failureCodes": [],
         "explain": "Judge whether a submitted Execution already has an effective Review verdict (approved or undisposed changes_requested), ignoring dismissed reviews.",
         "consumers": [
-          "packages/daemon/src/daemon-host/task-completion-read.ts",
-          "packages/daemon/src/daemon-host/task-query-read.ts"
+          "packages/application/src/queries/task-completion-read.ts",
+          "packages/application/src/queries/task-query-read.ts"
         ],
         "sources": [
           {

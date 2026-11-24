@@ -1,11 +1,9 @@
-import {
-  parseAssignmentExpiry,
-  taskAssignmentMatches,
-  type TaskAssignment,
-  type TaskClaimant,
-  type TaskProjection,
-} from "@harness-anything/kernel";
+import { taskAssignmentMatches, type TaskAssignment, type TaskClaimant } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
+export {
+  assignmentFromRelation,
+  assignmentFromRelations,
+} from "@harness-anything/application/internal/queries/task-assignment-read.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
 async function principalDirectory(binding: RepoCellBinding) {
@@ -36,28 +34,3 @@ export async function assertEntityAssignment(
     throw cellCodedError("task_assignee_mismatch", "This entity is assigned to a different person, node or work team.");
   return claimant;
 }
-
-export function assignmentFromRelations(
-  projection: Pick<TaskProjection, "readRelationQuery">,
-  entityRef: string,
-): TaskAssignment | null {
-  const row = projection.readRelationQuery({ source: entityRef, relationType: "assigned-to", state: "active" }).rows[0];
-  return row ? assignmentFromRelation(row) : null;
-}
-
-export function assignmentFromRelation(
-  relation: Pick<AssignmentRelation, "targetRef" | "rationale">,
-): TaskAssignment | null {
-  const expiresAt = parseAssignmentExpiry(relation.rationale);
-  if (!expiresAt) return null;
-  const target = relation.targetRef;
-  if (target.startsWith("person/"))
-    return { assignee: { kind: "person", personId: target.slice("person/".length) }, expiresAt };
-  if (target.startsWith("node/"))
-    return { assignee: { kind: "node", nodeId: target.slice("node/".length) }, expiresAt };
-  if (target.startsWith("team/"))
-    return { assignee: { kind: "team", teamId: target.slice("team/".length) }, expiresAt };
-  return null;
-}
-
-type AssignmentRelation = ReturnType<TaskProjection["readRelationQuery"]>["rows"][number];

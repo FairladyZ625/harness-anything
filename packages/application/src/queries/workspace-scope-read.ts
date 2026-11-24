@@ -10,6 +10,7 @@ import {
   isTerminalStatus,
   isWorkRoot,
   type TaskProjection,
+  type TaskProjectionQueries,
   type TaskIndexProjectionRow,
   type TaskV2,
 } from "@harness-anything/kernel";
@@ -81,7 +82,7 @@ export function workspaceScopeFromProjection(
 
 /** Structure only; agenda and work show call this and never scan events. */
 export function workspaceStructureFromProjection(
-  projection: TaskProjection,
+  projection: TaskProjectionQueries,
   input: CollaboratorScope & { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceStructureRead {
   const personId = scopedPersonId(input),

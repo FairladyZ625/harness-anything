@@ -5193,34 +5193,10 @@
         "order": 1210
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-action-explanation-read.ts#explainAuthenticationRequired:39b0fd5569ad6c02644258162ffbba5b",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1211
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-action-explanation-read.ts#invalidCommand:b3045874813b9fd4fd7564f0557af352",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1212
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-dispatch-recovery.ts#runtimeDispatchIdentity.hash:d9a671bf9d5368da010bc2e24e5c23ba",
         "route": "daemon:bin",
         "role": "support",
         "order": 1213
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#projectExecutionEvidence.outputs.evidenceId:79aca20e9f4ef50ef2da1ba9bf211f4b",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1215
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#projectExecutionEvidence.outputs.evidenceId:a7d9cc699b50fdbda858cdfb5a071bb0",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1214
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-return-dispatch.ts#cancelSubmittingWorker:7e5c4e3cbedb7ebe77094b9412b7f1fc",
@@ -5262,18 +5238,6 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-spawner.ts#makeRuntimeSpawner.spawn",
         "order": 1244
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-wip-settings.ts#taskRootThresholdError:8ba312f018f153d265fdf06be7131aee",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1218
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-wip-settings.ts#taskWipLimitError:724434f5a0d3fddd4006e7d08b3c5ea1",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1217
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/task-worktree-candidates.ts#taskWorktreeRoot.top:bee44f4a5e17a386ebe1ff65e6d6d61f",
@@ -6785,24 +6749,6 @@
         "route": "repository-read",
         "role": "support",
         "order": 220
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/projection-readiness.ts#projectionNotReady:0bd8c79509a60240ad607055aa5bbd38",
-        "route": "repository-read",
-        "role": "support",
-        "order": 221
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/projection-readiness.ts#taskNotFoundCodedError:6b5d0ca44e40b032781680764f8ae3e2",
-        "route": "repository-read",
-        "role": "support",
-        "order": 222
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-completion.ts#taskShowFromProjection:075dcf316b4196718a3fede6787d9008",
-        "route": "repository-read",
-        "role": "support",
-        "order": 126
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-read-pool.ts#openRepoReadClient.request.job.settled:d6be87a1ada55d2111056fb29af5e364",

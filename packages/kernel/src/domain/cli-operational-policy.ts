@@ -705,7 +705,7 @@ export const daemonOntologyPolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.registeredSecretLimit:aea15967ed20690a8bfac65674dc2e51",
       "policy:packages/kernel:packages/kernel/src/domain/cli-operational-policy.ts#daemonOntologyPolicies.defaultValue.listedCandidateLimit:8311111e152679d06d8b3dab39bae60f",
       "policy:packages/daemon:packages/daemon/src/runtime-engine/secret-scrub.ts#registeredSecretLimit:81b02dea67bf5e84564b93f8e0ced5f7",
-      "policy:packages/daemon:packages/daemon/src/daemon-host/unique-id-prefix.ts#listedCandidateLimit:2bf28bfe8543a8df7f8d15e63091b108",
+      "policy:packages/application:packages/application/src/queries/unique-prefix.ts#listedCandidateLimit:2bf28bfe8543a8df7f8d15e63091b108",
     ].map((candidateId) => ({ candidateId, route: "daemon-redaction-presentation" })),
   },
 ] as const satisfies readonly OntologyPolicyDeclaration[];

@@ -962,7 +962,7 @@ test("S2h converged review, decision-independence, submitted-cut, and rework-cut
     ],
     [
       "packages/kernel/src/domain/review.ts#hasApprovedReviewForExecution",
-      ["packages/daemon/src/daemon-host/task-query-read.ts"],
+      ["packages/application/src/queries/task-query-read.ts"],
     ],
     [
       "packages/kernel/src/domain/task-bound-runtime-authority.ts#isSubmittedExecutionCutOpen",

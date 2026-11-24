@@ -325,7 +325,7 @@
       "packages/daemon/src/daemon-host/squad-coordinator.ts#continueLeader",
       "packages/daemon/src/daemon-host/squad-coordinator.ts#settleAbandonedRun",
       "packages/daemon/src/daemon-host/squad-coordinator.ts#settleEndedAssignments",
-      "packages/daemon/src/daemon-host/task-completion-read.ts#readTaskCompletion",
+      "packages/application/src/queries/task-completion-read.ts#readTaskCompletion",
       "packages/daemon/src/daemon-host/task-review-dispatch.ts#dispatchTaskReview",
       "packages/daemon/src/daemon-host/task-review-dispatch.ts#spawnCutReviewDispatch",
       "packages/daemon/src/daemon-host/task-witness-runner.ts#runCompletionSources",

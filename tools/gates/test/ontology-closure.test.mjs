@@ -118,7 +118,8 @@ test("the full repository passes the classified closure gate", (t) => {
     `full-source closure: files=${result.filesScanned}, totals=${JSON.stringify(result.totals)}, durationMs=${result.durationMs}`,
   );
 });
-// dec_7E44897ECDCAEF2B92EC66A260/CH1: all 49 host/migration/observation files stay closed.
+// dec_7E44897ECDCAEF2B92EC66A260/CH1: host/migration/observation files stay closed.
+// projection-readiness.ts and unique-id-prefix.ts are re-exports; their candidates live in application/queries.
 test("daemon host migration and observation slice has zero frozen ontology debt", () => {
   const scope =
     /^packages\/daemon\/(?:scripts\/(?:copy-assets|smoke-package)\.mjs|src\/(?:daemon-host|runtime-engine)\/(?:bin|conn-log|daemon-diagnostics(?:-worker)?|daemon-host-(?:control-api|open|recovery|registry|repository-api|runtime-api|writer-epoch)|daemon-operation(?:-table)?|daemon-singleton|daemon-trace-(?:buckets|completions)|dispatch-(?:activity|causal-context|read|stream(?:-archive|-lines)?)|edge-replica-doctor|gui-catalog|lifecycle-log|migration-import(?:-(?:authored-audit|backfill|dispositions|entities|legacy|oracle-rebuild|projection-restatement|relations|run|task-restatement|tasks))?|node-auto-(?:claim-config|claim|dispatch)|observe-(?:jsonl-tail|tail)|probe-log-sink|projection-readiness|request-log|secret-scrub|unique-id-prefix)\.ts)$/u;
@@ -126,10 +127,10 @@ test("daemon host migration and observation slice has zero frozen ontology debt"
   assertEmpty(baseline.filter((row) => scope.test(row.path)));
   const result = evaluateOntologyClosure({ rootDir: repoRoot, base: "HEAD" });
   const classified = result.classified.filter((row) => scope.test(row.file));
-  assert.equal(new Set(classified.map((row) => row.file)).size, 49);
+  assert.equal(new Set(classified.map((row) => row.file)).size, 47);
   // dec_89D06D7360CBEC09795F7B12EC/CH4 moves two migration scratch removals to the host I/O port.
-  assert.equal(classified.filter((row) => row.category === "action").length, 180);
-  assert.equal(classified.filter((row) => row.category === "policy").length, 53);
+  assert.equal(classified.filter((row) => row.category === "action").length, 178);
+  assert.equal(classified.filter((row) => row.category === "policy").length, 52);
   assertRegistered(classified); // Includes the node-local replica settlement branch.
   assertEmpty(result.findings.filter((row) => scope.test(row.file)));
   for (const [symbol, owner] of [
@@ -182,7 +183,10 @@ test("daemon domain service actions and policies are closed under the shared ont
   // CEO ruling dispatch_294b4cda7cf887e9077a2a81 Route 1 deleted the duplicate manual
   // `cell.service.execute` call site in `task-return-dispatch.ts` in favor of `RepoCellContinuationWrite`.
   // dec_04A9211B073F29F0FC1E1CA573/CH2 shares the primary and fallback review launch call site.
-  assert.equal(actions.length, 160);
+  // Sinking core task read queries into `packages/application/src/queries/task-*` brought 3 registered
+  // repository-read support error builders (`task-query-ports.ts`, `task-show-read.ts`, `task-transition-locate.ts`)
+  // under `domainPath`.
+  assert.equal(actions.length, 163);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(
@@ -256,7 +260,7 @@ test("daemon domain service actions and policies are closed under the shared ont
   );
   assert.equal(
     policyRefByCandidate.get(
-      "policy:packages/daemon:packages/daemon/src/daemon-host/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING:ca330956d3d92d07a920b97f0da879bb",
+      "policy:packages/application:packages/application/src/queries/task-wip-settings.ts#TASK_WIP_LIMIT_SETTING:ca330956d3d92d07a920b97f0da879bb",
     ),
     "policy:task/daemon-task-domain-policy",
   );
@@ -269,8 +273,8 @@ test("daemon domain service actions and policies are closed under the shared ont
   );
   for (const candidateId of [
     "policy:packages/daemon:packages/daemon/src/daemon-host/squad-coordinator-publication.ts#makeSquadPublicationController.publishState:c33102c3afb14ad57596688874a8b88c",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
+    "policy:packages/application:packages/application/src/queries/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:632767b9b836887b526c540ca6ec1de4",
+    "policy:packages/application:packages/application/src/queries/task-query-read.ts#makeTaskQueryReadModel.agenda.awaitingRuling:c6e10f3bdbdac92ac14cf8e1b3956656",
   ]) {
     assert.equal(policyRefByCandidate.get(candidateId), "policy:runtime-session/dispatch-reservations", candidateId);
   }

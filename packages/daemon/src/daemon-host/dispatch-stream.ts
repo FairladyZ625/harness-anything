@@ -1,4 +1,5 @@
 import type { CloudRuntimeExecutionTarget } from "@harness-anything/kernel/internal/domain/runtime-execution-target.ts";
+import { dispatchStreamRelativePath as applicationDispatchStreamRelativePath } from "@harness-anything/application/internal/queries/task-query-paths.ts";
 import {
   closeSync,
   constants as fsConstants,
@@ -979,8 +980,7 @@ export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
 
 /** The stream's repository-relative path under this repository's own local root, in POSIX form. */
 export function dispatchStreamRelativePath(rootDir: string, dispatchId: string): string {
-  const layout = resolveHarnessLayout(rootDir);
-  return path.relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId)).split(path.sep).join("/");
+  return applicationDispatchStreamRelativePath(rootDir, dispatchId);
 }
 
 export function dispatchStreamPath(rootDir: string, dispatchId: string): string {
