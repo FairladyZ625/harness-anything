@@ -116,7 +116,15 @@ import {
   verifyRuntimeWebSearchGateway,
 } from "./agent-runtime-web-search.ts";
 import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
-import { appendAgyAccountDirectories, createRuntimeInstanceAccountProbe } from "./runtime-instance-account-probe.ts";
+import {
+  appendAgyAccountDirectories,
+  createInFlightProbeDeduper,
+  createRuntimeAuthWarmupCoordinator,
+  createRuntimeInstanceAccountProbe,
+  probeAccountModelCatalog,
+  resolveRuntimeAccountProbeTarget,
+  runtimeAuthProbeDedupKey,
+} from "./runtime-instance-account-probe.ts";
 import { subscriptionCredentialGeneration, type KeychainLookupRunner } from "./runtime-subscription-quota-probe.ts";
 import {
   openRuntimeProviderHealthStore,
@@ -159,6 +167,7 @@ type RuntimeAuthProbeSnapshot = {
   readonly witnessed: readonly RuntimeInstallationWitness[];
   readonly config: RuntimeInstanceConfig;
   readonly signal?: AbortSignal;
+  readonly shareInFlight?: boolean;
 };
 
 export function openRuntimeInstanceStore(input: {
@@ -191,6 +200,9 @@ export function openRuntimeInstanceStore(input: {
   readonly quotaFetch?: typeof fetch;
   /** Test/embedded seam for non-interactive macOS Keychain fallback lookups. */
   readonly quotaKeychainLookup?: KeychainLookupRunner;
+  /** When true, mutations (create, login/logout completion, readiness-resetting updates) schedule a
+   *  one-shot background readiness refresh for the affected enabled instance. Defaults to false. */
+  readonly backgroundAuthWarmup?: boolean;
 }) {
   const dispatchState = createRuntimeInstanceDispatchState();
   const platform = input.platform ?? process.platform,
@@ -216,7 +228,37 @@ export function openRuntimeInstanceStore(input: {
       ReadonlyArray<{ readonly sessionKey: string; readonly cut: RuntimeInstanceAccountCut }>
     >(),
     probeSequences = new Map<string, number>(),
-    committedProbeSequences = new Map<string, number>();
+    committedProbeSequences = new Map<string, number>(),
+    authDeduper = createInFlightProbeDeduper<RuntimeSubscriptionProbeResult>(),
+    refreshDeduper = createInFlightProbeDeduper<{
+      readonly readiness: RuntimeAuthReadiness;
+      readonly modelCatalogReadiness: RuntimeAuthReadiness;
+    }>(),
+    isAuthUnchecked = (instanceId: string): boolean => {
+      const state = readiness.get(instanceId);
+      return state === undefined || state.code === "runtime_auth_not_checked";
+    },
+    shouldWarmConfig = (config: RuntimeInstanceConfig): boolean =>
+      config.enabled &&
+      !(input.cloudRuntimeTargets && Object.hasOwn(input.cloudRuntimeTargets, config.instanceId)) &&
+      isAuthUnchecked(config.instanceId) &&
+      !hasActiveAuthSession(config.instanceId),
+    authWarmup = createRuntimeAuthWarmupCoordinator<RuntimeInstanceConfig, RuntimeInstallationWitness>({
+      enabled: input.backgroundAuthWarmup === true,
+      selectCandidates: () => read().filter(shouldWarmConfig),
+      readTarget: (instanceId) => readOne(instanceId),
+      shouldWarm: shouldWarmConfig,
+      resolveBatchWitnessed: () => refreshInstallations(),
+      resolveInstanceWitnessed: async (config) => {
+        const cached = input.discover();
+        return findInstallation(config, cached) ? cached : refreshInstallations();
+      },
+      refreshOne: (config, witnessed, signal) => refreshAccount(config.instanceId, { witnessed, config }, signal),
+      onWarmFailure: (config, code, message) => {
+        if (readOne(config.instanceId) && isAuthUnchecked(config.instanceId))
+          rememberAuthReadiness(config.instanceId, unavailable(code, message));
+      },
+    });
   let cachedInstances: readonly RuntimeInstanceConfig[] | null = null,
     recordedInstallationsCache: readonly RecordedRuntimeInstallation[] | null = null,
     recordedInstallationsRead = false;
@@ -345,8 +387,10 @@ export function openRuntimeInstanceStore(input: {
       }
       readiness.set(id, undefined);
       providerHealth.clear(id);
+      if (current.enabled && !hasActiveAuthSession(id)) authWarmup.scheduleInstance(id);
     } else if (readiness.get(id)?.code === "runtime_auth_in_progress" && !hasActiveAuthSession(id)) {
       readiness.set(id, undefined);
+      if (current.enabled) authWarmup.scheduleInstance(id);
     }
   }
   function currentProbeCommit(
@@ -429,34 +473,7 @@ export function openRuntimeInstanceStore(input: {
     config: RuntimeInstanceConfig,
     witnessed: readonly RuntimeInstallationWitness[],
   ): { readonly kindId: RuntimeInstanceKind; readonly installation: RuntimeInstallationWitness } {
-    const credentialCommand = runtimeKindForId(config.kindId).executable.credentialCommand;
-    if (!credentialCommand) {
-      const installation = witnessed.find(
-        (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
-      );
-      if (installation) return { kindId: config.kindId, installation };
-      throw runtimeInstanceError(
-        "runtime_installation_not_found",
-        `The bound ${config.kindId} installation ${config.installationId} is not currently witnessed for account operations.`,
-      );
-    }
-    const candidates = runtimeKindIds.flatMap((kindId) =>
-      runtimeKindForId(kindId).executable.command === credentialCommand
-        ? witnessed.filter((entry) => entry.kindId === kindId).map((installation) => ({ kindId, installation }))
-        : [],
-    );
-    const exact = candidates.find(({ installation }) => installation.installationId === config.installationId);
-    if (exact) return exact;
-    if (candidates.length === 1) return candidates[0]!;
-    if (candidates.length === 0)
-      throw runtimeInstanceError(
-        "runtime_credential_command_not_found",
-        `A witnessed ${credentialCommand} credential command is required for ${config.kindId} account operations.`,
-      );
-    throw runtimeInstanceError(
-      "runtime_installation_ambiguous",
-      `Multiple witnessed ${credentialCommand} credential installations are available for ${config.kindId}; bind one explicitly to the account instance.`,
-    );
+    return resolveRuntimeAccountProbeTarget(config, witnessed);
   }
   async function currentAccountProbeTarget(
     config: RuntimeInstanceConfig,
@@ -517,6 +534,7 @@ export function openRuntimeInstanceStore(input: {
     if (config.isolationState === "enforced") ensureStateRoot(config);
     if (!accountRevisions.has(config.instanceId)) accountRevisions.set(config.instanceId, 0);
     persist([...read(), config]);
+    if (config.enabled) authWarmup.scheduleInstance(config.instanceId);
     return config;
   }
   function create(
@@ -607,6 +625,19 @@ export function openRuntimeInstanceStore(input: {
     });
     return config;
   }
+  const resolveCopilotToken = async (kindId: RuntimeInstanceKind): Promise<string | null | undefined> => {
+    if (kindId !== "copilot" || !resolveGithubToken) return undefined;
+    return resolveGithubToken(operatorEnvironment).then(
+      (token) => token,
+      () => null,
+    );
+  };
+  const probeDedupKey = (
+    config: RuntimeInstanceConfig,
+    installation: RuntimeInstallationWitness | undefined,
+    startCredentialGen?: string,
+  ): string =>
+    runtimeAuthProbeDedupKey(accountCut(config), config, installation, runtimeBaseUrl(config), startCredentialGen);
   function authStatus(instanceId: string, snapshot?: RuntimeAuthProbeSnapshot): Promise<RuntimeAuthReadiness>;
   function authStatus(
     instanceId: string,
@@ -662,120 +693,146 @@ export function openRuntimeInstanceStore(input: {
     if (config.isolationState === "enforced") ensureStateRoot(config);
     const env = authEnvironment(config);
     if (config.auth.mode === "subscription") {
-      const resolveCopilotToken = async (kindId: RuntimeInstanceKind): Promise<string | null | undefined> => {
-        if (kindId !== "copilot" || !resolveGithubToken) return undefined;
-        return resolveGithubToken(operatorEnvironment).then(
-          (token) => token,
-          () => null,
-        );
-      };
-      const probeSeq = nextProbeSequence(config.instanceId),
-        startGithubToken = await resolveCopilotToken(config.kindId);
+      const startGithubToken = await resolveCopilotToken(config.kindId);
       currentAccountForCut(cut);
-      const startCredentialGen = subscriptionCredentialGeneration(config.kindId, env, startGithubToken),
-        probeTarget =
-          !input.subscriptionReady && isAgyAccountConfig(config)
-            ? await currentAccountProbeTarget(config, witnessed)
-            : undefined,
-        quotaExecutablePath = probeTarget?.installation.executablePath ?? installation.executablePath;
-      let accountFingerprint: string | undefined;
-      const quotaProbeInput = {
-        kindId: config.kindId,
-        credentialSource: config.credentialSource,
-        ...(quotaExecutablePath ? { executablePath: quotaExecutablePath } : {}),
-        env,
-        hasCustomProviderBaseUrl: runtimeBaseUrl(config) !== undefined,
-        signal: snapshot?.signal,
-        now: nowIso,
-        fetchImpl: quotaFetch,
-        ...(quotaKeychainLookup ? { runKeychainLookup: quotaKeychainLookup } : {}),
-        ...(resolveGithubToken ? { resolveGithubToken: async () => startGithubToken ?? null } : {}),
-        onCredentialFingerprint: (fingerprint: string) => {
-          accountFingerprint = fingerprint;
-        },
-      };
-      const accountChanged = (latest: RuntimeInstanceConfig): boolean =>
-        accountFingerprint !== undefined &&
-        latest.quotaAccountFingerprint !== accountFingerprint &&
-        (accountFingerprint.startsWith("credential:") ||
-          latest.quotaAccountFingerprint?.startsWith("credential:") === true ||
-          latest.quotaAccountFingerprint?.startsWith("account:") === true);
-      const applyQuotaObservation = (latest: RuntimeInstanceConfig, quota: RuntimeSubscriptionQuotaV1): void => {
-        const observedNow = nowIso();
-        const changed = accountChanged(latest);
-        const previousQuota = changed ? undefined : latest.quota;
-        const effectiveQuota = mergeSubscriptionQuotaObservation(previousQuota, quota, observedNow);
-        markProbeCommitted(latest.instanceId, probeSeq);
-        persistQuota(latest, effectiveQuota, cut, accountFingerprint ?? latest.quotaAccountFingerprint);
-        const exhausted = findExhaustedSubscriptionQuotaWindow(effectiveQuota, observedNow, { models: latest.models });
-        if (exhausted) {
-          const exhaustionScope = subscriptionQuotaExhaustionScope(effectiveQuota, exhausted.window, latest.models);
-          providerHealth.recordQuotaExhausted({
-            instanceId: latest.instanceId,
-            occurredAt: observedNow,
-            resetAt: exhausted.resetAt,
-            scope: exhaustionScope.scope,
-            ...(exhaustionScope.models ? { models: exhaustionScope.models } : {}),
-          });
-        } else if (
-          changed ||
-          hasRecoveredSubscriptionQuota(effectiveQuota, observedNow, {
-            models: latest.models,
-            previousQuota,
-          })
-        ) {
-          providerHealth.clearQuotaExhausted(latest.instanceId, observedNow);
-        }
-      };
-      // Read-only subscription readiness and quota probe: never falls through to active inference
-      // (`codex exec`) and never overwrites a ready login status with `runtime_quota_unavailable`
-      // when read-only quota endpoints are unavailable or rate-limited.
-      let result = await probeSubscription(
-        installation,
-        env,
-        config.isolationState,
-        config,
-        witnessed,
-        true,
+      const startCredentialGen = subscriptionCredentialGeneration(config.kindId, env, startGithubToken);
+      const result = await authDeduper(
+        config.instanceId,
+        probeDedupKey(config, installation, startCredentialGen),
         snapshot?.signal,
-      );
-      let current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
-      if (result.modelCatalogReadiness || result.availableModels?.length) {
-        markProbeCommitted(config.instanceId, probeSeq);
-        persistAvailableModels(config, result.availableModels, cut);
-      }
-      if (result.readiness.status === "ready" && !input.subscriptionReady) {
-        let quota: RuntimeSubscriptionQuotaV1 | null = null;
-        try {
-          quota = await accountProbe.probeQuota(quotaProbeInput);
-        } catch (error) {
-          if (error instanceof Error && "code" in error && error.code === "runtime_instance_probe_stale") throw error;
-          consumeKnownError(error);
-        }
-        current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
-        if (quota !== null) {
-          applyQuotaObservation(current, quota);
-          if (config.kindId === "codex" || config.kindId === "codex-acp") {
-            result = { ...result, readiness: available("provider") };
+        async (sharedSignal) => {
+          const probeSeq = nextProbeSequence(config.instanceId),
+            probeTarget =
+              !input.subscriptionReady && isAgyAccountConfig(config)
+                ? await currentAccountProbeTarget(config, witnessed)
+                : undefined,
+            quotaExecutablePath = probeTarget?.installation.executablePath ?? installation.executablePath;
+          let accountFingerprint: string | undefined;
+          const quotaProbeInput = {
+            kindId: config.kindId,
+            credentialSource: config.credentialSource,
+            ...(quotaExecutablePath ? { executablePath: quotaExecutablePath } : {}),
+            env,
+            hasCustomProviderBaseUrl: runtimeBaseUrl(config) !== undefined,
+            signal: sharedSignal,
+            now: nowIso,
+            fetchImpl: quotaFetch,
+            ...(quotaKeychainLookup ? { runKeychainLookup: quotaKeychainLookup } : {}),
+            ...(resolveGithubToken ? { resolveGithubToken: async () => startGithubToken ?? null } : {}),
+            onCredentialFingerprint: (fingerprint: string) => {
+              accountFingerprint = fingerprint;
+            },
+          };
+          const accountChanged = (latest: RuntimeInstanceConfig): boolean =>
+            accountFingerprint !== undefined &&
+            latest.quotaAccountFingerprint !== accountFingerprint &&
+            (accountFingerprint.startsWith("credential:") ||
+              latest.quotaAccountFingerprint?.startsWith("credential:") === true ||
+              latest.quotaAccountFingerprint?.startsWith("account:") === true);
+          const applyQuotaObservation = (latest: RuntimeInstanceConfig, quota: RuntimeSubscriptionQuotaV1): void => {
+            const observedNow = nowIso();
+            const changed = accountChanged(latest);
+            const previousQuota = changed ? undefined : latest.quota;
+            const effectiveQuota = mergeSubscriptionQuotaObservation(previousQuota, quota, observedNow);
+            markProbeCommitted(latest.instanceId, probeSeq);
+            persistQuota(latest, effectiveQuota, cut, accountFingerprint ?? latest.quotaAccountFingerprint);
+            const exhausted = findExhaustedSubscriptionQuotaWindow(effectiveQuota, observedNow, {
+              models: latest.models,
+            });
+            if (exhausted) {
+              const exhaustionScope = subscriptionQuotaExhaustionScope(effectiveQuota, exhausted.window, latest.models);
+              providerHealth.recordQuotaExhausted({
+                instanceId: latest.instanceId,
+                occurredAt: observedNow,
+                resetAt: exhausted.resetAt,
+                scope: exhaustionScope.scope,
+                ...(exhaustionScope.models ? { models: exhaustionScope.models } : {}),
+              });
+            } else if (
+              changed ||
+              hasRecoveredSubscriptionQuota(effectiveQuota, observedNow, {
+                models: latest.models,
+                previousQuota,
+              })
+            ) {
+              providerHealth.clearQuotaExhausted(latest.instanceId, observedNow);
+            }
+          };
+          // Read-only subscription readiness and quota probe: never falls through to active inference
+          // (`codex exec`) and never overwrites a ready login status with `runtime_quota_unavailable`
+          // when read-only quota endpoints are unavailable or rate-limited.
+          let probed = await probeSubscription(
+            installation,
+            env,
+            config.isolationState,
+            config,
+            witnessed,
+            true,
+            sharedSignal,
+          );
+          const abortedByCaller = (): boolean =>
+            sharedSignal.aborted &&
+            !(
+              typeof sharedSignal.reason === "object" &&
+              sharedSignal.reason !== null &&
+              "name" in sharedSignal.reason &&
+              sharedSignal.reason.name === "TimeoutError"
+            );
+          let current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
+          if (abortedByCaller()) return probed;
+          if (probed.modelCatalogReadiness || probed.availableModels?.length) {
+            markProbeCommitted(config.instanceId, probeSeq);
+            persistAvailableModels(config, probed.availableModels, cut);
           }
-        } else if (accountChanged(current)) {
-          persistQuota(current, undefined, cut);
-          providerHealth.clearQuotaExhausted(current.instanceId, nowIso());
+          if (probed.readiness.status === "ready" && !input.subscriptionReady) {
+            let quota: RuntimeSubscriptionQuotaV1 | null = null;
+            try {
+              quota = await accountProbe.probeQuota(quotaProbeInput);
+            } catch (error) {
+              if (error instanceof Error && "code" in error && error.code === "runtime_instance_probe_stale")
+                throw error;
+              consumeKnownError(error);
+            }
+            if (abortedByCaller()) return probed;
+            current = currentProbeCommit(cut, probeSeq, startCredentialGen, await resolveCopilotToken(config.kindId));
+            if (quota !== null) {
+              applyQuotaObservation(current, quota);
+              if (config.kindId === "codex" || config.kindId === "codex-acp") {
+                probed = { ...probed, readiness: available("provider") };
+              }
+            } else if (accountChanged(current)) {
+              persistQuota(current, undefined, cut);
+              providerHealth.clearQuotaExhausted(current.instanceId, nowIso());
+            }
+          }
+          if (abortedByCaller()) return probed;
+          markProbeCommitted(current.instanceId, probeSeq);
+          return { ...probed, readiness: rememberAuthReadiness(current.instanceId, probed.readiness) };
+        },
+        snapshot?.shareInFlight === true,
+      );
+      return observation ? result : result.readiness;
+    }
+    const credentialRef = config.auth.credentialRef;
+    const credentialResult = await authDeduper(
+      config.instanceId,
+      probeDedupKey(config, installation),
+      snapshot?.signal,
+      async () => {
+        let state: RuntimeAuthReadiness;
+        try {
+          const secret = await resolveCredential(credentialRef);
+          state = secret ? available() : unavailable("runtime_credential_unavailable", credentialUnavailableHint);
+        } catch (error) {
+          consumeKnownError(error);
+          state = unavailable("runtime_credential_unavailable", credentialHint(error));
         }
-      }
-      markProbeCommitted(current.instanceId, probeSeq);
-      return observed(rememberAuthReadiness(current.instanceId, result.readiness), result);
-    }
-    let state: RuntimeAuthReadiness;
-    try {
-      const secret = await resolveCredential(config.auth.credentialRef);
-      state = secret ? available() : unavailable("runtime_credential_unavailable", credentialUnavailableHint);
-    } catch (error) {
-      consumeKnownError(error);
-      state = unavailable("runtime_credential_unavailable", credentialHint(error));
-    }
-    const current = currentAccountForCut(cut);
-    return observed(rememberAuthReadiness(current.instanceId, state));
+        const current = currentAccountForCut(cut);
+        return { readiness: rememberAuthReadiness(current.instanceId, state) };
+      },
+      snapshot?.shareInFlight === true,
+    );
+    return observation ? credentialResult : credentialResult.readiness;
   }
   async function refreshAccount(
     instanceId: string,
@@ -787,41 +844,55 @@ export function openRuntimeInstanceStore(input: {
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
     const cut = accountCut(config),
-      observation = await authStatus(instanceId, { witnessed, config, signal }, true),
-      status = observation.readiness;
-    currentAccountForCut(cut);
-    if (observation.modelCatalogReadiness)
-      return { readiness: status, modelCatalogReadiness: observation.modelCatalogReadiness };
-    if (status.status !== "ready" || config.auth.mode !== "subscription")
-      return {
-        readiness: status,
-        modelCatalogReadiness: unavailable(
-          "runtime_model_catalog_not_probed",
-          "Account models were not probed because subscription authentication is unavailable.",
-        ),
-      };
-    if (isAgyAccountConfig(config)) return { readiness: status, modelCatalogReadiness: available("provider") };
-    const declaration = runtimeKindForId(config.kindId);
-    if (declaration.auth.accountModelProbe === undefined) {
-      persistAvailableModels(config, undefined, cut);
-      return {
-        readiness: status,
-        modelCatalogReadiness: unavailable(
-          "runtime_model_catalog_unsupported",
-          `${declaration.displayName} does not declare a verified account model catalog. Configured models are not an account entitlement observation.`,
-        ),
-      };
-    }
-    const installation = witnessed.find(
-      (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
-    )!;
-    const outcome = await probeAccountCatalog(config, installation, authEnvironment(config), status, signal);
-    const current = currentAccountForCut(cut);
-    persistAvailableModels(config, outcome.availableModels, cut);
-    return {
-      readiness: rememberAuthReadiness(current.instanceId, outcome.readiness),
-      modelCatalogReadiness: outcome.modelCatalogReadiness!,
-    };
+      installation = findInstallation(config, witnessed),
+      env = authEnvironment(config),
+      startCredentialGen =
+        config.auth.mode === "subscription"
+          ? subscriptionCredentialGeneration(config.kindId, env, await resolveCopilotToken(config.kindId))
+          : undefined;
+    return refreshDeduper(
+      config.instanceId,
+      probeDedupKey(config, installation, startCredentialGen),
+      signal,
+      async (sharedSignal) => {
+        const observation = await authStatus(
+            instanceId,
+            { witnessed, config, signal: sharedSignal, shareInFlight: true },
+            true,
+          ),
+          status = observation.readiness;
+        currentAccountForCut(cut);
+        if (observation.modelCatalogReadiness)
+          return { readiness: status, modelCatalogReadiness: observation.modelCatalogReadiness };
+        if (status.status !== "ready" || config.auth.mode !== "subscription")
+          return {
+            readiness: status,
+            modelCatalogReadiness: unavailable(
+              "runtime_model_catalog_not_probed",
+              "Account models were not probed because subscription authentication is unavailable.",
+            ),
+          };
+        if (isAgyAccountConfig(config)) return { readiness: status, modelCatalogReadiness: available("provider") };
+        const declaration = runtimeKindForId(config.kindId);
+        if (declaration.auth.accountModelProbe === undefined) {
+          persistAvailableModels(config, undefined, cut);
+          return {
+            readiness: status,
+            modelCatalogReadiness: unavailable(
+              "runtime_model_catalog_unsupported",
+              `${declaration.displayName} does not declare a verified account model catalog. Configured models are not an account entitlement observation.`,
+            ),
+          };
+        }
+        const outcome = await probeAccountCatalog(config, installation!, authEnvironment(config), status, sharedSignal);
+        const current = currentAccountForCut(cut);
+        persistAvailableModels(config, outcome.availableModels, cut);
+        return {
+          readiness: rememberAuthReadiness(current.instanceId, outcome.readiness),
+          modelCatalogReadiness: outcome.modelCatalogReadiness!,
+        };
+      },
+    );
   }
   function probeAccountCatalog(
     config: RuntimeInstanceConfig,
@@ -830,46 +901,7 @@ export function openRuntimeInstanceStore(input: {
     status: RuntimeAuthReadiness,
     signal?: AbortSignal,
   ): Promise<RuntimeSubscriptionProbeResult> {
-    return accountProbe
-      .probeModels({
-        kindId: config.kindId,
-        executablePath: installation.executablePath,
-        env,
-        signal,
-      })
-      .then(
-        (catalog) => ({
-          availableModels: catalog?.models,
-          readiness: status,
-          modelCatalogReadiness: catalog
-            ? available("provider")
-            : unavailable("runtime_model_catalog_empty", "The provider returned no account models."),
-        }),
-        (error: unknown) => {
-          const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
-          const authFailure = code === "runtime_subscription_required" || code === "runtime_auth_probe_failed";
-          return {
-            availableModels: undefined,
-            readiness: authFailure
-              ? unavailable(
-                  code,
-                  code === "runtime_subscription_required"
-                    ? "ACP requires subscription sign-in for this instance."
-                    : "ACP authentication could not determine readiness. Retry the probe.",
-                )
-              : status,
-            modelCatalogReadiness: authFailure
-              ? unavailable(
-                  "runtime_model_catalog_not_probed",
-                  "Account models were not probed because ACP authentication is unavailable.",
-                )
-              : unavailable(
-                  "runtime_model_catalog_probe_failed",
-                  `Account model refresh failed${typeof error === "object" && error !== null && "status" in error && typeof error.status === "number" ? ` (exit ${error.status})` : ""}; authentication status is unchanged. Retry the model refresh.`,
-                ),
-          };
-        },
-      );
+    return probeAccountModelCatalog(accountProbe, config, installation, env, status, signal);
   }
   function prepareAuthCommand(instanceId: string, action: "login" | "logout"): PreparedRuntimeAuthCommand {
     const config = readOne(instanceId);
@@ -1584,7 +1616,10 @@ export function openRuntimeInstanceStore(input: {
         }
         if (next.isolationState === "enforced") ensureStateRoot(next);
         persist(read().map((entry) => (entry.instanceId === current.instanceId ? next : entry)));
+        const readinessReset = accountChanged || hasInstallation || hasBaseUrl || hasCredential;
         if (hasInstallation || hasBaseUrl || hasCredential) readiness.delete(next.instanceId);
+        if (next.enabled && (readinessReset || (!current.enabled && isAuthUnchecked(next.instanceId))))
+          authWarmup.scheduleInstance(next.instanceId);
         const instance = publicConfig(next, readiness.get(next.instanceId));
         return {
           ...base,
@@ -1709,6 +1744,8 @@ export function openRuntimeInstanceStore(input: {
     delete: remove,
     authStatus,
     refreshAccount,
+    warmAuthReadiness: authWarmup.warmAll,
+    closeAuthWarmup: authWarmup.close,
     prepareAuthCommand,
     rejectActiveAuthSession,
     beginAuthSession,
@@ -1893,6 +1930,7 @@ export function openRuntimeInstanceStore(input: {
             kindId: target.kindId,
             executablePath: target.installation.executablePath,
             env,
+            signal,
           });
         return catalog
           ? {

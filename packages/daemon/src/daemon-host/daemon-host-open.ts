@@ -254,6 +254,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       discover,
       refreshDiscovery,
       env: input.runtimeEnv,
+      backgroundAuthWarmup: input.runtimeAuthWarmup === true,
       resolveCredential: vault.resolve,
       resolveGithubToken: input.runtimeGithubToken,
     }),
@@ -1620,6 +1621,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       // the daemon's handles. The first failure still surfaces once teardown has completed.
       let failure: unknown;
       const teardown: readonly (readonly [phase: string, step: () => Promise<unknown>])[] = [
+        ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
         ["auto-claim.close", () => autoClaimLoop.close()],
         ["auto-dispatch.close", () => autoDispatchLoop.close()],
         ["center-review-fallback.close", () => centerReviewLoop.close()],
@@ -1896,8 +1898,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       event: "fleet_center_restore_failed",
       error: error instanceof Error ? error.message : String(error),
     });
+    if (input.runtimeAuthWarmup === true) void instanceStore.warmAuthReadiness(closeController.signal);
     return host;
   }
+  if (input.runtimeAuthWarmup === true) void instanceStore.warmAuthReadiness(closeController.signal);
   return host;
   async function closeCell(repoId: string): Promise<void> {
     return closeCellImpl(extracted, repoId);
