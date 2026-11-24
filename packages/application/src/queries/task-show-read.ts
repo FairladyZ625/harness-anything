@@ -51,7 +51,7 @@ export function taskShowFromProjection(
     progress = projection.readProgress(taskId),
     rootSetting = resolveTaskRootThreshold(projectedTaskSettings(projection), env),
     notFound = projectedTaskNotFound(read, taskId);
-  const settle = (opId: string, error: unknown): WriteReceipt => {
+  const readFailureReceipt = (opId: string, error: unknown): WriteReceipt => {
     if (ports.failRead) return ports.failRead(opId, error) as WriteReceipt;
     throw error;
   };
@@ -76,7 +76,7 @@ export function taskShowFromProjection(
         env,
       );
     if (prefixed.candidates.length > 1)
-      return settle(
+      return readFailureReceipt(
         `read:${taskId}`,
         Object.assign(
           new Error(
@@ -86,7 +86,7 @@ export function taskShowFromProjection(
           { code: "task_ambiguous_id" } as const,
         ),
       );
-    return settle(`read:${taskId}`, notFound);
+    return readFailureReceipt(`read:${taskId}`, notFound);
   }
   const taskRead = projection.read(taskId, true),
     assignmentRevision = Math.max(

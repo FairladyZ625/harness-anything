@@ -265,18 +265,6 @@
         "order": 126
       },
       {
-        "candidateId": "action:packages/application:packages/application/src/queries/task-show-read.ts#taskShowFromProjection:0a5a717dc302d9d50514e37a1997805b",
-        "route": "repository-read",
-        "role": "support",
-        "order": 224
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/queries/task-show-read.ts#taskShowFromProjection:d416c0f2d01980ab4f4d65fd202c0168",
-        "route": "repository-read",
-        "role": "support",
-        "order": 225
-      },
-      {
         "candidateId": "action:packages/application:packages/application/src/queries/task-transition-locate.ts#transitionDocumentAccessError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "repository-read",
         "role": "support",

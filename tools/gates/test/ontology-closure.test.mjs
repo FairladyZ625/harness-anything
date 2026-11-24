@@ -183,7 +183,10 @@ test("daemon domain service actions and policies are closed under the shared ont
   // CEO ruling dispatch_294b4cda7cf887e9077a2a81 Route 1 deleted the duplicate manual
   // `cell.service.execute` call site in `task-return-dispatch.ts` in favor of `RepoCellContinuationWrite`.
   // dec_04A9211B073F29F0FC1E1CA573/CH2 shares the primary and fallback review launch call site.
-  assert.equal(actions.length, 160);
+  // Sinking core task read queries into `packages/application/src/queries/task-*` brought 3 registered
+  // repository-read support error builders (`task-query-ports.ts`, `task-show-read.ts`, `task-transition-locate.ts`)
+  // under `domainPath`.
+  assert.equal(actions.length, 163);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(
