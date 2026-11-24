@@ -334,7 +334,7 @@ export const harnessClient = {
     const result = await invoke("repo.residentCeo.status", payload);
     if (!result || result.ok !== true || (result.profile !== null && !isResidentCeoProfile(result.profile)))
       throw new Error(localErrorHint(result, "Resident CEO status returned an invalid result."));
-    return result as ResidentCeoReceipt;
+    return { ...result, profile: result.profile } as unknown as ResidentCeoReceipt;
   },
   async configureResidentCeo(
     payload: RepoScope & {

@@ -1,9 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { createResidentCeoProfile } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 import { openResidentCeoProfileStore } from "../src/daemon-host/resident-ceo-profile-store.ts";
 
@@ -26,6 +27,6 @@ test("resident CEO profile store persists a principal-scoped profile and rejects
     await assert.rejects(store.write({ ...profile, model: "model-b" }, null), /changed before write/u);
     await assert.rejects(store.read("../other"), /principal id is invalid/u);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

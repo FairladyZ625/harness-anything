@@ -122,7 +122,7 @@ export function parsePreset(
   const position =
       matched && positionalFields
         ? {
-            [positionalFields[0]]: matched[1],
+            [positionalFields[0]!]: matched[1],
             [positionalFields[1]]: matched[2],
           }
         : positionalField

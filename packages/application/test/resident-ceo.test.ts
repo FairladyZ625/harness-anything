@@ -84,7 +84,7 @@ test("heartbeat wakes only when due and persists the current session pointer", a
     heartbeatIntervalSec: 60,
   });
   await service.start("person_owner");
-  const first = await service.wake("person_owner", "heartbeat", "Check inbox.");
+  await service.wake("person_owner", "heartbeat", "Check inbox.");
   setNow("2026-11-24T00:00:59.999Z");
   const early = await service.wake("person_owner", "heartbeat", "Check inbox.");
   assert.equal(early.response, null);
