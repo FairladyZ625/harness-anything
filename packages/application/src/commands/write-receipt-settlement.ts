@@ -64,6 +64,13 @@ export async function settleWriteReceipt(
         ],
       };
   }
+  if (action.kind === "agent-install") {
+    const declarationScope =
+      typeof action.declaration === "object" && action.declaration !== null && !Array.isArray(action.declaration)
+        ? (action.declaration as { readonly scope?: unknown }).scope
+        : undefined;
+    if (action.scope === "local" || declarationScope === "local") return settleHostLocalReceipt(action, receipt);
+  }
   // A locale-only settings update writes this machine's preference file, never the ledger.
   const localSettingsOnly =
     action.kind === "settings-update" &&
