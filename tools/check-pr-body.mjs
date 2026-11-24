@@ -112,15 +112,51 @@ const PLACEHOLDER_RESIDUE_PATTERNS = Object.freeze([
   },
 ]);
 
-// Same invisible spans the section checks strip, but blanked with padding so the
-// surviving text keeps its original line numbers for the issue message. Inline code keeps a
-// non-whitespace placeholder so prose such as "no `user.name`/`user.email`" does not collapse
-// into a choice list ("no / ") and get rejected as an unfilled template option.
+// Same invisible spans the section checks strip, but blanked with padding so the surviving text
+// keeps its original line numbers for the issue message. Fences are tracked by marker character
+// and minimum length, so a four-backtick closer legally closes a three-backtick fence. Inline code
+// keeps a non-whitespace placeholder so prose such as "no `user.name`/`user.email`" does not
+// collapse into a choice list ("no / ") and get rejected as an unfilled template option.
 function maskInvisibleTemplateText(body) {
-  return body
-    .replace(/<!--[\s\S]*?-->/gu, (span) => span.replace(/[^\n]/gu, " "))
-    .replace(/^\s*(`{3,}|~{3,}).*\n[\s\S]*?^\s*\1\s*$/gmu, (span) => span.replace(/[^\n]/gu, " "))
-    .replace(/`[^`\n]*`/gu, (span) => span.replace(/[^\n]/gu, "x"));
+  const lines = body.split(/(\r?\n)/u),
+    masked = [];
+  let fence = null;
+  let htmlComment = false;
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index] ?? "",
+      newline = lines[index + 1] ?? "";
+    if (fence) {
+      const closing = new RegExp(`^ {0,3}${fence.marker}{${fence.length},}[ \\t]*$`, "u");
+      masked.push(line.replace(/[^\n]/gu, " "));
+      if (closing.test(line)) fence = null;
+      masked.push(newline);
+      continue;
+    }
+    let withoutComments = "";
+    for (let offset = 0; offset < line.length; ) {
+      if (htmlComment) {
+        const end = line.indexOf("-->", offset);
+        if (end < 0) break;
+        htmlComment = false;
+        offset = end + 3;
+      } else if (line.startsWith("<!--", offset)) {
+        htmlComment = true;
+        offset += 4;
+      } else {
+        withoutComments += line[offset];
+        offset += 1;
+      }
+    }
+    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(withoutComments);
+    if (opening) {
+      fence = { marker: opening[1][0], length: opening[1].length };
+      masked.push(line.replace(/[^\n]/gu, " "));
+    } else {
+      masked.push(withoutComments);
+    }
+    masked.push(newline);
+  }
+  return masked.join("").replace(/`[^`\n]*`/gu, (span) => span.replace(/[^\n]/gu, "x"));
 }
 
 export function findTemplatePlaceholderResidues(body) {
@@ -285,11 +321,26 @@ export function checkUnfilledPrTemplate(body, template) {
 
 export function checkPrBody(body, context = {}) {
   const unfilledTemplate = checkUnfilledPrTemplate(body, context.prTemplate);
+  const nestedHeadings = [];
+  maskInvisibleTemplateText(body)
+    .split(/\r?\n/u)
+    .forEach((line, index) => {
+      if (/^ {0,3}#\s+Closeout\s*#*\s*$/iu.test(line))
+        nestedHeadings.push(
+          `PR body line ${index + 1} nests the source heading \`# Closeout\`; render authored closeout sections under the existing PR headings.`,
+        );
+      else if (/^ {0,3}###[ \t]+(?:摘要|验证)(?:[ \t#].*)?$/u.test(line))
+        nestedHeadings.push(
+          `PR body line ${index + 1} contains an unsplit level-three closeout heading; use the rendered PR section headings and keep closeout prose under level-two headings.`,
+        );
+    });
+  const nestedCloseout = { ok: nestedHeadings.length === 0, issues: nestedHeadings };
   const placeholderResidue = checkTemplatePlaceholderResidue(body);
   const placeholderSections = checkPlaceholderOnlySections(body);
   const eventMigration = checkEventMigrationDeclaration(body, context.eventMigration);
   const issues = [
     ...unfilledTemplate.issues,
+    ...nestedCloseout.issues,
     ...placeholderResidue.issues,
     ...placeholderSections.issues,
     ...eventMigration.issues,
@@ -298,6 +349,7 @@ export function checkPrBody(body, context = {}) {
     ok: issues.length === 0,
     eventMigration,
     unfilledTemplate,
+    nestedCloseout,
     placeholderResidue,
     placeholderSections,
     issues,

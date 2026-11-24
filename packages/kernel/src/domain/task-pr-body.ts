@@ -31,18 +31,17 @@ const START = SUBMISSION_FACTS_START,
 // feeds each one. The closeout is the single authoring place (dec_BB2BCE9F995CD3A126E2918734 CH1),
 // so no second PR-body template lives here.
 const PR_SECTIONS = Object.freeze([
-  { title: "Summary", aliases: Object.freeze(["summary"]) },
-  { title: "What Changed", aliases: Object.freeze(["what changed"]) },
-  { title: "Verification", aliases: Object.freeze(["verification"]) },
-  { title: "Residual Risk", aliases: Object.freeze(["residual risk"]) },
+  { title: "Summary", aliases: Object.freeze(["summary"]), required: true },
+  { title: "What Changed", aliases: Object.freeze(["what changed"]), required: true },
+  { title: "Verification", aliases: Object.freeze(["verification"]), required: true },
+  { title: "Residual Risk", aliases: Object.freeze(["residual risk"]), required: false },
 ]);
 
 const CHINESE_HEADING = /^#\s+中文\s*$/mu;
 
 const MACHINE_READABLE_DECLARATIONS = "Machine-Readable Declarations";
 
-const LIGHTWEIGHT_PROFILE = "lightweight",
-  LIGHTWEIGHT_RESIDUAL_RISK = "Accepted residual risks are recorded in the Verification section.";
+const DEFAULT_RESIDUAL_RISK = "Accepted residual risks are recorded in the Verification section.";
 
 function pathCode(value: string): string {
   const encoded = JSON.stringify(value),
@@ -75,10 +74,11 @@ function findSection(sections: readonly (readonly [string, string])[], aliases: 
   return matched.length > 0 ? matched.join("\n\n") : undefined;
 }
 
-function authoredSources(
-  closeout: string,
-  profileId: string | null,
-): {
+function hasAuthoredProse(content: string | undefined): boolean {
+  return (content ?? "").replace(/<!--[\s\S]*?-->/gu, "").trim().length > 0;
+}
+
+function authoredSources(closeout: string): {
   readonly sources: Record<string, string | undefined>;
   readonly chinese: Readonly<Record<string, string | undefined>>;
 } {
@@ -87,9 +87,19 @@ function authoredSources(
     sources: Record<string, string | undefined> = Object.fromEntries(
       PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]),
     );
-  sources["What Changed"] ??= sources.Summary;
-  if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
+  sources["Residual Risk"] ??= DEFAULT_RESIDUAL_RISK;
   return { sources, chinese };
+}
+
+function requirePrCloseoutSections(sources: Readonly<Record<string, string | undefined>>): void {
+  const missing = PR_SECTIONS.filter(({ title, required }) => required && !hasAuthoredProse(sources[title])).map(
+    ({ title }) => title,
+  );
+  if (missing.length > 0)
+    throw new Error(
+      `closeout.md must include non-empty level-two sections ${missing.map((title) => `## ${title}`).join(", ")}; ` +
+        "add those headings and move the corresponding prose under each heading before rendering the PR body",
+    );
 }
 
 function escapeRegExp(value: string): string {
@@ -261,8 +271,9 @@ export function renderTaskPrBody(input: TaskPrBodyRenderInput): string {
     authored = typeof input.closeout === "string" ? stripCloseoutFactsRegion(input.closeout) : "",
     stripped = withoutFacts(withoutChineseSection(body)),
     baseline = withoutFacts(template),
-    { sources, chinese } = authoredSources(authored, input.profileId),
+    { sources, chinese } = authoredSources(authored),
     dependencyDescription = input.dependencyDescription ?? "none";
+  requirePrCloseoutSections(sources);
   let rendered = stripped;
   if (new RegExp(`^##[ \\t]+${MACHINE_READABLE_DECLARATIONS}[ \\t]*$`, "mu").test(rendered)) {
     const { start, end } = sectionBounds(rendered, MACHINE_READABLE_DECLARATIONS);
@@ -274,9 +285,7 @@ export function renderTaskPrBody(input: TaskPrBodyRenderInput): string {
   for (const { title } of PR_SECTIONS) {
     if (normalizedSection(stripped, title) !== normalizedSection(baseline, title)) continue;
     const content = sources[title];
-    // CH2: headings are authoring conventions, not a second admission contract. When a
-    // heading is absent, publish the author's original document in its original order.
-    rendered = fillSection(rendered, title, content?.trim() ? content : authored);
+    if (content?.trim()) rendered = fillSection(rendered, title, content);
   }
   rendered = declareProtectedSurfaces(
     rendered,

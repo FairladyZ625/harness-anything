@@ -384,7 +384,9 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       const closeout = compiled.documents.find((document) => document.relativePath === "closeout.md")!;
       assert.deepEqual(
         [...closeout.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
-        ["## Summary", "## Verification"],
+        presetId === "docs-task"
+          ? ["## Summary", "## Verification"]
+          : ["## Summary", "## What Changed", "## Verification"],
       );
       assert.equal(compiled.event.payload.task.archiveOnComplete, true);
       assert.equal(

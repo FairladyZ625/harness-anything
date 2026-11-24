@@ -263,9 +263,7 @@ test(
       const started = await cell.run({ kind: "task-start", taskId, executionId }, binding);
       assert.equal(started.outcome, "applied", JSON.stringify(started));
       await waitForFixturePublication(cell, started.opId, binding);
-      // The renderer owns both language blocks from one closeout. A minimal incident body still has
-      // to author the Chinese summary/verification review-facts reads; the English template
-      // sections keep falling back to this same document.
+      // Submit reads generic closeout prose. The PR renderer requires authored English sections.
       const incident =
         "# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n\n## 摘要\n\n事故验收：真实 submit 后正文可渲染。\n\n## 验证\n\n- exit 0.\n";
       writeFileSync(path.join(rootDir, "harness", packagePath, "closeout.md"), incident);
@@ -295,28 +293,24 @@ test(
         upsertCloseoutSubmissionFacts(incident, submittedCut),
         "the accepted closeout preserves the incident body and refreshes managed submission facts",
       );
-      const rendered = await execute(
-        process.execPath,
-        [path.join(sourceRoot, "tools/gates/render-task-pr-body.mjs"), "--task", taskId],
-        { cwd: rootDir, env: publisherEnv },
-      );
-      t.diagnostic(`render-task-pr-body.mjs --task ${taskId} exit=0\n${rendered.stdout}`);
-      assert.match(rendered.stdout, /## Verification[\s\S]*?验收与原始结果[\s\S]*?- exit 0\./u);
+      const render = () =>
+        execute(process.execPath, [path.join(sourceRoot, "tools/gates/render-task-pr-body.mjs"), "--task", taskId], {
+          cwd: rootDir,
+          env: publisherEnv,
+        });
+      await assert.rejects(render, {
+        code: 1,
+        stdout: "",
+        stderr: /closeout.md must include non-empty level-two sections ## Summary, ## What Changed, ## Verification/u,
+      });
+      t.diagnostic("render-task-pr-body.mjs exit=1: missing ## Summary, ## What Changed, ## Verification");
       const bodyPath = path.join(rootDir, "pr-body.md");
-      writeFileSync(bodyPath, rendered.stdout);
-      const checked = await execute(
-        process.execPath,
-        [path.join(sourceRoot, "tools/check-pr-body.mjs"), "--file", bodyPath],
-        { cwd: rootDir, env },
-      );
-      t.diagnostic(`check-pr-body.mjs --file pr-body.md exit=0\n${checked.stdout}`);
-      assert.match(checked.stdout, /PR body check passed/u);
 
       // F12: submit accepts this declaration and placeholder prose. Publishing must still exit 0;
       // the independent PR lint, rather than the renderer, owns declaration/content judgments.
       // The Chinese block still needs its authored summary/verification, not a translated template.
       const malformed =
-        "# Closeout\n\n## Summary\n\nDelivered.\n\n## Verification\n\nEvent-Migration: ha migrate invented-migration\n\n## Residual Risk\n\nTBD\n\n## 摘要\n\n交付。\n\n## 验证\n\n渲染通过。\n";
+        "# Closeout\n\n## Summary\n\nDelivered.\n\n## What Changed\n\nRecorded the incident.\n\n## Verification\n\nEvent-Migration: ha migrate invented-migration\n\n## Residual Risk\n\nTBD\n\n## 摘要\n\n交付。\n\n## 验证\n\n渲染通过。\n";
       writeFileSync(path.join(rootDir, "harness", packagePath, "closeout.md"), malformed);
       const amended = await execute(
         process.execPath,
@@ -327,13 +321,19 @@ test(
       const amendment = JSON.parse(amended.stdout);
       assert.equal(amendment.ok, true, amended.stdout);
       await waitForFixturePublication(cell, amendment.opId, binding);
-      const unjudged = await execute(
-        process.execPath,
-        [path.join(sourceRoot, "tools/gates/render-task-pr-body.mjs"), "--task", taskId],
-        { cwd: rootDir, env: publisherEnv },
-      );
+      const unjudged = await render();
       assert.match(unjudged.stdout, /Event-Migration: ha migrate invented-migration/u);
       assert.match(unjudged.stdout, /## Residual Risk\n\nTBD/u);
+      assert.match(unjudged.stdout, /^## 摘要$/mu);
+      assert.doesNotMatch(unjudged.stdout, /^# Closeout$/mu);
+      writeFileSync(bodyPath, unjudged.stdout);
+      await assert.rejects(
+        execute(process.execPath, [path.join(sourceRoot, "tools/check-pr-body.mjs"), "--file", bodyPath], {
+          cwd: rootDir,
+          env,
+        }),
+        { code: 1, stderr: /Event-Migration names unknown command/u },
+      );
       t.diagnostic("F12: accepted malformed declaration and placeholder also render with exit=0");
     } finally {
       await transport.stop();

@@ -695,43 +695,49 @@ test("a dependency cut never leaves none, and a duplicated authored declaration 
   assert.notDeepEqual(validateDependencyDeclaration(submission.changedFiles, duplicated), []);
 });
 
-test("PR renderer maps a lightweight closeout onto the four template sections", () => {
-  const body = renderTaskPrBody({
-    taskId,
-    receipt: receipt(codeSubmission, { profileId: "lightweight" }),
-    template,
-    closeout: withChinese(lightweightCloseout),
-  });
-  assert.match(body, /## What Changed\n\nSummarize the completed behavior change\./u);
-  assert.match(body, /## Verification\n\nOne test command and its receipt:/u);
+test("the lightweight closeout skeleton renders through the normal PR publication path", () => {
+  const authored = withChinese(
+      lightweightCloseout.replace(
+        "List the concrete changes delivered. Keep this separate from the outcome summary.",
+        "The renderer now receives distinct summary and change sections.",
+      ),
+    ),
+    body = renderTaskPrBody({
+      taskId,
+      receipt: receipt(codeSubmission, { profileId: "lightweight" }),
+      template,
+      closeout: authored,
+    });
+  assert.match(body, /## What Changed\n\nThe renderer now receives distinct summary and change sections\./u);
   assert.match(body, /## Residual Risk\n\nAccepted residual risks are recorded in the Verification section\./u);
   assertPassesPrBodyCheck(body);
 });
 
-test("a lightweight closeout without Summary fills the template from authored prose", () => {
-  const body = renderTaskPrBody({
-    taskId,
-    receipt: receipt(codeSubmission, { profileId: "lightweight" }),
-    template,
-    closeout: withChinese("# Closeout\n\n## Verification\n\nRan the test.\n"),
-  });
-  assert.match(body, /## Summary\n\n# Closeout\n\n### Verification\n\nRan the test\./u);
-  assert.match(body, /## What Changed\n\n# Closeout\n\n### Verification\n\nRan the test\./u);
-  assertPassesPrBodyCheck(body);
+test("a closeout without required English level-two headings is rejected with repair guidance", () => {
+  assert.throws(
+    () =>
+      renderTaskPrBody({
+        taskId,
+        receipt: receipt(codeSubmission, { profileId: "lightweight" }),
+        template,
+        closeout: withChinese("# Closeout\n\n### 摘要\n\nSummary prose.\n\n### 验证\n\nRan the test.\n"),
+      }),
+    /non-empty level-two sections ## Summary, ## What Changed, ## Verification.*add those headings/u,
+  );
 });
 
-test("PR renderer fills every missing template section from authored prose", () => {
+test("PR renderer refuses a closeout with missing required sections instead of nesting the source", () => {
   const partial = withChinese("# Closeout\n\n## Summary\n\nOnly a summary.\n"),
-    body = render(codeSubmission, { closeout: partial });
-  assert.match(body, /## Verification\n\n# Closeout\n\n### Summary\n\nOnly a summary\./u);
-  assert.match(body, /## Residual Risk\n\n# Closeout\n\n### Summary\n\nOnly a summary\./u);
-  assertPassesPrBodyCheck(body);
+    renderPartial = () => render(codeSubmission, { closeout: partial });
+  assert.throws(renderPartial, /non-empty level-two sections ## What Changed, ## Verification/u);
 });
 
 test("PR renderer publishes the incident Chinese heading into Verification", () => {
-  const incident = withChinese("# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n"),
+  const incident = withChinese(
+      closeout.replace(verification, "- exit 0.").replace(chineseVerification, "- 中文验证：定向测试通过。"),
+    ),
     body = render(codeSubmission, { closeout: incident });
-  assert.match(body, /## Verification\n\n# Closeout\n\n### 验收与原始结果\n\n- exit 0\./u);
+  assert.match(body, /## Verification\n\n- exit 0\./u);
   assertPassesPrBodyCheck(body);
 });
 
@@ -752,9 +758,9 @@ test("PR renderer publishes authored prose without judging placeholders or decla
   const cases = [
     closeout,
     closeout.replace("- None beyond the template.", "none"),
-    withChinese("# Closeout\n\n## 验收与原始结果\n\n- exit 0.\n"),
-    withChinese("# Closeout\n\n## Summary\n\nReady.\n"),
-    withChinese("# Closeout\n\n## Summary\n\n<placeholder> TBD\nEvent-Migration: ha migrate unknown\n"),
+    closeout.replace(verification, "- exit 0. Incident details are recorded under 验收与原始结果."),
+    closeout.replace(summary, "Ready."),
+    closeout.replace(summary, "<placeholder> TBD\nEvent-Migration: ha migrate unknown"),
     dependencyCloseout.replace("Added the", "<!-- harness:submission-facts:start --> Added the"),
   ];
   for (const body of cases) {
@@ -771,16 +777,53 @@ test("PR renderer publishes authored prose without judging placeholders or decla
   assert.equal(checkPrBody(placeholder).ok, false, "standalone PR lint retains its own contract");
 });
 
-test("missing template sections keep unknown authored sections in source order", () => {
+test("an omitted optional Residual Risk section replaces the PR template placeholder", () => {
+  const authored = closeout.replace(/## Residual Risk[\s\S]*?(?=## Same Mechanism Elsewhere)/u, ""),
+    body = render(codeSubmission, { closeout: authored });
+  assert.match(body, /## Residual Risk\n\nAccepted residual risks are recorded in the Verification section\./u);
+  assert.doesNotMatch(body, /## Residual Risk\n\n-/u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("closeout headings inside HTML comments do not satisfy publication sections", () => {
+  const commented = `# Closeout
+
+<!--
+## Summary
+
+Example summary.
+
+## What Changed
+
+Example changes.
+
+## Verification
+
+Example verification.
+-->
+
+## 摘要
+
+中文摘要。
+
+## 验证
+
+中文验证。
+`;
+  assert.throws(
+    () => render(codeSubmission, { closeout: commented }),
+    /non-empty level-two sections ## Summary, ## What Changed, ## Verification/u,
+  );
+});
+
+test("a closeout containing only unknown sections is rejected with required heading names", () => {
   const authored = withChinese(
     "# Closeout\n\n## Earlier evidence\n\nFirst observation.\n\n## Later evidence\n\nSecond observation.\n",
   );
-  const body = render(codeSubmission, { closeout: authored });
-  assert.match(
-    body,
-    /## Verification\n\n# Closeout\n\n### Earlier evidence\n\nFirst observation\.\n\n### Later evidence\n\nSecond observation\./u,
+  assert.throws(
+    () => render(codeSubmission, { closeout: authored }),
+    /non-empty level-two sections ## Summary, ## What Changed, ## Verification/u,
   );
-  assertPassesPrBodyCheck(body);
 });
 
 test("PR renderer renders the frozen cut when HEAD is not the delivery commit", () => {
@@ -806,17 +849,33 @@ test("re-rendering a body refreshes delivery facts but keeps authored sections",
   assertPassesPrBodyCheck(refreshed);
 });
 
-test("a baseline closeout frozen before What Changed reuses the authored Summary", () => {
+test("a baseline closeout without What Changed is rejected instead of reusing Summary", () => {
   const historical = closeout.replace(/## What Changed[\s\S]*?(?=## Verification)/u, "");
   assert.doesNotMatch(historical, /## What Changed/u, "the fixture reproduces the pre-scaffold closeout");
-  const body = render(codeSubmission, { closeout: historical });
-  assert.match(body, new RegExp(`## What Changed\\n\\n${summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
-  assert.doesNotMatch(body, /changed paths; production delta/u, "the renderer does not invent machine prose");
-  assertPassesPrBodyCheck(body);
+  assert.throws(
+    () => render(codeSubmission, { closeout: historical }),
+    /non-empty level-two sections ## What Changed/u,
+  );
 });
 
-test("PR renderer recognises the Chinese closeout section names", () => {
+test("PR renderer recognises Chinese section aliases alongside required English sections", () => {
   const chinese = `# Closeout
+
+## Summary
+
+English summary.
+
+## What Changed
+
+- English change.
+
+## Verification
+
+- English verification.
+
+## Residual Risk
+
+- None identified.
 
 ## 概要
 
@@ -871,17 +930,19 @@ test("an English-only closeout is rejected instead of publishing English under C
   assert.throws(
     () =>
       render(codeSubmission, {
-        closeout: "# Closeout\n\n## Summary\n\nEnglish only.\n\n## Verification\n\n- English only.\n",
+        closeout:
+          "# Closeout\n\n## Summary\n\nEnglish only.\n\n## What Changed\n\nAn English change.\n\n## Verification\n\n- English only.\n",
       }),
     /## 摘要 and ## 验证/u,
     "the writing boundary names the missing Chinese sections",
   );
 });
 
-// The renderer must not carry a second required-section list: the exact list it reports is the
-// kernel judgment's verdict, which `ha task submit` also calls on the same closeout body.
+// The English PR publication headings are a repository rendering contract. The bilingual Chinese
+// completeness list remains the kernel judgment shared with `ha task submit`.
 test("the renderer reports exactly the kernel judgment's missing Chinese sections", () => {
-  const partial = "# Closeout\n\n## Summary\n\nEnglish.\n\n## Verification\n\n- exit 0.\n\n## 摘要\n\n中文摘要。\n",
+  const partial =
+      "# Closeout\n\n## Summary\n\nEnglish.\n\n## What Changed\n\nChanged behavior.\n\n## Verification\n\n- exit 0.\n\n## 摘要\n\n中文摘要。\n",
     missing = missingChineseCloseoutSections(partial);
   assert.deepEqual(missing, ["验证"], "the kernel understands the authored summary and wants only verification");
   assert.throws(
@@ -908,6 +969,14 @@ test("a bilingual closeout feeds each language block from its own sections", () 
 ## Summary
 
 English summary.
+
+## What Changed
+
+- Changed behavior.
+
+## Residual Risk
+
+- None identified.
 
 ## 摘要
 
@@ -994,8 +1063,10 @@ test("PR renderer labels legacy facts and rejects broken markers", () => {
     () => renderTaskPrBody({ taskId, receipt: receipt(codeSubmission), template: "# PR\n", closeout }),
     /marker pair/u,
   );
-  const empty = render(codeSubmission, { closeout: withChinese("") });
-  assert.match(empty, /## Summary/u);
+  assert.throws(
+    () => render(codeSubmission, { closeout: withChinese("") }),
+    /non-empty level-two sections ## Summary, ## What Changed, ## Verification/u,
+  );
 });
 
 test("authored closeout prose cannot mint a second submission-facts marker", () => {

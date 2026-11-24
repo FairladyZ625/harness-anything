@@ -68,6 +68,34 @@ test("a filled body passes with the PR template in context", () => {
   assert.equal(result.unfilledTemplate.unfilled, false);
 });
 
+test("nested closeout headings are rejected while standard PR sections pass", () => {
+  const standard = checkPrBody(filledBody(), { prTemplate: pullRequestTemplate });
+  assert.equal(standard.ok, true, standard.issues.join("\n"));
+
+  for (const heading of ["# Closeout", "### 摘要", "### 验证"]) {
+    const body = filledBody(`\n${heading}\n\nUnsplit source closeout prose.`),
+      result = checkPrBody(body, { prTemplate: pullRequestTemplate });
+    assert.equal(result.ok, false, heading);
+    assert.equal(result.nestedCloseout.ok, false, heading);
+    assert.match(result.issues.join("\n"), /closeout|heading/i);
+  }
+
+  const example = checkPrBody(filledBody("\n```markdown\n# Closeout\n### 摘要\n```"));
+  assert.equal(example.ok, true, example.issues.join("\n"));
+});
+
+test("heading lint respects longer Markdown fence closers and resumes after them", () => {
+  const fenced = checkPrBody(filledBody("\n```markdown\n# Closeout\n### 摘要\n````"));
+  assert.equal(fenced.ok, true, fenced.issues.join("\n"));
+
+  const visibleAfterFence = checkPrBody(
+    filledBody("\n```markdown\nexample\n````\n\n# Closeout\n\n```markdown\n# Closeout\n```"),
+  );
+  assert.equal(visibleAfterFence.ok, false);
+  assert.equal(visibleAfterFence.nestedCloseout.issues.length, 1);
+  assert.match(visibleAfterFence.issues.join("\n"), /nests the source heading/u);
+});
+
 test("a template body with one edited line is no longer verbatim-unfilled, but placeholder sections are still named", () => {
   const edited = pullRequestTemplate.replace("- Not run: none", "- Not run: none yet");
   const result = checkPrBody(edited, { prTemplate: pullRequestTemplate });
@@ -451,4 +479,41 @@ test("PR lint CLI rejects a verbatim template body against the repository templa
   );
   assert.equal(result.status, 1, result.stderr);
   assert.match(result.stderr, /unfilled PR template/u);
+});
+
+test("PR lint CLI rejects nested closeout headings and accepts a standard rendered body", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "pr-lint-nested-closeout-"));
+  t.after(() => removeTemporaryDirectory(root));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init", "-q");
+  git("config", "user.name", "Fixture");
+  git("config", "user.email", "fixture@example.invalid");
+  git("commit", "--allow-empty", "-qm", "base");
+  const sha = git("rev-parse", "HEAD"),
+    run = (body) =>
+      spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./check-pr-body.mjs", import.meta.url)), "--env", "PR_BODY"],
+        {
+          cwd: root,
+          encoding: "utf8",
+          env: { ...process.env, PR_BASE_SHA: sha, PR_HEAD_SHA: sha, PR_BODY: body },
+        },
+      );
+  const valid = run(filledBody());
+  assert.equal(valid.status, 0, valid.stderr);
+
+  const nested = run(filledBody("\n# Closeout\n\n### 摘要\n\nUnsplit source prose."));
+  assert.equal(nested.status, 1, nested.stderr);
+  assert.match(nested.stderr, /nests the source heading `# Closeout`/u);
+  assert.match(nested.stderr, /level-three closeout heading/u);
+
+  const longClosingFence = run(filledBody("\n```markdown\n# Closeout\n### 摘要\n````"));
+  assert.equal(longClosingFence.status, 0, longClosingFence.stderr);
+
+  const visibleAfterLongFence = run(
+    filledBody("\n```markdown\nexample\n````\n\n# Closeout\n\n```markdown\n# Closeout\n```"),
+  );
+  assert.equal(visibleAfterLongFence.status, 1, visibleAfterLongFence.stderr);
+  assert.match(visibleAfterLongFence.stderr, /nests the source heading `# Closeout`/u);
 });
