@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** G38 write-port external-wait dimension: counts only while a serialized write turn executes work. */
@@ -48,16 +48,57 @@ function remoteUrlLooksRemote(url: string): boolean {
   return isRemoteGitEndpoint(url) && !isLocalGitEndpoint(url);
 }
 
+function resolveGitConfigPath(cwd: string): string | null {
+  if (!existsSync(cwd)) return null;
+  let dir = path.resolve(cwd);
+  for (;;) {
+    const dotGit = path.join(dir, ".git");
+    if (existsSync(dotGit)) {
+      const stats = statSync(dotGit);
+      let gitDir: string | null = null;
+      if (stats.isDirectory()) {
+        gitDir = dotGit;
+      } else if (stats.isFile()) {
+        const match = /^gitdir:\s*(.+)$/mu.exec(readFileSync(dotGit, "utf8"));
+        if (match) gitDir = path.resolve(dir, match[1].trim());
+      }
+      if (!gitDir) return null;
+      const commonDirFile = path.join(gitDir, "commondir");
+      const configDir = existsSync(commonDirFile)
+        ? path.resolve(gitDir, readFileSync(commonDirFile, "utf8").trim())
+        : gitDir;
+      const configPath = path.join(configDir, "config");
+      return existsSync(configPath) ? configPath : null;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+function readGitRemoteUrl(cwd: string, name: string): string | null {
+  const configPath = resolveGitConfigPath(cwd);
+  if (!configPath) return null;
+  const header = `[remote "${name}"]`;
+  let inRemote = false;
+  for (const rawLine of readFileSync(configPath, "utf8").split(/\r?\n/u)) {
+    const line = rawLine.trim();
+    if (line.startsWith("[")) {
+      inRemote = line === header;
+      continue;
+    }
+    if (!inRemote) continue;
+    const match = /^url\s*=\s*(.+)$/u.exec(line);
+    if (match) return match[1].trim();
+  }
+  return null;
+}
+
 function namedRemoteLooksRemote(cwd: string | undefined, name: string): boolean {
   if (!cwd) return true;
-  const result = spawnSync("git", ["remote", "get-url", name], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-    windowsHide: true,
-  });
-  if (result.error || result.status !== 0) return true;
-  return remoteUrlLooksRemote((result.stdout ?? "").trim());
+  const url = readGitRemoteUrl(cwd, name);
+  if (url === null) return true;
+  return remoteUrlLooksRemote(url);
 }
 
 /** True when a child git invocation would contact a non-local endpoint. */
