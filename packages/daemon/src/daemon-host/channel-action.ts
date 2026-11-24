@@ -97,10 +97,9 @@ function mapChannelKindToInboxFields(kind: ChannelKind): {
 } {
   switch (kind) {
     case "a2a-peer":
+    case "cli":
     case "gui":
       return { admission: "dispatchable", consumerKind: "interactive_watch" };
-    case "cli":
-      return { admission: "dispatchable", consumerKind: "unattended_dispatch" };
     default:
       return { admission: "quarantined_external", consumerKind: "quarantined_external" };
   }
@@ -112,7 +111,7 @@ function inboxItemToChannelListItem(item: InboxItem, kind: ChannelKind): Channel
     channelKind: kind,
     direction: "inbound",
     summary: item.summary,
-    status: "delivered",
+    status: item.status === "quarantined_external" ? "pending_retry" : "delivered",
     principalPersonId: item.senderPersonId ?? "",
     senderRef: item.sourceRef,
     correlationId: item.correlationId ?? undefined,
@@ -160,9 +159,22 @@ export function runChannelAction(
       inboxId: `person:${personId}`,
       limit,
     });
-    const inboxItems = inboxRead.status === "ready" ? inboxRead.items : [];
+    const externalRead = cell.projection.readInbox({
+      by: "queue",
+      status: "quarantined_external",
+      consumerKind: "quarantined_external",
+      inboxId: `person:${personId}`,
+      limit,
+    });
+    const inboxItems = [
+      ...(inboxRead.status === "ready" ? inboxRead.items : []),
+      ...(externalRead.status === "ready" ? externalRead.items : []),
+    ];
     for (const item of inboxItems) {
-      const kind: ChannelKind =
+      const sourceChannel = /^channel:(cli|gui|a2a-peer|webhook|lark|custom):/u.exec(item.sourceRef)?.[1] as
+        | ChannelKind
+        | undefined;
+      const kind: ChannelKind = sourceChannel ??
         item.source === "peer_request" || item.source === "peer_reply"
           ? "a2a-peer"
           : item.source === "external_ingress"
@@ -336,7 +348,7 @@ export function runChannelAction(
         inboxId: `person:${targetPersonId}`,
         itemId,
         source,
-        sourceRef: envelopeId,
+        sourceRef: `channel:${channelKind}:${envelopeId}`,
         sourceEpoch: 1,
         dedupeKey,
         admission: inboxFields.admission,
@@ -384,10 +396,60 @@ export function runChannelAction(
     const issues = validateChannelOutboxMessage(messagePayload);
     if (issues.length > 0) reject("invalid_field", issues.join("; "));
 
+    if (channelKind !== "gui" && !(channelKind === "webhook" && action.route === "local-loopback")) {
+      reject("unsupported_command", `No ${channelKind} outbound adapter is registered for this route.`);
+    }
+
+    const dedupeKey = channelDedupeKey({ channelKind, idempotencyKey });
+    const existingInbox = cell.projection.readInbox({
+      by: "dedupe",
+      inboxId: `person:${recipientRef}`,
+      dedupeKey,
+    });
+    if (existingInbox.status === "ready" && existingInbox.items.length > 0) {
+      const duplicate = receiptOf(messageId, channelKind, "outbound", idempotencyKey, "duplicate", personId, now, {
+        recipientRef,
+        inboxItemId: existingInbox.items[0]!.itemId,
+      });
+      return cell.readResult(opId, { receipt: duplicate }, head, null);
+    }
+
+    const inboxRevision = head + 1;
+    const itemId = `ch-out-${messageId}`;
+    const inboxBundle = buildInboxEnqueueBundle({
+      opId,
+      workspaceRevision: inboxRevision,
+      actor: binding.actor,
+      source: binding.source,
+      occurredAt: now,
+      payload: {
+        inboxId: `person:${recipientRef}`,
+        itemId,
+        source: channelInboxSource(channelKind),
+        sourceRef: `channel:${channelKind}:${messageId}`,
+        sourceEpoch: 1,
+        dedupeKey,
+        admission: channelKind === "gui" ? "dispatchable" : "quarantined_external",
+        consumerKind: channelKind === "gui" ? "interactive_watch" : "quarantined_external",
+        taskId: null,
+        agentId: null,
+        senderPersonId: personId,
+        workId: null,
+        lane: null,
+        correlationId: optionalString(action.correlationId) ?? messageId,
+        minRevision: inboxRevision,
+        requiredBlobSha256s: [],
+        summary,
+        enqueuedAt: now,
+      },
+    });
+    commitBatch(cell, [inboxBundle]);
+
     const rcpt = receiptOf(messageId, channelKind, "outbound", idempotencyKey, "delivered", personId, now, {
       recipientRef,
+      inboxItemId: itemId,
     });
-    return cell.readResult(opId, { receipt: rcpt }, head, null);
+    return cell.readResult(opId, { receipt: rcpt }, inboxRevision, null);
   }
 
   reject("unsupported_command", `Unsupported channel action: ${action.kind}.`);

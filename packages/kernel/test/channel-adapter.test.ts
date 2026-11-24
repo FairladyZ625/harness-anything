@@ -60,8 +60,8 @@ test("channel adapter: channelKind maps to inbox source", () => {
   assert.equal(channelInboxSource("a2a-peer"), "peer_request");
   assert.equal(channelInboxSource("webhook"), "external_ingress");
   assert.equal(channelInboxSource("lark"), "external_ingress");
-  assert.equal(channelInboxSource("cli"), "external_ingress");
-  assert.equal(channelInboxSource("gui"), "external_ingress");
+  assert.equal(channelInboxSource("cli"), "channel_message");
+  assert.equal(channelInboxSource("gui"), "channel_message");
   assert.equal(channelInboxSource("custom"), "external_ingress");
 });
 

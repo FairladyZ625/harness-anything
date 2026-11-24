@@ -43,6 +43,7 @@ export const inboxItemSources = [
   "ruling_resolved",
   "timer_fired",
   "task_stalled",
+  "channel_message",
   "external_ingress",
   "peer_request",
   "peer_reply",
@@ -488,12 +489,17 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
     return ["inbox item enqueue target does not match its inbox"];
   // R4 hard gate: until verified host isolation exists, external input is recorded, never executed.
   const externalIngress = value.source === "external_ingress",
+    channelMessage = value.source === "channel_message",
     consumerKind =
       value.consumerKind ??
       (value.admission === "quarantined_external" ? "quarantined_external" : "unattended_dispatch");
   if (
     externalIngress !== (value.admission === "quarantined_external") ||
     externalIngress !== (consumerKind === "quarantined_external") ||
+    (channelMessage &&
+      (value.admission !== "dispatchable" ||
+        value.consumerKind !== "interactive_watch" ||
+        !String(value.inboxId).startsWith("person:"))) ||
     ((value.source === "peer_request" || value.source === "peer_reply") &&
       (value.consumerKind === undefined || value.consumerKind !== "interactive_watch"))
   )

@@ -147,8 +147,9 @@ export function channelInboxSource(kind: ChannelKind): InboxItemSource {
     case "lark":
     case "custom":
       return "external_ingress";
-    default:
-      return "external_ingress";
+    case "cli":
+    case "gui":
+      return "channel_message";
   }
 }
 

@@ -49,6 +49,20 @@ test("channel adapter: webhook deliver idempotency, a2a-peer bridge, list and ou
     assert.equal(whReceipt.receipt.status, "accepted");
     assert.ok(whReceipt.receipt.inboxItemId);
 
+    const guiDeliver = await cell.run(
+      {
+        kind: "channel-deliver",
+        channelKind: "gui",
+        envelopeId: "gui-env-1",
+        principalPersonId: "person_alice",
+        summary: "Interactive GUI message",
+        idempotencyKey: "gui-key-1",
+      },
+      aliceBinding,
+    );
+    assert.equal(guiDeliver.outcome, "applied", JSON.stringify(guiDeliver));
+    assert.equal((evidence(guiDeliver) as { receipt: { status: string } }).receipt.status, "accepted");
+
     // 2. Idempotency: duplicate delivery returns duplicate status
     const duplicate = await cell.run(
       {
@@ -101,6 +115,7 @@ test("channel adapter: webhook deliver idempotency, a2a-peer bridge, list and ou
       items: readonly { channelKind: string }[];
     };
     assert.ok(aliceList.items.length >= 1);
+    assert.ok(aliceList.items.some((item) => item.channelKind === "gui"));
 
     // 5. Channel outbox send
     const outboxSend = await cell.run(
@@ -118,6 +133,50 @@ test("channel adapter: webhook deliver idempotency, a2a-peer bridge, list and ou
     const outReceipt = evidence(outboxSend) as { receipt: { status: string; direction: string } };
     assert.equal(outReceipt.receipt.status, "delivered");
     assert.equal(outReceipt.receipt.direction, "outbound");
+    assert.ok((outReceipt.receipt as { inboxItemId?: string }).inboxItemId);
+
+    const bobChannels = evidence(await cell.run({ kind: "channel-list" }, bobBinding)) as {
+      items: readonly { channelKind: string; direction: string; summary: string }[];
+    };
+    assert.ok(
+      bobChannels.items.some(
+        (item) => item.channelKind === "gui" && item.direction === "inbound" && item.summary === "GUI notification",
+      ),
+    );
+
+    const repeatedSend = await cell.run(
+      {
+        kind: "channel-send",
+        channelKind: "gui",
+        messageId: "out-1-retry",
+        recipientRef: "person_bob",
+        summary: "Retry should not enqueue again",
+        idempotencyKey: "out-key-1",
+      },
+      aliceBinding,
+    );
+    assert.equal(
+      (evidence(repeatedSend) as { receipt: { status: string } }).receipt.status,
+      "duplicate",
+    );
+
+    const loopback = await cell.run(
+      {
+        kind: "channel-send",
+        channelKind: "webhook",
+        route: "local-loopback",
+        messageId: "loop-1",
+        recipientRef: "person_bob",
+        summary: "Webhook loopback notification",
+        idempotencyKey: "loop-key-1",
+      },
+      aliceBinding,
+    );
+    assert.equal(loopback.outcome, "applied", JSON.stringify(loopback));
+    const bobAfterLoopback = evidence(await cell.run({ kind: "channel-list", channelKind: "webhook" }, bobBinding)) as {
+      items: readonly { summary: string; status: string }[];
+    };
+    assert.ok(bobAfterLoopback.items.some((item) => item.summary === "Webhook loopback notification"));
 
     // 6. RBAC: principal mismatch fails closed
     const spoofed = await cell.run(

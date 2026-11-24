@@ -1,6 +1,7 @@
 import { actionDeclarations } from "@harness-anything/kernel";
 import {
   hostAdminCommandTopology,
+  centerForwardWriteCommandTopology,
   nodeLocalWriteCommandTopology,
   repoReadCommandTopology,
   type CommandTopology,
@@ -93,6 +94,8 @@ export function daemonRpcRoutingDeclarations(
           ? nodeLocalWriteCommandTopology
           : action?.residency.scope === "host-local" && action.executionClass === "admin"
             ? hostAdminCommandTopology
+          : action?.executionClass === "repo-write" && method.commandClass === "repo-write"
+            ? centerForwardWriteCommandTopology
             : method.commandClass === "repo-read" && readMethods.has(method.method)
               ? repoReadCommandTopology
               : hostMethodTopology.get(method.method);
