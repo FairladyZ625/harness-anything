@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openSqliteEventStore } from "@harness-anything/storage";
-import { writeLocalAgentDeclaration } from "../src/daemon-host/local-agent-store.ts";
+import { readLocalAgentDeclarations, writeLocalAgentDeclaration } from "../src/daemon-host/local-agent-store.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { readAgentDeclaration } from "../src/daemon-host/agent-entities.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -59,10 +59,15 @@ test("local Agents avoid the shared event stream and share/unshare through the c
         scope: "local",
       },
     );
+    assert.deepEqual(
+      readLocalAgentDeclarations(userRoot, repoId).map(({ id, scope }) => [id, scope]),
+      [[declaration.id, "local"]],
+    );
     const localRows = JSON.parse(String((await cell.run({ kind: "agent-list", scope: "local" }, binding)).evidence));
     assert.deepEqual(
       localRows.agents.map((agent: { id: string; scope: string }) => [agent.id, agent.scope]),
       [[declaration.id, "local"]],
+      JSON.stringify(localRows),
     );
     const firstDetail = (await cell.read("repo.agent.entity.read", { agentId: declaration.id })) as {
       readonly agent: { readonly revision: number };
