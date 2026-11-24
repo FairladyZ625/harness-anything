@@ -23,20 +23,6 @@ export {
 export * from "./terminal-awaits-retirement.ts";
 export * from "./decision-review-awaits.ts";
 export * from "./entity-action-catalog-executor.ts";
-export {
-  abortCenterSwitchoverRollback,
-  runCenterSwitchover,
-  type CenterSwitchoverOutcome,
-  type CenterSwitchoverPorts,
-  type CenterSwitchoverRequest,
-  type CenterSwitchoverRollbackOutcome,
-  type CenterSwitchoverRollbackPorts,
-  type CenterSwitchoverRollbackRequest,
-  type SwitchoverCededFenceRecord,
-  type SwitchoverDemotionReceipt,
-  type SwitchoverRollbackReceipt,
-  type SwitchoverTargetActivationReceipt,
-} from "./center-switchover.ts";
 
 export { composeDurableActionEnvelope } from "../durable-action-envelope.ts";
 export {

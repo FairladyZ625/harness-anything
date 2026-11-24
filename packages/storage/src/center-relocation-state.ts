@@ -3,11 +3,7 @@ import {
   localLedgerBackupFileSystem,
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import {
-  verifySwitchoverFenceEpoch,
-  centerSwitchoverFenceStates,
-  type CenterSwitchoverFenceState,
-} from "@harness-anything/kernel/internal/domain/center-switchover.ts";
+import type { CenterSwitchoverFenceState } from "@harness-anything/kernel/internal/domain/center-switchover.ts";
 import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
 import { WriterEpochError } from "./writer-epoch-contract.ts";
 
@@ -221,8 +217,7 @@ function parseSwitchoverFenceFile(file: string, expectedRepoId: string): CenterS
     typeof value.switchoverId !== "string" ||
     value.switchoverId.length === 0 ||
     value.repoId !== expectedRepoId ||
-    typeof value.state !== "string" ||
-    !(centerSwitchoverFenceStates as readonly string[]).includes(value.state) ||
+    (value.state !== "fenced_ceded" && value.state !== "demoted_edge") ||
     !Number.isSafeInteger(value.oldEpoch) ||
     !Number.isSafeInteger(value.cededEpoch) ||
     !Number.isSafeInteger(value.newEpoch) ||
@@ -248,7 +243,15 @@ export function readCenterSwitchoverFence(userRoot: string, repoId: string): Cen
 }
 
 export function writeCenterSwitchoverFence(userRoot: string, fence: CenterSwitchoverFenceV1): string {
-  verifySwitchoverFenceEpoch(fence.oldEpoch, fence.cededEpoch);
+  if (
+    !Number.isSafeInteger(fence.oldEpoch) ||
+    fence.oldEpoch < 1 ||
+    !Number.isSafeInteger(fence.cededEpoch) ||
+    fence.cededEpoch < fence.oldEpoch + 1
+  )
+    throw new Error(
+      `Center switchover fence cededEpoch (${String(fence.cededEpoch)}) must be >= oldEpoch + 1 (${String(fence.oldEpoch + 1)}).`,
+    );
   if (fence.newEpoch !== fence.cededEpoch) throw new Error("Center switchover fence newEpoch must equal cededEpoch.");
   const file = centerSwitchoverFencePath(userRoot, fence.repoId);
   writeFileDurably(file, `${JSON.stringify(fence, null, 2)}\n`, 0o600);

@@ -11,7 +11,7 @@ import {
   type CenterSwitchoverPorts,
   type CenterSwitchoverRollbackPorts,
   type SwitchoverCededFenceRecord,
-} from "@harness-anything/application/commands";
+} from "@harness-anything/application/internal/commands/center-switchover.ts";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { cliOperationalPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { localRuntimeStateFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
@@ -48,14 +48,8 @@ import { readReplicaHealth } from "../../fleet-sync/fleet/replica-health.ts";
 import type { FleetCenterRelocationOutcome } from "./center-relocation-command.ts";
 import { waitForFleetReplicaRevision } from "./replica-sync.ts";
 
-class SwitchoverCommandError extends Error {
-  readonly code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = "SwitchoverCommandError";
-    this.code = code;
-  }
+function switchoverCommandError(code: string, message: string): Error & { readonly code: string } {
+  return Object.assign(new Error(message), { code });
 }
 
 export interface FleetCenterSwitchoverCommandHelpers {
@@ -403,7 +397,7 @@ async function runForwardSwitchoverCommand(
         targetEdge,
       );
       if (!targetReplica.generation)
-        throw new SwitchoverCommandError(
+        throw switchoverCommandError(
           "replica_unavailable",
           `Target replica generation is unavailable for ${activationInput.repoId} on ${activationInput.targetNodeId}.`,
         );
@@ -771,7 +765,7 @@ async function waitTargetReplicaCut(input: {
       latestEdge,
     );
   if (latest.cut !== null) return latest.cut;
-  throw new SwitchoverCommandError(
+  throw switchoverCommandError(
     "rpo_zero_catchup_timeout",
     `Target replica ${input.targetNodeId} is unavailable for ${input.repoId} at RPO=0 barrier.`,
   );

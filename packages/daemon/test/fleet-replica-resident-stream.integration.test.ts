@@ -16,7 +16,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
-import { fleetBaseBackupTrace } from "@harness-anything/storage";
+import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS, fleetBaseBackupTrace } from "@harness-anything/storage";
 import { syncFleetEdgeMirror } from "../src/daemon-host/fleet-center-admission.ts";
 import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import {
@@ -645,17 +645,23 @@ test(
     }
     await converged("convergence across rounds");
     assert.equal(slotFence(fixture), 1, "every round rode the first replication session");
-    // The edge recycles its own log on apply: only the row at its applied position remains.
-    assert.deepEqual(
-      {
-        ...readOne<{ rows: number; floor: number }>(
-          readReplicaGeneration(viewDir)!.ledgerPath,
-          "SELECT COUNT(*) AS rows, MIN(sequence) AS floor FROM replication_log",
-        ),
-      },
-      { rows: 1, floor: mirrorSequence() },
-      "the edge log keeps only its applied anchor",
+    // dec_AAEC26DBB6F23BDF80876ABB2C CH2: the edge retains a bounded replication_log window
+    // (up to DEFAULT_REPLICA_LOG_WINDOW_COMMITS commits) ending at its applied position rather than
+    // truncating to a single anchor row, so planned Switchover supports zero-basebackup resume.
+    const edgeLog = readOne<{ rows: number; floor: number; head: number }>(
+      readReplicaGeneration(viewDir)!.ledgerPath,
+      "SELECT COUNT(*) AS rows, MIN(sequence) AS floor, MAX(sequence) AS head FROM replication_log",
     );
+    assert.equal(edgeLog.head, mirrorSequence(), "the edge log ends at its applied anchor");
+    assert.ok(
+      edgeLog.rows >= 1 && edgeLog.rows <= DEFAULT_REPLICA_LOG_WINDOW_COMMITS + 1,
+      `the edge log stays within the bounded window (rows=${edgeLog.rows})`,
+    );
+    assert.ok(
+      edgeLog.floor >= Math.max(0, mirrorSequence() - DEFAULT_REPLICA_LOG_WINDOW_COMMITS),
+      `the edge log floor stays within the bounded window (floor=${edgeLog.floor}, head=${mirrorSequence()})`,
+    );
+    assert.equal(edgeLog.head - edgeLog.floor + 1, edgeLog.rows, "the retained edge log window is contiguous");
     // The center pruned its log on the writer down to the slowest slot (only edge-one here).
     await waitForState(
       () => centerLogFloor(fixture) === centerSequence(fixture),
