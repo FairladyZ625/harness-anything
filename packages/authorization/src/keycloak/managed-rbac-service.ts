@@ -71,6 +71,17 @@ const relocationCliTimeoutMs = 30 * 60_000;
 
 type SupportedPlatform = ManagedRbacSupportedPlatform;
 
+export function managedKeycloakListenerEnvironment(
+  listener: ManagedRbacListener,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  const keycloakPath = (filePath: string): string => (platform === "win32" ? filePath.replaceAll("\\", "/") : filePath);
+  return {
+    KC_HTTPS_CERTIFICATE_FILE: keycloakPath(listener.certificateFile),
+    KC_HTTPS_CERTIFICATE_KEY_FILE: keycloakPath(listener.certificateKeyFile),
+  };
+}
+
 interface Artifact {
   readonly name: "keycloak" | "java" | "postgres";
   readonly url: string;
@@ -1068,8 +1079,7 @@ export class ManagedRbacService {
           ...(listener
             ? {
                 KC_HTTPS_PORT: String(httpsPort),
-                KC_HTTPS_CERTIFICATE_FILE: listener.certificateFile,
-                KC_HTTPS_CERTIFICATE_KEY_FILE: listener.certificateKeyFile,
+                ...managedKeycloakListenerEnvironment(listener, this.#ports.platform),
               }
             : {}),
         },
