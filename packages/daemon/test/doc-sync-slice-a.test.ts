@@ -341,8 +341,6 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       [["events/segments/manifest.json", "canonical-event"]],
       "the batch commits every eligible candidate and reports the blocked manifest with its route",
     );
-    await waitForWorktree(cell, submitted);
-
     const residual = (await cell.run(
       { kind: "doc-submit", paths: ["events/segments/manifest.json"] },
       binding,
