@@ -59,6 +59,21 @@ export const actionPresentation = {
     name: "记录里程碑 WIP 指针检查点",
     description: "在纪元围栏保护下向中心更新轻量级半成品提交与 Bundle 指针。",
   },
+  "channel-deliver": {
+    domain: "channel",
+    name: "渠道入站投递",
+    description: "经授权渠道适配器将标准化消息写入 Canonical Inbox 并触发唤醒事件。",
+  },
+  "channel-list": {
+    domain: "channel",
+    name: "渠道消息列表",
+    description: "按渠道类型筛选查看 Inbox/Outbox 记录。",
+  },
+  "channel-send": {
+    domain: "channel",
+    name: "渠道出站发送",
+    description: "按目标 channelKind 路由外发消息并记录幂等投递回执。",
+  },
 
   "fleet-overview-read": { domain: "fleet", name: "查看舰队", description: "查看获授权仓库的节点会话与复制状态。" },
   "repository-read": { domain: "repository", name: "读取仓库", description: "查看获授权仓库中的内容。" },
@@ -564,6 +579,9 @@ export const actionDeclarations = Object.freeze([
   canonical("peer-accept-handoff", "peer-request/accept-handoff", "repo-write"),
   canonical("peer-takeover", "peer-request/takeover", "repo-write"),
   canonical("peer-checkpoint", "peer-request/checkpoint", "repo-write"),
+  canonical("channel-deliver", "channel/deliver", "repo-write"),
+  canonical("channel-list", "channel/list", "repo-read"),
+  canonical("channel-send", "channel/send", "repo-write"),
   canonical("schedule-claim", "schedule/claim", "repo-write"),
   canonical("schedule-assign", "schedule/assign", "repo-write"),
   canonical("schedule-create", "schedule/create", "repo-write"),

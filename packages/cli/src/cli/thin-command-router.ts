@@ -10,6 +10,7 @@ import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
 import { peerRouteParsers } from "./thin-command-peer.ts";
+import { channelRouteParsers } from "./thin-command-channel.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
@@ -77,6 +78,7 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["provider-show", parseProviderRoute],
   ["provider-update", parseProviderRoute],
   ...peerRouteParsers,
+  ...channelRouteParsers,
 ]);
 
 function parseEdgeJoin(

@@ -22,6 +22,7 @@ import { AgendaAttention } from "./agenda/AgendaAttention.tsx";
 import { AgendaInboxActions } from "./agenda/AgendaInboxActions.tsx";
 import { AgendaOutboxCard } from "./agenda/AgendaOutboxCard.tsx";
 import { AgendaItemStatus, AgendaWorkbenchQueue } from "./agenda/AgendaWorkbenchQueue.tsx";
+import { AgendaChannelPanel } from "./agenda/AgendaChannelPanel.tsx";
 
 interface AgendaViewProps {
   readonly repoId: string;
@@ -350,6 +351,7 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
                           onRetain={retain}
                           onNavigateEntity={onNavigateEntity}
                         />
+                        <AgendaChannelPanel repoId={repoId} />
                         {selected.asks.map((ask) => (
                           <AnswerForm
                             key={`${ask.relationId}:${ask.relationRevision}`}
