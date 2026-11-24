@@ -49,6 +49,17 @@ import type { DaemonTaskRuntimeContextResult } from "./daemon-protocol-runtime-c
 import type { daemonActionRoutes } from "./daemon-protocol-action-routes.ts";
 import type { ReplicaSyncProgress } from "@harness-anything/kernel/internal/domain/query-payload-validation.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
+import type {
+  DaemonAgendaResult,
+  DaemonDecisionListPayload,
+  DaemonDecisionListResult,
+  DaemonRelationGraphFacet,
+  DaemonRelationGraphResult,
+  DaemonTaskDocumentListResult,
+  DaemonTaskSnapshotListResult,
+  DaemonTaskWipResult,
+  DaemonWorkspaceSummaryResult,
+} from "@harness-anything/application/internal/queries/task-query-types.ts";
 export type {
   AgendaAnsweredRow,
   AgendaAwaitsRow,
