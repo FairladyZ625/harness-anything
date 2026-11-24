@@ -69,6 +69,11 @@ test("local Agents avoid the shared event stream and share/unshare through the c
       [[declaration.id, "local"]],
       JSON.stringify(localRows),
     );
+    const localInspection = JSON.parse(
+      String((await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding)).evidence),
+    );
+    assert.equal(localInspection.agent.scope, "local");
+    assert.equal(localInspection.workspaceRevision, 1);
     const firstDetail = (await cell.read("repo.agent.entity.read", { agentId: declaration.id })) as {
       readonly agent: { readonly revision: number };
     };

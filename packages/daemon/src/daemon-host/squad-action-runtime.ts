@@ -3,7 +3,7 @@ import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createEntityStore } from "@harness-anything/storage";
-import { localAgentMatchesShared, readLocalAgentDeclarations } from "./local-agent-store.ts";
+import { localAgentMatchesShared, readLocalAgentDeclarations, readLocalAgentRecord } from "./local-agent-store.ts";
 import {
   parseSquadDeclarationV1,
   resolveAgentHostAccess,
@@ -53,7 +53,12 @@ export function makeAgentActionRuntime(cell: RepoCellRuntimeContext, userRoot?: 
     if (contract.id === "list")
       return cell.readResult(opId, listAgents(cell, action.scope, userRoot), revision, null) as WriteReceipt;
     if (contract.id === "inspect")
-      return cell.readResult(opId, inspectAgent(cell, squadRequiredText(action.agentId, "agentId")), revision, null);
+      return cell.readResult(
+        opId,
+        inspectAgent(cell, squadRequiredText(action.agentId, "agentId"), userRoot),
+        revision,
+        null,
+      );
     if (contract.id === "validate") {
       const report = validateAgentEntityAction({
         rootDir: cell.rootDir,
@@ -129,8 +134,27 @@ function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRo
   };
 }
 
-function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
+function inspectAgent(cell: RepoCellRuntimeContext, agentId: string, userRoot?: string): object {
   const row = cell.projection.getEntity("agent", agentId);
+  const local = userRoot === undefined ? null : readLocalAgentRecord(userRoot, cell.input.repoId, agentId);
+  if (local && row && !localAgentMatchesShared(local.declaration, row.value))
+    throw Object.assign(new Error(`Agent ${agentId} exists in both local and shared scope.`), {
+      code: "agent_scope_conflict",
+    });
+  if (local && row === null) {
+    const hostAccess = resolveAgentHostAccess(local.declaration.hostAccess);
+    return {
+      schema: "agent-inspection/v1",
+      runtimeCapabilities: local.declaration.runtimes.map(({ type: kindId }) => ({
+        kindId,
+        steerSupported: runtimeSteerSupported(kindId),
+      })),
+      workspaceRevision: local.revision,
+      hostAccess: hostAccess.hostAccess,
+      hostAccessSource: hostAccess.hostAccessSource,
+      agent: local.declaration,
+    };
+  }
   if (!row)
     throw cellCriterionError(
       "agent_not_found",
