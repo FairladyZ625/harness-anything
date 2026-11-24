@@ -77,6 +77,7 @@ export interface FleetCenterAdmissionRequest {
   readonly onRequestStarted?: FleetCenterOptions["onRequestStarted"];
   readonly onRequestSettled?: FleetCenterOptions["onRequestSettled"];
   readonly authenticateExecutionPrincipal?: FleetCenterOptions["authenticateExecutionPrincipal"];
+  readonly onSwitchoverControl?: FleetCenterOptions["onSwitchoverControl"];
   readonly cursorSecret?: FleetCenterOptions["cursorSecret"];
   readonly userRoot: string;
   readonly nodes: Pick<
@@ -159,6 +160,7 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     relocationRoot: input.userRoot,
     writerEpochStateRoot: path.join(input.userRoot, "fleet"),
     ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),
+    ...(input.onSwitchoverControl ? { onSwitchoverControl: input.onSwitchoverControl } : {}),
     key,
     cert,
     cursorSecret,

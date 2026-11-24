@@ -425,7 +425,12 @@ export function createJsonRpcProtocolServer(options: {
       }
     }
     if (request.method === "daemon.stop" && method === request.method) {
-      const refusal = daemonStopRefusal(options.authContext, options.requestShutdown);
+      const refusal = daemonStopRefusal(
+        options.authContext,
+        options.requestShutdown,
+        params.expectedRepoMode,
+        () => options.host.status().repos,
+      );
       if (refusal) return reply(method, refusal);
       const response = reply(method, { ok: true, command: "daemon-stop", pid: process.pid });
       options.requestShutdown?.();

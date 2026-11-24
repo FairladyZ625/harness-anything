@@ -123,6 +123,8 @@ export interface FleetCenterOptions {
     peer: ReplicationPeer,
     signal: AbortSignal,
   ) => Promise<void>;
+  /** Cross-host switchover control handler (candidate registration, status probe, activation, invalidation). */
+  readonly onSwitchoverControl?: import("./center-switchover-transport.ts").FleetSwitchoverControlPort;
 }
 
 /** One replication slot as the center sees it: the node's last durable ACK against the log head. */

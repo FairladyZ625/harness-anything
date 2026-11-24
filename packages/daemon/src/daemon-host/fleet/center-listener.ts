@@ -117,6 +117,7 @@ import {
 import { readCenterRepointLineage } from "./center-listener-repoint.ts";
 import { awaitWithSignal, delay } from "./center-listener-async.ts";
 import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
+import { handleSwitchoverFleetFrame, resolveListenerSwitchoverControl } from "./center-switchover-transport.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -178,17 +179,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
-    { writerEpoch, ownedEpochFor, currentEpochFor, drainAndCloseWriterEpochs } = openCenterRelocationEpochs(
-      options,
-      centerRelocated,
-      now,
-    ),
-    { readerAuth, writerAuth, repoAdmission, replicaAdmission } = createCenterNodePrincipals({
+    { writerEpoch, ownedEpochFor, currentEpochFor, clearOwnedEpoch, drainAndCloseWriterEpochs } =
+      openCenterRelocationEpochs(options, centerRelocated, now),
+    { readerAuth, writerAuth, repoAdmission, replicaAdmission, switchoverAdminAdmission } = createCenterNodePrincipals({
       options,
       nodeGate: nodeAdmission,
       writerEpoch,
       ownedEpochFor,
-    });
+    }),
+    switchoverControl = resolveListenerSwitchoverControl(options);
   const extracted = {
     get state() {
       return state;
@@ -1563,6 +1562,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         result,
       });
     }
+    const switchoverDelivery = await handleSwitchoverFleetFrame({
+      nodeId,
+      frame,
+      control: switchoverControl,
+      admit: (node, forSwitchoverControl) => replicaAdmission(node, undefined, forSwitchoverControl),
+      admitSwitchoverAdmin: (node) => switchoverAdminAdmission(node),
+      onActivated: clearOwnedEpoch,
+    });
+    if (switchoverDelivery !== null) return switchoverDelivery;
     if (frame.schema === "fleet.operational.read/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)

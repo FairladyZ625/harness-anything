@@ -275,6 +275,25 @@ function resolveGuiPreloadIpcLeaf(graph, callExpr, portKey, env) {
         binding: { actionKind: "daemon-fleet-center-start", route: "daemon-fleet-center-start", isRead: false },
         reachesDaemon: true,
       };
+    if (op === "center-switch")
+      return {
+        binding: { actionKind: "daemon-fleet-center-switch", route: "daemon-fleet-center-switch", isRead: false },
+        reachesDaemon: true,
+      };
+    if (op === "promote-from-edge")
+      return {
+        binding: {
+          actionKind: "daemon-fleet-center-promote-from-edge",
+          route: "daemon-fleet-center-promote-from-edge",
+          isRead: false,
+        },
+        reachesDaemon: true,
+      };
+    if (op === "edge-local-state")
+      return {
+        binding: { actionKind: "repository-read", route: "edge-local-state", isRead: true },
+        reachesDaemon: true,
+      };
     if (op === "listener-set")
       return { binding: { actionKind: "rbac-bootstrap", route: "rbac-bootstrap", isRead: false }, reachesDaemon: true };
     return { reachesDaemon: true };

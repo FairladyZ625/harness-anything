@@ -17,6 +17,7 @@ export interface DaemonWriterEpochs {
   readonly writerEpochFence: (repoId: string, rootDir?: string) => WriterEpochFenceDescriptor;
   readonly writerEpochHighWatermark: (repoId: string) => number;
   readonly retireWriterEpoch: (repoId: string) => void;
+  readonly resetWriterEpochHandle: (repoId: string) => void;
   readonly closeDaemonWriterEpoch: () => void;
   readonly daemonWriterBinding: (
     repoId: string,
@@ -31,8 +32,8 @@ export function openDaemonWriterEpochs(input: {
   readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
 }): DaemonWriterEpochs {
   const stateRoot = path.join(input.userRoot, "fleet");
-  const daemonWriterEpochs = new Map<string, PersistentWriterEpoch>();
-  const daemonWriterLeases = new Map<string, WriterEpochLease>(),
+  const daemonWriterEpochs = new Map<string, PersistentWriterEpoch | undefined>();
+  const daemonWriterLeases = new Map<string, WriterEpochLease | undefined>(),
     epoch = (repoId: string): PersistentWriterEpoch => {
       let authority = daemonWriterEpochs.get(repoId);
       if (!authority) {
@@ -81,8 +82,16 @@ export function openDaemonWriterEpochs(input: {
       epoch(repoId).retireCurrent(repoId);
       daemonWriterLeases.delete(repoId);
     },
+    resetWriterEpochHandle = (repoId: string): void => {
+      const existing = daemonWriterEpochs.get(repoId);
+      if (existing) {
+        existing.close();
+        daemonWriterEpochs.set(repoId, undefined);
+      }
+      daemonWriterLeases.set(repoId, undefined);
+    },
     closeDaemonWriterEpoch = (): void => {
-      for (const authority of daemonWriterEpochs.values()) authority.close();
+      for (const authority of daemonWriterEpochs.values()) authority?.close();
       daemonWriterEpochs.clear();
       daemonWriterLeases.clear();
     },
@@ -98,6 +107,7 @@ export function openDaemonWriterEpochs(input: {
     writerEpochFence,
     writerEpochHighWatermark,
     retireWriterEpoch,
+    resetWriterEpochHandle,
     closeDaemonWriterEpoch,
     daemonWriterBinding,
   };

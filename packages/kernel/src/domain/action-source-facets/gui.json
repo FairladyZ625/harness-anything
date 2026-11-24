@@ -109,6 +109,15 @@
         "order": 0
       }
     ],
+    "daemon-fleet-center-promote-from-edge": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.promoteFromEdge:d368a3b1011a6fd7e666a7ad69091ea0",
+        "route": "daemon-fleet-center-promote-from-edge",
+        "role": "client",
+        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke",
+        "order": 0
+      }
+    ],
     "daemon-fleet-center-start": [
       {
         "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.setExternalAddress:835c55f8178b5f179d9fd4074a81d9c9",
@@ -120,6 +129,15 @@
       {
         "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.startCenter:e2a57d5e0e74b436c6aa1efca2a35d6c",
         "route": "daemon-fleet-center-start",
+        "role": "client",
+        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke",
+        "order": 0
+      }
+    ],
+    "daemon-fleet-center-switch": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.centerSwitch:12fb243f35ec25f0b2053ee3e806869e",
+        "route": "daemon-fleet-center-switch",
         "role": "client",
         "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke",
         "order": 0
@@ -1534,6 +1552,13 @@
         "route": "repository-read",
         "role": "support",
         "order": 154
+      },
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.edgeLocalState:c507c64f0bb8a8f76419e187bdd04672",
+        "route": "edge-local-state",
+        "role": "client",
+        "port": "packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.invoke",
+        "order": 245
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/preload/center-settings-preload.ts#centerSettingsPreloadApi.listener:4b81329bb3208033d26269846dfd633d",

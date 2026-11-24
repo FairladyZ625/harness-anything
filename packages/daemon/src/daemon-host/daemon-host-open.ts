@@ -21,6 +21,11 @@ import {
   prepareFleetCenterAdmission,
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
+import { rebindCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
+import {
+  createHostContextSwitchoverControl,
+  createStandbyCandidateAnnouncer,
+} from "./fleet/center-switchover-transport.ts";
 import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 import { centerReviewFailurePrefix } from "./task-review-dispatch.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
@@ -277,6 +282,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       writerEpochFence,
       writerEpochHighWatermark,
       retireWriterEpoch,
+      resetWriterEpochHandle,
       closeDaemonWriterEpoch,
       daemonWriterBinding,
     } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now, storage: input.storage });
@@ -875,13 +881,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return receipt;
     },
   });
-  let latestControl: DaemonControlReceipt | null = null;
-  let fleetCenter: FleetTlsCenter | null = null;
-  let fleetCenterRestoreFailed = false;
-  let initialAttachments: Promise<void> | null = null,
+  let latestControl: DaemonControlReceipt | null = null,
+    fleetCenter: FleetTlsCenter | null = null,
+    fleetCenterRestoreFailed = false,
+    initialAttachments: Promise<void> | null = null,
     initialAttachmentsSettled = false,
     replicaSyncStartQueued = false,
     closing = false;
+  const standbyCandidateAnnouncer = createStandbyCandidateAnnouncer({
+    userRoot: input.userRoot,
+    daemonId: input.daemonId,
+    getFleetCenter: () => fleetCenter,
+    oidc,
+  });
   const readPendingBootstrapTargets = (): readonly string[] => {
     const markerPath = path.join(input.userRoot, "rbac", ".oidc-bootstrap-pending");
     if (!existsSync(markerPath)) return [];
@@ -1132,6 +1144,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     writerEpochLease,
     writerEpochHighWatermark,
     retireWriterEpoch,
+    resetWriterEpochHandle,
     closeDaemonWriterEpoch,
     attach,
     localOnly,
@@ -1693,6 +1706,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const controller = new AbortController(),
         replicaSync = { controller, config: connection, task: Promise.resolve() };
       replicaSyncControllers.set(repo.repoId, replicaSync);
+      standbyCandidateAnnouncer.announceIfReady(repo.repoId, rootDir);
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath)
         ? config.caPath
@@ -1791,6 +1805,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             ],
           });
           refreshEdgeReplicaStatus();
+          standbyCandidateAnnouncer.announceIfReady(repo.repoId, rootDir);
         },
         onConfirmedFailure: (error) => {
           refreshEdgeReplicaStatus();
@@ -1831,6 +1846,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (activeRemoteEdges.has(repoId)) continue;
       controller.abort();
       replicaSyncControllers.delete(repoId);
+      standbyCandidateAnnouncer.clear(repoId);
       autoRepointCoordinator.clearLatch(repoId);
       fleetVersionWarnings.delete(repoId);
       runtimeRecoveryWatch.observeConfirm(repoId, null, now());
@@ -1858,28 +1874,29 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           recordTraffic: input.recordTraffic,
           onRequestStarted: input.onFleetRequestStarted,
           onRequestSettled: input.onFleetRequestSettled,
-          ...(input.authenticateExecutionPrincipal
-            ? { authenticateExecutionPrincipal: input.authenticateExecutionPrincipal }
-            : {}),
+          ...(input.authenticateExecutionPrincipal && {
+            authenticateExecutionPrincipal: input.authenticateExecutionPrincipal,
+          }),
           userRoot: input.userRoot,
           writerEpochLease: hostContext.writerEpochLease,
+          onSwitchoverControl: createHostContextSwitchoverControl(
+            hostContext,
+            config.stateRoot,
+            rebindCenterRelocationRouting,
+          ),
           payload: config,
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
-            ...(oidc.revokeDeviceSessions
-              ? { revokeDeviceSessions: (nodeId: string) => oidc.revokeDeviceSessions!(nodeId) }
-              : {}),
-            ...(oidc.receiveDeviceNotice
-              ? {
-                  deviceLoginNotice: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) =>
-                    oidc.receiveDeviceNotice!(nodeId, personId, notice),
-                }
-              : {}),
+            ...(oidc.revokeDeviceSessions && {
+              revokeDeviceSessions: (nodeId: string) => oidc.revokeDeviceSessions!(nodeId),
+            }),
+            ...(oidc.receiveDeviceNotice && {
+              deviceLoginNotice: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) =>
+                oidc.receiveDeviceNotice!(nodeId, personId, notice),
+            }),
             verifyHuman: (auth) => oidc.bind(auth),
-            ...(oidc.bindReplica
-              ? { verifyReplica: (auth: DaemonAuthenticationContext) => oidc.bindReplica!(auth) }
-              : {}),
+            ...(oidc.bindReplica && { verifyReplica: (auth: DaemonAuthenticationContext) => oidc.bindReplica!(auth) }),
             createMemberEdgeJoin: (repos, person, token) => accessAdmin.createMemberEdgeJoin(repos, person, token),
             edgeJoinStatus: (input) => accessAdmin.edgeJoinStatus(input),
             edgeJoin: (input) =>
@@ -1893,7 +1910,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         }),
       );
       fleetCenter = started.center;
-      void host.attachmentsSettled().then(() => triggerCenterReviewFallback("fleet-center-restored"));
+      void host.attachmentsSettled().then(() => {
+        triggerCenterReviewFallback("fleet-center-restored");
+        if (authorityRepo.mode === "remote-edge" && authorityRepo.canonicalRoot)
+          standbyCandidateAnnouncer.announceIfReady(authorityRepo.repoId, authorityRepo.canonicalRoot);
+      });
       await accessAdmin.resumeEdgeJoinTunnels(started.center.port);
     }
   } catch (error) {
@@ -1918,31 +1939,21 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     return pruneMissingRootImpl(extracted, repo);
   }
   function openRegistered(
-    repo: {
-      readonly repoId: string;
-      readonly canonicalRoot: string;
-      readonly authoredBranch: string | null;
-      readonly mode: DaemonRepoMode;
-    },
-    progress?: { readonly attachIndex: number; readonly attachTotal: number },
+    repo: Parameters<typeof openRegisteredImpl>[1],
+    progress?: Parameters<typeof openRegisteredImpl>[2],
   ): Promise<void> {
     return openRegisteredImpl(extracted, repo, progress);
   }
   function raceAttachBudget(
     opening: Promise<void>,
     repoId: string,
-    progress?: { readonly attachIndex: number; readonly attachTotal: number },
+    progress?: Parameters<typeof raceAttachBudgetImpl>[3],
   ): Promise<void> {
     return raceAttachBudgetImpl(extracted, opening, repoId, progress);
   }
-  async function performOpenRegistered(
-    repo: {
-      readonly repoId: string;
-      readonly canonicalRoot: string;
-      readonly authoredBranch: string | null;
-      readonly mode: DaemonRepoMode;
-    },
-    progress?: { readonly attachIndex: number; readonly attachTotal: number },
+  function performOpenRegistered(
+    repo: Parameters<typeof performOpenRegisteredImpl>[1],
+    progress?: Parameters<typeof performOpenRegisteredImpl>[2],
   ): Promise<void> {
     return performOpenRegisteredImpl(extracted, repo, progress);
   }
@@ -1950,10 +1961,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await refreshRegistryImpl(extracted);
     if (!closing) startReplicaSyncs();
   }
-  async function attemptHostRecovery(repoId: string): Promise<void> {
+  function attemptHostRecovery(repoId: string): Promise<void> {
     return attemptHostRecoveryImpl(extracted, repoId);
   }
-  async function waitForWarming(repoId: string): Promise<void> {
+  function waitForWarming(repoId: string): Promise<void> {
     return waitForWarmingImpl(extracted, repoId);
   }
   function startInitialAttachments(): Promise<void> {
@@ -1964,7 +1975,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return scheduleScheduler.start();
     });
   }
-  async function attachInitial(): Promise<void> {
+  function attachInitial(): Promise<void> {
     return attachInitialImpl(extracted);
   }
   function admitHostMode(

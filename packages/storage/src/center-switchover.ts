@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
@@ -27,6 +28,7 @@ import {
   readCenterSwitchoverFence,
   recordInvalidatedSwitchoverAttempt,
   writeCenterSwitchoverFence,
+  type CenterSwitchoverCededProofV1,
   type CenterSwitchoverFenceV1,
 } from "./center-relocation-state.ts";
 import { sha256File } from "./store/ledger-backup.ts";
@@ -34,6 +36,7 @@ import { openSqliteEventStore, sqliteLedgerPath } from "./store/sqlite-event-sto
 import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS } from "./store/replica-store.ts";
 import { removeFileDurably, syncDirectory, syncFile, writeFileDurably } from "./durable-file.ts";
 import type { ReplicationPosition } from "./store/replication-log.ts";
+import { openReplicationSlots, type ReplicationAcknowledgement } from "./fleet-replication-slot.ts";
 import { EdgeReplicaIntegrityError } from "./center-relocation.ts";
 
 export class CenterSwitchoverStorageError extends Error {
@@ -59,6 +62,13 @@ export interface CenterFrozenCutSnapshot {
   readonly replicationLogWindow: readonly CenterReplicationLogRow[];
 }
 
+export interface SwitchoverReplicationSlotSnapshot {
+  readonly repoId: string;
+  readonly nodeId: string;
+  readonly history: string;
+  readonly ack: ReplicationAcknowledgement | null;
+}
+
 export interface CedeCenterForSwitchoverInput {
   readonly userRoot: string;
   readonly stateRoot?: string;
@@ -72,6 +82,12 @@ export interface CedeCenterForSwitchoverInput {
   readonly newExternalUrl: string;
   readonly newLoginUrl: string;
   readonly spkiSha256: string;
+  readonly cededProof?: CenterSwitchoverCededProofV1;
+  readonly targetCaPath?: string;
+  readonly targetServername?: string;
+  readonly targetRoot?: string;
+  readonly targetUserRoot?: string;
+  readonly targetStateRoot?: string;
   readonly now?: () => string;
 }
 
@@ -91,6 +107,7 @@ export interface PromoteReplicaForSwitchoverInput {
   readonly sourceReplicationLogWindow?: readonly CenterReplicationLogRow[];
   readonly retentionWindowCommits?: number;
   readonly replicationSlotsSourcePath?: string;
+  readonly replicationSlots?: readonly SwitchoverReplicationSlotSnapshot[];
   readonly now?: () => string;
 }
 
@@ -238,7 +255,13 @@ export function cedeCenterForSwitchover(input: CedeCenterForSwitchoverInput): Ce
     newExternalUrl: input.newExternalUrl,
     newLoginUrl: input.newLoginUrl,
     spkiSha256: input.spkiSha256,
-    fencedAt: now(),
+    ...(input.cededProof ? { cededProof: input.cededProof } : {}),
+    ...(input.targetCaPath ? { targetCaPath: path.resolve(input.targetCaPath) } : {}),
+    ...(input.targetServername ? { targetServername: input.targetServername } : {}),
+    ...(input.targetRoot ? { targetRoot: path.resolve(input.targetRoot) } : {}),
+    ...(input.targetUserRoot ? { targetUserRoot: path.resolve(input.targetUserRoot) } : {}),
+    ...(input.targetStateRoot ? { targetStateRoot: path.resolve(input.targetStateRoot) } : {}),
+    fencedAt: input.cededProof?.fencedAt ?? now(),
   };
   writeCenterSwitchoverFence(input.userRoot, fence);
   return fence;
@@ -435,6 +458,25 @@ export async function promoteReplicaForSwitchover(
         localLedgerBackupFileSystem.copy(input.replicationSlotsSourcePath, slotsDestination, { force: true });
         syncFile(slotsDestination);
       }
+    } else if (input.replicationSlots && input.replicationSlots.length > 0) {
+      const slotsDestination = path.join(path.resolve(input.stateRoot), "replication-slots.sqlite");
+      const {
+        claim: seedSlot,
+        acknowledge: acknowledgeSlot,
+        close: closeSlots,
+      } = openReplicationSlots(slotsDestination);
+      try {
+        for (const row of input.replicationSlots) {
+          if (row.repoId !== input.repoId) continue;
+          const lease = seedSlot({ repoId: row.repoId, nodeId: row.nodeId }, row.history);
+          if (row.ack !== null) {
+            acknowledgeSlot(lease, row.ack, row.ack.durable);
+          }
+        }
+      } finally {
+        closeSlots();
+      }
+      syncFile(slotsDestination);
     }
 
     const promotedLedger = openSqliteEventStore({ rootInput: input.rootInput, repoId: input.repoId, readOnly: true });
@@ -497,13 +539,37 @@ export async function promoteReplicaForSwitchover(
   }
 }
 
+/** Strictly read-only writer-epoch high watermark probe (zero directory creation, zero WAL/SHM creation when clean, F10). */
+export function readExistingWriterEpochHighWatermark(stateRoot: string, repoId: string): number | null {
+  const epochDbPath = path.join(path.resolve(stateRoot), "writer-epochs", `${repoId}.sqlite`);
+  if (!localRuntimeStateFileSystem.exists(epochDbPath)) return null;
+  const hasLiveWal = localRuntimeStateFileSystem.exists(`${epochDbPath}-wal`);
+  const target = hasLiveWal ? epochDbPath : `${pathToFileURL(epochDbPath).href}?immutable=1`;
+  const db = new DatabaseSync(target, { readOnly: true });
+  try {
+    const currentRow = db.prepare("SELECT epoch FROM writer_epochs WHERE repo_id = ?").get(repoId) as
+      | { readonly epoch?: unknown }
+      | undefined;
+    const historyRow = db
+      .prepare("SELECT MAX(epoch) AS floor FROM writer_epoch_history WHERE repo_id = ?")
+      .get(repoId) as { readonly floor?: unknown } | undefined;
+    return Math.max(Number(currentRow?.epoch ?? 0), Number(historyRow?.floor ?? 0));
+  } finally {
+    db.close();
+  }
+}
+
 /**
  * Target-side invalidation check before source-side oldEpoch + 2 rollback:
- * proves target never activated cededEpoch and durably invalidates switchoverId so delayed Phase 2 activation is rejected.
+ * proves target is an existing initialized authority that never activated cededEpoch and durably invalidates
+ * switchoverId so delayed Phase 2 activation is rejected. Never creates an epoch DB or invalidation ledger
+ * inside an empty/uninitialized directory (F3).
  */
 export function invalidateTargetSwitchoverAttempt(input: {
   readonly targetStateRoot: string;
   readonly targetRootInput?: HarnessLayoutInput;
+  readonly targetReplicaDatabasePath?: string;
+  readonly expectedTargetNodeId?: string;
   readonly repoId: string;
   readonly switchoverId: string;
   readonly cededEpoch: number;
@@ -513,19 +579,33 @@ export function invalidateTargetSwitchoverAttempt(input: {
   readonly targetInvalidated: boolean;
   readonly observedTargetEpoch: number;
 } {
-  let observedTargetEpoch: number;
-  const epochAuthority = openPersistentWriterEpoch({
-    stateRoot: input.targetStateRoot,
-    holderId: `switchover-invalidate-probe-${process.pid}`,
-  });
-  try {
-    observedTargetEpoch = epochAuthority.highWatermark(input.repoId);
-  } finally {
-    epochAuthority.close();
+  const resolvedTargetStateRoot = path.resolve(input.targetStateRoot);
+  if (!localRuntimeStateFileSystem.exists(resolvedTargetStateRoot)) {
+    return { targetNeverActivated: false, targetInvalidated: false, observedTargetEpoch: 0 };
   }
+  const activationAuditFile = switchoverActivationAuditPath(resolvedTargetStateRoot, input.repoId);
+  let alreadyActivatedSameSwitchover = false;
+  let observedTargetEpoch = 0;
+  if (localRuntimeStateFileSystem.exists(activationAuditFile)) {
+    const parsed = JSON.parse(localRuntimeStateFileSystem.readText(activationAuditFile)) as {
+      readonly switchoverId?: unknown;
+      readonly newEpoch?: unknown;
+    };
+    const auditEpoch = Number(parsed.newEpoch ?? 0);
+    if (Number.isSafeInteger(auditEpoch) && auditEpoch > observedTargetEpoch) observedTargetEpoch = auditEpoch;
+    if (parsed.switchoverId === input.switchoverId || auditEpoch >= input.cededEpoch) {
+      alreadyActivatedSameSwitchover = true;
+    }
+  }
+  const existingEpochWatermark = readExistingWriterEpochHighWatermark(resolvedTargetStateRoot, input.repoId);
+  if (existingEpochWatermark !== null) {
+    observedTargetEpoch = Math.max(observedTargetEpoch, existingEpochWatermark);
+  }
+  let hasCanonicalLedger = false;
   if (input.targetRootInput) {
     const ledgerPath = sqliteLedgerPath(input.targetRootInput, 3);
     if (localLedgerBackupFileSystem.exists(ledgerPath)) {
+      hasCanonicalLedger = true;
       const ledger = openSqliteEventStore({ rootInput: input.targetRootInput, repoId: input.repoId, readOnly: true });
       try {
         observedTargetEpoch = Math.max(observedTargetEpoch, ledger.writerFence()?.epoch ?? 0);
@@ -534,22 +614,46 @@ export function invalidateTargetSwitchoverAttempt(input: {
       }
     }
   }
-  const activationAuditFile = switchoverActivationAuditPath(input.targetStateRoot, input.repoId);
-  let alreadyActivatedSameSwitchover = false;
-  if (localRuntimeStateFileSystem.exists(activationAuditFile)) {
-    const parsed = JSON.parse(localRuntimeStateFileSystem.readText(activationAuditFile)) as {
-      readonly switchoverId?: unknown;
-      readonly newEpoch?: unknown;
-    };
-    if (parsed.switchoverId === input.switchoverId || Number(parsed.newEpoch ?? 0) >= input.cededEpoch) {
-      alreadyActivatedSameSwitchover = true;
-    }
-  }
   if (observedTargetEpoch >= input.cededEpoch || alreadyActivatedSameSwitchover) {
     return { targetNeverActivated: false, targetInvalidated: false, observedTargetEpoch };
   }
+  let hasMatchingEdgeConfig = false;
+  const edgeConfigPath = path.join(resolvedTargetStateRoot, "edge", input.repoId, "fleet-edge.json");
+  if (localRuntimeStateFileSystem.exists(edgeConfigPath)) {
+    try {
+      const parsed = JSON.parse(localRuntimeStateFileSystem.readText(edgeConfigPath)) as {
+        readonly schema?: unknown;
+        readonly repoId?: unknown;
+        readonly nodeId?: unknown;
+      };
+      if (parsed.schema === "fleet-edge-config/v1" && parsed.repoId === input.repoId) {
+        if (input.expectedTargetNodeId !== undefined && parsed.nodeId !== input.expectedTargetNodeId) {
+          return { targetNeverActivated: false, targetInvalidated: false, observedTargetEpoch };
+        }
+        hasMatchingEdgeConfig = true;
+      }
+    } catch {
+      return { targetNeverActivated: false, targetInvalidated: false, observedTargetEpoch };
+    }
+  }
+  const hasReplicaDatabase =
+    typeof input.targetReplicaDatabasePath === "string" &&
+    input.targetReplicaDatabasePath.length > 0 &&
+    localLedgerBackupFileSystem.exists(path.resolve(input.targetReplicaDatabasePath));
+  const hasExistingInvalidationLedger = localRuntimeStateFileSystem.exists(
+    path.join(resolvedTargetStateRoot, "switchover-invalidated", `${input.repoId}.json`),
+  );
+  const hasAuthoritativeTargetEvidence =
+    existingEpochWatermark !== null ||
+    hasCanonicalLedger ||
+    hasMatchingEdgeConfig ||
+    hasReplicaDatabase ||
+    hasExistingInvalidationLedger;
+  if (!hasAuthoritativeTargetEvidence) {
+    return { targetNeverActivated: false, targetInvalidated: false, observedTargetEpoch: 0 };
+  }
   recordInvalidatedSwitchoverAttempt(
-    input.targetStateRoot,
+    resolvedTargetStateRoot,
     input.repoId,
     input.switchoverId,
     (input.now ?? (() => new Date().toISOString()))(),

@@ -10,7 +10,11 @@ import {
   retainFleetCenterCertificatePaths,
   saveFleetCenterConfig,
 } from "./fleet-center-config.ts";
-import { readCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
+import { readCenterRelocationRouting, rebindCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
+import {
+  announceSwitchoverCandidateToCenter,
+  createDaemonSwitchoverControlHandler,
+} from "./fleet/center-switchover-transport.ts";
 import { centerMovedError, throwIfCenterMigrating, throwIfCenterRelocated } from "@harness-anything/storage";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
@@ -545,6 +549,24 @@ export function createDaemonHostRuntimeApi(
               : {}),
             userRoot: context.input.userRoot,
             writerEpochLease: context.writerEpochLease,
+            onSwitchoverControl: createDaemonSwitchoverControlHandler({
+              userRoot: context.input.userRoot,
+              stateRoot: stateRootForRouting,
+              withReplicaSyncFence: context.withReplicaSyncFence,
+              closeCell: context.closeCell,
+              attachLocalRepo: async (canonicalRootDir, targetRepoId) => {
+                await context.attach(canonicalRootDir, targetRepoId, "local");
+              },
+              resetWriterEpochCache: context.resetWriterEpochHandle,
+              rebindRouting: (params) =>
+                rebindCenterRelocationRouting({
+                  ...params,
+                  userRoot: context.input.userRoot,
+                  daemonId: context.input.daemonId,
+                  stateRoot: stateRootForRouting,
+                }),
+              now: context.now,
+            }),
             payload: request,
             nodes: {
               ...keycloakNodeRegistry(context.keycloakCenter),
@@ -606,6 +628,31 @@ export function createDaemonHostRuntimeApi(
             context.fleetCenter = started.center;
             context.triggerCenterReviewFallback?.("fleet-center-started");
             await context.accessAdmin.resumeEdgeJoinTunnels(started.center.port);
+            if (authorityRepo.mode === "remote-edge") {
+              const edgeConfig = readFleetEdgeConfig(context.input.userRoot, authorityRepo.repoId);
+              if (edgeConfig) {
+                const candidateTokenReader = createFleetReplicaAccessTokenReader({
+                  config: edgeConfig,
+                  configDir: fleetEdgeConfigDir(context.input.userRoot, authorityRepo.repoId),
+                  readUserAccessToken: async () =>
+                    resolveBoundAccessToken(await context.oidc.bind(auth, authorityRepo.canonicalRoot)),
+                });
+                const discoveredLogin = context.oidc.discovery(edgeConfig.nodeId);
+                await announceSwitchoverCandidateToCenter({
+                  userRoot: context.input.userRoot,
+                  repoId: authorityRepo.repoId,
+                  canonicalRoot: authorityRepo.canonicalRoot,
+                  listenerPort: started.center.port,
+                  listenerBind: request.bind ?? "127.0.0.1",
+                  ...(request.externalUrl ? { listenerExternalUrl: request.externalUrl } : {}),
+                  listenerCertPath: path.resolve(request.certPath),
+                  ...(discoveredLogin?.url ? { fallbackLoginUrl: discoveredLogin.url } : {}),
+                  ...(discoveredLogin?.certificate ? { fallbackLoginCertificate: discoveredLogin.certificate } : {}),
+                  ...(discoveredLogin?.servername ? { fallbackLoginServername: discoveredLogin.servername } : {}),
+                  readAccessToken: candidateTokenReader,
+                });
+              }
+            }
             const externalAddressReachable = request.externalUrl
               ? await probeTlsAddress(request.externalUrl)
               : undefined;

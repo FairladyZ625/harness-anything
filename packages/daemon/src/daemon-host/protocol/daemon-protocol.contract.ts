@@ -115,6 +115,12 @@ type DaemonRpcParamOverrides = {
     readonly reportStaleBuild?: boolean;
     readonly invokingCommand?: string;
   };
+  readonly "daemon.stop": {
+    readonly expectedRepoMode?: {
+      readonly repoId: string;
+      readonly mode: import("@harness-anything/kernel").DaemonRepoMode;
+    };
+  };
   readonly "repo.agentRuntime.quote": {
     readonly model: string;
     readonly inputTokens?: number;

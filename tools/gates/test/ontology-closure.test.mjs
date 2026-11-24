@@ -1870,8 +1870,8 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
   // dec_89D06D7360CBEC09795F7B12EC unifies the routes: 27 net client sites and
   // two net daemon-local-state sites raise the registered census from 343 to 372.
-  // dec_4276A0CEACD4D402F122295925/CH1 adds 4 dossier-client routes, raising the census to 376.
-  assert.equal(nonMainGuiActions.length, 376);
+  // dec_4276A0CEACD4D402F122295925/CH1 (+4 -> 376); dec_AAEC26DBB6F23BDF80876ABB2C/CH5 (+3 -> 379).
+  assert.equal(nonMainGuiActions.length, 379);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],
@@ -1912,6 +1912,12 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
   assert.equal(declOf("schedules-client.ts#schedulesClient.disable:"), "action:schedule-disable");
   assert.equal(declOf("schedules-client.ts#schedulesClient.runNow:"), "action:schedule-run-now");
   assert.equal(declOf("fleet-client.ts#fleetClient.overview.result:"), "action:fleet-overview-read");
+  for (const [fn, ref] of [
+    ["centerSwitch:", "action:daemon-fleet-center-switch"],
+    ["promoteFromEdge:", "action:daemon-fleet-center-promote-from-edge"],
+    ["edgeLocalState:", "action:repository-read"],
+  ])
+    assert.equal(declOf(`center-settings-preload.ts#centerSettingsPreloadApi.${fn}`), ref);
   assert.equal(declOf("electron-preload.ts#invoke:"), "action:repository-read");
   assert.equal(
     declOf("decision-review-actions.ts#useDecisionReviewActions.run.receipt:"),
