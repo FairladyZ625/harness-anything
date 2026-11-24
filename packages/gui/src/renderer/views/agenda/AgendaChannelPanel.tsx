@@ -152,7 +152,12 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
             >
               {t("views.agenda.peerReply")}
             </Button>
-            <Button testId="agenda-peer-promote-submit" disabled={busy} loading={busy} onClick={() => void submitPromote()}>
+            <Button
+              testId="agenda-peer-promote-submit"
+              disabled={busy}
+              loading={busy}
+              onClick={() => void submitPromote()}
+            >
               {t("views.agenda.peerPromote")}
             </Button>
           </div>

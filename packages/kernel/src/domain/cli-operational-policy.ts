@@ -792,6 +792,9 @@ export const hostKernelPolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#createPeerActionCatalog.actions.concurrency:74c75905d0b01e399939c9e5831b72d0",
       "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#createPeerActionCatalog.actions.concurrency.leasePolicy:55c37a1b3c234b85f69395d263e99417",
       "policy:packages/kernel:packages/kernel/src/domain/peer-collaboration.ts#createPeerActionCatalog.actions.concurrency.occurrenceClaim:f944f853338fd2ae894d521fa857e43e",
+      "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#createChannelActionCatalog.actions.concurrency:9870abba069dd0d6b8268f7ffa62c4b7",
+      "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#createChannelActionCatalog.actions.concurrency.leasePolicy:55c37a1b3c234b85f69395d263e99417",
+      "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#createChannelActionCatalog.actions.concurrency.occurrenceClaim:f944f853338fd2ae894d521fa857e43e",
     ].map((candidateId) => ({ candidateId, route: "entity action concurrency" })),
   },
   {
@@ -1096,6 +1099,10 @@ export const daemonProtocolShapeContractPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonArtifactsListPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonTokenUsageDetailPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
     "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/daemon-protocol-schema-ids.ts#daemonAgendaPayloadShape.limit:01756949446e0e6666f8f2734b5d34fc",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/todo-action-routes.ts#todoActionRoutes.limit:01756949446e0e6666f8f2734b5d34fc",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/todo-action-routes.ts#todoActionRoutes.limit:01756949446e0e6666f8f2734b5d34fc:2",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/todo-action-routes.ts#todoActionRoutes.claim:9047fa86b908836530ffc75975d0e53d",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/protocol/todo-action-routes.ts#todoActionRoutes.claim:9047fa86b908836530ffc75975d0e53d:2",
   ].map((candidateId) => ({ candidateId, route: "daemonProtocolShapeContractPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 

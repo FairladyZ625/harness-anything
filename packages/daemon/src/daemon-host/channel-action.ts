@@ -154,12 +154,12 @@ export function runChannelAction(
     const items: ChannelListItem[] = [];
 
     const inboxRead = cell.projection.readInbox({
-    by: "queue",
-    status: "pending",
-    consumerKind: "interactive_watch",
-    inboxId: `person:${personId}`,
-    limit,
-  });
+      by: "queue",
+      status: "pending",
+      consumerKind: "interactive_watch",
+      inboxId: `person:${personId}`,
+      limit,
+    });
     const inboxItems = inboxRead.status === "ready" ? inboxRead.items : [];
     for (const item of inboxItems) {
       const kind: ChannelKind =
@@ -205,7 +205,8 @@ export function runChannelAction(
       claimedPersonId: principalPersonId,
       authenticatedPersonId: personId,
     });
-    if (!identity.valid) reject(identity.errorCode, `Principal ${principalPersonId} does not match authenticated actor.`);
+    if (!identity.valid)
+      reject(identity.errorCode, `Principal ${principalPersonId} does not match authenticated actor.`);
 
     const envelopePayload = {
       envelopeId,
@@ -253,7 +254,11 @@ export function runChannelAction(
       const requestInput: PeerRequestInput = {
         requestId,
         from: { personId, nodeId: cell.input.repoId },
-        to: { personId: toPersonId, ...(optionalString(action.workId) ? { workId: optionalString(action.workId) } : {}), ...(optionalString(action.lane) ? { lane: optionalString(action.lane) } : {}) },
+        to: {
+          personId: toPersonId,
+          ...(optionalString(action.workId) ? { workId: optionalString(action.workId) } : {}),
+          ...(optionalString(action.lane) ? { lane: optionalString(action.lane) } : {}),
+        },
         kind: (optionalString(action.requestKind) ?? "question") as PeerRequestInput["kind"],
         ...(optionalString(action.anchorRef) ? { anchorRef: optionalString(action.anchorRef) } : {}),
         summary,
@@ -265,14 +270,25 @@ export function runChannelAction(
       };
       const openedRevision = head + 1;
       const openEvent = compilePeerRequestOpened(
-        { eventId: `event-${opId}-open`, workspaceRevision: openedRevision, opId: `${opId}-open`, actor: binding.actor, source: binding.source, occurredAt: now },
+        {
+          eventId: `event-${opId}-open`,
+          workspaceRevision: openedRevision,
+          opId: `${opId}-open`,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: now,
+        },
         { requestRevision: 1, request: requestInput },
       );
       const snapshot = reducePeerRequestEvent(null, openEvent);
       const inboxRevision = head + 2;
       const inboxFields = mapChannelKindToInboxFields(channelKind);
       const inboxBundle = buildInboxEnqueueBundle({
-        opId, workspaceRevision: inboxRevision, actor: binding.actor, source: binding.source, occurredAt: now,
+        opId,
+        workspaceRevision: inboxRevision,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
         payload: {
           inboxId: `person:${toPersonId}`,
           itemId: `peer-req-${requestId}`,
@@ -294,7 +310,10 @@ export function runChannelAction(
           enqueuedAt: now,
         },
       });
-      commitBatch(cell, [{ event: openEvent, plan: canonicalEventWritePlan(openEvent, "peer-request", requestId), blobs: [] }, inboxBundle]);
+      commitBatch(cell, [
+        { event: openEvent, plan: canonicalEventWritePlan(openEvent, "peer-request", requestId), blobs: [] },
+        inboxBundle,
+      ]);
       const rcpt = receiptOf(envelopeId, channelKind, "inbound", idempotencyKey, "routed", principalPersonId, now, {
         peerRequestId: requestId,
         inboxItemId: `peer-req-${requestId}`,
@@ -308,7 +327,11 @@ export function runChannelAction(
     const inboxRevision = head + 1;
     const itemId = `ch-in-${envelopeId}`;
     const inboxBundle = buildInboxEnqueueBundle({
-      opId, workspaceRevision: inboxRevision, actor: binding.actor, source: binding.source, occurredAt: now,
+      opId,
+      workspaceRevision: inboxRevision,
+      actor: binding.actor,
+      source: binding.source,
+      occurredAt: now,
       payload: {
         inboxId: `person:${targetPersonId}`,
         itemId,
@@ -334,7 +357,10 @@ export function runChannelAction(
     const rcpt = receiptOf(envelopeId, channelKind, "inbound", idempotencyKey, "accepted", principalPersonId, now, {
       inboxItemId: itemId,
     });
-    return { ...cell.readResult(opId, { receipt: rcpt }, inboxRevision, null), authorizationDecision: binding.authorizationDecision };
+    return {
+      ...cell.readResult(opId, { receipt: rcpt }, inboxRevision, null),
+      authorizationDecision: binding.authorizationDecision,
+    };
   }
 
   if (action.kind === "channel-send") {
@@ -345,7 +371,12 @@ export function runChannelAction(
     const messageId = optionalString(action.messageId) ?? makeEnvelopeId(cell.input.repoId, personId, idempotencyKey);
 
     const messagePayload = {
-      messageId, channelKind, idempotencyKey, principalPersonId: personId, summary, recipientRef,
+      messageId,
+      channelKind,
+      idempotencyKey,
+      principalPersonId: personId,
+      summary,
+      recipientRef,
       ...(optionalString(action.body) ? { body: optionalString(action.body) } : {}),
       ...(optionalString(action.route) ? { route: optionalString(action.route) } : {}),
       ...(optionalString(action.correlationId) ? { correlationId: optionalString(action.correlationId) } : {}),
@@ -368,9 +399,14 @@ export function dispatchChannelAction(
   binding: RepoCellBinding,
   sourceRevision: number,
 ): WriteReceiptDraft | Promise<WriteReceiptDraft> {
-  return cell.entityActionExecutor.run(action, binding, cell.operationId(action, binding, cell.input.repoId, sourceRevision), {
-    entity: {
-      channel: (_contract, intent, actor, opId) => runChannelAction(cell, intent, actor, opId),
+  return cell.entityActionExecutor.run(
+    action,
+    binding,
+    cell.operationId(action, binding, cell.input.repoId, sourceRevision),
+    {
+      entity: {
+        channel: (_contract, intent, actor, opId) => runChannelAction(cell, intent, actor, opId),
+      },
     },
-  });
+  );
 }

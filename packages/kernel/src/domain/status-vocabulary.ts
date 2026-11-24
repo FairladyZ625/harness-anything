@@ -35,7 +35,8 @@ export type StatusEntity =
   | "Host"
   | "Migration"
   | "Projection"
-  | "Inbox";
+  | "Inbox"
+  | "Channel";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 

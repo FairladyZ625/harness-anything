@@ -59,7 +59,9 @@ function channelReceipt(value: unknown) {
     receipt.outcome === "indeterminate" ||
     receipt.outcome === "pending"
   )
-    throw new Error(typeof receipt.hint === "string" ? receipt.hint : String(receipt.outcome ?? "Channel request failed."));
+    throw new Error(
+      typeof receipt.hint === "string" ? receipt.hint : String(receipt.outcome ?? "Channel request failed."),
+    );
   return receipt;
 }
 
@@ -88,7 +90,12 @@ export async function replyPeerRequest(payload: {
   return readGuiActionResult(
     await invoke(
       "repo.peer.reply" as "repo.todo.done",
-      { repoId: payload.repoId, requestId: payload.requestId, claim: payload.claim, requestedAction: payload.requestedAction } as {
+      {
+        repoId: payload.repoId,
+        requestId: payload.requestId,
+        claim: payload.claim,
+        requestedAction: payload.requestedAction,
+      } as {
         repoId: string;
         requestId: string;
         claim: string;

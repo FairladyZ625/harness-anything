@@ -175,14 +175,17 @@ export function validateChannelInboxEnvelope(value: unknown): readonly string[] 
     !boundedText(value.summary, CHANNEL_SUMMARY_LIMIT)
   )
     return ["channel inbox envelope required fields are invalid"];
-  if (value.body !== undefined && typeof value.body !== "string") return ["channel inbox envelope body must be a string"];
-  if (value.senderRef !== undefined && !nullableText(value.senderRef)) return ["channel inbox envelope senderRef invalid"];
+  if (value.body !== undefined && typeof value.body !== "string")
+    return ["channel inbox envelope body must be a string"];
+  if (value.senderRef !== undefined && !nullableText(value.senderRef))
+    return ["channel inbox envelope senderRef invalid"];
   if (value.route !== undefined && !nullableText(value.route)) return ["channel inbox envelope route invalid"];
   if (value.correlationId !== undefined && !nullableText(value.correlationId))
     return ["channel inbox envelope correlationId invalid"];
   if (value.workId !== undefined && !nullableText(value.workId)) return ["channel inbox envelope workId invalid"];
   if (value.lane !== undefined && !nullableText(value.lane)) return ["channel inbox envelope lane invalid"];
-  if (value.anchorRef !== undefined && !nullableText(value.anchorRef)) return ["channel inbox envelope anchorRef invalid"];
+  if (value.anchorRef !== undefined && !nullableText(value.anchorRef))
+    return ["channel inbox envelope anchorRef invalid"];
   if (value.channelKind === "a2a-peer") {
     if (!isRecord(value.peerPayload)) return ["a2a-peer channel requires peerPayload"];
     const p = value.peerPayload;
@@ -203,7 +206,8 @@ export function validateChannelOutboxMessage(value: unknown): readonly string[] 
     !boundedText(value.recipientRef)
   )
     return ["channel outbox message required fields are invalid"];
-  if (value.body !== undefined && typeof value.body !== "string") return ["channel outbox message body must be a string"];
+  if (value.body !== undefined && typeof value.body !== "string")
+    return ["channel outbox message body must be a string"];
   if (value.route !== undefined && !nullableText(value.route)) return ["channel outbox message route invalid"];
   if (value.correlationId !== undefined && !nullableText(value.correlationId))
     return ["channel outbox message correlationId invalid"];
@@ -361,10 +365,7 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
     version: 1,
     scope: "Channel adapter delivery and list reads",
     reason: "Keep channel bridge reads bounded and prevent duplicate deliveries across adapters.",
-    fixtures: [
-      "packages/kernel/test/channel-adapter.test.ts",
-      "packages/daemon/test/channel-adapter.test.ts",
-    ],
+    fixtures: ["packages/kernel/test/channel-adapter.test.ts", "packages/daemon/test/channel-adapter.test.ts"],
     sources: [
       {
         candidateId:
@@ -384,6 +385,16 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
       {
         candidateId:
           "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:0434b29be0266d9440715451ee9874bd",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:0434b29be0266d9440715451ee9874bd:2",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:69555a6e6f1643ab3a00a0821f0aeb81",
         route: "channel-deliver",
       },
       {
