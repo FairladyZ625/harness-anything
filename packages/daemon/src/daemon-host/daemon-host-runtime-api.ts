@@ -226,7 +226,6 @@ export function createDaemonHostRuntimeApi(
                 cwd: { scope: "repo-root" },
                 taskId: null,
                 dispatchKey: residentCeoDispatchKey(request.principalPersonId, request.wakeId),
-                idempotencyKey: `resident-ceo:${request.wakeId}`,
               },
               auth,
             ),
