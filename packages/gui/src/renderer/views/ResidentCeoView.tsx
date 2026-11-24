@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient } from "../api-client.ts";
 import { runtimeInstanceClient } from "../runtime-instance-client.ts";
+import { t } from "../i18n/index.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
@@ -59,32 +60,34 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
 
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-6" data-testid="resident-ceo-view">
-      <PageHeader title="常驻 CEO" note="配置运行实例、心跳，并与同一条持久会话续聊。" />
+      <PageHeader title={t("residentCeo.title")} note={t("residentCeo.note")} />
       {error ? <ActionError error={error} /> : null}
       <div className="rounded-xl border border-border-subtle bg-surface p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="ui-heading">运行配置</h2>
-          <span data-testid="resident-ceo-status">{profile?.status ?? "未配置"}</span>
+          <h2 className="ui-heading">{t("residentCeo.configuration")}</h2>
+          <span data-testid="resident-ceo-status">
+            {profile ? t(profile.status === "running" ? "residentCeo.running" : "residentCeo.stopped") : t("residentCeo.notConfigured")}
+          </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="flex flex-col gap-2 ui-body">
-            Provider / Instance
+            {t("residentCeo.providerInstance")}
             <select value={instanceId || profile?.runtimeInstanceId || ""} onChange={(event) => setInstanceId(event.target.value)}>
-              <option value="">选择运行实例</option>
+              <option value="">{t("residentCeo.chooseInstance")}</option>
               {instances.map((instance) => (
                 <option key={instance.instanceId} value={instance.instanceId}>{instance.name}</option>
               ))}
             </select>
           </label>
           <label className="flex flex-col gap-2 ui-body">
-            Model
+            {t("residentCeo.model")}
             <select value={selectedModel} onChange={(event) => setModel(event.target.value)}>
-              <option value="">选择模型</option>
+              <option value="">{t("residentCeo.chooseModel")}</option>
               {models.map((name) => <option key={name} value={name}>{name}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-2 ui-body">
-            心跳间隔（秒）
+            {t("residentCeo.heartbeatInterval")}
             <input
               type="number"
               min={30}
@@ -98,31 +101,31 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
           <Button
             onClick={() => configure.mutate()}
             disabled={!selectedInstance || !selectedModel || !Number.isSafeInteger(Number(heartbeatIntervalSec)) || Number(heartbeatIntervalSec) < 30}
-          >保存配置</Button>
+          >{t("residentCeo.saveConfiguration")}</Button>
           {profile?.status === "running" ? (
-            <Button onClick={() => stop.mutate()}>停止</Button>
+            <Button onClick={() => stop.mutate()}>{t("residentCeo.stop")}</Button>
           ) : (
-            <Button onClick={() => start.mutate()} disabled={!profile}>启动</Button>
+            <Button onClick={() => start.mutate()} disabled={!profile}>{t("residentCeo.start")}</Button>
           )}
         </div>
         <p className="mt-4 ui-micro text-text-muted" data-testid="resident-ceo-last-wake">
-          最近唤醒：{profile?.lastWake ? `${profile.lastWake.cause} · ${profile.lastWake.status} · ${profile.lastWake.requestedAt}` : "暂无"}
+          {t("residentCeo.lastWake")}: {profile?.lastWake ? `${profile.lastWake.cause} · ${profile.lastWake.status} · ${profile.lastWake.requestedAt}` : t("residentCeo.none")}
         </p>
       </div>
       <form
         className="rounded-xl border border-border-subtle bg-surface p-5"
         onSubmit={(event) => { event.preventDefault(); chat.mutate(); }}
       >
-        <h2 className="mb-3 ui-heading">与常驻 CEO 对话</h2>
+        <h2 className="mb-3 ui-heading">{t("residentCeo.conversation")}</h2>
         <div className="flex gap-2">
           <input
             className="min-w-0 flex-1"
             value={message}
             onChange={(event) => setMessage(event.target.value)}
-            placeholder="发送消息并续接当前会话"
-            aria-label="发送消息"
+            placeholder={t("residentCeo.messagePlaceholder")}
+            aria-label={t("residentCeo.sendMessage")}
           />
-          <Button type="submit" disabled={profile?.status !== "running" || message.trim().length === 0}>发送</Button>
+          <Button type="submit" disabled={profile?.status !== "running" || message.trim().length === 0}>{t("residentCeo.send")}</Button>
         </div>
         {reply ? <p className="mt-4 whitespace-pre-wrap" data-testid="resident-ceo-reply">{reply}</p> : null}
       </form>

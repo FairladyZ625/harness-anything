@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { ResidentCeoProfileRead } from "../src/renderer/api-client.ts";
 
 const api = vi.hoisted(() => ({
@@ -28,6 +29,7 @@ import { ResidentCeoView } from "../src/renderer/views/ResidentCeoView.tsx";
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setActiveLocale("en-US");
 });
 
 const mounted: Root[] = [];
@@ -71,8 +73,8 @@ describe("resident CEO view", () => {
       root.render(createElement(QueryClientProvider, { client: queryClient }, createElement(ResidentCeoView, { repoId: "repo-one" })));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(container.querySelector('[data-testid="resident-ceo-status"]')?.textContent).toBe("running");
-    const input = container.querySelector('input[aria-label="发送消息"]');
+    expect(container.querySelector('[data-testid="resident-ceo-status"]')?.textContent).toBe("Running");
+    const input = container.querySelector('input[aria-label="Send message"]');
     expect(input).not.toBeNull();
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;

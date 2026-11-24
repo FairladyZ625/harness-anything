@@ -1,6 +1,12 @@
 import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ResidentCeoProfile, ResidentCeoProfileStore } from "@harness-anything/application/commands";
+import type { ResidentCeoProfile } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
+
+interface ResidentCeoProfileStore {
+  readonly read: (principalPersonId: string) => Promise<ResidentCeoProfile | null>;
+  readonly list: () => Promise<readonly ResidentCeoProfile[]>;
+  readonly write: (profile: ResidentCeoProfile, expectedUpdatedAt: string | null) => Promise<void>;
+}
 
 function profilePath(userRoot: string, principalPersonId: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(principalPersonId))

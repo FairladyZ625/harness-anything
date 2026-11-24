@@ -8,6 +8,8 @@ import {
   presetCommands,
   presetMethods,
   type CliInputGroup,
+  type CliInputFacet,
+  type CommandTopology,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { EntityActionContract, EntityActionInputField } from "@harness-anything/kernel";
 import { dossierContentMaxBytes } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
@@ -497,7 +499,21 @@ const peerProtocolCommands = (
   return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });
 
-const residentCeoProtocolCommands = Object.freeze([
+type ResidentCeoCliCommand = CommandTopology & {
+  readonly id: string;
+  readonly phase: string;
+  readonly path: readonly string[];
+  readonly summary: string;
+  readonly usage: string;
+  readonly method: string;
+  readonly inputs: readonly CliInputFacet[];
+  readonly payloadFields: readonly EntityActionInputField[];
+  readonly actionKind?: string;
+  readonly actionDefaults?: Readonly<Record<string, unknown>>;
+  readonly internal?: boolean;
+};
+
+const residentCeoProtocolCommands: readonly ResidentCeoCliCommand[] = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "ceo-config",
     phase: "ResidentCeo",
@@ -506,9 +522,17 @@ const residentCeoProtocolCommands = Object.freeze([
     method: "repo.residentCeo.config",
     payloadFields: [],
     inputs: [
-      peerCliText("runtimeInstanceId", true, "--instance"),
-      peerCliText("model", true, "--model"),
-      peerCliNum("heartbeatIntervalSec", "--heartbeat-interval-sec"),
+      cliInput("--instance", "single", true, { code: "invalid_field" }, {
+        field: "runtimeInstanceId",
+        pathKind: "non-path",
+      }),
+      cliInput("--model", "single", true, { code: "invalid_field" }, { field: "model", pathKind: "non-path" }),
+      cliInput("--heartbeat-interval-sec", "single", true, { code: "invalid_field" }, {
+        field: "heartbeatIntervalSec",
+        pathKind: "non-path",
+        projection: "number",
+        regex: "^(?:0|[1-9][0-9]*)$",
+      }),
     ],
   }),
   defineCenterForwardWriteCommand({
@@ -545,7 +569,7 @@ const residentCeoProtocolCommands = Object.freeze([
     summary: "Send a message to the signed-in person's resident CEO and continue its persistent provider session.",
     method: "repo.residentCeo.chat",
     payloadFields: [],
-    inputs: [peerCliText("message", true, "--message")],
+    inputs: [cliInput("--message", "single", true, { code: "invalid_field" }, { field: "message", pathKind: "non-path" })],
   }),
 ]);
 

@@ -63,7 +63,7 @@ import {
   orchestrateRuntimeSessionsAwait,
   type RuntimeOrchestrationContext,
 } from "./runtime-orchestration.ts";
-import { makeResidentCeoService } from "@harness-anything/application/commands";
+import { makeResidentCeoService } from "@harness-anything/application/internal/resident-ceo.ts";
 import type { PeerRequestV1 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
 import { openResidentCeoProfileStore } from "./resident-ceo-profile-store.ts";
 
@@ -105,6 +105,14 @@ export function createDaemonHostRuntimeApi(
   const residentCeoProfiles = openResidentCeoProfileStore(context.input.userRoot),
     residentCeoTimers = new Map<string, NodeJS.Timeout>(),
     residentCeoInboxWatchers = new Map<string, AbortController>();
+  const closeResidentCeoBackground = (): void => {
+    for (const timer of residentCeoTimers.values()) clearTimeout(timer);
+    residentCeoTimers.clear();
+    for (const watcher of residentCeoInboxWatchers.values()) watcher.abort();
+    residentCeoInboxWatchers.clear();
+  };
+  if (context.closeSignal.aborted) closeResidentCeoBackground();
+  else context.closeSignal.addEventListener("abort", closeResidentCeoBackground, { once: true });
   const runtimeNodeId = (repoId?: string): string => {
     if (repoId === undefined) return "center";
     const repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
@@ -215,7 +223,7 @@ export function createDaemonHostRuntimeApi(
                   "resident_ceo_runtime_failed",
                   session.settlement?.reason ?? "Resident CEO runtime did not complete successfully.",
                 );
-              const response = session.result?.text ?? "";
+              const response = session.result?.text?.trim() || "The request was received. No response text was produced.";
               if (request.peerRequestId !== undefined) {
                 await cell.executeAction(
                   {
