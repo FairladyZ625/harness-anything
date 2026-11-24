@@ -7,7 +7,7 @@ import {
   type PgDialectCapabilities,
 } from "../postgres/dialect.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
-import { decisionIdSortKey } from "../projection/decision-sort-key.ts";
+import { decisionIdSortKey } from "../projection/iso-timestamp-sql.ts";
 
 /** Additive v5 expansion. Keep the previous-writer trigger through 2026-11-19.
  * Current writers also use it; the bounded backfill is removable after that window.

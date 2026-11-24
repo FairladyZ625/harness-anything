@@ -14,7 +14,7 @@ import {
 import { effectiveLeaseValue } from "@harness-anything/kernel/internal/domain/task-lease-policy.ts";
 import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
-import { decodePageCursor, encodePageCursor } from "../projection/page-cursor.ts";
+import { decodePageCursor, encodePageCursor } from "../projection/iso-timestamp-sql.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { pgTaskAttributionColumns, readCutInTransaction } from "./pg-event-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";

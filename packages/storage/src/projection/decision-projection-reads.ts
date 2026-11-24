@@ -37,7 +37,7 @@ import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
 import { readRelationProjectionRows, readRelationProjectionRowsTargetingEntity } from "./relation-entity-projection.ts";
 
-import { decisionIdSortKey, decisionLegacyId } from "./decision-sort-key.ts";
+import { decisionIdSortKey, decisionLegacyId } from "./iso-timestamp-sql.ts";
 
 export { decisionIdSortKey, decisionLegacyId };
 

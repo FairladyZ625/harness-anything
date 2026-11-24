@@ -4,7 +4,7 @@ import { assertPgReadIndexReady, pgRuntimeObservedAtSql } from "./pg-read-index-
 import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import type { RuntimeSession, RuntimeSessionReadQuery } from "@harness-anything/kernel";
 import { runtimeSessionInActivityWindow } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { canonicalJson } from "../projection/canonical-json.ts";
+import { canonicalJson } from "../projection/iso-timestamp-sql.ts";
 import {
   STANDARD_POSTGRES_DIALECT_CAPABILITIES,
   dialectUpsertValuesSql,

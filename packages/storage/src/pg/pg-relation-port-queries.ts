@@ -11,7 +11,7 @@ import { readCutInTransaction } from "./pg-event-queries.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
-import { decodePageCursor, encodePageCursor } from "../projection/page-cursor.ts";
+import { decodePageCursor, encodePageCursor } from "../projection/iso-timestamp-sql.ts";
 
 export type PgRelationPortQueries = AsyncQueries<
   | "readTaskRelations"

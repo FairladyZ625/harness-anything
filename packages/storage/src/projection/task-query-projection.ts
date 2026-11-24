@@ -1055,5 +1055,5 @@ function checkedRefs(refs: readonly string[], label: string): void {
     throw new Error(`${label} requires non-empty string refs`);
 }
 
-import { checkedPageLimit, decodePageCursor, encodePageCursor } from "./page-cursor.ts";
+import { checkedPageLimit, decodePageCursor, encodePageCursor } from "./iso-timestamp-sql.ts";
 export { checkedPageLimit, decodePageCursor, encodePageCursor };

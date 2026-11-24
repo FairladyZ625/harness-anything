@@ -9,7 +9,7 @@ import {
   canonicalJson,
   hashCanonicalJsonTextFieldChunks,
   hashCanonicalJsonTextFieldChunksAsync,
-} from "./canonical-json.ts";
+} from "./iso-timestamp-sql.ts";
 
 export { canonicalJson, hashCanonicalJsonTextFieldChunks, hashCanonicalJsonTextFieldChunksAsync };
 

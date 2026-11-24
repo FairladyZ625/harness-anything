@@ -32,13 +32,16 @@ export type { VersionedRelationProjectionRow } from "@harness-anything/kernel";
 import { canonicalJson, projectionTables, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
-import { isRelationFreshness, relationFreshnessColumns } from "./relation-freshness-columns.ts";
+import {
+  isRelationFreshness,
+  RELATION_PROJECTION_VERSION,
+  relationFreshnessColumns,
+  relationProjectionRowFromColumns,
+} from "./relation-freshness-columns.ts";
 import {
   type EntityVersion,
   type EntityVersionWitness,
 } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
-
-import { RELATION_PROJECTION_VERSION, relationProjectionRowFromColumns } from "./relation-projection-row.ts";
 
 export { RELATION_PROJECTION_VERSION, relationProjectionRowFromColumns };
 

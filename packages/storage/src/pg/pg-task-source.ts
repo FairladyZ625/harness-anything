@@ -17,7 +17,7 @@ import { pgInboxQueries } from "./pg-inbox.ts";
 import { pgPeerRequestQueries } from "./pg-peer-request.ts";
 import type { Pool } from "pg";
 import { pgEventQueries, readCutInTransaction } from "./pg-event-queries.ts";
-import { decodePageCursor, encodePageCursor } from "../projection/page-cursor.ts";
+import { decodePageCursor, encodePageCursor } from "../projection/iso-timestamp-sql.ts";
 import type {
   DecisionAgendaProjectionPageRead,
   DecisionProjectionListRead,
