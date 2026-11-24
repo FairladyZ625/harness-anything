@@ -16,6 +16,7 @@ export const CHANNEL_ADAPTER_MODEL_VERSION = 1;
 
 export const channelV1Schema: EntityDocumentJsonSchema<unknown> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "channel/v1",
   type: "object",
   properties: {
     schema: { type: "string", const: "channel/v1" },
