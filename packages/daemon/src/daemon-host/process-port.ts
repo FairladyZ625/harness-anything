@@ -5,6 +5,7 @@ import { statSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { terminateRuntimePid } from "../runtime-engine/runtime-process-signals.ts";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
+import { classifyRemoteGitInvocation, writePortExternalObservation } from "./write-port-external-observation.ts";
 
 /** POSIX terminal fallback declared at the process-capability boundary. */
 export const posixShellFallback = "/bin/sh";
@@ -125,6 +126,8 @@ function launchProcessText(
     readonly maxBuffer?: number;
   },
 ): Promise<ProcessTextOutcome> {
+  if (writePortExternalObservation.currentDepth() > 0 && classifyRemoteGitInvocation(command, args, cwd))
+    writePortExternalObservation.noteRemoteChildProcess();
   return new Promise((resolve) => {
     let interactionError: Error | null = null;
     const invocation =

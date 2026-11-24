@@ -275,7 +275,13 @@
         "task-submit": {
           "measurements": [
             "task-submit:task-artifacts",
-            "task-submit:worktree-documents"
+            "task-submit:worktree-documents",
+            "task-submit:write-port"
+          ]
+        },
+        "task-push": {
+          "measurements": [
+            "task-push:write-port"
           ]
         },
         "decision-repin": {
@@ -798,12 +804,6 @@
         },
         {
           "actions": [
-            "task-push"
-          ],
-          "reason": "task push forwards one branch publication request; repository file enumeration is outside the canonical event writer."
-        },
-        {
-          "actions": [
             "task-release"
           ],
           "reason": "task release updates one lease holder; no task collection is traversed."
@@ -935,6 +935,39 @@
           "reason": "vertical kind upsert targets one kind definition; no collection is traversed."
         }
       ]
+    }
+  },
+  "writePortExternalWait": {
+    "schema": "write-port-external-wait-budget/v1",
+    "metrics": [
+      "networkRoundTrips",
+      "remoteChildProcesses"
+    ],
+    "baseline": {
+      "task-submit": {
+        "networkRoundTrips": 0,
+        "remoteChildProcesses": 0
+      },
+      "task-push": {
+        "networkRoundTrips": 0,
+        "remoteChildProcesses": 0
+      }
+    },
+    "budgets": {
+      "task-submit": {
+        "networkRoundTrips": 0,
+        "remoteChildProcesses": 0
+      },
+      "task-push": {
+        "networkRoundTrips": 0,
+        "remoteChildProcesses": 0
+      }
+    },
+    "rejectionPaths": {
+      "task-submit:rejection-write-port": {
+        "networkRoundTrips": 0,
+        "remoteChildProcesses": 0
+      }
     }
   },
   "readCostScaling": {

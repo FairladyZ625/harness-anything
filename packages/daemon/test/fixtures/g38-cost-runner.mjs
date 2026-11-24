@@ -98,9 +98,14 @@ export async function measureCostSuitesParallel({
 } = {}) {
   if (!Number.isSafeInteger(workerSlots) || workerSlots < 1)
     throw new Error(`workerSlots must be a positive integer: ${workerSlots}`);
-  const [{ COLLECTION_PROBES }, { G1_METRICS }] = await Promise.all([
+  const [{ COLLECTION_PROBES }, { G1_METRICS }, { EXTERNAL_WAIT_PROBES }] = await Promise.all([
     import(resolveCollectionModuleHref(rootDir)),
     import(resolveG1ModuleHref(rootDir)),
+    import(
+      existsSync(path.join(rootDir, "packages/daemon/test/fixtures/g38-external-wait-cost.mjs"))
+        ? pathToFileURL(path.join(rootDir, "packages/daemon/test/fixtures/g38-external-wait-cost.mjs")).href
+        : new URL("./g38-external-wait-cost.mjs", import.meta.url).href
+    ),
   ]);
   const probeIds = Object.keys(COLLECTION_PROBES);
   const splitWorkTasks = probeIds.includes("task-create:work-tasks");
@@ -164,9 +169,13 @@ export async function measureCostSuitesParallel({
         collectionMeasured[id] = batchMeasured[id];
       }
     }
+    const externalWaitMeasured = {};
+    for (const [id, probe] of Object.entries(EXTERNAL_WAIT_PROBES))
+      externalWaitMeasured[id] = await probe.measure(rootDir);
     return {
       g1Measured: { small: g1Small, large: g1Large, operations, metrics: G1_METRICS },
       collectionMeasured,
+      externalWaitMeasured,
     };
   } finally {
     removeTemporaryDirectory(scratchDir);

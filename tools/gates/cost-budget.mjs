@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { COLLECTION_PROBES } from "../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
+import { EXTERNAL_WAIT_PROBES } from "../../packages/daemon/test/fixtures/g38-external-wait-cost.mjs";
 import { measureCostSuitesParallel } from "../../packages/daemon/test/fixtures/g38-cost-runner.mjs";
 import { repoRoot } from "./git.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
@@ -13,6 +14,8 @@ import { runReadLane } from "./cost-budget-read-lane.mjs";
 import { removeTemporaryDirectory } from "../temporary-directory-cleanup.mjs";
 
 const METRICS = Object.freeze(["projectionRebuildGitProcesses"]);
+const MEASUREMENT_PROBES = Object.freeze({ ...COLLECTION_PROBES, ...EXTERNAL_WAIT_PROBES });
+const EXTERNAL_WAIT_METRICS = Object.freeze(["networkRoundTrips", "remoteChildProcesses"]);
 
 function parseJsonFile(filePath) {
   try {
@@ -291,7 +294,7 @@ function readActionCoverage(section, actions, measurements, label) {
     if (!Array.isArray(entry?.measurements) || entry.measurements.length === 0)
       throw new Error(`${label}.actionCoverage.measured.${action} requires nonempty measurements`);
     for (const id of entry.measurements) {
-      const probe = COLLECTION_PROBES[id];
+      const probe = MEASUREMENT_PROBES[id];
       if (id === `${action}:ledger-events` && measurements.includes(action)) continue;
       if (!probe || probe.action !== action)
         throw new Error(`${label}.actionCoverage.measured.${action} has no matching production measurement ${id}`);
@@ -428,6 +431,91 @@ export async function evaluateG1WriteCostScaling({
 // independent of, and does not relax, any existing G1 ceiling or history-scaling margin.
 const COLLECTION_LINEAR_TOLERANCE = 1.1;
 
+function readWritePortExternalWaitFile(filePath) {
+  const section = parseJsonFile(filePath).writePortExternalWait;
+  if (section?.schema !== "write-port-external-wait-budget/v1")
+    throw new Error(`${filePath}.writePortExternalWait must use write-port-external-wait-budget/v1`);
+  if (!Array.isArray(section.metrics) || section.metrics.sort().join() !== [...EXTERNAL_WAIT_METRICS].sort().join())
+    throw new Error(`${filePath}.writePortExternalWait.metrics must be ${EXTERNAL_WAIT_METRICS.join(", ")}`);
+  const readExternalWaitMap = (value, label) => {
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      throw new Error(`${label} must be an object`);
+    for (const [operation, counts] of Object.entries(value)) {
+      if (counts === null || typeof counts !== "object" || Array.isArray(counts))
+        throw new Error(`${label}.${operation} must be an object`);
+      for (const metric of EXTERNAL_WAIT_METRICS) {
+        if (!Number.isSafeInteger(counts[metric]) || counts[metric] < 0)
+          throw new Error(`${label}.${operation}.${metric} must be a non-negative safe integer`);
+      }
+    }
+    return value;
+  };
+  return {
+    baseline: readExternalWaitMap(section.baseline, `${filePath}.writePortExternalWait.baseline`),
+    budgets: readExternalWaitMap(section.budgets, `${filePath}.writePortExternalWait.budgets`),
+    rejectionPaths: readExternalWaitMap(section.rejectionPaths, `${filePath}.writePortExternalWait.rejectionPaths`),
+  };
+}
+
+function externalWaitHasReceipt(receipts, operation, metric, limit, now) {
+  return receipts.some(
+    ({ receipt }) =>
+      verifyReceipt(receipt, {
+        scope: `cost:write-port-external-wait:${operation}:${metric}`,
+        kind: "write-port-external-wait-budget",
+        minimumLimit: limit,
+        now,
+      }).ok,
+  );
+}
+
+export async function evaluateWritePortExternalWait({
+  rootDir,
+  budgetPath = path.join(rootDir, "tools/gates/cost-budget.json"),
+  receiptsDir = path.join(rootDir, "tools/gates/receipts"),
+  now = new Date(),
+  measured = null,
+} = {}) {
+  const budget = readWritePortExternalWaitFile(budgetPath);
+  const receipts = loadReceipts(receiptsDir);
+  const actual = measured ?? {};
+  for (const [id, probe] of Object.entries(EXTERNAL_WAIT_PROBES)) {
+    if (actual[id] === undefined) actual[id] = await probe.measure(rootDir);
+  }
+  const errors = [];
+  for (const operation of Object.keys(budget.budgets)) {
+    const probeId = `${operation}:write-port`;
+    const counts = actual[probeId];
+    if (!counts) throw new Error(`G38 write-port external-wait is missing measurement ${probeId}`);
+    for (const metric of EXTERNAL_WAIT_METRICS) {
+      const measuredValue = counts[metric];
+      if (!Number.isSafeInteger(measuredValue) || measuredValue < 0)
+        throw new Error(`${probeId}.${metric} must be a non-negative safe integer`);
+      if (
+        budget.budgets[operation][metric] > budget.baseline[operation][metric] &&
+        !externalWaitHasReceipt(receipts, operation, metric, budget.budgets[operation][metric], now)
+      )
+        errors.push(
+          `${operation}.${metric}: budget rose from ${budget.baseline[operation][metric]} to ` +
+            `${budget.budgets[operation][metric]} without a valid write-port-external-wait-budget receipt`,
+        );
+      if (measuredValue > budget.budgets[operation][metric])
+        errors.push(
+          `${operation}.${metric}: measured ${measuredValue} exceeds budget ${budget.budgets[operation][metric]}`,
+        );
+    }
+  }
+  for (const [pathId, limits] of Object.entries(budget.rejectionPaths)) {
+    const counts = actual[pathId];
+    if (!counts) throw new Error(`G38 write-port external-wait is missing rejection measurement ${pathId}`);
+    for (const metric of EXTERNAL_WAIT_METRICS) {
+      if (counts[metric] > limits[metric])
+        errors.push(`${pathId}.${metric}: rejection path measured ${counts[metric]} exceeds budget ${limits[metric]}`);
+    }
+  }
+  return { ok: errors.length === 0, errors, actual, baseline: budget.baseline, budgets: budget.budgets };
+}
+
 export function evaluateCollectionCosts(measured) {
   const errors = [];
   if (Object.keys(measured).length === 0) throw new Error("collection measurements must not be empty");
@@ -527,7 +615,24 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
         console.log(
           `G38 ${id}.${metric}: ${small.counts[metric]} at ${small.size}, ${large.counts[metric]} at ${large.size} (max ${growth === "constant" ? 1 : (large.size / small.size) * COLLECTION_LINEAR_TOLERANCE}x)`,
         );
-    const errors = [...result.errors, ...g1.errors, ...collections.errors];
+    const resolvedBudgetPath = options.budgetPath ?? path.join(rootDir, "tools/gates/cost-budget.json");
+    const externalWait = await evaluateWritePortExternalWait({
+      rootDir,
+      budgetPath: resolvedBudgetPath,
+      receiptsDir: options.receiptsDir,
+      measured: suites.externalWaitMeasured,
+    });
+    const externalWaitFile = readWritePortExternalWaitFile(resolvedBudgetPath);
+    for (const [id, counts] of Object.entries(externalWait.actual)) {
+      const operation = id.slice(0, id.indexOf(":"));
+      const limit =
+        externalWait.budgets[operation]?.networkRoundTrips !== undefined
+          ? externalWait.budgets[operation]
+          : externalWaitFile.rejectionPaths[id];
+      for (const metric of EXTERNAL_WAIT_METRICS)
+        console.log(`G38 ${id}.${metric}: ${counts[metric]}/${limit?.[metric] ?? "?"}`);
+    }
+    const errors = [...result.errors, ...g1.errors, ...collections.errors, ...externalWait.errors];
     if (errors.length > 0) {
       for (const error of errors) console.error(`G38 cost-budget: ${error}`);
       return 1;

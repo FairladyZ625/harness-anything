@@ -5575,6 +5575,13 @@
         "order": 458
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/write-port-external-observation.ts#writePortExternalObservation.runInWritePort:0b6ad6bbbdfb9050b50e413c040f1940",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/async_hooks.d.ts#async_hooks.AsyncLocalStorage.run",
+        "order": 1117
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/writer-request-queue.ts#createWriterRequestQueue.close:fe9c42051a922789eac4dc6213f160d4",
         "route": "daemon-local-state",
         "role": "technical-port",
