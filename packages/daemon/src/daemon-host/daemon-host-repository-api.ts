@@ -870,7 +870,10 @@ export function createDaemonHostRepositoryApi(
           (action.kind === "doc-show" && auth.executionCredential !== undefined);
       const relocationUserRoot = context.input?.userRoot;
       if (!forwardThroughPort && typeof relocationUserRoot === "string" && relocationUserRoot.length > 0) {
-        const moved = centerMovedError(relocationUserRoot, repoId);
+        const repoMode = readDaemonRegistry({ userRoot: relocationUserRoot }).repos.find(
+            (entry) => entry.repoId === repoId,
+          )?.mode,
+          moved = centerMovedError(relocationUserRoot, repoId, { repoMode });
         if (moved !== null)
           return context.rejectHostAction(action, "CENTER_MOVED", moved.message, undefined, moved.centerMoved);
         if (command.commandClass !== "repo-read" && readCenterMigrating(relocationUserRoot, repoId) !== null)

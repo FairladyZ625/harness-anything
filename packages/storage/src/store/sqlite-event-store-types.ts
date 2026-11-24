@@ -101,6 +101,15 @@ export interface SqliteEventStore {
   /** Rotate the replication lineage after a break-glass promotion. */
   readonly rotateReplicationHistory: (history?: string) => ReplicationPosition;
   readonly pruneReplicationLog: (throughSequence: number) => void;
+  readonly mergeReplicationLogRows: (
+    rows: readonly {
+      readonly sequence: number;
+      readonly revision: number;
+      readonly outcomeOpId: string | null;
+      readonly writerJson: string | null;
+    }[],
+    retentionWindowCommits: number,
+  ) => void;
   readonly replicationCommits: (
     after: ReplicationPosition,
     limit: number,

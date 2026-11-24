@@ -45,7 +45,7 @@ export interface FleetCenterOptions {
   readonly stateRoot: string;
   readonly centerRepoId?: string;
   readonly relocationRoot?: string;
-  readonly centerRelocated?: CenterRelocatedTombstoneV1;
+  readonly centerRelocated?: CenterMovedDetails & { readonly repoId: string };
   readonly writerEpochStateRoot?: string;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly key: string | Buffer;

@@ -78,6 +78,11 @@ export const actionPresentation = {
   "daemon-control-request": { domain: "daemon", name: "请求节点控制", description: "向节点发出控制请求。" },
   "daemon-node-auto-claim": { domain: "daemon", name: "配置自动认领", description: "配置当前节点的任务自动认领策略。" },
   "daemon-fleet-center-start": { domain: "daemon", name: "启动中心", description: "启用舰队中心服务。" },
+  "daemon-fleet-center-switch": {
+    domain: "daemon",
+    name: "在线切换中心",
+    description: "按两阶段可逆围栏协议在线零丢数切换中心节点或执行审计回滚。",
+  },
   "daemon-fleet-center-promote-from-edge": {
     domain: "daemon",
     name: "破窗提升边缘副本",
@@ -433,6 +438,7 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-control-request", undefined, false),
   hostAdmin("daemon-node-auto-claim"),
   hostAdmin("daemon-fleet-center-start", undefined, false),
+  declare("daemon-fleet-center-switch", "admin", { scope: "host-local", writer: "caller-process" }),
   declare("daemon-fleet-center-promote-from-edge", "admin", { scope: "host-local", writer: "caller-process" }),
   hostAdmin("daemon-fleet-edge-sync", undefined, false),
   hostAdmin("access-manage", undefined, false),

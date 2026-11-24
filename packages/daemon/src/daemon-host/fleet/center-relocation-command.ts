@@ -24,6 +24,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/status-vocabulary.ts";
 import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "../fleet-center-config.ts";
 import { readReplicaGeneration } from "../../fleet-sync/fleet/replica-generation.ts";
+import { switchFleetCenter, type FleetCenterSwitchoverHooks } from "./center-switchover-command.ts";
 
 export interface FleetCenterRelocationOutcome {
   readonly receipt: Record<string, unknown>;
@@ -39,6 +40,7 @@ export interface FleetCenterRelocationHooks {
   }) => void | Promise<void>;
   readonly exportRbacBundle?: (context: ExportCenterRelocationRbacContext) => void | Promise<void>;
   readonly importRbacBundle?: (context: ImportCenterRelocationRbacContext) => void | Promise<void>;
+  readonly switchover?: FleetCenterSwitchoverHooks;
 }
 
 export interface CenterRelocationRoutingV1 {
@@ -75,7 +77,7 @@ function parseCenterLoginUrl(value: string): string {
   return parsed.toString().replace(/\/$/u, "");
 }
 
-function rebindCenterRelocationRouting(input: {
+export function rebindCenterRelocationRouting(input: {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly stateRoot: string;
@@ -121,7 +123,7 @@ function rebindCenterRelocationRouting(input: {
   return routing;
 }
 
-async function drainLocalDaemonRepoQueue(userRoot: string, daemonId: string, repoId: string): Promise<boolean> {
+export async function drainLocalDaemonRepoQueue(userRoot: string, daemonId: string, repoId: string): Promise<boolean> {
   const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
   if (!(await daemonSocketProbe(endpoint))) return false;
   for (let step = 0; step < 80; step += 1) {
@@ -152,10 +154,15 @@ export async function relocateFleetCenter(
   if (operation === "import") return await importBundle(argv, defaultUserRoot, hooks);
   if (operation === "retire") return retireOldCenter(argv, defaultUserRoot);
   if (operation === "promote-from-edge") return await promoteEdge(argv, defaultUserRoot);
+  if (operation === "switch")
+    return await switchFleetCenter(argv, defaultUserRoot, hooks?.switchover, {
+      drainLocalDaemonRepoQueue,
+      rebindCenterRelocationRouting,
+    });
   return failureOutcome(
     "fleet-center",
     "unsupported_command",
-    "Use ha fleet center export|import|retire with the operation flags.",
+    "Use ha fleet center export|import|retire|switch with the operation flags.",
   );
 }
 

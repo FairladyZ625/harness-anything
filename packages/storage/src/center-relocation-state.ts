@@ -3,6 +3,7 @@ import {
   localLedgerBackupFileSystem,
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
+import type { CenterSwitchoverFenceState } from "@harness-anything/kernel/internal/domain/center-switchover.ts";
 import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
 import { WriterEpochError } from "./writer-epoch-contract.ts";
 
@@ -35,6 +36,36 @@ export interface CenterMigratingStateV1 {
   readonly repoId: string;
   readonly writerEpoch: number;
   readonly startedAt: string;
+}
+
+/**
+ * Reversible switchover fence persisted BEFORE target activation (dec_AAEC26DBB6F23BDF80876ABB2C CH3).
+ * Distinct from permanent CenterRelocatedTombstoneV1 (`center-relocated.json`): while active, a restarted old center
+ * cannot acquire <= cededEpoch and returns CENTER_MOVED; it can be lifted only by audited oldEpoch+2 rollback
+ * or a later switchback promotion at newEpoch > cededEpoch.
+ */
+export interface CenterSwitchoverFenceV1 extends CenterMovedDetails {
+  readonly schema: "center-switchover-fence/v1";
+  readonly switchoverId: string;
+  readonly repoId: string;
+  readonly state: CenterSwitchoverFenceState;
+  readonly oldEpoch: number;
+  readonly cededEpoch: number;
+  readonly sourceNodeId: string;
+  readonly targetNodeId: string;
+  readonly finalRevision: number;
+  readonly tipHash: string;
+  readonly fencedAt: string;
+  readonly demotedAt?: string;
+}
+
+export interface SwitchoverInvalidatedAttemptsV1 {
+  readonly schema: "center-switchover-invalidated/v1";
+  readonly repoId: string;
+  readonly attempts: readonly {
+    readonly switchoverId: string;
+    readonly invalidatedAt: string;
+  }[];
 }
 
 export function centerMovedDetails(details: CenterMovedDetails): CenterMovedDetails {
@@ -175,13 +206,140 @@ export function readWriterEpochRetirementSeal(
   return value as WriterEpochRetirementSealV1;
 }
 
-export function centerMovedError(userRoot: string, repoId: string): CenterMovedError | null {
-  const tombstone = readCenterRelocated(userRoot, repoId);
-  return tombstone === null ? null : new CenterMovedError(tombstone);
+export function centerSwitchoverFencePath(userRoot: string, repoId: string): string {
+  return path.join(path.resolve(userRoot), "fleet", "center-switchover-fence", `${repoId}.json`);
 }
 
-export function throwIfCenterRelocated(userRoot: string, repoId: string): void {
-  const moved = centerMovedError(userRoot, repoId);
+function parseSwitchoverFenceFile(file: string, expectedRepoId: string): CenterSwitchoverFenceV1 {
+  const value = JSON.parse(localRuntimeStateFileSystem.readText(file)) as Partial<CenterSwitchoverFenceV1>;
+  if (
+    value.schema !== "center-switchover-fence/v1" ||
+    typeof value.switchoverId !== "string" ||
+    value.switchoverId.length === 0 ||
+    value.repoId !== expectedRepoId ||
+    (value.state !== "fenced_ceded" && value.state !== "demoted_edge") ||
+    !Number.isSafeInteger(value.oldEpoch) ||
+    !Number.isSafeInteger(value.cededEpoch) ||
+    !Number.isSafeInteger(value.newEpoch) ||
+    value.newEpoch !== value.cededEpoch ||
+    Number(value.cededEpoch) < Number(value.oldEpoch) + 1 ||
+    !Number.isSafeInteger(value.finalRevision) ||
+    typeof value.sourceNodeId !== "string" ||
+    typeof value.targetNodeId !== "string" ||
+    typeof value.tipHash !== "string" ||
+    typeof value.newExternalUrl !== "string" ||
+    typeof value.newLoginUrl !== "string" ||
+    typeof value.spkiSha256 !== "string" ||
+    typeof value.fencedAt !== "string"
+  )
+    throw new Error(`Center switchover fence at ${file} is invalid.`);
+  return value as CenterSwitchoverFenceV1;
+}
+
+export function readCenterSwitchoverFence(userRoot: string, repoId: string): CenterSwitchoverFenceV1 | null {
+  const file = centerSwitchoverFencePath(userRoot, repoId);
+  if (!localRuntimeStateFileSystem.exists(file)) return null;
+  return parseSwitchoverFenceFile(file, repoId);
+}
+
+export function writeCenterSwitchoverFence(userRoot: string, fence: CenterSwitchoverFenceV1): string {
+  if (
+    !Number.isSafeInteger(fence.oldEpoch) ||
+    fence.oldEpoch < 1 ||
+    !Number.isSafeInteger(fence.cededEpoch) ||
+    fence.cededEpoch < fence.oldEpoch + 1
+  )
+    throw new Error(
+      `Center switchover fence cededEpoch (${String(fence.cededEpoch)}) must be >= oldEpoch + 1 (${String(fence.oldEpoch + 1)}).`,
+    );
+  if (fence.newEpoch !== fence.cededEpoch) throw new Error("Center switchover fence newEpoch must equal cededEpoch.");
+  const file = centerSwitchoverFencePath(userRoot, fence.repoId);
+  writeFileDurably(file, `${JSON.stringify(fence, null, 2)}\n`, 0o600);
+  return file;
+}
+
+export function markCenterSwitchoverFenceDemoted(
+  userRoot: string,
+  repoId: string,
+  switchoverId: string,
+  demotedAt = new Date().toISOString(),
+): CenterSwitchoverFenceV1 {
+  const existing = readCenterSwitchoverFence(userRoot, repoId);
+  if (existing === null) throw new Error(`Cannot mark switchover fence demoted: no fence exists for ${repoId}.`);
+  if (existing.switchoverId !== switchoverId)
+    throw new Error(
+      `Switchover fence for ${repoId} belongs to ${existing.switchoverId}, cannot demote for ${switchoverId}.`,
+    );
+  const updated: CenterSwitchoverFenceV1 = { ...existing, state: "demoted_edge", demotedAt };
+  writeCenterSwitchoverFence(userRoot, updated);
+  return updated;
+}
+
+export function clearCenterSwitchoverFence(userRoot: string, repoId: string): void {
+  const file = centerSwitchoverFencePath(userRoot, repoId);
+  if (localRuntimeStateFileSystem.exists(file)) removeFileDurably(file);
+}
+
+export function switchoverInvalidatedAttemptsPath(stateRoot: string, repoId: string): string {
+  return path.join(path.resolve(stateRoot), "switchover-invalidated", `${repoId}.json`);
+}
+
+function readSwitchoverInvalidatedAttempts(stateRoot: string, repoId: string): SwitchoverInvalidatedAttemptsV1 {
+  const file = switchoverInvalidatedAttemptsPath(stateRoot, repoId);
+  if (!localRuntimeStateFileSystem.exists(file))
+    return { schema: "center-switchover-invalidated/v1", repoId, attempts: [] };
+  const parsed = JSON.parse(localRuntimeStateFileSystem.readText(file)) as Partial<SwitchoverInvalidatedAttemptsV1>,
+    entries = parsed.attempts;
+  if (parsed.schema !== "center-switchover-invalidated/v1" || parsed.repoId !== repoId || !Array.isArray(entries))
+    throw new Error(`Invalidated switchover attempt ledger at ${file} is invalid.`);
+  return parsed as SwitchoverInvalidatedAttemptsV1;
+}
+
+export function recordInvalidatedSwitchoverAttempt(
+  stateRoot: string,
+  repoId: string,
+  switchoverId: string,
+  invalidatedAt = new Date().toISOString(),
+): SwitchoverInvalidatedAttemptsV1 {
+  const current = readSwitchoverInvalidatedAttempts(stateRoot, repoId);
+  if (current.attempts.some((entry) => entry.switchoverId === switchoverId)) return current;
+  const next: SwitchoverInvalidatedAttemptsV1 = {
+    schema: "center-switchover-invalidated/v1",
+    repoId,
+    attempts: [...current.attempts, { switchoverId, invalidatedAt }],
+  };
+  writeFileDurably(switchoverInvalidatedAttemptsPath(stateRoot, repoId), `${JSON.stringify(next, null, 2)}\n`, 0o600);
+  return next;
+}
+
+export function isSwitchoverAttemptInvalidated(stateRoot: string, repoId: string, switchoverId: string): boolean {
+  return readSwitchoverInvalidatedAttempts(stateRoot, repoId).attempts.some(
+    (entry) => entry.switchoverId === switchoverId,
+  );
+}
+
+export function centerMovedError(
+  userRoot: string,
+  repoId: string,
+  options?: { readonly repoMode?: string },
+): CenterMovedError | null {
+  const tombstone = readCenterRelocated(userRoot, repoId);
+  if (tombstone !== null) return new CenterMovedError(tombstone);
+  const fence = readCenterSwitchoverFence(userRoot, repoId);
+  if (fence === null) return null;
+  // Once Phase 1 fsyncs `fenced_ceded`, the old center is blocked across restarts regardless of caller mode.
+  // After Phase 3 transitions the fence to `demoted_edge`, local remote-edge mode reads/forwards normally while
+  // center-role paths (local mode, writer epochs, center-listener) still enforce CENTER_MOVED.
+  if (fence.state === "fenced_ceded" || options?.repoMode !== "remote-edge") return new CenterMovedError(fence);
+  return null;
+}
+
+export function throwIfCenterRelocated(
+  userRoot: string,
+  repoId: string,
+  options?: { readonly repoMode?: string },
+): void {
+  const moved = centerMovedError(userRoot, repoId, options);
   if (moved !== null) throw moved;
 }
 

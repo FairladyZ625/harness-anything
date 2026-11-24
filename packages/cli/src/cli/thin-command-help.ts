@@ -75,6 +75,15 @@ export const clientLocalCommands = [
     help: "    This is never automatic. Both confirmation flags are required and the edge daemon must be stopped.",
   },
   {
+    id: "fleet-center-switch",
+    path: ["fleet", "center", "switch"],
+    usage:
+      "ha fleet center switch --root <path> --repo <id> (--to <node-id> [--dry-run] | --abort-rollback --switchover-id <id> --reason <text>) [--target-root <path>] [--target-user-root <path>] [--target-external-url <url>] [--target-login-url <url>] [--target-spki-sha256 <hash>] [--target-ca <path>] [--user-root <path>] [--state-root <path>] [--daemon-id <id>] [--json]",
+    summary:
+      "Execute candidate preflight, two-phase RPO=0 reversible center switchover (preserving history), or audited oldEpoch+2 rollback.",
+    help: "    Phase 1 fsyncs the reversible cededEpoch fence on the old center before Phase 2 activates oldEpoch+1 on the target.",
+  },
+  {
     id: "daemon-metrics",
     path: ["daemon", "metrics"],
     usage:

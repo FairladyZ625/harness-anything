@@ -16,7 +16,7 @@ import type {
   SqliteBaseBackupInput,
 } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
-import { openReplicaStore } from "./store/replica-store.ts";
+import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS, openReplicaStore } from "./store/replica-store.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
 if (storageContext) {
@@ -107,11 +107,12 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
     await /* @gate-identity state-store/task.backup-sqlite */ mkdir(cache, { recursive: true });
     await backup(ledger, path.join(store, "ledger.sqlite"));
     await backup(projection, path.join(cache, "task.sqlite"));
-    // This replica begins at the backup cut, so discard center history before the copy reaches the edge.
+    // Retain a bounded replication_log window so promotable replicas can serve lagging edges after Switchover.
     const replicaLedger = openReplicaStore({
       databasePath: path.join(store, "ledger.sqlite"),
       repoId: metadata.repoId,
       generation: metadata.ledgerGeneration,
+      retentionWindowCommits: input.replicaLogWindowCommits ?? DEFAULT_REPLICA_LOG_WINDOW_COMMITS,
     });
     try {
       replicaLedger.position();

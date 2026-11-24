@@ -8,6 +8,14 @@
         "order": 2
       }
     ],
+    "daemon-fleet-center-switch": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/center-switchover-command.ts#switchoverCommandError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon-fleet-center-switch",
+        "role": "support",
+        "order": 0
+      }
+    ],
     "daemon-fleet-edge-sync": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-open.ts#openDaemonHost.migrateEdgeWorkspace:6165b2468d982b70e27f83f039463193",

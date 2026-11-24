@@ -540,6 +540,18 @@ function openSqliteEventStoreInternal(
         [throughSequence],
       );
     },
+    mergeReplicationLogRows: (rows, retentionWindowCommits) =>
+      transaction(() => {
+        const headSeq = readReplicationPosition(query).sequence,
+          minSeq = Math.max(0, headSeq - retentionWindowCommits);
+        for (const row of rows) {
+          if (row.sequence < minSeq || row.sequence > headSeq) continue;
+          query(
+            "INSERT OR IGNORE INTO replication_log(sequence, revision, outcome_op_id, writer_json) VALUES (?, ?, ?, ?)",
+            [row.sequence, row.revision, row.outcomeOpId, row.writerJson],
+          );
+        }
+      }),
     replicationCommits: (after, limit) =>
       transaction(
         () => readReplicationCommits(query, after, limit, outcome, (from, count) => readEventRows(query, from, count)),
