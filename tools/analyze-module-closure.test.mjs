@@ -6,6 +6,24 @@ import path from "node:path";
 import test from "node:test";
 import { analyzeCapabilityBridge, analyzeModuleClosure } from "./analyze-module-closure.mjs";
 
+test("cloud queries have no local process, worktree, or daemon-host closure", () => {
+  const result = analyzeModuleClosure({ entry: "packages/daemon/src/fleet-sync/cloud-query-host.ts" });
+  const forbidden =
+    /(?:^|\/)(?:node-pty|task-worktree[^/]*|runtime-spawn[^/]*|local-version-control-system[^/]*)(?:\/|$)|^packages\/daemon\/src\/(?:daemon-host|runtime-engine|writer-cell)\//u;
+  assert.deepEqual(
+    result.modules.filter(({ path }) => forbidden.test(path)),
+    [],
+  );
+  assert.deepEqual(
+    result.edges.filter(({ to }) => to === "node:child_process" || to === "node:sqlite"),
+    [],
+  );
+  assert.deepEqual(
+    result.unresolvedImports.filter(({ specifier }) => specifier !== "pg-native"),
+    [],
+  );
+});
+
 function fixture(t, files) {
   const root = mkdtempSync(path.join(tmpdir(), "module-closure-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

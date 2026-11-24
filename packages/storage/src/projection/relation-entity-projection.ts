@@ -14,7 +14,6 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import {
   relationFreshnessAnchorForType,
-  relationOwnerRef,
   type EntityRelationRecord,
 } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import type { TaskEventV1 } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
@@ -33,14 +32,18 @@ import { canonicalJson, projectionTables, queryRows, runSql } from "./rebuildabl
 import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import { interpretEmbeddedReplayProjections } from "./entity-declaration-replay.ts";
 import { readEntityVersionWitness } from "./entity-freshness-projection.ts";
-import { isRelationFreshness, relationFreshnessColumns } from "./relation-freshness-columns.ts";
+import {
+  isRelationFreshness,
+  RELATION_PROJECTION_VERSION,
+  relationFreshnessColumns,
+  relationProjectionRowFromColumns,
+} from "./relation-freshness-columns.ts";
 import {
   type EntityVersion,
   type EntityVersionWitness,
-  type RelationFreshness,
 } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
 
-export const RELATION_PROJECTION_VERSION = "relation-projection/v1" as const;
+export { RELATION_PROJECTION_VERSION, relationProjectionRowFromColumns };
 
 /**
  * Which kinds can interpret each event schema, in registry order, so replay visits only the contracts
@@ -361,32 +364,4 @@ function relationProjectionRowFromWitnesses(
     sourcePath,
     relationFreshnessColumns(entity, projectedTarget, sourceWitness),
   );
-}
-
-/** One relation row shape shared by the native SQLite and PostgreSQL readers. */
-export function relationProjectionRowFromColumns(
-  entity: RelationEntity,
-  sourcePath: string,
-  columns: { readonly freshness: RelationFreshness; readonly currentTargetVersion: EntityVersion | null },
-): VersionedRelationProjectionRow {
-  return Object.freeze({
-    schema: RELATION_PROJECTION_VERSION,
-    entity,
-    workspaceRevision: entity.revision,
-    relationId: entity.id,
-    sourceRef: entity.source,
-    targetRef: entity.target,
-    relationType: entity.type,
-    direction: entity.direction,
-    strength: entity.strength,
-    origin: entity.origin,
-    state: entity.state,
-    targetObservedVersion: entity.targetObservedVersion,
-    currentTargetVersion: columns.currentTargetVersion,
-    freshness: columns.freshness,
-    rationale: entity.rationale,
-    ownerRef: relationOwnerRef(entity.source),
-    sourcePath,
-    recordIndex: 0,
-  });
 }

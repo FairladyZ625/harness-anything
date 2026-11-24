@@ -1,16 +1,16 @@
-import {
-  summarizeWorkspace,
-  type DecisionProjectionRow,
-  type DomainStatus,
-  type ProjectionWarning,
-  type TaskProjection,
-} from "@harness-anything/kernel";
+import type { DecisionProjectionRow, DomainStatus, ProjectionWarning, TaskProjection } from "@harness-anything/kernel";
+import { summarizeWorkspace } from "@harness-anything/kernel/internal/domain/workspace-summary.ts";
 import type { TaskPackageDisposition } from "@harness-anything/kernel/internal/domain/task.ts";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
 import type { WorkspaceSummaryResult } from "./query-ports.ts";
 
 export function workspaceSummaryFromProjection(projection: TaskProjection): WorkspaceSummaryResult {
-  const read = projection.readWorkspaceSummary();
+  return workspaceSummaryFromProjectionRead(projection.readWorkspaceSummary());
+}
+
+export function workspaceSummaryFromProjectionRead(
+  read: ReturnType<TaskProjection["readWorkspaceSummary"]>,
+): WorkspaceSummaryResult {
   return {
     schema: "daemon.workspace-summary/v1",
     ok: true,

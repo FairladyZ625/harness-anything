@@ -1,6 +1,18 @@
 import { keycloakTlsFailure } from "./keycloak-tls-error.ts";
 import type * as AuthorizationReceipt from "@harness-anything/kernel/internal/domain/receipt-frame.ts";
-import { validatePolicyGroupScopes } from "@harness-anything/kernel/internal/domain/policy-groups.ts";
+import {
+  assertAcyclicPolicyGroups,
+  decodeAuthorizationResource,
+  deriveBasePolicyGroups,
+  effectivePolicyGroupScopes,
+  encodeAuthorizationResource,
+  validatePolicyGroupScopes,
+  type AuthorizationResource,
+  type PolicyGroup,
+} from "@harness-anything/kernel/internal/domain/policy-groups.ts";
+import { policyActionDeclarations } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
+import { registeredArtifactActionPolicyActions } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
+import { baseEntityPolicyActions } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
 import type * as AccessStatus from "@harness-anything/kernel/internal/domain/access-status.ts";
 import {
   managedClientScopePolicy,
@@ -14,22 +26,12 @@ import {
   readRuntimeExecutionPrincipal,
 } from "./keycloak-execution-credential.ts";
 import { sessionLifetimeBounds, readSessionLifetime, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
-import {
-  policyActionDeclarations,
-  assertAcyclicPolicyGroups,
-  baseEntityPolicyActions,
-  decodeAuthorizationResource,
-  deriveBasePolicyGroups,
-  effectivePolicyGroupScopes,
-  registeredArtifactActionPolicyActions,
-  encodeAuthorizationResource,
-  type AuthorizationResource,
-  type AuthorizationDecisionPort,
-  type AuthorizationIdentityDirectoryPort,
-  type AuthorizationNodeCredentialPort,
-  type AuthorizationPolicyAdministrationPort,
-  type PolicyGroup,
-  type RuntimeExecutionPrincipal,
+import type {
+  AuthorizationDecisionPort,
+  AuthorizationIdentityDirectoryPort,
+  AuthorizationNodeCredentialPort,
+  AuthorizationPolicyAdministrationPort,
+  RuntimeExecutionPrincipal,
 } from "@harness-anything/kernel";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 

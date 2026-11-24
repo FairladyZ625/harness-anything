@@ -37,25 +37,9 @@ import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
 import { readRelationProjectionRows, readRelationProjectionRowsTargetingEntity } from "./relation-entity-projection.ts";
 
-const decisionIdSortAlphabet = [
-    ...new Set([..."-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"].map((c) => c.toLowerCase())),
-  ].sort((left, right) => left.localeCompare(right)),
-  decisionIdSortRanks = new Map(decisionIdSortAlphabet.map((character, rank) => [character, rank])),
-  lowercaseSortWeight = "a".localeCompare("A") < 0 ? "!" : '"',
-  uppercaseSortWeight = lowercaseSortWeight === "!" ? '"' : "!";
+import { decisionIdSortKey, decisionLegacyId } from "./iso-timestamp-sql.ts";
 
-/** Encodes the ASCII identifier collation used by localeCompare into a SQLite BINARY-sortable key. */
-export function decisionIdSortKey(decisionId: string): string {
-  const primary: string[] = [],
-    caseWeight: string[] = [];
-  for (const character of decisionId) {
-    const rank = decisionIdSortRanks.get(character.toLowerCase());
-    if (rank === undefined) throw new Error(`decision id contains unsupported character ${JSON.stringify(character)}`);
-    primary.push(String.fromCharCode(33 + rank));
-    caseWeight.push(character >= "A" && character <= "Z" ? uppercaseSortWeight : lowercaseSortWeight);
-  }
-  return `${primary.join("")} ${caseWeight.join("")}`;
-}
+export { decisionIdSortKey, decisionLegacyId };
 
 export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
   return readDecisionRows(db, [decisionId], withBody)[0] ?? null;
@@ -549,14 +533,6 @@ export function listDecisionAgendaRowsPage(
       nextCursor: raw.length > limit && last ? encodePageCursor([last.decision_id]) : null,
     },
   };
-}
-
-export function decisionLegacyId(decisionId: string): string | undefined {
-  const match =
-    /* @gate-identity state-store/task.source.storage.src.projection.decision-projection-reads.sqlite-database */ /(?:^|_)E([1-9][0-9]*)(?:_|$)/u.exec(
-      decisionId,
-    );
-  return match ? `E${Number(match[1])}` : undefined;
 }
 
 export function decisionLegacyNumber(decisionId: string): number | null {

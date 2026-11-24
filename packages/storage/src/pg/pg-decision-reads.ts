@@ -14,7 +14,7 @@ import {
   decisionClaimsOpen,
 } from "@harness-anything/kernel/internal/domain/decision-board-projection.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
-import { decisionLegacyId } from "../projection/decision-projection-reads.ts";
+import { decisionLegacyId } from "../projection/iso-timestamp-sql.ts";
 import { PgDecisionBackfillPendingError } from "./pg-decision-read-status.ts";
 import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 

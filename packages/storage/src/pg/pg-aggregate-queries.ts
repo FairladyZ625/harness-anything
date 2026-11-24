@@ -10,8 +10,13 @@ import {
 } from "@harness-anything/kernel/internal/domain/workspace-summary.ts";
 import { publicRuntimeSession } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
-import { canonicalJson, hashCanonicalJsonTextFieldChunksAsync } from "../projection/rebuildable-task-projection-sql.ts";
-import { decodePageCursor, encodePageCursor, checkedPageLimit } from "../projection/task-query-projection.ts";
+import {
+  canonicalJson,
+  checkedPageLimit,
+  decodePageCursor,
+  encodePageCursor,
+  hashCanonicalJsonTextFieldChunksAsync,
+} from "../projection/iso-timestamp-sql.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { getClientDialectCapabilities } from "../postgres/dialect.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";

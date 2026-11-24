@@ -1,20 +1,15 @@
 import { decisionEventTypes } from "@harness-anything/kernel/internal/domain/decision-event-types.ts";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
-import {
-  currentExecutionCuts,
-  type AgentRuntimeEventV1,
-  drainCursorPagesSync,
-  isTerminalStatus,
-  isDomainStatus,
-  parseEntityRef,
-  type TaskProjection,
-  type TaskProjectionListQuery,
-} from "@harness-anything/kernel";
+import type { AgentRuntimeEventV1, TaskProjection, TaskProjectionListQuery } from "@harness-anything/kernel";
+import { parseEntityRef } from "@harness-anything/kernel/internal/domain/entity-ref.ts";
+import { isDomainStatus, isTerminalStatus } from "@harness-anything/kernel/internal/domain/lifecycle-status.ts";
+import { drainCursorPagesSync } from "@harness-anything/kernel/internal/ports/projection-reads.ts";
 import {
   DEFAULT_DECISION_LIST_PAGE_SIZE,
   type DecisionListFilters,
 } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import {
+  currentExecutionCuts,
   gateResults,
   isRetiredGateRequirement,
   type CloseoutAssessment,
@@ -167,12 +162,25 @@ export function readCollaboratorTaskPage(
   query: TaskProjectionListQuery,
   scope: CollaboratorTaskScope,
 ) {
-  const personId = involvementPersonId(scope),
-    read = projection.readTaskIndex({
-      ...query,
-      limit: query.limit ?? storageReadPolicy.defaultValue.pageSizes.standard,
-      withAttribution: true,
-    });
+  return collaboratorTaskPage(projection.readTaskIndex(collaboratorTaskQuery(query)), scope);
+}
+
+export async function readCollaboratorTaskPageFromAsyncProjection(
+  projection: {
+    readonly readTaskIndex: (query: TaskProjectionListQuery) => Promise<ReturnType<TaskProjection["readTaskIndex"]>>;
+  },
+  query: TaskProjectionListQuery,
+  scope: CollaboratorTaskScope,
+) {
+  return collaboratorTaskPage(await projection.readTaskIndex(collaboratorTaskQuery(query)), scope);
+}
+
+function collaboratorTaskQuery(query: TaskProjectionListQuery): TaskProjectionListQuery {
+  return { ...query, limit: query.limit ?? storageReadPolicy.defaultValue.pageSizes.standard, withAttribution: true };
+}
+
+function collaboratorTaskPage(read: ReturnType<TaskProjection["readTaskIndex"]>, scope: CollaboratorTaskScope) {
+  const personId = involvementPersonId(scope);
   return {
     ...read,
     rows:

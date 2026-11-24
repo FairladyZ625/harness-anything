@@ -1,12 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { managedClientScopePolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
+import { stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import {
   executionCredentialRejected,
   runtimeExecutionLifetimeMs,
-  stableStringify,
-  type RuntimeExecutionPrincipal,
-  type AuthorizationProvider,
-} from "@harness-anything/kernel";
+} from "@harness-anything/kernel/internal/ports/runtime-execution-credential.ts";
+import type { RuntimeExecutionPrincipal, AuthorizationProvider } from "@harness-anything/kernel";
 
 interface ExecutionCenter {
   readonly url: string;
