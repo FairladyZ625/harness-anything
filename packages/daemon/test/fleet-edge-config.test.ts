@@ -9,12 +9,16 @@ import {
   fleetEdgeCaPath,
   fleetEdgeConfigDir,
   fleetEdgeConfigPath,
+  fleetEdgePendingRepointPath,
   hasAnyFleetEdgeConfig,
   readFleetEdgeConfig,
   readFleetEdgeConfigForRoot,
+  readFleetEdgePendingRepoint,
   removeFleetEdgeConfig,
+  removeFleetEdgePendingRepoint,
   resolveFleetEdgeRepoIdForRoot,
   writeFleetEdgeConfig,
+  writeFleetEdgePendingRepoint,
 } from "../src/daemon-host/client/fleet-edge-config.ts";
 import { resolveFleetReplicaAuthority } from "../src/daemon-host/fleet/replica-token.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
@@ -135,4 +139,41 @@ test("a legacy edge config accepts the center's authenticated OIDC authority", (
     realm: "tenant-realm",
     clientId: "harness-node-edge-legacy",
   });
+});
+
+test("pending repoint journal round-trips, validates invariants, and is cleaned up with fleet-edge config", () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-fleet-edge-pending-")),
+    repoId = "plt-center-testbed",
+    pending = {
+      repoId,
+      nodeId: "edge-1",
+      host: "127.0.0.1",
+      port: 8443,
+      spkiSha256: "b".repeat(64),
+      previousWriterEpoch: 2,
+      targetWriterEpoch: 3,
+      ledgerGeneration: 1,
+    };
+  try {
+    assert.equal(readFleetEdgePendingRepoint(userRoot, repoId), null);
+    writeFleetEdgePendingRepoint(userRoot, repoId, pending);
+    assert.deepEqual(readFleetEdgePendingRepoint(userRoot, repoId), pending);
+    removeFleetEdgePendingRepoint(userRoot, repoId);
+    assert.equal(readFleetEdgePendingRepoint(userRoot, repoId), null);
+
+    writeFleetEdgePendingRepoint(userRoot, repoId, pending);
+    const { schema: _schema, ...base } = valid;
+    writeFleetEdgeConfig(userRoot, repoId, base);
+    removeFleetEdgeConfig(userRoot, repoId);
+    assert.equal(existsSync(fleetEdgePendingRepointPath(userRoot, repoId)), false);
+
+    mkdirSync(path.dirname(fleetEdgePendingRepointPath(userRoot, repoId)), { recursive: true });
+    writeFileSync(
+      fleetEdgePendingRepointPath(userRoot, repoId),
+      JSON.stringify({ schema: "fleet-edge-repoint-pending/v1", ...pending, targetWriterEpoch: 2 }),
+    );
+    assert.throws(() => readFleetEdgePendingRepoint(userRoot, repoId), /targetWriterEpoch/u);
+  } finally {
+    removeTempRepository(userRoot);
+  }
 });

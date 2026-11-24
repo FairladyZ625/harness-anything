@@ -10,6 +10,7 @@ import {
   FleetEdgeConfigError,
   fleetEdgeConfigDir,
   readFleetEdgeConfig,
+  readFleetEdgePendingRepoint,
   removeFleetEdgePinnedCaCert,
   writeFleetEdgePinnedCaCert,
   type FleetEdgeConfig,
@@ -105,17 +106,35 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
     generation: generation.metadata.ledgerGeneration,
     readOnly: true,
   });
-  let localWriterEpoch: number;
+  let ledgerEpoch: number;
   try {
-    localWriterEpoch = Math.max(config.writerEpoch ?? 0, ledger.writerFence()?.epoch ?? 0);
+    ledgerEpoch = ledger.writerFence()?.epoch ?? 0;
   } finally {
     ledger.close();
   }
+  const configWriterEpoch = config.writerEpoch ?? 0,
+    localWriterEpoch = Math.max(configWriterEpoch, ledgerEpoch);
   if (localWriterEpoch === 0)
     throw new FleetEdgeConfigError(
       "writer_epoch_unknown",
       "The edge has no recorded writer epoch. Sync or repoint manually.",
     );
+  const persistedPending = readFleetEdgePendingRepoint(input.userRoot, input.repoId),
+    pendingRepointTarget =
+      persistedPending !== null &&
+      persistedPending.repoId === config.repoId &&
+      persistedPending.nodeId === config.nodeId &&
+      persistedPending.ledgerGeneration === generation.metadata.ledgerGeneration &&
+      configWriterEpoch < persistedPending.targetWriterEpoch &&
+      ledgerEpoch === persistedPending.targetWriterEpoch
+        ? {
+            host: persistedPending.host,
+            port: persistedPending.port,
+            spkiSha256: persistedPending.spkiSha256,
+            previousWriterEpoch: persistedPending.previousWriterEpoch,
+            targetWriterEpoch: persistedPending.targetWriterEpoch,
+          }
+        : null;
 
   const routing = {
     repoId: input.repoId,
@@ -129,6 +148,7 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
     localWriterEpoch,
     trustAnchors: config.trustAnchors,
     centerMoved: routing,
+    pendingRepointTarget,
   });
   if (!precheck.ok) throw new FleetEdgeConfigError(precheck.code, precheck.detail);
 
@@ -148,6 +168,7 @@ export async function autoRepointFleetEdgeOnCenterMovedInsideFence(
     localWriterEpoch,
     trustAnchors: config.trustAnchors,
     centerMoved: routing,
+    pendingRepointTarget,
     tlsEvidence: {
       verifiedByCaPath: probe.verifiedByCaPath,
       observedPeerSpkiSha256: probe.observedPeerSpkiSha256,

@@ -9,11 +9,13 @@ import { recordReplicaHealth, replicaFailure } from "../../fleet-sync/fleet/repl
 import {
   isDeterministicReplicaFailure,
   replicaRetryDelay,
-  resumeOnlyRefusalCode,
+  stagedRepointRefusalCode,
 } from "../../fleet-sync/fleet/replica-retry.ts";
 const DEFAULT_CONFIRM_TIMEOUT_MS = daemonProtocolFleetPolicy.defaultValue.fleet.replicationIdleTimeoutMs;
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied" | "resumeOnly"> {
   readonly resumeOnly?: boolean | (() => boolean | undefined);
+  /** True only while validating a staged repoint target before committing fleet-edge.json. */
+  readonly stagedRepointProbe?: boolean | (() => boolean);
   readonly signal?: AbortSignal;
   /** Daemon lifetime ends confirmation work even when an edge stream is being drained. */
   readonly shutdownSignal?: AbortSignal;
@@ -435,7 +437,11 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       const error = attempt.failed ? attempt.error : null;
       // Release any hung confirmation tied to the dropped connection so reconnects can re-confirm.
       abortActiveConfirmation(streamDown(error ?? new Error("replication stream ended")), true);
-      const refusalCode = attempt.failed ? resumeOnlyRefusalCode(resumeOnly, attempt.error) : null;
+      const isStagedProbe =
+          typeof options.stagedRepointProbe === "function"
+            ? options.stagedRepointProbe()
+            : options.stagedRepointProbe === true,
+        refusalCode = attempt.failed ? stagedRepointRefusalCode(isStagedProbe, attempt.error) : null;
       if (attempt.failed && refusalCode !== null) {
         stream.down = attempt.error;
         settleReady(key, false);

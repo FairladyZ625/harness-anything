@@ -1663,7 +1663,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     for (const repo of registered) {
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
       const rootDir = repo.canonicalRoot,
-        config = replicaTransitions.stagedConfigFor(repo.repoId) ?? readFleetEdgeConfig(input.userRoot, repo.repoId);
+        stagedConfig = replicaTransitions.stagedConfigFor(repo.repoId),
+        config = stagedConfig ?? readFleetEdgeConfig(input.userRoot, repo.repoId);
       if (!config || config.repoId !== repo.repoId) {
         if (!config) {
           const residue = fleetEdgeWorkspaceResidue(input.userRoot, repo.repoId, rootDir);
@@ -1685,7 +1686,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const { writerEpoch: _writerEpoch, resumeOnly: _resumeOnly, ...streamConfig } = config;
       const running = replicaSyncControllers.get(repo.repoId),
         connection = JSON.stringify([rootDir, streamConfig]);
-      if (autoRepointCoordinator.isLatched(repo.repoId, connection)) continue;
+      if (!stagedConfig && autoRepointCoordinator.isLatched(repo.repoId, connection)) continue;
       if (running?.config === connection) continue;
       fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
@@ -1699,7 +1700,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const readAccessToken = createFleetReplicaAccessTokenReader({
         config,
         configDir: fleetEdgeConfigDir(input.userRoot, repo.repoId),
-        preferMachineToken: Boolean(config.resumeOnly || replicaTransitions.stagedConfigFor(repo.repoId)),
+        preferMachineToken: Boolean(config.resumeOnly || stagedConfig),
         readUserAccessToken: async () =>
           resolveBoundAccessToken(await oidc.bind({ transportKind: "unix-socket" }, rootDir)),
       });
@@ -1712,9 +1713,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ...(config.servername ? { servername: config.servername } : {}),
         ...(config.spkiSha256 ? { spkiSha256: config.spkiSha256 } : {}),
         ...(config.spkiPinOnly ? { spkiPinOnly: true } : {}),
-        resumeOnly: () =>
-          replicaTransitions.stagedConfigFor(repo.repoId)?.resumeOnly ??
-          readFleetEdgeConfig(input.userRoot, repo.repoId)?.resumeOnly,
+        resumeOnly: () => {
+          const staged = replicaTransitions.stagedConfigFor(repo.repoId);
+          return staged !== undefined
+            ? staged.resumeOnly === true
+            : readFleetEdgeConfig(input.userRoot, repo.repoId)?.resumeOnly;
+        },
+        stagedRepointProbe: () => replicaTransitions.stagedConfigFor(repo.repoId) !== undefined,
         nodeId: config.nodeId,
         credential: config.credential,
         repoId: config.repoId,

@@ -60,6 +60,19 @@ export function fleetEdgeConfigPath(userRoot: string, repoId: string): string {
 export function fleetEdgeCaPath(userRoot: string, repoId: string): string {
   return path.join(fleetEdgeConfigDir(userRoot, repoId), "fleet-center-ca.pem");
 }
+export interface FleetEdgePendingRepoint {
+  readonly repoId: string;
+  readonly nodeId: string;
+  readonly host: string;
+  readonly port: number;
+  readonly spkiSha256: string;
+  readonly previousWriterEpoch: number;
+  readonly targetWriterEpoch: number;
+  readonly ledgerGeneration: number;
+}
+export function fleetEdgePendingRepointPath(userRoot: string, repoId: string): string {
+  return path.join(fleetEdgeConfigDir(userRoot, repoId), "repoint-pending.json");
+}
 export interface FleetEdgeWorkspaceResidue {
   readonly code: "fleet_edge_config_workspace_residue";
   readonly message: string;
@@ -181,8 +194,71 @@ export function writeFleetEdgeConfig(userRoot: string, repoId: string, config: F
   );
 }
 export function removeFleetEdgeConfig(userRoot: string, repoId: string): void {
-  for (const file of [fleetEdgeConfigPath(userRoot, repoId), fleetEdgeCaPath(userRoot, repoId)])
+  for (const file of [
+    fleetEdgeConfigPath(userRoot, repoId),
+    fleetEdgeCaPath(userRoot, repoId),
+    fleetEdgePendingRepointPath(userRoot, repoId),
+  ])
     if (existsSync(file)) removeFileDurably(file);
+}
+export function readFleetEdgePendingRepoint(userRoot: string, repoId: string): FleetEdgePendingRepoint | null {
+  const file = fleetEdgePendingRepointPath(userRoot, repoId);
+  if (!existsSync(file)) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    throw new FleetEdgeConfigError(
+      "fleet_edge_config_unreadable",
+      `Pending repoint journal at ${file} is not valid JSON: ${error instanceof Error ? error.message : String(error)}.`,
+    );
+  }
+  const fail = (detail: string): never => {
+    throw new FleetEdgeConfigError(
+      "fleet_edge_config_invalid",
+      `Pending repoint journal at ${file} is invalid: ${detail}`,
+    );
+  };
+  if (value === null || typeof value !== "object" || Array.isArray(value)) fail("must be a JSON object");
+  const row = value as Record<string, unknown>,
+    text = (field: string): string | undefined =>
+      typeof row[field] === "string" && (row[field] as string).length > 0 ? (row[field] as string) : undefined;
+  if (row.schema !== "fleet-edge-repoint-pending/v1") fail("schema must be fleet-edge-repoint-pending/v1");
+  for (const field of ["repoId", "nodeId", "host"]) if (!text(field)) fail(`${field} must be a non-empty string`);
+  const port = Number(row.port),
+    previousWriterEpoch = Number(row.previousWriterEpoch),
+    targetWriterEpoch = Number(row.targetWriterEpoch),
+    ledgerGeneration = Number(row.ledgerGeneration);
+  if (!Number.isSafeInteger(port) || port < 0 || port > 65535) fail("port must be an integer from 0 to 65535");
+  if (typeof row.spkiSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(row.spkiSha256))
+    fail("spkiSha256 must be a lowercase SHA-256 digest");
+  if (!Number.isSafeInteger(previousWriterEpoch) || previousWriterEpoch < 1)
+    fail("previousWriterEpoch must be a positive integer");
+  if (!Number.isSafeInteger(targetWriterEpoch) || targetWriterEpoch <= previousWriterEpoch)
+    fail("targetWriterEpoch must be greater than previousWriterEpoch");
+  if (!Number.isSafeInteger(ledgerGeneration) || ledgerGeneration < 0)
+    fail("ledgerGeneration must be a non-negative integer");
+  return {
+    repoId: text("repoId")!,
+    nodeId: text("nodeId")!,
+    host: text("host")!,
+    port,
+    spkiSha256: row.spkiSha256 as string,
+    previousWriterEpoch,
+    targetWriterEpoch,
+    ledgerGeneration,
+  };
+}
+export function writeFleetEdgePendingRepoint(userRoot: string, repoId: string, pending: FleetEdgePendingRepoint): void {
+  writeFileDurably(
+    fleetEdgePendingRepointPath(userRoot, repoId),
+    `${JSON.stringify({ schema: "fleet-edge-repoint-pending/v1", ...pending }, null, 2)}\n`,
+    0o600,
+  );
+}
+export function removeFleetEdgePendingRepoint(userRoot: string, repoId: string): void {
+  const file = fleetEdgePendingRepointPath(userRoot, repoId);
+  if (existsSync(file)) removeFileDurably(file);
 }
 export function writeFleetEdgePinnedCaCert(
   userRoot: string,

@@ -23,9 +23,9 @@ export function replicaRetryDelay(error: unknown, failures: number, random = Mat
   return Math.floor(random * (Math.min(30_000, 250 * 2 ** Math.min(failures, 7)) + 1));
 }
 
-/** Terminal errors that immediately reject a staged resumeOnly repoint probe without backoff retries. */
-export function resumeOnlyRefusalCode(resumeOnly: boolean | undefined, error: unknown): string | null {
-  if (!resumeOnly || typeof error !== "object" || error === null || !("code" in error)) return null;
+/** Terminal errors that immediately reject an active staged repoint probe without backoff retries. */
+export function stagedRepointRefusalCode(stagedRepointProbe: boolean | undefined, error: unknown): string | null {
+  if (!stagedRepointProbe || typeof error !== "object" || error === null || !("code" in error)) return null;
   const code = String((error as { readonly code?: unknown }).code);
   return [
     "replication_resume_unavailable",

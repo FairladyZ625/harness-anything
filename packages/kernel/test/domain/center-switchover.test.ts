@@ -375,4 +375,42 @@ test("trust-anchor auto-repoint gate enforces pre-provisioned CA/SPKI anchors, s
   });
   assert.equal(unverifiedCaReject.ok, false);
   assert.equal(unverifiedCaReject.code, "center_moved_untrusted_target");
+
+  // 6. F-B3467401: Interrupted staged repoint that already applied target B's epoch to the active replica
+  // may resume ONLY the exact pending target (host, port, spki, targetWriterEpoch) while still verifying trust anchors;
+  // any other target, port, host, SPKI, or lower epoch remains strictly rejected.
+  const pendingTargetB = {
+    host: "node-b.example.invalid",
+    port: 9443,
+    spkiSha256: spkiB,
+    previousWriterEpoch: 4,
+    targetWriterEpoch: 5,
+  };
+  const resumeSameTarget = evaluateEdgeAutoRepointTarget({
+    expectedRepoId: "fleet-repo",
+    localWriterEpoch: 5,
+    trustAnchors: { spkiSha256: [spkiB] },
+    centerMoved: { ...baseMoved, newEpoch: 5 },
+    pendingRepointTarget: pendingTargetB,
+    tlsEvidence: { verifiedByCaPath: null, observedPeerSpkiSha256: spkiB },
+  });
+  assert.equal(resumeSameTarget.ok, true);
+  assert.equal(resumeSameTarget.ok ? resumeSameTarget.normalizedTargetSpkiSha256 : null, spkiB);
+
+  for (const [label, moved] of [
+    ["different host", { ...baseMoved, newExternalUrl: "https://other.example.invalid:9443", newEpoch: 5 }],
+    ["different port", { ...baseMoved, newExternalUrl: "https://node-b.example.invalid:9444", newEpoch: 5 }],
+    ["different spki", { ...baseMoved, spkiSha256: `sha256:${spkiRogue}`, newEpoch: 5 }],
+    ["lower epoch", { ...baseMoved, newEpoch: 4 }],
+  ] as const) {
+    const rejected = evaluateEdgeAutoRepointTarget({
+      expectedRepoId: "fleet-repo",
+      localWriterEpoch: 5,
+      trustAnchors: { spkiSha256: [spkiB, spkiRogue] },
+      centerMoved: moved,
+      pendingRepointTarget: pendingTargetB,
+    });
+    assert.equal(rejected.ok, false, label);
+    assert.equal(rejected.code, "center_moved_epoch_not_advanced", label);
+  }
 });

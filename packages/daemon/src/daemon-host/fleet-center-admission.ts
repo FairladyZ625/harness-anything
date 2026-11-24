@@ -6,7 +6,11 @@ import { readDaemonRegistry } from "@harness-anything/kernel";
 import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import { readReplicaGeneration, revokeReplicaView } from "../fleet-sync/fleet/replica-generation.ts";
+import {
+  readReplicaGeneration,
+  revokeReplicaView,
+  type ReplicaGeneration,
+} from "../fleet-sync/fleet/replica-generation.ts";
 import { FLEET_SESSION_CAPABILITY } from "./fleet/command-protocol.ts";
 import { FleetRemoteError, readFleetLoginAuthorityClient, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import {
@@ -23,8 +27,12 @@ import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import {
   FleetEdgeConfigError,
+  fleetEdgeConfigDir,
   readFleetEdgeConfig,
+  readFleetEdgePendingRepoint,
+  removeFleetEdgePendingRepoint,
   writeFleetEdgeConfig,
+  writeFleetEdgePendingRepoint,
   type FleetEdgeConfig,
   type FleetEdgeTrustAnchors,
 } from "./client/fleet-edge-config.ts";
@@ -331,6 +339,7 @@ export async function syncFleetEdgeMirror(
         `Refusing to sync edge back to older center writer epoch ${head.writerEpoch} (current ${currentConfig.writerEpoch}).`,
       );
     persistEdgeConnection(effectiveUserRoot, request, input.loginAuthority ?? head.loginAuthority, head.writerEpoch);
+    removeFleetEdgePendingRepoint(effectiveUserRoot, request.repoId);
     onAdmitted?.();
   };
   if (configFence) configFence.commit(request.repoId, fenceToken, commitConnection);
@@ -456,18 +465,9 @@ export async function repointFleetEdgeMirrorFenced(
       "replica_cut_inconsistent",
       "The edge replica cut is not internally consistent; retry after it settles.",
     );
-  const ledger = openSqliteEventStore({
-    databasePath: generation.ledgerPath,
-    repoId: request.repoId,
-    generation: generation.metadata.ledgerGeneration,
-    readOnly: true,
-  });
-  let oldEpoch: number | undefined;
-  try {
-    oldEpoch = Math.max(previous.writerEpoch ?? 0, ledger.writerFence()?.epoch ?? 0);
-  } finally {
-    ledger.close();
-  }
+  const ledgerEpoch = readReplicaWriterEpoch(generation, request.repoId),
+    configEpoch = previous.writerEpoch ?? 0,
+    oldEpoch = Math.max(configEpoch, ledgerEpoch);
   if (oldEpoch === 0)
     throw new FleetEdgeConfigError(
       "writer_epoch_unknown",
@@ -527,13 +527,30 @@ export async function repointFleetEdgeMirrorFenced(
       "lineage_tip_mismatch",
       "The new center history forks from the edge tip; repoint was refused.",
     );
-  const sameRepointTarget =
-    previous.resumeOnly === true &&
-    previous.host === request.host &&
-    previous.port === request.port &&
-    previous.caPath === request.caPath &&
-    previous.servername === request.servername &&
-    previous.spkiSha256 === request.spkiSha256;
+  const edgeDir = fleetEdgeConfigDir(input.userRoot, request.repoId),
+    resolveEdgeCaPath = (candidate: string): string =>
+      path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(edgeDir, candidate),
+    pending = readFleetEdgePendingRepoint(input.userRoot, request.repoId),
+    sameLegacyResumeOnlyTarget =
+      previous.resumeOnly === true &&
+      previous.host === request.host &&
+      previous.port === request.port &&
+      resolveEdgeCaPath(previous.caPath) === path.resolve(request.caPath) &&
+      previous.servername === request.servername &&
+      previous.spkiSha256 === request.spkiSha256,
+    samePendingStagedTarget =
+      pending !== null &&
+      pending.repoId === previous.repoId &&
+      pending.nodeId === previous.nodeId &&
+      pending.ledgerGeneration === generation.metadata.ledgerGeneration &&
+      pending.host === request.host &&
+      pending.port === request.port &&
+      pending.spkiSha256 === request.spkiSha256 &&
+      configEpoch < pending.targetWriterEpoch &&
+      pending.previousWriterEpoch < pending.targetWriterEpoch &&
+      ledgerEpoch === pending.targetWriterEpoch &&
+      head.writerEpoch === pending.targetWriterEpoch,
+    sameRepointTarget = sameLegacyResumeOnlyTarget || samePendingStagedTarget;
   if (head.writerEpoch < oldEpoch || (head.writerEpoch === oldEpoch && !sameRepointTarget))
     throw new FleetEdgeConfigError(
       "writer_epoch_not_advanced",
@@ -594,7 +611,21 @@ export async function repointFleetEdgeMirrorFenced(
     steadyConfig = buildEdgeConnectionConfig(previous, persistRequest, loginAuthority, head.writerEpoch, false, true);
   if (!repointStream)
     throw new FleetEdgeConfigError("replica_unavailable", "Repoint stream coordinator is unavailable.");
-  const previousHealthFailure = JSON.stringify(readReplicaHealth(viewDir).syncFailure);
+  const previousHealthFailure = JSON.stringify(readReplicaHealth(viewDir).syncFailure),
+    pendingPreviousEpoch = samePendingStagedTarget ? pending.previousWriterEpoch : oldEpoch,
+    wrotePendingRepoint = pendingPreviousEpoch < head.writerEpoch;
+  if (wrotePendingRepoint) {
+    writeFleetEdgePendingRepoint(input.userRoot, request.repoId, {
+      repoId: request.repoId,
+      nodeId: request.nodeId,
+      host: request.host,
+      port: request.port,
+      spkiSha256: request.spkiSha256,
+      previousWriterEpoch: pendingPreviousEpoch,
+      targetWriterEpoch: head.writerEpoch,
+      ledgerGeneration: lineage.ledgerGeneration,
+    });
+  }
   await repointStream.startStagedStream(stagedConfig);
   try {
     // Even at the same sequence, the new stream must confirm it can resume (or finish explicit basebackup)
@@ -615,6 +646,11 @@ export async function repointFleetEdgeMirrorFenced(
       throw new FleetEdgeConfigError("replica_cut_changed", "The edge changed while the new center was catching up.");
   } catch (error) {
     await repointStream.abortStagedStream();
+    if (wrotePendingRepoint) {
+      const afterAbort = readReplicaGeneration(viewDir),
+        epochAfterAbort = afterAbort ? readReplicaWriterEpoch(afterAbort, request.repoId) : 0;
+      if (epochAfterAbort < head.writerEpoch) removeFleetEdgePendingRepoint(input.userRoot, request.repoId);
+    }
     if (error instanceof FleetReplicaStreamDownError) {
       const stagedFailure = readReplicaHealth(viewDir).syncFailure;
       if (stagedFailure && JSON.stringify(stagedFailure) !== previousHealthFailure)
@@ -624,6 +660,7 @@ export async function repointFleetEdgeMirrorFenced(
   }
   oidcCenterSelections(input.userRoot).clearAll();
   writeFleetEdgeConfig(input.userRoot, request.repoId, steadyConfig);
+  removeFleetEdgePendingRepoint(input.userRoot, request.repoId);
   repointStream.commitStagedStream();
   return {
     schema: "command-receipt/v2",
@@ -711,6 +748,20 @@ function buildEdgeConnectionConfig(
     ...(previous?.maxAgeMs !== undefined ? { maxAgeMs: previous.maxAgeMs } : {}),
     ...(previous?.maxLagRevisions !== undefined ? { maxLagRevisions: previous.maxLagRevisions } : {}),
   };
+}
+
+function readReplicaWriterEpoch(generation: ReplicaGeneration, repoId: string): number {
+  const ledger = openSqliteEventStore({
+    databasePath: generation.ledgerPath,
+    repoId,
+    generation: generation.metadata.ledgerGeneration,
+    readOnly: true,
+  });
+  try {
+    return ledger.writerFence()?.epoch ?? 0;
+  } finally {
+    ledger.close();
+  }
 }
 
 function persistEdgeConnection(

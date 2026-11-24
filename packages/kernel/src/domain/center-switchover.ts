@@ -421,12 +421,21 @@ export interface EdgeAutoRepointTlsEvidence {
   readonly observedPeerSpkiSha256?: string | null;
 }
 
+export interface EdgePendingRepointTarget {
+  readonly host: string;
+  readonly port: number;
+  readonly spkiSha256: string;
+  readonly previousWriterEpoch: number;
+  readonly targetWriterEpoch: number;
+}
+
 export interface EdgeAutoRepointDecisionInput {
   readonly expectedRepoId: string;
   readonly localWriterEpoch: number;
   readonly trustAnchors: FleetEdgeTrustAnchors | undefined;
   readonly centerMoved: CenterMovedRoutingPayload;
   readonly tlsEvidence?: EdgeAutoRepointTlsEvidence;
+  readonly pendingRepointTarget?: EdgePendingRepointTarget | null;
 }
 
 export type EdgeAutoRepointRejectionCode =
@@ -528,11 +537,28 @@ export function evaluateEdgeAutoRepointTarget(input: EdgeAutoRepointDecisionInpu
       code: "center_moved_invalid_target",
       detail: "CENTER_MOVED routing payload must provide an HTTPS external origin, valid login URL, and SHA-256 SPKI.",
     };
+  const parsedExternal = new URL(centerMoved.newExternalUrl),
+    targetHost = parsedExternal.hostname.replace(/^\[|\]$/gu, ""),
+    targetPort = parsedExternal.port ? Number(parsedExternal.port) : 443,
+    pending = input.pendingRepointTarget ?? null,
+    pendingSpki = pending ? normalizeSpkiSha256(pending.spkiSha256) : null,
+    resumingSamePendingTarget =
+      pending !== null &&
+      pendingSpki !== null &&
+      Number.isSafeInteger(pending.previousWriterEpoch) &&
+      pending.previousWriterEpoch >= 1 &&
+      Number.isSafeInteger(pending.targetWriterEpoch) &&
+      pending.previousWriterEpoch < pending.targetWriterEpoch &&
+      centerMoved.newEpoch === pending.targetWriterEpoch &&
+      input.localWriterEpoch === pending.targetWriterEpoch &&
+      targetHost === pending.host &&
+      targetPort === pending.port &&
+      normalizedMovedSpki === pendingSpki;
   if (
     !Number.isSafeInteger(input.localWriterEpoch) ||
     input.localWriterEpoch < 1 ||
     !Number.isSafeInteger(centerMoved.newEpoch) ||
-    centerMoved.newEpoch <= input.localWriterEpoch
+    (centerMoved.newEpoch <= input.localWriterEpoch && !resumingSamePendingTarget)
   )
     return {
       ok: false,
@@ -549,10 +575,7 @@ export function evaluateEdgeAutoRepointTarget(input: EdgeAutoRepointDecisionInpu
     };
   const caPaths = normalizedAnchors.value.caPaths ?? [],
     spkiPins = normalizedAnchors.value.spkiSha256 ?? [],
-    spkiPinSet = new Set(spkiPins),
-    parsedExternal = new URL(centerMoved.newExternalUrl),
-    targetHost = parsedExternal.hostname.replace(/^\[|\]$/gu, ""),
-    targetPort = parsedExternal.port ? Number(parsedExternal.port) : 443;
+    spkiPinSet = new Set(spkiPins);
 
   if (input.tlsEvidence === undefined) {
     if (caPaths.length === 0 && !spkiPinSet.has(normalizedMovedSpki))

@@ -12,17 +12,24 @@ import {
   clearCenterMigrating,
   closeSqliteEventStoresUnder,
   enterCenterMigrating,
+  openSqliteEventStore,
   retireCenter,
 } from "@harness-anything/storage";
+import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { openDaemonWriterEpochs } from "../src/daemon-host/daemon-host-writer-epoch.ts";
 import {
   fleetEdgeConfigDir,
   fleetEdgeConfigPath,
   readFleetEdgeConfig,
+  readFleetEdgePendingRepoint,
   writeFleetEdgeConfig,
 } from "../src/daemon-host/client/fleet-edge-config.ts";
-import { syncFleetEdgeMirror, type FleetEdgeSyncConfigFence } from "../src/daemon-host/fleet-center-admission.ts";
+import {
+  repointFleetEdgeMirrorFenced,
+  syncFleetEdgeMirror,
+  type FleetEdgeSyncConfigFence,
+} from "../src/daemon-host/fleet-center-admission.ts";
 import { autoRepointFleetEdgeOnCenterMovedInsideFence } from "../src/daemon-host/fleet-edge-auto-repoint.ts";
 import {
   centerMovedFleetFault,
@@ -37,7 +44,13 @@ import {
   runFleetTaskCommandClient,
 } from "../src/daemon-host/fleet/peer.ts";
 import { currentFleetProtocolVersion } from "../src/daemon-host/fleet/command-protocol.ts";
-import { runFleetReplicaSync, waitForFleetReplicaReady } from "../src/daemon-host/fleet/replica-sync.ts";
+import {
+  runFleetReplicaSync,
+  waitForFleetReplicaReady,
+  waitForFleetReplicaRevision,
+} from "../src/daemon-host/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../src/fleet-sync/fleet/replica-health.ts";
 import {
   CENTER_MOVED_DETAILS_CAPABILITY,
   ReplicationDecoder,
@@ -737,6 +750,7 @@ test(
             ...(stagedConfig.spkiSha256 ? { spkiSha256: stagedConfig.spkiSha256 } : {}),
             ...(stagedConfig.spkiPinOnly ? { spkiPinOnly: true } : {}),
             resumeOnly: stagedConfig.resumeOnly,
+            stagedRepointProbe: true,
             nodeId: stagedConfig.nodeId,
             credential: stagedConfig.credential,
             repoId: stagedConfig.repoId,
@@ -985,6 +999,636 @@ test(
       if (centerB) await centerB.close();
       if (centerA) await centerA.close();
       await hostA.close();
+      await owners.close();
+      closeSqliteEventStoresUnder(root);
+      removeTempRepository(root);
+    }
+  },
+);
+
+test(
+  "F-B3467401 & F-B3467404: interrupted staged repoint after target epoch apply recovers cleanly and legacy resumeOnly resident stream still follows CENTER_MOVED",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-fencing-b34674-")),
+      repoId = "b34674-repo",
+      repoDir = path.join(root, "repo"),
+      edgeWorkspace = path.join(root, "edge-workspace"),
+      centerUser = path.join(root, "center-user"),
+      edgeUser = path.join(root, "edge-user"),
+      viewRoot = path.join(root, "edge-views");
+    rosterRepo(repoDir, repoId);
+    rosterRepo(edgeWorkspace, repoId);
+    registerDaemonRepo({ canonicalRoot: repoDir, repoId, userRoot: centerUser, createConvenienceLinks: false });
+    registerDaemonRepo({
+      canonicalRoot: edgeWorkspace,
+      repoId,
+      mode: "remote-edge",
+      userRoot: edgeUser,
+      createConvenienceLinks: false,
+    });
+
+    const owners = await fleetNodeOwners({
+      userRoot: centerUser,
+      owners: { "edge-b34": "person-one" },
+      repoIds: [repoId],
+      localPersonId: "owner-center",
+    });
+    const tlsDir = path.join(root, "tls");
+    mkdirSync(tlsDir, { recursive: true });
+    writeSelfSignedLocalhostCertificate(path.join(tlsDir, "a.key"), path.join(tlsDir, "a.crt"));
+    writeSelfSignedLocalhostCertificate(path.join(tlsDir, "b.key"), path.join(tlsDir, "b.crt"));
+    writeSelfSignedLocalhostCertificate(path.join(tlsDir, "c.key"), path.join(tlsDir, "c.crt"));
+    const keyA = readFileSync(path.join(tlsDir, "a.key")),
+      certA = readFileSync(path.join(tlsDir, "a.crt")),
+      keyB = readFileSync(path.join(tlsDir, "b.key")),
+      certB = readFileSync(path.join(tlsDir, "b.crt")),
+      keyC = readFileSync(path.join(tlsDir, "c.key")),
+      certC = readFileSync(path.join(tlsDir, "c.crt")),
+      spkiB = createHash("sha256")
+        .update(new X509Certificate(certB).publicKey.export({ format: "der", type: "spki" }))
+        .digest("hex"),
+      spkiC = createHash("sha256")
+        .update(new X509Certificate(certC).publicKey.export({ format: "der", type: "spki" }))
+        .digest("hex");
+
+    const loginServer = createHttpsServer({ key: keyB, cert: certB }, (_req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ access_token: "node-token-harness-node-edge-b34", expires_in: 300 }));
+    });
+    loginServer.listen(0, "127.0.0.1");
+    await once(loginServer, "listening");
+    const loginAddr = loginServer.address();
+    assert.ok(loginAddr && typeof loginAddr !== "string");
+    const loginUrl = `https://127.0.0.1:${String(loginAddr.port)}`;
+    t.after(
+      () =>
+        new Promise<void>((resolve) => {
+          loginServer.closeAllConnections();
+          loginServer.close(() => resolve());
+        }),
+    );
+
+    const viewDir = path.join(viewRoot, "repos", repoId, "views", "edge-b34");
+    const readEdgeLedgerEpoch = (): number => {
+      const gen = readReplicaGeneration(viewDir);
+      assert.ok(gen);
+      const store = openSqliteEventStore({
+        databasePath: gen.ledgerPath,
+        repoId,
+        generation: gen.metadata.ledgerGeneration,
+        readOnly: true,
+      });
+      try {
+        return store.writerFence()?.epoch ?? 0;
+      } finally {
+        store.close();
+      }
+    };
+
+    const appendEpochBatch = (
+      prefix: string,
+      count: number,
+    ): { readonly seqHead: number; readonly revHead: number } => {
+      const store = openSqliteEventStore({ rootInput: repoDir, repoId });
+      try {
+        const fence = store.writerFence();
+        assert.ok(fence);
+        for (let i = 1; i <= count; i += 1) {
+          const opId = `op_${prefix}_${String(i)}`,
+            intentDigest = `sha256:${createHash("sha256").update(opId).digest("hex")}` as const;
+          store.appendCommand({
+            fence,
+            intent: { opId, intentDigest, summary: `${prefix}-${String(i)}` },
+            events: [],
+            rejectionCode: "paged_interrupt_marker",
+          });
+        }
+        return { seqHead: store.replicationPosition().sequence, revHead: store.revision() };
+      } finally {
+        store.close();
+      }
+    };
+
+    let host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
+      edgeHost: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
+      centerA: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
+      centerB: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
+      centerC: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
+      activeSyncController: AbortController | null = null,
+      activeSyncTask: Promise<void> | null = null;
+    try {
+      // 1. Sync initial cut from Center A at oldEpoch.
+      host = await openDaemonHost({ daemonId: "center-b34-e1", userRoot: centerUser });
+      await host.attachmentsSettled();
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId: "b34-t1", title: "Initial A commit" }, auth)).outcome,
+        "applied",
+      );
+      const oldEpoch = fleetHostWriterOptions(centerUser, [repoId]).writerEpochLease(repoId).epoch;
+      centerA = await listenFleetTls({
+        host,
+        stateRoot: path.join(centerUser, "fleet"),
+        ...fleetHostWriterOptions(centerUser, [repoId]),
+        key: keyA,
+        cert: certA,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+      const edgeCaA = path.join(fleetEdgeConfigDir(edgeUser, repoId), "center-a.pem"),
+        edgeCaB = path.join(fleetEdgeConfigDir(edgeUser, repoId), "center-b.pem"),
+        edgeCaC = path.join(fleetEdgeConfigDir(edgeUser, repoId), "center-c.pem");
+      mkdirSync(path.dirname(edgeCaA), { recursive: true });
+      writeFileSync(edgeCaA, certA, { mode: 0o600 });
+      writeFileSync(edgeCaB, certB, { mode: 0o600 });
+      writeFileSync(edgeCaC, certC, { mode: 0o600 });
+      writeFleetEdgeConfig(edgeUser, repoId, {
+        repoId,
+        host: "127.0.0.1",
+        port: centerA.port,
+        caPath: edgeCaA,
+        servername: "localhost",
+        trustAnchors: { spkiSha256: [spkiB, spkiC] },
+        nodeId: "edge-b34",
+        credential: "secret-edge-b34",
+        writerEpoch: oldEpoch,
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+      });
+      const initAbort = new AbortController(),
+        initTask = runFleetReplicaSync({
+          hostname: "127.0.0.1",
+          port: centerA.port,
+          ca: certA,
+          servername: "localhost",
+          nodeId: "edge-b34",
+          credential: "secret-edge-b34",
+          repoId,
+          viewRoot,
+          diskQuotaBytes: 64 * 1024 * 1024,
+          readAccessToken: owners.readAccessToken("edge-b34"),
+          signal: initAbort.signal,
+        });
+      assert.equal(
+        await waitForFleetReplicaReady({ viewRoot, repoId, nodeId: "edge-b34" }, AbortSignal.timeout(15_000)),
+        true,
+      );
+      initAbort.abort();
+      await initTask;
+      const seqAfterA = readReplicaGeneration(viewDir)!.metadata.position.sequence;
+      assert.equal(readEdgeLedgerEpoch(), oldEpoch);
+
+      // 2. Promote canonical ledger to newEpochB = oldEpoch + 1 and write >1 replication page of commits on Center B.
+      await centerA.close();
+      centerA = null;
+      await host.close();
+      host = await openDaemonHost({ daemonId: "center-b34-e2", userRoot: centerUser });
+      await host.attachmentsSettled();
+      const newEpochB = fleetHostWriterOptions(centerUser, [repoId]).writerEpochLease(repoId).epoch;
+      assert.ok(newEpochB > oldEpoch);
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId: "b34-b1", title: "Center B epoch commit 1" }, auth))
+          .outcome,
+        "applied",
+      );
+      const batchB = appendEpochBatch("b34-page-b", 300);
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId: "b34-b2", title: "Center B final commit" }, auth))
+          .outcome,
+        "applied",
+      );
+      const seqHeadB = batchB.seqHead + 1;
+      centerB = await listenFleetTls({
+        host,
+        stateRoot: path.join(centerUser, "fleet"),
+        ...fleetHostWriterOptions(centerUser, [repoId]),
+        key: keyB,
+        cert: certB,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+      // Stand up a competing Center C at the SAME epoch newEpochB to prove non-target endpoints remain strictly rejected!
+      centerC = await listenFleetTls({
+        host,
+        stateRoot: path.join(centerUser, "fleet"),
+        ...fleetHostWriterOptions(centerUser, [repoId]),
+        key: keyC,
+        cert: certC,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+
+      const makeStreamHooks = (interruptAfterSeq?: {
+        readonly minExclusive: number;
+        readonly maxExclusive: number;
+        readonly abort: AbortController;
+      }) => ({
+        startStagedStream: (stagedConfig: NonNullable<ReturnType<typeof readFleetEdgeConfig>>) => {
+          activeSyncController = new AbortController();
+          activeSyncTask = runFleetReplicaSync({
+            hostname: stagedConfig.host,
+            port: stagedConfig.port,
+            ca: readFileSync(stagedConfig.caPath),
+            ...(stagedConfig.servername ? { servername: stagedConfig.servername } : {}),
+            ...(stagedConfig.spkiSha256 ? { spkiSha256: stagedConfig.spkiSha256 } : {}),
+            ...(stagedConfig.spkiPinOnly ? { spkiPinOnly: true } : {}),
+            resumeOnly: stagedConfig.resumeOnly,
+            stagedRepointProbe: true,
+            nodeId: stagedConfig.nodeId,
+            credential: stagedConfig.credential,
+            repoId: stagedConfig.repoId,
+            viewRoot: stagedConfig.viewRoot,
+            diskQuotaBytes: stagedConfig.quotaBytes,
+            readAccessToken: owners.readAccessToken("edge-b34"),
+            signal: activeSyncController.signal,
+            onReplicaHealthChange: () => {
+              if (!interruptAfterSeq || interruptAfterSeq.abort.signal.aborted) return;
+              const currentSeq = readReplicaGeneration(viewDir)?.metadata.position.sequence ?? 0;
+              if (currentSeq > interruptAfterSeq.minExclusive && currentSeq < interruptAfterSeq.maxExclusive) {
+                interruptAfterSeq.abort.abort(new Error("simulated mid-stream interruption after B commit apply"));
+                activeSyncController?.abort();
+              }
+            },
+          });
+        },
+        abortStagedStream: async () => {
+          activeSyncController?.abort();
+          if (activeSyncTask) await activeSyncTask;
+          activeSyncController = null;
+          activeSyncTask = null;
+        },
+        commitStagedStream: () => undefined,
+      });
+
+      // F-B3467401 Subcase 1: Interrupt staged auto-repoint AFTER B's first page (writerEpoch = newEpochB) is durably
+      // applied to the active edge replica, BEFORE preflight watermark seqHeadB is confirmed!
+      const rawConfigA = readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"),
+        genBefore = readReplicaGeneration(viewDir)!.id,
+        interruptB = new AbortController();
+      await assert.rejects(
+        autoRepointFleetEdgeOnCenterMovedInsideFence({
+          userRoot: edgeUser,
+          workspaceRoot: edgeWorkspace,
+          repoId,
+          centerMoved: {
+            newExternalUrl: `https://127.0.0.1:${String(centerB.port)}`,
+            newLoginUrl: loginUrl,
+            newEpoch: newEpochB,
+            spkiSha256: `sha256:${spkiB}`,
+          },
+          repointStream: makeStreamHooks({ minExclusive: seqAfterA, maxExclusive: seqHeadB, abort: interruptB }),
+          readAccessToken: owners.readAccessToken("edge-b34"),
+          signal: interruptB.signal,
+          timeoutMs: 15_000,
+        }),
+        /simulated mid-stream interruption/u,
+      );
+      const seqAfterInterruptB = readReplicaGeneration(viewDir)!.metadata.position.sequence;
+      assert.ok(
+        seqAfterInterruptB > seqAfterA && seqAfterInterruptB < seqHeadB,
+        `Expected partial B apply (${String(seqAfterA)} < ${String(seqAfterInterruptB)} < ${String(seqHeadB)})`,
+      );
+      assert.equal(readEdgeLedgerEpoch(), newEpochB, "Active edge replica durably entered B's writer epoch");
+      assert.equal(
+        readFileSync(fleetEdgeConfigPath(edgeUser, repoId), "utf8"),
+        rawConfigA,
+        "fleet-edge.json still points to A",
+      );
+      const pendingB = readFleetEdgePendingRepoint(edgeUser, repoId);
+      assert.ok(pendingB, "Durable pending repoint anchor MUST be retained after target epoch apply");
+      assert.equal(pendingB.port, centerB.port);
+      assert.equal(pendingB.spkiSha256, spkiB);
+      assert.equal(pendingB.targetWriterEpoch, newEpochB);
+
+      // Negative controls after interruption: competing Center C at same epoch newEpochB MUST STILL be rejected by BOTH auto & manual repoint!
+      await assert.rejects(
+        autoRepointFleetEdgeOnCenterMovedInsideFence({
+          userRoot: edgeUser,
+          workspaceRoot: edgeWorkspace,
+          repoId,
+          centerMoved: {
+            newExternalUrl: `https://127.0.0.1:${String(centerC.port)}`,
+            newLoginUrl: loginUrl,
+            newEpoch: newEpochB,
+            spkiSha256: `sha256:${spkiC}`,
+          },
+          repointStream: makeStreamHooks(),
+          readAccessToken: owners.readAccessToken("edge-b34"),
+          timeoutMs: 10_000,
+        }),
+        { code: "center_moved_epoch_not_advanced" },
+      );
+      await assert.rejects(
+        repointFleetEdgeMirrorFenced(
+          {
+            userRoot: edgeUser,
+            workspaceRoot: edgeWorkspace,
+            payload: {
+              host: "127.0.0.1",
+              port: centerC.port,
+              caPath: edgeCaC,
+              servername: "localhost",
+              spkiSha256: spkiC,
+              nodeId: "edge-b34",
+              credential: "secret-edge-b34",
+              repoId,
+              timeoutMs: 10_000,
+            },
+          },
+          owners.readAccessToken("edge-b34"),
+          makeStreamHooks(),
+        ),
+        { code: "writer_epoch_not_advanced" },
+      );
+
+      // Positive control 1: Auto-repoint retry after interruption to the exact same legitimate target B SUCCEEDS!
+      const autoRecovered = await autoRepointFleetEdgeOnCenterMovedInsideFence({
+        userRoot: edgeUser,
+        workspaceRoot: edgeWorkspace,
+        repoId,
+        centerMoved: {
+          newExternalUrl: `https://127.0.0.1:${String(centerB.port)}`,
+          newLoginUrl: loginUrl,
+          newEpoch: newEpochB,
+          spkiSha256: `sha256:${spkiB}`,
+        },
+        repointStream: makeStreamHooks(),
+        readAccessToken: owners.readAccessToken("edge-b34"),
+        timeoutMs: 15_000,
+      });
+      assert.equal(autoRecovered.receipt.ok, true);
+      assert.equal(autoRecovered.receipt.basebackup, false);
+      assert.equal(readFleetEdgeConfig(edgeUser, repoId)?.port, centerB.port);
+      assert.equal(readFleetEdgeConfig(edgeUser, repoId)?.writerEpoch, newEpochB);
+      assert.equal(
+        readFleetEdgePendingRepoint(edgeUser, repoId),
+        null,
+        "Pending repoint anchor MUST be cleared on commit",
+      );
+      assert.equal(readReplicaGeneration(viewDir)?.id, genBefore, "Zero basebackup during interrupted staged recovery");
+      activeSyncController?.abort();
+      if (activeSyncTask) await activeSyncTask;
+      activeSyncController = null;
+      activeSyncTask = null;
+
+      // F-B3467401 Subcase 2: Advance to newEpochC = newEpochB + 1, interrupt mid-stream after C's first page applies,
+      // and verify MANUAL repointFleetEdgeMirrorFenced retry to the exact same legitimate target C SUCCEEDS!
+      await centerB.close();
+      centerB = null;
+      await centerC.close();
+      centerC = null;
+      await host.close();
+      host = await openDaemonHost({ daemonId: "center-b34-e3", userRoot: centerUser });
+      await host.attachmentsSettled();
+      const newEpochC = fleetHostWriterOptions(centerUser, [repoId]).writerEpochLease(repoId).epoch;
+      assert.ok(newEpochC > newEpochB);
+      const seqBeforeC = readReplicaGeneration(viewDir)!.metadata.position.sequence;
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId: "b34-c1", title: "Center C epoch commit 1" }, auth))
+          .outcome,
+        "applied",
+      );
+      const batchC = appendEpochBatch("b34-page-c", 300);
+      assert.equal(
+        (await host.run(repoId, { kind: "task-create", taskId: "b34-c2", title: "Center C final commit" }, auth))
+          .outcome,
+        "applied",
+      );
+      const seqHeadC = batchC.seqHead + 1;
+      centerC = await listenFleetTls({
+        host,
+        stateRoot: path.join(centerUser, "fleet"),
+        ...fleetHostWriterOptions(centerUser, [repoId]),
+        key: keyC,
+        cert: certC,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certC.toString("utf8"),
+        }),
+      });
+      const interruptC = new AbortController();
+      await assert.rejects(
+        repointFleetEdgeMirrorFenced(
+          {
+            userRoot: edgeUser,
+            workspaceRoot: edgeWorkspace,
+            payload: {
+              host: "127.0.0.1",
+              port: centerC.port,
+              caPath: edgeCaC,
+              servername: "localhost",
+              spkiSha256: spkiC,
+              nodeId: "edge-b34",
+              credential: "secret-edge-b34",
+              repoId,
+              timeoutMs: 15_000,
+            },
+          },
+          owners.readAccessToken("edge-b34"),
+          makeStreamHooks({ minExclusive: seqBeforeC, maxExclusive: seqHeadC, abort: interruptC }),
+          interruptC.signal,
+        ),
+        /simulated mid-stream interruption/u,
+      );
+      assert.equal(readEdgeLedgerEpoch(), newEpochC, "Replica durably entered C's epoch before interruption");
+      assert.equal(
+        readFleetEdgeConfig(edgeUser, repoId)?.writerEpoch,
+        newEpochB,
+        "fleet-edge.json still has B's epoch",
+      );
+      assert.equal(readFleetEdgePendingRepoint(edgeUser, repoId)?.targetWriterEpoch, newEpochC);
+
+      const manualRecovered = await repointFleetEdgeMirrorFenced(
+        {
+          userRoot: edgeUser,
+          workspaceRoot: edgeWorkspace,
+          payload: {
+            host: "127.0.0.1",
+            port: centerC.port,
+            caPath: edgeCaC,
+            servername: "localhost",
+            spkiSha256: spkiC,
+            nodeId: "edge-b34",
+            credential: "secret-edge-b34",
+            repoId,
+            timeoutMs: 15_000,
+          },
+        },
+        owners.readAccessToken("edge-b34"),
+        makeStreamHooks(),
+      );
+      assert.equal(manualRecovered.ok, true);
+      assert.equal(manualRecovered.basebackup, false);
+      assert.equal(readFleetEdgeConfig(edgeUser, repoId)?.port, centerC.port);
+      assert.equal(readFleetEdgeConfig(edgeUser, repoId)?.writerEpoch, newEpochC);
+      assert.equal(readFleetEdgePendingRepoint(edgeUser, repoId), null);
+      activeSyncController?.abort();
+      if (activeSyncTask) await activeSyncTask;
+      activeSyncController = null;
+      activeSyncTask = null;
+
+      // F-B3467404: Persist a legacy `resumeOnly: true` fleet-edge.json pointing at retiring Center A,
+      // restart a real resident daemon host, and verify it does NOT early-return on CENTER_MOVED and
+      // automatically repoints to Center C at newEpochD = newEpochC + 1!
+      await centerC.close();
+      centerC = null;
+      await host.close();
+      host = await openDaemonHost({ daemonId: "center-b34-e4", userRoot: centerUser });
+      await host.attachmentsSettled();
+      const newEpochD = fleetHostWriterOptions(centerUser, [repoId]).writerEpochLease(repoId).epoch;
+      assert.ok(newEpochD > newEpochC);
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            { kind: "task-create", taskId: "b34-d1", title: "Post-legacy-resumeOnly commit" },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      const revD = openSqliteEventStore({ rootInput: repoDir, repoId, readOnly: true });
+      const targetRevD = revD.revision();
+      revD.close();
+      centerC = await listenFleetTls({
+        host,
+        stateRoot: path.join(centerUser, "fleet"),
+        ...fleetHostWriterOptions(centerUser, [repoId]),
+        key: keyC,
+        cert: certC,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+        verifyReplica: (authCtx) =>
+          createIdentitySession(centerUser, { fetch: owners.keycloak.fetch }).bindReplica!(authCtx),
+        loginAuthority: (nodeId) => ({
+          url: loginUrl,
+          realm: "harness",
+          clientId: `harness-node-${nodeId}`,
+          servername: "localhost",
+          certificate: certB.toString("utf8"),
+        }),
+      });
+      const retiredRoot = path.join(root, "retired-old-a");
+      mkdirSync(retiredRoot, { recursive: true });
+      retireCenter({
+        userRoot: retiredRoot,
+        repoId,
+        oldEpoch: newEpochD - 1,
+        finalRevision: targetRevD,
+        tipHash: `sha256:${"c".repeat(64)}`,
+        newExternalUrl: `https://127.0.0.1:${String(centerC.port)}`,
+        newLoginUrl: loginUrl,
+        spkiSha256: `sha256:${spkiC}`,
+      });
+      centerA = await listenFleetTls({
+        host,
+        stateRoot: path.join(retiredRoot, "fleet"),
+        relocationRoot: retiredRoot,
+        centerRepoId: repoId,
+        ...fleetHostWriterOptions(centerUser, [repoId]),
+        key: keyA,
+        cert: certA,
+        hostname: "127.0.0.1",
+        port: 0,
+        replicaDiskQuotaBytes: 64 * 1024 * 1024,
+        authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
+      });
+      writeFleetEdgeConfig(edgeUser, repoId, {
+        repoId,
+        host: "127.0.0.1",
+        port: centerA.port,
+        caPath: edgeCaA,
+        servername: "localhost",
+        trustAnchors: { spkiSha256: [spkiC] },
+        nodeId: "edge-b34",
+        credential: "secret-edge-b34",
+        writerEpoch: newEpochC,
+        resumeOnly: true,
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+      });
+      owners.signIn(edgeUser, "edge-b34");
+      const lifecycleEvents: unknown[] = [];
+      edgeHost = await openDaemonHost({
+        daemonId: "edge-b34-legacy-resume",
+        userRoot: edgeUser,
+        recordLifecycle: (event) => lifecycleEvents.push(event),
+      });
+      await edgeHost.attachmentsSettled();
+      await waitForFleetReplicaRevision(
+        { viewRoot, repoId, nodeId: "edge-b34" },
+        targetRevD,
+        AbortSignal.timeout(20_000),
+      ).catch((error) => {
+        throw new Error(
+          `Legacy resumeOnly auto-repoint did not reach rev ${String(targetRevD)}: ${error instanceof Error ? error.message : String(error)}; health=${JSON.stringify(readReplicaHealth(viewDir))}; config=${JSON.stringify(readFleetEdgeConfig(edgeUser, repoId))}; lifecycle=${JSON.stringify(lifecycleEvents)}`,
+        );
+      });
+      const finalEdgeConfig = readFleetEdgeConfig(edgeUser, repoId);
+      assert.equal(
+        finalEdgeConfig?.port,
+        centerC.port,
+        "Legacy resumeOnly:true resident edge MUST follow CENTER_MOVED",
+      );
+      assert.equal(finalEdgeConfig?.writerEpoch, newEpochD);
+      assert.equal(finalEdgeConfig?.resumeOnly, undefined, "Auto-repoint commit clears legacy resumeOnly flag");
+      assert.equal(readReplicaGeneration(viewDir)?.id, genBefore, "Zero basebackup on legacy resumeOnly auto-repoint");
+    } finally {
+      activeSyncController?.abort();
+      if (activeSyncTask) await activeSyncTask;
+      if (edgeHost) await edgeHost.close();
+      if (centerC) await centerC.close();
+      if (centerB) await centerB.close();
+      if (centerA) await centerA.close();
+      if (host) await host.close();
       await owners.close();
       closeSqliteEventStoresUnder(root);
       removeTempRepository(root);

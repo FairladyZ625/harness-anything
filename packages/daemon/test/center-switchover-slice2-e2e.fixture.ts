@@ -12,7 +12,6 @@ import {
   readManagedRbacRelocationBundle,
   writeManagedRbacRelocationBundle,
 } from "@harness-anything/authorization/keycloak";
-import { actionDeclarations } from "@harness-anything/kernel";
 import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 import {
   closeSqliteEventStoresUnder,
@@ -24,7 +23,11 @@ import {
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
-import { fleetEdgeConfigPath, readFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import {
+  fleetEdgeConfigPath,
+  readFleetEdgeConfig,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
 import { localUserDaemonEndpoint } from "../src/daemon-host/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { autoRepointFleetEdgeOnCenterMovedInsideFence } from "../src/daemon-host/fleet-edge-auto-repoint.ts";
@@ -940,6 +943,17 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     for (const id of ["node-a-sym", "node-c-rbac", "node-f-stale"]) {
       nodeA.owners.reassign(id, "person-one");
     }
+    // F-B3467403: Register a narrowly-scoped principal on Center A's actual authorization store:
+    // granted `repository-read` + `task-create`, explicitly NOT granted `task-start`.
+    nodeA.owners.keycloak.account("person-scoped");
+    nodeA.owners.keycloak.permit("person-scoped", repoId, ["repository-read", "task-create"]);
+    nodeA.owners.keycloak.node("node-scoped", "person-scoped");
+    nodeA.owners.keycloak.interactiveSession(
+      "person-scoped",
+      "node-scoped",
+      nodeA.owners.url,
+      "device-token-node-scoped",
+    );
     prepareCenterSymmetricIdentity(nodeA.userRoot, {
       repoId,
       nodeId: "node-a-sym",
@@ -952,6 +966,37 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       (await nodeA.command("center-node", { kind: "task-create", taskId: "m2-t1", title: "Task 1" })).outcome,
       "applied",
     );
+    // Verify the scoped principal's real allowed & denied policy decisions on Center A BEFORE export/switchover!
+    const runCommandOnCenterA = (taskId: string, action: Record<string, unknown>, nodeId: string) =>
+      runFleetTaskCommandClient({
+        hostname: "127.0.0.1",
+        port: nodeA.center.port,
+        ca: readFileSync(path.join(nodeA.root, "tls.crt")),
+        servername: "localhost",
+        nodeId,
+        credential: `secret-${nodeId}`,
+        readAccessToken: async () => `device-token-${nodeId}`,
+        opId: randomUUID(),
+        repoId,
+        taskId,
+        action: action as never,
+        waitMs: 10_000,
+      });
+    const scopedAllowedOnA = await runCommandOnCenterA(
+      "m2-scoped-a",
+      { kind: "task-create", taskId: "m2-scoped-a", title: "Scoped principal allowed on A" },
+      "node-scoped",
+    );
+    assert.equal(scopedAllowedOnA.outcome, "applied", JSON.stringify(scopedAllowedOnA));
+    const revBeforeScopedDeniedOnA = readRepoRevision(nodeA.repo, repoId);
+    const scopedDeniedOnA = await runCommandOnCenterA(
+      "m2-scoped-a",
+      { kind: "task-start", taskId: "m2-scoped-a", executionId: "exe-scoped-denied-a" },
+      "node-scoped",
+    );
+    assert.equal(scopedDeniedOnA.outcome, "op_rejected", JSON.stringify(scopedDeniedOnA));
+    assert.equal(scopedDeniedOnA.code, "authorization_denied", JSON.stringify(scopedDeniedOnA));
+    assert.equal(readRepoRevision(nodeA.repo, repoId), revBeforeScopedDeniedOnA);
     const rev1 = readRepoRevision(nodeA.repo, repoId);
 
     // Candidate B + Online Edge C (will follow RBAC relocation) + Edge F (will go offline & fall beyond default 1024 window).
@@ -1045,8 +1090,9 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       `Expected Edge F lag > ${String(DEFAULT_REPLICA_LOG_WINDOW_COMMITS)}, got ${String(seqCandidateB - seqEdgeFOffline)}`,
     );
 
-    // F-26862505: Export A's real RBAC state into ManagedRbacRelocationBundle and stand up a brand-new,
-    // completely independent identity backend (ownersB) initialized solely by importing the bundle!
+    // F-26862505 & F-B3467403: Export A's ACTUAL accounts, node credentials, and authorization policies directly
+    // from nodeA.owners.keycloak (zero hardcoded action lists or B-only accounts) into ManagedRbacRelocationBundle,
+    // and initialize a completely independent empty identity backend (ownersB) strictly from that bundle!
     const exportedNodes = [...nodeA.owners.keycloak.nodeClients.values()].map((client) => {
       const device = JSON.parse(client.attributes.harness_device) as {
         readonly nodeId: string;
@@ -1062,13 +1108,33 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
         revocation: device.revocation,
       };
     });
-    const exportedAccounts = ["person-one", "person-center", "lease-owner"];
-    const everyAction = actionDeclarations.map((declaration) => declaration.kind);
-    const exportedGrants = [
-      { personId: "person-one", repoId, actions: everyAction },
-      { personId: "person-center", repoId, actions: everyAction },
-      { personId: "lease-owner", repoId, actions: everyAction },
+    const exportedAccounts = [
+      ...new Set(
+        [...nodeA.owners.keycloak.users.values()]
+          .map((user) => user.attributes.harness_person_id?.[0])
+          .filter((personId): personId is string => typeof personId === "string" && personId.length > 0),
+      ),
     ];
+    const exportedGrants: Array<{
+      readonly personId: string;
+      readonly repoId: string;
+      readonly actions: readonly string[];
+    }> = [];
+    for (const permission of nodeA.owners.keycloak.permissions.values()) {
+      const resourceNames = permission.resources
+        .map((resourceId) => nodeA.owners.keycloak.resources.get(resourceId)?.name)
+        .filter((name): name is string => typeof name === "string");
+      const personIds = permission.policies
+        .flatMap((policyId) => nodeA.owners.keycloak.userPolicies.get(policyId)?.users ?? [])
+        .map((userId) => nodeA.owners.keycloak.users.get(userId)?.attributes.harness_person_id?.[0])
+        .filter((personId): personId is string => typeof personId === "string");
+      for (const personId of personIds) {
+        for (const resourceName of resourceNames) {
+          exportedGrants.push({ personId, repoId: resourceName, actions: [...permission.scopes] });
+        }
+      }
+    }
+    assert.ok(exportedGrants.length > 0, "Center A authorization store must export non-empty live policies");
     writeManagedRbacRelocationBundle(rbacBundleDir, {
       realm: "harness",
       realmJson: JSON.stringify({
@@ -1088,6 +1154,7 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     const ownersB = await serveKeycloak();
     t.after(() => ownersB.close());
     assert.equal(ownersB.keycloak.nodeClients.size, 0, "Fresh B identity backend MUST start empty before import");
+    assert.equal(ownersB.keycloak.permissions.size, 0, "Fresh B identity backend MUST start with zero policies");
 
     const relocatedRbacBundle = readManagedRbacRelocationBundle(rbacBundleDir);
     assert.equal(relocatedRbacBundle.realm, "harness");
@@ -1114,15 +1181,6 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       client.secret = node.secret;
       ownersB.keycloak.interactiveSession(node.personId, node.nodeId, ownersB.url, `b-device-token-${node.nodeId}`);
     }
-    // Add an ungranted principal strictly on B to verify real authorization enforcement after migration.
-    ownersB.keycloak.account("person-ungranted");
-    ownersB.keycloak.node("node-ungranted", "person-ungranted");
-    ownersB.keycloak.interactiveSession(
-      "person-ungranted",
-      "node-ungranted",
-      ownersB.url,
-      "b-device-token-node-ungranted",
-    );
 
     const newLoginProxy = await listenLoginProxy(t, {
       key: certB.key,
@@ -1367,8 +1425,9 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       }),
     );
 
-    // 2) Authorized command on Center B using ownersB's fresh token succeeds and replicates to Edge C!
-    const writeOnCenterB = (taskId: string, title: string, nodeId = "center-node") =>
+    // 2) F-B3467403: Verify the EXACT SAME migrated scoped principal (`person-scoped` / `node-scoped`) on Center B
+    // after A, oldLoginProxy, and nodeA.owners are ALL stopped: allowed action succeeds & replicates, restricted action is denied!
+    const runCommandOnCenterB = (taskId: string, action: Record<string, unknown>, nodeId = "center-node") =>
       runFleetTaskCommandClient({
         hostname: "127.0.0.1",
         port: portB,
@@ -1380,11 +1439,15 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
         opId: randomUUID(),
         repoId,
         taskId,
-        action: { kind: "task-create", taskId, title } as never,
+        action: action as never,
         waitMs: 10_000,
       });
-    const t7 = await writeOnCenterB("m2-t7", "Task 7 authorized by independent B RBAC");
-    assert.equal(t7.outcome, "applied", JSON.stringify(t7));
+    const scopedAllowedOnB = await runCommandOnCenterB(
+      "m2-scoped-b",
+      { kind: "task-create", taskId: "m2-scoped-b", title: "Scoped principal allowed on B after RBAC migration" },
+      "node-scoped",
+    );
+    assert.equal(scopedAllowedOnB.outcome, "applied", JSON.stringify(scopedAllowedOnB));
     const rev7 = readRepoRevision(edgeB.edgeRoot, repoId);
     await waitForFleetReplicaRevision(
       { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
@@ -1392,32 +1455,43 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       AbortSignal.timeout(30_000),
     );
 
-    // 3) Ungranted principal on independent ownersB is denied by Center B!
-    const deniedWrite = await writeOnCenterB("m2-t-denied", "Must be denied on B", "node-ungranted");
-    assert.equal(deniedWrite.outcome, "op_rejected", JSON.stringify(deniedWrite));
-    assert.equal(deniedWrite.code, "authorization_denied", JSON.stringify(deniedWrite));
-    assert.equal(readRepoRevision(edgeB.edgeRoot, repoId), rev7, "Denied write MUST NOT advance Center B revision");
+    // 3) Restricted action (`task-start`) for the EXACT SAME migrated scoped principal MUST remain denied on Center B!
+    const scopedDeniedOnB = await runCommandOnCenterB(
+      "m2-scoped-b",
+      { kind: "task-start", taskId: "m2-scoped-b", executionId: "exe-scoped-denied-b" },
+      "node-scoped",
+    );
+    assert.equal(scopedDeniedOnB.outcome, "op_rejected", JSON.stringify(scopedDeniedOnB));
+    assert.equal(scopedDeniedOnB.code, "authorization_denied", JSON.stringify(scopedDeniedOnB));
+    assert.equal(readRepoRevision(edgeB.edgeRoot, repoId), rev7, "Denied action MUST NOT advance Center B revision");
 
-    // F-26862506: Expose restartedHostF on its real local Unix socket and invoke REAL CLI
-    // `ha daemon fleet edge repoint` (without and with `--allow-basebackup`)!
-    // Sign the operator into the relocated independent B identity backend before invoking manual CLI repoint.
+    // F-26862506 & F-B3467402: Expose restartedHostF on its real local Unix socket and invoke REAL CLI
+    // `ha daemon fleet edge repoint` (without and with `--allow-basebackup`, including legacy `resumeOnly: true` state)!
     oidcCenterSelections(edgeFStale.edgeUser).clearAll();
     ownersB.bind(edgeFStale.edgeUser);
     signInAt(edgeFStale.edgeUser, "person-one", [], "b-device-token-node-f-stale");
-    const cliSocketServer = createUnixSocketTransportServer({
-      daemonId: "edge-f-restarted",
-      socketPath: localUserDaemonEndpoint(edgeFStale.edgeUser, "edge-f-restarted"),
-      createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({
-          host: restartedHostF,
-          build: daemonBuildStamp(),
-          authContext,
-          sessionPrincipal: (method, params) => restartedHostF.sessionPrincipal(authContext, method, params),
-          emit,
-        }),
+    const startEdgeFCliSocket = async (hostInstance: Awaited<ReturnType<typeof openDaemonHost>>) => {
+      const server = createUnixSocketTransportServer({
+        daemonId: "edge-f-restarted",
+        socketPath: localUserDaemonEndpoint(edgeFStale.edgeUser, "edge-f-restarted"),
+        createProtocolServer: (authContext, emit) =>
+          createJsonRpcProtocolServer({
+            host: hostInstance,
+            build: daemonBuildStamp(),
+            authContext,
+            sessionPrincipal: (method, params) => hostInstance.sessionPrincipal(authContext, method, params),
+            emit,
+          }),
+      });
+      await server.start();
+      return server;
+    };
+    let activeHostF: Awaited<ReturnType<typeof openDaemonHost>> | null = restartedHostF,
+      activeSocketF: Awaited<ReturnType<typeof startEdgeFCliSocket>> | null = await startEdgeFCliSocket(restartedHostF);
+    t.after(async () => {
+      if (activeSocketF) await activeSocketF.stop();
+      if (activeHostF && activeHostF !== restartedHostF) await activeHostF.close();
     });
-    await cliSocketServer.start();
-    t.after(() => cliSocketServer.stop());
 
     const runRepointCli = async (extraArgs: readonly string[]) => {
       const cliArgs = [
@@ -1482,7 +1556,45 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
     assert.equal(basebackups.starts(), 0, "Default CLI repoint MUST NOT trigger basebackup");
     assert.deepEqual(basebackups.repos(), [], "Default CLI repoint MUST NOT trigger basebackup");
 
-    // Positive Control (REAL CLI): `ha daemon fleet edge repoint --allow-basebackup` rebuilds cleanly!
+    // F-B3467402: Simulate a legacy pre-upgrade interrupted repoint leaving `resumeOnly: true` for target B on disk,
+    // restart Edge F's daemon host, and prove REAL CLI `ha daemon fleet edge repoint --allow-basebackup` does NOT
+    // fall back to legacy `resumeOnly: true` and completes basebackup rebuild cleanly!
+    await activeSocketF.stop();
+    activeSocketF = null;
+    await restartedHostF.close();
+    activeHostF = null;
+    const legacyConfigF = readFleetEdgeConfig(edgeFStale.edgeUser, repoId)!;
+    writeFleetEdgeConfig(edgeFStale.edgeUser, repoId, {
+      ...legacyConfigF,
+      host: "127.0.0.1",
+      port: portB,
+      caPath: cluster.caCertPath,
+      servername: "localhost",
+      spkiSha256: certB.spkiSha256,
+      writerEpoch: refreshedEdgeC!.writerEpoch,
+      resumeOnly: true,
+    });
+    const rawLegacyConfigF = readFileSync(fleetEdgeConfigPath(edgeFStale.edgeUser, repoId), "utf8");
+    activeHostF = await openDaemonHost({
+      daemonId: "edge-f-restarted",
+      userRoot: edgeFStale.edgeUser,
+      oidc: createIdentitySession(edgeFStale.edgeUser, { fetch: ownersB.keycloak.fetch }),
+    });
+    await activeHostF.attachmentsSettled();
+    activeSocketF = await startEdgeFCliSocket(activeHostF);
+
+    // Even from legacy resumeOnly:true config, CLI without --allow-basebackup MUST still refuse silent basebackup!
+    const legacyCliRefused = await runRepointCli([]);
+    assert.notEqual(legacyCliRefused.exitCode, 0, `${legacyCliRefused.stdout} ${legacyCliRefused.stderr}`);
+    assert.match(`${legacyCliRefused.stdout}\n${legacyCliRefused.stderr}`, /replication_resume_unavailable/u);
+    assert.equal(readFileSync(fleetEdgeConfigPath(edgeFStale.edgeUser, repoId), "utf8"), rawLegacyConfigF);
+    assert.equal(
+      basebackups.starts(),
+      0,
+      "Legacy resumeOnly config without --allow-basebackup MUST NOT trigger basebackup",
+    );
+
+    // Positive Control (REAL CLI from legacy resumeOnly:true): `--allow-basebackup` MUST override legacy resumeOnly & rebuild!
     const cliRebuilt = await runRepointCli(["--allow-basebackup"]);
     assert.equal(cliRebuilt.exitCode, 0, `${cliRebuilt.stdout}\n${cliRebuilt.stderr}`);
     const cliReceipt = JSON.parse(cliRebuilt.stdout.trim()) as {
@@ -1499,14 +1611,20 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
       "Stale edge installed new basebackup generation via CLI",
     );
     assert.equal(readReplicaGeneration(viewDirF)?.metadata.position.revision, rev7);
-    assert.equal(readFleetEdgeConfig(edgeFStale.edgeUser, repoId)?.port, portB);
-    assert.equal(readFleetEdgeConfig(edgeFStale.edgeUser, repoId)?.loginUrl, newLoginProxy.url);
-    assert.deepEqual(readFleetEdgeConfig(edgeFStale.edgeUser, repoId)?.trustAnchors, {
+    const rebuiltConfigF = readFleetEdgeConfig(edgeFStale.edgeUser, repoId);
+    assert.equal(rebuiltConfigF?.port, portB);
+    assert.equal(rebuiltConfigF?.resumeOnly, undefined, "CLI --allow-basebackup rebuild MUST clear legacy resumeOnly");
+    assert.equal(rebuiltConfigF?.loginUrl, newLoginProxy.url);
+    assert.deepEqual(rebuiltConfigF?.trustAnchors, {
       caPaths: [cluster.caCertPath],
     });
 
     // Subsequent incremental commit on B replicates normally to rebuilt Edge F!
-    const t8 = await writeOnCenterB("m2-t8", "Task 8 after CLI rebuild");
+    const t8 = await runCommandOnCenterB("m2-t8", {
+      kind: "task-create",
+      taskId: "m2-t8",
+      title: "Task 8 after CLI rebuild",
+    });
     assert.equal(t8.outcome, "applied", JSON.stringify(t8));
     const rev8 = readRepoRevision(edgeB.edgeRoot, repoId);
     await waitForFleetReplicaRevision(
