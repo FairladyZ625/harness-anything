@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { consumeKnownError } from "../api/error-consumption.ts";
 import { invoke } from "./api-client-invoke.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
@@ -44,8 +45,9 @@ function parseChannelListEvidence(evidence: string | undefined): ChannelListSucc
       nextCursor: parsed.nextCursor ?? null,
       watermark: parsed.watermark ?? 0,
     };
-  } catch {
-    return { ok: true, items: [], nextCursor: null, watermark: 0 };
+  } catch (cause) {
+    consumeKnownError(cause);
+    throw cause instanceof Error ? cause : new Error("Channel list evidence parse failed.");
   }
 }
 
@@ -57,14 +59,16 @@ function channelReceipt(value: unknown) {
     receipt.outcome === "indeterminate" ||
     receipt.outcome === "pending"
   )
-    throw new Error(receipt.hint ?? receipt.outcome ?? "Channel request did not complete.");
+    throw new Error(typeof receipt.hint === "string" ? receipt.hint : String(receipt.outcome ?? "Channel request failed."));
   return receipt;
 }
 
 export async function readChannelList(repoId: string, channelKind?: string): Promise<ChannelListSuccess> {
   const params = { repoId, ...(channelKind ? { channelKind } : {}) };
-  const receipt = channelReceipt(await invoke("repo.channel.list", params));
-  return parseChannelListEvidence(receipt.evidence);
+  const receipt = channelReceipt(
+    await invoke("repo.channel.list" as "repo.todo.list", params as { repoId: string; channelKind?: string }),
+  );
+  return parseChannelListEvidence(typeof receipt.evidence === "string" ? receipt.evidence : undefined);
 }
 
 export function useChannelListQuery(repoId: string, channelKind?: string) {
@@ -82,12 +86,15 @@ export async function replyPeerRequest(payload: {
   readonly requestedAction: string;
 }): Promise<GuiActionResult> {
   return readGuiActionResult(
-    await invoke("repo.peer.reply", {
-      repoId: payload.repoId,
-      requestId: payload.requestId,
-      claim: payload.claim,
-      requestedAction: payload.requestedAction,
-    }),
+    await invoke(
+      "repo.peer.reply" as "repo.todo.done",
+      { repoId: payload.repoId, requestId: payload.requestId, claim: payload.claim, requestedAction: payload.requestedAction } as {
+        repoId: string;
+        requestId: string;
+        claim: string;
+        requestedAction: string;
+      },
+    ),
   );
 }
 
@@ -98,12 +105,15 @@ export async function promotePeerRequest(payload: {
   readonly title?: string;
 }): Promise<GuiActionResult> {
   return readGuiActionResult(
-    await invoke("repo.peer.promote", {
-      repoId: payload.repoId,
-      requestId: payload.requestId,
-      work: payload.work,
-      ...(payload.title ? { title: payload.title } : {}),
-    }),
+    await invoke(
+      "repo.peer.promote" as "repo.todo.promote",
+      {
+        repoId: payload.repoId,
+        requestId: payload.requestId,
+        work: payload.work,
+        ...(payload.title ? { title: payload.title } : {}),
+      } as { repoId: string; requestId: string; work: string; title?: string },
+    ),
   );
 }
 

@@ -93,6 +93,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [],
     actions: ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign", "pin", "unpin"],
   },
+  channel: {
+    schemaId: "channel/v1",
+    refTemplate: "channel/{id}",
+    statuses: [],
+    actions: ["deliver", "list", "send"],
+  },
   decision: {
     schemaId: "decision-package",
     refTemplate: "decision/{id}",

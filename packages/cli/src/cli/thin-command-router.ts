@@ -31,7 +31,6 @@ type RoutedParser = (
 ) => ThinParseResult;
 
 type SuccessfulFlags = Extract<ReturnType<typeof readFlags>, { ok: true }>;
-
 const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
   parseProvider(route, args, rootDir, json, inputs);
 
