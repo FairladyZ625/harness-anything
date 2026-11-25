@@ -111,6 +111,8 @@ export interface DocReadInput {
     readonly actor: ActorIdentity;
     readonly source: WriteSource;
     readonly executionPrincipal?: DocReadExecutionPrincipal;
+    /** Set by stateless cloud read hosts after OIDC repository-read authorization (not a local writer). */
+    readonly repositoryReadAuthorized?: boolean;
   };
   readonly rootDir: string;
   readonly store: Pick<
@@ -244,9 +246,10 @@ export function readDocAction(input: DocReadInput, ports: DocReadPorts = {}): Wr
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
   const current = input.store.currentCut(),
     lease = null;
-  // Dispatch credentials grant repository-wide read visibility; task lease checks remain for
-  // ordinary node reads without an execution principal.
-  const scope = input.binding.executionPrincipal ? [] : scopeTouches(input, paths);
+  // Dispatch credentials and stateless cloud repository-read grants provide repository-wide
+  // read visibility; task lease checks remain for ordinary node reads without either.
+  const scope =
+    input.binding.executionPrincipal || input.binding.repositoryReadAuthorized ? [] : scopeTouches(input, paths);
   if (scope.length)
     return rejectDocSyncAction(
       `read:${input.action.kind}:${current.headDigest}`,

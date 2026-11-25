@@ -184,7 +184,8 @@ export function createCloudDomainRoutes(
             },
             binding: {
               actor: { principal: { personId }, executor: null },
-              source: "local",
+              source: "remote_direct",
+              repositoryReadAuthorized: true,
             },
             rootDir: statelessRoot,
             store,
