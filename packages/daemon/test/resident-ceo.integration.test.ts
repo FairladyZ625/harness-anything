@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +10,7 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { eventuallyValue, initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { evidence } from "./task-surface.fixtures.ts";
 
@@ -122,6 +123,117 @@ test(
       assert.equal(senderView.request.reply?.structuredBody.claim, "codex final result");
     } finally {
       await host.close();
+      removeTempRepository(parent);
+    }
+  },
+);
+
+test(
+  "resident CEO restart restore waits for managed RBAC resume without consulting a resuming center",
+  { timeout: 60_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-ceo-restore-")),
+      rootDir = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      argsPath = path.join(parent, "provider-args.json"),
+      repoId = "resident-ceo-restore",
+      installation = {
+        installationId: "resident-ceo-restore-codex",
+        kindId: "codex" as const,
+        executablePath: writeProviderStub(path.join(parent, "codex.mjs"), "codex", argsPath),
+        version: "codex-cli 0.159.1",
+        observedAt: new Date().toISOString(),
+      };
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    const firstHost = await openDaemonHost({ daemonId: repoId, userRoot, runtimeDiscover: () => [installation] });
+    try {
+      await firstHost.attachmentsSettled();
+      await registerFixtureRuntimeInstance(firstHost, repoId, auth, {
+        instanceId: "codex-provider",
+        name: "Resident CEO Restore Codex fixture",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["test-model"],
+        authMode: "subscription",
+        codex: {},
+      });
+      const bobAuth = {
+        ...auth,
+        oidcPrincipal: await firstHost.sessionPrincipal(auth, "repo.residentCeo.status", {
+          repo: { repoId },
+          payload: {},
+        }),
+      };
+      const config = await rpc(firstHost, bobAuth, "repo.residentCeo.config", {
+        repo: { repoId },
+        payload: { runtimeInstanceId: "codex-provider", model: "test-model", heartbeatIntervalSec: 300 },
+      });
+      assert.equal(config.ok, true, JSON.stringify(config));
+      const started = await rpc(firstHost, bobAuth, "repo.residentCeo.start", { repo: { repoId }, payload: {} });
+      assert.equal(started.ok, true, JSON.stringify(started));
+    } finally {
+      await firstHost.close();
+    }
+
+    let ready = false,
+      requests = 0;
+    const sockets = new Set<net.Socket>(),
+      upstreamUrl = (await policyTestCenter()).url,
+      server = net.createServer((socket) => {
+        sockets.add(socket);
+        socket.once("close", () => sockets.delete(socket));
+        socket.on("error", () => undefined);
+        if (!ready) {
+          requests += 1;
+          socket.end("HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\n\r\n");
+          return;
+        }
+        const upstream = net.connect(Number(new URL(upstreamUrl).port), "127.0.0.1");
+        sockets.add(upstream);
+        upstream.once("close", () => sockets.delete(upstream));
+        upstream.on("error", () => socket.destroy());
+        socket.pipe(upstream);
+        upstream.pipe(socket);
+      });
+    server.unref();
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const gatedUrl = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+    writeFileSync(path.join(userRoot, "rbac/config.json"), JSON.stringify({ url: gatedUrl, realm: "harness" }));
+    let releaseResume!: () => void;
+    const resumeGate = new Promise<void>((done) => {
+      releaseResume = done;
+    });
+    const restartedHost = await openDaemonHost({
+      daemonId: repoId,
+      userRoot,
+      runtimeDiscover: () => [installation],
+      managedRbac: { run: async () => ({ ok: true }), resume: () => resumeGate, stop: async () => ({ ok: true }) },
+    });
+    try {
+      await restartedHost.attachmentsSettled();
+      for (let turn = 0; turn < 20; turn += 1) await new Promise((done) => setImmediate(done));
+      assert.equal(requests, 0, "resident CEO restore must wait for managed RBAC resume before consulting the center");
+      ready = true;
+      releaseResume();
+      const aliceAuth = {
+        ...auth,
+        oidcPrincipal: await restartedHost.sessionPrincipal(auth, "repo.residentCeo.status", {
+          repo: { repoId },
+          payload: {},
+        }),
+      };
+      const status = await rpc(restartedHost, aliceAuth, "repo.residentCeo.status", { repo: { repoId }, payload: {} });
+      assert.equal(status.ok, true, JSON.stringify(status));
+      assert.equal((status.profile as { status: string }).status, "running");
+    } finally {
+      ready = true;
+      releaseResume();
+      await restartedHost.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((done) => server.close(() => done()));
       removeTempRepository(parent);
     }
   },

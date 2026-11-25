@@ -170,6 +170,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-types.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly oidc: import("@harness-anything/kernel").IdentitySessionPort;
+  readonly ensureRbacResumed?: () => Promise<void>;
   readonly accessAdmin: import("./access-admin-service.ts").AccessAdminService;
   readonly localOnly: typeof import("./daemon-host-status.ts").localOnly;
   readonly settleWarming: (repoId: string) => void;

@@ -878,10 +878,11 @@ export async function scheduleFallbackContinuation(args: {
           );
         } catch (error) {
           consumeKnownError(error);
-          // Closing the local slot queue does not settle the accepted provider continuation.
-          if (runtimeErrorCode(error) === "RUNTIME_CLOSING") return;
-          const errorCode = runtimeErrorCode(error),
-            superseded = errorCode === "review_cut_superseded",
+          const errorCode = runtimeErrorCode(error);
+          // Closing the local slot queue or daemon writer does not settle the accepted provider continuation.
+          if (context.closed?.() || signal?.aborted || errorCode === "RUNTIME_CLOSING" || errorCode === "daemon_closed")
+            return;
+          const superseded = errorCode === "review_cut_superseded",
             reason = String(
               scrubProviderValue(
                 superseded

@@ -1138,6 +1138,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakSession,
     triggerCenterReviewFallback,
     oidc,
+    ensureRbacResumed,
     loginListenerCertificate: () => managedRbac.loginListenerCertificate(),
     get accessAdmin() {
       return accessAdminRef.current!;
@@ -1251,7 +1252,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
-  const { restoreResidentCeos, ...runtimeApi } = createDaemonHostRuntimeApi(hostContext);
+  const { restoreResidentCeos, closeResidentCeos, ...runtimeApi } = createDaemonHostRuntimeApi(hostContext);
   void ensureRbacResumed().catch(consumeKnownError);
   identityReadiness.start();
   const edgeJoinProgress = createEdgeJoinProgressTap();
@@ -1615,6 +1616,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ["auto-claim.close", () => autoClaimLoop.close()],
         ["auto-dispatch.close", () => autoDispatchLoop.close()],
         ["center-review-fallback.close", () => centerReviewLoop.close()],
+        ["resident-ceo.close", () => closeResidentCeos()],
         ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
         ["runtime-discovery.close", () => discoveryInFlight?.catch(consumeKnownError) ?? Promise.resolve()],
         [
@@ -1972,11 +1974,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     return waitForWarmingImpl(extracted, repoId);
   }
   function startInitialAttachments(): Promise<void> {
-    return startInitialAttachmentsImpl(extracted).then(async () => {
+    return startInitialAttachmentsImpl(extracted).then(() => {
       initialAttachmentsSettled = true;
       if (closing) return;
       startReplicaSyncs();
-      await restoreResidentCeos().catch(consumeKnownError);
+      restoreResidentCeos();
       return scheduleScheduler.start();
     });
   }
