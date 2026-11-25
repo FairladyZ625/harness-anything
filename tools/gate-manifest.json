@@ -99,6 +99,7 @@
         "scan-forbidden-symbols",
         "check-self-repo-path-literals",
         "check-test-temp-cleanup",
+        "check-windows-portability",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -158,6 +159,7 @@
         "scan-forbidden-symbols",
         "check-self-repo-path-literals",
         "check-test-temp-cleanup",
+        "check-windows-portability",
         "check-integrity-single-source",
         "check-private-boundary",
         "check-integration-test-shards",
@@ -178,7 +180,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 47
+      "harnessLeafGateCount": 48
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -3012,6 +3014,69 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/check-test-temp-cleanup.test.mjs"]
+      }
+    },
+    {
+      "id": "check-windows-portability",
+      "command": "npm run harness:check-windows-portability",
+      "failureHint": "Avoid hardcoded /tmp/*.sock paths, pass shell or use cmdShellInvocation for .cmd/npm sync spawns, and guard 0o600/0o700 mode assertions with process.platform !== 'win32'.",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/**",
+        "tools/**"
+      ],
+      "authoritySource": [
+        "task_60653ee4139523060fac49b667",
+        "tools/check-windows-portability.mjs",
+        "tools/gate-allowlists/check-windows-portability.json"
+      ],
+      "consumerScope": [
+        "hardcoded /tmp/*.sock literals, unguarded spawnSync/execFileSync of .cmd/npm shims, and unguarded 0o600/0o700 mode assertions across packages/** and tools/**"
+      ],
+      "githubContext": {
+        "requiredContexts": ["quick-gates"],
+        "workflowJobs": ["quick-gates"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-windows-portability.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Pre-existing legacy test occurrences are frozen by exact file count; zero growth is allowed and stale entries fail closed."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-windows-portability.mjs",
+          "tools/gate-allowlists/check-windows-portability.json",
+          "package.json:scripts.harness:check-windows-portability",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-windows-portability"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["quick-gates"],
+          "nonPullRequestJobs": ["full-check", "quick-gates"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["quick-gates"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/check-windows-portability.test.mjs"]
       }
     },
     {

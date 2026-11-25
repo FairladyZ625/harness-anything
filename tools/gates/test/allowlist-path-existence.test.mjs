@@ -137,3 +137,26 @@ test("B13 audits integration over-budget exceptions as live test paths", () => {
   assert.equal(refs.length, 0);
   assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
 });
+
+test("B13 audits check-windows-portability frozen baseline paths and task citation", () => {
+  assert.deepEqual(allowlistJsonPolicies["check-windows-portability.json"], {
+    pathSections: {
+      hardcodedTmpSock: "path",
+      unguardedCmdSpawn: "path",
+      unguardedPosixModeAssertion: "path",
+    },
+    nonPathSections: [],
+  });
+  assert.ok(EVIDENCE_INDEX.tasks.includes("task_60653ee4139523060fac49b667"));
+  const allowlist = JSON.parse(
+    readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-windows-portability.json"), "utf8"),
+  );
+  const refs = Object.entries(allowlist.entries).flatMap(([section, entries]) =>
+    entries.map((entry, index) => ({
+      source: `check-windows-portability.json:entries.${section}[${index}].ref`,
+      ref: entry.ref,
+    })),
+  );
+  assert.ok(refs.length > 0);
+  assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
+});

@@ -1,0 +1,161 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-windows-portability",
+  "entries": {
+    "hardcodedTmpSock": [
+      {
+        "path": "packages/cli/test/daemon-probe.test.ts",
+        "count": 4,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/cli/test/with-autostart-relay.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/agent-runtime-instance-permission.test.ts",
+        "count": 8,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/claude-approved-tool-permission.test.ts",
+        "count": 2,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/daemon-autostart.test.ts",
+        "count": 7,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/daemon-singleton.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/edge-task-worktree.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/observe-tail.integration.test.mjs",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/runtime-instance-credentials.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/runtime-inventory.test.ts",
+        "count": 2,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/runtime-missing-dispatch-ruling.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/runtime-spawn-mission.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/socket-owner-boundary.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/terminal-environment.test.ts",
+        "count": 2,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/smoke-cli-package.test.mjs",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "tools/soak/daemon-soak.test.mjs",
+        "count": 3,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy hardcoded-tmp-sock occurrence(s) frozen at baseline; zero growth allowed."
+      }
+    ],
+    "unguardedCmdSpawn": [],
+    "unguardedPosixModeAssertion": [
+      {
+        "path": "packages/cli/test/runtime-instance-cli.integration.test.ts",
+        "count": 2,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/decision-point-live-smoke.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/decision-provider.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/fleet-edge-join.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/fleet-edge-sync-config.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/managed-rbac-service.test.ts",
+        "count": 3,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/node-registry.contract.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/oidc-session-service.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      },
+      {
+        "path": "packages/daemon/test/terminal-host.integration.test.ts",
+        "count": 1,
+        "ref": "task_60653ee4139523060fac49b667",
+        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
+      }
+    ]
+  }
+}

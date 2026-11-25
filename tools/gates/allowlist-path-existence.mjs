@@ -85,6 +85,14 @@ export const allowlistJsonPolicies = Object.freeze({
     pathSections: { allowlistedUsages: "path" },
     nonPathSections: ["forbiddenDirectories"],
   },
+  "check-windows-portability.json": {
+    pathSections: {
+      hardcodedTmpSock: "path",
+      unguardedCmdSpawn: "path",
+      unguardedPosixModeAssertion: "path",
+    },
+    nonPathSections: [],
+  },
   "check-private-boundary.json": {
     pathSections: {},
     nonPathSections: ["privateContentMarkers"],
