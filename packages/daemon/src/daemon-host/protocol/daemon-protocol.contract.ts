@@ -342,6 +342,7 @@ export default Object.freeze({
     "Edge-Resident-H1",
     "Fleet-Collab",
     "LivingDossier",
+    "ResidentCeo",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: daemonOwnedRpcMethods,

@@ -1746,6 +1746,13 @@
             "background:worktree-reconcile"
           ],
           "reason": "Enumerates currently materialized local task worktrees, then reads each named task/snapshot; current worktrees are explicit input k, not a canonical task-history scan (task-worktree.ts:reconcileAbandonedTaskWorktrees)."
+        },
+        {
+          "reads": [
+            "command:ceo-status",
+            "method:repo.residentCeo.status"
+          ],
+          "reason": "Reads Resident CEO profiles from the RepoCell local-settings JSON map and selects the current principal's profile (resident-ceo-profile-store.ts); this is host-local configuration, not canonical event, runtime, dispatch, output or relation history."
         }
       ]
     },

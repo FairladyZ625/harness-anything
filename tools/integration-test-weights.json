@@ -238,7 +238,7 @@
   "packages/daemon/test/fleet-task-delivery.integration.test.ts": 38584,
   "packages/daemon/test/fleet-task-escalation.integration.test.ts": 17785,
   "packages/daemon/test/fleet-terminal-recovery.integration.test.ts": 30805,
-  "packages/daemon/test/fleet-transport-edge-runtime.integration.test.ts": 100854,
+  "packages/daemon/test/fleet-transport-edge-runtime.integration.test.ts": 85000,
   "packages/daemon/test/fleet-transport-replica-sync.integration.test.ts": 6302,
   "packages/daemon/test/fleet-transport-scale.integration.test.ts": 76798,
   "packages/daemon/test/fleet-transport-tls-session.integration.test.ts": 51273,
