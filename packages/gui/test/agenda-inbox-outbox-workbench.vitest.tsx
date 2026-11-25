@@ -13,6 +13,8 @@ import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { taskReworkClient } from "../src/renderer/task-rework-client.ts";
 import { agendaQueryKeys } from "../src/renderer/agenda-data.ts";
 import { taskQueryKeys, TASK_EXPLAINER_DOC } from "../src/renderer/task-data.ts";
+import * as apiClientInvoke from "../src/renderer/api-client-invoke.ts";
+import { AgendaChannelPanel } from "../src/renderer/views/agenda/AgendaChannelPanel.tsx";
 
 // dec_653AB9E451B58125CA2B5C0289/CH1: the existing route becomes the workbench.
 // Keep the real read hooks, Explainer and answer mutation; isolate only graph drawing.
@@ -267,6 +269,9 @@ function render(read: AgendaSuccess | undefined = agenda(), repoId = "repo") {
     ),
   );
 }
+function renderChannelPanel(repoId = "repo") {
+  act(() => root.render(createElement(QueryClientProvider, { client }, createElement(AgendaChannelPanel, { repoId }))));
+}
 function seedTasks(rows: TaskSnapshotProjectionRow[]) {
   client.setQueryData(taskQueryKeys.list("repo"), {
     ok: true,
@@ -306,6 +311,101 @@ const settle = async (assertion: () => void) =>
   });
 
 describe("Agenda unified Inbox / Outbox workbench", () => {
+  it("keeps the channel inbox reachable when the ordinary Agenda queue is empty", () => {
+    render(agenda());
+    expect(find("agenda-channel-panel")).toBeTruthy();
+  });
+
+  it("keeps peer replies bound to their request and promotes into a selected work root", async () => {
+    const items = [
+      {
+        itemId: "request-a",
+        channelKind: "a2a-peer",
+        direction: "inbound",
+        summary: "Request A",
+        status: "accepted",
+        principalPersonId: "person_owner",
+        peerRequestId: "request-a",
+        deliveredAt: AT,
+      },
+      {
+        itemId: "request-b",
+        channelKind: "a2a-peer",
+        direction: "inbound",
+        summary: "Request B",
+        status: "accepted",
+        principalPersonId: "person_owner",
+        peerRequestId: "request-b",
+        deliveredAt: AT,
+      },
+      {
+        itemId: "out:request-c",
+        channelKind: "a2a-peer",
+        direction: "outbound",
+        summary: "Outbound Request C",
+        status: "delivered",
+        principalPersonId: "person_owner",
+        recipientRef: "person_bob",
+        peerRequestId: "request-c",
+        deliveredAt: AT,
+      },
+    ];
+    vi.mocked(harnessClient.getWorkIndex).mockResolvedValue({
+      ok: true,
+      status: "ready",
+      works: [{ taskId: "work_root", title: "Selected Work" }],
+      watermark: 1,
+      sourceRevision: 1,
+    });
+    const invoke = vi.spyOn(apiClientInvoke, "invoke").mockImplementation(
+      (async (method: string) =>
+        ({
+          schema: "command-receipt/v2",
+          ok: true,
+          command: method,
+          outcome: "applied",
+          opId: `op-${method}`,
+          ...(method === "repo.channel.list"
+            ? { evidence: JSON.stringify({ items, nextCursor: null, watermark: 1 }) }
+            : {}),
+        }) as never) as never,
+    );
+
+    renderChannelPanel();
+    await settle(() => expect(find("channel-row-request-a")).toBeTruthy());
+    act(() => find("channel-row-request-a").querySelector("button")!.click());
+    input(find<HTMLInputElement>("agenda-peer-reply-claim"), "Reply for A");
+    act(() => find("channel-row-request-b").querySelector("button")!.click());
+    expect(find<HTMLInputElement>("agenda-peer-reply-claim").value).toBe("");
+    expect(find<HTMLButtonElement>("agenda-peer-reply-submit").disabled).toBe(true);
+
+    act(() => find("channel-row-out:request-c").querySelector("button")!.click());
+    expect(host.querySelector('[data-testid="agenda-peer-actions"]')).toBeNull();
+
+    act(() => find("channel-row-request-a").querySelector("button")!.click());
+    input(find<HTMLInputElement>("agenda-peer-reply-claim"), "Reply for A");
+    click("agenda-peer-reply-submit");
+    await settle(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "repo.peer.reply",
+        expect.objectContaining({ requestId: "request-a", claim: "Reply for A" }),
+      ),
+    );
+
+    const workSelect = find<HTMLSelectElement>("agenda-peer-actions").querySelector("select")!;
+    act(() => {
+      workSelect.value = "work_root";
+      workSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    click("agenda-peer-promote-submit");
+    await settle(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "repo.peer.promote",
+        expect.objectContaining({ requestId: "request-a", work: "work_root" }),
+      ),
+    );
+  });
+
   it("renders daemon scores and every structured reason on both row and selected card", () => {
     render(
       agenda({

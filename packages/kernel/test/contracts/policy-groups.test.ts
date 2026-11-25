@@ -58,7 +58,7 @@ test("runtime declarations have one Base tier and scope; technical actions creat
   // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D): ha peer ask/reply/promote/handoff (183 -> 187).
   // task_264a7b96ca095b51af03dc8686: ha peer accept-handoff/takeover/checkpoint (187 -> 190).
   // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3): ha fleet center switch (190 -> 191).
-  assert.equal(actionDeclarations.length, 191);
+  assert.equal(actionDeclarations.length, 193);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-password-change")?.socketOwnerAuthority, false);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");

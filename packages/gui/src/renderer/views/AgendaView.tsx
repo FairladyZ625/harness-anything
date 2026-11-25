@@ -351,7 +351,6 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
                           onRetain={retain}
                           onNavigateEntity={onNavigateEntity}
                         />
-                        <AgendaChannelPanel repoId={repoId} />
                         {selected.asks.map((ask) => (
                           <AnswerForm
                             key={`${ask.relationId}:${ask.relationRevision}`}
@@ -381,6 +380,7 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
                 </div>
               </div>
             )}
+            <AgendaChannelPanel repoId={repoId} />
             {quiet.length > 0 && (
               <details
                 data-testid="agenda-quiet-fyi"

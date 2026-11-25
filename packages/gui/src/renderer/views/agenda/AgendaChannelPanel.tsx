@@ -13,7 +13,7 @@ import {
   useInvalidateChannel,
   type ChannelListItem,
 } from "../../channel-data.ts";
-import { consumeKnownError } from "../../../api/error-consumption.ts";
+import { useWorkIndexQuery } from "../../task-data.ts";
 
 const CHANNEL_FILTERS = [
   { key: "all", label: "views.agenda.channelAll" },
@@ -26,15 +26,19 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
   const [filter, setFilter] = useState<string>("all");
   const channelKind = filter === "all" ? undefined : filter;
   const channelRead = useChannelListQuery(repoId, channelKind);
+  const workRead = useWorkIndexQuery(repoId);
   const invalidate = useInvalidateChannel(repoId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [replyClaim, setReplyClaim] = useState("");
-  const [replyAction, setReplyAction] = useState("");
+  const [replyDraft, setReplyDraft] = useState({ requestId: "", claim: "", action: "" });
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const items = channelRead.data?.items ?? [];
   const selected = items.find((item) => item.itemId === selectedId) ?? items[0];
+  const replyClaim = replyDraft.requestId === selected?.peerRequestId ? replyDraft.claim : "";
+  const replyAction = replyDraft.requestId === selected?.peerRequestId ? replyDraft.action : "";
+  const works = workRead.data?.status === "ready" ? workRead.data.works : [];
+  const [workId, setWorkId] = useState("");
 
   const chips = CHANNEL_FILTERS.map(({ key, label }) => ({
     key,
@@ -43,53 +47,40 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
   }));
 
   const submitReply = async () => {
-    if (!selected?.peerRequestId || !replyClaim.trim()) return;
+    if (!selected?.peerRequestId || replyDraft.requestId !== selected.peerRequestId || !replyClaim.trim()) return;
     setBusy(true);
-    try {
-      const result = await replyPeerRequest({
-        repoId,
-        requestId: selected.peerRequestId,
-        claim: replyClaim.trim(),
-        requestedAction: replyAction.trim() || replyClaim.trim(),
-      });
-      if (result.outcome === "applied" || result.outcome === "no_changes") {
-        setFeedback(t("views.agenda.peerReplySent"));
-        setReplyClaim("");
-        setReplyAction("");
-        invalidate();
-      } else {
-        setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
-      }
-    } catch (cause) {
-      consumeKnownError(cause);
-      setFeedback(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
+    const result = await replyPeerRequest({
+      repoId,
+      requestId: selected.peerRequestId,
+      claim: replyClaim.trim(),
+      requestedAction: replyAction.trim() || replyClaim.trim(),
+    });
+    if (result.outcome === "applied" || result.outcome === "no_changes") {
+      setFeedback(t("views.agenda.peerReplySent"));
+      setReplyDraft({ requestId: selected.peerRequestId, claim: "", action: "" });
+      invalidate();
+    } else {
+      setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
     }
+    setBusy(false);
   };
 
   const submitPromote = async () => {
-    if (!selected?.peerRequestId) return;
+    if (!selected?.peerRequestId || !workId || works.every((work) => work.taskId !== workId)) return;
     setBusy(true);
-    try {
-      const result = await promotePeerRequest({
-        repoId,
-        requestId: selected.peerRequestId,
-        work: "work_default",
-        title: selected.summary,
-      });
-      if (result.outcome === "applied" || result.outcome === "no_changes") {
-        setFeedback(t("views.agenda.peerPromoted"));
-        invalidate();
-      } else {
-        setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
-      }
-    } catch (cause) {
-      consumeKnownError(cause);
-      setFeedback(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
+    const result = await promotePeerRequest({
+      repoId,
+      requestId: selected.peerRequestId,
+      work: workId,
+      title: selected.summary,
+    });
+    if (result.outcome === "applied" || result.outcome === "no_changes") {
+      setFeedback(t("views.agenda.peerPromoted"));
+      invalidate();
+    } else {
+      setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
     }
+    setBusy(false);
   };
 
   return (
@@ -125,38 +116,65 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
           ))}
         </div>
       )}
-      {selected?.channelKind === "a2a-peer" && selected.peerRequestId && (
+      {selected?.channelKind === "a2a-peer" && selected.direction === "inbound" && selected.peerRequestId && (
         <div className="grid gap-2 border-t border-border pt-2" data-testid="agenda-peer-actions">
           <BoundedContent className="whitespace-pre-wrap break-words ui-meta">{selected.summary}</BoundedContent>
+          <label className="grid gap-1 ui-meta text-text-muted">
+            {t("views.agenda.peerPromoteWork")}
+            <select
+              aria-label={t("views.agenda.peerPromoteWork")}
+              value={workId}
+              onChange={(event) => setWorkId(event.target.value)}
+              disabled={busy || workRead.isLoading}
+              className="min-w-0 rounded-xs border border-border bg-surface-raised px-2 py-1.5 text-text"
+            >
+              <option value="">{t("views.agenda.peerPromoteChooseWork")}</option>
+              {works.map((work) => (
+                <option key={work.taskId} value={work.taskId}>
+                  {work.title}
+                </option>
+              ))}
+            </select>
+          </label>
           <TextInput
             testId="agenda-peer-reply-claim"
             label={t("views.agenda.peerReplyClaim")}
             value={replyClaim}
-            onChange={setReplyClaim}
+            onChange={(claim) => setReplyDraft({ requestId: selected.peerRequestId!, claim, action: replyAction })}
             disabled={busy}
           />
           <TextInput
             testId="agenda-peer-reply-action"
             label={t("views.agenda.peerReplyAction")}
             value={replyAction}
-            onChange={setReplyAction}
+            onChange={(action) => setReplyDraft({ requestId: selected.peerRequestId!, claim: replyClaim, action })}
             disabled={busy}
           />
           <div className="flex flex-wrap gap-2">
             <Button
               testId="agenda-peer-reply-submit"
               variant="primary"
-              disabled={!replyClaim.trim() || busy}
+              disabled={!replyClaim.trim() || replyDraft.requestId !== selected.peerRequestId || busy}
               loading={busy}
-              onClick={() => void submitReply()}
+              onClick={() =>
+                void submitReply().catch((cause: unknown) => {
+                  setBusy(false);
+                  setFeedback(cause instanceof Error ? cause.message : String(cause));
+                })
+              }
             >
               {t("views.agenda.peerReply")}
             </Button>
             <Button
               testId="agenda-peer-promote-submit"
-              disabled={busy}
+              disabled={!workId || works.every((work) => work.taskId !== workId) || busy}
               loading={busy}
-              onClick={() => void submitPromote()}
+              onClick={() =>
+                void submitPromote().catch((cause: unknown) => {
+                  setBusy(false);
+                  setFeedback(cause instanceof Error ? cause.message : String(cause));
+                })
+              }
             >
               {t("views.agenda.peerPromote")}
             </Button>

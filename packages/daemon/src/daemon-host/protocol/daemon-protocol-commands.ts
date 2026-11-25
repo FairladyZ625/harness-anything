@@ -480,6 +480,10 @@ const peerProtocolCommands = (
   return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });
 
+const channelCliText = (field: string, flag: string, required: boolean) =>
+  cliInput(flag, "single", required, { code: "invalid_field" }, { pathKind: "non-path", field });
+const channelCliNumber = (field: string, flag: string) =>
+  cliInput(flag, "single", false, { code: "invalid_field" }, { pathKind: "non-path", field, projection: "number" });
 const channelProtocolCommands = [
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "channel-list",
@@ -488,13 +492,13 @@ const channelProtocolCommands = [
     summary: "List unified Inbox and Outbox channel records for the authenticated principal.",
     method: "repo.task.read",
     repositoryRead: true,
-    inputs: [],
-    payloadFields: [
-      { field: "channelKind", type: "string", required: false },
-      { field: "direction", type: "string", required: false },
-      { field: "limit", type: "number", required: false },
-      { field: "cursor", type: "string", required: false },
+    inputs: [
+      channelCliText("channelKind", "--channel", false),
+      channelCliText("direction", "--direction", false),
+      channelCliNumber("limit", "--limit"),
+      channelCliText("cursor", "--cursor", false),
     ],
+    payloadFields: [],
   }),
   defineCenterForwardWriteCommand({
     id: "channel-deliver",
@@ -502,25 +506,25 @@ const channelProtocolCommands = [
     path: ["channel", "deliver"],
     summary: "Deliver a standardized channel envelope through the authorized Inbox adapter.",
     method: "repo.task.run",
-    inputs: [],
-    payloadFields: [
-      { field: "channelKind", type: "string", required: true },
-      { field: "envelopeId", type: "string", required: false },
-      { field: "principalPersonId", type: "string", required: false },
-      { field: "summary", type: "string", required: true },
-      { field: "body", type: "string", required: false },
-      { field: "senderRef", type: "string", required: false },
-      { field: "route", type: "string", required: false },
-      { field: "correlationId", type: "string", required: false },
-      { field: "workId", type: "string", required: false },
-      { field: "lane", type: "string", required: false },
-      { field: "anchorRef", type: "string", required: false },
-      { field: "toPersonId", type: "string", required: false },
-      { field: "claim", type: "string", required: false },
-      { field: "requestedAction", type: "string", required: false },
-      { field: "requestKind", type: "string", required: false },
-      { field: "idempotencyKey", type: "string", required: false },
+    inputs: [
+      channelCliText("channelKind", "--channel", true),
+      channelCliText("envelopeId", "--envelope-id", false),
+      channelCliText("principalPersonId", "--principal", false),
+      channelCliText("summary", "--summary", true),
+      channelCliText("body", "--body", false),
+      channelCliText("senderRef", "--sender", false),
+      channelCliText("route", "--route", false),
+      channelCliText("correlationId", "--correlation-id", false),
+      channelCliText("workId", "--work", false),
+      channelCliText("lane", "--lane", false),
+      channelCliText("anchorRef", "--anchor-ref", false),
+      channelCliText("toPersonId", "--to", false),
+      channelCliText("claim", "--claim", false),
+      channelCliText("requestedAction", "--action", false),
+      channelCliText("requestKind", "--kind", false),
+      channelCliText("idempotencyKey", "--idempotency-key", false),
     ],
+    payloadFields: [],
   }),
   defineCenterForwardWriteCommand({
     id: "channel-send",
@@ -528,17 +532,17 @@ const channelProtocolCommands = [
     path: ["channel", "send"],
     summary: "Route an Outbox message through a registered channel adapter and record its receipt.",
     method: "repo.task.run",
-    inputs: [],
-    payloadFields: [
-      { field: "channelKind", type: "string", required: true },
-      { field: "messageId", type: "string", required: false },
-      { field: "recipientRef", type: "string", required: true },
-      { field: "summary", type: "string", required: true },
-      { field: "body", type: "string", required: false },
-      { field: "route", type: "string", required: false },
-      { field: "correlationId", type: "string", required: false },
-      { field: "idempotencyKey", type: "string", required: false },
+    inputs: [
+      channelCliText("channelKind", "--channel", true),
+      channelCliText("messageId", "--message-id", false),
+      channelCliText("recipientRef", "--to", true),
+      channelCliText("summary", "--summary", true),
+      channelCliText("body", "--body", false),
+      channelCliText("route", "--route", false),
+      channelCliText("correlationId", "--correlation-id", false),
+      channelCliText("idempotencyKey", "--idempotency-key", false),
     ],
+    payloadFields: [],
   }),
 ];
 

@@ -601,6 +601,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+    readonly channelOutboundBridge?: import("./channel-outbox.ts").ChannelOutboundBridge;
     readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
       provider: "github" | "gitlab",
@@ -828,6 +829,7 @@ export interface RepoCellOpenInput {
   readonly onQueueDepthChange?: (queueDepth: number) => void;
   readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   readonly now?: () => string;
+  readonly channelOutboundBridge?: import("./channel-outbox.ts").ChannelOutboundBridge;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
   /** Read-only async Git history runner used before the write slot; defaults to runGitHistoryLogAsync. */

@@ -11,6 +11,8 @@ const selectors = {
   "repo.artifacts.list": { kind: "html" },
   "repo.entity.content.read": { entityKind: "agent", entityId: "g38-agent" },
   "repo.tasks.wip": {},
+  "repo.channel.list": { limit: 1 },
+  "repo.peer.inbox": { limit: 1 },
   "repo.works.index": {},
   "repo.works.briefs.read": {},
   "repo.work.topology.read": { workRootTaskId: READ_TASK_ID },

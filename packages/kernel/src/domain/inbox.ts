@@ -12,7 +12,7 @@ import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
 import { timestamp } from "./timestamp.ts";
 import { isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 
-export const INBOX_MODEL_VERSION = 2;
+export const INBOX_MODEL_VERSION = 3;
 export const INBOX_PAGE_LIMIT = 200;
 const INBOX_TEXT_LIMIT = 256;
 const INBOX_SUMMARY_LIMIT = 1024;
@@ -76,6 +76,11 @@ export interface InboxEventPayloads {
     readonly correlationId?: string | null;
     readonly minRevision?: number;
     readonly requiredBlobSha256s?: readonly string[];
+    readonly bodyContentClaim?: {
+      readonly sha256: string;
+      readonly size: number;
+      readonly mediaType: string;
+    };
     readonly summary: string;
     readonly enqueuedAt: string;
   };
@@ -140,6 +145,7 @@ export const inboxOptionalPayloadFields: Partial<Record<InboxEventType, readonly
     "correlationId",
     "minRevision",
     "requiredBlobSha256s",
+    "bodyContentClaim",
   ],
 };
 
@@ -412,6 +418,7 @@ export type InboxQueueQuery =
 export type InboxQuery =
   | { readonly by: "item"; readonly inboxId: string; readonly itemId: string }
   | { readonly by: "dedupe"; readonly inboxId: string; readonly dedupeKey: string }
+  | { readonly by: "inbox"; readonly inboxId: string; readonly limit?: number; readonly cursor?: string }
   | InboxQueueQuery;
 
 export type InboxRead =
@@ -477,6 +484,15 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
       (!Array.isArray(value.requiredBlobSha256s) ||
         value.requiredBlobSha256s.length > 16 ||
         !value.requiredBlobSha256s.every((sha) => typeof sha === "string" && /^[a-f0-9]{64}$/u.test(sha)))) ||
+    (value.bodyContentClaim !== undefined &&
+      (!isRecord(value.bodyContentClaim) ||
+        Object.keys(value.bodyContentClaim).some((field) => !["sha256", "size", "mediaType"].includes(field)) ||
+        typeof value.bodyContentClaim.sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/u.test(value.bodyContentClaim.sha256) ||
+        !epoch(value.bodyContentClaim.size) ||
+        !boundedText(value.bodyContentClaim.mediaType, 128) ||
+        !Array.isArray(value.requiredBlobSha256s) ||
+        !value.requiredBlobSha256s.includes(value.bodyContentClaim.sha256))) ||
     !boundedText(value.summary, INBOX_SUMMARY_LIMIT) ||
     !timestamp(String(value.enqueuedAt))
   )

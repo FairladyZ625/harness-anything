@@ -1,14 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { CanonicalWriteBundle, WriteReceiptDraft } from "@harness-anything/kernel";
+import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import {
-  channelDedupeKey,
+  CHANNEL_LIST_SCAN_BATCHES,
+  channelDirections,
   channelInboxSource,
+  channelKinds,
   channelPageLimit,
   validateChannelInboxEnvelope,
   validateChannelOutboxMessage,
   type ChannelDeliveryReceipt,
+  type ChannelDirection,
   type ChannelKind,
   type ChannelListItem,
+  type ChannelOutboxMessage,
 } from "@harness-anything/kernel/internal/domain/channel-adapter.ts";
 import {
   compilePeerRequestOpened,
@@ -17,14 +21,21 @@ import {
   type PeerRequestInput,
   type PeerRequestV1,
 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
-import {
-  inboxDedupeKey,
-  type InboxEventPayloads,
-  type InboxItem,
-} from "@harness-anything/kernel/internal/domain/inbox.ts";
-import { compileInboxEnqueuedEvent } from "@harness-anything/kernel/internal/domain/agent-runtime-event.ts";
+import { inboxQueueCursor, type InboxItem } from "@harness-anything/kernel/internal/domain/inbox.ts";
 import { canonicalEventWritePlan } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { reject } from "@harness-anything/application/internal/commands/entity-action-write-helpers.ts";
+import {
+  buildInboxEnqueueBundle,
+  channelBodyContent,
+  channelItemId,
+  channelScopedDedupeKey,
+  commitChannelBatch,
+  drainChannelOutbox,
+  formatChannelOutboxSourceRef,
+  parseChannelOutboxSourceRef,
+  resolveChannelOutboundAdapter,
+  verifyPersistedInboxItem,
+} from "./channel-outbox.ts";
 import type { RepoCellBinding, RepoCellOperationalContext, RepoTaskAction } from "./repo-cell-types.ts";
 
 function requiredString(value: unknown, label: string): string {
@@ -42,36 +53,10 @@ function makeEnvelopeId(repoId: string, personId: string, idempotencyKey?: strin
     : `ch_${randomBytes(12).toString("hex")}`;
 }
 
-function buildInboxEnqueueBundle(input: {
-  readonly opId: string;
-  readonly workspaceRevision: number;
-  readonly actor: RepoCellBinding["actor"];
-  readonly source: RepoCellBinding["source"];
-  readonly occurredAt: string;
-  readonly payload: InboxEventPayloads["inbox_item_enqueued"];
-}): CanonicalWriteBundle {
-  const event = compileInboxEnqueuedEvent({
-    eventId: `event-${input.opId}`,
-    workspaceRevision: input.workspaceRevision,
-    opId: input.opId,
-    actor: input.actor,
-    source: input.source,
-    occurredAt: input.occurredAt,
-    payload: input.payload,
-  });
-  return { event, plan: canonicalEventWritePlan(event, "inbox", input.payload.inboxId), blobs: [] };
-}
-
-function commitBatch(cell: RepoCellOperationalContext, batch: readonly CanonicalWriteBundle[]): void {
-  const final = batch[batch.length - 1]!;
-  cell.store.append({ ...final, preceding: batch.slice(0, -1) });
-  for (const item of batch) cell.projection.apply(item.event, item.plan);
-}
-
 function receiptOf(
   envelopeId: string,
   channelKind: ChannelKind,
-  direction: "inbound" | "outbound",
+  direction: ChannelDirection,
   idempotencyKey: string,
   status: ChannelDeliveryReceipt["status"],
   principalPersonId: string,
@@ -105,7 +90,44 @@ function mapChannelKindToInboxFields(kind: ChannelKind): {
   }
 }
 
-function inboxItemToChannelListItem(item: InboxItem, kind: ChannelKind): ChannelListItem {
+function parseInboundChannelKind(item: InboxItem): ChannelKind {
+  const tagged = /^channel:(?:in:)?(cli|gui|a2a-peer|webhook|lark|custom):/u.exec(item.sourceRef)?.[1] as
+    | ChannelKind
+    | undefined;
+  if (tagged) return tagged;
+  if (item.source === "peer_request" || item.source === "peer_reply") return "a2a-peer";
+  if (item.source === "external_ingress") return "webhook";
+  return "custom";
+}
+
+function inboxItemToChannelListItem(item: InboxItem): ChannelListItem | null {
+  const outboxRef = parseChannelOutboxSourceRef(item.sourceRef);
+  const bodySha = item.requiredBlobSha256s[0];
+  if (outboxRef) {
+    const status: ChannelListItem["status"] =
+      item.status === "completed"
+        ? "delivered"
+        : item.status === "failed"
+          ? "failed"
+          : item.status === "claimed"
+            ? "pending_retry"
+            : "accepted";
+    return {
+      itemId: item.itemId,
+      channelKind: outboxRef.channelKind,
+      direction: "outbound",
+      summary: item.summary,
+      status,
+      principalPersonId: item.senderPersonId ?? "",
+      recipientRef: outboxRef.recipientRef,
+      correlationId: item.correlationId ?? undefined,
+      inboxItemId: item.completedByDispatchId ?? item.itemId,
+      ...(bodySha ? { bodyBlobSha256: bodySha } : {}),
+      deliveredAt: item.settledAt ?? item.enqueuedAt,
+    };
+  }
+  if (item.source === "peer_request") return null;
+  const kind = parseInboundChannelKind(item);
   return {
     itemId: item.itemId,
     channelKind: kind,
@@ -115,25 +137,194 @@ function inboxItemToChannelListItem(item: InboxItem, kind: ChannelKind): Channel
     principalPersonId: item.senderPersonId ?? "",
     senderRef: item.sourceRef,
     correlationId: item.correlationId ?? undefined,
-    peerRequestId: item.source === "peer_request" ? item.sourceRef : undefined,
     inboxItemId: item.itemId,
+    ...(bodySha ? { bodyBlobSha256: bodySha } : {}),
     deliveredAt: item.enqueuedAt,
   };
 }
 
-function peerRequestToChannelListItem(request: PeerRequestV1): ChannelListItem {
+function peerRequestToChannelListItem(request: PeerRequestV1, direction: ChannelDirection): ChannelListItem {
   return {
-    itemId: request.requestId,
+    itemId: direction === "outbound" ? `out:${request.requestId}` : request.requestId,
     channelKind: "a2a-peer",
-    direction: "inbound",
+    direction,
     summary: request.summary,
-    status: request.state === "OPEN" ? "accepted" : "delivered",
-    principalPersonId: request.to.personId,
+    status: request.state === "OPEN" ? "accepted" : request.state === "REJECTED" ? "rejected" : "delivered",
+    principalPersonId: direction === "inbound" ? request.to.personId : request.from.personId,
     senderRef: request.from.personId,
+    recipientRef: request.to.personId,
     correlationId: request.requestId,
     peerRequestId: request.requestId,
     deliveredAt: request.lastEventId,
   };
+}
+
+type ChannelListStage = "inbox" | "peer_in" | "peer_out";
+
+function parseChannelListCursor(raw: string | undefined): {
+  readonly stage: ChannelListStage;
+  readonly cursor: string | undefined;
+} {
+  if (raw === undefined) return { stage: "inbox", cursor: undefined };
+  const match = /^(inbox|peer_in|peer_out):([0-9]{1,16})$/u.exec(raw);
+  if (!match) reject("invalid_field", `Channel list cursor is invalid: ${raw}`);
+  const numeric = match![2]!;
+  inboxQueueCursor(numeric);
+  return { stage: match![1] as ChannelListStage, cursor: numeric === "0" ? undefined : numeric };
+}
+
+function listChannels(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  personId: string,
+  opId: string,
+): WriteReceiptDraft {
+  const cut = cell.projection.readCut();
+  const rawKind = optionalString(action.channelKind);
+  if (rawKind && !(channelKinds as readonly string[]).includes(rawKind))
+    reject("invalid_field", `Unsupported channel kind: ${rawKind}`);
+  const channelKind = rawKind as ChannelKind | undefined;
+
+  const rawDirection = optionalString(action.direction);
+  if (rawDirection && !(channelDirections as readonly string[]).includes(rawDirection))
+    reject("invalid_field", `Unsupported channel direction: ${rawDirection}`);
+  const direction = rawDirection as ChannelDirection | undefined;
+
+  const limit = channelPageLimit(typeof action.limit === "number" ? action.limit : undefined);
+  const start = parseChannelListCursor(optionalString(action.cursor));
+  const includePeer = !channelKind || channelKind === "a2a-peer";
+  const includePeerIn = includePeer && (!direction || direction === "inbound");
+  const includePeerOut = includePeer && (!direction || direction === "outbound");
+
+  const items: ChannelListItem[] = [];
+  let nextCursor: string | null = null;
+  let stage: ChannelListStage = start.stage;
+  let stageCursor: string | undefined = start.cursor;
+
+  if (stage === "inbox") {
+    let batchCursor = stageCursor;
+    let batches = 0;
+    let exhausted = false;
+    while (items.length <= limit && batches < CHANNEL_LIST_SCAN_BATCHES) {
+      batches += 1;
+      const read = cell.projection.readInbox({
+        by: "inbox",
+        inboxId: `person:${personId}`,
+        limit: channelPageLimit(limit),
+        ...(batchCursor !== undefined ? { cursor: batchCursor } : {}),
+      });
+      if (read.status !== "ready") {
+        exhausted = true;
+        break;
+      }
+      for (const row of read.items) {
+        const mapped = inboxItemToChannelListItem(row);
+        if (!mapped) continue;
+        if (channelKind && mapped.channelKind !== channelKind) continue;
+        if (direction && mapped.direction !== direction) continue;
+        if (items.length < limit) {
+          items.push(mapped);
+          batchCursor = String(row.enqueuedRevision);
+        } else {
+          nextCursor = `inbox:${batchCursor ?? "0"}`;
+          break;
+        }
+      }
+      if (nextCursor !== null) break;
+      if (read.nextCursor === null) {
+        exhausted = true;
+        break;
+      }
+      batchCursor = read.nextCursor;
+    }
+    if (nextCursor === null && !exhausted && batchCursor !== undefined) nextCursor = `inbox:${batchCursor}`;
+    if (nextCursor === null && exhausted) {
+      stage = "peer_in";
+      stageCursor = undefined;
+    }
+  }
+
+  if (nextCursor === null && stage === "peer_in") {
+    if (includePeerIn) {
+      if (items.length >= limit) {
+        const peek = cell.projection.readPeerRequests({
+          by: "list",
+          recipientPersonId: personId,
+          limit: CHANNEL_LIST_SCAN_BATCHES,
+          ...(stageCursor !== undefined ? { cursor: stageCursor } : {}),
+        });
+        if (peek.status === "ready" && peek.requests.some((req) => req.state !== "DONE" && req.state !== "REJECTED")) {
+          nextCursor = `peer_in:${stageCursor ?? "0"}`;
+        }
+      } else {
+        let batchCursor = stageCursor;
+        let batches = 0;
+        let exhausted = false;
+        while (items.length < limit && batches < CHANNEL_LIST_SCAN_BATCHES) {
+          batches += 1;
+          const remaining = limit - items.length;
+          const reqRead = cell.projection.readPeerRequests({
+            by: "list",
+            recipientPersonId: personId,
+            limit: remaining,
+            ...(batchCursor !== undefined ? { cursor: batchCursor } : {}),
+          });
+          if (reqRead.status !== "ready") {
+            exhausted = true;
+            break;
+          }
+          for (const req of reqRead.requests) {
+            if (req.state === "DONE" || req.state === "REJECTED") continue;
+            items.push(peerRequestToChannelListItem(req, "inbound"));
+          }
+          if (reqRead.nextCursor === null) {
+            exhausted = true;
+            break;
+          }
+          batchCursor = reqRead.nextCursor;
+          if (items.length >= limit) {
+            nextCursor = `peer_in:${batchCursor}`;
+            break;
+          }
+        }
+        if (nextCursor === null && !exhausted && batchCursor !== undefined) nextCursor = `peer_in:${batchCursor}`;
+        if (nextCursor === null && exhausted && items.length === limit && includePeerOut) {
+          const peek = cell.projection.readPeerRequests({ by: "list", senderPersonId: personId, limit: 1 });
+          if (peek.status === "ready" && peek.requests.length > 0) nextCursor = "peer_out:0";
+        }
+      }
+    }
+    if (nextCursor === null) {
+      stage = "peer_out";
+      stageCursor = undefined;
+    }
+  }
+
+  if (nextCursor === null && stage === "peer_out" && includePeerOut) {
+    const remaining = limit - items.length;
+    if (remaining > 0) {
+      const reqRead = cell.projection.readPeerRequests({
+        by: "list",
+        senderPersonId: personId,
+        limit: remaining,
+        ...(stageCursor !== undefined ? { cursor: stageCursor } : {}),
+      });
+      if (reqRead.status === "ready") {
+        for (const req of reqRead.requests) items.push(peerRequestToChannelListItem(req, "outbound"));
+        if (reqRead.nextCursor !== null) nextCursor = `peer_out:${reqRead.nextCursor}`;
+      }
+    } else {
+      const peek = cell.projection.readPeerRequests({
+        by: "list",
+        senderPersonId: personId,
+        limit: 1,
+        ...(stageCursor !== undefined ? { cursor: stageCursor } : {}),
+      });
+      if (peek.status === "ready" && peek.requests.length > 0) nextCursor = `peer_out:${stageCursor ?? "0"}`;
+    }
+  }
+
+  return cell.readResult(opId, { items, nextCursor, watermark: cut.watermark }, cut.sourceRevision, null);
 }
 
 export function runChannelAction(
@@ -146,66 +337,7 @@ export function runChannelAction(
   const head = cell.store.readHead()?.revision ?? 0;
   const now = cell.now();
 
-  if (action.kind === "channel-list") {
-    const cut = cell.projection.readCut();
-    const channelKind = optionalString(action.channelKind) as ChannelKind | undefined;
-    const limit = channelPageLimit(typeof action.limit === "number" ? action.limit : undefined);
-    const items: ChannelListItem[] = [];
-
-    const inboxRead = cell.projection.readInbox({
-      by: "queue",
-      status: "pending",
-      consumerKind: "interactive_watch",
-      inboxId: `person:${personId}`,
-      limit,
-    });
-    const externalRead = cell.projection.readInbox({
-      by: "queue",
-      status: "quarantined_external",
-      consumerKind: "quarantined_external",
-      inboxId: `person:${personId}`,
-      limit,
-    });
-    const inboxItems = [
-      ...(inboxRead.status === "ready" ? inboxRead.items : []),
-      ...(externalRead.status === "ready" ? externalRead.items : []),
-    ];
-    for (const item of inboxItems) {
-      const sourceChannel = /^channel:(cli|gui|a2a-peer|webhook|lark|custom):/u.exec(item.sourceRef)?.[1] as
-        | ChannelKind
-        | undefined;
-      const kind: ChannelKind =
-        sourceChannel ??
-        (item.source === "peer_request" || item.source === "peer_reply"
-          ? "a2a-peer"
-          : item.source === "external_ingress"
-            ? "webhook"
-            : "custom");
-      if (channelKind && kind !== channelKind) continue;
-      items.push(inboxItemToChannelListItem(item, kind));
-    }
-
-    if (!channelKind || channelKind === "a2a-peer") {
-      const reqRead = cell.projection.readPeerRequests({
-        by: "list",
-        recipientPersonId: personId,
-        ...(typeof action.limit === "number" ? { limit: action.limit } : {}),
-      });
-      if (reqRead.status === "ready") {
-        for (const req of reqRead.requests) {
-          if (req.state === "DONE" || req.state === "REJECTED") continue;
-          items.push(peerRequestToChannelListItem(req));
-        }
-      }
-    }
-
-    return cell.readResult(
-      opId,
-      { items: items.slice(0, limit), nextCursor: null, watermark: cut.watermark },
-      cut.sourceRevision,
-      null,
-    );
-  }
+  if (action.kind === "channel-list") return listChannels(cell, action, personId, opId);
 
   if (action.kind === "channel-deliver") {
     const channelKind = requiredString(action.channelKind, "--channel") as ChannelKind;
@@ -248,22 +380,54 @@ export function runChannelAction(
     const issues = validateChannelInboxEnvelope(envelopePayload);
     if (issues.length > 0) reject("invalid_field", issues.join("; "));
 
-    const dedupeKey = channelDedupeKey({ channelKind, idempotencyKey });
+    const participantRef =
+      channelKind === "a2a-peer"
+        ? requiredString(action.toPersonId, "--to")
+        : (optionalString(action.senderRef) ?? personId);
+    const dedupeKey = channelScopedDedupeKey({
+      channelKind,
+      direction: "inbound",
+      principalPersonId,
+      participantRef,
+      idempotencyKey,
+    });
+    const targetInboxId = `person:${channelKind === "a2a-peer" ? requiredString(action.toPersonId, "--to") : principalPersonId}`;
     const existingInbox = cell.projection.readInbox({
       by: "dedupe",
-      inboxId: `person:${channelKind === "a2a-peer" ? requiredString(action.toPersonId, "--to") : principalPersonId}`,
+      inboxId: targetInboxId,
       dedupeKey,
     });
-    if (existingInbox.status === "ready" && existingInbox.items.length > 0) {
-      const rcpt = receiptOf(envelopeId, channelKind, "inbound", idempotencyKey, "duplicate", principalPersonId, now, {
-        inboxItemId: existingInbox.items[0]!.itemId,
-      });
-      return cell.readResult(opId, { receipt: rcpt }, head, null);
-    }
 
     if (channelKind === "a2a-peer") {
       const toPersonId = requiredString(action.toPersonId, "--to");
-      const requestId = makeEnvelopeId(cell.input.repoId, personId, idempotencyKey);
+      const requestId = makeEnvelopeId(cell.input.repoId, `${personId}:${toPersonId}`, idempotencyKey);
+      const existingPeer = cell.projection.readPeerRequests({ by: "id", requestId });
+      const persistedPeer = existingPeer.status === "ready" ? existingPeer.requests[0] : undefined;
+      if ((existingInbox.status === "ready" && existingInbox.items.length > 0) || persistedPeer) {
+        const rcpt = receiptOf(
+          envelopeId,
+          channelKind,
+          "inbound",
+          idempotencyKey,
+          "duplicate",
+          principalPersonId,
+          now,
+          {
+            peerRequestId: persistedPeer?.requestId ?? requestId,
+            inboxItemId:
+              existingInbox.status === "ready"
+                ? (existingInbox.items[0]?.itemId ?? `peer-req-${requestId}`)
+                : `peer-req-${requestId}`,
+          },
+        );
+        return {
+          outcome: "no_changes",
+          code: "no_changes",
+          opId,
+          revision: head,
+          evidence: JSON.stringify({ receipt: rcpt, ...(persistedPeer ? { request: persistedPeer } : {}) }),
+        };
+      }
       const requestInput: PeerRequestInput = {
         requestId,
         from: { personId, nodeId: cell.input.repoId },
@@ -296,6 +460,7 @@ export function runChannelAction(
       const snapshot = reducePeerRequestEvent(null, openEvent);
       const inboxRevision = head + 2;
       const inboxFields = mapChannelKindToInboxFields(channelKind);
+      const itemId = `peer-req-${requestId}`;
       const inboxBundle = buildInboxEnqueueBundle({
         opId,
         workspaceRevision: inboxRevision,
@@ -303,12 +468,12 @@ export function runChannelAction(
         source: binding.source,
         occurredAt: now,
         payload: {
-          inboxId: `person:${toPersonId}`,
-          itemId: `peer-req-${requestId}`,
+          inboxId: targetInboxId,
+          itemId,
           source: "peer_request",
           sourceRef: requestId,
           sourceEpoch: 1,
-          dedupeKey: inboxDedupeKey({ source: "peer_request", sourceRef: requestId, sourceEpoch: 1 }),
+          dedupeKey,
           admission: inboxFields.admission,
           consumerKind: inboxFields.consumerKind,
           taskId: null,
@@ -323,22 +488,38 @@ export function runChannelAction(
           enqueuedAt: now,
         },
       });
-      commitBatch(cell, [
+      commitChannelBatch(cell, [
         { event: openEvent, plan: canonicalEventWritePlan(openEvent, "peer-request", requestId), blobs: [] },
         inboxBundle,
       ]);
+      verifyPersistedInboxItem(cell, targetInboxId, itemId, dedupeKey);
       const rcpt = receiptOf(envelopeId, channelKind, "inbound", idempotencyKey, "routed", principalPersonId, now, {
         peerRequestId: requestId,
-        inboxItemId: `peer-req-${requestId}`,
+        inboxItemId: itemId,
       });
       return cell.readResult(opId, { receipt: rcpt, request: snapshot }, inboxRevision, null);
     }
 
+    if (existingInbox.status === "ready" && existingInbox.items.length > 0) {
+      const existingItem = existingInbox.items[0]!;
+      const rcpt = receiptOf(envelopeId, channelKind, "inbound", idempotencyKey, "duplicate", principalPersonId, now, {
+        inboxItemId: existingItem.itemId,
+        ...(existingItem.requiredBlobSha256s[0] ? { bodyBlobSha256: existingItem.requiredBlobSha256s[0] } : {}),
+      });
+      return {
+        outcome: "no_changes",
+        code: "no_changes",
+        opId,
+        revision: head,
+        evidence: JSON.stringify({ receipt: rcpt }),
+      };
+    }
+
     const inboxFields = mapChannelKindToInboxFields(channelKind);
     const source = channelInboxSource(channelKind);
-    const targetPersonId = principalPersonId;
     const inboxRevision = head + 1;
-    const itemId = `ch-in-${envelopeId}`;
+    const itemId = channelItemId(dedupeKey);
+    const bodyContent = channelBodyContent(optionalString(action.body));
     const inboxBundle = buildInboxEnqueueBundle({
       opId,
       workspaceRevision: inboxRevision,
@@ -346,10 +527,10 @@ export function runChannelAction(
       source: binding.source,
       occurredAt: now,
       payload: {
-        inboxId: `person:${targetPersonId}`,
+        inboxId: targetInboxId,
         itemId,
         source,
-        sourceRef: `channel:${channelKind}:${envelopeId}`,
+        sourceRef: `channel:in:${channelKind}:${envelopeId}`,
         sourceEpoch: 1,
         dedupeKey,
         admission: inboxFields.admission,
@@ -361,14 +542,19 @@ export function runChannelAction(
         lane: optionalString(action.lane) ?? null,
         correlationId: optionalString(action.correlationId) ?? envelopeId,
         minRevision: inboxRevision,
-        requiredBlobSha256s: [],
+        ...(bodyContent.claim
+          ? { requiredBlobSha256s: [bodyContent.claim.sha256], bodyContentClaim: bodyContent.claim }
+          : { requiredBlobSha256s: [] }),
         summary,
         enqueuedAt: now,
       },
+      ...(bodyContent.blob ? { blobs: [bodyContent.blob] } : {}),
     });
-    commitBatch(cell, [inboxBundle]);
+    commitChannelBatch(cell, [inboxBundle]);
+    const persisted = verifyPersistedInboxItem(cell, targetInboxId, itemId, dedupeKey);
     const rcpt = receiptOf(envelopeId, channelKind, "inbound", idempotencyKey, "accepted", principalPersonId, now, {
-      inboxItemId: itemId,
+      inboxItemId: persisted.itemId,
+      ...(bodyContent.claim ? { bodyBlobSha256: bodyContent.claim.sha256 } : {}),
     });
     return {
       ...cell.readResult(opId, { receipt: rcpt }, inboxRevision, null),
@@ -382,75 +568,143 @@ export function runChannelAction(
     const summary = requiredString(action.summary, "--summary");
     const idempotencyKey = optionalString(action.idempotencyKey) ?? makeEnvelopeId(cell.input.repoId, personId);
     const messageId = optionalString(action.messageId) ?? makeEnvelopeId(cell.input.repoId, personId, idempotencyKey);
+    const route = optionalString(action.route);
+    const body = optionalString(action.body);
 
-    const messagePayload = {
+    const messagePayload: ChannelOutboxMessage = {
       messageId,
       channelKind,
       idempotencyKey,
       principalPersonId: personId,
       summary,
       recipientRef,
-      ...(optionalString(action.body) ? { body: optionalString(action.body) } : {}),
-      ...(optionalString(action.route) ? { route: optionalString(action.route) } : {}),
+      ...(body !== undefined ? { body } : {}),
+      ...(route ? { route } : {}),
       ...(optionalString(action.correlationId) ? { correlationId: optionalString(action.correlationId) } : {}),
     };
     const issues = validateChannelOutboxMessage(messagePayload);
     if (issues.length > 0) reject("invalid_field", issues.join("; "));
 
-    if (channelKind !== "gui" && !(channelKind === "webhook" && action.route === "local-loopback")) {
-      reject("unsupported_command", `No ${channelKind} outbound adapter is registered for this route.`);
-    }
+    const adapter = resolveChannelOutboundAdapter(cell.input.repoId, messagePayload, cell.input.channelOutboundBridge);
+    if (!adapter) reject("unsupported_command", `No ${channelKind} outbound adapter is registered for this route.`);
 
-    const dedupeKey = channelDedupeKey({ channelKind, idempotencyKey });
-    const existingInbox = cell.projection.readInbox({
+    const outboxInboxId = `person:${personId}`;
+    const dedupeKey = channelScopedDedupeKey({
+      channelKind,
+      direction: "outbound",
+      principalPersonId: personId,
+      participantRef: recipientRef,
+      idempotencyKey,
+    });
+    const existingOutbox = cell.projection.readInbox({
       by: "dedupe",
-      inboxId: `person:${recipientRef}`,
+      inboxId: outboxInboxId,
       dedupeKey,
     });
-    if (existingInbox.status === "ready" && existingInbox.items.length > 0) {
-      const duplicate = receiptOf(messageId, channelKind, "outbound", idempotencyKey, "duplicate", personId, now, {
-        recipientRef,
-        inboxItemId: existingInbox.items[0]!.itemId,
-      });
-      return cell.readResult(opId, { receipt: duplicate }, head, null);
+    if (existingOutbox.status === "ready" && existingOutbox.items.length > 0) {
+      const existingItem = existingOutbox.items[0]!;
+      const retryDue =
+        existingItem.status === "pending" ||
+        (existingItem.status === "claimed" &&
+          existingItem.leaseUntil !== null &&
+          Date.parse(now) >= Date.parse(existingItem.leaseUntil));
+      if (retryDue) {
+        const replayed = drainChannelOutbox(cell, binding, {
+          principalPersonId: personId,
+          targetItemId: existingItem.itemId,
+          now,
+          opIdPrefix: opId,
+          claimOpId: opId,
+        });
+        const replayReceipt =
+          replayed.receipts[0] ??
+          receiptOf(messageId, channelKind, "outbound", idempotencyKey, "pending_retry", personId, now, {
+            recipientRef,
+            inboxItemId: existingItem.itemId,
+          });
+        const finalRevision = cell.store.readHead()?.revision ?? head;
+        return cell.readResult(opId, { receipt: replayReceipt }, finalRevision, null);
+      }
+      const duplicate = receiptOf(
+        messageId,
+        channelKind,
+        "outbound",
+        idempotencyKey,
+        existingItem.status === "claimed" ? "pending_retry" : "duplicate",
+        personId,
+        now,
+        {
+          recipientRef,
+          inboxItemId: existingItem.completedByDispatchId ?? existingItem.itemId,
+          ...(existingItem.requiredBlobSha256s[0] ? { bodyBlobSha256: existingItem.requiredBlobSha256s[0] } : {}),
+        },
+      );
+      return {
+        outcome: "no_changes",
+        code: "no_changes",
+        opId,
+        revision: head,
+        evidence: JSON.stringify({ receipt: duplicate }),
+      };
     }
 
-    const inboxRevision = head + 1;
-    const itemId = `ch-out-${messageId}`;
-    const inboxBundle = buildInboxEnqueueBundle({
+    const outboxRevision = head + 1;
+    const itemId = channelItemId(dedupeKey);
+    const bodyContent = channelBodyContent(body);
+    const outboxSourceRef = formatChannelOutboxSourceRef({
+      channelKind,
+      ...(route ? { route } : {}),
+      recipientRef,
+      messageId,
+    });
+    const outboxBundle = buildInboxEnqueueBundle({
       opId,
-      workspaceRevision: inboxRevision,
+      workspaceRevision: outboxRevision,
       actor: binding.actor,
       source: binding.source,
       occurredAt: now,
       payload: {
-        inboxId: `person:${recipientRef}`,
+        inboxId: outboxInboxId,
         itemId,
-        source: channelInboxSource(channelKind),
-        sourceRef: `channel:${channelKind}:${messageId}`,
+        source: "channel_message",
+        sourceRef: outboxSourceRef,
         sourceEpoch: 1,
         dedupeKey,
-        admission: channelKind === "gui" ? "dispatchable" : "quarantined_external",
-        consumerKind: channelKind === "gui" ? "interactive_watch" : "quarantined_external",
+        admission: "dispatchable",
+        consumerKind: "interactive_watch",
         taskId: null,
         agentId: null,
         senderPersonId: personId,
         workId: null,
         lane: null,
         correlationId: optionalString(action.correlationId) ?? messageId,
-        minRevision: inboxRevision,
-        requiredBlobSha256s: [],
+        minRevision: outboxRevision,
+        ...(bodyContent.claim
+          ? { requiredBlobSha256s: [bodyContent.claim.sha256], bodyContentClaim: bodyContent.claim }
+          : { requiredBlobSha256s: [] }),
         summary,
         enqueuedAt: now,
       },
+      ...(bodyContent.blob ? { blobs: [bodyContent.blob] } : {}),
     });
-    commitBatch(cell, [inboxBundle]);
+    commitChannelBatch(cell, [outboxBundle]);
+    verifyPersistedInboxItem(cell, outboxInboxId, itemId, dedupeKey);
 
-    const rcpt = receiptOf(messageId, channelKind, "outbound", idempotencyKey, "delivered", personId, now, {
-      recipientRef,
-      inboxItemId: itemId,
+    const drained = drainChannelOutbox(cell, binding, {
+      principalPersonId: personId,
+      targetItemId: itemId,
+      now,
+      opIdPrefix: opId,
     });
-    return cell.readResult(opId, { receipt: rcpt }, inboxRevision, null);
+    const finalReceipt =
+      drained.receipts[0] ??
+      receiptOf(messageId, channelKind, "outbound", idempotencyKey, "pending_retry", personId, now, {
+        recipientRef,
+        inboxItemId: itemId,
+        ...(bodyContent.claim ? { bodyBlobSha256: bodyContent.claim.sha256 } : {}),
+      });
+    const finalRevision = cell.store.readHead()?.revision ?? outboxRevision;
+    return cell.readResult(opId, { receipt: finalReceipt }, finalRevision, null);
   }
 
   reject("unsupported_command", `Unsupported channel action: ${action.kind}.`);

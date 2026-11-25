@@ -24,6 +24,7 @@ const selectors = {
   trace: { path: READ_DOCUMENT },
   "doctor-health": {},
   "todo-list": {},
+  "channel-list": { limit: 1 },
   "todo-show": { todoId: "todo_222222222222222222222222" },
   "entity-get": { entityKind: "agent", entityId: "g38-agent" },
   "agent-inspect": { agentId: "g38-agent" },

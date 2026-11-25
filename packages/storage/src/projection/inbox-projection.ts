@@ -58,6 +58,8 @@ export const INBOX_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS inbox_item_inbox_queue
       ON inbox_item(inbox_id, consumer_kind, status, enqueued_revision)
       WHERE status IN ('pending', 'quarantined_external', 'claimed');
+    CREATE INDEX IF NOT EXISTS inbox_item_by_inbox
+      ON inbox_item(inbox_id, enqueued_revision);
     /* @gate-identity state-store/task.projection.inbox_cursor */ CREATE TABLE IF NOT EXISTS inbox_cursor (
       singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
       revision INTEGER NOT NULL,
@@ -183,13 +185,28 @@ function writeItem(db: DatabaseSync, item: InboxItem): void {
   );
 }
 
-/** Indexed point reads (`item`, `dedupe`) or an ordered, bounded queue page (`queue`). */
+/** Indexed point reads (`item`, `dedupe`), targeted inbox history (`inbox`), or an ordered queue page (`queue`). */
 export function readInboxRows(
   db: DatabaseSync,
   query: InboxQuery,
   cut: { readonly watermark: number; readonly sourceRevision: number },
 ): InboxRead {
   if (!inboxModelCurrent(db)) return { status: "pending", ...cut };
+  if (query.by === "inbox") {
+    if (typeof query.inboxId !== "string" || query.inboxId.length === 0)
+      throw new Error("inbox history reads require a targeted inboxId");
+    const limit = inboxPageLimit(query.limit);
+    const items = queryRows<{ item_json: string }>(
+      db,
+      `SELECT item_json FROM inbox_item
+       WHERE inbox_id = ? AND enqueued_revision > ?
+       ORDER BY enqueued_revision LIMIT ?`,
+      query.inboxId,
+      inboxQueueCursor(query.cursor),
+      limit + 1,
+    ).map(({ item_json }) => JSON.parse(item_json) as InboxItem);
+    return { status: "ready", ...cut, items: items.slice(0, limit), nextCursor: inboxQueueNextCursor(items, limit) };
+  }
   if (query.by !== "queue") {
     const row = queryRows<{ item_json: string }>(
       db,

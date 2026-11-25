@@ -10,25 +10,50 @@
     ],
     "channel-deliver": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#commitBatch:3026cfab2e7274a19f0149669c0d0919",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#dispatchChannelAction:7c8ca95c08161e4be116c3f55168667e",
         "route": "channel-deliver",
         "role": "effect",
         "order": 1
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#dispatchChannelAction:7c8ca95c08161e4be116c3f55168667e",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#makeEnvelopeId:d011ccf3cf0b855b8851199f1aa88a4d",
         "route": "channel-deliver",
         "role": "effect",
         "order": 2
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#makeEnvelopeId:d011ccf3cf0b855b8851199f1aa88a4d",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#channelBodyContent.sha256:b46bd6134bb1a6e160a70fe1b0801eba",
         "route": "channel-deliver",
         "role": "effect",
         "order": 3
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#channelItemId:a5d70c44a6a638e0060fb4d025820932",
+        "route": "channel-deliver",
+        "role": "effect",
+        "order": 4
       }
     ],
-    "channel-send": [],
+    "channel-send": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#commitChannelBatch:3026cfab2e7274a19f0149669c0d0919",
+        "route": "channel-send",
+        "role": "effect",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#deliverPeerOutbound.requestId:41bd789cda3754040f811ecc833012cd",
+        "route": "channel-send",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#registerChannelOutboundAdapter:7833f6efe42761439ebf33fe74af76a3",
+        "route": "channel-send",
+        "role": "support",
+        "order": 3
+      }
+    ],
     "daemon-fleet-center-switch": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/center-switchover-command.ts#switchoverCommandError:5e760bf72f2e4e84a5d8c4f6eddc5d65",

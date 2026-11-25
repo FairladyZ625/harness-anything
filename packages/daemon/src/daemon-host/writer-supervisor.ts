@@ -44,6 +44,7 @@ import { captureDaemonOperation, type DaemonOperationHandle } from "./daemon-ope
 import type { RuntimeProcess } from "./runtime-spawn.ts";
 import { createRuntimeInstanceDispatchState } from "./runtime-instance-selection.ts";
 import { resolveRuntimeInstanceCandidates } from "./runtime-spawn-mission.ts";
+import { resolveCustomChannelOutboundAdapter } from "./channel-outbox.ts";
 import type { RuntimeInstanceSchedulingCall } from "./repo-writer-protocol.ts";
 
 export interface WriterSupervisor {
@@ -736,6 +737,17 @@ export async function openWriterSupervisor(
       }
       case "now":
         return input.now!();
+      case "channelOutbound": {
+        const req = call.payload as {
+          readonly op: "has" | "deliver";
+          readonly message: import("@harness-anything/kernel/internal/domain/channel-adapter.ts").ChannelOutboxMessage;
+          readonly now: string;
+        };
+        const adapter = resolveCustomChannelOutboundAdapter(input.repoId, req.message);
+        if (req.op === "has") return Boolean(adapter);
+        if (!adapter) return { status: "failed", reasonCode: "unregistered_channel_adapter" };
+        return adapter.deliver(req.message, { now: req.now } as never);
+      }
       case "killpoint":
         return input.killpoint!(call.payload as never);
       case "shouldStop":
@@ -957,6 +969,7 @@ function bootstrapMessage(
     },
     capabilities: {
       runtimeInstanceScheduling: true,
+      channelOutbound: true,
       canonicalStore,
       now: input.now !== undefined,
       killpoint: input.killpoint !== undefined,

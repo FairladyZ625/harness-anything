@@ -2204,6 +2204,8 @@
   "views.agenda.peerReplyAction": "建议操作",
   "views.agenda.peerReply": "回复",
   "views.agenda.peerPromote": "升级为任务",
+  "views.agenda.peerPromoteWork": "所属工作",
+  "views.agenda.peerPromoteChooseWork": "选择工作",
   "views.agenda.peerReplySent": "回复已发送",
   "views.agenda.peerPromoted": "已升级为任务",
   "views.agenda.layoutMode": "议程布局",

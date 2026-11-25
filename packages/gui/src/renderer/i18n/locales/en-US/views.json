@@ -2204,6 +2204,8 @@
   "views.agenda.peerReplyAction": "Suggested action",
   "views.agenda.peerReply": "Reply",
   "views.agenda.peerPromote": "Promote to task",
+  "views.agenda.peerPromoteWork": "Work",
+  "views.agenda.peerPromoteChooseWork": "Choose a Work",
   "views.agenda.peerReplySent": "Reply sent",
   "views.agenda.peerPromoted": "Promoted to task",
   "views.agenda.layoutMode": "Agenda layout",

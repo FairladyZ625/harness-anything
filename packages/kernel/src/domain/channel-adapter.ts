@@ -27,6 +27,8 @@ export const channelV1Schema: EntityDocumentJsonSchema<unknown> = {
   additionalProperties: false,
 };
 export const CHANNEL_PAGE_LIMIT = 200;
+export const CHANNEL_OUTBOX_RETRY_LEASE_MS = 1_000;
+export const CHANNEL_LIST_SCAN_BATCHES = 10;
 const CHANNEL_TEXT_LIMIT = 512;
 const CHANNEL_SUMMARY_LIMIT = 1024;
 
@@ -97,6 +99,7 @@ export interface ChannelDeliveryReceipt {
   readonly inboxItemId?: string;
   readonly peerRequestId?: string;
   readonly recipientRef?: string;
+  readonly bodyBlobSha256?: string;
   readonly reasonCode?: string;
   readonly deliveredAt: string;
 }
@@ -135,6 +138,7 @@ export interface ChannelListItem {
   readonly correlationId?: string;
   readonly peerRequestId?: string;
   readonly inboxItemId?: string;
+  readonly bodyBlobSha256?: string;
   readonly deliveredAt: string;
 }
 
@@ -242,7 +246,7 @@ export const channelActionDefinitions = [
     summary: "Deliver a standardized ChannelInboxEnvelope through an authorized adapter into Canonical Inbox.",
     fields: [
       channelText("channelKind", true, "--channel"),
-      channelText("envelopeId", true, "--envelope-id"),
+      channelText("envelopeId", false, "--envelope-id"),
       channelText("principalPersonId", true, "--principal"),
       channelText("summary", true, "--summary"),
       channelText("body", false, "--body"),
@@ -276,7 +280,7 @@ export const channelActionDefinitions = [
     summary: "Route a ChannelOutboxMessage to the target channelKind and record an idempotent delivery receipt.",
     fields: [
       channelText("channelKind", true, "--channel"),
-      channelText("messageId", true, "--message-id"),
+      channelText("messageId", false, "--message-id"),
       channelText("recipientRef", true, "--to"),
       channelText("summary", true, "--summary"),
       channelText("body", false, "--body"),
@@ -405,13 +409,73 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#runChannelAction.limit:fff62423ddf2d7fd97d1e51e8d55a7f3",
+          "policy:packages/kernel:packages/kernel/src/domain/channel-adapter.ts#CHANNEL_OUTBOX_RETRY_LEASE_MS:16d04b1cfb5240d7e116a0109bac3632",
+        route: "channel-send",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#listChannels.limit:fff62423ddf2d7fd97d1e51e8d55a7f3",
         route: "channel-list",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#runChannelAction.reqRead:78f06c4227ba785282a4e80f837cbc12",
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#listChannels.peek.limit:0dd585c292e12f6bf0b47a1d330750d6",
         route: "channel-list",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#listChannels.peek.limit:0dd585c292e12f6bf0b47a1d330750d6:2",
+        route: "channel-list",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#runChannelAction.outboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
+        route: "channel-send",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#channelBodyContent.claim:e0130c37b9c7c5562aa0250620b8111b",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#deliverPeerOutbound.inboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
+        route: "channel-send",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#drainChannelOutbox:3ffcfb2097bbc6954303a6bfb6202064",
+        route: "channel-send",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#drainChannelOutbox:17cbd1941c3fe9420f5d2cd1c103f7f5",
+        route: "channel-send",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#drainChannelOutbox:9f420de8bd36962f153b7a75f52d1e9d",
+        route: "channel-send",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/inbox.ts#enqueuedIssues:979a4db5b94b6f3344b365dd51edb2d0",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/kernel:packages/kernel/src/ports/canonical-document-claims.ts#contentClaims.claims:b477d628692f3f4b3e71420f3dc45d52",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
+          "policy:packages/gui:packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#AgendaChannelPanel.claim:66f77ec98797d81477035bf5f64fca80",
+        route: "peer-reply",
+      },
+      {
+        candidateId:
+          "policy:packages/gui:packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#AgendaChannelPanel.submitReply.claim:66f77ec98797d81477035bf5f64fca80",
+        route: "peer-reply",
       },
     ],
   },
