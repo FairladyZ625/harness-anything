@@ -90,6 +90,7 @@ test(
         "applied",
       );
       const docPath = "tasks/task-fleet-fleet/notes.md",
+        workspaceDocPath = `harness/${docPath}`,
         docBody = "# Fleet mirror note\n\nfirst cut\n";
       writeFileSync(path.join(fixture.repo, "harness", docPath), docBody);
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--task", "task-fleet"]).outcome, "applied");
@@ -286,12 +287,12 @@ test(
           ["doc", "status"],
           ["doc", "sync", "--dry-run"],
         ]) {
-          const status = run(fixture, "edge", [...command, "--path", docPath]);
+          const status = run(fixture, "edge", [...command, "--path", workspaceDocPath]);
           assert.equal((status.cut as { revision: number }).revision, pulled.ackCut);
           const rows = status.rows as { path: string; state: string }[];
           assert.deepEqual(
             rows.map(({ path, state }) => ({ path, state })),
-            [{ path: docPath, state }],
+            [{ path: workspaceDocPath, state }],
           );
           assert.equal(readFileSync(path.join(fixture.repo, "harness", docPath), "utf8"), docBody);
           assert.equal(readCutFile(viewRoot, pulled.ackCut as number, docPath), docBody);
