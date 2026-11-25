@@ -72,6 +72,12 @@ export function ResidentCeoView({ repoId }: { readonly repoId: string }) {
   return (
     <section className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-6" data-testid="resident-ceo-view">
       <PageHeader title={t("residentCeo.title")} note={t("residentCeo.note")} />
+      <p
+        className="rounded-xl border border-border-subtle bg-surface px-4 py-3 ui-micro text-text-muted"
+        data-testid="resident-ceo-phase1-boundary"
+      >
+        {t("residentCeo.phase1Boundary")}
+      </p>
       {error ? <ActionError>{error.message}</ActionError> : null}
       <div className="rounded-xl border border-border-subtle bg-surface p-5">
         <div className="mb-4 flex items-center justify-between">

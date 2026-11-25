@@ -77,6 +77,10 @@ function residentCeoDispatchKey(principalPersonId: string, wakeId: string): stri
   return `resident-ceo:${principalPersonId}:${wakeId}`;
 }
 
+function residentCeoWatcherKey(repoId: string, principalPersonId: string): string {
+  return `${repoId}:${principalPersonId}`;
+}
+
 function hasRunningResidentCeoCandidate(rootDir: string, repoId: string): boolean {
   const serialized = readLocalState(rootDir).value.residentCeoProfilesJson;
   return serialized !== undefined && serialized.includes('"running"') && serialized.includes(JSON.stringify(repoId));
@@ -291,15 +295,20 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     });
   };
   const watchResidentCeoInbox = (repoId: string, principalPersonId: string, recoveringWakeId?: string): void => {
-    residentCeoInboxWatchers.get(principalPersonId)?.abort();
+    const watcherKey = residentCeoWatcherKey(repoId, principalPersonId);
+    residentCeoInboxWatchers.get(watcherKey)?.abort();
     if (context.closeSignal.aborted) return;
     const controller = new AbortController();
     const { signal } = controller;
-    residentCeoInboxWatchers.set(principalPersonId, controller);
+    residentCeoInboxWatchers.set(watcherKey, controller);
     trackResidentCeoTask(
       runDaemonRetry({
         run: async () =>
           (async () => {
+            const currentNowMs = (): number => {
+              const parsed = Date.parse(context.now());
+              return Number.isFinite(parsed) ? parsed : Date.now();
+            };
             let afterRevision: number | undefined;
             let nextHeartbeat: number | null = null;
             while (!signal.aborted) {
@@ -311,7 +320,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
               if (profile !== null) assertResidentCeoPrincipal(profile, principalPersonId);
               if (profile?.status !== "running" || profile.repoId !== repoId) return;
               const intervalMs = profile.heartbeatIntervalSec * 1_000;
-              nextHeartbeat ??= Date.now() + intervalMs;
+              nextHeartbeat ??= currentNowMs() + intervalMs;
               guardCenterRelocation(repoId, false);
               await context.attemptHostRecovery(repoId);
               const auth = await context.oidc.bind({ transportKind: "unix-socket" } as const, cell.status().rootDir);
@@ -380,6 +389,8 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                     "Respond with a read-only assessment and the next action you propose.",
                     JSON.stringify({
                       requestId: request.requestId,
+                      kind: request.kind,
+                      ...(request.intent ? { intent: request.intent } : {}),
                       from: request.from.personId,
                       summary: request.summary,
                       body,
@@ -390,18 +401,13 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                 );
                 if (result.response !== null) continue;
               }
-              if (Date.now() >= nextHeartbeat) {
-                nextHeartbeat = Date.now() + intervalMs;
-                await residentCeoService(repoId, auth).wake(
-                  principalPersonId,
-                  "heartbeat",
-                  "Check the peer inbox and provide a concise read-only status update if action is needed.",
-                  undefined,
-                  repoId,
-                );
-                continue;
+              const nowMs = currentNowMs();
+              if (nowMs >= nextHeartbeat) {
+                // Lightweight heartbeat check completed above with zero open peer requests:
+                // advance the next heartbeat schedule without launching an LLM runtime.
+                nextHeartbeat = nowMs + intervalMs;
               }
-              const waitMs = Math.max(1, Math.min(25_000, nextHeartbeat - Date.now()));
+              const waitMs = Math.max(1, Math.min(25_000, nextHeartbeat - currentNowMs()));
               const started = Date.now();
               const page = await cell.read(
                 "repo.events.read",
@@ -419,8 +425,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       })
         .catch(consumeKnownError)
         .finally(() => {
-          if (residentCeoInboxWatchers.get(principalPersonId) === controller)
-            residentCeoInboxWatchers.delete(principalPersonId);
+          if (residentCeoInboxWatchers.get(watcherKey) === controller) residentCeoInboxWatchers.delete(watcherKey);
         }),
     );
   };
@@ -525,7 +530,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       }
       if (operation === "stop") {
         const profile = await service.stop(principalPersonId, repoId);
-        residentCeoInboxWatchers.get(principalPersonId)?.abort();
+        residentCeoInboxWatchers.get(residentCeoWatcherKey(repoId, principalPersonId))?.abort();
         return receipt(profile, "Resident CEO stopped.");
       }
       const message = String(payload.message ?? "").trim();

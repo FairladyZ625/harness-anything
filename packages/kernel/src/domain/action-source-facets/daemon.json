@@ -18,7 +18,7 @@
         "route": "ceo-config"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox:74251f0b1268218730a8d41c9f979360",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox:5d93495c314b2642dad4340b4b7b0bb6",
         "route": "ceo-config"
       },
       {

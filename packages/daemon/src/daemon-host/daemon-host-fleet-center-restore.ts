@@ -38,7 +38,7 @@ export async function restoreSavedFleetCenter(
         storage: input.storage,
         buildDraining: input.buildDraining,
         onDeliverySettled: input.onRepoStatusChange,
-        onNodeDisconnected: () => triggerCenterReviewFallback("fleet-node-disconnected"),
+        onNodeDisconnected: () => triggerCenterReviewFallback?.("fleet-node-disconnected"),
         recordTraffic: input.recordTraffic,
         onRequestStarted: input.onFleetRequestStarted,
         onRequestSettled: input.onFleetRequestSettled,
@@ -79,7 +79,7 @@ export async function restoreSavedFleetCenter(
     );
     hostContext.fleetCenter = started.center;
     void host.attachmentsSettled().then(() => {
-      triggerCenterReviewFallback("fleet-center-restored");
+      triggerCenterReviewFallback?.("fleet-center-restored");
       if (authorityRepo.mode === "remote-edge" && authorityRepo.canonicalRoot)
         announceStandbyIfReady(authorityRepo.repoId, authorityRepo.canonicalRoot);
     });

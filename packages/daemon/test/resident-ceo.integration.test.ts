@@ -1,6 +1,6 @@
-// harness-test-tier: integration
+// harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,7 +11,11 @@ import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { eventuallyValue, initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
-import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import {
+  allowFixtureRuntimeInstances,
+  registerBootstrappedDaemonRepo,
+  registerFixtureRuntimeInstance,
+} from "./repo-settings.fixture.ts";
 import { evidence } from "./task-surface.fixtures.ts";
 
 test(
@@ -234,6 +238,259 @@ test(
       await restartedHost.close();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((done) => server.close(() => done()));
+      removeTempRepository(parent);
+    }
+  },
+);
+
+test(
+  "resident CEO empty-inbox heartbeat advances schedule without launching an LLM runtime",
+  { timeout: 90_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-ceo-empty-hb-"));
+    const rootDir = path.join(parent, "repo");
+    const userRoot = path.join(parent, "user");
+    const argsPath = path.join(parent, "provider-args.json");
+    const repoId = "resident-ceo-empty-hb";
+    const installation = {
+      installationId: "resident-ceo-empty-hb-codex",
+      kindId: "codex" as const,
+      executablePath: writeProviderStub(path.join(parent, "codex.mjs"), "codex", argsPath),
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    let nowMs = Date.parse("2026-11-25T10:00:00.000Z");
+    const host = await openDaemonHost({
+      daemonId: repoId,
+      userRoot,
+      now: () => new Date(nowMs).toISOString(),
+      runtimeDiscover: () => [installation],
+    });
+    try {
+      await host.attachmentsSettled();
+      await registerFixtureRuntimeInstance(host, repoId, auth, {
+        instanceId: "codex-provider",
+        name: "Resident CEO Empty Heartbeat fixture",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["test-model"],
+        authMode: "subscription",
+        codex: {},
+      });
+      const bobAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+      };
+      const ceo = (operation: string, payload: Record<string, unknown> = {}) =>
+        rpc(host, bobAuth, `repo.residentCeo.${operation}`, { repo: { repoId }, payload });
+      assert.equal(
+        (
+          await ceo("config", {
+            runtimeInstanceId: "codex-provider",
+            model: "test-model",
+            heartbeatIntervalSec: 30,
+          })
+        ).ok,
+        true,
+      );
+      assert.equal((await ceo("start")).ok, true);
+      // Let the watcher complete its initial inbox check and enter its bounded event wait.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      // Advance clock past the 30s heartbeat interval, then emit an unrelated event for another
+      // recipient so Bob's watcher wakes immediately, evaluates the due heartbeat on an empty
+      // inbox, and advances nextHeartbeat without spawning any LLM runtime.
+      nowMs += 35_000;
+      const unrelated = await host.run(
+        repoId,
+        {
+          kind: "peer-ask",
+          toPersonId: "person_carol",
+          summary: "Unrelated peer notice",
+          claim: "Only for Carol.",
+          requestedAction: "No action for Bob.",
+        },
+        bobAuth,
+      );
+      assert.equal(unrelated.outcome, "applied", JSON.stringify(unrelated));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const statusAfterHeartbeat = await ceo("status");
+      assert.equal(statusAfterHeartbeat.ok, true, JSON.stringify(statusAfterHeartbeat));
+      assert.equal((statusAfterHeartbeat.profile as { lastWake: unknown }).lastWake, null);
+      assert.equal(existsSync(argsPath), false, "empty-inbox heartbeat must not launch an LLM runtime");
+
+      // Positive control: the same watcher is still alive and wakes when a real delegation arrives.
+      signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+      const aliceAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+      };
+      const delegated = await host.run(
+        repoId,
+        {
+          kind: "peer-ask",
+          requestKind: "delegate",
+          toPersonId: "person_bob",
+          summary: "Delegate after idle heartbeat",
+        },
+        aliceAuth,
+      );
+      assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
+      signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+      const woke = await eventuallyValue(async () => {
+        const status = await ceo("status");
+        const profile = status.profile as {
+          readonly lastWake: { readonly cause: string; readonly status: string } | null;
+        };
+        return profile.lastWake?.status === "succeeded" ? profile : null;
+      }, "resident CEO wakes for real delegation after empty heartbeat");
+      assert.equal(woke.lastWake?.cause, "peer-request");
+      assert.equal(existsSync(argsPath), true);
+    } finally {
+      await host.close();
+      removeTempRepository(parent);
+    }
+  },
+);
+
+test(
+  "resident CEO isolates inbox watchers across multiple repositories for the same principal",
+  { timeout: 120_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-ceo-multi-repo-"));
+    const repoARoot = path.join(parent, "repo-a");
+    const repoBRoot = path.join(parent, "repo-b");
+    const userRoot = path.join(parent, "user");
+    const argsPath = path.join(parent, "provider-args.json");
+    const repoA = "resident-ceo-repo-a";
+    const repoB = "resident-ceo-repo-b";
+    const installation = {
+      installationId: "resident-ceo-multi-codex",
+      kindId: "codex" as const,
+      executablePath: writeProviderStub(path.join(parent, "codex.mjs"), "codex", argsPath),
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+    initIngressRepo(repoARoot, process.getuid?.() ?? 0);
+    initIngressRepo(repoBRoot, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({
+      canonicalRoot: repoARoot,
+      repoId: repoA,
+      userRoot,
+      createConvenienceLinks: false,
+    });
+    registerBootstrappedDaemonRepo({
+      canonicalRoot: repoBRoot,
+      repoId: repoB,
+      userRoot,
+      createConvenienceLinks: false,
+    });
+    signInPolicyTestUser(userRoot, "person_bob", [repoA, repoB], "admin");
+    const host = await openDaemonHost({ daemonId: "multi-repo-ceo", userRoot, runtimeDiscover: () => [installation] });
+    try {
+      await host.attachmentsSettled();
+      await registerFixtureRuntimeInstance(host, repoA, auth, {
+        instanceId: "codex-provider",
+        name: "Resident CEO Multi-Repo fixture",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["test-model"],
+        authMode: "subscription",
+        codex: {},
+      });
+      await allowFixtureRuntimeInstances(host, repoB, auth, ["codex-provider"]);
+      const bobAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", {
+          repo: { repoId: repoA },
+          payload: {},
+        }),
+      };
+      const ceo = (repoId: string, operation: string, payload: Record<string, unknown> = {}) =>
+        rpc(host, bobAuth, `repo.residentCeo.${operation}`, { repo: { repoId }, payload });
+      for (const repoId of [repoA, repoB]) {
+        assert.equal(
+          (
+            await ceo(repoId, "config", {
+              runtimeInstanceId: "codex-provider",
+              model: "test-model",
+              heartbeatIntervalSec: 300,
+            })
+          ).ok,
+          true,
+        );
+        assert.equal((await ceo(repoId, "start")).ok, true);
+      }
+
+      // Send delegations to person_bob in BOTH repositories.
+      signInPolicyTestUser(userRoot, "person_alice", [repoA, repoB], "admin");
+      const aliceAuth = {
+        ...auth,
+        oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", {
+          repo: { repoId: repoA },
+          payload: {},
+        }),
+      };
+      const delegateA = await host.run(
+        repoA,
+        { kind: "peer-ask", requestKind: "delegate", toPersonId: "person_bob", summary: "Repo A delegation" },
+        aliceAuth,
+      );
+      const delegateB = await host.run(
+        repoB,
+        { kind: "peer-ask", requestKind: "delegate", toPersonId: "person_bob", summary: "Repo B delegation" },
+        aliceAuth,
+      );
+      assert.equal(delegateA.outcome, "applied", JSON.stringify(delegateA));
+      assert.equal(delegateB.outcome, "applied", JSON.stringify(delegateB));
+      const { request: reqA } = evidence(delegateA) as { request: PeerRequestV1 };
+      const { request: reqB } = evidence(delegateB) as { request: PeerRequestV1 };
+
+      // Switch local session back to person_bob so both watchers execute under their principal.
+      signInPolicyTestUser(userRoot, "person_bob", [repoA, repoB], "admin");
+      for (const [repoId, requestId] of [
+        [repoA, reqA.requestId],
+        [repoB, reqB.requestId],
+      ] as const) {
+        const settled = await eventuallyValue(async () => {
+          const status = await ceo(repoId, "status");
+          const profile = status.profile as {
+            readonly lastWake: { readonly status: string; readonly peerRequestId?: string } | null;
+          };
+          return profile.lastWake?.status === "succeeded" && profile.lastWake.peerRequestId === requestId
+            ? profile
+            : null;
+        }, `resident CEO settles delegation in ${repoId}`);
+        assert.equal(settled.lastWake?.peerRequestId, requestId);
+      }
+
+      // Stopping repoB must not abort repoA's watcher.
+      assert.equal((await ceo(repoB, "stop")).ok, true);
+      signInPolicyTestUser(userRoot, "person_alice", [repoA, repoB], "admin");
+      const secondDelegateA = await host.run(
+        repoA,
+        { kind: "peer-ask", requestKind: "delegate", toPersonId: "person_bob", summary: "Repo A follow-up" },
+        aliceAuth,
+      );
+      assert.equal(secondDelegateA.outcome, "applied", JSON.stringify(secondDelegateA));
+      const { request: reqA2 } = evidence(secondDelegateA) as { request: PeerRequestV1 };
+      signInPolicyTestUser(userRoot, "person_bob", [repoA, repoB], "admin");
+      const settledA2 = await eventuallyValue(async () => {
+        const status = await ceo(repoA, "status");
+        const profile = status.profile as {
+          readonly lastWake: { readonly status: string; readonly peerRequestId?: string } | null;
+        };
+        return profile.lastWake?.status === "succeeded" && profile.lastWake.peerRequestId === reqA2.requestId
+          ? profile
+          : null;
+      }, "repoA watcher stays active after repoB stops");
+      assert.equal(settledA2.lastWake?.peerRequestId, reqA2.requestId);
+    } finally {
+      await host.close();
       removeTempRepository(parent);
     }
   },

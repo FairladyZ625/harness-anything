@@ -330,7 +330,8 @@ const peerProtocolCommands = (
     {
       id: "delegate",
       read: false,
-      summary: "Assign work to another principal as a PeerRequest and atomically enqueue its Inbox wakeup.",
+      summary:
+        "Delegate work to another principal as a PeerRequest (intent=delegate) with atomic Inbox wakeup; Phase 1 resident CEO replies with read-only assessment and proposed next action.",
       fields: [
         peerCliText("toPersonId", true, "--to"),
         peerCliText("summary", true, "--title"),
@@ -504,7 +505,8 @@ const residentCeoProtocolCommands = Object.freeze([
     hostAuthority: "own-session",
     phase: "ResidentCeo",
     path: ["ceo", "config"],
-    summary: "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval.",
+    summary:
+      "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval (Phase 1: read-only assessment and advisory reply; MCP disabled).",
     method: "repo.residentCeo.config",
     payloadFields: [],
     inputs: [
@@ -538,7 +540,8 @@ const residentCeoProtocolCommands = Object.freeze([
     hostAuthority: "own-session",
     phase: "ResidentCeo",
     path: ["ceo", "start"],
-    summary: "Start the signed-in person's resident CEO.",
+    summary:
+      "Start the signed-in person's resident CEO (Phase 1: read-only assessment and advisory reply; MCP disabled).",
     method: "repo.residentCeo.start",
     payloadFields: [],
     inputs: [],
@@ -558,7 +561,8 @@ const residentCeoProtocolCommands = Object.freeze([
     hostAuthority: "own-session",
     phase: "ResidentCeo",
     path: ["ceo", "status"],
-    summary: "Read the signed-in person's resident CEO status and most recent wake receipt.",
+    summary:
+      "Read the signed-in person's resident CEO status and most recent wake receipt (Phase 1: read-only assessment and advisory reply; MCP disabled).",
     method: "repo.residentCeo.status",
     payloadFields: [],
     inputs: [],
@@ -568,7 +572,8 @@ const residentCeoProtocolCommands = Object.freeze([
     hostAuthority: "own-session",
     phase: "ResidentCeo",
     path: ["ceo", "chat"],
-    summary: "Send a message to the signed-in person's resident CEO and continue its persistent provider session.",
+    summary:
+      "Send a message to the signed-in person's resident CEO and continue its persistent provider session (Phase 1: read-only assessment and advisory reply; MCP disabled).",
     method: "repo.residentCeo.chat",
     payloadFields: [],
     inputs: [

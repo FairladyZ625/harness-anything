@@ -1,5 +1,18 @@
 import type { ResidentCeoProfile } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 
+/**
+ * Storage carrier, concurrency, and migration boundary (Phase 1):
+ * - Carrier: stored in node-local `LocalSettingsV1.residentCeoProfilesJson` via
+ *   `RepoCell.writeResidentCeoProfilesJson` so host-local provider/session preferences never
+ *   replicate into shared canonical events while still funneling through the RepoWriter queue.
+ * - Concurrency: writes for each `repoId` key serialize through `profileWriteQueues` and
+ *   enforce optimistic CAS on `expectedUpdatedAt`; per-principal isolation in
+ *   `settings-action-runtime.ts` prevents any principal from mutating another principal's entry,
+ *   and cross-process serialization is enforced by the single-owner RepoWriter lock.
+ * - Migration: this store is the sole persistence seam (`ResidentCeoProfileStore`); Phase 2 can
+ *   swap to a dedicated host-local SQLite table/aggregate via one-way migration from
+ *   `residentCeoProfilesJson` without altering canonical events or shared projections.
+ */
 export interface ResidentCeoProfileStore {
   readonly read: (principalPersonId: string) => Promise<ResidentCeoProfile | null>;
   readonly write: (profile: ResidentCeoProfile, expectedUpdatedAt: string | null) => Promise<void>;

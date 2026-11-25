@@ -33,6 +33,13 @@ export const peerRequestEventTypes = [
 export const peerRequestKinds = ["question", "ops-request", "merge-request", "handoff"] as const;
 export type PeerRequestKind = (typeof peerRequestKinds)[number];
 
+const peerRequestIntents = ["delegate"] as const;
+export type PeerRequestIntent = (typeof peerRequestIntents)[number];
+
+export function isPeerDelegationRequest(request: Pick<PeerRequestInput, "kind" | "intent">): boolean {
+  return request.kind === "ops-request" && request.intent === "delegate";
+}
+
 export interface PeerStructuredBody {
   readonly claim: string;
   readonly rootCause?: string;
@@ -63,6 +70,7 @@ export interface PeerRequestInput {
   readonly from: { readonly personId: string; readonly nodeId: string; readonly sessionHint?: string };
   readonly to: { readonly personId: string; readonly workId?: string; readonly lane?: string };
   readonly kind: PeerRequestKind;
+  readonly intent?: PeerRequestIntent;
   readonly anchorRef?: string;
   readonly summary: string;
   readonly structuredBody: PeerStructuredBody;
@@ -407,6 +415,7 @@ const requestFields = objectFields(
     from: objectFields({ personId: textField, nodeId: textField, sessionHint: textField }, ["personId", "nodeId"]),
     to: objectFields({ personId: textField, workId: textField, lane: textField }, ["personId"]),
     kind: { type: "string", enum: peerRequestKinds },
+    intent: { type: "string", enum: peerRequestIntents },
     anchorRef: textField,
     summary: { ...textField, pattern: "^[^\\r\\n\\u2028\\u2029]{1,240}$(?![\\s\\S])" },
     structuredBody,
@@ -1107,7 +1116,7 @@ export const peerPolicies = [
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.reqRead:78f06c4227ba785282a4e80f837cbc12",
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.reqRead:4dc0fc48e6ccdf43448f986242d28462",
         route: "peer-inbox",
       },
       {

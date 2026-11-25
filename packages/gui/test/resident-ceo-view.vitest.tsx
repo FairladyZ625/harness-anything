@@ -96,6 +96,9 @@ describe("resident CEO view", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(container.querySelector('[data-testid="resident-ceo-status"]')?.textContent).toBe("Running");
+    expect(container.querySelector('[data-testid="resident-ceo-phase1-boundary"]')?.textContent).toContain(
+      "read-only assessment and advisory reply",
+    );
     const input = container.querySelector('input[aria-label="Send message"]');
     expect(input).not.toBeNull();
     await act(async () => {

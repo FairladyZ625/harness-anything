@@ -33,6 +33,7 @@ import {
   DEFAULT_OFFLINE_TAKEOVER_THRESHOLD_MS,
   evaluateOfflineTakeoverAdmission,
   evaluatePeerExecutionCeiling,
+  isPeerDelegationRequest,
   isPeerFrameCausallyReady,
   matchesPeerWatchFilter,
   peerRequestKinds,
@@ -318,15 +319,23 @@ export function runPeerAction(
   if (action.kind === "peer-inbox") {
     const cut = cell.projection.readCut();
     const sent = action.sent === true;
+    const requestedKind = optionalString(action.requestKind);
+    const filterDelegate = requestedKind === "delegate";
     const reqRead = cell.projection.readPeerRequests({
       by: "list",
       ...(sent ? { senderPersonId: personId } : { recipientPersonId: personId }),
       ...(optionalString(action.state) ? { state: optionalString(action.state) as PeerRequestState } : {}),
-      ...(optionalString(action.requestKind) ? { kind: optionalString(action.requestKind) as PeerRequestKind } : {}),
+      ...(requestedKind ? { kind: (filterDelegate ? "ops-request" : requestedKind) as PeerRequestKind } : {}),
       ...(optionalString(action.workId) ? { workId: optionalString(action.workId) } : {}),
       ...(optionalString(action.lane) ? { lane: optionalString(action.lane) } : {}),
-      ...(typeof action.limit === "number" ? { limit: action.limit } : {}),
+      ...(typeof action.limit === "number" ? (filterDelegate ? {} : { limit: action.limit }) : {}),
     });
+    const rawRequests = reqRead.status === "ready" ? reqRead.requests : [];
+    const requests = filterDelegate
+      ? rawRequests
+          .filter((candidate) => isPeerDelegationRequest(candidate))
+          .slice(0, Number.isFinite(action.limit) ? Number(action.limit) : undefined)
+      : rawRequests;
     const inboxRead = cell.projection.readInbox({
       by: "queue",
       status: "pending",
@@ -337,7 +346,7 @@ export function runPeerAction(
     return cell.readResult(
       opId,
       {
-        requests: reqRead.status === "ready" ? reqRead.requests : [],
+        requests,
         inboxItems: inboxRead.status === "ready" ? inboxRead.items : [],
         watermark: cut.watermark,
       },
@@ -447,6 +456,7 @@ export function runPeerAction(
         ...(lane ? { lane } : {}),
       },
       kind,
+      ...(isDelegate ? { intent: "delegate" as const } : {}),
       ...(anchorRef ? { anchorRef } : {}),
       summary,
       structuredBody: {
