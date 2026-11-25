@@ -46,8 +46,10 @@ export async function waitForWarming(context: DaemonHostRegistryContext, repoId:
   await new Promise<void>((resolve) => {
     // A command may wait for an in-flight attach, but it must return before the attach
     // lifecycle can cross its settlement boundary during the same request. Keep the established
-    // five-second request window while honoring shorter budgets used by focused tests.
-    const timer = setTimeout(resolve, Math.min(context.attachTimeoutMs, 5_000));
+    // five-second POSIX window (wider on Windows where spawning a worker thread and opening SQLite
+    // regularly exceeds 5s under load) while honoring shorter budgets used by focused tests.
+    const warmingWindowMs = process.platform === "win32" ? 15_000 : 5_000;
+    const timer = setTimeout(resolve, Math.min(context.attachTimeoutMs, warmingWindowMs));
     void settlement.promise.then(() => {
       clearTimeout(timer);
       resolve();

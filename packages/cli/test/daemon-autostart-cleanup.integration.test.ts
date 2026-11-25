@@ -25,8 +25,11 @@ import {
 } from "./daemon-autostart-cli.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
+const childTestTimeoutMs = process.platform === "win32" ? 90_000 : 30_000;
+const cleanupExitTimeoutMs = process.platform === "win32" ? 10_000 : 2_000;
+
 test("autostart fixture stops its daemon even when the owning test throws", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-cleanup-")),
+  const parent = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-autostart-cleanup-")),
     witness = path.join(parent, "witness.json"),
     childTest = path.join(parent, "failure.test.mjs"),
     fixtureModule = new URL("./daemon-autostart-cli.fixture.ts", import.meta.url).href;
@@ -47,7 +50,11 @@ test("intentional failure after daemon launch", () => {
     );
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;
-    const child = spawnSync(process.execPath, ["--test", childTest], { encoding: "utf8", env, timeout: 30_000 });
+    const child = spawnSync(process.execPath, ["--test", childTest], {
+      encoding: "utf8",
+      env,
+      timeout: childTestTimeoutMs,
+    });
     assert.equal(existsSync(witness), true, `${child.stderr}\n${child.stdout}`);
     fixture = JSON.parse(readFileSync(witness, "utf8"));
     assert.ok(fixture);
@@ -58,7 +65,7 @@ test("intentional failure after daemon launch", () => {
   } finally {
     if (fixture) {
       stop(fixture.root, fixture.userRoot);
-      await waitForProcessExit(fixture.pid);
+      await waitForProcessExit(fixture.pid, cleanupExitTimeoutMs);
       removeTempRepository(fixture.parent);
     }
     removeTempRepository(parent);
@@ -70,7 +77,7 @@ test("intentional failure after daemon launch", () => {
 // seam names the test file process, so the same kill still ends the daemon. This arm carries no
 // preload on purpose: it is the leak that was reported, reproduced.
 test("a daemon started by a directly-run test file exits when that file is killed", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-direct-owner-")),
+  const parent = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-autostart-direct-owner-")),
     witness = path.join(parent, "witness.json"),
     childTest = path.join(parent, "direct-owner-killed.test.mjs"),
     fixtureModule = new URL("./daemon-autostart-cli.fixture.ts", import.meta.url).href;
@@ -92,7 +99,11 @@ test("directly-run test file owns the daemon it starts", () => {
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;
     delete env.HARNESS_DAEMON_OWNER_PID;
-    const child = spawnSync(process.execPath, ["--test", childTest], { encoding: "utf8", env, timeout: 30_000 });
+    const child = spawnSync(process.execPath, ["--test", childTest], {
+      encoding: "utf8",
+      env,
+      timeout: childTestTimeoutMs,
+    });
     assert.equal(existsSync(witness), true, `${child.stderr}\n${child.stdout}`);
     fixture = JSON.parse(readFileSync(witness, "utf8"));
     assert.ok(fixture);
@@ -106,7 +117,7 @@ test("directly-run test file owns the daemon it starts", () => {
   } finally {
     if (fixture) {
       stop(fixture.root, fixture.userRoot);
-      await waitForProcessExit(fixture.pid);
+      await waitForProcessExit(fixture.pid, cleanupExitTimeoutMs);
       removeTempRepository(fixture.parent);
     }
     removeTempRepository(parent);
@@ -116,7 +127,7 @@ test("directly-run test file owns the daemon it starts", () => {
 // The owner is named by the preload the test runner gives every test child, not by this fixture:
 // a test file that knows nothing about daemon ownership is covered the same way.
 test("daemon exits when its fixture owner is killed", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-owner-liveness-")),
+  const parent = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-autostart-owner-liveness-")),
     witness = path.join(parent, "witness.json"),
     childTest = path.join(parent, "owner-killed.test.mjs"),
     fixtureModule = new URL("./daemon-autostart-cli.fixture.ts", import.meta.url).href,
@@ -141,7 +152,7 @@ test("daemon owner", () => {
     const child = spawnSync(process.execPath, [`--import=${ownerPreload}`, "--test", childTest], {
       encoding: "utf8",
       env,
-      timeout: 30_000,
+      timeout: childTestTimeoutMs,
     });
     assert.equal(existsSync(witness), true, `${child.stderr}\n${child.stdout}`);
     fixture = JSON.parse(readFileSync(witness, "utf8"));
@@ -154,7 +165,7 @@ test("daemon owner", () => {
   } finally {
     if (fixture) {
       stop(fixture.root, fixture.userRoot);
-      await waitForProcessExit(fixture.pid);
+      await waitForProcessExit(fixture.pid, cleanupExitTimeoutMs);
       removeTempRepository(fixture.parent);
     }
     removeTempRepository(parent);

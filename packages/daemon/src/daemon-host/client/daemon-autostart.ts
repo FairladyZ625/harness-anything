@@ -222,6 +222,7 @@ export async function ensureLocalDaemonRunning(input: {
               entry: launch.args[0]!,
               searchPath: environment.PATH ?? "",
               extraCaCerts: environment.NODE_EXTRA_CA_CERTS,
+              ownerPid: environment.HARNESS_DAEMON_OWNER_PID,
               runAtLogin: false,
             }),
             daemonStdioLogPath(target.userRoot, target.daemonId),

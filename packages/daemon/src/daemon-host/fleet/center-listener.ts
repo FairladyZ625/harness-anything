@@ -119,7 +119,7 @@ import {
   sendCenterMovedReplicaReject,
 } from "./center-listener-errors.ts";
 import { readCenterRepointLineage } from "./center-listener-repoint.ts";
-import { awaitWithSignal, delay } from "./center-listener-async.ts";
+import { awaitWithSignal, bindTlsServer, closeFleetListenerResources, delay } from "./center-listener-async.ts";
 import { fleetFrameBusinessOutcome } from "./frame-business-outcome.ts";
 import { handleSwitchoverFleetFrame, resolveListenerSwitchoverControl } from "./center-switchover-transport.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
@@ -1883,15 +1883,23 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     connections.add(socket);
     socket.once("close", () => connections.delete(socket));
   });
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(options.port ?? 0, options.hostname ?? "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
+  const closeResources = () =>
+    closeFleetListenerResources({
+      server,
+      closing,
+      backupBuildQueue,
+      connections,
+      sessions,
+      drainAndCloseWriterEpochs,
+      replicationSlots,
     });
-  });
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Fleet TLS server did not bind a TCP port");
+  let address: Awaited<ReturnType<typeof bindTlsServer>>;
+  try {
+    address = await bindTlsServer(server, options.port ?? 0, options.hostname ?? "127.0.0.1");
+  } catch (error) {
+    await closeResources();
+    throw error;
+  }
   let closed = false;
   return {
     port: address.port,
@@ -1929,23 +1937,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     close: async () => {
       if (closed) return;
       closed = true;
-      closing.abort();
-      const backupsClosed = backupBuildQueue.close();
-      // `server.close` only resolves once every accepted socket is gone, and an edge keeps replica
-      // sessions open between pulls, so none of them ends on its own. Cut every socket this listener
-      // accepted — not just the hello-registered ones — or a peer that never reached its hello holds
-      // close() open for as long as it stays connected.
-      const drained = new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
-      for (const socket of connections) socket.destroy();
-      sessions.clear();
-      await Promise.all([drained, backupsClosed]);
-      try {
-        await drainAndCloseWriterEpochs();
-      } finally {
-        replicationSlots.close();
-      }
+      await closeResources();
     },
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");

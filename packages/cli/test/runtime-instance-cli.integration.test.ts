@@ -18,6 +18,8 @@ import {
   runMaybe as runRuntimeCliMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
+import { waitForDaemonProcessExitSync } from "./daemon-cleanup.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
@@ -199,7 +201,7 @@ test("real CLI performs machine runtime instance CRUD through an isolated reside
     assert.notEqual(missing.status, 0);
     assert.equal((missing.receipt.error as Record<string, unknown>).code, "runtime_instance_not_found");
   } finally {
-    runMaybe(root, env, ["daemon", "stop"]);
+    stopRuntimeInstanceDaemon(root, userRoot, "runtime-instance-test", env);
     removeTempRepository(root);
   }
 });
@@ -331,10 +333,18 @@ test("real CLI runtime instance list/show/--probe displays subscription quota wi
       /cli-agy-quota\tCLI AGY Quota\tagy\tgemini-4-hydrogen-low\tenabled\tcooldown\tHTTP 503\t2099-01-01T05:00:00\.000Z/u,
     );
   } finally {
-    runMaybe(root, env, ["daemon", "stop"]);
+    stopRuntimeInstanceDaemon(root, userRoot, "runtime-instance-quota-test", env);
     removeTempRepository(root);
   }
 });
+
+function stopRuntimeInstanceDaemon(root: string, userRoot: string, daemonId: string, env: NodeJS.ProcessEnv): void {
+  const pid = readDaemonPid(userRoot, daemonId);
+  if (pid === null) return;
+  const stopped = runMaybe(root, env, ["daemon", "stop", "--daemon-id", daemonId]);
+  assert.equal(stopped.status, 0, `${stopped.stderr}\n${JSON.stringify(stopped.receipt)}`);
+  waitForDaemonProcessExitSync(pid);
+}
 
 function run(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): Record<string, unknown> {
   const result = runMaybe(root, env, args);

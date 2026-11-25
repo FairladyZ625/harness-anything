@@ -120,12 +120,14 @@ function makeTestArchive(dir: string, sizeBytes: number) {
 
 test("snapshot-binary-wire/v1 streams 256 KiB binary frames with zero base64 overhead and supports offset resume", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-bin-wire-"));
-  t.after(() => removeTempRepository(root));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_BINARY_CHUNK_BYTES * 2 + 777);
   const snapshotId = "snap-bin-001";
-  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
-  t.after(() => slots.close());
   const lease = slots.claim({ repoId: archive.metadata.repoId, nodeId: "edge-one" }, archive.metadata.position.history);
 
   const edgeViewRoot = path.join(root, "edge-view");
@@ -256,11 +258,13 @@ test("snapshot-binary-wire/v1 streams 256 KiB binary frames with zero base64 ove
 
 test("legacy edge without Phase 3 capabilities receives JSON base64 replica.data and monolithic backup", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-legacy-compat-"));
-  t.after(() => removeTempRepository(root));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_CHUNK_BYTES + 500);
-  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
-  t.after(() => slots.close());
   const lease = slots.claim(
     { repoId: archive.metadata.repoId, nodeId: "legacy-edge" },
     archive.metadata.position.history,
@@ -324,7 +328,11 @@ test("legacy edge without Phase 3 capabilities receives JSON base64 replica.data
 
 test("snapshot-object-pack/v1 deduplicates existing local objects and streams missing objects in packs", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-obj-pack-"));
-  t.after(() => removeTempRepository(root));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
 
   const obj1 = Buffer.from("already-present-object-content-1");
   const sha1 = createHash("sha256").update(obj1).digest("hex");
@@ -379,8 +387,6 @@ test("snapshot-object-pack/v1 deduplicates existing local objects and streams mi
   mkdirSync(path.dirname(oldGenObj1), { recursive: true });
   writeFileSync(oldGenObj1, obj1);
 
-  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
-  t.after(() => slots.close());
   const lease = slots.claim({ repoId: metadata.repoId, nodeId: "edge-one" }, metadata.position.history);
 
   const requestedObjects: string[] = [];

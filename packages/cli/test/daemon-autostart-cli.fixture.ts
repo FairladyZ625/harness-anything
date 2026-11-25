@@ -124,7 +124,7 @@ function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessE
 }
 
 function setup(authenticated = true): { parent: string; root: string; userRoot: string } {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-")),
+  const parent = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-autostart-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user");
   ownDaemonFixture({ parent, userRoot, daemonId: "default", env: cliEnv(root, userRoot) });
@@ -227,7 +227,7 @@ function coded(error: unknown): string | null {
 
 function stop(root: string, userRoot: string): void {
   if (readDaemonPid(userRoot, "default") !== null)
-    spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop"], {
+    spawnSync(process.execPath, [cli, "--root", root, "--json", "daemon", "stop", "--daemon-id", "default"], {
       encoding: "utf8",
       env: cliEnv(root, userRoot),
     });

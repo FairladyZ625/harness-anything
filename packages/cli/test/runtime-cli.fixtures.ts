@@ -3,7 +3,7 @@ import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-any
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, type TestContext } from "node:test";
@@ -122,7 +122,9 @@ export function writeProgressProvider(target: string, version: string): void {
 }
 
 export async function createRuntimeFixture(context: TestContext) {
-  const parent = mkdtempSync(path.join(process.platform === "win32" ? tmpdir() : "/tmp", "ha-runtime-cli-")),
+  const parent = mkdtempSync(
+      path.join(process.platform === "win32" ? realpathSync.native(tmpdir()) : "/tmp", "ha-runtime-cli-"),
+    ),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     daemonId = `runtime-cli-test-${randomUUID()}`,

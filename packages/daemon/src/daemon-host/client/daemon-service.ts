@@ -70,6 +70,8 @@ export function daemonServiceUnitContent(
     readonly searchPath: string;
     /** Explicit NODE_EXTRA_CA_CERTS from the installer; relative paths use its current directory. */
     readonly extraCaCerts?: string | undefined;
+    /** Test-owner PID propagated so an on-demand scheduled daemon still exits if its test dies. */
+    readonly ownerPid?: string | undefined;
     /** Windows on-demand starts do not opt the user into login autostart. */
     readonly runAtLogin?: boolean;
   },
@@ -88,6 +90,7 @@ export function daemonServiceUnitContent(
     environment = {
       PATH: input.searchPath,
       ...(input.extraCaCerts ? { NODE_EXTRA_CA_CERTS: path.resolve(input.extraCaCerts) } : {}),
+      ...(input.ownerPid ? { HARNESS_DAEMON_OWNER_PID: input.ownerPid } : {}),
     };
   if (unit.manager === "task-scheduler") {
     // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers. The

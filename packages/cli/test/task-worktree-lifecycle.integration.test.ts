@@ -35,7 +35,7 @@ test(
         } | null;
       };
       assert.equal(shown.workspace?.kind, "worktree", `${taskId} must be bound to a worktree`);
-      return { ...shown.workspace!, cwd: path.join(realpathSync(root), shown.workspace!.path) };
+      return { ...shown.workspace!, cwd: path.join(realpathSync.native(root), shown.workspace!.path) };
     };
 
     // Clean and nothing new: create binds, start checks out, cancel removes the worktree and its branch.
@@ -115,7 +115,7 @@ test(
     assert.equal(dispatchedTree.state, "materialized");
     assert.match(
       mission,
-      new RegExp(`^Worker repository root: ${escapeRegExp(realpathSync(dispatchedTree.cwd))}$`, "mu"),
+      new RegExp(`^Worker repository root: ${escapeRegExp(realpathSync.native(dispatchedTree.cwd))}$`, "mu"),
     );
 
     // A close-time reclaim that fails is not the end: once the worktree is clean, a daemon start reconciles it away.
@@ -188,16 +188,14 @@ test(
     assert.equal(existsSync(path.join(root, "package.json")), false);
     assert.match(text(root, env, ["settings", "read"]), /^worktree\.setup: none$/mu);
     // Repository Settings are the principal's to change, not an agent executor's.
-    const { HARNESS_ACTOR: _agent, ...owner } = env;
-    text(root, owner, [
-      "settings",
-      "update",
-      "--worktree-setup",
-      'run: echo "$HARNESS_TASK_ID" >> "$HARNESS_REPO_ROOT/../setup-ran.txt"',
-      "--worktree-setup",
-      `run: test -e ${gate}`,
-    ]);
-    assert.match(text(root, env, ["settings", "read"]), /^worktree\.setup: run: echo .*; run: test -e /mu);
+    const { HARNESS_ACTOR: _agent, ...owner } = env,
+      writeMarkerStep = `run: "${process.execPath}" -e "const fs=require('node:fs'),p=require('node:path');fs.appendFileSync(p.join(process.env.HARNESS_REPO_ROOT,'..','setup-ran.txt'),process.env.HARNESS_TASK_ID+String.fromCharCode(10))"`,
+      gateStep = `run: "${process.execPath}" -e "process.exit(require('node:fs').existsSync(process.argv[1])?0:1)" "${gate}"`;
+    text(root, owner, ["settings", "update", "--worktree-setup", writeMarkerStep, "--worktree-setup", gateStep]);
+    assert.match(
+      text(root, env, ["settings", "read"]),
+      new RegExp(`^worktree\\.setup: ${escapeRegExp(writeMarkerStep)}; ${escapeRegExp(gateStep)}$`, "mu"),
+    );
 
     const plain = seedTask(root, env, "wt-plain"),
       refused = spawnSync(
@@ -207,14 +205,20 @@ test(
       );
     console.log(`$ ha task start ${plain.taskId}\n${refused.stdout}${refused.stderr}`.trimEnd());
     assert.notEqual(refused.status, 0);
-    assert.match(`${refused.stdout}${refused.stderr}`, /setup step 2 \(run: test -e .+\) failed: exit code 1/u);
-    assert.match(`${refused.stdout}${refused.stderr}`, /Log: .+harness-setup\/step-2\.log/u);
+    assert.match(
+      `${refused.stdout}${refused.stderr}`,
+      new RegExp(`setup step 2 \\(${escapeRegExp(gateStep)}\\) failed: exit code 1`, "u"),
+    );
+    assert.match(`${refused.stdout}${refused.stderr}`, /Log: .+harness-setup[/\\]step-2\.log/u);
     assert.match(`${refused.stdout}${refused.stderr}`, new RegExp(`run ha task start ${plain.taskId} again`, "u"));
-    const tree = path.join(realpathSync(root), ".worktrees", plain.taskId);
+    const tree = path.join(realpathSync.native(root), ".worktrees", plain.taskId);
     assert.equal(existsSync(tree), true, "a failed setup keeps the worktree");
     assert.match(
       text(root, env, ["task", "show", plain.taskId]),
-      /; setup: run: echo .* \(done\); run: test -e \S+ \(pending, runs at next start\); managed by Harness/mu,
+      new RegExp(
+        `; setup: ${escapeRegExp(writeMarkerStep)} \\(done\\); ${escapeRegExp(gateStep)} \\(pending, runs at next start\\); managed by Harness`,
+        "mu",
+      ),
     );
     assert.equal(git(tree, "branch", "--show-current"), plain.taskId);
     assert.equal(git(tree, "rev-parse", "HEAD"), git(root, "rev-parse", "master"));
@@ -222,11 +226,14 @@ test(
 
     writeFileSync(gate, "");
     const started = text(root, env, ["task", "start", plain.taskId, "--execution-id", plain.executionId]);
-    assert.match(started, /Setup ran: run: test -e /u);
+    assert.match(started, new RegExp(`Setup ran: ${escapeRegExp(gateStep)}`, "u"));
     assert.equal(readFileSync(marker, "utf8"), `${plain.taskId}\n`, "the step that succeeded does not run again");
     assert.match(
       text(root, env, ["task", "show", plain.taskId]),
-      /^workspace: \.worktrees\/\S+ \(worktree on branch \S+, materialized; setup: run: echo .* \(done\); run: test -e \S+ \(done\); /mu,
+      new RegExp(
+        `^workspace: \\.worktrees/\\S+ \\(worktree on branch \\S+, materialized; setup: ${escapeRegExp(writeMarkerStep)} \\(done\\); ${escapeRegExp(gateStep)} \\(done\\); `,
+        "mu",
+      ),
     );
 
     run(root, env, ["task", "release", plain.taskId]);
@@ -265,13 +272,9 @@ for (const { name, command } of [
       release = path.join(path.dirname(root), "setup-release");
     gitRepository(root);
     installIdentities(parent, root, env);
-    const { HARNESS_ACTOR: _agent, ...owner } = env;
-    text(root, owner, [
-      "settings",
-      "update",
-      "--worktree-setup",
-      `run: touch ${running}; while [ ! -e ${release} ]; do sleep 0.1; done`,
-    ]);
+    const { HARNESS_ACTOR: _agent, ...owner } = env,
+      slowStep = `run: "${process.execPath}" -e "const fs=require('node:fs');fs.writeFileSync(process.argv[1],'');setInterval(function(){if(fs.existsSync(process.argv[2]))process.exit(0)},50)" "${running}" "${release}"`;
+    text(root, owner, ["settings", "update", "--worktree-setup", slowStep]);
     const slow = seedTask(root, env, "wt-slow-setup"),
       start = spawn(process.execPath, [cli, "--root", root, ...command(slow)], {
         env,
@@ -315,7 +318,7 @@ for (const { name, command } of [
     // commit, so only the start variant still exits 0 (F-4C182EEE).
     assert.equal(await exited, name === "dispatch" ? 1 : 0, output.join(""));
     // A dispatch's mission carries the same note a start prints: the checkout it runs in was prepared first.
-    assert.match(output.join(""), /Setup ran: run: touch /u);
+    assert.match(output.join(""), new RegExp(`Setup ran: ${escapeRegExp(slowStep)}`, "u"));
   });
 
 function text(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): string {

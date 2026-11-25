@@ -19,6 +19,7 @@ import {
   initializeModelPricingCatalog,
   MODEL_PRICING_REFRESH_INTERVAL_MS,
   refreshModelPricingCatalog,
+  startModelPricingRefresh,
 } from "../src/daemon-host/model-pricing-refresh.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -166,6 +167,32 @@ test("background price refresh installs a validated catalog without making real 
       outputPerMillion: 10,
     },
   ]);
+});
+
+test("stopping background price refresh aborts an in-flight network request", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-model-pricing-abort-"));
+  let observedSignal: AbortSignal | undefined;
+  const started = Promise.withResolvers<void>();
+  try {
+    const stop = startModelPricingRefresh({
+      userRoot,
+      fetcher: async (_url, options) => {
+        observedSignal = options?.signal ?? undefined;
+        started.resolve();
+        await new Promise((_resolve, reject) => {
+          observedSignal?.addEventListener("abort", () => reject(observedSignal?.reason), { once: true });
+        });
+        throw new Error("unreachable");
+      },
+    });
+    await started.promise;
+    assert.ok(observedSignal);
+    assert.equal(observedSignal.aborted, false);
+    stop();
+    assert.equal(observedSignal.aborted, true);
+  } finally {
+    removeTempRepository(userRoot);
+  }
 });
 
 test("startup installs a fresh disk cache without requesting the network", async () => {

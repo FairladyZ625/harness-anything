@@ -599,8 +599,14 @@ test(
 
 function createManagedRbacFixture(userRoot: string, fetchPort: typeof fetch) {
   const rbacRoot = path.join(userRoot, "rbac"),
-    postgres = path.join(rbacRoot, "runtime", "postgres", "bin", "postgres"),
-    keycloak = path.join(rbacRoot, "runtime", "keycloak", "bin", "kc.sh"),
+    postgres = path.join(
+      rbacRoot,
+      "runtime",
+      "postgres",
+      "bin",
+      process.platform === "win32" ? "postgres.exe" : "postgres",
+    ),
+    keycloak = path.join(rbacRoot, "runtime", "keycloak", "bin", process.platform === "win32" ? "kc.bat" : "kc.sh"),
     configFile = path.join(rbacRoot, "config.json"),
     existing = existsSync(configFile) ? (JSON.parse(readFileSync(configFile, "utf8")) as Record<string, unknown>) : {};
   mkdirSync(path.dirname(postgres), { recursive: true });

@@ -36,7 +36,7 @@ export async function setup(
   alpha: string;
   beta: string;
 }> {
-  const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
+  const root = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-w3-"));
   t.after(() => removeTempRepository(root));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
@@ -50,7 +50,7 @@ export async function setupEmpty(
   _repoId = "fresh",
   sharedUserRoot?: string,
 ): Promise<{ root: string; userRoot: string; repo: string }> {
-  const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
+  const root = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-w3-init-"));
   t.after(() => removeTempRepository(root));
   const repo = path.join(root, "repo"),
     userRoot = sharedUserRoot ?? path.join(root, "user");
@@ -60,7 +60,7 @@ export async function setupEmpty(
 }
 /** Share only the resident service; every scenario still owns fresh repositories. */
 export function residentCliFixture() {
-  const parent = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-resident-")),
+  const parent = mkdtempSync(path.join(realpathSync.native(tmpdir()), "ha-w3-resident-")),
     userRoot = path.join(parent, "user"),
     { HARNESS_ACTOR: _actor, ...env } = process.env;
   let pid: number | null = null;
@@ -107,7 +107,11 @@ export function residentCliFixture() {
 }
 
 function isPathInside(root: string, candidate: string): boolean {
-  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  const normalize = (value: string): string => {
+    const resolved = existsSync(value) ? realpathSync.native(value) : path.resolve(value);
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  const relative = path.relative(normalize(root), normalize(candidate));
   return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 

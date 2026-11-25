@@ -51,6 +51,12 @@ test("Windows owns one least-privilege scheduled task per local daemon target", 
   assert.match(script, /for \(;;\) \{\r?\n\s*& '/u);
   assert.match(script, /if \(\$LASTEXITCODE -ne 75\) \{ exit \$LASTEXITCODE \}\r?\n\}/u);
   assert.ok(!daemonServiceUnitContent(unit, launch).includes("NODE_EXTRA_CA_CERTS"));
+  assert.ok(!script.includes("HARNESS_DAEMON_OWNER_PID"));
+  const ownedEncoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/u.exec(
+    daemonServiceUnitContent(unit, { ...launch, runAtLogin: false, ownerPid: "42424" }),
+  )![1]!;
+  const ownedScript = Buffer.from(ownedEncoded, "base64").toString("utf16le");
+  assert.ok(ownedScript.includes("$env:HARNESS_DAEMON_OWNER_PID = '42424'"));
 });
 
 test("Windows registers, starts, queries and removes only its named task", () => {

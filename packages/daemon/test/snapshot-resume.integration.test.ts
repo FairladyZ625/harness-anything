@@ -116,13 +116,15 @@ function makeTestArchive(
 
 test("walsender and walreceiver resume interrupted snapshot transfer from persisted byte offset", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-snap-resume-"));
-  t.after(() => removeTempRepository(root));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_BINARY_CHUNK_BYTES * 3 + 1234);
   const snapshotId = "snap-pinned-001";
   const stagingDir = path.join(root, "edge-staging");
-  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
-  t.after(() => slots.close());
 
   let installedBytes: Buffer | null = null;
   let installedPosition: ReplicationPosition | null = null;
@@ -319,7 +321,11 @@ test("resume-only admission rejection preserves the existing replica", async (t)
 
 test("walsender falls back to offset 0 with new snapshotId when requested snapshot is missing/expired", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-snap-fallback-"));
-  t.after(() => removeTempRepository(root));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
 
   const archive = makeTestArchive(path.join(root, "center-archive"), REPLICATION_CHUNK_BYTES + 500);
   const staleSnapshotId = "snap-expired-999";
@@ -340,8 +346,6 @@ test("walsender falls back to offset 0 with new snapshotId when requested snapsh
     }),
   );
 
-  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
-  t.after(() => slots.close());
   let installedBytes: Buffer | null = null;
   let installedPosition: ReplicationPosition | null = null;
   const target: ReplicationTarget = {
