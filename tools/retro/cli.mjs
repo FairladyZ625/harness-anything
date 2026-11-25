@@ -14,6 +14,7 @@
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { runEvalCli } from "./eval.mjs";
 import { runExtractCli } from "./extract.mjs";
 
 const BUDGET_EXIT_CODE = 3;
@@ -33,7 +34,7 @@ export function formatCliUsage() {
     "",
     "Subcommands:",
     "  extract   Extract sanitized positive/negative cases from read-only projection & Git history",
-    "  eval      Replay cases in isolated checkouts with three-stage funnel scoring (Slice S2)",
+    "  eval      Replay cases in isolated checkouts with three-stage funnel scoring",
     "  distill   Cluster failures and distill semantic rules or static gates (Slice S3)",
     "  audit     Run read-only offline governance audits and export rolling baselines (Slice S4)",
     "  prune     Audit retired/stale rules and quarantine entries (Slice S4)",
@@ -65,12 +66,16 @@ export async function runCli(argv = process.argv.slice(2), io = {}) {
     return runExtractCli(rest, { stdout, stderr });
   }
 
+  if (command === "eval") {
+    return runEvalCli(rest, { stdout, stderr });
+  }
+
   if (rest.includes("--help") || rest.includes("-h")) {
     stdout(`retro ${command}: scheduled for a subsequent retro slice (see dec_D8EECF29C93D0C300252060A10).`);
     return EXIT_CODES.OK;
   }
 
-  stderr(`Subcommand "retro ${command}" is not yet implemented in Slice S1.`);
+  stderr(`Subcommand "retro ${command}" is not yet implemented.`);
   return EXIT_CODES.INVALID_INPUT;
 }
 

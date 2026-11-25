@@ -25,6 +25,10 @@ export {
 };
 
 export const RETRO_CASES_SCHEMA = "retro-cases/v1";
+export const RETRO_EVAL_REPORT_SCHEMA = "retro-eval-report/v1";
+export const VALID_EVAL_MODES = Object.freeze(["dry-run", "input", "live"]);
+export const VALID_REPLAY_MODES = Object.freeze(["diff-only", "tree-snapshot"]);
+export const VALID_FUNNEL_STAGES = Object.freeze(["raw", "postVerification", "finalVerdict"]);
 export const VALID_ORIGINS = Object.freeze(["review-execution", "task-rework", "git-revert", "clean-control", "seed"]);
 export const VALID_SPLITS = Object.freeze(["tuning", "holdout"]);
 export const VALID_DATASET_SPLITS = Object.freeze(["tuning", "holdout", "all"]);
@@ -211,5 +215,72 @@ export function collectHoldoutImmutabilityIssues(existingHoldoutDoc, nextHoldout
       issues.push(`holdout case modified: ${oldCase.id}`);
     }
   }
+  return issues;
+}
+
+/** Validate a `retro-eval-report/v1` document including four-state conservation and funnel invariants. */
+export function collectRetroEvalReportIssues(report) {
+  const issues = [];
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return ["report must be a JSON object"];
+  }
+  if (report.schema !== RETRO_EVAL_REPORT_SCHEMA) {
+    issues.push(`expected schema ${RETRO_EVAL_REPORT_SCHEMA}, got ${String(report.schema)}`);
+  }
+  if (report.version !== 1) {
+    issues.push(`expected version 1, got ${String(report.version)}`);
+  }
+  if (!VALID_EVAL_MODES.includes(report.mode)) {
+    issues.push(`invalid eval mode ${String(report.mode)}`);
+  }
+  if (!VALID_REPLAY_MODES.includes(report.replayMode)) {
+    issues.push(`invalid replayMode ${String(report.replayMode)}`);
+  }
+  if (!Number.isSafeInteger(report.totalCases) || report.totalCases < 0) {
+    issues.push(`totalCases must be a non-negative safe integer (got ${String(report.totalCases)})`);
+  } else {
+    try {
+      verifyFourStateCounts(report.counts, report.totalCases, "report.counts");
+    } catch (error) {
+      issues.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const prov = report.provenance;
+  if (!prov || typeof prov !== "object") {
+    issues.push("missing provenance object");
+  } else {
+    for (const field of ["originMainSha", "targetCommitSha", "harnessClosureSha256", "casesSha256"]) {
+      if (typeof prov[field] !== "string" || prov[field].trim() === "") {
+        issues.push(`provenance.${field} must be a non-empty string`);
+      }
+    }
+  }
+
+  if (!report.funnel || typeof report.funnel !== "object") {
+    issues.push("missing funnel object");
+  } else {
+    for (const stage of VALID_FUNNEL_STAGES) {
+      const stageEntry = report.funnel[stage];
+      if (!stageEntry || typeof stageEntry !== "object") {
+        issues.push(`funnel.${stage} is required`);
+        continue;
+      }
+      if (Number.isSafeInteger(report.totalCases) && report.totalCases >= 0) {
+        try {
+          verifyFourStateCounts(stageEntry.counts, report.totalCases, `funnel.${stage}`);
+        } catch (error) {
+          issues.push(error instanceof Error ? error.message : String(error));
+        }
+      }
+    }
+  }
+
+  if (!Array.isArray(report.outcomes)) {
+    issues.push("outcomes must be an array");
+  } else if (Number.isSafeInteger(report.totalCases) && report.outcomes.length !== report.totalCases) {
+    issues.push(`outcomes length (${report.outcomes.length}) !== totalCases (${report.totalCases})`);
+  }
+
   return issues;
 }
