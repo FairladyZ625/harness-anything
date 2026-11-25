@@ -28,6 +28,7 @@ import {
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
+import { timeDispatchStage } from "./dispatch-stage-clock.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-results.ts";
 import {
   abortInterruptedWorktreeOperation,
@@ -165,6 +166,11 @@ export interface TaskWorktreeCheckoutOptions {
    * not sample or advance the published branch: the artifact submission is the subject, not the checkout tip.
    */
   readonly followPublishedBranch?: boolean;
+  /**
+   * The caller already fetched the default branch for this request, so a fresh checkout cuts from it without
+   * fetching it again. A remote edge does so in its workspace preflight, which also verifies it against the center.
+   */
+  readonly defaultBranchFetched?: boolean;
 }
 
 export async function checkoutTaskWorktree(
@@ -253,7 +259,8 @@ export async function checkoutTaskWorktree(
       return { cwd, branch: binding.branch, baseRef: fresh ? stackedCommit : null, setup: prepared };
     }
     const fresh = !existsSync(cwd);
-    if (fresh) await refreshDefaultBranch(rootDir);
+    if (fresh && !options.defaultBranchFetched)
+      await timeDispatchStage("origin_refresh", () => refreshDefaultBranch(rootDir));
     let defaultRef: string | null;
     try {
       defaultRef = repositoryBaseRef(rootDir);
@@ -291,8 +298,14 @@ export async function checkoutTaskWorktree(
     const branch = fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
       followPublished = options.followPublishedBranch !== false,
       // An artifact-only reviewer has no frozen code commit; it must not turn a publication state into its subject.
-      published = followPublished || fresh ? await publishedBranchRef(rootDir, branch) : null;
-    if (fresh) await addManagedWorktree(rootDir, { cwd, branch, baseRef: published ?? defaultRef! });
+      published =
+        followPublished || fresh
+          ? await timeDispatchStage("published_branch_fetch", () => publishedBranchRef(rootDir, branch))
+          : null;
+    if (fresh)
+      await timeDispatchStage("worktree_add", () =>
+        addManagedWorktree(rootDir, { cwd, branch, baseRef: published ?? defaultRef! }),
+      );
     if (followPublished) {
       // A checkout this node already had, or a branch that survived one, may predate another node's push.
       if (published) await continuePublishedBranch(cwd, published);
@@ -305,15 +318,17 @@ export async function checkoutTaskWorktree(
       branch,
       baseRef: fresh ? (published ?? defaultRef) : null,
       // Artifact-only reviews reuse the implementation checkout but must leave its package and bases intact.
-      setup: await runWorktreeSetup({
-        rootDir,
-        cwd,
-        taskId,
-        steps,
-        stepTimeoutMs,
-        fresh,
-        refreshTaskPackage: followPublished,
-      }),
+      setup: await timeDispatchStage("worktree_setup", () =>
+        runWorktreeSetup({
+          rootDir,
+          cwd,
+          taskId,
+          steps,
+          stepTimeoutMs,
+          fresh,
+          refreshTaskPackage: followPublished,
+        }),
+      ),
     };
   });
 }

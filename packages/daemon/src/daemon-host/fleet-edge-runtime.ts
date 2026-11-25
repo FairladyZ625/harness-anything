@@ -2,6 +2,7 @@ import type { DaemonRuntimePorts } from "./daemon-host-context.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { enrichCausalContextWithLocalWorktrees } from "./repo-cell-trace-view.ts";
+import { timeDispatchStage, withDispatchStageClock } from "./dispatch-stage-clock.ts";
 import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import type * as RuntimeStatus from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
@@ -280,6 +281,7 @@ export function openFleetEdgeRuntime(input: {
   /** Reports a released task once its canonical runtime outcome is readable on this node. */
   readonly onTaskSettled?: (taskId: string) => void;
   readonly launch?: RuntimeLauncher;
+  readonly recordLifecycle?: import("./lifecycle-log.ts").DaemonLifecycleRecorder;
   readonly now?: () => string;
 }) {
   const controlBinding = input.controlBinding,
@@ -596,6 +598,7 @@ export function openFleetEdgeRuntime(input: {
       return input.resolveLocation().workspaceRoot;
     },
     daemonGeneration: input.daemonGeneration,
+    ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     get runtimeNode() {
       return { nodeId: input.resolveLocation().nodeId };
     },
@@ -642,7 +645,7 @@ export function openFleetEdgeRuntime(input: {
         const { request, centerWriteWaitMs, writePeer } = context();
 
         await pullRuntimeReplica();
-        let runtimeContext = await readTaskContext(taskId, purpose);
+        let runtimeContext = await timeDispatchStage("task_context_read", () => readTaskContext(taskId, purpose));
         let current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         const taskForOutputShape = current.task;
@@ -669,19 +672,21 @@ export function openFleetEdgeRuntime(input: {
             nodeId: request.nodeId,
             timeoutMs: centerWriteWaitMs,
             write: () =>
-              runFleetTaskCommandClient({
-                ...writePeer,
-                repoId: request.repoId,
-                taskId,
-                opId: taskStartOpId,
-                action: {
-                  kind: "task-start",
+              timeDispatchStage("center_task_start", () =>
+                runFleetTaskCommandClient({
+                  ...writePeer,
+                  repoId: request.repoId,
                   taskId,
-                  ...(activeExecution ? { executionId: activeExecution.executionId } : {}),
-                },
-                waitMs: centerWriteWaitMs,
-                timeoutMs: centerWriteWaitMs + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
-              }),
+                  opId: taskStartOpId,
+                  action: {
+                    kind: "task-start",
+                    taskId,
+                    ...(activeExecution ? { executionId: activeExecution.executionId } : {}),
+                  },
+                  waitMs: centerWriteWaitMs,
+                  timeoutMs: centerWriteWaitMs + daemonProtocolFleetPolicy.defaultValue.fleet.receiptResponseOverheadMs,
+                }),
+              ),
           });
           if (started.outcome !== "applied")
             throw edgeRuntimeError(
@@ -722,7 +727,7 @@ export function openFleetEdgeRuntime(input: {
                 );
             });
           await pullRuntimeReplica();
-          runtimeContext = await readTaskContext(taskId, purpose);
+          runtimeContext = await timeDispatchStage("task_context_read", () => readTaskContext(taskId, purpose));
           current = runtimeContext.snapshot;
           executionId = current.lease?.phase === "held" ? current.lease.executionId : undefined;
         }
@@ -782,12 +787,14 @@ export function openFleetEdgeRuntime(input: {
           taskId,
         );
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
-        const causalContext = enrichCausalContextWithLocalWorktrees(runtimeContext.causalContext, {
-            workspaceRoot: request.workspaceRoot,
-            plan,
-            taskId,
-            skip: review !== undefined || purpose === "settlement",
-          }),
+        const causalContext = await timeDispatchStage("worktree_collision_scan", () =>
+            enrichCausalContextWithLocalWorktrees(runtimeContext.causalContext, {
+              workspaceRoot: request.workspaceRoot,
+              plan,
+              taskId,
+              skip: review !== undefined || purpose === "settlement",
+            }),
+          ),
           priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
           ownerReturnBody =
             [
@@ -1489,85 +1496,89 @@ export function openFleetEdgeRuntime(input: {
         if (localTarget) return spawner.steer(action, await controlBinding(request));
         return forwardRemoteRuntimeControl("runtime-steer", action, requestAuth);
       }
-      if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
-      if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
-        await prepareRuntimeWorkspace(action.taskId);
-      if (method === "repo.agentRuntime.handoff" && action.operation === "claim") {
-        handoffControlBinding = await controlBinding(request);
-        await preflightRuntimeWorkspace();
-      }
-      await ensureReady();
-      await squad.flushPublications();
-      if (method === "repo.squad.control") return squad.run(action);
-      if (method === "repo.schedule.run") return runSchedule(action);
-      if (method === "repo.agentRuntime.handoff")
-        return runRuntimeHandoff({
-          readDispatchLifecycle,
-          rootDir: request.workspaceRoot,
+      // One clock spans a dispatch request from workspace preparation to provider launch; runtime_spawn reports its stages.
+      return withDispatchStageClock(async () => {
+        if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string")
+          await preflightRuntimeWorkspace();
+        if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
+          await prepareRuntimeWorkspace(action.taskId);
+        if (method === "repo.agentRuntime.handoff" && action.operation === "claim") {
+          handoffControlBinding = await controlBinding(request);
+          await preflightRuntimeWorkspace();
+        }
+        await ensureReady();
+        await squad.flushPublications();
+        if (method === "repo.squad.control") return squad.run(action);
+        if (method === "repo.schedule.run") return runSchedule(action);
+        if (method === "repo.agentRuntime.handoff")
+          return runRuntimeHandoff({
+            readDispatchLifecycle,
+            rootDir: request.workspaceRoot,
+            payload: action,
+            command: async (command, body) => {
+              const result = await runFleetEdgeWrite({
+                viewRoot: request.viewRoot,
+                repoId: request.repoId,
+                nodeId: request.nodeId,
+                timeoutMs: centerWriteWaitMs,
+                write: () =>
+                  runFleetTaskCommandClient({
+                    ...writePeer,
+                    repoId: request.repoId,
+                    taskId: null,
+                    opId: randomUUID(),
+                    waitMs: centerWriteWaitMs,
+                    action: command as { kind: string },
+                    ...(body ? { privatePayload: body } : {}),
+                  }),
+              });
+              return result.receipt as JsonObject;
+            },
+            spawn: async (checkpoint, spawn, rollout) =>
+              spawner.spawnHandoff(
+                checkpoint,
+                spawn,
+                handoffControlBinding ?? (await controlBinding(request)),
+                null,
+                rollout,
+              ),
+          });
+        if (method === "repo.agentRuntime.spawn") {
+          const prepared = action.recovery === undefined ? null : await prepareEdgeRecoverySpawn(action);
+          if (prepared?.replay) return prepared.replay;
+          const spawnPayload = prepared?.payload ?? action;
+          const receipt = await withExecutionSignal(connectionSignal, (connectionSignal) =>
+            executionSignalContext.run(connectionSignal, () =>
+              reviewSpawnContext.run(
+                {
+                  ...(typeof spawnPayload.runtimeInstanceId === "string"
+                    ? { runtimeInstanceId: spawnPayload.runtimeInstanceId }
+                    : {}),
+                  ...(typeof spawnPayload.preferredRuntimeInstanceId === "string"
+                    ? { preferredRuntimeInstanceId: spawnPayload.preferredRuntimeInstanceId }
+                    : {}),
+                  ...(typeof spawnPayload.agentId === "string" ? { agentId: spawnPayload.agentId } : {}),
+                },
+                async () =>
+                  spawner.spawn(
+                    prepared?.payload ?? action,
+                    await controlBinding(request),
+                    null,
+                    Boolean(prepared?.recovery),
+                  ),
+              ),
+            ),
+          );
+          return prepared?.recovery ? { ...receipt, recovery: { ...prepared.recovery, replayed: false } } : receipt;
+        }
+        return (await readFleetOperationalClient({
+          ...runtimeReadPeer,
+          repoId: request.repoId,
+          method,
           payload: action,
-          command: async (command, body) => {
-            const result = await runFleetEdgeWrite({
-              viewRoot: request.viewRoot,
-              repoId: request.repoId,
-              nodeId: request.nodeId,
-              timeoutMs: centerWriteWaitMs,
-              write: () =>
-                runFleetTaskCommandClient({
-                  ...writePeer,
-                  repoId: request.repoId,
-                  taskId: null,
-                  opId: randomUUID(),
-                  waitMs: centerWriteWaitMs,
-                  action: command as { kind: string },
-                  ...(body ? { privatePayload: body } : {}),
-                }),
-            });
-            return result.receipt as JsonObject;
-          },
-          spawn: async (checkpoint, spawn, rollout) =>
-            spawner.spawnHandoff(
-              checkpoint,
-              spawn,
-              handoffControlBinding ?? (await controlBinding(request)),
-              null,
-              rollout,
-            ),
-        });
-      if (method === "repo.agentRuntime.spawn") {
-        const prepared = action.recovery === undefined ? null : await prepareEdgeRecoverySpawn(action);
-        if (prepared?.replay) return prepared.replay;
-        const spawnPayload = prepared?.payload ?? action;
-        const receipt = await withExecutionSignal(connectionSignal, (connectionSignal) =>
-          executionSignalContext.run(connectionSignal, () =>
-            reviewSpawnContext.run(
-              {
-                ...(typeof spawnPayload.runtimeInstanceId === "string"
-                  ? { runtimeInstanceId: spawnPayload.runtimeInstanceId }
-                  : {}),
-                ...(typeof spawnPayload.preferredRuntimeInstanceId === "string"
-                  ? { preferredRuntimeInstanceId: spawnPayload.preferredRuntimeInstanceId }
-                  : {}),
-                ...(typeof spawnPayload.agentId === "string" ? { agentId: spawnPayload.agentId } : {}),
-              },
-              async () =>
-                spawner.spawn(
-                  prepared?.payload ?? action,
-                  await controlBinding(request),
-                  null,
-                  Boolean(prepared?.recovery),
-                ),
-            ),
-          ),
-        );
-        return prepared?.recovery ? { ...receipt, recovery: { ...prepared.recovery, replayed: false } } : receipt;
-      }
-      return (await readFleetOperationalClient({
-        ...runtimeReadPeer,
-        repoId: request.repoId,
-        method,
-        payload: action,
-        connectionSignal,
-      })) as JsonObject;
+          connectionSignal,
+        })) as JsonObject;
+      });
     },
     close: async () => {
       closed = true;
@@ -1770,7 +1781,7 @@ export function openFleetEdgeRuntime(input: {
   async function prepareRuntimeWorkspace(taskId?: string): Promise<void> {
     const { request } = context();
 
-    await preflightRuntimeWorkspace();
+    await timeDispatchStage("workspace_preflight", preflightRuntimeWorkspace);
     const pulled = await pullRuntimeReplica();
     let requestedPaths: readonly string[] | undefined;
     if (taskId !== undefined) {
@@ -1779,10 +1790,12 @@ export function openFleetEdgeRuntime(input: {
       });
       requestedPaths = view === null ? [] : fleetMirrorTaskPaths(view, taskId);
     }
-    const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
-      viewId: pulled.replica.viewId,
-      ...(requestedPaths === undefined ? { changedPaths: [] } : { request: { paths: requestedPaths } }),
-    });
+    const materialized = await timeDispatchStage("mirror_materialize", () =>
+      applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
+        viewId: pulled.replica.viewId,
+        ...(requestedPaths === undefined ? { changedPaths: [] } : { request: { paths: requestedPaths } }),
+      }),
+    );
     if (materialized.outcome === "pull_blocked")
       throw edgeRuntimeError(
         "pull_blocked",

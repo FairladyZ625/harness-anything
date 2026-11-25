@@ -1,6 +1,7 @@
 import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/domain/cli-operational-policy.ts";
 import { randomUUID } from "node:crypto";
 import { exponentialBackoffMs, runDaemonRetry } from "./daemon-retry.ts";
+import { timeDispatchStage } from "./dispatch-stage-clock.ts";
 export { raceLifetime } from "./daemon-retry.ts";
 import { waitForFleetReplicaRevision, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import {
@@ -180,18 +181,20 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
   const timeoutSignal = AbortSignal.timeout(options.timeoutMs),
     signal = options.signal ? AbortSignal.any([timeoutSignal, options.signal]) : timeoutSignal;
   try {
-    if (receipt.replicationSequence !== null)
-      await waitForFleetReplicaSequence(
-        { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
-        receipt.replicationSequence,
-        signal,
-      );
-    else if (targetRevision !== null)
-      await waitForFleetReplicaRevision(
-        { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
-        targetRevision,
-        signal,
-      );
+    // Every edge write of a dispatch waits here for the resident replica stream; the stage sums those waits.
+    await timeDispatchStage("replica_wait", () =>
+      receipt.replicationSequence !== null
+        ? waitForFleetReplicaSequence(
+            { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
+            receipt.replicationSequence,
+            signal,
+          )
+        : waitForFleetReplicaRevision(
+            { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
+            targetRevision!,
+            signal,
+          ),
+    );
   } catch (error) {
     if (options.signal?.aborted) throw options.signal.reason ?? error;
     if (timeoutSignal.aborted)

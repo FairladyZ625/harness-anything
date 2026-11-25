@@ -2,6 +2,7 @@ import type { GitHistoryPort } from "@harness-anything/application/internal/quer
 import { openCloudRuntime } from "./runtime-cloud-target.ts";
 import { collectRuntimeWorkspaceProgress, type RuntimeWorkspaceProgress } from "./runtime-continuation-context.ts";
 import { prepareRuntimeCausalGitHistory } from "./repo-cell-trace-view.ts";
+import { readDispatchStageClock } from "./dispatch-stage-clock.ts";
 import {
   currentExecutionArrangement,
   executionArrangementAllows,
@@ -1744,6 +1745,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSessionId,
       dispatchId: newDispatchId,
       ...(runtimeProcess.pid === undefined ? {} : { pid: runtimeProcess.pid }),
+      ...readDispatchStageClock(),
     });
     if (!runtimeProcess.cloud)
       input.schedule(async () => {

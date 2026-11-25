@@ -276,6 +276,9 @@ export async function prepareDispatchWorktree(
     {
       readDispatchLifecycle: (query) =>
         input.remote ? input.remote.readDispatchLifecycle(query) : input.projection!().readDispatchLifecycle(query),
+      // An edge spawn fetched and verified the default branch in this request's workspace preflight
+      // (assertFleetEdgeRepositoryGit); fetching it again before `worktree add` only repeats the round trip.
+      ...(input.remote ? { defaultBranchFetched: true } : {}),
       ...(payload.role === "reviewer"
         ? pinnedCommit === null
           ? { followPublishedBranch: false }
