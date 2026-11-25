@@ -274,7 +274,10 @@ export async function readRegisteredRepos(
  * per-component symlink walk is needed to keep the endpoint from being redirected. */
 function isDispatchRelayEndpoint(endpoint: string): boolean {
   const resolved = path.resolve(endpoint);
-  return path.dirname(resolved) === perUserSocketRoot() && /^r-[a-f0-9]{24}\.sock$/u.test(path.basename(resolved));
+  return (
+    path.dirname(resolved) === path.resolve(perUserSocketRoot()) &&
+    /^r-[a-f0-9]{24}\.sock$/u.test(path.basename(resolved))
+  );
 }
 
 /** A relay is bound before dispatch: mkdirSecurely verifies its owner and sets 0700.

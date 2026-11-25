@@ -442,7 +442,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     },
     prepareRuntimeLaunch: instances.prepareLaunch,
     runtimeLaunch: (prepared, persistence) => {
-      const runtimeProcess = fixtureRuntimeProcess(context);
+      const runtimeProcess = fixtureRuntimeProcess(context, persistence);
       appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: runtimeProcess.pid });
       launched = { definition: prepared.definition, prompt: prepared.prompt };
       return {
@@ -1157,7 +1157,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
       runtimeLaunch: (prepared, persistence) => {
-        const runtimeProcess = fixtureRuntimeProcess(context);
+        const runtimeProcess = fixtureRuntimeProcess(context, persistence);
         appendRuntimeWorkerRecord(root, persistence.dispatchId, { kind: "process_started", pid: runtimeProcess.pid });
         assert.doesNotMatch(JSON.stringify(prepared), new RegExp(secret, "u"));
         return {

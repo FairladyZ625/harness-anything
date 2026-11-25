@@ -126,7 +126,7 @@ test("edge dispatch cwd follows its worktree or artifact package, including the 
 });
 
 test("a Git-less edge has no worktree to give and works in its workspace root", async (t) => {
-  const gitless = mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-gitless-"));
+  const gitless = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-gitless-")));
   t.after(() => removeTempRepository(gitless));
   const edge = edgeSpawner(gitless, binding);
   await assert.rejects(
@@ -611,7 +611,7 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null, re
 }
 
 function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA: string; readonly nodeB: string } {
-  const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-"))),
+  const base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-"))),
     remote = path.join(base, "remote.git"),
     seed = path.join(base, "seed"),
     nodeA = path.join(base, "node-a"),
@@ -640,6 +640,7 @@ function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA
 function identify(root: string): void {
   git(root, "config", "user.name", "Edge Worktree Test");
   git(root, "config", "user.email", "edge-worktree@example.invalid");
+  git(root, "config", "core.autocrlf", "false");
 }
 
 function commit(cwd: string, file: string): string {
@@ -654,7 +655,7 @@ function git(cwd: string, ...args: string[]): string {
   // and -c flags, so the fixture must not inherit either.
   const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null",
     env = { ...process.env, GIT_CONFIG_GLOBAL: gitConfigNull, GIT_CONFIG_SYSTEM: gitConfigNull };
-  for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
+  for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_EDITOR"])
     delete env[name];
   delete env.HARNESS_TASK_BOUND;
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env }).trim();

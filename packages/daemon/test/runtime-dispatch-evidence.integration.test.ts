@@ -68,8 +68,8 @@ test(
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => ({
-        ...fixtureRuntimeProcess(context),
+      runtimeLaunch: (_prepared, persistence) => ({
+        ...fixtureRuntimeProcess(context, persistence),
         onOutput: (listener) => {
           output = listener;
         },

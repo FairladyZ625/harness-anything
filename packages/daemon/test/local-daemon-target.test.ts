@@ -8,6 +8,7 @@ import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-comman
 import { INITIAL_SETTINGS_V1, resolveHarnessLayout } from "@harness-anything/kernel";
 import { createPresetProcessService } from "@harness-anything/preset";
 import {
+  defaultUnixSocketPath,
   localUserDaemonEndpoint,
   perUserSocketRoot,
   resolveLocalDaemonTarget,
@@ -639,6 +640,17 @@ test("local daemon target rejects an injected endpoint owned by another user roo
   } finally {
     removeTempRepository(fixtureRoot);
   }
+});
+
+test("defaultUnixSocketPath returns a named pipe on win32 and a per-user socket on POSIX", () => {
+  assert.equal(
+    defaultUnixSocketPath("attribution/123", 0, "win32"),
+    "\\\\.\\pipe\\harness-anything-daemon-0-attribution-123",
+  );
+  assert.equal(
+    defaultUnixSocketPath("attribution/123", 501, "linux"),
+    path.join(perUserSocketRoot(501), "daemon-501-attribution-123.sock"),
+  );
 });
 
 function repo(repoId: string, canonicalRoot: string, state = "enabled") {

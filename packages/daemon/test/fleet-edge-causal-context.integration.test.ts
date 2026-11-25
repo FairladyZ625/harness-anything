@@ -223,9 +223,9 @@ test(
       daemonId: "fleet-causal-edge",
       userRoot: edgeUserRoot,
       runtimeDiscover: () => [runtimeInstallation],
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         launchedPrompts.push(prepared.prompt);
-        const runtime = runtimeProcessFixture(t);
+        const runtime = runtimeProcessFixture(t, persistence);
         let output: ((chunk: string) => void) | null = null,
           exit: ((code: number | null) => void) | null = null;
         return {

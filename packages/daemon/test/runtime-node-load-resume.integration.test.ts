@@ -109,14 +109,14 @@ for (const selectionStrategy of ["sticky", "lru"] as const)
                 cwd: request.cwd,
                 prompt: request.prompt,
               }),
-              runtimeLaunch: (prepared) => {
+              runtimeLaunch: (prepared, persistence) => {
                 const sessionId = prepared.args[0];
                 if (sessionId) resumeLaunches++;
                 if (sessionId && phase === "start-rejected") {
                   if (resumeLaunches === resumeCount) launched.resolve();
                   throw new RuntimeProcessStartRejected(new Error("test proves no process was created"));
                 }
-                const child = fixtureRuntimeProcess(t);
+                const child = fixtureRuntimeProcess(t, persistence);
                 if (!sessionId)
                   return {
                     ...child,

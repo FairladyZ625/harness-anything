@@ -201,11 +201,20 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
       assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, repoId);
       const cliBinDir = daemonCliBinDirectory();
       if (cliBinDir) assert.ok(String(launchedEnv?.PATH).split(path.delimiter).includes(cliBinDir));
-      assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
-      assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
-      assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /daemon-[a-f0-9-]*\.sock$/u);
-      assert.equal(launchedPersistence?.callbackRelay?.path, launchedEnv?.HARNESS_DAEMON_ENDPOINT);
-      assert.equal(launchedPersistence?.callbackRelay?.endpoint, endpoint);
+      if (process.platform === "win32") {
+        assert.equal(launchedEnv?.HARNESS_DAEMON_ENDPOINT, endpoint);
+        assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, undefined);
+        assert.equal(launchedPersistence?.callbackRelay, undefined);
+      } else {
+        assert.match(
+          String(launchedEnv?.HARNESS_DAEMON_ENDPOINT),
+          /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u,
+        );
+        assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
+        assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /daemon-[a-f0-9-]*\.sock$/u);
+        assert.equal(launchedPersistence?.callbackRelay?.path, launchedEnv?.HARNESS_DAEMON_ENDPOINT);
+        assert.equal(launchedPersistence?.callbackRelay?.endpoint, endpoint);
+      }
       assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u"));
       assert.ok(launchedPrompt.includes("Repository registration: enabled"));
       assert.equal(launchedPrompt.includes("Canonical repository root"), false);
@@ -217,8 +226,13 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
       );
       assert.ok(launchedPrompt.includes(`Canonical Task ID: ${taskId}`));
       assert.match(launchedPrompt, new RegExp(`Runtime actor: agent:runtime-session:${receipt.runtimeSessionId}`, "u"));
-      assert.equal(launchedPrompt.includes(userRoot), false);
-      assert.equal(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"), false);
+      if (process.platform === "win32") {
+        assert.ok(launchedPrompt.includes(`Daemon user root: ${userRoot}`));
+        assert.ok(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"));
+      } else {
+        assert.equal(launchedPrompt.includes(userRoot), false);
+        assert.equal(launchedPrompt.includes("Daemon id: runtime-spawn-ingress"), false);
+      }
       assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
       const started = makeTaskEventReader({ repoId, rootDir: root })
         .read()
@@ -431,10 +445,20 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
             dispatchKey: runtime.id,
           },
         });
+        if (
+          process.platform === "win32" &&
+          runtime.kindId === "claude" &&
+          runtime.permissionMode === "workspace-write"
+        ) {
+          assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+          assert.equal(receipt.code, "claude_workspace_sandbox_unavailable", JSON.stringify(receipt));
+          continue;
+        }
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
         const receivesRelay =
-          (runtime.kindId === "codex" && runtime.isolationState === "enforced") ||
-          (runtime.kindId === "claude" && runtime.permissionMode === "workspace-write");
+          process.platform !== "win32" &&
+          ((runtime.kindId === "codex" && runtime.isolationState === "enforced") ||
+            (runtime.kindId === "claude" && runtime.permissionMode === "workspace-write"));
         if (receivesRelay) {
           assert.match(
             String(launchedEnv?.HARNESS_DAEMON_ENDPOINT),

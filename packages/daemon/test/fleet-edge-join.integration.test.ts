@@ -350,7 +350,8 @@ test(
         assert.equal(config?.loginServername, "localhost");
         assert.equal(config?.loginBrowserUrl, loginUrl);
       }
-      assert.equal(statSync(fleetEdgeConfigPath(edge.edgeUser, "lease-repo")).mode & 0o777, 0o600);
+      if (process.platform !== "win32")
+        assert.equal(statSync(fleetEdgeConfigPath(edge.edgeUser, "lease-repo")).mode & 0o777, 0o600);
       const tasks = path.join(repoWorkspace, "harness", "tasks");
       assert.ok(
         existsSync(tasks) && readdirSync(tasks).some((name) => name.includes("joined-0")),
@@ -415,7 +416,6 @@ test(
   { timeout: 60_000 },
   async (t) => {
     const f = await edgeJoinCenter(t, await accessAdminFixture(t));
-    t.after(() => f.admin.close());
     f.keycloak.account("alice");
     f.keycloak.account("bob");
     f.keycloak.permit("alice", "repo-a", ["repository-read"]);
@@ -457,10 +457,10 @@ test(
         };
       },
     });
-    t.after(() => center.close());
     const servernames: string[] = [],
       tlsOptions = { key: readFileSync(config.keyPath), cert: readFileSync(config.certPath) },
       context = createSecureContext(tlsOptions);
+    const proxySockets = new Set<import("node:net").Socket>();
     const proxy = createTlsServer(
       {
         ...tlsOptions,
@@ -471,6 +471,10 @@ test(
       },
       (socket) => {
         const upstream = connect({ host: "127.0.0.1", port: center.port, rejectUnauthorized: false });
+        proxySockets.add(socket);
+        proxySockets.add(upstream);
+        socket.on("close", () => proxySockets.delete(socket));
+        upstream.on("close", () => proxySockets.delete(upstream));
         socket.pipe(upstream).pipe(socket);
         socket.on("error", () => upstream.destroy());
         upstream.on("error", () => socket.destroy());
@@ -479,99 +483,105 @@ test(
     const listening = once(proxy, "listening");
     proxy.listen(0, "127.0.0.1");
     await listening;
-    t.after(() => new Promise<void>((resolve, reject) => proxy.close((error) => (error ? reject(error) : resolve()))));
-    const proxyPort = (proxy.address() as { port: number }).port;
-    const created = await f.run({ operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] });
-    // The in-memory realm has an HTTP control plane; the client uses the injected HTTPS login session below.
-    const rawLink = JSON.parse(
-      Buffer.from(String(created.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
-    );
-    const link = { ...rawLink, loginUrl: "https://login.example", centerOrigin: `https://127.0.0.1:${proxyPort}` };
-    f.keycloak.interactiveSession("alice", "existing-device", keycloakUrl, "alice-recovery", link.loginClientId);
-    f.keycloak.interactiveSession("bob", "other-device", keycloakUrl, "bob-recovery", link.loginClientId);
-    const address = {
-      hostname: "127.0.0.1",
-      port: proxyPort,
-      spkiSha256: link.spkiSha256,
-      joinId: link.joinId,
-      accessToken: "bob-recovery",
-    };
-    await assert.rejects(requestFleetEdgeJoinStatusPinned(address), { code: "human_confirmation_required" });
-    await probeFleetEdgeCenterAddress({ ...address, servername: "center.example" });
-    await assert.rejects(requestFleetEdgeJoinStatusPinned({ ...address, servername: "center.example" }), {
-      code: "human_confirmation_required",
-    });
-    assert.deepEqual(servernames.splice(0), ["center.example", "center.example"]);
-    await probeFleetEdgeCenterAddress({ ...address, servername: "[::1]" });
-    await assert.rejects(requestFleetEdgeJoinStatusPinned({ ...address, servername: "[::1]" }), {
-      code: "human_confirmation_required",
-    });
-    assert.deepEqual(servernames, []);
-    await assert.rejects(probeFleetEdgeCenterAddress({ ...address, spkiSha256: "0".repeat(64) }), {
-      code: "pin_mismatch",
-    });
-    servernames.length = 0;
-    const recoveredUser = path.join(f.root, "recovered-user");
-    const ports = {
-      userRoot: recoveredUser,
-      probeLogin: async () => {},
-      session: async () => ({
-        accessToken: "alice-recovery",
-        authority: { url: link.loginUrl, realm: link.loginRealm },
-      }),
-      beginLogin: async () => assert.fail("already authenticated"),
-      register: async () => ({ ok: true }),
-      sync: async () => ({ ok: true, knownHead: { sequence: 1 } }),
-    };
-    const request = {
-      link: encodeEdgeJoinLink(link),
-      workspaceRoot: path.join(f.root, "recovered-workspaces"),
-      quotaBytes: 1024 * 1024,
-    };
-    const edgeRepo = path.join(request.workspaceRoot, "repo-a");
-    mkdirSync(edgeRepo, { recursive: true });
-    execFileSync("git", ["init", "-q", "-b", "main", edgeRepo]);
-    writeFileSync(path.join(edgeRepo, ".gitignore"), "harness/\n");
-    execFileSync("git", ["-C", edgeRepo, "add", ".gitignore"]);
-    execFileSync("git", [
-      "-C",
-      edgeRepo,
-      "-c",
-      "user.name=Edge Test",
-      "-c",
-      "user.email=edge@example.invalid",
-      "commit",
-      "-qm",
-      "edge checkout",
-    ]);
-    await assert.rejects(joinFleetEdge(request, ports), { code: "join_reply_lost" });
-    assert.deepEqual(servernames.splice(0), []);
-    const recovered = await joinFleetEdge(request, ports),
-      saved = readFleetEdgeConfig(recoveredUser, "repo-a")!;
-    assert.equal(recovered.state, "synced");
-    assert.equal(saved.nodeId, issued[0]!.nodeId);
-    assert.notEqual(saved.credential, issued[0]!.credential);
-    assert.equal(await f.provider.authenticateNode(saved.nodeId, issued[0]!.credential), false);
-    assert.equal(await f.provider.authenticateNode(saved.nodeId, saved.credential), true);
-    if (process.platform !== "win32")
-      assert.equal(statSync(fleetEdgeConfigPath(recoveredUser, "repo-a")).mode & 0o777, 0o600);
-    assert.equal(existsSync(path.join(edgeRepo, "fleet-edge.json")), false);
-    assert.equal(existsSync(path.join(edgeRepo, "fleet-center-ca.pem")), false);
-    const count = f.keycloak.nodeClients.size;
-    writeFleetEdgeConfig(recoveredUser, "repo-a", {
-      ...saved,
-      waitTimeoutMs: 3456,
-      maxAgeMs: 123,
-      maxLagRevisions: 2,
-      quotaBytes: 64 * 1024 * 1024,
-    });
-    const repeated = await joinFleetEdge({ link: request.link, workspaceRoot: request.workspaceRoot }, ports);
-    assert.deepEqual(servernames, []);
-    assert.equal(repeated.nodeId, saved.nodeId);
-    assert.equal(readFleetEdgeConfig(recoveredUser, "repo-a")!.credential, saved.credential);
-    assert.equal(f.keycloak.nodeClients.size, count);
-    assert.equal(JSON.stringify([recovered, repeated, f.journal()]).includes(saved.credential), false);
-    const status = await f.admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "alice-recovery" });
-    assert.deepEqual(status, { joinId: link.joinId, state: "consumed", nodeId: saved.nodeId });
+    try {
+      const proxyPort = (proxy.address() as { port: number }).port;
+      const created = await f.run({ operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] });
+      // The in-memory realm has an HTTP control plane; the client uses the injected HTTPS login session below.
+      const rawLink = JSON.parse(
+        Buffer.from(String(created.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+      );
+      const link = { ...rawLink, loginUrl: "https://login.example", centerOrigin: `https://127.0.0.1:${proxyPort}` };
+      f.keycloak.interactiveSession("alice", "existing-device", keycloakUrl, "alice-recovery", link.loginClientId);
+      f.keycloak.interactiveSession("bob", "other-device", keycloakUrl, "bob-recovery", link.loginClientId);
+      const address = {
+        hostname: "127.0.0.1",
+        port: proxyPort,
+        spkiSha256: link.spkiSha256,
+        joinId: link.joinId,
+        accessToken: "bob-recovery",
+      };
+      await assert.rejects(requestFleetEdgeJoinStatusPinned(address), { code: "human_confirmation_required" });
+      await probeFleetEdgeCenterAddress({ ...address, servername: "center.example" });
+      await assert.rejects(requestFleetEdgeJoinStatusPinned({ ...address, servername: "center.example" }), {
+        code: "human_confirmation_required",
+      });
+      assert.deepEqual(servernames.splice(0), ["center.example", "center.example"]);
+      await probeFleetEdgeCenterAddress({ ...address, servername: "[::1]" });
+      await assert.rejects(requestFleetEdgeJoinStatusPinned({ ...address, servername: "[::1]" }), {
+        code: "human_confirmation_required",
+      });
+      assert.deepEqual(servernames, []);
+      await assert.rejects(probeFleetEdgeCenterAddress({ ...address, spkiSha256: "0".repeat(64) }), {
+        code: "pin_mismatch",
+      });
+      servernames.length = 0;
+      const recoveredUser = path.join(f.root, "recovered-user");
+      const ports = {
+        userRoot: recoveredUser,
+        probeLogin: async () => {},
+        session: async () => ({
+          accessToken: "alice-recovery",
+          authority: { url: link.loginUrl, realm: link.loginRealm },
+        }),
+        beginLogin: async () => assert.fail("already authenticated"),
+        register: async () => ({ ok: true }),
+        sync: async () => ({ ok: true, knownHead: { sequence: 1 } }),
+      };
+      const request = {
+        link: encodeEdgeJoinLink(link),
+        workspaceRoot: path.join(f.root, "recovered-workspaces"),
+        quotaBytes: 1024 * 1024,
+      };
+      const edgeRepo = path.join(request.workspaceRoot, "repo-a");
+      mkdirSync(edgeRepo, { recursive: true });
+      execFileSync("git", ["init", "-q", "-b", "main", edgeRepo]);
+      writeFileSync(path.join(edgeRepo, ".gitignore"), "harness/\n");
+      execFileSync("git", ["-C", edgeRepo, "add", ".gitignore"]);
+      execFileSync("git", [
+        "-C",
+        edgeRepo,
+        "-c",
+        "user.name=Edge Test",
+        "-c",
+        "user.email=edge@example.invalid",
+        "commit",
+        "-qm",
+        "edge checkout",
+      ]);
+      await assert.rejects(joinFleetEdge(request, ports), { code: "join_reply_lost" });
+      assert.deepEqual(servernames.splice(0), []);
+      const recovered = await joinFleetEdge(request, ports),
+        saved = readFleetEdgeConfig(recoveredUser, "repo-a")!;
+      assert.equal(recovered.state, "synced");
+      assert.equal(saved.nodeId, issued[0]!.nodeId);
+      assert.notEqual(saved.credential, issued[0]!.credential);
+      assert.equal(await f.provider.authenticateNode(saved.nodeId, issued[0]!.credential), false);
+      assert.equal(await f.provider.authenticateNode(saved.nodeId, saved.credential), true);
+      if (process.platform !== "win32")
+        assert.equal(statSync(fleetEdgeConfigPath(recoveredUser, "repo-a")).mode & 0o777, 0o600);
+      assert.equal(existsSync(path.join(edgeRepo, "fleet-edge.json")), false);
+      assert.equal(existsSync(path.join(edgeRepo, "fleet-center-ca.pem")), false);
+      const count = f.keycloak.nodeClients.size;
+      writeFleetEdgeConfig(recoveredUser, "repo-a", {
+        ...saved,
+        waitTimeoutMs: 3456,
+        maxAgeMs: 123,
+        maxLagRevisions: 2,
+        quotaBytes: 64 * 1024 * 1024,
+      });
+      const repeated = await joinFleetEdge({ link: request.link, workspaceRoot: request.workspaceRoot }, ports);
+      assert.deepEqual(servernames, []);
+      assert.equal(repeated.nodeId, saved.nodeId);
+      assert.equal(readFleetEdgeConfig(recoveredUser, "repo-a")!.credential, saved.credential);
+      assert.equal(f.keycloak.nodeClients.size, count);
+      assert.equal(JSON.stringify([recovered, repeated, f.journal()]).includes(saved.credential), false);
+      const status = await f.admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "alice-recovery" });
+      assert.deepEqual(status, { joinId: link.joinId, state: "consumed", nodeId: saved.nodeId });
+    } finally {
+      for (const socket of proxySockets) socket.destroy();
+      await new Promise<void>((resolve, reject) => proxy.close((error) => (error ? reject(error) : resolve())));
+      await center.close();
+      f.admin.close();
+    }
   },
 );

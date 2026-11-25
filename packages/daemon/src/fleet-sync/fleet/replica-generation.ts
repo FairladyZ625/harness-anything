@@ -355,6 +355,9 @@ function createGenerationReaders(root: string) {
       recursive: true,
       force: true,
     });
+    // Wait for background generation unlinks under `.deleting` before removing `.deleting` itself;
+    // on Windows concurrent rmdir of parent and child raises EPERM.
+    await pendingDeletion.catch(consumeKnownError);
     await removeStagingDirectory(path.join(root, ".deleting"));
     // An edge upgraded in place still holds the retired layout under the same view path.
     const pointer = path.join(root, "current.json");

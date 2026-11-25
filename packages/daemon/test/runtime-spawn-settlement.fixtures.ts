@@ -1,15 +1,17 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/daemon-host/runtime-spawn-types.ts";
 import { publishExit as publishRuntimeExit } from "../src/daemon-host/runtime-spawn-settlement.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import type { AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const gitConfigNull = process.platform === "win32" ? "NUL" : "/dev/null";
+const syntheticStoppedFixturePid = 2_147_483_647;
 
 /** Give isolated settlement publishers the accepted lifecycle projection that RepoCell owns. */
 export async function publishExit(
@@ -18,6 +20,11 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
+  if (runtime.process.pid === syntheticStoppedFixturePid && context.input.rootDir && existsSync(context.input.rootDir))
+    recordStoppedFixtureContainment(
+      { rootDir: context.input.rootDir, dispatchId: runtime.dispatchId },
+      runtime.process.pid,
+    );
   context = { ...context, reconcileFallback: context.reconcileFallback ?? (() => undefined) };
   if (context.input.remote?.readDispatchLifecycle)
     return publishRuntimeExit(context, runtime, code, resumePublishedExit);
