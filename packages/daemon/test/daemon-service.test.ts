@@ -172,5 +172,19 @@ for (const platform of ["linux", "darwin"] as const) {
     const controls = daemonServiceUnitContent(unit, { ...launch, extraCaCerts: "ca\n\r\t.pem" });
     assert.ok(controls.includes(platform === "linux" ? "ca\\n\\r\\t.pem" : "ca\n&#13;\t.pem"), controls);
     assert.notEqual(content, daemonServiceUnitContent(unit, launch));
+    assert.ok(!content.includes("HARNESS_DAEMON_ATTACH_TIMEOUT_MS"));
+    const withTimeout = daemonServiceUnitContent(unit, { ...launch, attachTimeoutMs: 900_000 });
+    assert.ok(
+      withTimeout.includes(
+        platform === "linux"
+          ? 'Environment="HARNESS_DAEMON_ATTACH_TIMEOUT_MS=900000"'
+          : "<key>HARNESS_DAEMON_ATTACH_TIMEOUT_MS</key><string>900000</string>",
+      ),
+      withTimeout,
+    );
+    assert.throws(
+      () => daemonServiceUnitContent(unit, { ...launch, attachTimeoutMs: "0" }),
+      /Invalid HARNESS_DAEMON_ATTACH_TIMEOUT_MS/u,
+    );
   });
 }

@@ -36,6 +36,8 @@ async function main(argv: readonly string[], afterParentExit = false): Promise<n
     if (!value || value.startsWith("--")) throw new Error(`Missing value for ${name}`);
     return value;
   };
+  const { resolveDaemonAttachTimeoutMs } = await import("./attach-timeout.ts");
+  const attachTimeoutMs = resolveDaemonAttachTimeoutMs(process.env, option("--attach-timeout-ms"));
   const { daemonUserRoot, daemonIdFromEnv } = await import("./client/local-daemon-target.ts");
   const { clearDaemonStoppedMarker, readDaemonStoppedAt, runtimeDaemonStartRefusal } = await import(
     "./client/daemon-autostart.ts"
@@ -80,7 +82,7 @@ async function main(argv: readonly string[], afterParentExit = false): Promise<n
     bind: option("--metrics-bind"),
     path: option("--metrics-path"),
   });
-  return runResidentDaemon(userRoot, daemonId, supervised, metricsConfig, (receipt, code) => {
+  return runResidentDaemon(userRoot, daemonId, supervised, metricsConfig, attachTimeoutMs, (receipt, code) => {
     console.log(JSON.stringify(receipt));
     return code;
   });
@@ -91,6 +93,7 @@ async function runResidentDaemon(
   daemonId: string,
   supervised: boolean,
   metricsConfig: import("./metrics-http-server.ts").DaemonMetricsHttpConfig | null,
+  attachTimeoutMs: number,
   finish: (receipt: Record<string, unknown>, exitCode: number) => number,
 ): Promise<number> {
   const { startDaemon } = await import("./runtime.ts"),
@@ -131,6 +134,7 @@ async function runResidentDaemon(
         userRoot,
         daemonId,
         metrics: metricsConfig,
+        attachTimeoutMs,
         // The resident daemon is the process that owns the operator login: every runtime launch
         // inherits this token, so an isolated instance HOME needs no `gh auth login` of its own.
         runtimeGithubToken: resolveOperatorGithubToken,

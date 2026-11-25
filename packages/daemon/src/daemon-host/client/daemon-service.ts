@@ -2,6 +2,7 @@ import { daemonProtocolFleetPolicy } from "@harness-anything/kernel/internal/dom
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DAEMON_ATTACH_TIMEOUT_ENV, parseDaemonAttachTimeoutMs } from "../attach-timeout.ts";
 import { daemonStdioLogPath } from "../lifecycle-log.ts";
 import { runProcessExitAsync } from "../process-port.ts";
 import { localDaemonTargetKey } from "./local-daemon-target.ts";
@@ -72,10 +73,13 @@ export function daemonServiceUnitContent(
     readonly extraCaCerts?: string | undefined;
     /** Test-owner PID propagated so an on-demand scheduled daemon still exits if its test dies. */
     readonly ownerPid?: string | undefined;
+    /** Explicit attach timeout budget (ms) propagated when configured for an isolated launch. */
+    readonly attachTimeoutMs?: number | string | undefined;
     /** Windows on-demand starts do not opt the user into login autostart. */
     readonly runAtLogin?: boolean;
   },
 ): string {
+  const attachTimeoutMs = parseDaemonAttachTimeoutMs(input.attachTimeoutMs, DAEMON_ATTACH_TIMEOUT_ENV);
   const program = [
       input.execPath,
       input.entry,
@@ -91,6 +95,7 @@ export function daemonServiceUnitContent(
       PATH: input.searchPath,
       ...(input.extraCaCerts ? { NODE_EXTRA_CA_CERTS: path.resolve(input.extraCaCerts) } : {}),
       ...(input.ownerPid ? { HARNESS_DAEMON_OWNER_PID: input.ownerPid } : {}),
+      ...(attachTimeoutMs === undefined ? {} : { [DAEMON_ATTACH_TIMEOUT_ENV]: String(attachTimeoutMs) }),
     };
   if (unit.manager === "task-scheduler") {
     // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers. The

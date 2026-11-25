@@ -708,6 +708,29 @@ export const daemonOntologyPolicies = [
       "policy:packages/application:packages/application/src/queries/unique-prefix.ts#listedCandidateLimit:2bf28bfe8543a8df7f8d15e63091b108",
     ].map((candidateId) => ({ candidateId, route: "daemon-redaction-presentation" })),
   },
+  {
+    id: "daemon-attach-timeout",
+    ownerRef: "host",
+    unit: "milliseconds",
+    bounds:
+      "Production daemon repository attach defaults to 60000ms when unset; explicit positive integer overrides via --attach-timeout-ms or HARNESS_DAEMON_ATTACH_TIMEOUT_MS are admitted within 1..2147483647ms and invalid values fail closed.",
+    defaultValue: { defaultMs: 60_000, minMs: 1, maxMs: 2_147_483_647, envVar: "HARNESS_DAEMON_ATTACH_TIMEOUT_MS" },
+    version: 1,
+    scope: "Isolated and resident daemon repository attach timeout budget",
+    reason:
+      "Keep the 60000ms production default while allowing isolated evidence runs (such as old-data-copy-evidence on large Windows ledgers) to forward an explicit attach timeout budget safely within Node timer bounds.",
+    fixtures: [
+      "packages/daemon/test/daemon-attach-timeout.test.ts",
+      "packages/daemon/test/daemon-host-recovery-attach-budget.test.ts",
+    ],
+    sources: [
+      "policy:packages/daemon:packages/daemon/src/daemon-host/attach-timeout.ts#DEFAULT_DAEMON_ATTACH_TIMEOUT_MS:e69b2beb3221ba174df57dd61fbd30f0",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/attach-timeout.ts#MAX_DAEMON_ATTACH_TIMEOUT_MS:afbae3ddc71a5a2aab51e0d88050babf",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/attach-timeout.ts#DAEMON_ATTACH_TIMEOUT_ENV:a1987a31102798407e267199ea2849bf",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/attach-timeout.ts#parseDaemonAttachTimeoutMs:85174d1fd964629030552d74acd1aff1",
+      "policy:packages/daemon:packages/daemon/src/daemon-host/attach-timeout.ts#parseDaemonAttachTimeoutMs:eef1c063d263705ec0c293bf36244bc9",
+    ].map((candidateId) => ({ candidateId, route: "daemon-attach-timeout" })),
+  },
 ] as const satisfies readonly OntologyPolicyDeclaration[];
 
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: host-wide action catalog vocabulary and read budgets declared by the kernel.

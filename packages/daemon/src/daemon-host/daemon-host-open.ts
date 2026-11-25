@@ -1,4 +1,5 @@
 import { reviewDispatchDiagnostic } from "@harness-anything/application/internal/queries/review-dispatch-failure-read.ts";
+import { configuredDaemonAttachTimeoutMs } from "./attach-timeout.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-types.ts";
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { forward, resolveRuntimeLocation, type RuntimeForwardingRequest } from "./fleet/forwarding-port.ts";
@@ -182,6 +183,7 @@ import { migrateFleetEdgeWorkspace } from "./fleet-edge-workspace-migration.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
+  const attachTimeoutMs = configuredDaemonAttachTimeoutMs(input.attachTimeoutMs);
   const requiredStorageBackend = resolveRequiredStorageBackend(input.requiredStorageBackend);
   input = {
     ...input,
@@ -199,7 +201,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     warming = new Map<string, RepoCellStatus>(),
     warmingSettlements = new Map<string, ReturnType<typeof makeWarmingSettlement>>(),
     openings = new Map<string, Promise<void>>(),
-    attachTimeoutMs = input.attachTimeoutMs ?? 60_000,
     openCell = input.openCell ?? openRepoCell,
     runtimeDaemonRoute = {
       userRoot: input.userRoot,

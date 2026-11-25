@@ -44,6 +44,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const HARNESS_COPY_DIRS = ["wal", "generated", "presets"];
 const HARNESS_COPY_FILES = ["settings.local.json"];
 const MIN_ATTACH_TIMEOUT_MS = 1000;
+const MAX_ATTACH_TIMEOUT_MS = 2_147_483_647;
 const DEFAULT_TIMEOUT_MS = 4 * 60 * 60 * 1000;
 const MAX_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 const STALE_TEMP_AGE_MS = 24 * 60 * 60 * 1000;
@@ -70,8 +71,14 @@ export function parseArgs(argv) {
     attachTimeoutMs: Number(option("--attach-timeout-ms") ?? 900_000),
     timeoutMs: Number(option("--timeout-ms") ?? DEFAULT_TIMEOUT_MS),
   };
-  if (!Number.isInteger(args.attachTimeoutMs) || args.attachTimeoutMs < MIN_ATTACH_TIMEOUT_MS)
-    throw new Error("--attach-timeout-ms must be an integer >= 1000");
+  if (
+    !Number.isInteger(args.attachTimeoutMs) ||
+    args.attachTimeoutMs < MIN_ATTACH_TIMEOUT_MS ||
+    args.attachTimeoutMs > MAX_ATTACH_TIMEOUT_MS
+  )
+    throw new Error(
+      `--attach-timeout-ms must be an integer between ${MIN_ATTACH_TIMEOUT_MS} and ${MAX_ATTACH_TIMEOUT_MS}`,
+    );
   if (!Number.isInteger(args.timeoutMs) || args.timeoutMs < MIN_ATTACH_TIMEOUT_MS || args.timeoutMs > MAX_TIMEOUT_MS)
     throw new Error(`--timeout-ms must be an integer between ${MIN_ATTACH_TIMEOUT_MS} and ${MAX_TIMEOUT_MS}`);
   return args;
@@ -1007,6 +1014,9 @@ export function cliInvocation(buildRoot, args, env, workspaceRoot, identity) {
         ...env,
         HARNESS_DAEMON_USER_ROOT: identity.userRoot,
         HARNESS_DAEMON_ID: identity.daemonId,
+        ...(identity.attachTimeoutMs === undefined
+          ? {}
+          : { HARNESS_DAEMON_ATTACH_TIMEOUT_MS: String(identity.attachTimeoutMs) }),
       },
       cwd: workspaceRoot,
     },
@@ -1625,7 +1635,11 @@ export async function main(argv, session = {}) {
         discarded: true,
       });
     }
-    const daemonCliOptions = buildCliOptions(env, workspace, { userRoot, daemonId });
+    const daemonCliOptions = buildCliOptions(env, workspace, {
+      userRoot,
+      daemonId,
+      attachTimeoutMs: args.attachTimeoutMs,
+    });
     receipt.build = {
       requested: build.requested,
       root: build.requestedRoot,
