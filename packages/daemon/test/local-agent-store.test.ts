@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -9,6 +9,7 @@ import {
   removeLocalAgentDeclaration,
   writeLocalAgentDeclaration,
 } from "../src/daemon-host/local-agent-store.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("local Agent declarations persist under a repository-specific daemon user root", () => {
   const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-local-agents-")),
@@ -35,7 +36,7 @@ test("local Agent declarations persist under a repository-specific daemon user r
     removeLocalAgentDeclaration(userRoot, "repo_123", declaration.id);
     assert.deepEqual(readLocalAgentDeclarations(userRoot, "repo_123"), []);
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });
 
@@ -53,6 +54,6 @@ test("local Agent storage rejects project-shared declarations", () => {
       }),
     );
   } finally {
-    rmSync(userRoot, { recursive: true, force: true });
+    removeTempRepository(userRoot);
   }
 });

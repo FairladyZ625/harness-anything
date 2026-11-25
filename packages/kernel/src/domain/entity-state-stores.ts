@@ -876,6 +876,17 @@ function physicalStoresForKind(kind: string): readonly StateStoreDeclaration[] {
   return physicalSourceStores.filter((entry) => entry.owner === kind).map((entry) => entry.store);
 }
 
+const agentLocalDeclarationStore: StateStoreDeclaration = freeze({
+  id: "agent.local-declarations",
+  role: "authority",
+  residency: "host-local",
+  medium: freeze({
+    kind: "filesystem-store",
+    module: "packages/daemon/src/daemon-host/local-agent-store.ts",
+  }),
+  vocabulary: freeze([]),
+});
+
 const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> = {
   task: [
     ...physicalStoresForKind("task"),
@@ -927,6 +938,7 @@ const storesByKind: Readonly<Record<string, readonly StateStoreDeclaration[]>> =
   ],
   todo: [canonical("todo.entity-events", "entity-event/v1", "packages/kernel/src/domain/entity-event-compile.ts")],
   agent: [
+    agentLocalDeclarationStore,
     canonical("agent.entity-events", "agent-entity-event/v1", "packages/kernel/src/domain/entity-event.ts"),
     canonical("agent.people-events", "people-event/v1", "packages/kernel/src/domain/people-event.ts"),
   ],

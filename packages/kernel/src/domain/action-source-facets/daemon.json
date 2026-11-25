@@ -7186,6 +7186,60 @@
         "order": 2
       }
     ],
+    "agent-install": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#readAgentDeclarationResolution:0f9e1adf7a337d150e8dd34e3e8c39f6",
+        "route": "agent-install",
+        "role": "support",
+        "order": 1300
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration:752a9be7b071ab9254ef52f05df0cb21",
+        "route": "agent-install",
+        "role": "effect",
+        "order": 1301
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration:582286eb6568299e68f4b4ee645b1bd7",
+        "route": "agent-install",
+        "role": "effect",
+        "order": 1302
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#removeLocalAgentDeclaration:8dddadd7f5865f4e4543a70d65a59f6a",
+        "route": "agent-install",
+        "role": "effect",
+        "order": 1303
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.runtimeContext:c7efdf28c0eca6ef338cc38271340af5",
+        "route": "agent-install",
+        "role": "support",
+        "order": 1304
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.entityActionRuntimes.afterLocalAgentInstall.deletion:ecc1dd05aba8ba75593daf4a793cfb46",
+        "route": "agent-install",
+        "role": "effect",
+        "order": 1305
+      }
+    ],
+    "agent-list": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/squad-action-runtime.ts#listAgents:6c9983c9ea939519bc983c4276869c68",
+        "route": "agent-list",
+        "role": "support",
+        "order": 1306
+      }
+    ],
+    "agent-inspect": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/squad-action-runtime.ts#inspectAgent:f4ce902bba1bfdacd247597430fb5f37",
+        "route": "agent-inspect",
+        "role": "support",
+        "order": 1307
+      }
+    ],
     "vertical-kind-upsert": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/vertical-declaration-action.ts#runVerticalDeclarationAction.appended:5ca10d09f5449f58673022183be08681",

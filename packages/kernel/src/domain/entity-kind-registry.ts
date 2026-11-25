@@ -34,6 +34,7 @@ import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-col
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,
+  daemonAgentLocalStorageJudgment,
   daemonAgentPolicySources,
   daemonSquadPolicySources,
   squadLeaderTurnPolicy,
@@ -1463,6 +1464,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
     policies: [daemonAgentPolicy],
+    judgments: [daemonAgentLocalStorageJudgment],
   },
   {
     kind: "squad",

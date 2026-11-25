@@ -339,7 +339,43 @@ export const daemonAgentPolicySources = [
     "packages/daemon/src/daemon-host/agent-version-read.ts#resolveVersion.page.limit",
     "limit: 1,",
   ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-entities.ts#prepareAgentEntityInstall:3e459bfaa2d36e64242be2f723ab493d",
+    "packages/daemon/src/daemon-host/agent-entities.ts#prepareAgentEntityInstall",
+    "input.action.mcpPolicy === undefined && input.action.clearMcpPolicy !== true && input.action.selectionStrategy === undefined && input.action.scope === undefined",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/agent-entities.ts#readAgentEntityDeclarationSource.withOverride:7ecc7346bcdee21e953d03b1d5ac4275",
+    "packages/daemon/src/daemon-host/agent-entities.ts#readAgentEntityDeclarationSource.withOverride",
+    "action.mcpPolicy === undefined && action.clearMcpPolicy !== true && action.selectionStrategy === undefined",
+  ],
+  [
+    "policy:packages/daemon:packages/daemon/src/daemon-host/repo-mode.ts#entityActionCommandTopology.admission:a4d055f9412c87a6ddbcd189bb633bf5:2",
+    "packages/daemon/src/daemon-host/repo-mode.ts#entityActionCommandTopology.admission",
+    'action.kind === "agent-install" && (action.scope === "local" || action.localAgentTransfer === true)',
+  ],
 ] as const;
+
+export const daemonAgentLocalStorageJudgment = {
+  id: "assertLocalAgentDirectory",
+  symbol: "packages/daemon/src/daemon-host/local-agent-store.ts#assertLocalAgentDirectory",
+  inputs: ["local Agent directory path", "parent and directory filesystem entries"],
+  output: "local Agent storage does not traverse a symbolic link",
+  failureCodes: ["local_agent_storage_symlink"],
+  explain: "Reject symlinked user-state directories before local Agent reads or writes.",
+  consumers: [
+    "packages/daemon/src/daemon-host/local-agent-store.ts#readLocalAgentRecords",
+    "packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration",
+    "packages/daemon/src/daemon-host/local-agent-store.ts#removeLocalAgentDeclaration",
+  ],
+  sources: [
+    {
+      candidateId:
+        "judgment:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#assertLocalAgentDirectory:f2000f7b2c14af3ef48b4859e1002190",
+      route: "local-agent-store",
+    },
+  ],
+} as const;
 
 // Source identities and values for daemon policy declarations registered by EntityKindContract.
 export const daemonSquadPolicySources = [

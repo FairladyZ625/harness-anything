@@ -184,6 +184,8 @@
       "packages/cli/src/daemon/control.ts#startDaemonService",
       "packages/cli/src/index.ts#finishTimingWithoutChangingOutcome",
       "packages/daemon/src/daemon-host/agent-declaration-migration.ts#readRuntimeInstanceViews",
+      "packages/daemon/src/daemon-host/local-agent-store.ts#readLocalAgentRecords",
+      "packages/daemon/src/daemon-host/local-agent-store.ts#readLocalAgentRecord",
       "packages/daemon/src/daemon-host/agent-declaration-resolution.ts#storedAgentDeclarationOutcome",
       "packages/daemon/src/daemon-host/agent-entities.ts#readAgentEntityGuiProjection",
       "packages/daemon/src/daemon-host/agent-entities.ts#readSquadDeclaration",
