@@ -771,6 +771,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           },
           waitForReplicaReady: (request) => waitForFleetReplicaReady(request),
           ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
+          ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
           now,
         });
     edgeRuntimeOwners.set(key, runtime);

@@ -20,6 +20,7 @@ import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.t
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { deriveTaskWorktreeBinding, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { readDispatchStageClock, withDispatchStageClock } from "../src/daemon-host/dispatch-stage-clock.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   applyTaskWorktreeLifecycle,
@@ -336,6 +337,43 @@ test("a fresh start refreshes only the default branch, and still starts from the
       1,
       "an unfiltered fetch would have brought the unrelated task branch in",
     );
+  } finally {
+    removeTempRepository(fixture.base);
+  }
+});
+
+test("a caller that already fetched the default branch cuts a fresh checkout without fetching it again", async (t) => {
+  const fixture = repositoryFixture(t);
+  try {
+    const fetched = git(fixture.root, "rev-parse", "origin/main"),
+      other = path.join(fixture.base, "other");
+    // The remote advances after the caller's own fetch; only a second fetch in the checkout could observe it.
+    git(fixture.base, "init", "--quiet", "-b", "main", other);
+    git(other, "remote", "add", "origin", path.join(fixture.base, "remote.git"));
+    git(other, "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main");
+    git(other, "reset", "--quiet", "--hard", "origin/main");
+    writeFileSync(path.join(other, "advanced.txt"), "advanced\n");
+    git(other, "add", "advanced.txt");
+    git(other, "-c", "user.name=Other", "-c", "user.email=other@example.invalid", "commit", "--quiet", "-m", "advance");
+    git(other, "push", "--quiet", "origin", "HEAD:refs/heads/main");
+
+    const { checkout, stages } = await withDispatchStageClock(async () => {
+      const checkout = (await checkoutTaskWorktree(
+        fixture.root,
+        taskId,
+        binding,
+        noWorktreeSetup(),
+        undefined,
+        undefined,
+        {
+          defaultBranchFetched: true,
+        },
+      ))!;
+      return { checkout, stages: readDispatchStageClock().stages ?? {} };
+    });
+    assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), fetched, "the checkout cuts from the caller's fetch");
+    assert.equal(git(fixture.root, "rev-parse", "origin/main"), fetched, "no second default-branch fetch ran");
+    assert.deepEqual(Object.keys(stages).toSorted(), ["published_branch_fetch", "worktree_add", "worktree_setup"]);
   } finally {
     removeTempRepository(fixture.base);
   }

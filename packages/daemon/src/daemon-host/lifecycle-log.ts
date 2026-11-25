@@ -56,6 +56,8 @@ export interface DaemonLifecycleEntry {
   readonly repoId?: string;
   readonly rootDir?: string;
   readonly durationMs?: number;
+  /** Per-stage wall-clock durations of a runtime dispatch, reported on its `runtime_spawn` record. */
+  readonly stages?: Readonly<Record<string, number>>;
   readonly revision?: number;
   readonly attachIndex?: number;
   readonly attachTotal?: number;

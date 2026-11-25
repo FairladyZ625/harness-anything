@@ -10,6 +10,7 @@ import {
 } from "@harness-anything/application/internal/queries/file-trace-read.ts";
 import { runGitHistoryLog, runGitHistoryLogAsync, runProcessText } from "../src/daemon-host/process-port.ts";
 import {
+  enrichCausalContextWithLocalWorktrees,
   makeWorkspaceGitHistoryPort,
   prepareWorkspaceGitHistorySnapshot,
 } from "../src/daemon-host/repo-cell-trace-view.ts";
@@ -207,6 +208,46 @@ test("runGitHistoryLogAsync preserves exit status, error code, and bounded stder
       assert.equal(broken.errorCode, null);
       assert.ok(broken.stderr.length > 0 && Buffer.byteLength(broken.stderr) <= 512, "bounded stderr digest");
     }
+  } finally {
+    removeTempRepository(dir);
+  }
+});
+
+test("the edge dispatch collision scan probes worktrees concurrently off the event loop", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ha-trace-edge-scan-"));
+  try {
+    git(dir, "init", "-q", "-b", "main");
+    write(dir, TARGET, "export const a = 1;\n");
+    git(dir, "add", "-A");
+    git(dir, "commit", "-q", "-m", "chore: seed");
+    for (const taskId of [TASK_A, TASK_C]) {
+      const worktree = path.join(dir, ".worktrees", taskId);
+      git(dir, "worktree", "add", "-q", "--detach", worktree, "HEAD");
+      write(worktree, TARGET, `export const a = "${taskId}";\n`);
+    }
+    let inFlight = 0,
+      maxInFlight = 0;
+    const context = await enrichCausalContextWithLocalWorktrees(null, {
+      workspaceRoot: dir,
+      plan: `Change \`${TARGET}\`.`,
+      taskId: "task_dddddddddddddddddddddddddd",
+      skip: false,
+      runGit: async (root, args, timeoutMs) => {
+        maxInFlight = Math.max(maxInFlight, ++inFlight);
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          return await runGitHistoryLogAsync(root, args, timeoutMs);
+        } finally {
+          inFlight -= 1;
+        }
+      },
+    });
+    assert.equal(maxInFlight, 2, "both worktree probes are in flight together");
+    for (const taskId of [TASK_A, TASK_C]) assert.match(context ?? "", new RegExp(taskId, "u"));
+    assert.equal(
+      await enrichCausalContextWithLocalWorktrees("kept", { workspaceRoot: dir, plan: "", taskId: TASK_A, skip: true }),
+      "kept",
+    );
   } finally {
     removeTempRepository(dir);
   }

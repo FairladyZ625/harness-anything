@@ -294,9 +294,11 @@ async function readDirtyWorktreeCollisionsAsync(
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
       .toSorted((left, right) => right.activityTime - left.activityTime || left.taskId.localeCompare(right.taskId)),
     selected = worktrees.slice(0, MAX_WORKTREE_PROBES),
-    args = dirtyWorktreeStatusGitArgs(targets);
-  for (const { taskId, worktree } of selected) {
-    const status = await runGit(worktree, args);
+    args = dirtyWorktreeStatusGitArgs(targets),
+    // Independent read-only probes: together, the scan costs its slowest probe rather than their sum.
+    statuses = await Promise.all(selected.map(({ worktree }) => runGit(worktree, args)));
+  for (const [index, { taskId }] of selected.entries()) {
+    const status = statuses[index]!;
     if (!status.ok) continue;
     const tracePaths = dirtyWorktreeTracePaths(status.stdout, targets);
     if (tracePaths.length > 0) collisions.push({ taskId, tracePaths });
@@ -327,22 +329,28 @@ export function traceView(cell: WorkQueryCell, action: QueryAction, binding: Que
   );
 }
 
-/** Edge-local dirty-worktree collision scan layered onto center-built causal context before execution launch. */
-export function enrichCausalContextWithLocalWorktrees(
+/**
+ * Edge-local dirty-worktree collision scan layered onto center-built causal context before execution launch. It
+ * runs on the daemon's event loop during dispatch, so its probes are asynchronous child processes.
+ */
+export async function enrichCausalContextWithLocalWorktrees(
   causalContext: string | null,
   input: {
     readonly workspaceRoot: string;
     readonly plan: string;
     readonly taskId: string;
     readonly skip: boolean;
+    readonly runGit?: AsyncGitHistoryLogRunner;
   },
-): string | null {
+): Promise<string | null> {
   if (input.skip) return causalContext;
   return withLocalWorktreeCollisions(
     causalContext,
-    makeWorkspaceGitHistoryPort(input.workspaceRoot).readDirtyWorktreeCollisions!({
-      paths: extractReferencedCodePaths(input.plan),
-      excludeTaskId: input.taskId,
-    }),
+    await readDirtyWorktreeCollisionsAsync(
+      input.workspaceRoot,
+      extractReferencedCodePaths(input.plan),
+      input.taskId,
+      input.runGit ?? runGitHistoryLogAsync,
+    ),
   );
 }
