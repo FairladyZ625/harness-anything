@@ -547,6 +547,7 @@ describe("runtime entry split (W6 IA)", () => {
       "artifacts",
       "agentSquad",
       "providers",
+      "residentCeo",
     ]);
   });
 

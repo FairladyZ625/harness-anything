@@ -27,6 +27,7 @@ import { SessionsView } from "../src/renderer/views/SessionsView.tsx";
 import { TokenUsageView } from "../src/renderer/views/TokenUsageView.tsx";
 import { AgentSquadView } from "../src/renderer/views/AgentSquadView.tsx";
 import { ProvidersView } from "../src/renderer/views/ProvidersView.tsx";
+import { ResidentCeoView } from "../src/renderer/views/ResidentCeoView.tsx";
 import { TerminalView } from "../src/renderer/views/TerminalView.tsx";
 import { BrowserView } from "../src/renderer/views/BrowserView.tsx";
 import { SchedulesView } from "../src/renderer/views/SchedulesView.tsx";
@@ -912,6 +913,7 @@ const VIEW_RENDERERS = {
       focusedEntityRef: `provider/${PROVIDER_ID}`,
       onSelectEntity: noop,
     }),
+  residentCeo: () => createElement(ResidentCeoView, { repoId: REPO_ID }),
   terminal: () =>
     createElement(TerminalView, {
       repoId: REPO_ID,
