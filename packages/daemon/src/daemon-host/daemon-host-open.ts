@@ -228,7 +228,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     publishRepoStatus = trackedRepoObservability?.publishRepoStatus,
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
-    runtimeDiscovery = input.runtimeDiscover ?? (() => discoverRuntimeInstallations());
+    runtimeDiscovery =
+      input.runtimeDiscover ?? (() => discoverRuntimeInstallations({ signal: closeController.signal }));
   let discoveredInstallations: readonly RuntimeInstallationWitness[] = [],
     discoveryInFlight: Promise<readonly RuntimeInstallationWitness[]> | null = null;
   const refreshDiscovery = (): Promise<readonly RuntimeInstallationWitness[]> => {
@@ -1613,6 +1614,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ["auto-dispatch.close", () => autoDispatchLoop.close()],
         ["center-review-fallback.close", () => centerReviewLoop.close()],
         ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
+        ["runtime-discovery.close", () => discoveryInFlight?.catch(consumeKnownError) ?? Promise.resolve()],
         [
           "replica-sync.close",
           async () => {

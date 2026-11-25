@@ -536,8 +536,8 @@ export async function openWriterSupervisor(
             settled = true;
             clearTimeout(readyWatchdog);
             if (!opened) closed = true;
-            reject(deserializeWriterError(message.error));
-            void candidate.terminate();
+            const failure = deserializeWriterError(message.error);
+            void candidate.terminate().finally(() => reject(failure));
           }
           return;
         }

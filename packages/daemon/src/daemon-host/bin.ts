@@ -110,11 +110,14 @@ async function runResidentDaemon(
     superseded = false,
     supersessionFailed = false,
     parked: (() => void) | undefined,
-    ownerLivenessTimer: NodeJS.Timeout | undefined;
+    ownerLivenessTimer: NodeJS.Timeout | undefined,
+    stopModelPricingRefresh: (() => void) | undefined;
   const idle = new Promise<void>((resolve) => {
     parked = resolve;
   });
   const requestStop = () => {
+    stopModelPricingRefresh?.();
+    stopModelPricingRefresh = undefined;
     parked?.();
     stopping ??= (async () => {
       if (daemon && "stop" in daemon) await daemon.stop();
@@ -183,7 +186,7 @@ async function runResidentDaemon(
     if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
     if (!process.env.NODE_TEST_CONTEXT && process.env.HARNESS_DISABLE_MODEL_PRICING_REFRESH !== "1") {
       const { startModelPricingRefresh } = await import("./model-pricing-refresh.ts");
-      startModelPricingRefresh({ userRoot });
+      stopModelPricingRefresh = startModelPricingRefresh({ userRoot });
     }
     if (ownerPid !== null)
       ownerLivenessTimer = setInterval(() => {
@@ -208,6 +211,8 @@ async function runResidentDaemon(
     exitAfterSupersession = superseded;
     return superseded && supervised ? daemonSupersededExitCode : supersessionFailed ? 1 : 0;
   } finally {
+    stopModelPricingRefresh?.();
+    stopModelPricingRefresh = undefined;
     if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
     process.removeListener("SIGTERM", requestStop);
     process.removeListener("SIGINT", requestStop);

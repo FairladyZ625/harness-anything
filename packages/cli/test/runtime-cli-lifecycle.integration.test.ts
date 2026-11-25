@@ -230,8 +230,8 @@ const cancellationResumeTest = async (context: TestContext) => {
   assertTaskMissionPrompt(cancelledMission, {
     repoId: "runtime-cli",
     taskId,
-    workerRoot: realpathSync(workerRoot),
-    taskPackageRoot: path.join(realpathSync(root), packagePath),
+    workerRoot: realpathSync.native(workerRoot),
+    taskPackageRoot: path.join(realpathSync.native(root), packagePath),
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
@@ -299,8 +299,8 @@ const cancellationResumeTest = async (context: TestContext) => {
   assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length, -stopGuidance.length), {
     repoId: "runtime-cli",
     taskId,
-    workerRoot: realpathSync(workerRoot),
-    taskPackageRoot: path.join(realpathSync(root), packagePath),
+    workerRoot: realpathSync.native(workerRoot),
+    taskPackageRoot: path.join(realpathSync.native(root), packagePath),
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),
@@ -313,7 +313,7 @@ const cancellationResumeTest = async (context: TestContext) => {
   assert.equal(resumedRow?.status, "stopped");
   const resumedHeader = readDispatchRecords(root, resumedDispatchId)[0];
   assert.equal(resumedHeader?.agentId, "terra");
-  assert.equal(resumedHeader?.cwd, realpathSync(workerRoot));
+  assert.equal(resumedHeader?.cwd, realpathSync.native(workerRoot));
   assert.equal(resumedHeader?.model, originalHeader.model);
   assert.equal(resumedHeader?.permissionMode, originalHeader.permissionMode);
   assert.equal(resumedHeader?.resumedFromDispatchId, detachedDispatchId);

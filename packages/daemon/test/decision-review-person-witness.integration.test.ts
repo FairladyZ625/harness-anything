@@ -42,12 +42,17 @@ interface ReviewStage {
 }
 
 async function stageDecision(reviewId: string): Promise<ReviewStage> {
-  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-decision-person-witness-"))),
+  const rootDir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-decision-person-witness-"))),
     repoId = workspaceId(`decision-person-witness-${reviewId}`),
     stateRoot = path.join(rootDir, "writer-epochs"),
-    authority = openPersistentWriterEpoch({ stateRoot, holderId: "decision-person-witness-test" }),
-    lease = authority.acquire(repoId),
-    owner = ownerBinding("person-owner", "owner-agent"),
+    authority = openPersistentWriterEpoch({ stateRoot, holderId: "decision-person-witness-test" });
+  let lease: ReturnType<typeof authority.acquire>;
+  try {
+    lease = authority.acquire(repoId);
+  } finally {
+    authority.close();
+  }
+  const owner = ownerBinding("person-owner", "owner-agent"),
     reviewer = reviewerBinding("person-reviewer");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -110,7 +115,6 @@ async function stageDecision(reviewId: string): Promise<ReviewStage> {
     return { cell, owner, reviewer, decisionId, rootDir };
   } catch (error) {
     await cell?.close();
-    authority.close();
     removeTempRepository(rootDir);
     throw error;
   }

@@ -812,6 +812,7 @@ export function createDaemonHostRepositoryApi(
       }
       context.settleWarming(request.repoId);
       await context.closeCell(request.repoId);
+      context.resetWriterEpochHandle(request.repoId);
       context.unavailable.delete(request.repoId);
       const result = unbindDaemonRepo(request.repoId, {
         userRoot: context.input.userRoot,

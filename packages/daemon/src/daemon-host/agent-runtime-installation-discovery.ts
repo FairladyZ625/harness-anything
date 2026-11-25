@@ -17,8 +17,10 @@ export async function discoverRuntimeInstallations(
     readonly env?: NodeJS.ProcessEnv;
     readonly now?: () => string;
     readonly platform?: NodeJS.Platform;
+    readonly signal?: AbortSignal;
   } = {},
 ): Promise<readonly RuntimeInstallationWitness[]> {
+  if (input.signal?.aborted) return [];
   const env = input.env ?? process.env,
     platform = input.platform ?? process.platform,
     observedAt = (input.now ?? (() => new Date().toISOString()))(),
@@ -62,13 +64,16 @@ export async function discoverRuntimeInstallations(
       candidates,
       2,
       async ({ kindId, executableEntryPath, executablePath, key }) => {
+        if (input.signal?.aborted) return null;
         try {
-          const version = await runExecutable(platform, executablePath, ["--version"], {
-            env: versionProbeEnvironment(env, platform),
-            timeoutMs: 5_000,
-            captureOutput: true,
-          });
-          if (!version) return null;
+          const versionTimeout = AbortSignal.timeout(5_000),
+            version = await runExecutable(platform, executablePath, ["--version"], {
+              env: versionProbeEnvironment(env, platform),
+              timeoutMs: 5_000,
+              captureOutput: true,
+              signal: input.signal ? AbortSignal.any([input.signal, versionTimeout]) : versionTimeout,
+            });
+          if (!version || input.signal?.aborted) return null;
           const installationId = `${kindId}_${createHash("sha256").update(key).digest("hex").slice(0, 24)}`,
             // A build below the kind's floor cannot honor the launch contract, so its model
             // catalog is not advertised: offering models that build would reject invites the
@@ -76,7 +81,7 @@ export async function discoverRuntimeInstallations(
             // operator still sees which build is installed and why it is refused.
             catalog =
               runtimeVersionGate(kindId, version) === null && kindId !== "agy"
-                ? await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env })
+                ? await discoverRuntimeModelCatalog({ platform, executablePath, kindId, env, signal: input.signal })
                 : null;
           return {
             installationId,

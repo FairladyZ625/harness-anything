@@ -72,12 +72,14 @@ export async function refreshModelPricingCatalog(
     readonly install?: (catalog: unknown) => void;
     readonly now?: () => Date;
     readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
     readonly userRoot?: string;
   } = {},
 ): Promise<boolean> {
   const fetcher = input.fetcher ?? fetch,
+    timeoutSignal = AbortSignal.timeout(input.timeoutMs ?? 8_000),
     response = await fetcher(MODEL_PRICING_URL, {
-      signal: AbortSignal.timeout(input.timeoutMs ?? 8_000),
+      signal: input.signal ? AbortSignal.any([input.signal, timeoutSignal]) : timeoutSignal,
     });
   if (!response.ok) return false;
   const fetchedAt = (input.now ?? (() => new Date()))().toISOString();
@@ -100,6 +102,7 @@ export async function initializeModelPricingCatalog(input: {
   readonly install?: (catalog: unknown) => void;
   readonly now?: () => Date;
   readonly timeoutMs?: number;
+  readonly signal?: AbortSignal;
 }): Promise<number> {
   const cached = await loadModelPricingCache(input);
   if (cached && cached.ageMs >= 0 && cached.ageMs < MODEL_PRICING_CACHE_MAX_AGE_MS) {
@@ -120,6 +123,7 @@ export function startModelPricingRefresh(input: {
   readonly install?: (catalog: unknown) => void;
   readonly now?: () => Date;
 }): () => void {
+  const controller = new AbortController();
   let stopped = false,
     timer: NodeJS.Timeout | undefined;
   const schedule = (delay: number) => {
@@ -127,7 +131,7 @@ export function startModelPricingRefresh(input: {
     timer.unref();
   };
   const initialize = () => {
-    void initializeModelPricingCatalog(input)
+    void initializeModelPricingCatalog({ ...input, signal: controller.signal })
       .then((delay) => {
         if (!stopped) schedule(delay);
       })
@@ -138,6 +142,7 @@ export function startModelPricingRefresh(input: {
   void initialize();
   return () => {
     stopped = true;
+    controller.abort(new Error("model pricing refresh stopped"));
     if (timer) clearTimeout(timer);
   };
 }
