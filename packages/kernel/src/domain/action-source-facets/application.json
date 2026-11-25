@@ -54,6 +54,12 @@
         "order": 1171
       },
       {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.reactivatedOpId:d145a5b24eec8ebc5a96f8ec9059f19a",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1171
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.repinAll.bundles.memberOpId:9b2b428560348c799a5f73e79ca031b4",
         "route": "daemon:bin",
         "role": "support",
