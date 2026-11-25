@@ -1,4 +1,5 @@
 import { measureDossierHistory } from "./g38-dossier-cost.mjs";
+import { measureCloudWriterLedgerTasks } from "./g38-cloud-writer-cost.mjs";
 import { MATERIALIZATION_PROBES } from "./g38-materialization-cost.mjs";
 import assert from "node:assert/strict";
 import { createHash, Hash } from "node:crypto";
@@ -560,7 +561,7 @@ export function assertTaskReviewDispatchMeasurement(result, size, publications) 
 }
 
 export async function measureTaskAmendPatches(rootDir, size) {
-  const { taskMutation } = await load(rootDir, "packages/daemon/src/daemon-host/repo-cell-task-mutation.ts"),
+  const { taskMutation } = await load(rootDir, "packages/application/src/commands/task-mutation.ts"),
     counts = { patchesExamined: 0 },
     patches = counted(
       Array.from({ length: size }, () => ({ field: "reviewer", value: "closeout-reviewer" })),
@@ -854,6 +855,13 @@ export const COLLECTION_PROBES = Object.freeze({
     action: "task-amend",
     dimension: "patches",
     run: measureTaskAmendPatches,
+  },
+  // dec_04A9211B073F29F0FC1E1CA573 CH2: the cloud single-writer shard holds its fence for point reads only.
+  "task-amend:cloud-writer-collections": {
+    action: "task-amend",
+    dimension: "cloud-writer-collections",
+    growth: "constant",
+    run: measureCloudWriterLedgerTasks,
   },
   "task-amend:anchored-relations": {
     action: "task-amend",

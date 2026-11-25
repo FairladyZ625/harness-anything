@@ -46,7 +46,6 @@ import {
   completionSettlement,
   completionStopped,
   failed,
-  progressEvidence,
   projectionReady,
   rejected,
   requiredCellText,
@@ -55,7 +54,8 @@ import {
   runTaskCommandWithDocs as runTaskCommandWithDocsImpl,
   taskSurfaceWrite as taskSurfaceWriteImpl,
 } from "./repo-cell-task-command-docs.ts";
-import { taskMutation as taskMutationImpl } from "./repo-cell-task-mutation.ts";
+import { taskMutation as taskMutationImpl } from "@harness-anything/application/internal/commands/task-mutation.ts";
+import { readDispatchLiveIndex } from "./dispatch-stream.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import {
   createTask as createTaskImpl,
@@ -70,8 +70,8 @@ import {
   migrateTaskContracts as migrateTaskContractsImpl,
   supersedeWithNewTask as supersedeWithNewTaskImpl,
 } from "./repo-cell-task-maintenance.ts";
+import { appendProgress as appendProgressImpl } from "@harness-anything/application/internal/commands/task-progress-append.ts";
 import {
-  appendProgress as appendProgressImpl,
   completeTask as completeTaskImpl,
   completionContext as completionContextImpl,
 } from "./repo-cell-task-progress.ts";
@@ -180,7 +180,6 @@ export function createRepoCellActionContext(bindings: {
     decodeEvidencePayload,
     renderEvidencePayload,
     createTaskId,
-    progressEvidence,
     completionApplied,
     completeRetryCommand,
     failed,
@@ -246,7 +245,6 @@ export function createRepoCellActionContext(bindings: {
     decodeEvidencePayload,
     renderEvidencePayload,
     createTaskId,
-    progressEvidence,
     completionApplied,
     completeRetryCommand,
     failed,
@@ -353,6 +351,7 @@ export function createRepoCellActionContext(bindings: {
     uniqueDerivedExecutionId,
     receiptProof,
     taskMutation: bind(taskMutationImpl),
+    readDispatchLiveEntries: (taskIds) => readDispatchLiveIndex(bindings.rootDir, taskIds).entries,
     withoutDryRun,
     previewResult: boundPreviewResult,
     projectedTaskIds: boundProjectedTaskIds,
@@ -363,7 +362,6 @@ export function createRepoCellActionContext(bindings: {
     renderEvidencePayload,
     createTaskId,
     progressReceipt: boundProgressReceipt,
-    progressEvidence,
     completionApplied,
     completionContext: bind(completionContextImpl),
     completeRetryCommand,

@@ -3700,13 +3700,6 @@
         "order": 432
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-progress.ts#appendProgress.appended:67fd293f13744cdb1dd5cb40ed04452a",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
-        "order": 433
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell.ts#chainRepoCellWrite:1bf1a85c4aacea32a818272521107e2c",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6243,6 +6236,20 @@
         "order": 1314
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/cloud-writer-shard.ts#createCloudWriterShard.schedulePublication:dd39550f6719eb256cc29967c4b4e0c1",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/src/writer-cell/cloud-writer-shard.ts#CloudWriterShardOptions.publish",
+        "order": 10000
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/cloud-writer-shard.ts#executeWrite:e0c4c755dc1ec6749302b2fdea78f93d",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
+        "order": 10001
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/writer-cell/daemon-diagnostics-memory.ts#observeWorkerMemory.created:478e4bced8972591774acf8bbee3eab5",
         "route": "daemon:bin",
         "role": "support",
@@ -7037,14 +7044,6 @@
         "order": 0
       }
     ],
-    "task-progress-append": [
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-progress.ts#appendProgress.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
-        "route": "task-progress-append",
-        "role": "support",
-        "order": 0
-      }
-    ],
     "task-review-execution": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-packets.ts#packetDigest:98350a69023f5557ad3864aab246cd81",
@@ -7137,12 +7136,6 @@
         "route": "task-submit",
         "role": "support",
         "order": 15
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-command-docs.ts#prepareTaskSurfaceWriteAt.event.eventId:a29f1d8dc5945125c2c24bf5941ea324",
-        "route": "task-submit",
-        "role": "support",
-        "order": 16
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/submission-delivery.ts#refreshOrigin:b7aa8072f6624318e22cd65584fdbb97",

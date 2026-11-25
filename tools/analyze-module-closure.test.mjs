@@ -24,6 +24,27 @@ test("cloud queries have no local process, worktree, or daemon-host closure", ()
   );
 });
 
+test("cloud writer shard and its PG repository stay subprocess-free and off the daemon host", () => {
+  const forbidden =
+    /(?:^|\/)(?:node-pty|task-worktree[^/]*|runtime-spawn[^/]*|local-version-control-system[^/]*|git-[^/]*outbox[^/]*)(?:\/|$)|^packages\/daemon\/src\/(?:daemon-host|runtime-engine)\//u;
+  for (const entry of [
+    "packages/daemon/src/writer-cell/cloud-writer-shard.ts",
+    "packages/daemon/src/writer-cell/cloud-writer-pg-repository.ts",
+  ]) {
+    const result = analyzeModuleClosure({ entry });
+    assert.deepEqual(
+      result.modules.filter(({ path }) => forbidden.test(path)),
+      [],
+      entry,
+    );
+    assert.deepEqual(
+      result.edges.filter(({ to }) => to === "node:child_process"),
+      [],
+      entry,
+    );
+  }
+});
+
 function fixture(t, files) {
   const root = mkdtempSync(path.join(tmpdir(), "module-closure-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

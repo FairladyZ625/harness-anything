@@ -20,6 +20,10 @@ import { workReceiptLine } from "@harness-anything/application/internal/queries/
 import { relationDocumentUpdates } from "@harness-anything/application/internal/commands/entity-action-relation.ts";
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
 import { taskDecisionGuidance } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  selectTaskCreateProfile,
+  taskDecisionTarget,
+} from "@harness-anything/application/internal/commands/task-create-admission.ts";
 
 export function readResult(
   cell: RepoCellOperationalContext,
@@ -248,32 +252,11 @@ export function prepareTaskCreateAt(
     riskTierFlowVersion = ["migration", "import"].includes(String(canonicalAction.createMode ?? "")) ? null : 1;
   let baseCompiled: ReturnType<typeof compileRepoTaskBootstrap>;
   try {
-    baseCompiled = compileRepoTaskBootstrap({
-      rootDir: cell.rootDir,
-      settings: cell.settings.read(),
-      action: createInput,
-      taskId,
-      actor: binding.actor,
-      source: binding.source,
-      workspaceRevision,
-      eventId,
-      opId,
-      occurredAt,
-      riskTierFlowVersion,
-    });
-    if (
-      canonicalAction.riskTier === "low" &&
-      canonicalAction.profileId === undefined &&
-      // The lightweight plan template is deliberately three sections, so it cannot carry the
-      // Recurrence Gate a fix task owes. Keep low-risk fixes on the baseline profile.
-      canonicalAction.workKind !== "fix" &&
-      baseCompiled.lightweightPresetIds.includes(baseCompiled.snapshot.identity.id) &&
-      baseCompiled.snapshot.profile.id !== "lightweight"
-    )
-      baseCompiled = compileRepoTaskBootstrap({
+    baseCompiled = selectTaskCreateProfile(cell, canonicalAction, (profileId) =>
+      compileRepoTaskBootstrap({
         rootDir: cell.rootDir,
         settings: cell.settings.read(),
-        action: { ...createInput, profileId: "lightweight" },
+        action: profileId === undefined ? createInput : { ...createInput, profileId },
         taskId,
         actor: binding.actor,
         source: binding.source,
@@ -282,32 +265,8 @@ export function prepareTaskCreateAt(
         opId,
         occurredAt,
         riskTierFlowVersion,
-      });
-    else if (
-      canonicalAction.riskTier !== "low" &&
-      canonicalAction.profileId === undefined &&
-      baseCompiled.snapshot.profile.id === "lightweight"
-    ) {
-      const profileId = baseCompiled.defaultNonLightweightProfileId;
-      if (profileId === null)
-        throw cell.cellCodedError(
-          "invalid_field",
-          `Preset ${baseCompiled.snapshot.identity.id} declares only the lightweight profile; medium and high tasks require a non-lightweight default profile.`,
-        );
-      baseCompiled = compileRepoTaskBootstrap({
-        rootDir: cell.rootDir,
-        settings: cell.settings.read(),
-        action: { ...createInput, profileId },
-        taskId,
-        actor: binding.actor,
-        source: binding.source,
-        workspaceRevision,
-        eventId,
-        opId,
-        occurredAt,
-        riskTierFlowVersion,
-      });
-    }
+      }),
+    );
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "plan_placeholder") {
       const planFile = typeof planSource === "string" ? planSource : action.planFile,
@@ -398,38 +357,6 @@ export function prepareTaskCreateAt(
     return preview;
   }
   return { compiled, ...(relation === undefined ? {} : { relation }), fields: common };
-}
-
-function taskDecisionTarget(cell: RepoCellOperationalContext, action: RepoTaskAction): string | null {
-  const decisionRef = action.decisionRef;
-  if (decisionRef === undefined || decisionRef === null || decisionRef === "") {
-    if (action.taskClass === "work" && action.createMode !== "import" && action.createMode !== "migration")
-      throw cell.cellCodedError(
-        "decision_required",
-        'Work requires an in_effect Decision. Run ha decision list; if none fits, run ha decision propose --help, then accept the selected Decision with ha decision accept <decision-id> --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision <decision-id>.',
-      );
-    return null;
-  }
-  if (typeof decisionRef !== "string" || !/^dec_[A-Za-z0-9_-]+(?:\/CH[1-9][0-9]*)?$/u.test(decisionRef))
-    throw cell.cellCodedError("invalid_field", "--decision must be <decision-id>[/CH<n>], for example dec_.../CH1.");
-  const [decisionId, clauseId = "CH1"] = decisionRef.split("/"),
-    decision = cell.projection.readDecision(decisionId!).decision;
-  if (decision === null)
-    throw cell.cellCodedError(
-      "decision_not_found",
-      `Decision ${decisionId} does not exist. Run ha decision list; if none fits, run ha decision propose --help, then accept the selected Decision with ha decision accept <decision-id> --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision <decision-id>.`,
-    );
-  if (decision.state !== "in_effect")
-    throw cell.cellCodedError(
-      "decision_not_in_effect",
-      `Decision ${decisionId} is ${decision.state}. Run ha decision list; if it is the selected direction, accept it with ha decision accept ${decisionId} --rationale "<reason>" --judgment-only "<judgment>"; retry with ha work create --title "<name>" --decision ${decisionId}.`,
-    );
-  if (!decision.chosen.some(({ id }) => id === clauseId))
-    throw cell.cellCodedError(
-      "decision_clause_not_found",
-      `Decision ${decisionId} has no chosen clause ${clauseId}; use a clause shown by ha decision show ${decisionId}.`,
-    );
-  return `decision/${decisionId}/${clauseId}`;
 }
 
 function compileTaskDecisionRelation(

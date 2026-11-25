@@ -58,8 +58,8 @@ export const taskLeasePolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-child.ts#settleSquadChildAssignment.release:2991c295bc25420e69d71f74c505b837",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-child.ts#settleSquadChildAssignment:a4f0a8f9f7c5d827695be49cd05073e6",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-maintenance.ts#supersedeWithNewTask:81c4b83f01cadd693b648e6f8420a82a",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-mutation.ts#terminalExecutionRuntimeBinding:ea5eac8b5b51037492fb4ab946496412",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-progress.ts#appendProgress.recoverySnapshot:a22f1b86a9270d69a51019d7fab3c976",
+    "policy:packages/application:packages/application/src/commands/task-mutation.ts#terminalExecutionRuntimeBinding:ea5eac8b5b51037492fb4ab946496412",
+    "policy:packages/application:packages/application/src/commands/task-progress-append.ts#appendProgress.recoverySnapshot:a22f1b86a9270d69a51019d7fab3c976",
   ].map((candidateId) => ({ candidateId, route: "taskLeasePolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: lease phase reads across task commands, progress and replay.

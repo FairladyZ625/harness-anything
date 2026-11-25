@@ -434,7 +434,8 @@
         "task-amend": {
           "measurements": [
             "task-amend:patches",
-            "task-amend:anchored-relations"
+            "task-amend:anchored-relations",
+            "task-amend:cloud-writer-collections"
           ]
         },
         "decision-override-review": {

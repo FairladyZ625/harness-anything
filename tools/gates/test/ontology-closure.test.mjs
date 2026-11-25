@@ -188,7 +188,8 @@ test("daemon domain service actions and policies are closed under the shared ont
   // under `domainPath`.
   // dec_166C5D2EAB57F8BCA3F15107E2/CH4 adds 2 registered `LocalAgentStorePort` calls (`persistLocalAgent`,
   // `deleteLocalAgent`) in `packages/application/src/commands/agent-scope-service.ts`.
-  assert.equal(actions.length, 165);
+  // Sinking `task-progress-append.ts` into `packages/application/src/commands` adds 1 registered `appendProgress.appended`.
+  assert.equal(actions.length, 166);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(
