@@ -356,27 +356,6 @@ export const daemonAgentPolicySources = [
   ],
 ] as const;
 
-export const daemonAgentLocalStorageJudgment = {
-  id: "assertLocalAgentDirectory",
-  symbol: "packages/daemon/src/daemon-host/local-agent-store.ts#assertLocalAgentDirectory",
-  inputs: ["local Agent directory path", "parent and directory filesystem entries"],
-  output: "local Agent storage does not traverse a symbolic link",
-  failureCodes: ["local_agent_storage_symlink"],
-  explain: "Reject symlinked user-state directories before local Agent reads or writes.",
-  consumers: [
-    "packages/daemon/src/daemon-host/local-agent-store.ts#readLocalAgentRecords",
-    "packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration",
-    "packages/daemon/src/daemon-host/local-agent-store.ts#removeLocalAgentDeclaration",
-  ],
-  sources: [
-    {
-      candidateId:
-        "judgment:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#assertLocalAgentDirectory:f2000f7b2c14af3ef48b4859e1002190",
-      route: "local-agent-store",
-    },
-  ],
-} as const;
-
 // Source identities and values for daemon policy declarations registered by EntityKindContract.
 export const daemonSquadPolicySources = [
   [

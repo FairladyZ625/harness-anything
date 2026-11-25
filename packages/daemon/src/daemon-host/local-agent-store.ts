@@ -97,7 +97,7 @@ export function writeLocalAgentDeclaration(
   const directory = localAgentDirectory(userRoot, repoId),
     destination = path.join(directory, `${declaration.id}.json`),
     temporary = `${destination}.${randomUUID()}.tmp`;
-  mkdirSync(directory, { recursive: true });
+  /* @gate-identity state-store/agent.local-declarations */ mkdirSync(directory, { recursive: true });
   if (lstatSync(path.dirname(directory)).isSymbolicLink() || lstatSync(directory).isSymbolicLink())
     throw new Error("Local Agent storage cannot traverse symbolic links.");
   const current = readLocalAgentRecord(userRoot, repoId, declaration.id),
@@ -108,12 +108,12 @@ export function writeLocalAgentDeclaration(
       { code: "revision_conflict" },
     );
   const nextRevision = revision + 1;
-  writeFileSync(
+  /* @gate-identity state-store/agent.local-declarations */ writeFileSync(
     temporary,
     `${JSON.stringify({ schema: "local-agent-record/v1", id: declaration.id, revision: nextRevision, declaration }, null, 2)}\n`,
     { flag: "wx", mode: 0o600 },
   );
-  renameSync(temporary, destination);
+  /* @gate-identity state-store/agent.local-declarations */ renameSync(temporary, destination);
   return nextRevision;
 }
 
@@ -123,7 +123,7 @@ export function removeLocalAgentDeclaration(userRoot: string, repoId: string, ag
   assertLocalAgentDirectory(path.dirname(target));
   if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink())
     throw new Error("Local Agent storage cannot remove a symbolic link.");
-  rmSync(target, { force: true });
+  /* @gate-identity state-store/agent.local-declarations */ rmSync(target, { force: true });
 }
 
 function localAgentDirectory(userRoot: string, repoId: string): string {
