@@ -1,34 +1,56 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { actionDeclarations, effectivePolicyGroupScopes, submissionDigest } from "@harness-anything/kernel";
+import {
+  actionDeclarations,
+  effectivePolicyGroupScopes,
+  resolveHarnessLayout,
+  runtimeDefinitionSnapshotArtifact,
+  sha256Bytes,
+  submissionDigest,
+} from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
+import type { FleetDescriptor } from "../src/daemon-host/fleet/command-protocol.ts";
+import { openPeer } from "../src/daemon-host/fleet/peer.ts";
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
+import { definition as fixtureRuntimeDefinition } from "./fixtures/runtime-ingress.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
+function fixtureProbeExecutable(rootDir: string): string {
+  if (process.platform !== "win32") return "/usr/bin/true";
+  const binDir = path.join(rootDir, "fixture-bin");
+  mkdirSync(binDir, { recursive: true });
+  const stub = path.join(binDir, "codex-probe-ok.cmd");
+  writeFileSync(stub, "@exit /b 0\r\n", "utf8");
+  return stub;
+}
+
 test(
   "remote-edge owner rework authorizes manual dispatch-review while refusing another implementation process",
   { timeout: 120_000 },
   async (t) => {
-    const installation = {
+    let probeExecutable = "/usr/bin/true";
+    const installation = () => ({
       installationId: "edge-review-forward-install",
       kindId: "codex" as const,
-      executablePath: "/usr/bin/true",
+      executablePath: probeExecutable,
       version: "1.0.0",
       observedAt: "2026-11-07T00:00:00.000Z",
-    };
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
-      runtimeDiscover: () => [installation],
     });
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
+      runtimeDiscover: () => [installation()],
+    });
+    probeExecutable = fixtureProbeExecutable(f.root);
     const identity = createIdentitySession(f.userRoot),
       centerIdentity = await identity.center();
     await centerIdentity.provider.syncBasePolicy(centerIdentity.accessToken);
@@ -54,10 +76,10 @@ test(
     const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuthFixture());
     assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
     await registerFixtureRuntimeInstance(f.host, "lease-repo", localAuthFixture(), {
-      instanceId: installation.installationId,
+      instanceId: installation().installationId,
       name: "Edge review forward runtime",
-      kindId: installation.kindId,
-      installationId: installation.installationId,
+      kindId: installation().kindId,
+      installationId: installation().installationId,
       providerId: "openai",
       models: ["gpt-5.6-sol"],
       authMode: "subscription",
@@ -101,7 +123,7 @@ test(
     }[] = [];
     const edge = await fleetEdgeHostFixture(t, f, {
       name: "review-forward-edge",
-      runtimeDiscover: () => [installation],
+      runtimeDiscover: () => [installation()],
       personId: "person-one",
       runtimeLaunch: (prepared, persistence) => {
         const launched = { dispatchId: persistence.dispatchId, env: prepared.env };
@@ -125,10 +147,10 @@ test(
       });
     await syncEdgeReplica();
     await registerFixtureRuntimeInstance(edge.host, "lease-repo", localAuthFixture(), {
-      instanceId: installation.installationId,
+      instanceId: installation().installationId,
       name: "Edge review forward runtime",
-      kindId: installation.kindId,
-      installationId: installation.installationId,
+      kindId: installation().kindId,
+      installationId: installation().installationId,
       providerId: "openai",
       models: ["gpt-5.6-sol"],
       authMode: "subscription",
@@ -341,5 +363,279 @@ test(
             )),
       JSON.stringify(taskSnapshot),
     );
+  },
+);
+
+test(
+  "staged runtime result claims survive overlapping retry re-finish and descriptor key order while rejecting unauthorized nodes with claim_not_owned",
+  { timeout: 120_000 },
+  async (t) => {
+    let holdVerifyHuman: {
+      readonly entered: () => void;
+      readonly release: () => void;
+      readonly wait: Promise<void>;
+    } | null = null;
+    let verifyHumanHookActive = false;
+    const f = await fleetNodeClaimFixture(t, undefined, async (authContext) => {
+      if (verifyHumanHookActive && holdVerifyHuman) {
+        verifyHumanHookActive = false;
+        holdVerifyHuman.entered();
+        await holdVerifyHuman.wait;
+      }
+      return f.owners.verifyHuman(authContext);
+    });
+    await f.center.close();
+
+    let ingressEntered!: () => void;
+    let releaseIngress!: () => void;
+    const ingressPaused = new Promise<void>((resolve) => {
+      ingressEntered = resolve;
+    });
+    const ingressGate = new Promise<void>((resolve) => {
+      releaseIngress = resolve;
+    });
+    let pauseFirstRuntimeDispatch = false;
+
+    const wrappedHost: typeof f.host = {
+      ...f.host,
+      runtimeIngress: async (repoId, action, auth) => {
+        if (pauseFirstRuntimeDispatch && action.kind === "event" && action.type === "runtime_dispatch_requested") {
+          pauseFirstRuntimeDispatch = false;
+          ingressEntered();
+          await ingressGate;
+        }
+        return f.host.runtimeIngress(repoId, action, auth);
+      },
+    };
+    const center = await f.openCenter(wrappedHost);
+    const openNodePeer = async (nodeId: string) => {
+      const base = f.peer(nodeId);
+      const peer = await openPeer({
+        port: center.port,
+        ca: base.ca,
+        servername: base.servername,
+        nodeId: base.nodeId,
+        credential: base.credential,
+        readAccessToken: base.readAccessToken,
+        timeoutMs: 15_000,
+      });
+      t.after(() => peer.close());
+      return peer;
+    };
+
+    const makeDispatchEvent = (dispatchKey: string, suffix: string) => {
+      const digest = createHash("sha256").update(`lease-repo\0${dispatchKey}`).digest("hex"),
+        snapshot = { ...fixtureRuntimeDefinition, instanceId: `${fixtureRuntimeDefinition.instanceId}-${suffix}` },
+        artifact = runtimeDefinitionSnapshotArtifact(snapshot);
+      return {
+        body: artifact.body,
+        payload: {
+          dispatchId: `dispatch_${digest.slice(0, 24)}`,
+          runtimeSessionId: `runtime_${digest.slice(24, 48)}`,
+          instanceId: snapshot.instanceId,
+          installationId: snapshot.installationId,
+          kindId: snapshot.kindId,
+          dispatchKey,
+          definitionSnapshotRef: artifact.ref,
+          definitionSnapshot: snapshot,
+          startedAt: "2026-11-25T00:00:00.000Z",
+          attemptGroupId: `dispatch_${digest.slice(0, 24)}`,
+          attemptIndex: 0,
+        },
+      };
+    };
+
+    const stageBytes = async (
+      peer: Awaited<ReturnType<typeof openPeer>>,
+      opId: string,
+      body: string,
+    ): Promise<{ readonly uploadId: string; readonly descriptor: FleetDescriptor }> => {
+      const bytes = Buffer.from(body, "utf8"),
+        content = { sha256: sha256Bytes(bytes), size: bytes.byteLength, mediaType: "text/plain; charset=utf-8" },
+        ready = await peer.request({
+          schema: "fleet.upload.begin/v1",
+          messageId: peer.messageId(),
+          opId,
+          repoId: "lease-repo",
+          content,
+        });
+      assert.equal(ready.schema, "fleet.upload.ready/v1", JSON.stringify(ready));
+      if (ready.schema !== "fleet.upload.ready/v1") throw new Error("upload ready expected");
+      if (ready.resumeOffset < bytes.byteLength) {
+        const chunk = await peer.request({
+          schema: "fleet.upload.chunk/v1",
+          messageId: peer.messageId(),
+          opId,
+          uploadId: ready.uploadId,
+          offset: ready.resumeOffset,
+          dataBase64: bytes.subarray(ready.resumeOffset).toString("base64"),
+        });
+        assert.equal(chunk.schema, "fleet.upload.ready/v1", JSON.stringify(chunk));
+      }
+      const finished = await peer.request({
+        schema: "fleet.upload.finish/v1",
+        messageId: peer.messageId(),
+        opId,
+        uploadId: ready.uploadId,
+      });
+      assert.equal(finished.schema, "fleet.upload.result/v1", JSON.stringify(finished));
+      if (finished.schema !== "fleet.upload.result/v1") throw new Error("upload result expected");
+      return { uploadId: ready.uploadId, descriptor: finished.descriptor };
+    };
+
+    const nodeOne = await openNodePeer("node-one");
+    const nodeOneRetry = await openNodePeer("node-one");
+    const nodeTwo = await openNodePeer("node-two");
+    const meta = await nodeOne.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: nodeOne.messageId(),
+      repoId: "lease-repo",
+    });
+    assert.equal(meta.schema, "fleet.repo.metadata.result/v1", JSON.stringify(meta));
+    if (meta.schema !== "fleet.repo.metadata.result/v1") throw new Error("metadata expected");
+
+    // Scenario A: Attempt 1 is paused inside runtimeIngress while Attempt 2 (same opId) re-finishes
+    // the staged claim ("already_staged"). Attempt 1 must not discard the re-issued claim before
+    // Attempt 2 presents it — even if descriptor JSON keys arrive in a different order.
+    const { body: overlapBody, payload: overlapPayload } = makeDispatchEvent("claim-race-overlap-key", "overlap");
+    const overlapOpId = "op-runtime-overlap-retry";
+    const { uploadId: overlapUploadId, descriptor: overlapDescriptor } = await stageBytes(
+      nodeOne,
+      overlapOpId,
+      overlapBody,
+    );
+    pauseFirstRuntimeDispatch = true;
+    const firstEventPromise = nodeOne.request({
+      schema: "fleet.runtime.event/v1",
+      messageId: nodeOne.messageId(),
+      writerEpoch: meta.writerEpoch,
+      repoId: "lease-repo",
+      opId: overlapOpId,
+      eventType: "runtime_dispatch_requested",
+      payload: overlapPayload,
+      result: overlapDescriptor,
+      dispatchContext: { role: null, taskId: null, executionId: null, launchGeneration: 1 },
+    });
+    await ingressPaused;
+    const reissued = await stageBytes(nodeOneRetry, overlapOpId, overlapBody);
+    assert.equal(reissued.uploadId, overlapUploadId);
+    releaseIngress();
+    const firstEventResult = await firstEventPromise;
+    assert.equal(firstEventResult.schema, "fleet.runtime.event.result/v1", JSON.stringify(firstEventResult));
+
+    // Reorder JSON property insertion order to prove structural (key-order-independent) ownership lookup.
+    const reorderedDescriptor: FleetDescriptor = {
+      sha256: reissued.descriptor.sha256,
+      size: reissued.descriptor.size,
+      mediaType: reissued.descriptor.mediaType,
+      ref: reissued.descriptor.ref,
+    };
+    const retryEventResult = await nodeOneRetry.request({
+      schema: "fleet.runtime.event/v1",
+      messageId: nodeOneRetry.messageId(),
+      writerEpoch: meta.writerEpoch,
+      repoId: "lease-repo",
+      opId: overlapOpId,
+      eventType: "runtime_dispatch_requested",
+      payload: overlapPayload,
+      result: reorderedDescriptor,
+      dispatchContext: { role: null, taskId: null, executionId: null, launchGeneration: 1 },
+    });
+    assert.equal(retryEventResult.schema, "fleet.runtime.event.result/v1", JSON.stringify(retryEventResult));
+    const overlapClaimFile = path.join(resolveHarnessLayout(f.repo).localRoot, "doc-sync-claims", overlapUploadId);
+    assert.equal(existsSync(overlapClaimFile), false, "claim file must be discarded once the latest holder completes");
+
+    // Scenario B: A concurrent finish paused across await readerAuth must not return a stale
+    // already_staged descriptor after another request consumes and deletes the claim.
+    const { body: staleBody, payload: stalePayload } = makeDispatchEvent("claim-race-stale-finish-key", "stale");
+    const staleOpId = "op-runtime-stale-finish";
+    const { uploadId: staleUploadId, descriptor: staleDescriptor } = await stageBytes(nodeOne, staleOpId, staleBody);
+    let finishAuthEntered!: () => void;
+    let releaseFinishAuth!: () => void;
+    const finishAuthPaused = new Promise<void>((resolve) => {
+      finishAuthEntered = resolve;
+    });
+    holdVerifyHuman = {
+      entered: finishAuthEntered,
+      release: () => releaseFinishAuth(),
+      wait: new Promise<void>((resolve) => {
+        releaseFinishAuth = resolve;
+      }),
+    };
+    verifyHumanHookActive = true;
+    const racingFinishPromise = nodeOneRetry
+      .request({
+        schema: "fleet.upload.finish/v1",
+        messageId: nodeOneRetry.messageId(),
+        opId: staleOpId,
+        uploadId: staleUploadId,
+      })
+      .then(
+        (frame) => ({ ok: true as const, frame }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+    await finishAuthPaused;
+    const consumeResult = await nodeOne.request({
+      schema: "fleet.runtime.event/v1",
+      messageId: nodeOne.messageId(),
+      writerEpoch: meta.writerEpoch,
+      repoId: "lease-repo",
+      opId: staleOpId,
+      eventType: "runtime_dispatch_requested",
+      payload: stalePayload,
+      result: staleDescriptor,
+      dispatchContext: { role: null, taskId: null, executionId: null, launchGeneration: 1 },
+    });
+    assert.equal(consumeResult.schema, "fleet.runtime.event.result/v1", JSON.stringify(consumeResult));
+    holdVerifyHuman.release();
+    const racingFinishOutcome = await racingFinishPromise;
+    assert.equal(
+      racingFinishOutcome.ok,
+      false,
+      `stale finish must not issue a deleted descriptor: ${JSON.stringify(racingFinishOutcome)}`,
+    );
+    if (!racingFinishOutcome.ok) {
+      const fault = racingFinishOutcome.error as { code?: unknown; retryable?: unknown };
+      assert.equal(fault.code, "upload_unknown");
+      assert.equal(fault.retryable, true, "racing finish against consumed upload must be retryable");
+    }
+
+    // Scenario C (Negative ownership control): node-two presenting node-one's live staged
+    // descriptor must be strictly rejected with non-retryable claim_not_owned, leaving node-one's
+    // claim intact.
+    const { body: ownedBody, payload: ownedPayload } = makeDispatchEvent("claim-race-ownership-control-key", "owner");
+    const ownedOpId = "op-runtime-ownership-control";
+    const { descriptor: nodeOneDescriptor } = await stageBytes(nodeOne, ownedOpId, ownedBody);
+    await assert.rejects(
+      nodeTwo.request({
+        schema: "fleet.runtime.event/v1",
+        messageId: nodeTwo.messageId(),
+        writerEpoch: meta.writerEpoch,
+        repoId: "lease-repo",
+        opId: "op-node-two-hijack",
+        eventType: "runtime_dispatch_requested",
+        payload: ownedPayload,
+        result: nodeOneDescriptor,
+        dispatchContext: { role: null, taskId: null, executionId: null, launchGeneration: 1 },
+      }),
+      (error: unknown) => {
+        const fault = error as { code?: unknown; retryable?: unknown; message?: unknown };
+        assert.equal(fault.code, "claim_not_owned", String(fault.message));
+        assert.equal(fault.retryable, false, "unauthorized-node claim_not_owned must never be retryable");
+        return true;
+      },
+    );
+    const ownerAccepted = await nodeOne.request({
+      schema: "fleet.runtime.event/v1",
+      messageId: nodeOne.messageId(),
+      writerEpoch: meta.writerEpoch,
+      repoId: "lease-repo",
+      opId: ownedOpId,
+      eventType: "runtime_dispatch_requested",
+      payload: ownedPayload,
+      result: nodeOneDescriptor,
+      dispatchContext: { role: null, taskId: null, executionId: null, launchGeneration: 1 },
+    });
+    assert.equal(ownerAccepted.schema, "fleet.runtime.event.result/v1", JSON.stringify(ownerAccepted));
   },
 );
