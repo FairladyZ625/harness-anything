@@ -406,6 +406,67 @@ describe("Agenda unified Inbox / Outbox workbench", () => {
     );
   });
 
+  it("recovers button interactivity and surfaces controlled errors when peer reply or promote RPC fails", async () => {
+    const items = [
+      {
+        itemId: "request-err",
+        channelKind: "a2a-peer",
+        direction: "inbound",
+        summary: "Request Error Case",
+        status: "accepted",
+        principalPersonId: "person_owner",
+        peerRequestId: "request-err",
+        deliveredAt: AT,
+      },
+    ];
+    vi.mocked(harnessClient.getWorkIndex).mockResolvedValue({
+      ok: true,
+      status: "ready",
+      works: [{ taskId: "work_root", title: "Selected Work" }],
+      watermark: 1,
+      sourceRevision: 1,
+    });
+    vi.spyOn(apiClientInvoke, "invoke").mockImplementation((async (method: string) => {
+      if (method === "repo.channel.list") {
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: method,
+          outcome: "applied",
+          opId: "op-list",
+          evidence: JSON.stringify({ items, nextCursor: null, watermark: 1 }),
+        } as never;
+      }
+      if (method === "repo.peer.reply") throw new Error("peer reply transport failed");
+      if (method === "repo.peer.promote") throw new Error("peer promote transport failed");
+      throw new Error(`unexpected ${method}`);
+    }) as never);
+
+    renderChannelPanel();
+    await settle(() => expect(find("channel-row-request-err")).toBeTruthy());
+    act(() => find("channel-row-request-err").querySelector("button")!.click());
+
+    input(find<HTMLInputElement>("agenda-peer-reply-claim"), "Reply body");
+    click("agenda-peer-reply-submit");
+    await settle(() => {
+      expect(find("agenda-channel-feedback").textContent).toContain("peer reply transport failed");
+      expect(find("agenda-channel-feedback").getAttribute("data-state")).toBe("error");
+      expect(find<HTMLButtonElement>("agenda-peer-reply-submit").disabled).toBe(false);
+    });
+
+    const workSelect = find<HTMLSelectElement>("agenda-peer-actions").querySelector("select")!;
+    act(() => {
+      workSelect.value = "work_root";
+      workSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    click("agenda-peer-promote-submit");
+    await settle(() => {
+      expect(find("agenda-channel-feedback").textContent).toContain("peer promote transport failed");
+      expect(find("agenda-channel-feedback").getAttribute("data-state")).toBe("error");
+      expect(find<HTMLButtonElement>("agenda-peer-promote-submit").disabled).toBe(false);
+    });
+  });
+
   it("renders daemon scores and every structured reason on both row and selected card", () => {
     render(
       agenda({

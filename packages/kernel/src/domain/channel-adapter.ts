@@ -29,6 +29,8 @@ export const channelV1Schema: EntityDocumentJsonSchema<unknown> = {
 export const CHANNEL_PAGE_LIMIT = 200;
 export const CHANNEL_OUTBOX_RETRY_LEASE_MS = 1_000;
 export const CHANNEL_LIST_SCAN_BATCHES = 10;
+export const CHANNEL_OUTBOX_SOURCE_PREFIX = "channel:out:";
+export const CHANNEL_OUTBOX_SOURCE_REF_MAX = 256;
 const CHANNEL_TEXT_LIMIT = 512;
 const CHANNEL_SUMMARY_LIMIT = 1024;
 
@@ -223,6 +225,36 @@ export function channelPageLimit(limit: number | undefined): number {
   return Math.min(Math.max(1, Math.trunc(limit ?? CHANNEL_PAGE_LIMIT)), CHANNEL_PAGE_LIMIT);
 }
 
+export interface ParsedChannelOutboxRef {
+  readonly channelKind: ChannelKind;
+  readonly route?: string;
+  readonly recipientRef: string;
+  readonly messageId: string;
+}
+
+export function formatChannelOutboxSourceRef(input: ParsedChannelOutboxRef): string | null {
+  const ref = `${CHANNEL_OUTBOX_SOURCE_PREFIX}${input.channelKind}:${encodeURIComponent(input.route ?? "")}:${encodeURIComponent(input.recipientRef)}:${encodeURIComponent(input.messageId)}`;
+  return ref.length > CHANNEL_OUTBOX_SOURCE_REF_MAX ? null : ref;
+}
+
+export function parseChannelOutboxSourceRef(sourceRef: string): ParsedChannelOutboxRef | null {
+  if (!sourceRef.startsWith(CHANNEL_OUTBOX_SOURCE_PREFIX)) return null;
+  const parts = sourceRef.slice(CHANNEL_OUTBOX_SOURCE_PREFIX.length).split(":");
+  if (parts.length !== 4) return null;
+  const [kind, encodedRoute, encodedRecipient, encodedMessageId] = parts;
+  if (!(channelKinds as readonly string[]).includes(kind!)) return null;
+  const route = decodeURIComponent(encodedRoute!);
+  const recipientRef = decodeURIComponent(encodedRecipient!);
+  const messageId = decodeURIComponent(encodedMessageId!);
+  if (!recipientRef || !messageId) return null;
+  return {
+    channelKind: kind as ChannelKind,
+    ...(route ? { route } : {}),
+    recipientRef,
+    messageId,
+  };
+}
+
 // --- Entity action catalog for channel CLI/GUI commands ---
 
 const channelText = (field: string, required: boolean, flag?: string): EntityActionInputField => ({
@@ -247,7 +279,7 @@ export const channelActionDefinitions = [
     fields: [
       channelText("channelKind", true, "--channel"),
       channelText("envelopeId", false, "--envelope-id"),
-      channelText("principalPersonId", true, "--principal"),
+      channelText("principalPersonId", false, "--principal"),
       channelText("summary", true, "--summary"),
       channelText("body", false, "--body"),
       channelText("senderRef", false, "--sender"),
@@ -394,17 +426,12 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:0434b29be0266d9440715451ee9874bd",
+          "policy:packages/application:packages/application/src/commands/channel-action.ts#mapChannelKindToInboxFields.admission:0434b29be0266d9440715451ee9874bd",
         route: "channel-deliver",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:0434b29be0266d9440715451ee9874bd:2",
-        route: "channel-deliver",
-      },
-      {
-        candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#mapChannelKindToInboxFields.admission:69555a6e6f1643ab3a00a0821f0aeb81",
+          "policy:packages/application:packages/application/src/commands/channel-action.ts#mapChannelKindToInboxFields.admission:69555a6e6f1643ab3a00a0821f0aeb81",
         route: "channel-deliver",
       },
       {
@@ -414,47 +441,52 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#listChannels.limit:fff62423ddf2d7fd97d1e51e8d55a7f3",
+          "policy:packages/application:packages/application/src/queries/channel-read.ts#readChannelList.limit:2350f8a8c3ba7f7912f5a18608488ce6",
         route: "channel-list",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#listChannels.peek.limit:0dd585c292e12f6bf0b47a1d330750d6",
+          "policy:packages/application:packages/application/src/queries/channel-read.ts#readChannelList.peek.limit:0dd585c292e12f6bf0b47a1d330750d6",
         route: "channel-list",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#listChannels.peek.limit:0dd585c292e12f6bf0b47a1d330750d6:2",
+          "policy:packages/application:packages/application/src/queries/channel-read.ts#readChannelList.peek.limit:0dd585c292e12f6bf0b47a1d330750d6:2",
         route: "channel-list",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#runChannelAction.outboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
+          "policy:packages/application:packages/application/src/queries/channel-read.ts#readChannelListAction.result:78f06c4227ba785282a4e80f837cbc12",
+        route: "channel-list",
+      },
+      {
+        candidateId:
+          "policy:packages/application:packages/application/src/commands/channel-action.ts#runChannelWriteAction.outboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
         route: "channel-send",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#channelBodyContent.claim:e0130c37b9c7c5562aa0250620b8111b",
+          "policy:packages/application:packages/application/src/commands/channel-outbox.ts#channelBodyContent.claim:e0130c37b9c7c5562aa0250620b8111b",
         route: "channel-deliver",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#deliverPeerOutbound.inboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
+          "policy:packages/application:packages/application/src/commands/channel-outbox.ts#deliverPeerOutbound.inboxBundle.payload.admission:0434b29be0266d9440715451ee9874bd",
         route: "channel-send",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#drainChannelOutbox:3ffcfb2097bbc6954303a6bfb6202064",
+          "policy:packages/application:packages/application/src/commands/channel-outbox.ts#drainChannelOutbox:3ffcfb2097bbc6954303a6bfb6202064",
         route: "channel-send",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#drainChannelOutbox:17cbd1941c3fe9420f5d2cd1c103f7f5",
+          "policy:packages/application:packages/application/src/commands/channel-outbox.ts#drainChannelOutbox:17cbd1941c3fe9420f5d2cd1c103f7f5",
         route: "channel-send",
       },
       {
         candidateId:
-          "policy:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#drainChannelOutbox:9f420de8bd36962f153b7a75f52d1e9d",
+          "policy:packages/application:packages/application/src/commands/channel-outbox.ts#drainChannelOutbox:9f420de8bd36962f153b7a75f52d1e9d",
         route: "channel-send",
       },
       {
@@ -474,7 +506,7 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
       },
       {
         candidateId:
-          "policy:packages/gui:packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#AgendaChannelPanel.submitReply.claim:66f77ec98797d81477035bf5f64fca80",
+          "policy:packages/gui:packages/gui/src/renderer/views/agenda/AgendaChannelPanel.tsx#AgendaChannelPanel.replyMutation.onSuccess.claim:66f77ec98797d81477035bf5f64fca80",
         route: "peer-reply",
       },
     ],

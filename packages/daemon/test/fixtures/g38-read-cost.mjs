@@ -1,4 +1,5 @@
 import { readTaskDispatchRow } from "../../src/daemon-host/dispatch-read.ts";
+import { actionForDaemonMethod } from "../../src/daemon-host/protocol/daemon-protocol-commands.ts";
 import assert from "node:assert/strict";
 import { createReadFixtureRuntime } from "./g38-read-runtime.mjs";
 import { adoptRuntimes, sweepSettledRuntimeTempDirectories } from "../../src/daemon-host/runtime-spawn-adoption.ts";
@@ -141,6 +142,15 @@ export const READ_PROBES = Object.freeze({
       return read;
     },
     size: (value) => value.requests.length,
+  },
+  "repo.peer.inbox": {
+    reads: ["method:repo.peer.inbox"],
+    run: ({ runtime }) =>
+      runtime.run(actionForDaemonMethod("repo.peer.inbox", { limit: 1 }), {
+        actor: { principal: { personId: "person-g38" }, executor: null },
+        source: "local",
+      }),
+    size: (value) => JSON.parse(value.evidence).requests.length,
   },
   "peer-watch": {
     reads: ["command:peer-watch"],

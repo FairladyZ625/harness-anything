@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { BoundedContent } from "../../components/primitives/BoundedContent.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { TextInput } from "../../components/primitives/TextInput.tsx";
@@ -22,6 +23,11 @@ const CHANNEL_FILTERS = [
   { key: "gui", label: "views.agenda.channelGui" },
 ] as const;
 
+type ChannelFeedback = {
+  readonly isError: boolean;
+  readonly message: string;
+};
+
 export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
   const [filter, setFilter] = useState<string>("all");
   const channelKind = filter === "all" ? undefined : filter;
@@ -30,8 +36,7 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
   const invalidate = useInvalidateChannel(repoId);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState({ requestId: "", claim: "", action: "" });
-  const [busy, setBusy] = useState(false);
-  const [feedback, setFeedback] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<ChannelFeedback | null>(null);
 
   const items = channelRead.data?.items ?? [];
   const selected = items.find((item) => item.itemId === selectedId) ?? items[0];
@@ -40,47 +45,72 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
   const works = workRead.data?.status === "ready" ? workRead.data.works : [];
   const [workId, setWorkId] = useState("");
 
+  const replyMutation = useMutation({
+    mutationFn: (payload: { readonly requestId: string; readonly claim: string; readonly requestedAction: string }) =>
+      replyPeerRequest({ repoId, ...payload }),
+    onMutate: () => setFeedback(null),
+    onSuccess: (result, variables) => {
+      if (result.outcome === "applied" || result.outcome === "no_changes") {
+        setFeedback({ isError: false, message: t("views.agenda.peerReplySent") });
+        setReplyDraft({ requestId: variables.requestId, claim: "", action: "" });
+        void invalidate();
+      } else {
+        setFeedback({
+          isError: true,
+          message: typeof result.hint === "string" ? result.hint : String(result.outcome),
+        });
+      }
+    },
+    onError: (cause: unknown) => {
+      setFeedback({ isError: true, message: cause instanceof Error ? cause.message : String(cause) });
+    },
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: (payload: { readonly requestId: string; readonly work: string; readonly title: string }) =>
+      promotePeerRequest({ repoId, ...payload }),
+    onMutate: () => setFeedback(null),
+    onSuccess: (result) => {
+      if (result.outcome === "applied" || result.outcome === "no_changes") {
+        setFeedback({ isError: false, message: t("views.agenda.peerPromoted") });
+        void invalidate();
+      } else {
+        setFeedback({
+          isError: true,
+          message: typeof result.hint === "string" ? result.hint : String(result.outcome),
+        });
+      }
+    },
+    onError: (cause: unknown) => {
+      setFeedback({ isError: true, message: cause instanceof Error ? cause.message : String(cause) });
+    },
+  });
+
+  const busy = replyMutation.isPending || promoteMutation.isPending;
+
   const chips = CHANNEL_FILTERS.map(({ key, label }) => ({
     key,
     label: t(label),
     count: key === "all" ? items.length : items.filter((item) => item.channelKind === key).length,
   }));
 
-  const submitReply = async () => {
-    if (!selected?.peerRequestId || replyDraft.requestId !== selected.peerRequestId || !replyClaim.trim()) return;
-    setBusy(true);
-    const result = await replyPeerRequest({
-      repoId,
+  const submitReply = () => {
+    if (!selected?.peerRequestId || replyDraft.requestId !== selected.peerRequestId || !replyClaim.trim() || busy)
+      return;
+    replyMutation.mutate({
       requestId: selected.peerRequestId,
       claim: replyClaim.trim(),
       requestedAction: replyAction.trim() || replyClaim.trim(),
     });
-    if (result.outcome === "applied" || result.outcome === "no_changes") {
-      setFeedback(t("views.agenda.peerReplySent"));
-      setReplyDraft({ requestId: selected.peerRequestId, claim: "", action: "" });
-      invalidate();
-    } else {
-      setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
-    }
-    setBusy(false);
   };
 
-  const submitPromote = async () => {
-    if (!selected?.peerRequestId || !workId || works.every((work) => work.taskId !== workId)) return;
-    setBusy(true);
-    const result = await promotePeerRequest({
-      repoId,
+  const submitPromote = () => {
+    if (!selected?.peerRequestId || !workId || works.every((work) => work.taskId !== workId) || busy) return;
+    promoteMutation.mutate({
       requestId: selected.peerRequestId,
       work: workId,
       title: selected.summary,
     });
-    if (result.outcome === "applied" || result.outcome === "no_changes") {
-      setFeedback(t("views.agenda.peerPromoted"));
-      invalidate();
-    } else {
-      setFeedback(typeof result.hint === "string" ? result.hint : String(result.outcome));
-    }
-    setBusy(false);
   };
 
   return (
@@ -155,26 +185,16 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
               testId="agenda-peer-reply-submit"
               variant="primary"
               disabled={!replyClaim.trim() || replyDraft.requestId !== selected.peerRequestId || busy}
-              loading={busy}
-              onClick={() =>
-                void submitReply().catch((cause: unknown) => {
-                  setBusy(false);
-                  setFeedback(cause instanceof Error ? cause.message : String(cause));
-                })
-              }
+              loading={replyMutation.isPending}
+              onClick={submitReply}
             >
               {t("views.agenda.peerReply")}
             </Button>
             <Button
               testId="agenda-peer-promote-submit"
               disabled={!workId || works.every((work) => work.taskId !== workId) || busy}
-              loading={busy}
-              onClick={() =>
-                void submitPromote().catch((cause: unknown) => {
-                  setBusy(false);
-                  setFeedback(cause instanceof Error ? cause.message : String(cause));
-                })
-              }
+              loading={promoteMutation.isPending}
+              onClick={submitPromote}
             >
               {t("views.agenda.peerPromote")}
             </Button>
@@ -182,8 +202,13 @@ export function AgendaChannelPanel({ repoId }: { readonly repoId: string }) {
         </div>
       )}
       {feedback && (
-        <p role="status" className="break-words ui-meta">
-          {feedback}
+        <p
+          role={feedback.isError ? "alert" : "status"}
+          data-testid="agenda-channel-feedback"
+          data-state={feedback.isError ? "error" : "success"}
+          className={feedback.isError ? "break-words ui-meta text-danger" : "break-words ui-meta"}
+        >
+          {feedback.message}
         </p>
       )}
     </section>

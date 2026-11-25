@@ -27,7 +27,7 @@ import {
   dispatchLifecyclePolicies,
   dispatchLifecycleJudgment,
 } from "./dispatch-lifecycle-ontology.ts";
-import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
+import { inboxJudgments, inboxPolicies } from "./inbox.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-collaboration.ts";
