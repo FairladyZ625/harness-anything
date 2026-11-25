@@ -378,3 +378,295 @@ test("dispatch and session creation commit together and an invalid start publish
     await cell.close();
   }
 });
+
+test("escalation resolve on an already-unblocked active task keeps task active and repo cell writable", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-escalation-already-active-")),
+    repoId = "escalation-already-active",
+    taskId = "task-escalation-active",
+    ceo = withPolicyGroup(
+      { actor: { principal: { personId: "person-escalation" }, executor: null }, source: "local" as const },
+      "admin",
+    ),
+    worker = fixtureRuntimeProcess(t);
+  t.after(() => removeTempRepository(root));
+  initIngressRepo(root, 0);
+  let credential: string | undefined;
+  const cell = await openBootstrappedRepoCell({
+    repoId: workspaceId(repoId),
+    rootDir: canonicalRoot(root),
+    ownerId: repoId,
+    runtimeDaemonRoute: {
+      userRoot: path.join(root, ".daemon-user"),
+      daemonId: repoId,
+      endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+    },
+    runtimeInstances: () => [
+      {
+        schemaVersion: 2,
+        instanceId: definition.instanceId,
+        name: "Ruling worker",
+        kindId: definition.kindId,
+        installationId: definition.installationId,
+        providerId: definition.providerId,
+        models: [definition.model],
+        defaultModel: definition.model,
+        enabled: true,
+        permissionMode: "workspace-write",
+        codex: {},
+        authMode: definition.authMode,
+        authState: "configured",
+        authReadiness: { status: "ready", code: null, hint: null },
+        isolationState: "enforced",
+      },
+    ],
+    prepareRuntimeLaunch: async (_instance, request) => ({
+      definition,
+      installation,
+      executablePath: installation.executablePath,
+      args: [],
+      env: process.env,
+      cwd: request.cwd,
+      prompt: request.prompt,
+    }),
+    runtimeLaunch: (prepared) => {
+      credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
+      return {
+        pid: worker.pid,
+        onOutput: (listener) =>
+          listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-ruling-active" })}\n`),
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+        terminateTree: async () => worker.terminateTree(),
+      };
+    },
+  });
+  try {
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Active escalation resolve", presetId: "docs-task" },
+      ceo,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, ceo);
+    await realizeTaskPlanFixture(
+      root,
+      String((created as Record<string, unknown>).packagePath),
+      (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, ceo),
+      "Active escalation resolve",
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId }, ceo)).outcome, "applied");
+    const spawned = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          taskId,
+          cwd: { scope: "repo-root" },
+          prompt: "Ask the owner",
+          dispatchKey: "escalate-before-manual-unblock",
+        },
+        ceo,
+      ),
+      dispatchId = String(spawned.dispatchId),
+      runtimeSessionId = String(spawned.runtimeSessionId);
+    assert.ok(credential);
+    const principal = await authenticateRuntimeExecutionCredential(await policyTestCenter(), credential);
+    assert.ok(principal);
+    const escalated = await cell.run(
+      { kind: "task-escalate", taskId, question: "Need ruling", options: ["Proceed"] },
+      {
+        ...ceo,
+        actor: {
+          principal: ceo.actor.principal,
+          executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+        },
+        executionPrincipal: principal,
+      },
+    );
+    assert.equal(escalated.outcome, "applied", JSON.stringify(escalated));
+    // Wait until cancellation settles and the escalation enters awaiting_ruling (canResolveRuling=true).
+    await waitForArrival(async () => {
+      const read = await cell.run({ kind: "task-show", taskId }, ceo);
+      const lc = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+      return JSON.parse(String(read.evidence)).task.status === "blocked" &&
+        lc.status === "ready" &&
+        lc.rows[0]?.policy.canResolveRuling === true
+        ? true
+        : null;
+    }, watchDirectoryArrival(root));
+    // Reproduce the 2026-11-25 10:04 production sequence: operator manually unblocks (blocked -> active)
+    // and reconnects lease via task-start before answering the awaiting escalation.
+    assert.equal(
+      (await cell.run({ kind: "task-transition", taskId, status: "active", reason: "Manual unblock" }, ceo)).outcome,
+      "applied",
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId }, ceo)).outcome, "applied");
+
+    const resolved = await cell.run(
+      { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Proceed as planned." },
+      ceo,
+    );
+    assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
+    const after = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, ceo)).evidence));
+    assert.equal(after.task.status, "active", "resolving an old escalation must not revert an already-active task");
+    assert.ok(after.lease, "active lease must remain intact");
+    const followUp = await cell.run(
+      { kind: "task-create", taskId: "task-post-resolve-health", title: "Cell stays writable", presetId: "docs-task" },
+      ceo,
+    );
+    assert.equal(followUp.outcome, "applied", "repo cell must stay writable and never degrade to unavailable");
+  } finally {
+    await cell.close();
+  }
+});
+
+test("escalation resolve on a manually unblocked unleased active task preserves active status instead of reverting to planned", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-escalation-nested-reject-")),
+    repoId = "escalation-nested-reject",
+    taskId = "task-escalation-review-blocked",
+    ceo = withPolicyGroup(
+      { actor: { principal: { personId: "person-escalation" }, executor: null }, source: "local" as const },
+      "admin",
+    ),
+    worker = fixtureRuntimeProcess(t);
+  t.after(() => removeTempRepository(root));
+  initIngressRepo(root, 0);
+  let credential: string | undefined;
+  const cell = await openBootstrappedRepoCell({
+    repoId: workspaceId(repoId),
+    rootDir: canonicalRoot(root),
+    ownerId: repoId,
+    runtimeDaemonRoute: {
+      userRoot: path.join(root, ".daemon-user"),
+      daemonId: repoId,
+      endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+    },
+    runtimeInstances: () => [
+      {
+        schemaVersion: 2,
+        instanceId: definition.instanceId,
+        name: "Ruling worker",
+        kindId: definition.kindId,
+        installationId: definition.installationId,
+        providerId: definition.providerId,
+        models: [definition.model],
+        defaultModel: definition.model,
+        enabled: true,
+        permissionMode: "workspace-write",
+        codex: {},
+        authMode: definition.authMode,
+        authState: "configured",
+        authReadiness: { status: "ready", code: null, hint: null },
+        isolationState: "enforced",
+      },
+    ],
+    prepareRuntimeLaunch: async (_instance, request) => ({
+      definition,
+      installation,
+      executablePath: installation.executablePath,
+      args: [],
+      env: process.env,
+      cwd: request.cwd,
+      prompt: request.prompt,
+    }),
+    runtimeLaunch: (prepared) => {
+      credential = prepared.env.HARNESS_EXECUTION_CREDENTIAL;
+      return {
+        pid: worker.pid,
+        onOutput: (listener) =>
+          listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-ruling-review" })}\n`),
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+        terminateTree: async () => worker.terminateTree(),
+      };
+    },
+  });
+  try {
+    const created = await cell.run(
+      { kind: "task-create", taskId, title: "Review blocked escalation", presetId: "docs-task" },
+      ceo,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await waitForFixturePublication(cell, created.opId, ceo);
+    await realizeTaskPlanFixture(
+      root,
+      packagePath,
+      (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, ceo),
+      "Review blocked escalation",
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId }, ceo)).outcome, "applied");
+    const spawned = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          taskId,
+          cwd: { scope: "repo-root" },
+          prompt: "Ask the owner",
+          dispatchKey: "escalate-before-review-block",
+        },
+        ceo,
+      ),
+      dispatchId = String(spawned.dispatchId),
+      runtimeSessionId = String(spawned.runtimeSessionId);
+    assert.ok(credential);
+    const principal = await authenticateRuntimeExecutionCredential(await policyTestCenter(), credential);
+    assert.ok(principal);
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-escalate", taskId, question: "Need review ruling", options: ["Proceed"] },
+          {
+            ...ceo,
+            actor: {
+              principal: ceo.actor.principal,
+              executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+            },
+            executionPrincipal: principal,
+          },
+        )
+      ).outcome,
+      "applied",
+    );
+    await waitForArrival(async () => {
+      const read = await cell.run({ kind: "task-show", taskId }, ceo);
+      const lc = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+      return JSON.parse(String(read.evidence)).task.status === "blocked" &&
+        lc.status === "ready" &&
+        lc.rows[0]?.policy.canResolveRuling === true
+        ? true
+        : null;
+    }, watchDirectoryArrival(root));
+    // Operator manually unblocks (blocked -> active) without acquiring a lease. Resolving the awaiting
+    // escalation must record the answer without silently reverting the active task back to planned.
+    assert.equal(
+      (await cell.run({ kind: "task-transition", taskId, status: "active", reason: "Manual unblock" }, ceo)).outcome,
+      "applied",
+    );
+    const resolved = await cell.run(
+      { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Continue active round." },
+      ceo,
+    );
+    assert.equal(resolved.outcome, "applied", JSON.stringify(resolved));
+    const after = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, ceo)).evidence));
+    assert.equal(after.task.status, "active", "resolving an escalation must not revert an unblocked active task");
+    const lcAfter = await cell.readDispatchLifecycle({ by: "dispatch", dispatchIds: [dispatchId] });
+    assert.equal(lcAfter.status, "ready");
+    if (lcAfter.status === "ready") assert.equal(lcAfter.rows[0]?.policy.canResolveRuling, false);
+    const replay = await cell.run(
+      { kind: "task-escalation-resolve", taskId, dispatchId, answer: "Continue active round." },
+      ceo,
+    );
+    assert.equal(replay.outcome, "applied", "idempotent replay must still succeed");
+    const followUp = await cell.run(
+      {
+        kind: "task-create",
+        taskId: "task-post-unleased-resolve-health",
+        title: "Cell stays writable after unleased active resolve",
+        presetId: "docs-task",
+      },
+      ceo,
+    );
+    assert.equal(followUp.outcome, "applied", "repo cell must stay writable and never degrade to unavailable");
+  } finally {
+    await cell.close();
+  }
+});
