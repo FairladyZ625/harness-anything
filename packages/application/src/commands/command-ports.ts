@@ -90,4 +90,10 @@ export interface VerticalKindReadPort {
   readonly read: (method: "repo.vertical.declaration.read") => Promise<unknown>;
 }
 
-export type SubmissionArtifactCell = Pick<CommandOperationPort, "store" | "cellCodedError">;
+export interface SubmissionArtifactCell {
+  readonly store: Pick<
+    CanonicalEventStore,
+    "readContentBlob" | "readContentBlobRange" | "readContentBlobSize" | "readEventAtRevision"
+  >;
+  readonly cellCodedError: CommandOperationPort["cellCodedError"];
+}

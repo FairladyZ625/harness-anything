@@ -13,7 +13,7 @@ import {
 } from "../src/daemon-host/dispatch-stream.ts";
 import { daemonReadRoutes, validateDaemonRpcCall } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { parseDaemonReadResult } from "../src/daemon-host/protocol/daemon-result-validation.ts";
-import { makeSquadCanonicalReader } from "../src/daemon-host/squad-canonical-read.ts";
+import { makeSquadCanonicalReader } from "@harness-anything/application/internal/queries/squad-canonical-read.ts";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";

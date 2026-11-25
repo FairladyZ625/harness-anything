@@ -1,49 +1,13 @@
-import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
-import type { ScheduleMissedReason, ScheduleRunOutcome } from "@harness-anything/kernel";
 import type { ScheduleState } from "@harness-anything/kernel/internal/domain/schedule.ts";
+import type {
+  ScheduleOccurrenceOutcome,
+  ScheduleRunOutputsDto,
+  ScheduleRunRowDto,
+  ScheduleRunsResult,
+} from "@harness-anything/application/internal/queries/schedule-runs-read.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
-export type ScheduleOccurrenceOutcome = ScheduleRunOutcome | "running" | "missed";
-
-/** 该 occurrence 的 runtime session 写入的实体产出(fact/decision/task 反查,任务 GUI 详情页链接用)。 */
-export interface ScheduleRunOutputsDto {
-  readonly facts: readonly string[];
-  readonly decisions: readonly string[];
-  readonly tasks: readonly string[];
-}
-
-export interface ScheduleRunRowDto {
-  readonly occurrenceId: string;
-  readonly kind: "scheduled" | "manual";
-  readonly scheduledFor: string;
-  readonly claimedAt: string | null;
-  readonly endedAt: string | null;
-  readonly nodeId: string | null;
-  readonly claimFence: string | null;
-  readonly outcome: ScheduleOccurrenceOutcome;
-  readonly durationMs: number | null;
-  readonly reportRef: string | null;
-  /** report artifact 的完整正文(runtime-result 内容读);无报告或内容未就绪为 null,不截断。 */
-  readonly reportText: string | null;
-  /** settle detail 中不属于报告引用的部分——失败原因等真实细节;成功且仅有报告时为 null。 */
-  readonly detail: string | null;
-  readonly missedReason: ScheduleMissedReason | null;
-  readonly dispatchId: string | null;
-  readonly runtimeSessionId: string | null;
-  readonly attemptIndex: number | null;
-  readonly outputs: ScheduleRunOutputsDto;
-}
-
-export interface ScheduleRunsResult {
-  readonly ok: true;
-  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
-  readonly scheduleId: string;
-  readonly runs: readonly ScheduleRunRowDto[];
-  readonly totals: { readonly runs: number; readonly missed: number; readonly failed: number };
-  readonly truncated: boolean;
-  readonly watermark: number;
-  readonly sourceRevision: number;
-}
+export type { ScheduleOccurrenceOutcome, ScheduleRunOutputsDto, ScheduleRunRowDto, ScheduleRunsResult };
 
 export function validateScheduleRuns(value: unknown): readonly string[] {
   if (
@@ -65,6 +29,12 @@ export function validateScheduleRuns(value: unknown): readonly string[] {
   )
     return ["schedule runs result is invalid"];
   return rejectSecretKeys(value);
+}
+
+export function serializeScheduleRuns(value: unknown): string {
+  const errors = validateScheduleRuns(value);
+  if (errors.length) throw new Error(errors.join("; "));
+  return `${JSON.stringify(value)}\n`;
 }
 
 function validRunRow(value: unknown): boolean {

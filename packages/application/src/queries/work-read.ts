@@ -8,6 +8,7 @@ import type {
   TaskIndexProjectionRead,
   TaskIndexProjectionRow,
   TaskProjection,
+  TaskProjectionQueries,
   TaskV2,
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -291,7 +292,7 @@ function workRows(
 }
 
 export function workShowFromProjection(
-  projection: TaskProjection,
+  projection: TaskProjectionQueries,
   input: CollaboratorScope & { readonly taskId: string },
 ) {
   const scope = workspaceStructureFromProjection(projection, { ...input, rootTaskId: input.taskId, limit: 500 }),
@@ -313,7 +314,7 @@ export function workShowFromProjection(
 }
 
 /** Render the owner-facing work page from the same projection cut as work show. */
-export function renderWorkExplainer(projection: TaskProjection, taskId: string): string {
+export function renderWorkExplainer(projection: TaskProjectionQueries, taskId: string): string {
   const payload = workShowFromProjection(projection, { taskId }),
     root = payload.root,
     open = payload.openTasks,

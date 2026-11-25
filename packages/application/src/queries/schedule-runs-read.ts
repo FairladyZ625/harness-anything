@@ -1,4 +1,3 @@
-import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createHash } from "node:crypto";
 import {
   isScheduleEvent,
@@ -8,23 +7,50 @@ import {
   type ScheduleActiveRunV1,
   type ScheduleLastRunV1,
   type ScheduleMissedReason,
+  type ScheduleRunOutcome,
   type ScheduleTriggerV1,
 } from "@harness-anything/kernel";
 import type * as ProjectionStatus from "@harness-anything/kernel/internal/domain/task-read-set.ts";
-import {
-  validateScheduleRuns,
-  type ScheduleRunOutputsDto,
-  type ScheduleRunRowDto,
-  type ScheduleRunsResult,
-} from "./protocol/schedule-runs-contract.ts";
+import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 
-export { validateScheduleRuns } from "./protocol/schedule-runs-contract.ts";
-export type {
-  ScheduleOccurrenceOutcome,
-  ScheduleRunOutputsDto,
-  ScheduleRunRowDto,
-  ScheduleRunsResult,
-} from "./protocol/schedule-runs-contract.ts";
+export type ScheduleOccurrenceOutcome = ScheduleRunOutcome | "running" | "missed";
+
+export interface ScheduleRunOutputsDto {
+  readonly facts: readonly string[];
+  readonly decisions: readonly string[];
+  readonly tasks: readonly string[];
+}
+
+export interface ScheduleRunRowDto {
+  readonly occurrenceId: string;
+  readonly kind: "scheduled" | "manual";
+  readonly scheduledFor: string;
+  readonly claimedAt: string | null;
+  readonly endedAt: string | null;
+  readonly nodeId: string | null;
+  readonly claimFence: string | null;
+  readonly outcome: ScheduleOccurrenceOutcome;
+  readonly durationMs: number | null;
+  readonly reportRef: string | null;
+  readonly reportText: string | null;
+  readonly detail: string | null;
+  readonly missedReason: ScheduleMissedReason | null;
+  readonly dispatchId: string | null;
+  readonly runtimeSessionId: string | null;
+  readonly attemptIndex: number | null;
+  readonly outputs: ScheduleRunOutputsDto;
+}
+
+export interface ScheduleRunsResult {
+  readonly ok: true;
+  readonly status: ProjectionStatus.ReadSetProjectionCut["status"];
+  readonly scheduleId: string;
+  readonly runs: readonly ScheduleRunRowDto[];
+  readonly totals: { readonly runs: number; readonly missed: number; readonly failed: number };
+  readonly truncated: boolean;
+  readonly watermark: number;
+  readonly sourceRevision: number;
+}
 
 export interface ScheduleRunsReadContext {
   readonly projection: {
@@ -61,8 +87,6 @@ export function readScheduleRuns(context: ScheduleRunsReadContext, scheduleId: s
       new Set(runtimeSessionIds),
     ),
     runs = rows.slice(0, limit).map((row) => {
-      // Settlement can precede the runtime outcome. Only the canonical session
-      // exposes a result reference committed with its content claim and bytes.
       const reportRef =
         row.runtimeSessionId === null
           ? null
@@ -90,11 +114,26 @@ export function readScheduleRuns(context: ScheduleRunsReadContext, scheduleId: s
   };
 }
 
+/** Discover the bounded report refs a schedule-runs read will materialize for content prefetching. */
+export function scheduleRunReportRefs(
+  projection: Pick<ScheduleRunsReadContext["projection"], "readScheduleEvents" | "readRuntimeSession">,
+  scheduleId: string,
+  limit = 50,
+): readonly string[] {
+  const rows = projectScheduleRuns(projection.readScheduleEvents(scheduleId).events, scheduleId).slice(0, limit);
+  const refs = new Set<string>();
+  for (const row of rows) {
+    if (row.runtimeSessionId === null) continue;
+    const ref = projection.readRuntimeSession(row.runtimeSessionId)?.resultRef ?? null;
+    if (ref !== null) refs.add(ref);
+  }
+  return [...refs];
+}
+
 function emptyOutputs(): ScheduleRunOutputsDto {
   return { facts: [], decisions: [], tasks: [] };
 }
 
-/** A referenced result must belong to the complete cut; absent bytes are a failed read. */
 function reportTextOf(context: ScheduleRunsReadContext, reportRef: string | null): string | null {
   if (reportRef === null) return null;
   if (context.store === undefined)
@@ -102,12 +141,6 @@ function reportTextOf(context: ScheduleRunsReadContext, reportRef: string | null
   return readCanonicalRuntimeResult(context.store, reportRef);
 }
 
-/**
- * occurrence 产出反查:该 occurrence 派工的 runtime session 以 executor 身份写入的
- * fact/decision/task(写事件的 actor.executor.id = `runtime-session:<id>`)。一次事件
- * 扫描按 first-seen 去重;没有 runtime session 的 occurrence 不做反查。schema 判别
- * 与 kernel 的 isFactEvent/isTaskEvent 同式(fact/task 顶层带 id 字段,decision 同)。
- */
 function scheduleRunOutputs(
   events: readonly CanonicalEventV1[],
   runtimeSessionIds: ReadonlySet<string | null>,
@@ -134,12 +167,6 @@ function scheduleRunOutputs(
     else if (event.schema === "task-event/v1") record(runtimeSessionId, "tasks", event.taskId);
   }
   return outputs;
-}
-
-export function serializeScheduleRuns(value: unknown): string {
-  const errors = validateScheduleRuns(value);
-  if (errors.length) throw new Error(errors.join("; "));
-  return `${JSON.stringify(value)}\n`;
 }
 
 function projectScheduleRuns(events: readonly CanonicalEventV1[], scheduleId: string): readonly ScheduleRunRowDto[] {

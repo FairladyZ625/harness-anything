@@ -36,7 +36,7 @@ export const taskLeasePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#assertLeaseReservation:70ea4017a2be5cd69d8cccb06b9f4005",
     "policy:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#decideRawTaskLease:dfd5eb621e0e684bfa80524edea23545",
     "policy:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#decideReadableTaskLease:604b0c933f01414f14bbc867d23eb635",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-reads.ts#readProjectedDocumentAtCut:2100e31b96bf22742faa1e2ab00cf090",
+    "policy:packages/application:packages/application/src/queries/doc-sync-reads.ts#readProjectedDocumentAtCut:5f5655dcb96db5f1b31552ef24badcf9",
     "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-reads.ts#observeExecution:0866d3bf693724b70845c19fb0662556",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-authorization.ts#bindVerifiedExecutorClaim.claimedActor:2411b7d38d06b949e664a60e2b21fb4a",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-authorization.ts#bindVerifiedExecutorClaim:f80807f9fa6ef7a6e4c474e28c7504dc",

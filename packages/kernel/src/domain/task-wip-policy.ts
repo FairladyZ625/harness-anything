@@ -268,7 +268,7 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/application:packages/application/src/commands/write-receipt-settlement.ts#settleWriteReceipt.materialized.reconcileNodePolicy:c5013c8bee363a83b667529a7565ec7e",
     "policy:packages/application:packages/application/src/commands/write-receipt-settlement.ts#settleWriteReceipt:c1050a89beabf37ca312e1e554782a72",
     "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-candidate-scanner.ts#scanDocCandidates.scanOne:27054bed81347e56f9081d7397c65e4a",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-reads.ts#readAction.materializationState:71a3d721091e8253a10a63913edca6d1",
+    "policy:packages/application:packages/application/src/queries/doc-sync-reads.ts#readDocAction.materializationState:71a3d721091e8253a10a63913edca6d1",
     "policy:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#withNodeMaterializationState:daf168a4166c963e3e6de1d64c76c6fb",
     "policy:packages/storage:packages/storage/src/pg/pg-git-outbox-publisher.ts#attachPgGitFollower.prepareConfirmedFollower:407c341920002a2adc2e1081acbee44c",
     "policy:packages/storage:packages/storage/src/storage-backend.ts#readNodeMaterializationDocuments:9c89aee9a882cdd6835efd2f47f68e6c",
@@ -278,6 +278,7 @@ export const nodeTaskMaterializationPolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-repository-api.ts#createDaemonHostRepositoryApi.run:5bb3c44b8278704b9bdbb0b6090c4259",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-materialization.ts#reconcileFleetNodeMaterialization.result.request.reconcileNodePolicy:c5013c8bee363a83b667529a7565ec7e",
     "policy:packages/daemon:packages/daemon/src/daemon-host/fleet-edge-mirror.ts#materializeFleetMirrorView:c14ca311a5add40e1dcb3097f2178730",
+    "policy:packages/daemon:packages/daemon/src/fleet-sync/cloud-domain-routes.ts#createCloudDomainRoutes.nodeTaskMaterializationPolicy:cddf6b639e6e476dc9a3afb2d5b76802",
   ].map((candidateId) => ({ candidateId, route: "nodeTaskMaterializationPolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 

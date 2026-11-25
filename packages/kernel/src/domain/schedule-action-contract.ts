@@ -957,8 +957,8 @@ export const daemonSchedulePolicySources = [
     "const publishedBranchFetchTimeoutMs = 30_000;",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/schedule-runs-read.ts#readScheduleRuns:9a23bb02dd4259dae64d2bcca65f6fad",
-    "packages/daemon/src/daemon-host/schedule-runs-read.ts#readScheduleRuns",
+    "policy:packages/application:packages/application/src/queries/schedule-runs-read.ts#readScheduleRuns:9a23bb02dd4259dae64d2bcca65f6fad",
+    "packages/application/src/queries/schedule-runs-read.ts#readScheduleRuns",
     "if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200)",
   ],
   [

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
+import { assertCloudDocSyncSquadSchedulePg } from "./fixtures/cloud-docsync-squad-schedule-pg.ts";
 import { assertDossierRepoCell } from "./fixtures/dossier-repo-cell.ts";
 import { assertRepoCellStorage } from "./repo-cell-storage.fixture.ts";
 
@@ -30,6 +31,7 @@ test("a PG RepoCell writes through its worker, restarts, and keeps SQLite closed
       ...storage,
       scope: { ...storage.scope, projectId: "dossier", readers: [] },
     });
+    await assertCloudDocSyncSquadSchedulePg(fixture);
   } finally {
     await fixture.pool.end();
     await fixture.close();

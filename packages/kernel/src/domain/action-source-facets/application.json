@@ -149,6 +149,51 @@
         "order": 241
       },
       {
+        "candidateId": "action:packages/application:packages/application/src/queries/agent-declaration-read.ts#agentDeclarationInvalidError:ff44b193b0ba230478d5f2df19619604",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1121
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/runtime-result-read.ts#decodeRuntimeResult:f2bbb220d827d2e9ab8876b7c7a72f4b",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
+        "order": 769
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/runtime-result-read.ts#readCanonicalRuntimeResult:49344e873b6dd4b33142ef8620ea4e69",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
+        "order": 763
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/runtime-result-read.ts#readCanonicalRuntimeResult:ea5b5e740df5862ddf2bfeacaa8e4cff",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
+        "order": 762
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/schedule-runs-read.ts#missedOccurrenceId.digest:3d43f689ced51a83af4c786209124ef4",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1197
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/schedule-runs-read.ts#reportTextOf:faec7fcf33e9df802b4f2865557eefd1",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1196
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/queries/schedule-runs-read.ts#scheduleRunsError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1198
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/queries/task-action-explanation-read.ts#explainAuthenticationRequired:39b0fd5569ad6c02644258162ffbba5b",
         "route": "daemon:bin",
         "role": "support",

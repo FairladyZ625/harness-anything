@@ -337,12 +337,6 @@
         "order": 1229
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#agentDeclarationInvalidError:ff44b193b0ba230478d5f2df19619604",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1121
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/agent-declaration-resolution.ts#assertBundledAgentLifecycleOpen:aa04334c562b1a19ca24f4189decded8",
         "route": "daemon:bin",
         "role": "support",
@@ -4173,13 +4167,6 @@
         "order": 504
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#decodeRuntimeResult:f2bbb220d827d2e9ab8876b7c7a72f4b",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 769
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#edgeObject:450256aac14c2cad209fd0472c930018",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -4192,20 +4179,6 @@
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
         "order": 767
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#readCanonicalRuntimeResult:49344e873b6dd4b33142ef8620ea4e69",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 763
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#readCanonicalRuntimeResult:ea5b5e740df5862ddf2bfeacaa8e4cff",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
-        "order": 762
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-result-read.ts#readEdgeRuntimeResult:fe52197bc07b80bdd3ece44a33378632",
@@ -5058,24 +5031,6 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/process-port.ts#makeGitReadinessSource.run",
         "order": 1195
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/schedule-runs-read.ts#missedOccurrenceId.digest:3d43f689ced51a83af4c786209124ef4",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1197
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/schedule-runs-read.ts#reportTextOf:faec7fcf33e9df802b4f2865557eefd1",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1196
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/schedule-runs-read.ts#scheduleRunsError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
-        "route": "daemon:bin",
-        "role": "support",
-        "order": 1198
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/schedule-scheduler.ts#applyMissed:0303329a2ee9481f1be470f222d05cec",
