@@ -67,6 +67,7 @@ import { readAuthoredDocumentBytes } from "./authored-document-read-port.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
+import { runFleetEdgeDocSubmit } from "./fleet-edge-doc-submit.ts";
 
 export interface FleetEdgeTaskRequest {
   /** Daemon-close lifetime: aborting cancels in-flight center attempts and their retry budget. */
@@ -434,70 +435,21 @@ export async function runFleetEdgeTask(
           },
         } as Record<string, unknown>;
     }
-    if (action.kind === "doc-submit" && taskId !== null && workspaceRoot !== null) {
-      const view = locateFleetMirrorView(payload.viewRoot, payload.repoId, payload.nodeId, {
-        entriesPrefix: `tasks/${taskId}`,
+    if (action.kind === "doc-submit" && workspaceRoot !== null)
+      return runFleetEdgeDocSubmit({
+        payload,
+        peer,
+        action,
+        taskId,
+        workspaceRoot,
+        waitMs,
+        signal,
+        opId,
+        receiptFormat,
+        exactTaskPackagePath: fleetExactTaskPackagePath,
+        createError: (code, message) => new FleetEdgeTaskError(code, message),
+        rememberAppliedCut: (cut) => rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, cut),
       });
-      const packagePath = view && fleetExactTaskPackagePath(view, workspaceRoot, taskId);
-      if (!view || !packagePath) throw new FleetEdgeTaskError("mirror_missing", "Task package is not materialized.");
-      if (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))
-        throw new FleetEdgeTaskError(
-          "execution_credential_rejected",
-          "Task document selection cannot name other paths.",
-        );
-      const scan = scanEdgeTaskWorktrees({ view, workspaceRoot, taskId, packagePath });
-      const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
-      const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
-      if (admission.actionAllowed !== true)
-        throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
-      const blocked = scan.blocked.filter(
-        (row) => row.code !== "doc_route_owned" && row.path.startsWith(`${packagePath}/`),
-      );
-      if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
-      if (changes.length === 0)
-        return { schema: "command-receipt/v2", command: action.kind, ok: true, outcome: "no_changes" };
-      const center = await runFleetEdgeWrite({
-        viewRoot: payload.viewRoot,
-        repoId: payload.repoId,
-        nodeId: payload.nodeId,
-        timeoutMs: waitMs,
-        ...(signal ? { signal } : {}),
-        write: async () =>
-          (
-            await runFleetWriteClient({
-              ...peer,
-              taskId,
-              executionId: null,
-              channel: "collaborator",
-              changes: changes.map((change) => ({
-                path: change.path,
-                body: Buffer.from(change.bytes),
-                baseBlobSha256: change.baseBlobSha256,
-                policyId: change.policyId,
-                mediaType: change.mediaType,
-              })),
-            })
-          ).center,
-      });
-      if (center.outcome === "applied") {
-        acceptEdgeWorktreeScanBases(changes, workspaceRoot);
-        const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
-          kind: "task-docs",
-          taskId,
-          executionId: null,
-          changedPaths: changes.map((change) => change.path),
-        });
-        if (materialized.outcome === "pull_blocked")
-          throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
-      }
-      return {
-        ...center,
-        ...(center.receipt ?? {}),
-        schema: "command-receipt/v2",
-        command: action.kind,
-        ok: center.outcome === "applied" || center.outcome === "no_changes",
-      };
-    }
     if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
       action = await prepareEdgeTaskDelivery({
         workspaceRoot,

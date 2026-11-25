@@ -4,13 +4,15 @@ import {
   type TaskProjectionQueries,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import { withWorkspaceDocumentPaths } from "./doc-sync-command-actions.ts";
+import type { DocCandidateRow } from "./doc-sync-candidate-scanner.ts";
+import { workspacePathOf } from "./doc-sync-settlement.ts";
 import {
   scanEdgeTaskWorktrees,
   scanFleetMirrorWorktree,
   type FleetMirrorScan,
   type FleetMirrorView,
 } from "./fleet-edge-mirror.ts";
-import type { DocCandidateRow } from "./doc-sync-candidate-scanner.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 
@@ -42,14 +44,20 @@ export function readEdgeDocWorkspace(
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
   if (taskId !== null && Array.isArray(action.paths) && action.paths.length > 0)
     throw cellCodedError("invalid_command", "Use a task id or document paths, not both.");
-  const task = taskId === null ? null : projection.read(taskId);
+  const normalized = withWorkspaceDocumentPaths({ rootDir, action }),
+    resolvedAction = normalized.action,
+    toWorkspace = workspacePathOf(normalized),
+    task = taskId === null ? null : projection.read(taskId);
   if (taskId !== null && (!task?.snapshot.task || !task.packagePath))
     throw cellCodedError("task_not_found", `Task ${taskId} has no package at this replica cut.`);
-  if (taskId === null && (!Array.isArray(action.paths) || action.paths.some((value) => typeof value !== "string")))
+  if (
+    taskId === null &&
+    (!Array.isArray(resolvedAction.paths) || resolvedAction.paths.some((value) => typeof value !== "string"))
+  )
     throw cellCodedError("invalid_command", "Document preview requires authored-root-relative paths or a task id.");
   const selection =
-      Array.isArray(action.paths) && action.paths.length
-        ? action.paths.map((value) => documentPath(String(value)))
+      Array.isArray(resolvedAction.paths) && resolvedAction.paths.length
+        ? resolvedAction.paths.map((value) => documentPath(String(value)))
         : undefined,
     singleTask = selectedSingleTask(projection, taskId, selection),
     scan: FleetMirrorScan =
@@ -102,19 +110,23 @@ export function readEdgeDocWorkspace(
   const scoped = rows.filter(({ path }) => selected(path)).sort((a, b) => a.path.localeCompare(b.path));
   for (const logical of selection ?? [])
     if (!scoped.some((candidate) => candidate.path === logical))
-      throw cellCodedError("document_not_found", `Document ${logical} is absent from the workspace and replica cut.`);
+      throw cellCodedError(
+        "document_not_found",
+        `Document ${toWorkspace(logical)} is absent from the workspace and replica cut.`,
+      );
+  const publicRows = scoped.map((candidate) => ({ ...candidate, path: toWorkspace(candidate.path) }));
   return {
     outcome: "applied",
-    opId: `read:${action.kind}:${view.headDigest}`,
+    opId: `read:${resolvedAction.kind}:${view.headDigest}`,
     revision: view.revision,
-    rows: scoped,
-    evidence: `doc-scan:${JSON.stringify({ baseLedgerSha: { revision: view.revision, headDigest: view.headDigest }, rows: scoped })}`,
+    rows: publicRows,
+    evidence: `doc-scan:${JSON.stringify({ baseLedgerSha: { revision: view.revision, headDigest: view.headDigest }, rows: publicRows })}`,
     summary: [
       `边缘本地工作区 vs 副本 cut revision=${view.revision}`,
-      ...scoped.map(
+      ...publicRows.map(
         (candidate) => `${candidate.path}\t${candidate.state}${candidate.reason ? `\t${candidate.reason}` : ""}`,
       ),
-      `clean=${scoped.filter(({ state }) => state === "clean").length} changed=${scoped.filter(({ state }) => state === "eligible").length} deleted=${scoped.filter(({ state }) => state === "deletion").length}`,
+      `clean=${publicRows.filter(({ state }) => state === "clean").length} changed=${publicRows.filter(({ state }) => state === "eligible").length} deleted=${publicRows.filter(({ state }) => state === "deletion").length}`,
     ].join("\n"),
   };
 }
