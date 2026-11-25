@@ -69,6 +69,7 @@
     "harness:scan-forbidden-symbols": "node tools/scan-forbidden-symbols.mjs",
     "harness:check-self-repo-path-literals": "node tools/check-self-repo-path-literals.mjs",
     "harness:check-test-temp-cleanup": "node tools/check-test-temp-cleanup.mjs",
+    "harness:check-windows-portability": "node tools/check-windows-portability.mjs",
     "harness:check-integrity-single-source": "node tools/check-integrity-single-source.mjs",
     "harness:check-private-boundary": "node tools/check-private-boundary.mjs",
     "harness:check-integration-test-shards": "node tools/check-integration-test-shards.mjs",
