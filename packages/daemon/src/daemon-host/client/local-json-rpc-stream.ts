@@ -133,8 +133,13 @@ export async function readDaemonStreamAt(
       if (!attached) armWatchdog();
       const value: unknown = JSON.parse(line);
       if (!isJsonObject(value)) throw new DaemonProtocolContractError("invalid_result", "Invalid stream envelope.");
-      if (isJsonObject(value.error))
-        throw new DaemonProtocolContractError("invalid_result", String(value.error.message));
+      if (isJsonObject(value.error)) {
+        const message =
+          typeof value.error.message === "string" && value.error.message.trim() !== ""
+            ? value.error.message
+            : `${input.method} returned JSON-RPC error${value.error.code !== undefined ? ` ${String(value.error.code)}` : ""}`;
+        throw new DaemonProtocolContractError("invalid_result", message);
+      }
       if (value.id === 1) {
         assertDaemonHello(value.result);
         if (!supportsRecoverableStreams(value.result.protocolVersion)) throw recoverableStreamUpgradeRequired();
@@ -142,8 +147,15 @@ export async function readDaemonStreamAt(
         send(2, facet.method, { repo: { repoId: input.repoId }, payload: input.payload });
       } else if (value.id === 2 && handshaken) {
         if (isJsonObject(value.result) && value.result.ok === false && isJsonObject(value.result.error)) {
-          const { code, hint } = value.result.error;
-          throw new DaemonProtocolContractError(String(code), String(hint));
+          const code =
+            typeof value.result.error.code === "string" && value.result.error.code.trim() !== ""
+              ? value.result.error.code
+              : typeof value.result.code === "string" && value.result.code.trim() !== ""
+                ? value.result.code
+                : "invalid_result";
+          const detail =
+            streamProtocolErrorDetail(value.result, value.result.error) ?? `${input.method} failed (${code})`;
+          throw new DaemonProtocolContractError(code, detail);
         }
         const receipt = parseDaemonStreamResult(input.method, value.result);
         await input.onValue(receipt);
@@ -165,4 +177,11 @@ export async function readDaemonStreamAt(
     lines.close();
     socket.destroy();
   }
+}
+
+function streamProtocolErrorDetail(result: Record<string, unknown>, error: Record<string, unknown>): string | null {
+  for (const candidate of [error.hint, result.rejectionExplanation, result.hint, error.message, error.errstr]) {
+    if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
+  }
+  return null;
 }

@@ -361,19 +361,29 @@ async function runSoak(config = readConfig()) {
 
     let streamAttached = false,
       streamLost = null;
-    detach = await streamAgentRuntimeAt({
-      socketPath: endpoint,
-      repoId,
-      payload: { runtimeSessionId: soakRuntimeSessionId, afterCursor: "stream:0" },
-      onValue: (value) => {
-        if (value && typeof value === "object" && "ok" in value && value.ok === true) streamAttached = true;
-      },
-      onClosed: (failure) => {
-        streamLost = failure;
-      },
-    });
+    // Initial attach omits afterCursor; resume passes the structured RuntimeStreamCursor returned in the attach receipt.
+    const attachPayload = { runtimeSessionId: soakRuntimeSessionId };
+    try {
+      detach = await streamAgentRuntimeAt({
+        socketPath: endpoint,
+        repoId,
+        payload: attachPayload,
+        onValue: (value) => {
+          if (value && typeof value === "object" && "ok" in value && value.ok === true) streamAttached = true;
+        },
+        onClosed: (failure) => {
+          streamLost = failure;
+        },
+      });
+    } catch (error) {
+      throw withSoakRpcContext(error, "repo.agentRuntime.attach", attachPayload);
+    }
     if (!streamAttached) throw new Error("fault-control stream did not complete its initial real daemon attach");
-    await requestDaemonJsonRpcAt(endpoint, "daemon.stop", {}, 1_000, 5_000);
+    try {
+      await requestDaemonJsonRpcAt(endpoint, "daemon.stop", {}, 1_000, 5_000);
+    } catch (error) {
+      throw withSoakRpcContext(error, "daemon.stop", {});
+    }
     await waitForChildExit(child, 30_000);
     await waitForMissing(endpoint, 5_000);
 
@@ -653,17 +663,60 @@ function describeFailure(failure) {
   const record = failure !== null && typeof failure === "object" ? failure : null;
   const nested = record?.error !== null && typeof record?.error === "object" ? record.error : null;
   const code = typeof nested?.code === "string" ? nested.code : typeof record?.code === "string" ? record.code : null;
-  const detail =
+  const candidates =
     failure instanceof Error
-      ? failure.message
-      : typeof nested?.hint === "string"
-        ? nested.hint
-        : typeof record?.message === "string"
-          ? record.message
-          : typeof record?.summary === "string"
-            ? record.summary
-            : null;
+      ? [failure.message]
+      : [
+          nested?.hint,
+          record?.rejectionExplanation,
+          record?.hint,
+          nested?.message,
+          nested?.errstr,
+          record?.message,
+          record?.summary,
+        ];
+  const detail = candidates.find((candidate) => typeof candidate === "string" && candidate.trim() !== "") ?? null;
   return `${code === null ? "error" : `code=${code}`}${detail === null ? " (no diagnostic text returned)" : `; ${detail}`}`;
+}
+
+export function withSoakRpcContext(error, method, payload) {
+  const record = error !== null && typeof error === "object" ? error : null;
+  const code = typeof record?.code === "string" && record.code.trim() !== "" ? record.code : null;
+  const detail =
+    error instanceof Error && error.message.trim() !== "" && error.message !== "undefined"
+      ? error.message
+      : describeFailure(error);
+  const wrapped = new Error(`${method} failed${code === null ? "" : ` (code=${code})`}: ${detail}`, { cause: error });
+  if (code !== null) wrapped.code = code;
+  wrapped.method = method;
+  wrapped.payload = payload;
+  return wrapped;
+}
+
+export function formatSoakFailure(error) {
+  const record = error !== null && typeof error === "object" ? error : null;
+  const name = error instanceof Error ? error.name : "Error";
+  const code = typeof record?.code === "string" && record.code.trim() !== "" ? record.code : null;
+  const method = typeof record?.method === "string" && record.method.trim() !== "" ? record.method : null;
+  const rawMessage = error instanceof Error ? error.message : String(error);
+  const detail =
+    typeof rawMessage === "string" && rawMessage.trim() !== "" && rawMessage !== "undefined"
+      ? rawMessage
+      : describeFailure(error);
+  const headerParts = [name];
+  if (code !== null) headerParts.push(`code=${code}`);
+  if (method !== null) headerParts.push(`method=${method}`);
+  const lines = [`${headerParts.join(" ")}: ${detail}`];
+  if (record?.payload !== undefined) lines.push(`payload=${JSON.stringify(record.payload)}`);
+  if (error instanceof Error && error.stack) lines.push(error.stack);
+  if (error instanceof Error && error.cause !== undefined) {
+    const cause = error.cause;
+    const causeRecord = cause !== null && typeof cause === "object" ? cause : null;
+    const causeCode = typeof causeRecord?.code === "string" ? ` code=${causeRecord.code}` : "";
+    const causeText = cause instanceof Error ? (cause.stack ?? cause.message) : String(cause);
+    lines.push(`caused by${causeCode}: ${causeText}`);
+  }
+  return lines.join("\n");
 }
 
 export function renderDaemonOutput(chunks) {
@@ -678,7 +731,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     await runSoak(config);
   } catch (error) {
-    const message = error instanceof Error ? (error.stack ?? error.message) : String(error),
+    const message = formatSoakFailure(error),
       resultsDir = path.resolve(config.resultsDir);
     mkdirSync(resultsDir, { recursive: true });
     writeFileSync(path.join(resultsDir, "failure.txt"), `${message}\n`, "utf8");

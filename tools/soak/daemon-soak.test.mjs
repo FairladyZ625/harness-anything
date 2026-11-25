@@ -2,14 +2,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseCanonicalEvent, serializeCanonicalEvent } from "../../packages/kernel/src/index.ts";
+import { DaemonProtocolContractError } from "../../packages/daemon/src/daemon-host/protocol/json-rpc-types.ts";
 import {
   assessConnections,
   assessHelloLatency,
   assessRssTrend,
   assessWorkload,
   createSoakEvents,
+  formatSoakFailure,
   recordLoadFailure,
   renderDaemonOutput,
+  withSoakRpcContext,
 } from "./daemon-soak.mjs";
 import { daemonServeLaunch, waitForAttachedRepo } from "./daemon-soak-support.mjs";
 
@@ -112,7 +115,7 @@ test("daemon launch spawns the published daemon host entry with the product argu
     },
   });
   assert.equal(launch.command, process.execPath);
-  assert.match(launch.args[0], /packages\/daemon\/src\/daemon-host\/bin\.ts$/u);
+  assert.match(launch.args[0], /packages[\\/]daemon[\\/]src[\\/]daemon-host[\\/]bin\.ts$/u);
   assert.deepEqual(launch.args.slice(1), ["serve", "--user-root", "/tmp/soak-user", "--daemon-id", "nightly-soak-1"]);
   assert.equal(launch.env.HOME, "/tmp/soak-home");
   assert.equal(launch.env.USERPROFILE, "/tmp/soak-home");
@@ -152,5 +155,42 @@ test("a daemon that exits during startup carries its captured exit reason into t
   await assert.rejects(
     waitForAttachedRepo({ child, endpoint: "/tmp/unused.sock", repoId: "nightly-soak", timeoutMs: 1_000 }),
     /daemon exited during startup with code 2\n?$/u,
+  );
+});
+
+test("soak failure formatting preserves protocol error code, method, payload, and message instead of undefined", () => {
+  const contractError = new DaemonProtocolContractError("invalid_request", "runtime attach cursor is invalid");
+  const wrapped = withSoakRpcContext(contractError, "repo.agentRuntime.attach", {
+    runtimeSessionId: "runtime-session-soak",
+  });
+  const formatted = formatSoakFailure(wrapped);
+  assert.match(formatted, /code=invalid_request/u);
+  assert.match(formatted, /method=repo\.agentRuntime\.attach/u);
+  assert.match(formatted, /runtime attach cursor is invalid/u);
+  assert.match(formatted, /payload=\{"runtimeSessionId":"runtime-session-soak"\}/u);
+  assert.doesNotMatch(formatted, /DaemonProtocolContractError: undefined/u);
+
+  const bareError = new DaemonProtocolContractError("invalid_request", "undefined");
+  const bareFormatted = formatSoakFailure(bareError);
+  assert.match(bareFormatted, /code=invalid_request/u);
+  assert.doesNotMatch(bareFormatted.split("\n")[0], /: undefined$/u);
+});
+
+test("workload failure recorder extracts rejectionExplanation from daemon protocol error receipts", () => {
+  const counts = { requests: 1, failures: 1, failureEvidence: [], failureEvidenceDropped: 0, failureEvidenceLimit: 2 };
+  recordLoadFailure({
+    counts,
+    method: "repo.agentRuntime.attach",
+    startedAt: performance.now(),
+    failure: {
+      ok: false,
+      code: "invalid_request",
+      rejectionExplanation: "runtime attach cursor is invalid",
+      error: { code: "invalid_request" },
+    },
+  });
+  assert.match(
+    counts.failureEvidence[0],
+    /repo\.agentRuntime\.attach failed: code=invalid_request; runtime attach cursor is invalid$/u,
   );
 });
