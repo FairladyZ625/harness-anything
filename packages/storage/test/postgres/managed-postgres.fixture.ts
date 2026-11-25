@@ -4,9 +4,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:net";
 import { Pool } from "pg";
-import { ManagedRbacService } from "@harness-anything/authorization/keycloak/managed-rbac-service";
+import {
+  ManagedRbacService,
+  type ManagedPostgresBinaries,
+} from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { cloneOrInitPostgresCluster, ensureCachedPostgresBinaries } from "./pg-cluster-template.fixture.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
+
+export function ensureSharedPostgresBinaries(): Promise<ManagedPostgresBinaries> {
+  return ensureCachedPostgresBinaries((cacheRoot) =>
+    new ManagedRbacService(cacheRoot, managedRbacTestHost()).ensurePostgresBinaries(),
+  );
+}
 
 export interface ManagedPostgresFixture {
   readonly adminPool: Pool;
@@ -23,9 +32,7 @@ export async function startManagedPostgresFixture(): Promise<ManagedPostgresFixt
     pgCtl: string | undefined,
     started = false;
   try {
-    const binaries = await ensureCachedPostgresBinaries((cacheRoot) =>
-      new ManagedRbacService(cacheRoot, managedRbacTestHost()).ensurePostgresBinaries(),
-    );
+    const binaries = await ensureSharedPostgresBinaries();
     pgCtl = binaries.pgCtl;
     await cloneOrInitPostgresCluster(binaries, dataDirectory);
     const port = await reserveRandomPort();
