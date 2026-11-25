@@ -9,6 +9,10 @@ import { actionDeclarations } from "@harness-anything/kernel";
 import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
 import { fleetNodeClaimFixture, localAuthFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "../../daemon/test/fleet-edge-host.fixture.ts";
+import {
+  waitForFleetReplicaReady,
+  waitForFleetReplicaRevision,
+} from "../../daemon/src/daemon-host/fleet/replica-sync.ts";
 import { registerFixtureRuntimeInstance } from "../../daemon/test/repo-settings.fixture.ts";
 
 const agent = {
@@ -300,6 +304,41 @@ test(
       localAuthFixture(),
     );
     assert.equal(edgeRuntime.outcome, "applied", JSON.stringify(edgeRuntime));
+    const {
+      schema: _schema,
+      loginUrl: _loginUrl,
+      loginRealm: _loginRealm,
+      loginServername: _loginServername,
+      loginBrowserUrl: _loginBrowserUrl,
+      loginCertificate: _loginCertificate,
+      waitTimeoutMs: _waitTimeoutMs,
+      ...syncConn
+    } = edge.config;
+    const syncEdge = async (minRevision?: number) => {
+      const synced = await edge.rpc.handle({
+        jsonrpc: "2.0",
+        id: 299,
+        method: "daemon.fleet.edge.sync",
+        params: { payload: { ...syncConn, workspaceRoot: edge.edgeRoot, timeoutMs: 30_000 } },
+      });
+      assert.ok(synced && !Array.isArray(synced) && "result" in synced, JSON.stringify(synced));
+      assert.equal((synced.result as Record<string, unknown>).ok, true, JSON.stringify(synced.result));
+      assert.equal(
+        await waitForFleetReplicaReady(
+          { viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: edge.config.nodeId },
+          AbortSignal.timeout(30_000),
+        ),
+        true,
+      );
+      if (minRevision !== undefined) {
+        await waitForFleetReplicaRevision(
+          { viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: edge.config.nodeId },
+          minRevision,
+          AbortSignal.timeout(30_000),
+        );
+      }
+    };
+    await syncEdge();
     const localPkg = path.join(edge.edgeRoot, "edge-local-agent-pkg");
     mkdirSync(localPkg);
     const localAgent = {
@@ -372,6 +411,7 @@ test(
     );
     assert.equal(centerInspectAfterShare.outcome, "applied", JSON.stringify(centerInspectAfterShare));
     const centerSharedRev = JSON.parse(String(centerInspectAfterShare.evidence)).workspaceRevision as number;
+    await syncEdge(centerSharedRev);
 
     // 4. Edge `ha agent unshare` enforces center agent-delete policy before retaining local copy.
     f.owners.keycloak.revoke("person-one", "lease-repo", ["agent-delete"]);

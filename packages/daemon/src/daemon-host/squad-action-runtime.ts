@@ -1,5 +1,5 @@
 import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
-import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { AgentScopeConflictError, readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createEntityStore } from "@harness-anything/storage";
@@ -116,9 +116,7 @@ function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRo
       if (sharedIds.has(declaration.id)) {
         const shared = cell.projection.getEntity("agent", declaration.id);
         if (shared && localDeclarationMatchesSharedValue(declaration, shared.value, record.pendingTransfer)) continue;
-        throw Object.assign(new Error(`Agent ${declaration.id} exists in both local and shared scope.`), {
-          code: "agent_scope_conflict",
-        });
+        throw new AgentScopeConflictError(declaration.id);
       }
       const { instructions: _instructions, ...row } = declaration;
       agents.push({
@@ -146,9 +144,7 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string, userRoot?: 
   const local =
     localRoot === undefined || localRepoId === undefined ? null : readLocalAgentRecord(localRoot, localRepoId, agentId);
   if (local && row && !localDeclarationMatchesSharedValue(local.declaration, row.value, local.pendingTransfer))
-    throw Object.assign(new Error(`Agent ${agentId} exists in both local and shared scope.`), {
-      code: "agent_scope_conflict",
-    });
+    throw new AgentScopeConflictError(agentId);
   if (local && row === null) {
     const hostAccess = resolveAgentHostAccess(local.declaration.hostAccess);
     return {

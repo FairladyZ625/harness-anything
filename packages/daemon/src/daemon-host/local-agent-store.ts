@@ -53,7 +53,6 @@ export function readLocalAgentDeclarations(userRoot: string, repoId: string): re
 
 export function readLocalAgentRecords(userRoot: string, repoId: string): readonly LocalAgentRecord[] {
   const directory = localAgentDirectory(userRoot, repoId);
-  assertLocalAgentDirectory(directory);
   let entries;
   try {
     entries = readdirSync(directory, { withFileTypes: true });
@@ -82,7 +81,6 @@ export function readLocalAgentRecord(userRoot: string, repoId: string, agentId: 
   if (!entitySlug(agentId)) return null;
   try {
     const directory = localAgentDirectory(userRoot, repoId);
-    assertLocalAgentDirectory(directory);
     const value = JSON.parse(readFileSync(path.join(directory, `${agentId}.json`), "utf8"));
     if (
       value?.schema !== "local-agent-record/v1" ||
@@ -166,8 +164,13 @@ export function removeLocalAgentDeclaration(
   options?: { readonly expectedVersion?: number },
 ): boolean {
   if (!entitySlug(agentId)) throw new Error("Local Agent id must be a lowercase slug.");
-  const target = path.join(localAgentDirectory(userRoot, repoId), `${agentId}.json`);
-  assertLocalAgentDirectory(path.dirname(target));
+  const directory = localAgentDirectory(userRoot, repoId),
+    target = path.join(directory, `${agentId}.json`);
+  if (
+    lstatSync(path.dirname(directory), { throwIfNoEntry: false })?.isSymbolicLink() ||
+    lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink()
+  )
+    throw new Error("Local Agent storage cannot traverse a symbolic link.");
   if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink())
     throw new Error("Local Agent storage cannot remove a symbolic link.");
   const current = readLocalAgentRecord(userRoot, repoId, agentId);
@@ -203,12 +206,4 @@ function localAgentDirectory(userRoot: string, repoId: string): string {
   if (lstatSync(directory, { throwIfNoEntry: false })?.isSymbolicLink())
     throw new Error("Local Agent storage cannot traverse a symbolic link.");
   return directory;
-}
-
-function assertLocalAgentDirectory(directory: string): void {
-  const parent = path.dirname(directory),
-    parentStat = lstatSync(parent, { throwIfNoEntry: false }),
-    directoryStat = lstatSync(directory, { throwIfNoEntry: false });
-  if (parentStat?.isSymbolicLink() || directoryStat?.isSymbolicLink())
-    throw new Error("Local Agent storage cannot traverse a symbolic link.");
 }

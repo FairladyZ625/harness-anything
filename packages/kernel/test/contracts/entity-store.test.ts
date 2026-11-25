@@ -177,7 +177,7 @@ test("Agent declaration scope preserves omitted historical declarations and reso
     localDeclarationMatchesSharedValue,
     requestedAgentScopeFromAction,
     resolveAgentScope,
-  } = await import("../../src/domain/agent-scope.ts");
+  } = await import("../../src/domain/agent-squad-schema.ts");
   assert.equal(parseAgentDeclarationV1(agent).scope, undefined);
   assert.equal(resolveAgentScope(parseAgentDeclarationV1(agent).scope), "shared");
   assert.equal(parseAgentDeclarationV1({ ...agent, scope: "local" }).scope, "local");

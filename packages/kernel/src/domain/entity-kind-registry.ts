@@ -1463,17 +1463,6 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     authoring: genericAuthoring,
     sdkExposure: noSdkExposure,
     policies: [daemonAgentPolicy],
-    ontologyExemptions: [
-      {
-        id: "local-agent-storage-symlink-guard",
-        category: "judgment",
-        candidateId:
-          "judgment:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#assertLocalAgentDirectory:f2000f7b2c14af3ef48b4859e1002190",
-        reason: "The daemon adapter enforces a filesystem traversal guard at the local user-state boundary. It is a technical predicate rather than a domain judgment and has no kernel consumer.",
-        reviewer: "task_9c7b8ee6ffeb6c26b56511dcd8",
-        expiresOn: "2027-02-28",
-      },
-    ],
   },
   {
     kind: "squad",

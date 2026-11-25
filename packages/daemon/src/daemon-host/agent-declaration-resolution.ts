@@ -120,6 +120,13 @@ export function storedAgentDeclarationOutcome<T>(input: {
   return value === null || value === undefined ? { kind: "missing" } : { kind: "ok", value };
 }
 
+export class AgentScopeConflictError extends Error {
+  readonly code = "agent_scope_conflict" as const;
+  constructor(agentId: string) {
+    super(`Agent ${agentId} exists in both local and shared scope.`);
+  }
+}
+
 export function readAgentDeclarationResolution(input: {
   readonly rootDir: string;
   readonly agentId: string;
@@ -148,9 +155,7 @@ export function readAgentDeclarationResolution(input: {
     stored &&
     !localDeclarationMatchesSharedValue(localRecord.declaration, stored.value, localRecord.pendingTransfer)
   )
-    throw Object.assign(new Error(`Agent ${input.agentId} exists in both local and shared scope.`), {
-      code: "agent_scope_conflict",
-    });
+    throw new AgentScopeConflictError(input.agentId);
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
   if (localRecord) return { declaration: localRecord.declaration, layer: "local" };
   const bundled = input.verticalId ? readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir) : null;

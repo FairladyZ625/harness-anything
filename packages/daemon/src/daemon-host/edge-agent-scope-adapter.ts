@@ -187,7 +187,7 @@ export async function runEdgeAgentScopeAction(input: {
         repoId,
         binding,
         actionId: opId,
-        evaluatedAtCut: "daemon-registry:current",
+        evaluatedAtCut: `local-agent:${repoId}:${localRecord.revision}`,
       });
     if (authorizationDecision.outcome !== "allowed") return deniedEdgeReceipt(action, opId, authorizationDecision);
     const deleted = executeAgentScopeDelete(
@@ -247,13 +247,17 @@ export async function runEdgeAgentScopeAction(input: {
       localAgent: (id) => localStore.get(id),
     }),
     declaration = prepared.declaration as AgentDeclarationV1,
-    opId = edgeOperationId(action, binding, repoId, shared?.revision ?? 0),
+    localRecord = localStore.get(agentId),
+    opId = edgeOperationId(action, binding, repoId, shared?.revision ?? localRecord?.revision ?? 0),
     authorizationDecision = await evaluateFleetAction({
       kind: "agent-install",
       repoId,
       binding,
       actionId: opId,
-      evaluatedAtCut: "daemon-registry:current",
+      evaluatedAtCut:
+        shared !== null
+          ? `edge-mirror:${repoId}:${shared.watermark}`
+          : `local-agent:${repoId}:${localRecord?.revision ?? 0}`,
     });
   if (authorizationDecision.outcome !== "allowed") return deniedEdgeReceipt(action, opId, authorizationDecision);
   const installContract = getExecutableEntityAction("agent-install")!;
