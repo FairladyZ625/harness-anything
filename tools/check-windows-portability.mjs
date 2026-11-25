@@ -299,9 +299,9 @@ function detectUnguardedCmdSpawn(node, source, relativePath, bindings) {
   if (classification === null) return null;
 
   const optionsArg = extractSpawnOptionsArg(node);
-  if (optionsArg && hasEnabledShellOption(optionsArg)) return null;
+  if (optionsArg && optionsEnableShell(optionsArg)) return null;
 
-  if (classification === "bare-npm" && isGuardedAgainstWin32(node, source)) return null;
+  if (classification === "bare-npm" && enclosingWin32GuardPresent(node, source)) return null;
 
   const pos = lineCol(source, node.getStart(source));
   const cmdDisplay = cmdArg.getText(source).replace(/\s+/gu, " ");
@@ -324,7 +324,7 @@ function extractSpawnOptionsArg(callNode) {
   return null;
 }
 
-function hasEnabledShellOption(optionsNode) {
+function optionsEnableShell(optionsNode) {
   const unwrapped = unwrapExpression(optionsNode);
   if (!ts.isObjectLiteralExpression(unwrapped)) return false;
   for (const prop of unwrapped.properties) {
@@ -346,7 +346,7 @@ function hasEnabledShellOption(optionsNode) {
 
 function expressionProvidesEnabledShell(expr) {
   const unwrapped = unwrapExpression(expr);
-  if (ts.isObjectLiteralExpression(unwrapped)) return hasEnabledShellOption(unwrapped);
+  if (ts.isObjectLiteralExpression(unwrapped)) return optionsEnableShell(unwrapped);
   if (ts.isConditionalExpression(unwrapped)) {
     return expressionProvidesEnabledShell(unwrapped.whenTrue) || expressionProvidesEnabledShell(unwrapped.whenFalse);
   }
@@ -358,7 +358,7 @@ function expressionProvidesEnabledShell(expr) {
 
 function detectUnguardedPosixModeAssertion(node, source, relativePath) {
   if (!ts.isCallExpression(node)) return null;
-  if (!isModeEqualityAssertion(node, source)) return null;
+  if (!matchesModeEqualityAssertion(node, source)) return null;
 
   const callText = node.getText(source);
   if (!MODE_CONTEXT_PATTERN.test(callText)) return null;
@@ -366,7 +366,7 @@ function detectUnguardedPosixModeAssertion(node, source, relativePath) {
   const unguardedOctal = findUnguardedPosixModeLiteral(node, source);
   if (!unguardedOctal) return null;
 
-  if (isGuardedAgainstWin32(node, source)) return null;
+  if (enclosingWin32GuardPresent(node, source)) return null;
 
   const pos = lineCol(source, node.getStart(source));
   return {
@@ -379,7 +379,7 @@ function detectUnguardedPosixModeAssertion(node, source, relativePath) {
   };
 }
 
-function isModeEqualityAssertion(callNode, source) {
+function matchesModeEqualityAssertion(callNode, source) {
   const exprText = callNode.expression.getText(source);
   if (ASSERT_EQUAL_CALLEE_PATTERN.test(exprText)) return true;
   if (
@@ -420,7 +420,7 @@ function findUnguardedPosixModeLiteral(callNode, source) {
   return found;
 }
 
-function isGuardedAgainstWin32(node, source) {
+function enclosingWin32GuardPresent(node, source) {
   let child = node;
   for (let current = node.parent; current; child = current, current = current.parent) {
     if (ts.isIfStatement(current)) {
@@ -453,10 +453,10 @@ function isGuardedAgainstWin32(node, source) {
     if (ts.isBlock(current) || ts.isSourceFile(current)) {
       for (const stmt of current.statements) {
         if (stmt.pos >= child.pos) break;
-        if (isEarlyExitWin32Guard(stmt, source)) return true;
+        if (statementExitsEarlyOnWin32(stmt, source)) return true;
       }
     }
-    if (ts.isCallExpression(current) && isWin32SkippedTestCall(current, source)) {
+    if (ts.isCallExpression(current) && testCallSkipsWin32(current, source)) {
       return true;
     }
   }
@@ -472,14 +472,14 @@ function conditionChecksWin32(expr, source) {
   return null;
 }
 
-function isEarlyExitWin32Guard(stmt, source) {
+function statementExitsEarlyOnWin32(stmt, source) {
   if (!ts.isIfStatement(stmt)) return false;
   if (conditionChecksWin32(stmt.expression, source) !== "is-win32") return false;
   const body = stmt.thenStatement.getText(source);
   return /\b(?:return|continue|skip)\b/u.test(body);
 }
 
-function isWin32SkippedTestCall(callNode, source) {
+function testCallSkipsWin32(callNode, source) {
   const callee = callNode.expression.getText(source);
   if (!TEST_RUNNER_CALLEE_PATTERN.test(callee)) return false;
   for (const arg of callNode.arguments) {
