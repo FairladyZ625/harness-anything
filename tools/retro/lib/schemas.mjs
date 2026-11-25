@@ -71,7 +71,7 @@ export function classifyDiffSizeBucket(diffLines) {
   return "l";
 }
 
-function validateReplayRef(replayRef, label) {
+function collectReplayRefIssues(replayRef, label) {
   const issues = [];
   if (!replayRef || typeof replayRef !== "object" || Array.isArray(replayRef)) {
     return [`${label}: replayRef must be an object`];
@@ -148,7 +148,7 @@ export function collectRetroCaseIssues(doc, options = {}) {
       if (!VALID_DIFF_SIZE_BUCKETS.includes(entry.diffSizeBucket)) {
         issues.push(`${label}: invalid diffSizeBucket ${String(entry.diffSizeBucket)}`);
       }
-      issues.push(...validateReplayRef(entry.replayRef, label));
+      issues.push(...collectReplayRefIssues(entry.replayRef, label));
       if (entry.metadata?.findingLabels !== undefined) {
         if (
           !Array.isArray(entry.metadata.findingLabels) ||

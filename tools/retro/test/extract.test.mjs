@@ -16,8 +16,8 @@ import {
 } from "../extract.mjs";
 import {
   SanitizeError,
-  assertNoPrivateLeakage,
   findRetroPrivateLeakage,
+  rejectPrivateLeakage,
   sanitizeRetroCase,
   sanitizeText,
 } from "../lib/sanitize.mjs";
@@ -563,8 +563,8 @@ test("committed tools/retro/datasets/{tuning,holdout}.json are valid, leak-free,
 
   assert.deepEqual(collectRetroCaseIssues(tuningDoc), []);
   assert.deepEqual(collectRetroCaseIssues(holdoutDoc), []);
-  assert.doesNotThrow(() => assertNoPrivateLeakage(tuningDoc, "tuning.json"));
-  assert.doesNotThrow(() => assertNoPrivateLeakage(holdoutDoc, "holdout.json"));
+  assert.doesNotThrow(() => rejectPrivateLeakage(tuningDoc, "tuning.json"));
+  assert.doesNotThrow(() => rejectPrivateLeakage(holdoutDoc, "holdout.json"));
 
   const tuningIds = new Set(tuningDoc.cases.map((c) => c.id));
   const holdoutIds = new Set(holdoutDoc.cases.map((c) => c.id));

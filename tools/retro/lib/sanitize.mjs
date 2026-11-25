@@ -191,8 +191,8 @@ export function sanitizeRetroCase(rawCase, options = {}) {
   return sanitized;
 }
 
-/** Assert zero private leakage across a complete dataset document; throws SanitizeError on any hit. */
-export function assertNoPrivateLeakage(document, label = "dataset", options = {}) {
+/** Reject any private leakage across a complete dataset document; throws SanitizeError on any hit. */
+export function rejectPrivateLeakage(document, label = "dataset", options = {}) {
   const scan = findRetroPrivateLeakage(document, options);
   if (!scan.ok) {
     const summary = scan.hits.map((hit) => `${hit.rule}:${hit.match}`).join(", ");

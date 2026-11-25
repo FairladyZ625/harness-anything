@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -10,8 +10,8 @@ import { makeTaskProjectionReader } from "@harness-anything/storage/projection";
 import { loadEvalCases } from "../evals/closeout-reviewer/run-eval.mjs";
 import {
   SanitizeError,
-  assertNoPrivateLeakage,
   findRetroPrivateLeakage,
+  rejectPrivateLeakage,
   sanitizeRetroCase,
   sanitizeText,
 } from "./lib/sanitize.mjs";
@@ -34,6 +34,7 @@ const EXIT_GATE_FAILURE = 1;
 const EXIT_INVALID_INPUT = 2;
 const EXIT_BUDGET_EXCEEDED = 3;
 
+const DEFAULT_RISK_TIER = "medium";
 const DEFAULT_SPLIT_SALT = "retro-v1";
 const DEFAULT_HOLDOUT_RATIO = 0.4;
 const DEFAULT_SINCE_DAYS = 60;
@@ -66,14 +67,23 @@ class ExtractError extends Error {
   }
 }
 
+function persistUtf8FileSync(targetPath, content) {
+  const fd = openSync(targetPath, "w");
+  try {
+    writeSync(fd, content, undefined, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Deterministic 60/40 (or configurable) split assignment keyed on `sha256(caseId + ":" + splitSalt)`. */
 export function assignDeterministicSplit(caseId, splitSalt = DEFAULT_SPLIT_SALT, holdoutRatio = DEFAULT_HOLDOUT_RATIO) {
-  const digest = createHash("sha256").update(`${caseId}:${splitSalt}`).digest();
+  const digest = hash("sha256", `${caseId}:${splitSalt}`, "buffer");
   return digest.readUInt32BE(0) / 0x100000000 < holdoutRatio ? "holdout" : "tuning";
 }
 
 function shortOpaqueHash(input) {
-  return createHash("sha256").update(input).digest("hex").slice(0, 12);
+  return hash("sha256", input, "hex").slice(0, 12);
 }
 
 function runGit(cwd, args, options = {}) {
@@ -528,7 +538,7 @@ function buildGitRevertCase(revert, diffResult, baseSha, splitSalt) {
         primaryText: cleanSubject,
         fallbackTerms: ["revert", "regression", "correctness"],
       }),
-      taskContext: { workKind: "fix", riskTier: "medium", summary: sanitizeText(cleanSubject).slice(0, 240) },
+      taskContext: { workKind: "fix", riskTier: DEFAULT_RISK_TIER, summary: sanitizeText(cleanSubject).slice(0, 240) },
       diff: diffResult.diff,
       origin: "git-revert",
       split: "tuning",
@@ -612,7 +622,7 @@ export function matchNegativeControlsBySizeBucket(positives, cleanCandidates) {
 
 function loadSeedCases(seedsPath) {
   const rawSeed = JSON.parse(readFileSync(seedsPath, "utf8"));
-  assertNoPrivateLeakage(rawSeed, seedsPath);
+  rejectPrivateLeakage(rawSeed, seedsPath);
   return loadEvalCases(seedsPath).cases.map((entry) => {
     const diffLines = countEffectiveDiffLines(entry.diff);
     return sanitizeRetroCase({
@@ -642,7 +652,7 @@ export function verifyDatasetFile(datasetPath) {
       "invalid_json",
     );
   }
-  assertNoPrivateLeakage(parsed, resolved);
+  rejectPrivateLeakage(parsed, resolved);
   const issues = collectRetroCaseIssues(parsed);
   if (issues.length > 0) {
     throw new ExtractError(`Dataset validation failed (${resolved}):\n- ${issues.join("\n- ")}`, EXIT_GATE_FAILURE);
@@ -925,7 +935,7 @@ function extractFromLiveRepo(options, checkBudget) {
         sortKey: `git:${commit.commitSha}`,
         title: commit.subject,
         workKind: "fix",
-        riskTier: "medium",
+        riskTier: DEFAULT_RISK_TIER,
         taskId: commit.taskId,
         baseSha,
         headSha: commit.commitSha,
@@ -961,10 +971,10 @@ export function runExtract(options = {}) {
   const nowMs = options.nowMs ?? (() => Date.now());
   const startedAtMs = nowMs();
   const maxWallMs = options.maxWallMs ?? null;
-  let budgetTruncated = false;
-  const checkBudget = () => {
+  let wallClockTruncated = false;
+  const wallClockExceeded = () => {
     if (maxWallMs !== null && nowMs() - startedAtMs >= maxWallMs) {
-      budgetTruncated = true;
+      wallClockTruncated = true;
       return true;
     }
     return false;
@@ -1004,13 +1014,13 @@ export function runExtract(options = {}) {
       );
     }
     extracted = {
-      ...extractFromSnapshot(snapshot, { splitSalt, maxPositives }, checkBudget),
+      ...extractFromSnapshot(snapshot, { splitSalt, maxPositives }, wallClockExceeded),
       projectionSource: "snapshot-file",
     };
   } else {
     extracted = extractFromLiveRepo(
       { repoRoot, projectionPath: options.projectionPath, sinceIso, splitSalt, maxPositives, maxTasksScan },
-      checkBudget,
+      wallClockExceeded,
     );
   }
 
@@ -1111,34 +1121,33 @@ export function runExtract(options = {}) {
     throw new ExtractError(`Dataset validation failed:\n- ${allIssues.join("\n- ")}`, EXIT_GATE_FAILURE);
   }
 
-  assertNoPrivateLeakage(tuningDoc, "tuning.json");
-  assertNoPrivateLeakage(holdoutDoc, "holdout.json");
+  rejectPrivateLeakage(tuningDoc, "tuning.json");
+  rejectPrivateLeakage(holdoutDoc, "holdout.json");
 
   const tuningJson = `${JSON.stringify(tuningDoc, null, 2)}\n`;
   const holdoutJson = `${JSON.stringify(holdoutDoc, null, 2)}\n`;
-  const tuningSha256 = createHash("sha256").update(tuningJson, "utf8").digest("hex");
-  const holdoutSha256 = createHash("sha256").update(holdoutJson, "utf8").digest("hex");
+  const tuningSha256 = hash("sha256", tuningJson, "hex");
+  const holdoutSha256 = hash("sha256", holdoutJson, "hex");
 
   if (!dryRun) {
     mkdirSync(outDir, { recursive: true });
-    writeFileSync(tuningPath, tuningJson, "utf8");
-    writeFileSync(holdoutPath, holdoutJson, "utf8");
+    persistUtf8FileSync(tuningPath, tuningJson);
+    persistUtf8FileSync(holdoutPath, holdoutJson);
     mkdirSync(path.dirname(sourceMapPath), { recursive: true });
     const sortedSourceMap = Object.fromEntries(Object.entries(sourceMap).sort(([a], [b]) => a.localeCompare(b, "en")));
-    writeFileSync(
+    persistUtf8FileSync(
       sourceMapPath,
       `${JSON.stringify({ schema: "retro-source-map/v1", splitSalt, entries: sortedSourceMap }, null, 2)}\n`,
-      "utf8",
     );
   }
 
   const combinedCases = [...tuningDoc.cases, ...holdoutDoc.cases];
   return {
     ok: true,
-    exitCode: budgetTruncated ? EXIT_BUDGET_EXCEEDED : EXIT_OK,
+    exitCode: wallClockTruncated ? EXIT_BUDGET_EXCEEDED : EXIT_OK,
     schema: RETRO_CASES_SCHEMA,
     dryRun,
-    budgetTruncated,
+    budgetTruncated: wallClockTruncated,
     projectionSource: extracted.projectionSource,
     watermark: extracted.watermark,
     splitSalt,

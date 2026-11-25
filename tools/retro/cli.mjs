@@ -16,11 +16,13 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { runExtractCli } from "./extract.mjs";
 
+const BUDGET_EXIT_CODE = 3;
+
 export const EXIT_CODES = Object.freeze({
   OK: 0,
   GATE_FAILURE: 1,
   INVALID_INPUT: 2,
-  BUDGET_EXCEEDED: 3,
+  BUDGET_EXCEEDED: BUDGET_EXIT_CODE,
 });
 
 export const SUBCOMMANDS = Object.freeze(["extract", "eval", "distill", "audit", "prune"]);
