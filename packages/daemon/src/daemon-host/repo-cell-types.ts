@@ -471,6 +471,11 @@ export interface RepoCell {
     taskIds: readonly string[],
     signal?: AbortSignal,
   ) => Promise<readonly TaskAuthorizationMetadata[]>;
+  /** O(1) batched IPC read returning the requested tasks plus their complete parent-chain metadata closure. */
+  readonly readTaskAuthorizationAncestry?: (
+    taskIds: readonly string[],
+    signal?: AbortSignal,
+  ) => Promise<readonly TaskAuthorizationMetadata[]>;
   /** Assignment edges and actor witnesses read from one authorized projection cut. */
   readonly readNodeAutoClaimAssignments: (
     binding: RepoCellBinding,

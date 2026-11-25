@@ -364,6 +364,19 @@ export class BuiltinPolicyAdapter
     const session = findSession(readState(this.#root), input.userAccessToken);
     return this.#decision(session?.personId, input.action, input.resource, input.resourceAncestors);
   }
+  async authorizeBatch(input: {
+    readonly userAccessToken: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }): Promise<readonly BuiltinPermissionDecision[]> {
+    const state = readState(this.#root),
+      session = findSession(state, input.userAccessToken);
+    return this.#decisionBatch(state, session?.personId, input.action, input.targets, Boolean(input.shortCircuit));
+  }
   async authorizePerson(input: {
     readonly adminAccessToken: string;
     readonly personId: string;
@@ -373,6 +386,25 @@ export class BuiltinPolicyAdapter
   }): Promise<BuiltinPermissionDecision> {
     this.#assertCenter(input.adminAccessToken);
     return this.#decision(input.personId, input.action, input.resource, input.resourceAncestors);
+  }
+  async authorizePersonBatch(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }): Promise<readonly BuiltinPermissionDecision[]> {
+    this.#assertCenter(input.adminAccessToken);
+    return this.#decisionBatch(
+      readState(this.#root),
+      input.personId,
+      input.action,
+      input.targets,
+      Boolean(input.shortCircuit),
+    );
   }
   async validateUserAccessToken(token: string, personId: string): Promise<boolean> {
     return findSession(readState(this.#root), token)?.personId === personId;
@@ -470,6 +502,59 @@ export class BuiltinPolicyAdapter
     )
       return Object.freeze({ outcome: "allowed", reasonCode: "builtin_allowed", resource, scope: action });
     return denied(this.deniedReasonCode);
+  }
+  async #decisionBatch(
+    state: BuiltinState,
+    personId: string | undefined,
+    action: string,
+    targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[],
+    shortCircuit: boolean,
+  ): Promise<readonly BuiltinPermissionDecision[]> {
+    if (targets.length === 0) return [];
+    const deniedFor = (resource: string, reasonCode: string): BuiltinPermissionDecision =>
+      Object.freeze({ outcome: "denied", reasonCode, resource, scope: action });
+    const artifactScopes = await this.#readArtifactActionScopes();
+    if (!this.#knownScopes.has(action) && !artifactScopes.includes(action)) {
+      return shortCircuit
+        ? [deniedFor(encodeAuthorizationResource(targets[0]!.resource), "unknown_scope")]
+        : targets.map((target) => deniedFor(encodeAuthorizationResource(target.resource), "unknown_scope"));
+    }
+    const user = personId && state.owner?.personId === personId ? state.owner : undefined;
+    if (!user) {
+      return shortCircuit
+        ? [deniedFor(encodeAuthorizationResource(targets[0]!.resource), this.deniedReasonCode)]
+        : targets.map((target) => deniedFor(encodeAuthorizationResource(target.resource), this.deniedReasonCode));
+    }
+    switch (action) {
+      case "daemon-fleet-center-start":
+      case "daemon-fleet-edge-sync":
+      case "daemon-node-auto-claim":
+      case "daemon-connection-add":
+      case "daemon-connection-update":
+      case "daemon-connection-remove":
+      case "daemon-connection-probe":
+        throw identityPluginRequired();
+    }
+    const grantedResources = new Set(
+      this.#grants(state, artifactScopes)
+        .filter((grant) => grant.userIds.includes(user.userId) && grant.scopes.includes(action))
+        .map((grant) => grant.resource),
+    );
+    const decisions: BuiltinPermissionDecision[] = [];
+    for (const target of targets) {
+      const resource = encodeAuthorizationResource(target.resource),
+        covered = coveringResources(target.resource, target.resourceAncestors ?? []),
+        granted = covered.some((candidate) => grantedResources.has(candidate));
+      const decision: BuiltinPermissionDecision = granted
+        ? Object.freeze({ outcome: "allowed", reasonCode: "builtin_allowed", resource, scope: action })
+        : deniedFor(resource, this.deniedReasonCode);
+      decisions.push(decision);
+      if (!granted && shortCircuit) break;
+    }
+    return decisions;
   }
   #grants(state: BuiltinState, artifactScopes: readonly string[] = registeredArtifactActionPolicyActions()) {
     if (state.grants) return state.grants;
