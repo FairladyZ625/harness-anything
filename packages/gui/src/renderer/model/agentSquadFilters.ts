@@ -23,6 +23,7 @@ export interface AgentSquadFilters {
   /** Agent 生命周期分类:active=在用(默认,退役项不混入);retired=只看已退役。
    *  只作用于 Agent 段;降级行是健康信号,恒保留在 active 侧。 */
   readonly lifecycle: "active" | "retired";
+  readonly scope: "all" | "local" | "shared";
 }
 
 export const DEFAULT_AGENT_SQUAD_FILTERS: AgentSquadFilters = {
@@ -32,6 +33,7 @@ export const DEFAULT_AGENT_SQUAD_FILTERS: AgentSquadFilters = {
   layers: [],
   inSquadOnly: false,
   lifecycle: "active",
+  scope: "all",
 };
 
 export const hasActiveAgentSquadFilters = (filters: AgentSquadFilters) =>
@@ -40,7 +42,8 @@ export const hasActiveAgentSquadFilters = (filters: AgentSquadFilters) =>
   filters.runtimeKinds.length > 0 ||
   filters.layers.length > 0 ||
   filters.inSquadOnly ||
-  filters.lifecycle !== DEFAULT_AGENT_SQUAD_FILTERS.lifecycle;
+  filters.lifecycle !== DEFAULT_AGENT_SQUAD_FILTERS.lifecycle ||
+  filters.scope !== DEFAULT_AGENT_SQUAD_FILTERS.scope;
 
 const substring = (query: string, fields: readonly (string | null)[]) =>
   query === "" || fields.some((field) => field !== null && field.toLowerCase().includes(query));
@@ -87,6 +90,7 @@ export function filterAgents(
     if (!isAvailableAgentEntityRow(row)) return filters.lifecycle === "active";
     const retired = row.retirement !== null;
     if ((filters.lifecycle === "retired") !== retired) return false;
+    if (filters.scope !== "all" && (row.scope ?? "shared") !== filters.scope) return false;
     if (!substring(query, [row.name, row.id])) return false;
     if (filters.roles.length > 0 && !filters.roles.includes(row.role)) return false;
     if (filters.runtimeKinds.length > 0 && !row.runtimes.some((target) => filters.runtimeKinds.includes(target.type)))

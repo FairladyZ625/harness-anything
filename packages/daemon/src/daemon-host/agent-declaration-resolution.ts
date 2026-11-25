@@ -1,5 +1,6 @@
 import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
+import { readLocalAgentRecord } from "./local-agent-store.ts";
 import {
   withoutLegacyAgentInstanceBindings,
   type AgentState,
@@ -7,6 +8,7 @@ import {
 import {
   consumeKnownError,
   entitySlug,
+  localDeclarationMatchesSharedValue,
   parseAgentDeclarationV1,
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";
@@ -30,7 +32,7 @@ export function readProjectedAgentDeclaration(value: unknown): ProjectedAgentDec
 
 export interface AgentDeclarationResolution {
   readonly declaration: ProjectedAgentDeclaration;
-  readonly layer: "installed" | "bundled";
+  readonly layer: "local" | "installed" | "bundled";
 }
 
 export const agentDeclarationInvalidCode = "agent_declaration_invalid" as const;
@@ -118,13 +120,26 @@ export function storedAgentDeclarationOutcome<T>(input: {
   return value === null || value === undefined ? { kind: "missing" } : { kind: "ok", value };
 }
 
+export class AgentScopeConflictError extends Error {
+  readonly code = "agent_scope_conflict" as const;
+  constructor(agentId: string) {
+    super(`Agent ${agentId} exists in both local and shared scope.`);
+  }
+}
+
 export function readAgentDeclarationResolution(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly userRoot?: string;
+  readonly repoId?: string;
   readonly verticalId?: string;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
+  const localRecord =
+    input.userRoot !== undefined && input.repoId !== undefined
+      ? readLocalAgentRecord(input.userRoot, input.repoId, input.agentId)
+      : null;
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
   let stored: ReturnType<AgentDeclarationReader["get"]>;
   try {
@@ -135,7 +150,14 @@ export function readAgentDeclarationResolution(input: {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
     throw agentDeclarationInvalidError(input.agentId, error);
   }
+  if (
+    localRecord &&
+    stored &&
+    !localDeclarationMatchesSharedValue(localRecord.declaration, stored.value, localRecord.pendingTransfer)
+  )
+    throw new AgentScopeConflictError(input.agentId);
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
+  if (localRecord) return { declaration: localRecord.declaration, layer: "local" };
   const bundled = input.verticalId ? readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir) : null;
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }
@@ -144,6 +166,8 @@ export function readAgentDeclaration(input: {
   readonly rootDir: string;
   readonly agentId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly userRoot?: string;
+  readonly repoId?: string;
   readonly verticalId?: string;
 }): ProjectedAgentDeclaration {
   const resolved = readAgentDeclarationResolution(input);

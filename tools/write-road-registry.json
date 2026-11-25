@@ -101,6 +101,7 @@
   ],
   "physicalWriteFiles": [
     "packages/daemon/src/daemon-host/agent-declaration-migration.ts",
+    "packages/daemon/src/daemon-host/local-agent-store.ts",
     "packages/daemon/src/daemon-host/agent-runtime-instance-storage.ts",
     "packages/daemon/src/daemon-host/agent-runtime-instance-store.ts",
     "packages/daemon/src/daemon-host/client/daemon-autostart.ts",

@@ -1,5 +1,6 @@
 import { readAnyBundledAgentDeclaration } from "@harness-anything/preset";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { type LocalAgentRecord } from "./local-agent-store.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -10,6 +11,8 @@ import {
   attributeEntityActionCriterion,
   consumeKnownError,
   getExecutableEntityAction,
+  localDeclarationMatchesSharedValue,
+  resolveAgentScope,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import {
@@ -38,6 +41,7 @@ export {
 } from "./agent-declaration-resolution.ts";
 import {
   entitySlug,
+  parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   resolveAgentHostAccess,
   validateScheduleV1,
@@ -60,6 +64,7 @@ export interface AgentEntityGuiRetirement {
 export interface AgentEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
+  readonly scope?: "local" | "shared";
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
@@ -99,6 +104,7 @@ export function isAvailableSquadEntityGuiRow(row: SquadEntityGuiRow): row is Squ
 export interface AgentEntityGuiDetail {
   readonly id: string;
   readonly name: string;
+  readonly scope?: "local" | "shared";
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly role: AgentRole;
   readonly instructions: string;
@@ -151,6 +157,8 @@ export interface PreparedAgentEntityInstall {
   readonly kind: AgentEntityKind;
   readonly declaration: AgentDeclarationV1 | SquadDeclarationV1;
   readonly body: string;
+  readonly sharedAgentRevision?: number;
+  readonly sharedAgentValue?: Readonly<Record<string, unknown>>;
   readonly report: {
     readonly schema: "agent-install-report/v1" | "squad-install-report/v1";
     readonly entityId: string;
@@ -192,6 +200,7 @@ export function readAgentEntityGuiProjection<
   readonly kind: K;
   readonly entityId?: string;
   readonly projection: Pick<TaskProjection, "listEntities" | "getEntity">;
+  readonly localAgents?: readonly LocalAgentRecord[];
 }): K extends "agent-list"
   ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-catalog/v1" }>
   : K extends "squad-list"
@@ -200,11 +209,34 @@ export function readAgentEntityGuiProjection<
       ? Extract<AgentEntityGuiRead, { readonly schema: "agent-entity-detail/v1" }>
       : Extract<AgentEntityGuiRead, { readonly schema: "squad-entity-detail/v1" }> {
   if (input.kind === "agent-list") {
-    const entities = readyEntityList(input.projection, "agent");
+    const entities = readyEntityList(input.projection, "agent"),
+      localAgents = (input.localAgents ?? []).filter(({ declaration, pendingTransfer }) => {
+        const shared = input.projection.getEntity("agent", declaration.id);
+        if (shared === null) return true;
+        if (!localDeclarationMatchesSharedValue(declaration, shared.value, pendingTransfer))
+          throw entityError("agent_scope_conflict", `Agent ${declaration.id} exists in both local and shared scope.`);
+        return false;
+      });
     return {
       schema: "agent-entity-catalog/v1",
       ok: true,
-      agents: entities.map((row) => agentEntityCatalogRow(row)),
+      agents: [
+        ...entities.map((row) => agentEntityCatalogRow(row)),
+        ...localAgents.map(({ declaration: agent }) => ({
+          id: agent.id,
+          name: agent.name,
+          scope: "local" as const,
+          runtimes: agent.runtimes,
+          instance: null,
+          permissionMode: agent.permissionMode ?? null,
+          mcpPolicy: agent.mcpPolicy ?? null,
+          ...(agent.selectionStrategy === undefined ? {} : { selectionStrategy: agent.selectionStrategy }),
+          ...resolveAgentHostAccess(agent.hostAccess),
+          role: agent.role ?? "worker",
+          layer: "user" as const,
+          retirement: null,
+        })),
+      ],
     } as never;
   }
   if (input.kind === "squad-list") {
@@ -218,6 +250,40 @@ export function readAgentEntityGuiProjection<
   }
   const entityId = requiredEntityText(input.entityId, "entityId");
   if (input.kind === "agent-inspect") {
+    const localRecord = input.localAgents?.find((record) => record.declaration.id === entityId),
+      shared = input.projection.getEntity("agent", entityId);
+    if (
+      localRecord &&
+      shared &&
+      !localDeclarationMatchesSharedValue(localRecord.declaration, shared.value, localRecord.pendingTransfer)
+    )
+      throw entityError("agent_scope_conflict", `Agent ${entityId} exists in both local and shared scope.`);
+    if (localRecord && shared === null) {
+      const local = localRecord.declaration;
+      const hostAccess = resolveAgentHostAccess(local.hostAccess);
+      return {
+        schema: "agent-entity-detail/v1",
+        ok: true,
+        agent: {
+          id: local.id,
+          name: local.name,
+          scope: "local" as const,
+          runtimes: local.runtimes,
+          instance: null,
+          permissionMode: local.permissionMode ?? null,
+          mcpPolicy: local.mcpPolicy ?? null,
+          ...(local.selectionStrategy === undefined ? {} : { selectionStrategy: local.selectionStrategy }),
+          ...hostAccess,
+          role: local.role ?? "worker",
+          instructions: local.instructions,
+          skills: local.skills ?? [],
+          prompts: local.prompts ?? [],
+          preset: local.preset ?? null,
+          revision: localRecord.revision,
+          retirement: null,
+        },
+      } as never;
+    }
     const row = readyEntityRow(input.projection, "agent", entityId);
     let agent: ProjectedAgentDeclaration;
     try {
@@ -234,6 +300,7 @@ export function readAgentEntityGuiProjection<
       agent: {
         id: agent.id,
         name: agent.name,
+        ...(agent.scope === undefined ? {} : { scope: agent.scope }),
         runtimes: agent.runtimes,
         instance: null,
         permissionMode: agent.permissionMode ?? null,
@@ -357,6 +424,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
   return {
     id: agent.id,
     name: agent.name,
+    ...(agent.scope === undefined ? {} : { scope: agent.scope }),
     runtimes: agent.runtimes,
     instance: null,
     permissionMode: agent.permissionMode ?? null,
@@ -446,13 +514,22 @@ export function readSquadDeclaration(input: {
   readonly rootDir: string;
   readonly squadId: string;
   readonly entityStore?: AgentDeclarationReader;
+  readonly userRoot?: string;
+  readonly repoId?: string;
   readonly verticalId?: string;
 }): SquadDeclarationV1 {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir),
     squad = parseSquadDeclarationV1(readStoredDeclaration(input.rootDir, "squad", input.squadId, entityStore)),
     missing = [squad.leader, ...squad.workers].filter((id) => {
       try {
-        readAgentDeclaration({ rootDir: input.rootDir, agentId: id, entityStore, verticalId: input.verticalId });
+        readAgentDeclaration({
+          rootDir: input.rootDir,
+          agentId: id,
+          entityStore,
+          userRoot: input.userRoot,
+          repoId: input.repoId,
+          verticalId: input.verticalId,
+        });
         return false;
       } catch (error) {
         consumeKnownError(error);
@@ -479,6 +556,8 @@ export function resolveSquadDispatch(input: {
   readonly entityStore?: AgentDeclarationReader & {
     readonly list: (kind: string) => readonly { readonly id: string; readonly value: unknown }[];
   };
+  readonly userRoot?: string;
+  readonly repoId?: string;
   readonly verticalId?: string;
 }): SquadDispatchSelection {
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
@@ -487,6 +566,8 @@ export function resolveSquadDispatch(input: {
       rootDir: input.rootDir,
       squadId: input.squadId,
       entityStore,
+      userRoot: input.userRoot,
+      repoId: input.repoId,
       verticalId: input.verticalId,
     });
     if (squad.leader !== input.leaderId)
@@ -499,6 +580,8 @@ export function resolveSquadDispatch(input: {
         rootDir: input.rootDir,
         agentId: squad.leader,
         entityStore,
+        userRoot: input.userRoot,
+        repoId: input.repoId,
         verticalId: input.verticalId,
       }),
       worker: input.workerId
@@ -506,6 +589,8 @@ export function resolveSquadDispatch(input: {
             rootDir: input.rootDir,
             agentId: input.workerId,
             entityStore,
+            userRoot: input.userRoot,
+            repoId: input.repoId,
             verticalId: input.verticalId,
           })
         : null,
@@ -521,15 +606,26 @@ export function resolveSquadDispatch(input: {
         rootDir: input.rootDir,
         agentId: squad.leader,
         entityStore,
+        userRoot: input.userRoot,
+        repoId: input.repoId,
         verticalId: input.verticalId,
       }),
       worker = readAgentDeclaration({
         rootDir: input.rootDir,
         agentId: input.workerId,
         entityStore,
+        userRoot: input.userRoot,
+        repoId: input.repoId,
         verticalId: input.verticalId,
       });
-    readSquadDeclaration({ rootDir: input.rootDir, squadId, entityStore, verticalId: input.verticalId });
+    readSquadDeclaration({
+      rootDir: input.rootDir,
+      squadId,
+      entityStore,
+      userRoot: input.userRoot,
+      repoId: input.repoId,
+      verticalId: input.verticalId,
+    });
     matches.push({ squadId, leader, worker });
   }
   if (matches.length === 0)
@@ -613,6 +709,7 @@ export function prepareAgentEntityInstall(input: {
   readonly runtimeInstances?: readonly AgentRuntimeInstanceView[];
   readonly projection?: Pick<TaskProjection, "getEntity">;
   readonly replay?: boolean;
+  readonly localAgent?: (agentId: string) => LocalAgentRecord | null;
 }): PreparedAgentEntityInstall {
   const kind = entityKind(input.action.kind);
   if (!input.action.kind.endsWith("-install"))
@@ -631,16 +728,36 @@ export function prepareAgentEntityInstall(input: {
   const store = input.entityStore ?? openEntityStore(input.rootDir);
   if (hasAgentId) {
     const agentId = requiredEntityText(input.action.agentId, "agentId");
+    if (input.action.scope !== undefined && input.action.scope !== "local" && input.action.scope !== "shared")
+      throw entityError("invalid_agent_scope", "Agent scope must be local or shared.");
     if (
       input.action.mcpPolicy === undefined &&
       input.action.clearMcpPolicy !== true &&
-      input.action.selectionStrategy === undefined
+      input.action.selectionStrategy === undefined &&
+      input.action.scope === undefined
     )
       throw entityError(
         "invalid_command",
         "agent install with agentId requires mcpPolicy, clearMcpPolicy, or selectionStrategy.",
       );
-    const current = repairableStoredDeclaration(store, "agent", agentId);
+    const local = input.localAgent?.(agentId) ?? null,
+      stored = readStoredDeclarationForInstall(store, "agent", agentId),
+      shared = stored.status === "present" ? stored : null,
+      matchingTransfer =
+        local !== null &&
+        shared !== null &&
+        localDeclarationMatchesSharedValue(local.declaration, shared.value, local.pendingTransfer);
+    if (local && shared && !matchingTransfer)
+      throw entityError("agent_scope_conflict", `Agent ${agentId} exists in both local and shared scope.`);
+    const current =
+      shared !== null
+        ? { value: shared.value, workspaceRevision: shared.workspaceRevision }
+        : local !== null
+          ? {
+              value: local.declaration as unknown as Readonly<Record<string, unknown>>,
+              workspaceRevision: local.revision,
+            }
+          : { value: null, workspaceRevision: null };
     const projectedLifecycle = input.projection?.getEntity?.("agent", agentId)?.value?.lifecycleState;
     const isRetired = current.value?.lifecycleState === "retired" || projectedLifecycle === "retired";
     if (isRetired && readAnyBundledAgentDeclaration(agentId, input.rootDir) === null)
@@ -666,9 +783,15 @@ export function prepareAgentEntityInstall(input: {
         patched.issues[0]?.message ?? "Agent MCP policy update is invalid.",
         "agent/declaration-schema",
       );
+    const declaration =
+      input.action.scope === undefined
+        ? patched.declaration
+        : { ...patched.declaration, scope: input.action.scope as AgentDeclarationV1["scope"] };
     return finalizePreparedEntityInstall({
       kind: "agent",
-      declaration: patched.declaration,
+      declaration,
+      hasLocal: local !== null,
+      ...(shared ? { sharedAgentRevision: shared.workspaceRevision, sharedAgentValue: shared.value } : {}),
       source: `entity:agent/${agentId}`,
       current,
       action: input.action,
@@ -687,7 +810,24 @@ export function prepareAgentEntityInstall(input: {
       `${kind}/declaration-schema`,
     );
   const declaration = decoded.declaration,
-    current = repairableStoredDeclaration(store, kind, declaration.id);
+    local = kind === "agent" ? (input.localAgent?.(declaration.id) ?? null) : null,
+    stored = readStoredDeclarationForInstall(store, kind, declaration.id),
+    shared = stored.status === "present" ? stored : null,
+    matchingTransfer =
+      local !== null &&
+      shared !== null &&
+      localDeclarationMatchesSharedValue(local.declaration, shared.value, local.pendingTransfer);
+  if (local && shared && !matchingTransfer)
+    throw entityError("agent_scope_conflict", `Agent ${declaration.id} exists in both local and shared scope.`);
+  const current =
+    shared !== null
+      ? { value: shared.value, workspaceRevision: shared.workspaceRevision }
+      : local !== null
+        ? {
+            value: local.declaration as unknown as Readonly<Record<string, unknown>>,
+            workspaceRevision: local.revision,
+          }
+        : { value: null, workspaceRevision: null };
   const projectedLifecycle =
     kind === "agent" ? input.projection?.getEntity?.("agent", declaration.id)?.value?.lifecycleState : undefined;
   if (
@@ -704,6 +844,10 @@ export function prepareAgentEntityInstall(input: {
   return finalizePreparedEntityInstall({
     kind,
     declaration,
+    hasLocal: local !== null,
+    ...(kind === "agent" && shared
+      ? { sharedAgentRevision: shared.workspaceRevision, sharedAgentValue: shared.value }
+      : {}),
     source,
     current,
     action: input.action,
@@ -725,14 +869,33 @@ function finalizePreparedEntityInstall(input: {
   readonly rootDir: string;
   readonly runtimeInstances?: readonly AgentRuntimeInstanceView[];
   readonly replay?: boolean;
+  readonly hasLocal?: boolean;
+  readonly sharedAgentRevision?: number;
+  readonly sharedAgentValue?: Readonly<Record<string, unknown>>;
 }): PreparedAgentEntityInstall {
-  const { kind, declaration, source, current } = input;
+  const { kind, source, current } = input,
+    existingScope =
+      kind === "agent" && current.value !== null ? readProjectedAgentDeclaration(current.value).scope : undefined,
+    resolvedScope =
+      kind === "agent"
+        ? ((input.declaration as AgentDeclarationV1).scope ?? (existingScope === "local" ? "local" : undefined))
+        : undefined,
+    declaration =
+      kind === "agent"
+        ? parseAgentDeclarationV1({
+            ...input.declaration,
+            ...(resolvedScope === undefined ? {} : { scope: resolvedScope }),
+          })
+        : input.declaration;
   if (
     input.action.expectedVersion !== undefined &&
     (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) < 0)
   )
     throw entityError("invalid_command", "expectedVersion must be a non-negative integer when supplied.");
+  const scopedHandledByService =
+    kind === "agent" && (resolveAgentScope((declaration as AgentDeclarationV1).scope) === "local" || input.hasLocal);
   if (
+    !scopedHandledByService &&
     input.action.expectedVersion !== undefined &&
     input.replay !== true &&
     (current.workspaceRevision ?? 0) !== Number(input.action.expectedVersion)
@@ -772,6 +935,8 @@ function finalizePreparedEntityInstall(input: {
     kind,
     declaration,
     body,
+    ...(input.sharedAgentRevision === undefined ? {} : { sharedAgentRevision: input.sharedAgentRevision }),
+    ...(input.sharedAgentValue === undefined ? {} : { sharedAgentValue: input.sharedAgentValue }),
     report: {
       schema: `${kind}-install-report/v1`,
       entityId: declaration.id,
@@ -925,22 +1090,26 @@ export function agentReferenceCounts(
   ];
   return entries.filter(([, count]) => count > 0).map(([kind, count]) => ({ kind, count }));
 }
-function repairableStoredDeclaration(
+function readStoredDeclarationForInstall(
   entityStore: EntityStore,
   kind: AgentEntityKind,
   id: string,
-): {
-  readonly value: Readonly<Record<string, unknown>> | null;
-  readonly workspaceRevision: number | null;
-} {
+):
+  | {
+      readonly status: "present";
+      readonly value: Readonly<Record<string, unknown>>;
+      readonly workspaceRevision: number;
+    }
+  | { readonly status: "missing" }
+  | { readonly status: "repairable_invalid" } {
   try {
     const current = entityStore.get<Readonly<Record<string, unknown>>>(kind, id);
     return current === null
-      ? { value: null, workspaceRevision: null }
-      : { value: current.value, workspaceRevision: current.workspaceRevision };
+      ? { status: "missing" }
+      : { status: "present", value: current.value, workspaceRevision: current.workspaceRevision };
   } catch (error) {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
-    return { value: null, workspaceRevision: null };
+    return { status: "repairable_invalid" };
   }
 }
 function applyAgentRuntimeOverrides(
@@ -981,6 +1150,7 @@ function applyAgentRuntimeOverrides(
     ? { issues: issues.map((message) => ({ code: "invalid_manifest", message })) }
     : { declaration: next as AgentDeclarationV1 & SquadDeclarationV1 };
 }
+
 export function readAgentEntityDeclarationSource(
   action: Readonly<Record<string, unknown>>,
 ):
@@ -1000,12 +1170,20 @@ export function readAgentEntityDeclarationSource(
       | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string },
   ) => {
     if ("issues" in decoded || kind !== "agent") return decoded;
+    const requestedScope = action.scope as AgentDeclarationV1["scope"];
+    if (requestedScope !== undefined && requestedScope !== "local" && requestedScope !== "shared")
+      return {
+        issues: [{ code: "invalid_agent_scope", message: "Agent scope must be local or shared." }],
+        ...(decoded.source ? { source: decoded.source } : {}),
+      };
+    const declaration =
+      requestedScope === undefined ? decoded.declaration : { ...decoded.declaration, scope: requestedScope };
     if (action.mcpPolicy === undefined && action.clearMcpPolicy !== true && action.selectionStrategy === undefined)
-      return decoded;
+      return { ...decoded, declaration };
     const patched = applyAgentRuntimeOverrides(decoded.declaration, action);
     if ("issues" in patched) return { issues: patched.issues, ...(decoded.source ? { source: decoded.source } : {}) };
     return {
-      declaration: patched.declaration,
+      declaration: { ...patched.declaration, ...(requestedScope === undefined ? {} : { scope: requestedScope }) },
       ...(decoded.source ? { source: decoded.source } : {}),
     };
   };

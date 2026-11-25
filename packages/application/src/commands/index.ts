@@ -22,6 +22,7 @@ export {
 } from "./entity-action-relation.ts";
 export * from "./terminal-awaits-retirement.ts";
 export * from "./decision-review-awaits.ts";
+export * from "./agent-scope-service.ts";
 export * from "./entity-action-catalog-executor.ts";
 
 export { composeDurableActionEnvelope } from "../durable-action-envelope.ts";

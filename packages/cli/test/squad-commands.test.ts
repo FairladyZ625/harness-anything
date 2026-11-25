@@ -57,6 +57,24 @@ test("Squad list renders healthy rows as ids and degraded rows with state and er
   });
 });
 
+test("Agent list renders the scope column for local and shared declarations", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "agent-list",
+    evidence: JSON.stringify({
+      schema: "agent-list/v1",
+      agents: [
+        { id: "private-helper", name: "Private helper", scope: "local", role: "worker" },
+        { id: "team-reviewer", name: "Team reviewer", scope: "shared", role: "reviewer" },
+      ],
+    }),
+  });
+  assert.equal(
+    rendered.text,
+    "ID\tNAME\tSCOPE\tROLE\nprivate-helper\tPrivate helper\tlocal\tworker\nteam-reviewer\tTeam reviewer\tshared\treviewer",
+  );
+});
+
 test("Squad status renders token, tool-call, and compaction metrics for each attempt", () => {
   const rendered = renderCliReceipt({
     ok: true,

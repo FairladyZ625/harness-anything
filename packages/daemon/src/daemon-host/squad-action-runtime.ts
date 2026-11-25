@@ -1,11 +1,15 @@
 import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
-import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { AgentScopeConflictError, readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createEntityStore } from "@harness-anything/storage";
+import { readLocalAgentRecord, readLocalAgentRecords } from "./local-agent-store.ts";
 import {
+  localDeclarationMatchesSharedValue,
   parseSquadDeclarationV1,
   resolveAgentHostAccess,
+  resolveAgentScope,
+  type AgentScope,
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -46,12 +50,18 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
   };
 }
 
-export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
+export function makeAgentActionRuntime(cell: RepoCellRuntimeContext, userRoot?: string): EntityActionCatalogRunner {
   return (contract, action, _binding, opId): WriteReceipt => {
     const revision = cell.projection.readCut().sourceRevision;
-    if (contract.id === "list") return cell.readResult(opId, listAgents(cell), revision, null) as WriteReceipt;
+    if (contract.id === "list")
+      return cell.readResult(opId, listAgents(cell, action.scope, userRoot), revision, null) as WriteReceipt;
     if (contract.id === "inspect")
-      return cell.readResult(opId, inspectAgent(cell, squadRequiredText(action.agentId, "agentId")), revision, null);
+      return cell.readResult(
+        opId,
+        inspectAgent(cell, squadRequiredText(action.agentId, "agentId"), userRoot),
+        revision,
+        null,
+      );
     if (contract.id === "validate") {
       const report = validateAgentEntityAction({
         rootDir: cell.rootDir,
@@ -64,7 +74,7 @@ export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActi
   };
 }
 
-function listAgents(cell: RepoCellRuntimeContext): object {
+function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRoot?: string): object {
   const agents = cell.projection.listEntities("agent").map(({ value, id, freshness }) => {
     if (freshness === "orphaned")
       return {
@@ -97,11 +107,58 @@ function listAgents(cell: RepoCellRuntimeContext): object {
       source: `agents/${id}.json`,
     };
   });
-  return { schema: "agent-list/v1", agents };
+  const localRoot = userRoot ?? cell.input?.userRoot,
+    localRepoId = cell.input?.repoId;
+  if (localRoot !== undefined && localRepoId !== undefined) {
+    const sharedIds = new Set(agents.map((agent) => (agent as { readonly id: string }).id));
+    for (const record of readLocalAgentRecords(localRoot, localRepoId)) {
+      const declaration = record.declaration;
+      if (sharedIds.has(declaration.id)) {
+        const shared = cell.projection.getEntity("agent", declaration.id);
+        if (shared && localDeclarationMatchesSharedValue(declaration, shared.value, record.pendingTransfer)) continue;
+        throw new AgentScopeConflictError(declaration.id);
+      }
+      const { instructions: _instructions, ...row } = declaration;
+      agents.push({
+        ...row,
+        hostAccess: resolveAgentHostAccess(declaration.hostAccess).hostAccess,
+        hostAccessSource: resolveAgentHostAccess(declaration.hostAccess).hostAccessSource,
+        layer: "user",
+        source: `local-agents/${localRepoId}/${declaration.id}.json`,
+      });
+    }
+  }
+  return {
+    schema: "agent-list/v1",
+    agents:
+      scope === "all" || scope === undefined
+        ? agents
+        : agents.filter((agent) => resolveAgentScope((agent as { readonly scope?: AgentScope }).scope) === scope),
+  };
 }
 
-function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
+function inspectAgent(cell: RepoCellRuntimeContext, agentId: string, userRoot?: string): object {
   const row = cell.projection.getEntity("agent", agentId);
+  const localRoot = userRoot ?? cell.input?.userRoot,
+    localRepoId = cell.input?.repoId;
+  const local =
+    localRoot === undefined || localRepoId === undefined ? null : readLocalAgentRecord(localRoot, localRepoId, agentId);
+  if (local && row && !localDeclarationMatchesSharedValue(local.declaration, row.value, local.pendingTransfer))
+    throw new AgentScopeConflictError(agentId);
+  if (local && row === null) {
+    const hostAccess = resolveAgentHostAccess(local.declaration.hostAccess);
+    return {
+      schema: "agent-inspection/v1",
+      runtimeCapabilities: local.declaration.runtimes.map(({ type: kindId }) => ({
+        kindId,
+        steerSupported: runtimeSteerSupported(kindId),
+      })),
+      workspaceRevision: local.revision,
+      hostAccess: hostAccess.hostAccess,
+      hostAccessSource: hostAccess.hostAccessSource,
+      agent: local.declaration,
+    };
+  }
   if (!row)
     throw cellCriterionError(
       "agent_not_found",

@@ -10,6 +10,7 @@ import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { createEntityStore } from "@harness-anything/storage";
+import { createLocalAgentStorePort, readLocalAgentRecord } from "./local-agent-store.ts";
 
 import {
   bindWriterGenerationToken,
@@ -64,7 +65,7 @@ import {
   readEffectiveDispatchArchiveRetention,
 } from "./repo-cell-settings-state.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
-import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
+import { authorizeRuntimeRepoAction, evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { commitRuntimeSettlement } from "./repo-cell-runtime-settlement.ts";
 import { failed, rejected, requiredCellText } from "./repo-cell-settlement.ts";
 import type {
@@ -100,7 +101,12 @@ export async function openRepoWriterCell(
   input: RepoCellOpenInput,
   lock: Awaited<ReturnType<typeof acquireWorkspaceLock>>,
 ): Promise<Omit<RepoCell, "terminal">> {
-  input = { ...input, storage: nodeMaterializationStorage(input) };
+  const resolvedUserRoot = input.userRoot ?? input.runtimeDaemonRoute?.userRoot;
+  input = {
+    ...input,
+    ...(resolvedUserRoot === undefined ? {} : { userRoot: resolvedUserRoot }),
+    storage: nodeMaterializationStorage(input),
+  };
   const rootDir = input.rootDir,
     mode = input.mode ?? "local",
     now = input.now ?? (() => new Date().toISOString());
@@ -517,6 +523,8 @@ export async function openRepoWriterCell(
         declaration = readAgentDeclaration({
           rootDir,
           agentId,
+          ...(input.userRoot ? { userRoot: input.userRoot } : {}),
+          repoId: input.repoId,
           entityStore,
           verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
         });
@@ -529,6 +537,8 @@ export async function openRepoWriterCell(
         leaderId,
         ...(workerId ? { workerId } : {}),
         entityStore: createEntityStore(store),
+        ...(input.userRoot ? { userRoot: input.userRoot } : {}),
+        repoId: input.repoId,
         verticalId: verticalId ?? projectedRepositorySettings(projection)?.defaultVertical,
       }),
     onRuntimeOutcome: (event) => {
@@ -758,7 +768,7 @@ export async function openRepoWriterCell(
       },
     }),
     scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
-    agentActionRuntime = makeAgentActionRuntime(runtimeContext),
+    agentActionRuntime = makeAgentActionRuntime(runtimeContext, input.userRoot),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
       if (contract.target.kind === "agent" && contract.id === "retire")
@@ -796,12 +806,19 @@ export async function openRepoWriterCell(
           entityStore: createEntityStore(store),
           projection,
           runtimeInstances: input.runtimeInstances?.(),
+          ...(input.userRoot
+            ? {
+                localAgent: (agentId: string) => readLocalAgentRecord(input.userRoot!, input.repoId, agentId),
+              }
+            : {}),
           replay: existing?.schema === "entity-event/v1" && existing.payload.entityKind === contract.target.kind,
         });
       return {
         ...action,
         declaration: prepared.declaration,
         entityId: prepared.declaration.id,
+        ...(prepared.sharedAgentRevision === undefined ? {} : { sharedAgentRevision: prepared.sharedAgentRevision }),
+        ...(prepared.sharedAgentValue === undefined ? {} : { sharedAgentValue: prepared.sharedAgentValue }),
         preparedEntityAction: { report: prepared.report },
       };
     };
@@ -809,6 +826,16 @@ export async function openRepoWriterCell(
   const entityActionRuntimes: EntityActionCatalogRuntimes = {
     commitRuntimeSession: (bundle: Parameters<typeof commitRuntimeSettlement>[1], binding: RepoCellBinding) =>
       commitRuntimeSettlement(runtimeContext, bundle, binding),
+    ...(input.userRoot ? { localAgentStore: createLocalAgentStorePort(input.userRoot, input.repoId) } : {}),
+    authorizeAgentAction: (subAction, subBinding, subOpId) =>
+      evaluateRepoCellAction({
+        action: subAction,
+        binding: subBinding as RepoCellBinding,
+        actionId: subOpId,
+        repoId: input.repoId,
+        revision: store.readHead()?.revision ?? 0,
+        now: now(),
+      }),
     entity: {
       agent: agentActionRuntime,
       schedule: scheduleActionRuntime,

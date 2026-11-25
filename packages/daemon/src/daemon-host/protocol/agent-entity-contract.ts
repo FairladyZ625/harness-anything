@@ -64,7 +64,7 @@ function entityReadRowErrors(
 const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
   agentGuiHostAccess = Object.freeze(["isolated", "operator", "bypass"]),
   agentGuiMcpPolicies = Object.freeze(["disabled", "inherit"]),
-  agentOptionalWireFields = Object.freeze(["mcpPolicy", "selectionStrategy"]),
+  agentOptionalWireFields = Object.freeze(["mcpPolicy", "selectionStrategy", "scope"]),
   agentMcpPolicyError = (row: Record<string, unknown>, prefix: string): readonly string[] => [
     ...(Object.hasOwn(row, "mcpPolicy") &&
     row.mcpPolicy !== null &&
@@ -213,6 +213,9 @@ const catalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
 const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
   [
     ...catalogRowChecks(row),
+    ...(row.scope !== undefined && row.scope !== "local" && row.scope !== "shared"
+      ? ["agent catalog row scope must be local or shared."]
+      : []),
     !agentGuiRoles.includes(String(row.role)) ? "agent catalog row role must be worker, commander, or reviewer." : [],
     !agentRuntimeTargets(row.runtimes)
       ? "agent catalog row runtimes must be an array of unique {type, model?, effort?} targets."
@@ -223,6 +226,9 @@ const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] 
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
   [
+    ...(row.scope !== undefined && row.scope !== "local" && row.scope !== "shared"
+      ? ["agent detail scope must be local or shared."]
+      : []),
     !(
       entityNonEmpty(row.id) &&
       entityNonEmpty(row.name) &&

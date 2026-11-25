@@ -3,6 +3,7 @@ import {
   attachReceiptAcceptance,
   isArtifactActionIngressKind,
   isSha256Digest,
+  requestedAgentScopeFromAction,
   waitForReceiptAcceptance,
   type CanonicalEventStore,
   type TaskProjection,
@@ -64,6 +65,10 @@ export async function settleWriteReceipt(
         ],
       };
   }
+  if (action.kind === "agent-install" && requestedAgentScopeFromAction(action) === "local")
+    return settleHostLocalReceipt(action, receipt);
+  if (action.kind === "agent-delete" && receipt.proof?.durable === true && receipt.proof?.canonicalVisible === false)
+    return settleHostLocalReceipt(action, receipt);
   // A locale-only settings update writes this machine's preference file, never the ledger.
   const localSettingsOnly =
     action.kind === "settings-update" &&
@@ -135,6 +140,7 @@ export function attachWriteReceiptAcceptance<R extends WriteReceiptDraft>(
 
 export function settleHostLocalReceipt(action: CommandAction, receipt: WriteReceipt): WriteReceipt {
   const { proof: _committedProof, ...local } = receipt;
+  if (action.dryRun === true && receipt.outcome === "pending") return { ...local, acceptance: null };
   if (action.kind === "doc-materialize" && receipt.outcome === "pending")
     return {
       ...local,

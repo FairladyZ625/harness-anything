@@ -2971,6 +2971,20 @@
         "order": 1085
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#removeLocalAgentDeclaration:8dddadd7f5865f4e4543a70d65a59f6a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.rmSync",
+        "order": 1301
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration:12518b1ea2ff9a76d4fb0e9fef40e5e6",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/fs.d.ts#fs.writeFileSync",
+        "order": 1302
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/observe-jsonl-tail.ts#tailError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
         "route": "daemon-local-state",
         "role": "support",

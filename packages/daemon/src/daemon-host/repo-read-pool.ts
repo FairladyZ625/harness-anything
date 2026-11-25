@@ -82,6 +82,7 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
     config: RepoReadPayload["config"] = {
       repoId: input.repoId,
       rootDir: input.rootDir,
+      userRoot: input.userRoot ?? input.runtimeDaemonRoute?.userRoot ?? daemonUserRoot(),
       storage: input.storage,
       mode: input.mode,
       authoredBranch: input.authoredBranch,

@@ -186,7 +186,9 @@ test("daemon domain service actions and policies are closed under the shared ont
   // Sinking core task read queries into `packages/application/src/queries/task-*` brought 3 registered
   // repository-read support error builders (`task-query-ports.ts`, `task-show-read.ts`, `task-transition-locate.ts`)
   // under `domainPath`.
-  assert.equal(actions.length, 163);
+  // dec_166C5D2EAB57F8BCA3F15107E2/CH4 adds 2 registered `LocalAgentStorePort` calls (`persistLocalAgent`,
+  // `deleteLocalAgent`) in `packages/application/src/commands/agent-scope-service.ts`.
+  assert.equal(actions.length, 165);
   // CH1 closes migration debt, while later registered policies may grow the live set.
   assert.ok(policies.length >= 126, "all 126 migrated policy sources remain represented");
   assert.deepEqual(

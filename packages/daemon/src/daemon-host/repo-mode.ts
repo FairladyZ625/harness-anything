@@ -1,4 +1,9 @@
-import { getExecutableEntityAction, type DaemonRepoMode, type WriteSource } from "@harness-anything/kernel";
+import {
+  getExecutableEntityAction,
+  requestedAgentScopeFromAction,
+  type DaemonRepoMode,
+  type WriteSource,
+} from "@harness-anything/kernel";
 import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 
 export interface RepoModeAdmission {
@@ -17,6 +22,16 @@ export function entityActionCommandTopology(
   command: CommandTopology,
   action: Readonly<Record<string, unknown>> & { readonly kind?: string },
 ): CommandTopology {
+  if (action.kind === "agent-install" && requestedAgentScopeFromAction(action) === "local")
+    return {
+      ...command,
+      admission: {
+        local: "direct",
+        "remote-proxy": "rejected",
+        "remote-center": "direct",
+        "remote-edge": "direct",
+      },
+    };
   const localOnlyFields = action.kind ? (getExecutableEntityAction(action.kind)?.execution?.localOnlyFields ?? []) : [],
     mutationFields = Object.keys(action).filter(
       (field) => !["kind", "idempotencyKey", "expectedVersion"].includes(field),

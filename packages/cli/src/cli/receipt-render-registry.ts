@@ -82,6 +82,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["schedule-runs", renderScheduleReceipt],
   ["todo-list", renderTodoList],
   ["squad-list", renderSquadListReceipt],
+  ["agent-list", renderAgentListReceipt],
   ["squad-status", renderSquadStatusReceipt],
   ["event-list", renderEventListReceipt],
   ["agent-history", renderAgentHistoryReceipt],
@@ -390,6 +391,20 @@ function renderSquadListReceipt(receipt: Record<string, unknown>): string {
   if (!parsed || parsed.schema !== "squad-list/v1" || !Array.isArray(parsed.squads))
     return renderSuccessfulReceipt(receipt);
   return parsed.squads.length === 0 ? "No squads." : parsed.squads.map(squadListColumns).join("\n");
+}
+
+function renderAgentListReceipt(receipt: Record<string, unknown>): string {
+  const parsed = parseEvidence(receipt);
+  if (!parsed || parsed.schema !== "agent-list/v1" || !Array.isArray(parsed.agents))
+    return renderSuccessfulReceipt(receipt);
+  const rows = parsed.agents.map((value) => {
+    if (!isRecord(value) || typeof value.id !== "string") throw new TypeError("Agent list row is invalid.");
+    if (value.state === "invalid") return [value.id, "", "", "invalid"].join("\t");
+    return [value.id, String(value.name ?? ""), String(value.scope ?? "shared"), String(value.role ?? "worker")].join(
+      "\t",
+    );
+  });
+  return ["ID\tNAME\tSCOPE\tROLE", ...(rows.length ? rows : ["No agents."])].join("\n");
 }
 
 function renderSquadStatusReceipt(receipt: Record<string, unknown>): string {

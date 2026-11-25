@@ -34,6 +34,7 @@ import type { RuntimeDockRow } from "./useRuntimeWorkspace.ts";
 
 export type AgentDraft = {
   readonly name: string;
+  readonly scope: "local" | "shared";
   readonly role: "worker" | "commander" | "reviewer";
   /** One row per accepted runtime kind; empty model/effort use the instance defaults. */
   readonly runtimes: readonly { readonly type: string; readonly model: string; readonly effort: RuntimeEffort | "" }[];
@@ -50,6 +51,7 @@ export type AgentDraft = {
 };
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
+  scope: detail.scope ?? "shared",
   role: detail.role,
   runtimes: detail.runtimes.map((target) => ({
     type: target.type,
@@ -71,6 +73,7 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     schema: "agent-declaration/v1",
     id,
     name: draft.name.trim(),
+    scope: draft.scope,
     instructions: draft.instructions,
     runtimes: draft.runtimes.map((target) => ({
       type: target.type,
@@ -253,6 +256,7 @@ export function AgentCard({
                 title={detail.id}
                 className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
               />
+              <Chip>{detail.scope === "local" ? t("agentRuntime.scopeLocal") : t("agentRuntime.scopeShared")}</Chip>
               {row && (
                 <StatusTag
                   tone="neutral"
@@ -809,7 +813,22 @@ export function AgentCard({
               <Hint>{t("agentRuntime.dispatchHint")}</Hint>
             )}
             <span className="flex-1" />
-            {!retired && onRetire !== undefined && (
+            <Button
+              testId={(detail.scope ?? "shared") === "local" ? "agent-publish-shared" : "agent-return-local"}
+              disabled={busy || !draft.name.trim() || !draft.instructions.trim()}
+              onClick={() =>
+                onSave(
+                  agentDeclarationFrom(detail.id, {
+                    ...draft,
+                    scope: (detail.scope ?? "shared") === "local" ? "shared" : "local",
+                  }),
+                  detail.revision,
+                )
+              }
+            >
+              {(detail.scope ?? "shared") === "local" ? t("agentRuntime.publishShared") : t("agentRuntime.returnLocal")}
+            </Button>
+            {!retired && (detail.scope ?? "shared") !== "local" && onRetire !== undefined && (
               <Button testId="agent-retire-entry" onClick={onRetire}>
                 {t("agentRuntime.retireConfirm")}
               </Button>
@@ -818,9 +837,9 @@ export function AgentCard({
               <Button
                 variant="danger"
                 testId="agent-delete-entry"
-                disabled={deleteBlocked}
+                disabled={(detail.scope ?? "shared") !== "local" && deleteBlocked}
                 tip={
-                  deleteBlocked
+                  (detail.scope ?? "shared") !== "local" && deleteBlocked
                     ? t("agentRuntime.deleteReferencedTip", { refs: deleteBlockedBy.join("、") })
                     : undefined
                 }
@@ -829,7 +848,9 @@ export function AgentCard({
                 {t("agentRuntime.deleteConfirm")}
               </Button>
             )}
-            {deleteBlocked && onDelete !== undefined && <Hint>{t("agentRuntime.deleteReferencedShort")}</Hint>}
+            {(detail.scope ?? "shared") !== "local" && deleteBlocked && onDelete !== undefined && (
+              <Hint>{t("agentRuntime.deleteReferencedShort")}</Hint>
+            )}
             {!retired && (
               <Button
                 variant="primary"

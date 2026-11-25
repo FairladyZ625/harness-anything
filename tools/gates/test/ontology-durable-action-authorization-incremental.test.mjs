@@ -516,7 +516,9 @@ test("daemon leaf action changes stay below 60 descriptors and detect a restored
   console.log(
     `DAEMON_LEAF_SCOPE ${JSON.stringify({ descriptors, total: durableInputs.descriptors.length, seconds: (performance.now() - started) / 1000 })}`,
   );
-  assert.ok(descriptors > 0 && descriptors < 60, `todo-action selected ${descriptors} descriptors; expected 1..59`);
+  // dec_166C5D2EAB57F8BCA3F15107E2/CH4 adds `agent-share` and `agent-unshare` as repo-cell durable
+  // command aliases, moving leaf todo-action scope from 58 to 60 (still far below the >=200 restored cycle).
+  assert.ok(descriptors > 0 && descriptors < 65, `todo-action selected ${descriptors} descriptors; expected 1..64`);
   // Moving declarations alone is insufficient if their signatures still type-import the
   // composition root: every leaf importing the shared contracts joins the dispatcher again.
   const contracts = "packages/daemon/src/daemon-host/repo-cell-types.ts";

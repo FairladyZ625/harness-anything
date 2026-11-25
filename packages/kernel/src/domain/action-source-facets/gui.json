@@ -11,7 +11,7 @@
     ],
     "agent-delete": [
       {
-        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteAgent:a2709bc74a61d8682422968ef0dd5c9d",
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.deleteAgent:ec8b7e30e3b06ca496b0f17ebb52a50e",
         "route": "agent.entity.delete",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",

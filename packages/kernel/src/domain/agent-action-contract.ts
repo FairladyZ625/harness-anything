@@ -65,6 +65,7 @@ export function createAgentActionCatalog(
             { field: "declarationSource", type: "string", required: false },
             { field: "agentId", type: "string", required: false },
             { field: "selectionStrategy", type: "string", required: false, enum: runtimeSelectionStrategies },
+            { field: "scope", type: "string", required: false, enum: ["local", "shared"] },
             { field: "mcpPolicy", type: "string", required: false, enum: ["disabled", "inherit"] },
             { field: "clearMcpPolicy", type: "boolean", required: false },
             { field: "dryRun", type: "boolean", required: false },
@@ -285,7 +286,7 @@ export function createAgentActionCatalog(
       }),
       Object.freeze({
         ...baseAction("list"),
-        input: input([]),
+        input: input([{ field: "scope", type: "string", required: false, enum: ["all", "local", "shared"] }]),
         policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
         criteria: Object.freeze([]),
         concurrency: readConcurrency,

@@ -9,6 +9,7 @@ import { actionDeclarations } from "@harness-anything/kernel";
 import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
 import { fleetNodeClaimFixture, localAuthFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "../../daemon/test/fleet-edge-host.fixture.ts";
+import { waitForFleetReplicaReady, waitForFleetReplicaRevision } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { registerFixtureRuntimeInstance } from "../../daemon/test/repo-settings.fixture.ts";
 
 const agent = {
@@ -166,7 +167,18 @@ test(
     const policyWorker = { ...agent, id: "edge-cli-policy-worker", name: "Edge CLI Policy Worker" };
     writeFileSync(path.join(policyPackageSource, "agent.json"), JSON.stringify(policyWorker));
     const parsedCreate = parseThinCommand(
-      ["agent", "create", "--source", "edge-policy-package", "--mcp-policy", "inherit", "--expected-version", "0"],
+      [
+        "agent",
+        "create",
+        "--source",
+        "edge-policy-package",
+        "--scope",
+        "shared",
+        "--mcp-policy",
+        "inherit",
+        "--expected-version",
+        "0",
+      ],
       edge.edgeRoot,
     );
     assert.equal(parsedCreate.ok, true, JSON.stringify(parsedCreate));
@@ -246,5 +258,216 @@ test(
     });
     assert.equal(denied.code, "authorization_denied", JSON.stringify(denied));
     assert.equal(f.eventCount(), beforeDenied, "a reader cannot install an Agent through the edge route");
+  },
+);
+
+test(
+  "remote-edge local Agents stay node-local while share, unshare, and local delete cross canonical authority (F-EDGE)",
+  { timeout: 90_000 },
+  async (t) => {
+    const installation = {
+      installationId: "edge-scope-codex",
+      kindId: "codex" as const,
+      executablePath: process.execPath,
+      version: "1.0.0",
+      observedAt: "2026-11-01T00:00:00.000Z",
+    };
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
+      runtimeDiscover: async () => [installation],
+    });
+    await registerFixtureRuntimeInstance(f.host, "lease-repo", localAuthFixture(), {
+      instanceId: "edge-scope-codex",
+      name: "Edge Scope Codex",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "subscription",
+    });
+    const edge = await fleetEdgeHostFixture(t, f, {
+      runtimeDiscover: async () => [installation],
+    });
+    const edgeRuntime = await edge.host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "edge-scope-codex",
+        name: "Edge Scope Codex",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        authMode: "subscription",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(edgeRuntime.outcome, "applied", JSON.stringify(edgeRuntime));
+    const {
+      schema: _schema,
+      loginUrl: _loginUrl,
+      loginRealm: _loginRealm,
+      loginServername: _loginServername,
+      loginBrowserUrl: _loginBrowserUrl,
+      loginCertificate: _loginCertificate,
+      waitTimeoutMs: _waitTimeoutMs,
+      ...syncConn
+    } = edge.config;
+    const syncEdge = async (minRevision?: number) => {
+      const synced = await edge.rpc.handle({
+        jsonrpc: "2.0",
+        id: 299,
+        method: "daemon.fleet.edge.sync",
+        params: { payload: { ...syncConn, workspaceRoot: edge.edgeRoot, timeoutMs: 30_000 } },
+      });
+      assert.ok(synced && !Array.isArray(synced) && "result" in synced, JSON.stringify(synced));
+      assert.equal((synced.result as Record<string, unknown>).ok, true, JSON.stringify(synced.result));
+      assert.equal(
+        await waitForFleetReplicaReady(
+          { viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: edge.config.nodeId },
+          AbortSignal.timeout(30_000),
+        ),
+        true,
+      );
+      if (minRevision !== undefined) {
+        await waitForFleetReplicaRevision(
+          { viewRoot: edge.viewRoot, repoId: "lease-repo", nodeId: edge.config.nodeId },
+          minRevision,
+          AbortSignal.timeout(30_000),
+        );
+      }
+    };
+    await syncEdge();
+    const localPkg = path.join(edge.edgeRoot, "edge-local-agent-pkg");
+    mkdirSync(localPkg);
+    const localAgent = {
+      ...agent,
+      id: "edge-private-worker",
+      name: "Edge Private Worker",
+    };
+    writeFileSync(path.join(localPkg, "agent.json"), JSON.stringify(localAgent));
+
+    // 1. Edge CLI `ha agent create` defaults to local scope with zero center events and center invisibility.
+    const beforeCreate = f.eventCount();
+    const parsedLocalCreate = parseThinCommand(
+      ["agent", "create", "--source", "edge-local-agent-pkg", "--expected-version", "0"],
+      edge.edgeRoot,
+    );
+    assert.equal(parsedLocalCreate.ok, true, JSON.stringify(parsedLocalCreate));
+    if (!parsedLocalCreate.ok) throw new Error("edge local agent create must parse");
+    const createResp = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 201,
+      method: parsedLocalCreate.command.method,
+      params: { repo: { repoId: "lease-repo" }, payload: { action: serializeFleetAction(parsedLocalCreate.command) } },
+    });
+    assert.ok(createResp && !Array.isArray(createResp) && "result" in createResp, JSON.stringify(createResp));
+    assert.equal((createResp.result as Record<string, unknown>).outcome, "applied", JSON.stringify(createResp.result));
+    assert.equal(f.eventCount(), beforeCreate, "local create on remote-edge appends zero center events");
+    const centerInspectBeforeShare = await f.host.run(
+      "lease-repo",
+      { kind: "agent-inspect", agentId: localAgent.id },
+      localAuthFixture(),
+    );
+    assert.equal(centerInspectBeforeShare.outcome, "op_rejected", JSON.stringify(centerInspectBeforeShare));
+    const edgeLocalList = await edge.command({ kind: "agent-list", scope: "local" });
+    assert.equal(edgeLocalList.outcome, "applied", JSON.stringify(edgeLocalList));
+    assert.deepEqual(
+      JSON.parse(String(edgeLocalList.evidence)).agents.map((row: { id: string; scope: string }) => [
+        row.id,
+        row.scope,
+      ]),
+      [[localAgent.id, "local"]],
+    );
+
+    // 2. Edge GUI declaration edit in local scope stays local with zero center events.
+    const guiLocalEdit = await edge.command({
+      kind: "agent-install",
+      declaration: { ...localAgent, scope: "local", instructions: "Updated edge-private instructions." },
+      expectedVersion: 1,
+    });
+    assert.equal(guiLocalEdit.outcome, "applied", JSON.stringify(guiLocalEdit));
+    assert.equal(f.eventCount(), beforeCreate, "local edit on remote-edge appends zero center events");
+
+    // 3. Edge CLI `ha agent share <id>` publishes via center canonical writer and removes local copy.
+    const parsedShare = parseThinCommand(["agent", "share", localAgent.id, "--expected-version", "2"], edge.edgeRoot);
+    assert.equal(parsedShare.ok, true, JSON.stringify(parsedShare));
+    if (!parsedShare.ok) throw new Error("edge agent share must parse");
+    const shareResp = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 202,
+      method: parsedShare.command.method,
+      params: { repo: { repoId: "lease-repo" }, payload: { action: serializeFleetAction(parsedShare.command) } },
+    });
+    assert.ok(shareResp && !Array.isArray(shareResp) && "result" in shareResp, JSON.stringify(shareResp));
+    const sharedResult = shareResp.result as Record<string, unknown>;
+    assert.equal(sharedResult.outcome, "applied", JSON.stringify(sharedResult));
+    assert.ok(f.eventCount() > beforeCreate, "share writes through center canonical event stream");
+    const centerInspectAfterShare = await f.host.run(
+      "lease-repo",
+      { kind: "agent-inspect", agentId: localAgent.id },
+      localAuthFixture(),
+    );
+    assert.equal(centerInspectAfterShare.outcome, "applied", JSON.stringify(centerInspectAfterShare));
+    const centerSharedRev = JSON.parse(String(centerInspectAfterShare.evidence)).workspaceRevision as number;
+    await syncEdge(centerSharedRev);
+
+    // 4. Edge `ha agent unshare` enforces center agent-delete policy before retaining local copy.
+    f.owners.keycloak.revoke("person-one", "lease-repo", ["agent-delete"]);
+    const parsedUnshareDenied = parseThinCommand(
+      ["agent", "unshare", localAgent.id, "--expected-version", String(centerSharedRev)],
+      edge.edgeRoot,
+    );
+    assert.equal(parsedUnshareDenied.ok, true, JSON.stringify(parsedUnshareDenied));
+    if (!parsedUnshareDenied.ok) throw new Error("edge agent unshare must parse");
+    const unshareDeniedResp = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 203,
+      method: parsedUnshareDenied.command.method,
+      params: {
+        repo: { repoId: "lease-repo" },
+        payload: { action: serializeFleetAction(parsedUnshareDenied.command) },
+      },
+    });
+    assert.ok(
+      unshareDeniedResp && !Array.isArray(unshareDeniedResp) && "result" in unshareDeniedResp,
+      JSON.stringify(unshareDeniedResp),
+    );
+    assert.equal((unshareDeniedResp.result as Record<string, unknown>).code, "authorization_denied");
+
+    // 5. Grant agent-delete -> unshare succeeds -> local delete removes edge local file with zero center events.
+    f.owners.keycloak.permit("person-one", "lease-repo", ["agent-delete"]);
+    const unshareOkResp = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 204,
+      method: parsedUnshareDenied.command.method,
+      params: {
+        repo: { repoId: "lease-repo" },
+        payload: { action: serializeFleetAction(parsedUnshareDenied.command) },
+      },
+    });
+    assert.ok(
+      unshareOkResp && !Array.isArray(unshareOkResp) && "result" in unshareOkResp,
+      JSON.stringify(unshareOkResp),
+    );
+    assert.equal(
+      (unshareOkResp.result as Record<string, unknown>).outcome,
+      "applied",
+      JSON.stringify(unshareOkResp.result),
+    );
+    const centerInspectAfterUnshare = await f.host.run(
+      "lease-repo",
+      { kind: "agent-inspect", agentId: localAgent.id },
+      localAuthFixture(),
+    );
+    assert.equal(centerInspectAfterUnshare.outcome, "op_rejected", JSON.stringify(centerInspectAfterUnshare));
+
+    const beforeLocalDelete = f.eventCount();
+    const localDelete = await edge.command({
+      kind: "agent-delete",
+      agentId: localAgent.id,
+      reason: "Delete edge-local agent.",
+      expectedVersion: 1,
+    });
+    assert.equal(localDelete.outcome, "applied", JSON.stringify(localDelete));
+    assert.equal(f.eventCount(), beforeLocalDelete, "local delete on remote-edge appends zero center events");
   },
 );

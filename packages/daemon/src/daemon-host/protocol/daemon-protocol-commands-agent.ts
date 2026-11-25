@@ -581,7 +581,15 @@ export const agentProtocolCommands = Object.freeze([
     path: ["agent", "list"],
     summary: "List installed Agent identity declarations.",
     method: "repo.task.read",
-    inputs: [],
+    inputs: [
+      cliInput(
+        "--scope",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "scope", pathKind: "non-path", enum: ["all", "local", "shared"] },
+      ),
+    ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "agent-inspect",
@@ -699,6 +707,13 @@ export const agentProtocolCommands = Object.freeze([
         { field: "selectionStrategy", pathKind: "non-path", enum: ["sticky", "lru"] },
       ),
       cliInput(
+        "--scope",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "scope", pathKind: "non-path", enum: ["local", "shared"] },
+      ),
+      cliInput(
         "--source",
         "single",
         false,
@@ -754,6 +769,13 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_runtime_selection_strategy" },
         { field: "selectionStrategy", pathKind: "non-path", enum: ["sticky", "lru"] },
+      ),
+      cliInput(
+        "--scope",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "scope", pathKind: "non-path", enum: ["local", "shared"] },
       ),
       cliInput(
         "--source",
@@ -814,6 +836,50 @@ export const agentProtocolCommands = Object.freeze([
         { code: "invalid_runtime_mcp_policy" },
         { field: "clearMcpPolicy", conflictsWith: ["--mcp-policy"] },
       ),
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "agent-share",
+    // CLI alias only: declared after agent-install so action-kind lookups resolve to agent-install.
+    actionKind: "agent-install",
+    actionDefaults: { scope: "shared" },
+    phase: "Runtime-B",
+    path: ["agent", "share", "<id>"],
+    summary: "Publish a node-local Agent declaration to the project shared ledger.",
+    method: "repo.task.run",
+    positional: "agentId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
+      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "agent-unshare",
+    // CLI alias only: declared after agent-install so action-kind lookups resolve to agent-install.
+    actionKind: "agent-install",
+    actionDefaults: { scope: "local" },
+    phase: "Runtime-B",
+    path: ["agent", "unshare", "<id>"],
+    summary: "Return a project-shared Agent declaration to this node's private scope.",
+    method: "repo.task.run",
+    positional: "agentId",
+    positionalInputs: [{ name: "<id>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       cliInput(
         "--expected-version",
