@@ -34,8 +34,77 @@ interface LockOwnerRecord {
   readonly acquiredAt: number;
 }
 
-let cachedBinaries: ManagedPostgresBinaries | null = null;
+export const MANAGED_POSTGRES_CACHE_DIR_ENV = "HARNESS_MANAGED_POSTGRES_CACHE_DIR";
+export const MANAGED_KEYCLOAK_CACHE_DIR_ENV = "HARNESS_MANAGED_KEYCLOAK_CACHE_DIR";
+
+const cachedBinariesByRoot = new Map<string, ManagedPostgresBinaries>();
 const cachedTemplateByBin = new Map<string, string>();
+
+export function resolvePostgresBinaryCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env[MANAGED_POSTGRES_CACHE_DIR_ENV]?.trim();
+  if (configured) return path.resolve(configured);
+  return path.join(tmpdir(), `ha-pg-binaries-${process.platform}-${process.arch}-${uidTag()}-v1`);
+}
+
+export function resolveKeycloakRuntimeCacheRoot(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const configured = env[MANAGED_KEYCLOAK_CACHE_DIR_ENV]?.trim();
+  return configured ? path.resolve(configured) : undefined;
+}
+
+export function seedCachedRuntimeArtifacts(
+  sourceRuntimeDir: string,
+  targetRuntimeDir: string,
+  names: readonly string[],
+): string[] {
+  const seeded: string[] = [];
+  for (const name of names) {
+    const sourceDir = path.join(sourceRuntimeDir, name);
+    if (!existsSync(path.join(sourceDir, ".installed"))) continue;
+    const targetDir = path.join(targetRuntimeDir, name);
+    mkdirSync(targetRuntimeDir, { recursive: true, mode: 0o700 });
+    removeTempRepository(targetDir);
+    cpSync(sourceDir, targetDir, { recursive: true, force: true });
+    seeded.push(name);
+  }
+  return seeded;
+}
+
+export async function persistCachedRuntimeArtifacts(
+  sourceRuntimeDir: string,
+  cacheRoot: string,
+  names: readonly string[],
+): Promise<boolean> {
+  if (names.length === 0) return false;
+  for (const name of names) {
+    if (!existsSync(path.join(sourceRuntimeDir, name, ".installed"))) return false;
+  }
+  const resolvedRoot = path.resolve(cacheRoot);
+  mkdirSync(path.dirname(resolvedRoot), { recursive: true, mode: 0o700 });
+  const lockDir = `${resolvedRoot}.lock`;
+  await withDirLock(lockDir, async () => {
+    const targetRuntimeDir = path.join(resolvedRoot, "rbac", "runtime");
+    mkdirSync(targetRuntimeDir, { recursive: true, mode: 0o700 });
+    for (const name of names) {
+      const sourceDir = path.join(sourceRuntimeDir, name);
+      const targetDir = path.join(targetRuntimeDir, name);
+      const sourceMarker = readFileSync(path.join(sourceDir, ".installed"), "utf8");
+      const targetMarker = path.join(targetDir, ".installed");
+      if (existsSync(targetMarker) && readFileSync(targetMarker, "utf8") === sourceMarker) continue;
+      const staging = `${targetDir}.staging-${process.pid}-${Date.now()}`;
+      removeTempRepository(staging);
+      try {
+        cpSync(sourceDir, staging, { recursive: true, force: true });
+        if (name === "keycloak") removeTempRepository(path.join(staging, "data"));
+        removeTempRepository(targetDir);
+        renameSync(staging, targetDir);
+      } catch (error) {
+        removeTempRepository(staging);
+        throw error;
+      }
+    }
+  });
+  return true;
+}
 
 function uidTag(): string {
   return String(process.getuid?.() ?? "user");
@@ -237,6 +306,8 @@ function enforcePostgresPermissions(dir: string): void {
 export async function ensureCachedPostgresBinaries(
   installAtRoot: (cacheRoot: string) => Promise<ManagedPostgresBinaries>,
 ): Promise<ManagedPostgresBinaries> {
+  const cacheRoot = resolvePostgresBinaryCacheRoot();
+  const cachedBinaries = cachedBinariesByRoot.get(cacheRoot);
   if (
     cachedBinaries &&
     existsSync(cachedBinaries.initdb) &&
@@ -245,13 +316,13 @@ export async function ensureCachedPostgresBinaries(
   ) {
     return cachedBinaries;
   }
-  const cacheRoot = path.join(tmpdir(), `ha-pg-binaries-${process.platform}-${process.arch}-${uidTag()}-v1`);
+  mkdirSync(path.dirname(cacheRoot), { recursive: true, mode: 0o700 });
   const lockDir = `${cacheRoot}.lock`;
   const resolved = await withDirLock(lockDir, async () => {
     const bins = await installAtRoot(cacheRoot);
     return bins;
   });
-  cachedBinaries = resolved;
+  cachedBinariesByRoot.set(cacheRoot, resolved);
   return resolved;
 }
 

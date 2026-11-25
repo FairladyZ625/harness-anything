@@ -140,6 +140,9 @@ jobs:
   full-check:
     if: github.event_name != 'pull_request' && github.event_name != 'merge_group' && github.event_name != 'push'
     runs-on: ubuntu-latest
+    env:
+      HARNESS_MANAGED_POSTGRES_CACHE_DIR: ${{ runner.temp }}/harness-managed-postgres
+      HARNESS_MANAGED_KEYCLOAK_CACHE_DIR: ${{ runner.temp }}/harness-managed-keycloak
     strategy:
       fail-fast: false
       matrix:
@@ -153,6 +156,16 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - uses: ./.github/actions/electron-runtime-cache
+      - name: Cache managed PostgreSQL binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-postgres
+          key: managed-postgres-${{ runner.os }}-${{ runner.arch }}-pg18.3.0-2cf5eecc764e
+      - name: Cache managed Keycloak runtime
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-keycloak
+          key: managed-keycloak-${{ runner.os }}-${{ runner.arch }}-kc26.7.3-java21.0.12.1+1-2a107ab124b3
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: git diff --check
@@ -404,6 +417,9 @@ jobs:
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'push')
     name: integration-shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    env:
+      HARNESS_MANAGED_POSTGRES_CACHE_DIR: ${{ runner.temp }}/harness-managed-postgres
+      HARNESS_MANAGED_KEYCLOAK_CACHE_DIR: ${{ runner.temp }}/harness-managed-keycloak
     strategy:
       fail-fast: false
       matrix:
@@ -424,6 +440,18 @@ jobs:
           path: ${{ runner.temp }}
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
         if: needs.install.result == 'success'
+      - name: Cache managed PostgreSQL binaries
+        if: needs.install.result == 'success' && needs.install.outputs.code != 'false'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-postgres
+          key: managed-postgres-${{ runner.os }}-${{ runner.arch }}-pg18.3.0-2cf5eecc764e
+      - name: Cache managed Keycloak runtime
+        if: needs.install.result == 'success' && needs.install.outputs.code != 'false'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-keycloak
+          key: managed-keycloak-${{ runner.os }}-${{ runner.arch }}-kc26.7.3-java21.0.12.1+1-2a107ab124b3
       - if: needs.install.outputs.code != 'false'
         env:
           HARNESS_INTEGRATION_DURATION_LOG: ${{ runner.temp }}/integration-durations-shard-${{ matrix.shard }}.log
@@ -444,6 +472,8 @@ jobs:
     needs: install
     if: always() && ((github.event_name == 'pull_request' && needs.install.outputs.costBudgetReads != 'false') || github.event_name == 'push' || github.event_name == 'schedule')
     runs-on: ubuntu-latest
+    env:
+      HARNESS_MANAGED_POSTGRES_CACHE_DIR: ${{ runner.temp }}/harness-managed-postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -451,6 +481,11 @@ jobs:
           node-version: 26
           cache: npm
       - uses: ./.github/actions/electron-runtime-cache
+      - name: Cache managed PostgreSQL binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-postgres
+          key: managed-postgres-${{ runner.os }}-${{ runner.arch }}-pg18.3.0-2cf5eecc764e
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job pglite-node26
@@ -490,6 +525,9 @@ jobs:
     if: github.event_name != 'pull_request' && github.event_name != 'merge_group' && github.event_name != 'push'
     name: windows-integration-shard (${{ matrix.shard }})
     runs-on: windows-latest
+    env:
+      HARNESS_MANAGED_POSTGRES_CACHE_DIR: ${{ runner.temp }}/harness-managed-postgres
+      HARNESS_MANAGED_KEYCLOAK_CACHE_DIR: ${{ runner.temp }}/harness-managed-keycloak
     strategy:
       fail-fast: false
       matrix:
@@ -501,6 +539,16 @@ jobs:
           node-version: 24
           cache: npm
       - uses: ./.github/actions/electron-runtime-cache
+      - name: Cache managed PostgreSQL binaries
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-postgres
+          key: managed-postgres-${{ runner.os }}-${{ runner.arch }}-pg18.3.0-2cf5eecc764e
+      - name: Cache managed Keycloak runtime
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/harness-managed-keycloak
+          key: managed-keycloak-${{ runner.os }}-${{ runner.arch }}-kc26.7.3-java21.0.12.1+1-2a107ab124b3
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
 

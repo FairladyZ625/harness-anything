@@ -12,6 +12,8 @@ import {
   type ManagedPostgresBinaries,
 } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { ensureSharedPostgresBinaries } from "../../storage/test/postgres/managed-postgres.fixture.ts";
+import { seedCachedRuntimeArtifacts } from "../../storage/test/postgres/pg-cluster-template.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 async function freeLoopbackPort(): Promise<number> {
@@ -116,6 +118,12 @@ test(
           return child;
         }) as typeof spawn,
       });
+      const sharedPostgres = await ensureSharedPostgresBinaries();
+      seedCachedRuntimeArtifacts(
+        path.dirname(path.dirname(path.dirname(sharedPostgres.postgres))),
+        path.join(rbac, "runtime"),
+        ["postgres"],
+      );
       binaries = await service.ensurePostgresBinaries();
       initializePostgres(binaries.initdb, data, passwordFile);
       initializePostgres(binaries.initdb, foreignData, passwordFile);

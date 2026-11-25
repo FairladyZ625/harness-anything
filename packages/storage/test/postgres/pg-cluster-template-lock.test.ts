@@ -15,7 +15,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { withDirLock } from "./pg-cluster-template.fixture.ts";
+import {
+  MANAGED_KEYCLOAK_CACHE_DIR_ENV,
+  MANAGED_POSTGRES_CACHE_DIR_ENV,
+  persistCachedRuntimeArtifacts,
+  resolveKeycloakRuntimeCacheRoot,
+  resolvePostgresBinaryCacheRoot,
+  seedCachedRuntimeArtifacts,
+  withDirLock,
+} from "./pg-cluster-template.fixture.ts";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
 
 function findOwnerFile(lockDir: string): string | undefined {
@@ -299,4 +307,60 @@ test("respects emptyGraceMs for in-flight lock directories and reclaims abandone
   );
   assert.equal(ran, true);
   assert.equal(existsSync(lockDir), false);
+});
+
+test("resolvePostgresBinaryCacheRoot and resolveKeycloakRuntimeCacheRoot honor CI cache env overrides while preserving local defaults", () => {
+  const defaultPgRoot = resolvePostgresBinaryCacheRoot({});
+  assert.equal(path.dirname(defaultPgRoot), tmpdir());
+  assert.match(path.basename(defaultPgRoot), /^ha-pg-binaries-/u);
+  assert.equal(resolveKeycloakRuntimeCacheRoot({}), undefined);
+  assert.equal(resolveKeycloakRuntimeCacheRoot({ [MANAGED_KEYCLOAK_CACHE_DIR_ENV]: "   " }), undefined);
+
+  const pgOverride = path.join(tmpdir(), "custom-pg-cache");
+  const kcOverride = path.join(tmpdir(), "custom-kc-cache");
+  assert.equal(resolvePostgresBinaryCacheRoot({ [MANAGED_POSTGRES_CACHE_DIR_ENV]: ` ${pgOverride} ` }), pgOverride);
+  assert.equal(resolveKeycloakRuntimeCacheRoot({ [MANAGED_KEYCLOAK_CACHE_DIR_ENV]: ` ${kcOverride} ` }), kcOverride);
+});
+
+test("persistCachedRuntimeArtifacts and seedCachedRuntimeArtifacts copy installed runtimes atomically and strip transient Keycloak data", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-cache-roundtrip-"));
+  t.after(() => removeTempRepository(root));
+  const sourceRuntime = path.join(root, "source", "rbac", "runtime");
+  const cacheRoot = path.join(root, "ci-cache", "keycloak");
+  const targetRuntime = path.join(root, "target", "rbac", "runtime");
+
+  mkdirSync(path.join(sourceRuntime, "keycloak", "bin"), { recursive: true });
+  mkdirSync(path.join(sourceRuntime, "keycloak", "data", "import"), { recursive: true });
+  mkdirSync(path.join(sourceRuntime, "java", "bin"), { recursive: true });
+  writeFileSync(path.join(sourceRuntime, "keycloak", ".installed"), "https://example.test/keycloak.tar.gz\nabc\n");
+  writeFileSync(path.join(sourceRuntime, "keycloak", "bin", "kc.sh"), "#!/bin/sh\n");
+  writeFileSync(path.join(sourceRuntime, "keycloak", "data", "import", "harness-realm.json"), '{"realm":"harness"}');
+  writeFileSync(path.join(sourceRuntime, "java", ".installed"), "https://example.test/java.tar.gz\ndef\n");
+  writeFileSync(path.join(sourceRuntime, "java", "bin", "java"), "#!/bin/sh\n");
+
+  // Missing cache directory seeds nothing and does not create an empty cache directory.
+  assert.deepEqual(
+    seedCachedRuntimeArtifacts(path.join(cacheRoot, "rbac", "runtime"), targetRuntime, ["keycloak", "java"]),
+    [],
+  );
+  assert.equal(existsSync(cacheRoot), false);
+
+  // Persist both installed runtimes into the shared cache root.
+  const persisted = await persistCachedRuntimeArtifacts(sourceRuntime, cacheRoot, ["keycloak", "java"]);
+  assert.equal(persisted, true);
+  assert.equal(existsSync(path.join(cacheRoot, "rbac", "runtime", "keycloak", ".installed")), true);
+  assert.equal(existsSync(path.join(cacheRoot, "rbac", "runtime", "keycloak", "data")), false);
+  assert.equal(existsSync(path.join(cacheRoot, "rbac", "runtime", "java", ".installed")), true);
+  assert.equal(existsSync(`${cacheRoot}.lock`), false);
+
+  // Subsequent run seeds both artifacts into a fresh isolated test runtime directory.
+  const seeded = seedCachedRuntimeArtifacts(path.join(cacheRoot, "rbac", "runtime"), targetRuntime, [
+    "keycloak",
+    "java",
+  ]);
+  assert.deepEqual(seeded, ["keycloak", "java"]);
+  assert.equal(existsSync(path.join(targetRuntime, "keycloak", ".installed")), true);
+  assert.equal(existsSync(path.join(targetRuntime, "keycloak", "bin", "kc.sh")), true);
+  assert.equal(existsSync(path.join(targetRuntime, "java", ".installed")), true);
+  assert.equal(existsSync(path.join(targetRuntime, "java", "bin", "java")), true);
 });

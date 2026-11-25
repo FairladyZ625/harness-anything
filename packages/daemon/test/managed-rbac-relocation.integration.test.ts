@@ -11,6 +11,12 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization/keycloak"
 import { ManagedRbacService, managedRbacVersions } from "@harness-anything/authorization/keycloak/managed-rbac-service";
 import { effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { createIdentityManagement } from "../src/daemon-host/authorization-provider.ts";
+import { ensureSharedPostgresBinaries } from "../../storage/test/postgres/managed-postgres.fixture.ts";
+import {
+  persistCachedRuntimeArtifacts,
+  resolveKeycloakRuntimeCacheRoot,
+  seedCachedRuntimeArtifacts,
+} from "../../storage/test/postgres/pg-cluster-template.fixture.ts";
 import { IDENTITY_RELOCATION_ACCESS_ADMIN_JOURNAL_SCHEMA } from "@harness-anything/kernel/internal/ports/identity-management-port.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -156,6 +162,18 @@ test(
       removeTempRepository(root);
     });
 
+    const sharedPostgres = await ensureSharedPostgresBinaries();
+    const sourceRuntimeDir = path.join(sourceRoot, "rbac", "runtime");
+    seedCachedRuntimeArtifacts(path.dirname(path.dirname(path.dirname(sharedPostgres.postgres))), sourceRuntimeDir, [
+      "postgres",
+    ]);
+    const keycloakCacheRoot = resolveKeycloakRuntimeCacheRoot();
+    if (keycloakCacheRoot) {
+      seedCachedRuntimeArtifacts(path.join(keycloakCacheRoot, "rbac", "runtime"), sourceRuntimeDir, [
+        "keycloak",
+        "java",
+      ]);
+    }
     await measured("source-bootstrap", () => source.run({ operation: "bootstrap", mode: "managed" }));
 
     const sourceConfig = JSON.parse(readFileSync(path.join(sourceRoot, "rbac", "config.json"), "utf8")) as {
@@ -233,6 +251,9 @@ test(
     // Stop the source PostgreSQL + Keycloak instance before bootstrapping the target so CI runners
     // never host two managed Keycloak JVMs simultaneously.
     await source.stop();
+    if (keycloakCacheRoot) {
+      await persistCachedRuntimeArtifacts(sourceRuntimeDir, keycloakCacheRoot, ["keycloak", "java"]);
+    }
     mkdirSync(path.join(targetRoot, "rbac"), { recursive: true, mode: 0o700 });
     cpSync(path.join(sourceRoot, "rbac", "runtime"), path.join(targetRoot, "rbac", "runtime"), { recursive: true });
     await managedRoot(targetRoot);
