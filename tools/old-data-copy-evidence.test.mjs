@@ -91,6 +91,11 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   assert.equal(parsePeakRssBytes("unrelated", "darwin"), null);
   assert.equal(parseArgs([]).mediumSubmit, false);
   assert.equal(parseArgs(["--medium-submit"]).mediumSubmit, true);
+  assert.equal(parseArgs([]).attachTimeoutMs, 900_000);
+  assert.equal(parseArgs(["--attach-timeout-ms", "180000"]).attachTimeoutMs, 180_000);
+  for (const invalid of ["0", "-1", "999", "1.5", "abc", "2147483648"]) {
+    assert.throws(() => parseArgs(["--attach-timeout-ms", invalid]), /--attach-timeout-ms must be an integer/u);
+  }
   assert.deepEqual(copyTreeArgs("darwin"), ["-cR"]);
   assert.deepEqual(copyTreeArgs("linux"), ["-a", "--reflink=auto"]);
   assert.deepEqual(copyTreeArgs("win32"), []);
@@ -147,6 +152,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   ]);
   const env = forensicEnv({
     HARNESS_DAEMON_ID: "default",
+    HARNESS_DAEMON_ATTACH_TIMEOUT_MS: "12345",
     HARNESS_EXECUTION_CREDENTIAL: "dispatched",
     HARNESS_ACTOR: "runtime",
     HARNESS_WRITER_READY_WATCHDOG_MS: "600000",
@@ -162,6 +168,7 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
   assert.equal(forensicEnv({ PATH: "/repo/tools/git-hooks:/usr/bin" }, "linux").PATH, "/usr/bin");
   for (const stripped of [
     "HARNESS_DAEMON_ID",
+    "HARNESS_DAEMON_ATTACH_TIMEOUT_MS",
     "HARNESS_EXECUTION_CREDENTIAL",
     "HARNESS_ACTOR",
     "HARNESS_WRITER_READY_WATCHDOG_MS",
@@ -181,6 +188,17 @@ test("pure helpers: receipt parsing strips injections, rss parsing, source deriv
     ...env,
     HARNESS_DAEMON_USER_ROOT: "/isolated/user-root",
     HARNESS_DAEMON_ID: "isolated-daemon",
+  });
+  const daemonStartInvocation = cliInvocation("/build", ["daemon", "start", "--service"], env, "/workspace", {
+    userRoot: "/isolated/user-root",
+    daemonId: "isolated-daemon",
+    attachTimeoutMs: 900_000,
+  });
+  assert.deepEqual(daemonStartInvocation.options.env, {
+    ...env,
+    HARNESS_DAEMON_USER_ROOT: "/isolated/user-root",
+    HARNESS_DAEMON_ID: "isolated-daemon",
+    HARNESS_DAEMON_ATTACH_TIMEOUT_MS: "900000",
   });
   // Explicit wins verbatim; the default derivation walks git-common-dir of the given cwd.
   assert.equal(resolveSourceRoot("/some/explicit"), path.resolve("/some/explicit"));

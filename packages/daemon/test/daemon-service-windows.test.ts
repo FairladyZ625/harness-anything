@@ -52,11 +52,19 @@ test("Windows owns one least-privilege scheduled task per local daemon target", 
   assert.match(script, /if \(\$LASTEXITCODE -ne 75\) \{ exit \$LASTEXITCODE \}\r?\n\}/u);
   assert.ok(!daemonServiceUnitContent(unit, launch).includes("NODE_EXTRA_CA_CERTS"));
   assert.ok(!script.includes("HARNESS_DAEMON_OWNER_PID"));
+  assert.ok(!script.includes("HARNESS_DAEMON_ATTACH_TIMEOUT_MS"));
   const ownedEncoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/u.exec(
-    daemonServiceUnitContent(unit, { ...launch, runAtLogin: false, ownerPid: "42424" }),
+    daemonServiceUnitContent(unit, { ...launch, runAtLogin: false, ownerPid: "42424", attachTimeoutMs: 900_000 }),
   )![1]!;
   const ownedScript = Buffer.from(ownedEncoded, "base64").toString("utf16le");
   assert.ok(ownedScript.includes("$env:HARNESS_DAEMON_OWNER_PID = '42424'"));
+  assert.ok(ownedScript.includes("$env:HARNESS_DAEMON_ATTACH_TIMEOUT_MS = '900000'"));
+  for (const invalid of ["0", "-1", "abc", 0]) {
+    assert.throws(
+      () => daemonServiceUnitContent(unit, { ...launch, runAtLogin: false, attachTimeoutMs: invalid }),
+      /Invalid HARNESS_DAEMON_ATTACH_TIMEOUT_MS/u,
+    );
+  }
 });
 
 test("Windows registers, starts, queries and removes only its named task", () => {

@@ -4,6 +4,7 @@ import path from "node:path";
 import { createRpcMetricsAccumulator, readDaemonRegistry } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
+import { parseDaemonAttachTimeoutMs } from "./attach-timeout.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
 import type { openDaemonHost } from "./daemon-host-open.ts";
 import type { openDaemonRequestLog } from "./request-log.ts";
@@ -96,6 +97,7 @@ export async function startDaemon(input: {
   /** Minimum interval (ms) between live upstream OIDC re-verifications while already ready. */
   readonly identityReadyReverifyIntervalMs?: DaemonHostOpenInput["identityReadyReverifyIntervalMs"];
 }): Promise<DaemonServeStart> {
+  parseDaemonAttachTimeoutMs(input.attachTimeoutMs, "attachTimeoutMs");
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket
   // bind, so the socket and the workspace writer locks can only ever share

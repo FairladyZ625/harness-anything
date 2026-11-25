@@ -8,6 +8,7 @@ import {
   daemonSocketProbe,
   readDaemonSingletonLockPid,
 } from "../daemon-singleton.ts";
+import { DAEMON_ATTACH_TIMEOUT_ENV, parseDaemonAttachTimeoutMs } from "../attach-timeout.ts";
 import { daemonStdioLogPath, readDaemonLifecycleGeneration } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 import { canonicalPath } from "../canonical-path.ts";
@@ -213,7 +214,8 @@ export async function ensureLocalDaemonRunning(input: {
           const scheduled = daemonServiceUnit(target)!,
             environment = Object.fromEntries(
               Object.entries(launch.env).map(([key, value]) => [key.toUpperCase(), value]),
-            );
+            ),
+            attachTimeoutMs = launchAttachTimeoutMs(launch);
           writeDaemonServiceUnit(
             scheduled,
             daemonServiceUnitContent(scheduled, {
@@ -223,6 +225,7 @@ export async function ensureLocalDaemonRunning(input: {
               searchPath: environment.PATH ?? "",
               extraCaCerts: environment.NODE_EXTRA_CA_CERTS,
               ownerPid: environment.HARNESS_DAEMON_OWNER_PID,
+              ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
               runAtLogin: false,
             }),
             daemonStdioLogPath(target.userRoot, target.daemonId),
@@ -259,6 +262,7 @@ export async function ensureLocalDaemonRunning(input: {
   try {
     const target = daemonLaunchTarget(launched);
     if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
+    launchAttachTimeoutMs(launched);
     const refusal = await daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
     if (refusal) return { ok: false, ...refusal, attempts: 0 };
     const stoppedAt = readDaemonStoppedAt(target.userRoot, target.daemonId);
@@ -480,6 +484,16 @@ function daemonLaunchTarget(launch: DaemonLaunchSpec): { readonly userRoot: stri
     daemonId
     ? { userRoot: path.resolve(userRoot), daemonId }
     : null;
+}
+function launchAttachTimeoutMs(launch: DaemonLaunchSpec): number | undefined {
+  const flagAt = launch.args.indexOf("--attach-timeout-ms", 2);
+  if (flagAt > 1) {
+    const value = launch.args[flagAt + 1];
+    if (!value || value.startsWith("--")) throw new Error("Missing value for --attach-timeout-ms");
+    return parseDaemonAttachTimeoutMs(value, "--attach-timeout-ms");
+  }
+  const entry = Object.entries(launch.env).find(([key]) => key.toUpperCase() === DAEMON_ATTACH_TIMEOUT_ENV);
+  return parseDaemonAttachTimeoutMs(entry?.[1], DAEMON_ATTACH_TIMEOUT_ENV);
 }
 function liveDaemonSingleton(launch: DaemonLaunchSpec): boolean {
   const target = daemonLaunchTarget(launch);

@@ -1,10 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
+import { DAEMON_ATTACH_TIMEOUT_ENV, MAX_DAEMON_ATTACH_TIMEOUT_MS } from "../src/daemon-host/attach-timeout.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { daemonPidPath, daemonSingletonLockPath } from "../src/daemon-host/daemon-singleton.ts";
+import { daemonLifecycleLogPath, readDaemonLifecycleGeneration } from "../src/daemon-host/lifecycle-log.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
@@ -13,6 +20,7 @@ import {
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { eventually } from "./fixtures/runtime-ingress.ts";
+import { waitForArrival, watchFileArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("a repository whose open never settles is bounded by an attach budget while the rest attach and serve", async () => {
@@ -274,3 +282,118 @@ test("an attach that lands after its registration changed mode is discarded and 
     removeTempRepository(parent);
   }
 });
+
+test("startDaemon and openDaemonHost reject invalid attachTimeoutMs fail-closed without claiming locks", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-attach-timeout-invalid-")),
+    daemonId = "invalid-budget";
+  try {
+    for (const invalid of [0, -1, 1.5, Number.NaN, MAX_DAEMON_ATTACH_TIMEOUT_MS + 1]) {
+      await assert.rejects(
+        () => startDaemon({ daemonId, userRoot, attachTimeoutMs: invalid }),
+        /Invalid attachTimeoutMs/u,
+      );
+      await assert.rejects(
+        () => openDaemonHost({ daemonId, userRoot, attachTimeoutMs: invalid }),
+        /Invalid attachTimeoutMs/u,
+      );
+    }
+    assert.equal(existsSync(daemonPidPath(userRoot, daemonId)), false);
+    assert.equal(existsSync(daemonSingletonLockPath(userRoot, daemonId)), false);
+  } finally {
+    removeTempRepository(userRoot);
+  }
+});
+
+test(
+  "daemon bin entrypoint forwards HARNESS_DAEMON_ATTACH_TIMEOUT_MS and --attach-timeout-ms to live attach budget",
+  { timeout: 60_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-bin-attach-budget-")),
+      binEntry = path.resolve(import.meta.dirname, "../src/daemon-host/bin.ts"),
+      hook = path.join(parent, "hang-repo-cell-open.mjs");
+    writeFileSync(
+      hook,
+      `
+      import { registerHooks } from "node:module";
+      registerHooks({
+        load(url, context, next) {
+          if (/\\/repo-cell-open\\.(?:ts|js)$/.test(new URL(url).pathname)) {
+            return {
+              format: "module",
+              shortCircuit: true,
+              source: "export function openRepoCell() { return new Promise(() => {}); }",
+            };
+          }
+          return next(url, context);
+        },
+      });
+    `,
+      "utf8",
+    );
+    try {
+      for (const scenario of [
+        {
+          daemonId: "env-budget",
+          extraArgs: [] as string[],
+          envValue: "250",
+          expectedMs: 250,
+        },
+        {
+          daemonId: "flag-budget",
+          extraArgs: ["--attach-timeout-ms", "300"],
+          envValue: "900000",
+          expectedMs: 300,
+        },
+      ]) {
+        const userRoot = path.join(parent, `user-${scenario.daemonId}`),
+          repoRoot = path.join(parent, `repo-${scenario.daemonId}`),
+          lifecyclePath = daemonLifecycleLogPath(userRoot, scenario.daemonId);
+        rosterRepo(repoRoot, "hung-repo");
+        registerDaemonRepo({ canonicalRoot: repoRoot, repoId: "hung-repo", userRoot, createConvenienceLinks: false });
+        const childEnv = { ...process.env };
+        delete childEnv.HARNESS_ACTOR;
+        childEnv[DAEMON_ATTACH_TIMEOUT_ENV] = scenario.envValue;
+        childEnv.NODE_OPTIONS = `--import=${pathToFileURL(hook).href}`;
+        let stderr = "";
+        const child: ChildProcess = spawn(
+          process.execPath,
+          [binEntry, "serve", "--user-root", userRoot, "--daemon-id", scenario.daemonId, ...scenario.extraArgs],
+          { env: childEnv, stdio: ["ignore", "ignore", "pipe"], windowsHide: true },
+        );
+        child.stderr?.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString("utf8");
+        });
+        try {
+          const timedOut = await waitForArrival(
+            () => {
+              if (child.exitCode !== null)
+                assert.fail(`daemon exited prematurely (${child.exitCode}) for ${scenario.daemonId}: ${stderr}`);
+              return (
+                readDaemonLifecycleGeneration(userRoot, scenario.daemonId).find(
+                  (record) => record.event === "repo_attach_timed_out" && record.repoId === "hung-repo",
+                ) ?? null
+              );
+            },
+            (arrive) => {
+              const unwatch = watchFileArrival(lifecyclePath)(arrive);
+              child.once("exit", arrive);
+              return () => {
+                child.off("exit", arrive);
+                unwatch();
+              };
+            },
+          );
+          assert.equal(timedOut.durationMs, scenario.expectedMs, `${scenario.daemonId}: ${JSON.stringify(timedOut)}`);
+        } finally {
+          if (child.exitCode === null) {
+            const exited = once(child, "exit");
+            child.kill("SIGKILL");
+            await exited;
+          }
+        }
+      }
+    } finally {
+      removeTempRepository(parent);
+    }
+  },
+);
