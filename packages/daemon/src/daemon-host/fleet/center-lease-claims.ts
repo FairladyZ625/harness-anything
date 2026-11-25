@@ -40,7 +40,7 @@ export function uploadWindow(state: State): FleetUploadWindow {
 
 export interface FleetLeaseClaimsContext {
   readonly state: State;
-  readonly claimGenerations?: Map<string, number>;
+  readonly claimGenerations?: Record<string, number>;
   readonly persist: () => void;
   readonly FleetFault: typeof FleetFault;
   readonly safeLocal: (repoId: string, child: string) => string;
@@ -48,13 +48,15 @@ export interface FleetLeaseClaimsContext {
 }
 
 export function markClaimStaged(context: Pick<FleetLeaseClaimsContext, "claimGenerations">, uploadId: string): number {
-  const next = (context.claimGenerations?.get(uploadId) ?? 0) + 1;
-  context.claimGenerations?.set(uploadId, next);
+  const next = claimGeneration(context, uploadId) + 1;
+  if (context.claimGenerations) context.claimGenerations[uploadId] = next;
   return next;
 }
 
 export function claimGeneration(context: Pick<FleetLeaseClaimsContext, "claimGenerations">, uploadId: string): number {
-  return context.claimGenerations?.get(uploadId) ?? 0;
+  return context.claimGenerations && Object.hasOwn(context.claimGenerations, uploadId)
+    ? (context.claimGenerations[uploadId] ?? 0)
+    : 0;
 }
 
 /** Consumption may have removed a claim before a crash persisted its metadata deletion.
@@ -68,7 +70,7 @@ export function reclaimConsumedClaims(context: FleetLeaseClaimsContext, repoId: 
     const claim = path.join(context.safeLocal(repoId, "doc-sync-claims"), path.basename(upload.descriptor.ref));
     if (existsSync(claim)) continue;
     delete context.state.uploads[uploadId];
-    context.claimGenerations?.delete(uploadId);
+    if (context.claimGenerations) delete context.claimGenerations[uploadId];
     released = true;
   }
   if (released) context.persist();
@@ -232,8 +234,21 @@ export function discardOwnedClaims(
       consumeKnownError(error);
     }
     delete context.state.uploads[uploadId];
-    context.claimGenerations?.delete(uploadId);
+    if (context.claimGenerations) delete context.claimGenerations[uploadId];
     released = true;
   }
   if (released) context.persist();
+}
+
+export function discardSubmittedClaims(
+  context: Pick<FleetLeaseClaimsContext, "state" | "claimGenerations" | "persist">,
+  completed: readonly (readonly [string, number])[],
+): void {
+  const matched = completed.filter(([uploadId, generation]) => claimGeneration(context, uploadId) === generation);
+  if (matched.length === 0) return;
+  for (const [uploadId] of matched) {
+    delete context.state.uploads[uploadId];
+    if (context.claimGenerations) delete context.claimGenerations[uploadId];
+  }
+  context.persist();
 }

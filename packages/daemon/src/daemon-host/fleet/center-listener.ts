@@ -64,6 +64,7 @@ import { runtimeErrorCode, runtimeErrorMessage } from "../../runtime-engine/runt
 import {
   claimGeneration,
   discardOwnedClaims as discardOwnedClaimsImpl,
+  discardSubmittedClaims,
   findOwnedClaim as findOwnedClaimImpl,
   markClaimStaged,
   readOwnedRuntimeResultClaim,
@@ -191,7 +192,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       ownedEpochFor,
     }),
     switchoverControl = resolveListenerSwitchoverControl(options);
-  const claimGenerations = new Map<string, number>();
+  const claimGenerations: Record<string, number> = {};
   const extracted = {
     claimGenerations,
     get state() {
@@ -1153,7 +1154,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           persist();
         } else if (!existsSync(target)) {
           delete state.uploads[frame.uploadId];
-          claimGenerations.delete(frame.uploadId);
+          delete claimGenerations[frame.uploadId];
           persist();
           throw new FleetFault("upload_missing", "Durable upload prefix is missing.", true, 0);
         }
@@ -1211,16 +1212,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             "execution_scope_mismatch",
             "Fleet document writes cannot return runtime control results.",
           );
-        if (receipt.outcome === "applied") {
-          let released = false;
-          for (const [uploadId, generation] of completed) {
-            if (claimGeneration(extracted, uploadId) !== generation) continue;
-            delete state.uploads[uploadId];
-            claimGenerations.delete(uploadId);
-            released = true;
-          }
-          if (released) persist();
-        }
+        if (receipt.outcome === "applied") discardSubmittedClaims(extracted, completed);
         return immediate({
           schema: "fleet.doc.result/v1",
           messageId: mid(frame.messageId, "doc"),
@@ -1424,8 +1416,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             "Only a runtime dispatch carries its center admission context, and every remote dispatch must carry it.",
           );
         const runtimeResultClaim = frame.result
-          ? readOwnedRuntimeResultClaim(extracted, nodeId, a.repoId, frame.result)
-          : undefined;
+            ? readOwnedRuntimeResultClaim(extracted, nodeId, a.repoId, frame.result)
+            : undefined,
+          uploadId = runtimeResultClaim?.uploadId;
         let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
         const runtimeEventOpId = runtimeEventStorageOpId(a.repoId, frame.eventType, frame.payload);
         try {
@@ -1448,12 +1441,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           if (code) throw new FleetFault(code, runtimeErrorMessage(error));
           throw error;
         }
-        if (runtimeResultClaim && receipt.outcome === "applied") {
+        if (uploadId && receipt.outcome === "applied") {
           discardOwnedClaims(
             nodeId,
             a.repoId,
             [{ candidate: frame.result! }],
-            new Map([[runtimeResultClaim.uploadId, runtimeResultClaim.generation]]),
+            new Map([[uploadId, runtimeResultClaim!.generation]]),
           );
         }
         if (receipt.outcome === "op_rejected" && typeof receipt.code === "string")
