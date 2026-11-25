@@ -30,11 +30,16 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 const ITEM = "inbox-item",
   DEDUPE = "inbox-dedupe",
-  QUEUE = "inbox-queue";
-const MODELS = [ITEM, DEDUPE, QUEUE] as const;
+  QUEUE = "inbox-queue",
+  HISTORY = "inbox-history";
+const MODELS = [ITEM, DEDUPE, QUEUE, HISTORY] as const;
 
 function queueKey(consumerKind: string, status: string, enqueuedRevision: number): string {
   return `${consumerKind}:${status}:${String(enqueuedRevision).padStart(16, "0")}`;
+}
+
+function historyKey(enqueuedRevision: number): string {
+  return String(enqueuedRevision).padStart(16, "0");
 }
 
 function projectionScopeForItem(scope: PgProjectionScope, item: InboxItem): PgProjectionScope {
@@ -71,6 +76,15 @@ export async function projectPgInbox(
     revision = input.workspaceRevision,
     itemScope = projectionScopeForItem(scope, item);
   await putPgProjectionValue(client, itemScope, ITEM, item.itemId, item.inboxId, revision, item);
+  await putPgProjectionValue(
+    client,
+    itemScope,
+    HISTORY,
+    historyKey(item.enqueuedRevision),
+    item.inboxId,
+    revision,
+    item,
+  );
   if (current === null)
     await putPgProjectionValue(client, itemScope, DEDUPE, item.dedupeKey, item.inboxId, revision, item.itemId);
   else
@@ -182,6 +196,37 @@ async function readQueue(
   return { items: items.slice(0, limit), nextCursor: inboxQueueNextCursor(items, limit) };
 }
 
+async function readHistory(
+  client: PoolClient,
+  scope: PostgresScopeClaims,
+  readers: readonly string[],
+  query: Extract<InboxQuery, { by: "inbox" }>,
+): Promise<{ readonly items: readonly InboxItem[]; readonly nextCursor: string | null }> {
+  if (typeof query.inboxId !== "string" || query.inboxId.length === 0)
+    throw new Error("inbox history reads require a targeted inboxId");
+  const limit = inboxPageLimit(query.limit);
+  const items = (
+    await client.query<{ value: string }>(
+      `SELECT value FROM ha_projection_values
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+         AND model='${HISTORY}' AND owner_id=$4
+         AND (cardinality($5::text[])=0 OR readers && $5::text[])
+         AND entity_id COLLATE "C" > $6
+       ORDER BY entity_id COLLATE "C" LIMIT $7`,
+      [
+        scope.tenantId,
+        scope.projectId,
+        scope.policyEpoch,
+        query.inboxId,
+        [...readers],
+        historyKey(inboxQueueCursor(query.cursor)),
+        limit + 1,
+      ],
+    )
+  ).rows.map(({ value }) => JSON.parse(value) as InboxItem);
+  return { items: items.slice(0, limit), nextCursor: inboxQueueNextCursor(items, limit) };
+}
+
 export interface PgInboxQueries {
   readonly readInbox: (query: InboxQuery) => Promise<InboxRead>;
 }
@@ -204,6 +249,7 @@ export function pgInboxQueries(options: {
             return { status: "pending", watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           const base = { status: "ready" as const, watermark: cut.watermark, sourceRevision: cut.sourceRevision };
           if (query.by === "queue") return { ...base, ...(await readQueue(client, scope, readers, query)) };
+          if (query.by === "inbox") return { ...base, ...(await readHistory(client, scope, readers, query)) };
           const itemId =
             query.by === "item"
               ? query.itemId

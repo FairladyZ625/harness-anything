@@ -5,6 +5,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
 import { dispatchPeerAction, enforceTaskActionStewardshipFence } from "./peer-action.ts";
+import { dispatchChannelAction } from "./channel-action.ts";
 import { runTaskWitnessAction } from "@harness-anything/application/internal/commands/task-witness-action.ts";
 import { readTaskWitnessRequest } from "./task-witness-request.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
@@ -297,6 +298,12 @@ export function executeRepoAction(
       );
     }
     return dispatchPeerAction(cell, action, binding, sourceRevision);
+  }
+  if (actionContract?.target.kind === "channel" && actionContract.execution) {
+    const sourceRevision = actionContract.execution.read
+      ? cell.projection.readCut().sourceRevision
+      : (cell.store.readHead()?.revision ?? 0);
+    return dispatchChannelAction(cell, action, binding, sourceRevision);
   }
   if (actionContract?.target.kind === "task" && actionContract.execution) {
     if (action.kind === "task-create") {

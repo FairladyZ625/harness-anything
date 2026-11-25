@@ -1354,6 +1354,24 @@
         "order": 421
       }
     ],
+    "peer-promote": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/channel-data.ts#promotePeerRequest:1e009a36628e32c1d52c532ade6ffd68",
+        "route": "peer.promote",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 1
+      }
+    ],
+    "peer-reply": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/channel-data.ts#replyPeerRequest:b9fdd83c79dce1472ad7aea45d9e7108",
+        "route": "peer.reply",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 1
+      }
+    ],
     "provider-create": [
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/decision-provider-client.ts#decisionProviderClient.create:536780a432af671a3c2b22c07ea4493e",
@@ -1945,6 +1963,13 @@
         "order": 204
       },
       {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/channel-data.ts#readChannelList.receipt:268fb02b7d83bf7bfe48de3d03374831",
+        "route": "channel.list",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 212
+      },
+      {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#useObserveTail:973c6c969683351bc4fdb5c8534d57f0",
         "route": "observe.tail",
         "role": "client",
@@ -2078,14 +2103,14 @@
         "route": "todo.list",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
-        "order": 212
+        "order": 213
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/todos-client.ts#todosClient.show:c8280b7b171bfb494d3a866ca9d164b6",
         "route": "todo.show",
         "role": "client",
         "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
-        "order": 213
+        "order": 214
       },
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/use-case-projection-client.ts#readUseCaseProjection.value:16860bcbea9af46c9507b8965e7b5e4a",

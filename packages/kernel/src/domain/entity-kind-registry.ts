@@ -27,10 +27,11 @@ import {
   dispatchLifecyclePolicies,
   dispatchLifecycleJudgment,
 } from "./dispatch-lifecycle-ontology.ts";
-import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
+import { inboxJudgments, inboxPolicies } from "./inbox.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-collaboration.ts";
+import { channelV1Schema, createChannelActionCatalog, channelJudgments, channelPolicies } from "./channel-adapter.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,
@@ -1650,6 +1651,22 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     policies: [...peerPolicies],
     actionCatalog: createPeerActionCatalog((id) =>
       entityAction("peer-request", requireEntityTypeContract("peer-request").id, id),
+    ),
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "channel",
+    ...entityTypeContractFields("channel"),
+    schema: channelV1Schema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    stateStores: stateStoresForKind("channel"),
+    judgments: [...channelJudgments],
+    policies: [...channelPolicies],
+    actionCatalog: createChannelActionCatalog((id) =>
+      entityAction("channel", requireEntityTypeContract("channel").id, id),
     ),
     entityStore: null,
     authoring: null,

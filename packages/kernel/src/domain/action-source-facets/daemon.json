@@ -8,6 +8,22 @@
         "order": 2
       }
     ],
+    "channel-deliver": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#dispatchChannelAction:7c8ca95c08161e4be116c3f55168667e",
+        "route": "channel-deliver",
+        "role": "effect",
+        "order": 1
+      }
+    ],
+    "channel-send": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-outbox.ts#registerChannelOutboundAdapter:7833f6efe42761439ebf33fe74af76a3",
+        "route": "channel-send",
+        "role": "support",
+        "order": 3
+      }
+    ],
     "daemon-fleet-center-switch": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/fleet/center-switchover-command.ts#switchoverCommandError:5e760bf72f2e4e84a5d8c4f6eddc5d65",

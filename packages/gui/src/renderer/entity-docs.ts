@@ -93,6 +93,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [],
     actions: ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign", "pin", "unpin"],
   },
+  channel: {
+    schemaId: "channel/v1",
+    refTemplate: "channel/{id}",
+    statuses: [],
+    actions: ["deliver", "list", "send"],
+  },
   decision: {
     schemaId: "decision-package",
     refTemplate: "decision/{id}",
@@ -564,6 +570,23 @@ const decisionDoc: EntityKindDoc = {
   ],
   guiEntry: { view: "decisionPool", note: "待办签发总池的决策待裁域(专注裁决从域内进入);详情从决策行进入" },
   liveCount: "decisions",
+};
+
+const channelDoc: EntityKindDoc = {
+  kind: "channel",
+  ...kernelContract("channel"),
+  storage: "Canonical Inbox events; outbound deliveries append to the recipient Inbox",
+  definition: "Channel-neutral envelope and delivery receipt contract shared by CLI, GUI, webhook and peer adapters.",
+  fields: [
+    field("schema", true, "string", "Versioned channel document contract."),
+    field("envelopeId", true, "string", "Stable identifier for this channel delivery."),
+    field("channelKind", true, "enum", "Adapter family that accepted the message."),
+    field("status", false, "string", "Current delivery receipt status."),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: { view: "agenda", note: "Unified channel inbox in AgendaView" },
+  liveCount: null,
 };
 
 const todoDoc: EntityKindDoc = {
@@ -1124,7 +1147,16 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "catalog",
     title: "目录与配置",
     summary: "脚手架、默认值、人员,以及承载它们的账本流:文档、迁移、脚本执行与 vertical 声明。",
-    docs: [presetDoc, settingsDoc, personDoc, documentDoc, migrationDoc, scriptExecutionDoc, verticalDeclarationDoc],
+    docs: [
+      presetDoc,
+      settingsDoc,
+      personDoc,
+      documentDoc,
+      migrationDoc,
+      scriptExecutionDoc,
+      verticalDeclarationDoc,
+      channelDoc,
+    ],
   },
 ];
 

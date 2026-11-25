@@ -12,6 +12,8 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["agent-run", "repo-write"],
     ["agent-unassign", "repo-write"],
     ["assignment-migrate", "repo-write"],
+    ["channel-deliver", "repo-write"],
+    ["channel-send", "repo-write"],
     ["cli-local-effects", "admin"],
     ["daemon-connection-add", "admin"],
     ["daemon-connection-probe", "admin"],

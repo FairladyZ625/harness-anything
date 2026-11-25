@@ -9,7 +9,7 @@ import { edgeJoinFields, edgeJoinOrigins } from "./thin-command-edge-join.ts";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";
-import { peerRouteParsers } from "./thin-command-peer.ts";
+import { channelRouteParsers, peerRouteParsers } from "./thin-command-peer.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected, rejectInput } from "./thin-command-flags.ts";
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
@@ -31,7 +31,6 @@ type RoutedParser = (
 ) => ThinParseResult;
 
 type SuccessfulFlags = Extract<ReturnType<typeof readFlags>, { ok: true }>;
-
 const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
   parseProvider(route, args, rootDir, json, inputs);
 
@@ -77,6 +76,7 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["provider-show", parseProviderRoute],
   ["provider-update", parseProviderRoute],
   ...peerRouteParsers,
+  ...channelRouteParsers,
 ]);
 
 function parseEdgeJoin(

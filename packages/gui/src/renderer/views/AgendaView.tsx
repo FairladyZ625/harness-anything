@@ -22,6 +22,7 @@ import { AgendaAttention } from "./agenda/AgendaAttention.tsx";
 import { AgendaInboxActions } from "./agenda/AgendaInboxActions.tsx";
 import { AgendaOutboxCard } from "./agenda/AgendaOutboxCard.tsx";
 import { AgendaItemStatus, AgendaWorkbenchQueue } from "./agenda/AgendaWorkbenchQueue.tsx";
+import { AgendaChannelPanel } from "./agenda/AgendaChannelPanel.tsx";
 
 interface AgendaViewProps {
   readonly repoId: string;
@@ -379,6 +380,7 @@ function AgendaWorkbench({ repoId, agenda, agendaError, onNavigateEntity, onFocu
                 </div>
               </div>
             )}
+            <AgendaChannelPanel repoId={repoId} />
             {quiet.length > 0 && (
               <details
                 data-testid="agenda-quiet-fyi"

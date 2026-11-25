@@ -111,6 +111,7 @@ export function createRepoCellActionContext(bindings: {
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+    readonly channelOutboundBridge?: import("./channel-outbox.ts").ChannelOutboundBridge;
   };
   readonly rootDir: string;
   readonly now: () => string;

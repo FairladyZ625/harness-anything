@@ -283,13 +283,15 @@ test("preload exposes only the approved API methods", () => {
   // three closed aliases for existing canonical actions; generic repo.task.run stays forbidden.
   // dec_4276A0CEACD4D402F122295925/CH1 (W3): repo.dossier.synthesize joins daemonActionRoutes
   // for the Living Dossier GUI tab's incremental refresh.
-  assert.equal(editingFacets.length, 70);
+  // dec_166C5D2EAB57F8BCA3F15107E2/CH2,CH4 (task_b75af18a8ce517d88ee1cb2bd9): adds 6 channel/peer GUI facets
+  // (repo.channel.list/deliver/send, repo.peer.inbox/reply/promote) (70 -> 76 / 69 -> 75).
+  assert.equal(editingFacets.length, 76);
   assert.equal(preloadAllowlist.includes("repo.vertical.declaration.read"), true);
   assert.equal(preloadAllowlist.includes("repo.dossier.synthesize"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets. Todo contributes eight GUI actions from the repository todo task.
-  // The same single handoff dispatcher plus Living Dossier synthesis accounts for 69 actions / 70 editing facets.
-  assert.equal(daemonActionRoutes.length, 69);
+  // Channel and peer workbench routes add six actions (69 -> 75 actions / 76 editing facets).
+  assert.equal(daemonActionRoutes.length, 75);
   assert.equal(daemonActionRoutes.find(({ method }) => method === "repo.task.create")?.actionKind, "task-create");
   assert.equal(
     daemonActionRoutes.some(({ method }) => method === "repo.entity.delete"),

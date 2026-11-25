@@ -493,6 +493,16 @@ test("all GUI and host RPC declarations have an explicit repository/node route",
   );
 });
 
+test("entity channel RPCs route remote-edge writes through the center queue", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  for (const method of ["repo.channel.deliver", "repo.channel.send"]) {
+    const route = routes.find((candidate) => candidate.method === method);
+    assert.ok(route, `missing route for ${method}`);
+    assert.equal(route.topology.commandClass, "repo-write");
+    assert.equal(route.topology.admission["remote-edge"], "via-center-forward");
+  }
+});
+
 test("the full RPC route gate rejects a missing GUI edge route and an undeclared host method", () => {
   const routes = daemonRpcRoutingDeclarations();
   const missingEdge = routes.map((route) => {

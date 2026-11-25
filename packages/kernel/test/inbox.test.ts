@@ -129,6 +129,32 @@ test("inbox payload contract rejects unknown fields, mismatched targets, and unb
   );
 });
 
+test("authorized channel messages use the interactive person Inbox while external ingress stays quarantined", () => {
+  const channelMessage = enqueued(1, {
+    inboxId: "person:person_alice",
+    itemId: "channel-1",
+    source: "channel_message",
+    sourceRef: "channel:gui:env-1",
+    dedupeKey: "channel:gui:key-1",
+    admission: "dispatchable",
+    consumerKind: "interactive_watch",
+    taskId: null,
+    agentId: null,
+    summary: "GUI message",
+  });
+  assert.deepEqual(validateCurrentAgentRuntimeEvent(channelMessage), []);
+  assert.notDeepEqual(
+    validateCurrentAgentRuntimeEvent(
+      inboxEvent(2, "inbox_item_enqueued", {
+        ...channelMessage.payload,
+        admission: "quarantined_external",
+        consumerKind: "quarantined_external",
+      }),
+    ),
+    [],
+  );
+});
+
 test("person Inbox supports peer envelopes without task binding and normalizes causal routing fields", () => {
   const peer = enqueued(12, {
     inboxId: "person:owner",
