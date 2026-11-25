@@ -527,10 +527,44 @@ test("tree-snapshot uses readonly-checkout with zero git worktree registration, 
   utimesSync(freshSibling, freshDate, freshDate);
 
   const holdout = loadHoldoutDoc();
-  const realCommitCases = holdout.cases
-    .filter((c) => c.replayRef && c.replayRef.headSha && c.bucket === "negative")
-    .slice(0, 2);
-  assert.equal(realCommitCases.length, 2, "holdout must have at least 2 real-commit negative cases");
+  const baseCases = holdout.cases.filter((c) => c.bucket === "negative").slice(0, 2);
+  assert.equal(baseCases.length, 2, "holdout must have at least 2 negative cases");
+
+  // Build a hermetic temporary Git repository with two distinct historical commits so
+  // tree-snapshot replay works identically in full clones and shallow CI/Colab checkouts.
+  const fixtureRepo = path.join(temp, "fixture-repo");
+  mkdirSync(fixtureRepo, { recursive: true });
+  const runFixtureGit = (args) => {
+    const res = spawnSync("git", ["-C", fixtureRepo, ...args], { encoding: "utf8" });
+    assert.equal(res.status, 0, `git ${args.join(" ")} failed: ${res.stderr}`);
+    return res.stdout.trim();
+  };
+  runFixtureGit(["init", "-b", "main"]);
+  runFixtureGit(["config", "user.name", "Retro Snapshot Test"]);
+  runFixtureGit(["config", "user.email", "retro-snapshot@example.com"]);
+  mkdirSync(path.join(fixtureRepo, "tools", "evals", "closeout-reviewer"), { recursive: true });
+  writeFileSync(
+    path.join(fixtureRepo, "tools", "evals", "closeout-reviewer", "run-eval.mjs"),
+    "export const V = 1;\n",
+    "utf8",
+  );
+  writeFileSync(path.join(fixtureRepo, "package.json"), JSON.stringify({ name: "fixture-v1" }), "utf8");
+  writeFileSync(path.join(fixtureRepo, "snapshot-marker.txt"), "commit-one", "utf8");
+  runFixtureGit(["add", "."]);
+  runFixtureGit(["commit", "-m", "commit one"]);
+  const commitOne = runFixtureGit(["rev-parse", "HEAD"]);
+
+  writeFileSync(path.join(fixtureRepo, "package.json"), JSON.stringify({ name: "fixture-v2" }), "utf8");
+  writeFileSync(path.join(fixtureRepo, "snapshot-marker.txt"), "commit-two", "utf8");
+  runFixtureGit(["add", "."]);
+  runFixtureGit(["commit", "-m", "commit two"]);
+  const commitTwo = runFixtureGit(["rev-parse", "HEAD"]);
+  runFixtureGit(["update-ref", "refs/remotes/origin/main", commitTwo]);
+
+  const realCommitCases = [
+    { ...baseCases[0], replayRef: { baseSha: null, headSha: commitOne } },
+    { ...baseCases[1], replayRef: { baseSha: commitOne, headSha: commitTwo } },
+  ];
   const casesFile = path.join(temp, "real-cases.json");
   await writeFile(casesFile, JSON.stringify(makeMiniCasesDoc(realCommitCases), null, 2), "utf8");
 
@@ -539,7 +573,7 @@ test("tree-snapshot uses readonly-checkout with zero git worktree registration, 
   await writeFile(
     snapshotReviewer,
     [
-      'import { appendFileSync, existsSync } from "node:fs";',
+      'import { appendFileSync, existsSync, readFileSync } from "node:fs";',
       'import path from "node:path";',
       'let buf = "";',
       'process.stdin.on("data", (c) => { buf += c; });',
@@ -550,6 +584,7 @@ test("tree-snapshot uses readonly-checkout with zero git worktree registration, 
       "    caseId: payload.caseId,",
       "    cwd,",
       '    hasPackageJson: existsSync(path.join(cwd, "package.json")),',
+      '    marker: existsSync(path.join(cwd, "snapshot-marker.txt")) ? readFileSync(path.join(cwd, "snapshot-marker.txt"), "utf8") : null,',
       '    hasGitDir: existsSync(path.join(cwd, ".git")),',
       "    envDir: process.env.RETRO_SNAPSHOT_DIR ?? null,",
       '  }) + "\\n", "utf8");',
@@ -559,7 +594,7 @@ test("tree-snapshot uses readonly-checkout with zero git worktree registration, 
     "utf8",
   );
 
-  const worktreesBefore = listGitWorktrees(REPO_ROOT);
+  const worktreesBefore = listGitWorktrees(fixtureRepo);
 
   const { exitCode, report } = await runEval({
     mode: "live",
@@ -569,10 +604,10 @@ test("tree-snapshot uses readonly-checkout with zero git worktree registration, 
     concurrency: 1,
     tmpDir: fakeTmpRoot,
     persistCheckpoint: false,
-    repoRoot: REPO_ROOT,
+    repoRoot: fixtureRepo,
   });
 
-  const worktreesAfter = listGitWorktrees(REPO_ROOT);
+  const worktreesAfter = listGitWorktrees(fixtureRepo);
   assert.equal(exitCode, EXIT_CODES.OK);
   assert.deepEqual(worktreesAfter, worktreesBefore, "tree-snapshot must never register git worktrees");
   assert.deepEqual(report.counts, { passed: 2, failed: 0, timedOut: 0, unexecuted: 0 });
@@ -588,6 +623,11 @@ test("tree-snapshot uses readonly-checkout with zero git worktree registration, 
     .split(/\r?\n/u)
     .map((line) => JSON.parse(line));
   assert.equal(observations.length, 2);
+  assert.deepEqual(
+    observations.map((obs) => obs.marker).sort(),
+    ["commit-one", "commit-two"],
+    "each case must materialize its exact historical commit tree",
+  );
   for (const obs of observations) {
     assert.equal(obs.hasPackageJson, true, `materialized snapshot for ${obs.caseId} must contain package.json`);
     assert.equal(obs.hasGitDir, false, `materialized snapshot for ${obs.caseId} must not be a git worktree`);
