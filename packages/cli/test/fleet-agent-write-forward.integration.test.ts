@@ -9,10 +9,7 @@ import { actionDeclarations } from "@harness-anything/kernel";
 import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
 import { fleetNodeClaimFixture, localAuthFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "../../daemon/test/fleet-edge-host.fixture.ts";
-import {
-  waitForFleetReplicaReady,
-  waitForFleetReplicaRevision,
-} from "../../daemon/src/daemon-host/fleet/replica-sync.ts";
+import { waitForFleetReplicaReady, waitForFleetReplicaRevision } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { registerFixtureRuntimeInstance } from "../../daemon/test/repo-settings.fixture.ts";
 
 const agent = {
