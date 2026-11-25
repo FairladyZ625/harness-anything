@@ -208,3 +208,46 @@ test("a new stream client never sends attach to a 1.0 resident", async () => {
     removeTempRepository(parent);
   }
 });
+
+test("stream attach surfaces daemon rejectionExplanation and code instead of undefined", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-stream-rejection-")),
+    socketPath = localUserDaemonEndpoint(parent, "stream-rejection");
+  const transport = createUnixSocketTransportServer({
+    daemonId: "stream-rejection",
+    socketPath,
+    createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
+      createJsonRpcProtocolServer({
+        host: {
+          attach: async () => {
+            assert.fail("invalid attach payload must be rejected before host.attach");
+          },
+        } as unknown as DaemonHost,
+        build: { loadedBuildId: null, commit: null, builtAt: null },
+        authContext: { ...authContext, connectionSignal },
+        emit,
+      }),
+  });
+  try {
+    await transport.start();
+    await assert.rejects(
+      streamAgentRuntimeAt({
+        socketPath,
+        repoId: "nightly-soak",
+        // Intentional outdated string cursor to prove protocol rejection preserves code and explanation.
+        payload: { runtimeSessionId: "runtime-session-soak", afterCursor: "stream:0" as never },
+        onValue: () => assert.fail("invalid attach must not emit values"),
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.name, "DaemonProtocolContractError");
+        assert.equal((error as { readonly code?: string }).code, "invalid_request");
+        assert.match(error.message, /params\.payload\.afterCursor must be object/u);
+        assert.notEqual(error.message, "undefined");
+        return true;
+      },
+    );
+  } finally {
+    await transport.stop();
+    removeTempRepository(parent);
+  }
+});
