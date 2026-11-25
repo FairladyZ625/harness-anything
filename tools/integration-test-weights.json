@@ -6,7 +6,7 @@
   "packages/application/test/task-action-explanation-service.test.ts": 2730,
   "packages/application/test/task-lifecycle-transition-service.test.ts": 27691,
   "packages/application/test/work-member-projection.integration.test.ts": 4208,
-  "packages/daemon/test/agent-scope.integration.test.ts": 9000,
+  "packages/daemon/test/agent-scope.integration.test.ts": 1000,
   "packages/cli/test/agent-claim-next.integration.test.ts": 38208,
   "packages/cli/test/backup-restore.integration.test.ts": 38516,
   "packages/cli/test/cli-lifecycle-user-journey-stress-isolated-clients.integration.test.ts": 98346,
