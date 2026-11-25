@@ -1,19 +1,35 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openReplicationSlots, type BaseBackupMetadata, type ReplicationPosition } from "@harness-anything/storage";
+import {
+  openFleetStorage,
+  openReplicationSlots,
+  openSqliteEventStore,
+  sqliteLedgerPath,
+  type BaseBackupMetadata,
+  type ReplicationPosition,
+} from "@harness-anything/storage";
+import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
+import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
+import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 import {
   REPLICATION_BINARY_CHUNK_BYTES,
   REPLICATION_CHUNK_BYTES,
+  SNAPSHOT_OBJECT_PACK_CAPABILITY,
   SNAPSHOT_RESUME_CAPABILITY,
   serializeReplicationFrame,
   type ReplicationFrame,
   type ReplicationPeer,
 } from "../src/fleet-sync/fleet/protocol.ts";
+import { readReplicaGeneration } from "../src/fleet-sync/fleet/replica-generation.ts";
+import { runFleetReplicaSync } from "../src/daemon-host/fleet/replica-sync.ts";
 import { runWalReceiver, type ReplicationTarget } from "../src/daemon-host/fleet/walreceiver.ts";
 import { runWalSender, type ReplicationSource } from "../src/daemon-host/fleet/walsender.ts";
 import {
@@ -23,6 +39,8 @@ import {
   seedCenterData,
   waitForState,
 } from "./fleet-replication.fixture.ts";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const seededTask = { taskId: "task_snapres000000000000000000001", executionId: "exe_snapres", title: "Resume" };
@@ -560,3 +578,434 @@ test(
     assert.equal(existsSync(path.join(edgeStaging, "snapshots")), false, "edge staging cleaned after ACK");
   },
 );
+
+test(
+  "PG-backed Fleet center started via startCenter ignores leftover SQLite generation, slots, and snapshot pins",
+  { timeout: 180_000 },
+  async (t) => {
+    const repoId = "pg-stale-sqlite-center",
+      nodeId = "edge-one",
+      root = mkdtempSync(path.join(tmpdir(), "ha-pg-stale-sqlite-")),
+      repo = path.join(root, "repo"),
+      userRoot = path.join(root, "user"),
+      stateRoot = path.join(root, "state"),
+      keyPath = path.join(root, "tls.key"),
+      certPath = path.join(root, "tls.crt"),
+      workspaceRoot = path.join(root, "edge-workspace"),
+      viewRoot = path.join(root, "edge-views"),
+      viewDir = path.join(viewRoot, "repos", repoId, "views", nodeId),
+      trackedClosers: Array<() => void> = [],
+      localAuth = {
+        transportKind: "unix-socket" as const,
+        unixSocketOwnerBoundary: {
+          ownerUid: process.getuid?.() ?? 0,
+          source: "unix-socket-filesystem-owner-boundary" as const,
+        },
+      };
+
+    mkdirSync(path.join(repo, "harness"), { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    mkdirSync(stateRoot, { recursive: true });
+    const git = (...args: readonly string[]): string =>
+      execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+    git("init", "-q");
+    git("config", "user.name", "PG Stale SQLite Test");
+    git("config", "user.email", "pg-stale-sqlite@example.invalid");
+    git("commit", "--allow-empty", "-qm", "base");
+    writeFileSync(
+      path.join(repo, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: pg-stale-sqlite\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    git("add", "harness");
+    git("commit", "-qm", "harness");
+    registerBootstrappedDaemonRepo({ canonicalRoot: repo, repoId, userRoot, createConvenienceLinks: false });
+
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+        "-subj",
+        "/CN=localhost",
+        "-days",
+        "1",
+        "-addext",
+        "subjectAltName=DNS:localhost,IP:127.0.0.1",
+      ],
+      { stdio: "ignore" },
+    );
+    const cert = readFileSync(certPath);
+
+    const owners = await fleetNodeOwners({
+      userRoot,
+      owners: { [nodeId]: "person-owner" },
+      repoIds: [repoId],
+      localPersonId: "person-local",
+    });
+    const pg = await pgRuntimeFixture();
+    let sqliteHost: Awaited<ReturnType<typeof openDaemonHost>> | null = null;
+    let pgHost: Awaited<ReturnType<typeof openDaemonHost>> | null = null;
+    const controller = new AbortController();
+    let syncLoop: Promise<void> | null = null;
+
+    t.after(async () => {
+      for (const close of trackedClosers.splice(0)) close();
+      controller.abort();
+      await syncLoop?.catch(() => undefined);
+      await pgHost?.close().catch(() => undefined);
+      await sqliteHost?.close().catch(() => undefined);
+      await owners.close().catch(() => undefined);
+      await pg.pool.end().catch(() => undefined);
+      await pg.close().catch(() => undefined);
+      removeTempRepository(root);
+    });
+
+    // Phase 1: Run on SQLite first so a genuine generation-3 SQLite ledger + slot + pinned snapshot remain on disk.
+    sqliteHost = await openDaemonHost({ daemonId: "center-pre-pg", userRoot });
+    await sqliteHost.attachmentsSettled();
+    for (const index of [1, 2]) {
+      const created = await sqliteHost.run(
+        repoId,
+        {
+          kind: "task-create",
+          taskId: `task-sqlite-${index}`,
+          title: `Pre-migration SQLite task ${index}`,
+          presetId: "docs-task",
+          riskTier: "low",
+        },
+        localAuth,
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+    }
+    await sqliteHost.settleMaterialization(repoId, "pre-migration sqlite seed");
+    await sqliteHost.close();
+    sqliteHost = null;
+
+    const leftoverSqliteLedger = sqliteLedgerPath(repo, 3);
+    assert.equal(existsSync(leftoverSqliteLedger), true, "pre-migration SQLite generation 3 ledger must exist on disk");
+    const sqliteReader = openSqliteEventStore({
+      databasePath: leftoverSqliteLedger,
+      rootInput: repo,
+      repoId,
+      readOnly: true,
+    });
+    let sqlitePos;
+    try {
+      sqlitePos = sqliteReader.replicationPosition();
+    } finally {
+      sqliteReader.close();
+    }
+    assert.ok(sqlitePos.revision >= 2, `expected SQLite revision >= 2, got ${sqlitePos.revision}`);
+
+    // Seed a leftover pre-migration SQLite replication slot row for the same repo/node.
+    const leftoverSlotsFile = path.join(stateRoot, "replication-slots.sqlite");
+    const leftoverSlots = openReplicationSlots(leftoverSlotsFile);
+    try {
+      const lease = leftoverSlots.claim({ repoId, nodeId }, sqlitePos.history);
+      leftoverSlots.acknowledge(lease, { durable: sqlitePos, applied: sqlitePos }, sqlitePos);
+    } finally {
+      leftoverSlots.close();
+    }
+    assert.equal(existsSync(leftoverSlotsFile), true);
+
+    // Seed a leftover pre-migration pinned snapshot directory with the old SQLite history.
+    const staleSnapshotId = "stale-sqlite-pin-1";
+    const stalePinDir = path.join(stateRoot, "replication-backups", repoId, staleSnapshotId);
+    mkdirSync(stalePinDir, { recursive: true });
+    const dummyArchive = Buffer.from("stale-sqlite-backup-bytes");
+    writeFileSync(path.join(stalePinDir, "base.tar.gz"), dummyArchive);
+    writeFileSync(
+      path.join(stalePinDir, "pin.json"),
+      JSON.stringify({
+        schema: "fleet-snapshot-pin/v1",
+        snapshotId: staleSnapshotId,
+        repoId,
+        mode: "split",
+        metadata: {
+          schema: "fleet-basebackup/v3",
+          repoId,
+          readerProfile: null,
+          position: sqlitePos,
+          ledgerGeneration: 3,
+          projectionSchema: 40,
+        },
+        position: sqlitePos,
+        size: dummyArchive.byteLength,
+        sha256: createHash("sha256").update(dummyArchive).digest("hex"),
+        archiveFile: "base.tar.gz",
+        objects: [],
+        objectCount: 0,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      }),
+    );
+
+    // Phase 2: Switch the center repository to PostgreSQL while leaving the old SQLite generation/slots/pin on disk.
+    const storage = {
+      backend: "postgres" as const,
+      connectionString: pg.connectionString,
+      authorityConnectionString: pg.managementConnectionString,
+      materialize: true,
+      scope: { tenantId: "tenant", projectId: "project", readers: ["person-owner", "person-local"], policyEpoch: 1 },
+    };
+    writeFileSync(path.join(userRoot, "daemon-storage.json"), JSON.stringify({ [repoId]: storage }));
+
+    pgHost = await openDaemonHost({ daemonId: "center-pg", userRoot });
+    await pgHost.attachmentsSettled();
+
+    // Bootstrap Settings in the fresh PG store (simulating an active PG repository), then advance past SQLite revision.
+    const settingsBootstrapped = await pgHost.run(repoId, { kind: "settings-update", locale: "en-US" }, localAuth);
+    assert.equal(settingsBootstrapped.outcome, "applied", JSON.stringify(settingsBootstrapped));
+    for (let index = 1; index <= sqlitePos.revision + 2; index += 1) {
+      const created = await pgHost.run(
+        repoId,
+        {
+          kind: "task-create",
+          taskId: `task-pg-${index}`,
+          title: `PG authoritative task ${index}`,
+          presetId: "docs-task",
+          riskTier: "low",
+        },
+        localAuth,
+      );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+    }
+    await pgHost.settleMaterialization(repoId, "pg authoritative seed");
+
+    const pgSource = openFleetStorage({ rootDir: repo, repoId, storage });
+    let pgPos;
+    try {
+      pgPos = pgSource.replicationPosition();
+    } finally {
+      pgSource.close();
+    }
+    assert.notEqual(pgPos.history, sqlitePos.history, "PG history must differ from leftover SQLite history");
+    assert.ok(
+      pgPos.revision > sqlitePos.revision,
+      `PG revision (${pgPos.revision}) must exceed leftover SQLite revision (${sqlitePos.revision})`,
+    );
+
+    // Start Fleet center through the real host.fleet.startCenter RPC (ha daemon fleet center start).
+    const started = await pgHost.fleet.startCenter(
+      {
+        port: 0,
+        bind: "127.0.0.1",
+        keyPath,
+        certPath,
+        repoId,
+        stateRoot,
+        quotaBytes: 64 * 1024 * 1024,
+      },
+      localAuth,
+    );
+    const centerPort = Number(started.port);
+    assert.ok(Number.isSafeInteger(centerPort) && centerPort > 0, JSON.stringify(started));
+
+    // Before edge connects, leftover replication-slots.sqlite must not surface phantom rows for the PG repo.
+    const overviewBefore = await pgHost.read(repoId, "repo.fleet.overview.read", {}, localAuth);
+    assert.equal(overviewBefore.centerRevision, pgPos.revision);
+    assert.deepEqual(
+      overviewBefore.links,
+      [],
+      `stale SQLite replication slot must not appear for PG repo: ${JSON.stringify(overviewBefore.links)}`,
+    );
+
+    // Phase 3a: An edge requesting resume of the stale pre-migration SQLite snapshot pin must NOT trigger history mismatch;
+    // the center must discard the mismatched pin and stream a fresh PG basebackup at resumeOffset=0.
+    const probePeer = await replicationPeer(
+      (close) => trackedClosers.push(close),
+      centerPort,
+      cert,
+      nodeId,
+      `secret-${nodeId}`,
+    );
+    try {
+      const accepted = await probePeer.request({
+        type: "replica.start",
+        repoId,
+        position: null,
+        edgeBuildCommit: null,
+        taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+        capabilities: [SNAPSHOT_RESUME_CAPABILITY, SNAPSHOT_OBJECT_PACK_CAPABILITY],
+        resumeSnapshot: { snapshotId: staleSnapshotId, offset: 5 },
+      });
+      assert.equal(accepted.type, "replica.accept", JSON.stringify(accepted));
+      const backupFrame = await probePeer.receive();
+      assert.equal(backupFrame.type, "replica.backup", JSON.stringify(backupFrame));
+      assert.equal(backupFrame.metadata.position.history, pgPos.history);
+      assert.equal(backupFrame.metadata.position.revision, pgPos.revision);
+      assert.equal(backupFrame.resumeOffset ?? 0, 0);
+      assert.notEqual(backupFrame.snapshotId, staleSnapshotId);
+      assert.equal(existsSync(stalePinDir), false, "stale pre-migration snapshot pin must be retired");
+    } finally {
+      probePeer.close();
+      await probePeer.closed;
+    }
+
+    // Phase 3b: Connect full edge replica and verify clean basebackup + convergence to lag=0rev on PG history.
+    const failures: unknown[] = [];
+    syncLoop = runFleetReplicaSync({
+      hostname: "127.0.0.1",
+      port: centerPort,
+      ca: cert,
+      servername: "localhost",
+      nodeId,
+      credential: `secret-${nodeId}`,
+      readAccessToken: async () => `device-token-${nodeId}`,
+      repoId,
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+      signal: controller.signal,
+      onConfirmed: (changedPaths) => {
+        applyFleetMirrorCut(viewRoot, repoId, workspaceRoot, "sync", { viewId: nodeId, changedPaths });
+      },
+      onFailure: (error) => failures.push(error),
+      onConfirmedFailure: (error) => failures.push(error),
+    });
+
+    await waitForState(
+      () => {
+        const gen = readReplicaGeneration(viewDir);
+        return (
+          gen?.metadata.position.history === pgPos.history &&
+          gen.metadata.position.sequence === pgPos.sequence &&
+          gen.metadata.position.revision === pgPos.revision
+        );
+      },
+      () => `PG edge convergence; failures=${JSON.stringify(failures.map(String))}`,
+      30_000,
+    );
+    assert.deepEqual(failures, [], `unexpected edge sync failures: ${JSON.stringify(failures.map(String))}`);
+
+    // Verify daemon fleet status (repo.fleet.overview.read) sync view reports PG revision & lag=0rev with no duplicate stale link.
+    await waitForState(
+      async () => {
+        const overview = await pgHost!.read(repoId, "repo.fleet.overview.read", {}, localAuth);
+        const edgeRow = overview.nodes.find((node) => node.nodeId === nodeId);
+        return (
+          edgeRow?.replica?.centerRevision === pgPos.revision &&
+          edgeRow.replica.ackRevision === pgPos.revision &&
+          edgeRow.replica.lagRevisions === 0 &&
+          edgeRow.replica.delivery === "current"
+        );
+      },
+      async () => {
+        const overview = await pgHost!.read(repoId, "repo.fleet.overview.read", {}, localAuth);
+        return `fleet overview convergence; overview=${JSON.stringify({ centerRevision: overview.centerRevision, links: overview.links, edge: overview.nodes.find((n) => n.nodeId === nodeId)?.replica })}`;
+      },
+      15_000,
+    );
+    const overviewAfter = await pgHost.read(repoId, "repo.fleet.overview.read", {}, localAuth);
+    const edgeRowAfter = overviewAfter.nodes.find((node) => node.nodeId === nodeId);
+    assert.equal(overviewAfter.centerRevision, pgPos.revision);
+    assert.equal(edgeRowAfter?.replica?.centerRevision, pgPos.revision);
+    assert.equal(edgeRowAfter?.replica?.ackRevision, pgPos.revision);
+    assert.equal(edgeRowAfter?.replica?.lagRevisions, 0);
+    assert.equal(edgeRowAfter?.replica?.delivery, "current");
+    assert.equal(edgeRowAfter?.replica?.syncFailure, null);
+    assert.equal(overviewAfter.links.length, 1, JSON.stringify(overviewAfter.links));
+    assert.equal(overviewAfter.links[0]?.state, "fresh");
+    assert.equal(overviewAfter.links[0]?.centerRevision, pgPos.revision);
+    assert.equal(overviewAfter.links[0]?.lagRevisions, 0);
+
+    // Phase 4: Verify edge write-forward succeeds without replica_lag_timeout and converges to lag=0rev.
+    const forwarded = await runFleetEdgeTask(
+      {
+        payload: {
+          host: "127.0.0.1",
+          port: centerPort,
+          caPath: certPath,
+          servername: "localhost",
+          nodeId,
+          credential: `secret-${nodeId}`,
+          principalId: "person-owner",
+          repoId,
+          viewRoot,
+          workspaceRoot,
+          quotaBytes: 64 * 1024 * 1024,
+          action: {
+            kind: "task-create",
+            taskId: "task-pg-edge-forward",
+            title: "Edge forwarded write on PG center",
+            presetId: "docs-task",
+            riskTier: "low",
+          },
+        },
+      },
+      async () => `device-token-${nodeId}`,
+    );
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+
+    const expectedRevision = pgPos.revision + 1;
+    await waitForState(
+      () => {
+        const view = locateFleetMirrorView(viewRoot, repoId);
+        return view !== null && view.revision === expectedRevision;
+      },
+      "edge mirror to reflect forwarded PG write",
+      15_000,
+    );
+    const overviewFinal = await pgHost.read(repoId, "repo.fleet.overview.read", {}, localAuth);
+    const edgeRowFinal = overviewFinal.nodes.find((node) => node.nodeId === nodeId);
+    assert.equal(overviewFinal.centerRevision, expectedRevision);
+    assert.equal(edgeRowFinal?.replica?.centerRevision, expectedRevision);
+    assert.equal(edgeRowFinal?.replica?.ackRevision, expectedRevision);
+    assert.equal(edgeRowFinal?.replica?.lagRevisions, 0);
+    assert.equal(existsSync(leftoverSqliteLedger), true, "leftover SQLite ledger was not touched or deleted");
+  },
+);
+
+test("walsender retains history-divergence fence when archive history differs from lease history", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-walsender-history-fence-"));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
+  const lease = slots.claim({ repoId: "fence-repo", nodeId: "edge-one" }, "history-lease");
+  const dummyFile = path.join(root, "base.tar.gz");
+  writeFileSync(dummyFile, "archive");
+  let released = false;
+  const mismatchedMeta: BaseBackupMetadata = {
+    schema: "fleet-basebackup/v3",
+    repoId: "fence-repo",
+    readerProfile: { personId: "owner", nodeId: "edge-one" },
+    position: { history: "history-forked", sequence: 1, revision: 1 },
+    ledgerGeneration: 3,
+    projectionSchema: 40,
+  };
+  const source: ReplicationSource = {
+    read: () => null,
+    wait: async () => undefined,
+    acknowledged: async () => undefined,
+    backup: async () => ({
+      metadata: mismatchedMeta,
+      file: dummyFile,
+      size: 7,
+      sha256: createHash("sha256").update("archive").digest("hex"),
+      release: async () => {
+        released = true;
+      },
+    }),
+    object: async function* () {},
+  };
+  const inbound: ReplicationFrame[] = [
+    { type: "replica.start", repoId: "fence-repo", position: null, taskEventShapeVersion: 1 },
+  ];
+  const peer: ReplicationPeer = {
+    send: async () => undefined,
+    receive: async () => inbound.shift()!,
+  };
+  await assert.rejects(
+    runWalSender({ peer, source, slots, lease, signal: new AbortController().signal }),
+    /replication history changed during backup/u,
+  );
+  assert.equal(released, true, "archive must still be released when history fence trips");
+});

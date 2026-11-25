@@ -138,6 +138,10 @@ export function openReplicationSlots(
     return openSqliteReplicationSlots(file);
   let local: ReplicationSlots | undefined;
   const stores = new Map<string, ReplicationSlots>(),
+    usesSqlStore = (repoId: string): boolean => {
+      const backend = storageByRepo[repoId]?.backend;
+      return backend === "postgres" || backend === "pglite";
+    },
     forRepo = (repoId: string): ReplicationSlots => {
       const storage = storageByRepo[repoId];
       if (storage?.backend !== "postgres" && storage?.backend !== "pglite")
@@ -149,9 +153,12 @@ export function openReplicationSlots(
       }
       return slots;
     },
-    all = () => {
+    openSqlStores = () => {
       for (const [repoId, storage] of Object.entries(storageByRepo))
         if (storage.backend === "postgres" || storage.backend === "pglite") forRepo(repoId);
+    },
+    all = () => {
+      openSqlStores();
       if (existsSync(file)) local ??= openSqliteReplicationSlots(file);
       return [...new Set([...(local ? [local] : []), ...stores.values()])];
     };
@@ -165,7 +172,13 @@ export function openReplicationSlots(
       for (const store of all()) store.removeNode(nodeId);
     },
     invalidateOffline: (repoId) => forRepo(repoId).invalidateOffline(repoId),
-    list: () => all().flatMap((store) => store.list()),
+    list: () => {
+      openSqlStores();
+      const localRows = existsSync(file)
+        ? (local ??= openSqliteReplicationSlots(file)).list().filter((row) => !usesSqlStore(row.repoId))
+        : [];
+      return [...localRows, ...[...stores.values()].flatMap((store) => store.list())];
+    },
     close: () => {
       local?.close();
       for (const store of stores.values()) store.close();

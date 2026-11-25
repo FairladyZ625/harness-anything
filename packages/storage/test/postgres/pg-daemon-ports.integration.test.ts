@@ -340,6 +340,31 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         source.close();
         slots.close();
       }
+      // Leftover pre-migration replication-slots.sqlite rows for a PG-backed repo must never leak into list(),
+      // while slots for repositories still using SQLite remain visible.
+      const mixedSlotsFile = join(fixture.root, "mixed-slots.sqlite");
+      const legacySqliteSlots = openReplicationSlots(mixedSlotsFile);
+      try {
+        legacySqliteSlots.claim({ repoId, nodeId: "stale-sqlite-node" }, "old-sqlite-history");
+        legacySqliteSlots.claim({ repoId: "sqlite-only-repo", nodeId: "sqlite-node" }, "sqlite-only-history");
+      } finally {
+        legacySqliteSlots.close();
+      }
+      const mixedSlots = openReplicationSlots(mixedSlotsFile, { [repoId]: storage });
+      try {
+        mixedSlots.claim({ repoId, nodeId: "pg-node" }, "pg-history");
+        const listed = mixedSlots.list();
+        assert.deepEqual(
+          listed.map((row) => ({ repoId: row.repoId, nodeId: row.nodeId, history: row.history })),
+          [
+            { repoId: "sqlite-only-repo", nodeId: "sqlite-node", history: "sqlite-only-history" },
+            { repoId, nodeId: "pg-node", history: "pg-history" },
+          ],
+        );
+        mixedSlots.removeNode("pg-node");
+      } finally {
+        mixedSlots.close();
+      }
     });
     await t.test("shared writer epoch factory contract", async () => {
       await assertWriterEpochFactory({

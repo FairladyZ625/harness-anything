@@ -1297,6 +1297,7 @@ test(
     const keySecret1Box: { value?: string | Buffer | Uint8Array } = {};
     const prepared1 = await prepareFleetCenterAdmission({
       host: makeHostWithSecret(() => keySecret1Box.value),
+      storage: undefined,
       userRoot: fixture.userRoot,
       nodes,
       payload: {
@@ -1318,6 +1319,7 @@ test(
     const keySecret2Box: { value?: string | Buffer | Uint8Array } = {};
     const prepared2 = await prepareFleetCenterAdmission({
       host: makeHostWithSecret(() => keySecret2Box.value),
+      storage: undefined,
       userRoot: fixture.userRoot,
       nodes,
       payload: {
@@ -1381,6 +1383,7 @@ test(
       envSecretBBox: { value?: string | Buffer | Uint8Array } = {};
     const envPreparedA = await prepareFleetCenterAdmission({
       host: makeHostWithSecret(() => envSecretABox.value),
+      storage: undefined,
       userRoot: fixture.userRoot,
       nodes,
       payload: {
@@ -1396,6 +1399,7 @@ test(
     envSecretABox.value = envPreparedA.cursorSecret;
     const envPreparedB = await prepareFleetCenterAdmission({
       host: makeHostWithSecret(() => envSecretBBox.value),
+      storage: undefined,
       userRoot: fixture.userRoot,
       nodes,
       payload: {
@@ -1495,6 +1499,7 @@ test(
     assert.equal(hostProdPaged.page?.limit, 2);
     const prodTlsPrepared = await prepareFleetCenterAdmission({
       host: fixture.host,
+      storage: undefined,
       userRoot: fixture.userRoot,
       nodes,
       payload: {

@@ -330,6 +330,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     createdAtMs: number;
     expiresAtMs: number;
     size: number;
+    positionHistory: string | null;
     positionSequence: number | null;
     queueStatus: import("../../fleet-sync/fleet/basebackup-queue.ts").BaseBackupQueueStatus | null;
     releaseRetention: () => void;
@@ -456,6 +457,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                   createdAtMs,
                   expiresAtMs,
                   size: pin.size,
+                  positionHistory: pin.position.history,
                   positionSequence: pin.position.sequence,
                   queueStatus: null,
                   releaseRetention: () => {
@@ -646,32 +648,40 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             !pinned.retired &&
             Date.now() < pinned.expiresAtMs
           ) {
-            replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
-            pinned.users += 1;
-            listenForBackupQueue(pinned, nodeId, frame.repoId);
-            try {
-              const archive = await awaitWithSignal(pinned.archive, backupSignal);
-              if (resumeSnapshot.offset <= archive.size) {
-                return attachBackupUser(pinned, archive, resumeSnapshot.offset);
+            if (pinned.positionHistory !== null && pinned.positionHistory !== lease.history) {
+              if (!pinned.building && pinned.users === 0) retireBackup(pinned);
+            } else {
+              replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
+              pinned.users += 1;
+              listenForBackupQueue(pinned, nodeId, frame.repoId);
+              try {
+                const archive = await awaitWithSignal(pinned.archive, backupSignal);
+                if (resumeSnapshot.offset <= archive.size) {
+                  return attachBackupUser(pinned, archive, resumeSnapshot.offset);
+                }
+                releaseBackupUser(pinned, nodeId);
+              } catch (error) {
+                releaseBackupUser(pinned, nodeId);
+                throw error;
               }
-              releaseBackupUser(pinned, nodeId);
-            } catch (error) {
-              releaseBackupUser(pinned, nodeId);
-              throw error;
             }
           }
         }
         const cached = backupCache.get(cacheKey);
         if (cached && !cached.retired && Date.now() < cached.expiresAtMs) {
-          replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
-          cached.users += 1;
-          listenForBackupQueue(cached, nodeId, frame.repoId);
-          try {
-            const archive = await awaitWithSignal(cached.archive, backupSignal);
-            return attachBackupUser(cached, archive, 0);
-          } catch (error) {
-            releaseBackupUser(cached, nodeId);
-            throw error;
+          if (cached.positionHistory !== null && cached.positionHistory !== lease.history) {
+            if (!cached.building && cached.users === 0) retireBackup(cached);
+          } else {
+            replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
+            cached.users += 1;
+            listenForBackupQueue(cached, nodeId, frame.repoId);
+            try {
+              const archive = await awaitWithSignal(cached.archive, backupSignal);
+              return attachBackupUser(cached, archive, 0);
+            } catch (error) {
+              releaseBackupUser(cached, nodeId);
+              throw error;
+            }
           }
         }
         let resolveArchive!: (archive: BaseBackupArchive) => void, rejectArchive!: (error: unknown) => void;
@@ -696,6 +706,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             createdAtMs: Date.now(),
             expiresAtMs: Date.now() + snapshotPinTtlMs,
             size: 0,
+            positionHistory: lease.history,
             positionSequence: null,
             queueStatus: null,
             releaseRetention: () => undefined,
@@ -740,6 +751,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             const createdAtMs = Date.now();
             const expiresAtMs = createdAtMs + snapshotPinTtlMs;
             cachedArchive.size = built.size;
+            cachedArchive.positionHistory = built.metadata.position.history;
             cachedArchive.positionSequence = built.metadata.position.sequence;
             cachedArchive.createdAtMs = createdAtMs;
             cachedArchive.expiresAtMs = expiresAtMs;
