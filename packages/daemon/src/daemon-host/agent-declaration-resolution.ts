@@ -1,6 +1,6 @@
 import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
-import { localAgentMatchesShared, readLocalAgentDeclaration } from "./local-agent-store.ts";
+import { readLocalAgentRecord } from "./local-agent-store.ts";
 import {
   withoutLegacyAgentInstanceBindings,
   type AgentState,
@@ -8,6 +8,7 @@ import {
 import {
   consumeKnownError,
   entitySlug,
+  localDeclarationMatchesSharedValue,
   parseAgentDeclarationV1,
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";
@@ -128,9 +129,9 @@ export function readAgentDeclarationResolution(input: {
   readonly verticalId?: string;
 }): AgentDeclarationResolution | null {
   if (!entitySlug(input.agentId)) return null;
-  const local =
+  const localRecord =
     input.userRoot !== undefined && input.repoId !== undefined
-      ? readLocalAgentDeclaration(input.userRoot, input.repoId, input.agentId)
+      ? readLocalAgentRecord(input.userRoot, input.repoId, input.agentId)
       : null;
   const entityStore = input.entityStore ?? openEntityStore(input.rootDir);
   let stored: ReturnType<AgentDeclarationReader["get"]>;
@@ -142,12 +143,16 @@ export function readAgentDeclarationResolution(input: {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
     throw agentDeclarationInvalidError(input.agentId, error);
   }
-  if (local && stored && !localAgentMatchesShared(local, stored.value))
+  if (
+    localRecord &&
+    stored &&
+    !localDeclarationMatchesSharedValue(localRecord.declaration, stored.value, localRecord.pendingTransfer)
+  )
     throw Object.assign(new Error(`Agent ${input.agentId} exists in both local and shared scope.`), {
       code: "agent_scope_conflict",
     });
   if (stored) return { declaration: readProjectedAgentDeclaration(stored.value), layer: "installed" };
-  if (local) return { declaration: local, layer: "local" };
+  if (localRecord) return { declaration: localRecord.declaration, layer: "local" };
   const bundled = input.verticalId ? readBundledAgentDeclaration(input.agentId, input.verticalId, input.rootDir) : null;
   return bundled ? { declaration: bundled, layer: "bundled" } : null;
 }

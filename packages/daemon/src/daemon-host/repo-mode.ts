@@ -1,4 +1,9 @@
-import { getExecutableEntityAction, type DaemonRepoMode, type WriteSource } from "@harness-anything/kernel";
+import {
+  getExecutableEntityAction,
+  requestedAgentScopeFromAction,
+  type DaemonRepoMode,
+  type WriteSource,
+} from "@harness-anything/kernel";
 import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 
 export interface RepoModeAdmission {
@@ -17,7 +22,7 @@ export function entityActionCommandTopology(
   command: CommandTopology,
   action: Readonly<Record<string, unknown>> & { readonly kind?: string },
 ): CommandTopology {
-  if (action.kind === "agent-install" && (action.scope === "local" || action.localAgentTransfer === true))
+  if (action.kind === "agent-install" && requestedAgentScopeFromAction(action) === "local")
     return {
       ...command,
       admission: {

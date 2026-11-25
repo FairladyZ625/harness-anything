@@ -66,7 +66,6 @@ export function createAgentActionCatalog(
             { field: "agentId", type: "string", required: false },
             { field: "selectionStrategy", type: "string", required: false, enum: runtimeSelectionStrategies },
             { field: "scope", type: "string", required: false, enum: ["local", "shared"] },
-            { field: "localAgentTransfer", type: "boolean", required: false },
             { field: "mcpPolicy", type: "string", required: false, enum: ["disabled", "inherit"] },
             { field: "clearMcpPolicy", type: "boolean", required: false },
             { field: "dryRun", type: "boolean", required: false },

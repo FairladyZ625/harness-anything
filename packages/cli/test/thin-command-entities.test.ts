@@ -1260,7 +1260,6 @@ test("Agent CLI exposes local-by-default create, scoped list filters, and explic
       kind: "agent-install",
       agentId: "private-helper",
       scope: "shared",
-      localAgentTransfer: true,
     });
   assert.equal(returned.ok, true);
   if (returned.ok)
@@ -1268,7 +1267,6 @@ test("Agent CLI exposes local-by-default create, scoped list filters, and explic
       kind: "agent-install",
       agentId: "team-helper",
       scope: "local",
-      localAgentTransfer: true,
     });
 });
 test("runtime instance create leaves installation discovery to the daemon when omitted", () => {

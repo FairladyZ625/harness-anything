@@ -20,7 +20,9 @@ import {
   readAcceptedCommandOutcome,
   timestamp,
   previewDispatchLifecycleOutcome,
+  type AgentDeclarationV1,
   type AuthorizationDecision,
+  type LocalAgentStorePort,
   type CanonicalWriteBundle,
   type CanonicalEventStore,
   type CanonicalRelationDirection,
@@ -79,6 +81,7 @@ import { executeRelationAction, publicationKillpoints, reject } from "./entity-a
 import { assertDecisionReviewerIndependent } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 import { retireDecisionAwaitsAfterWrite } from "./terminal-awaits-retirement.ts";
+import { executeAgentScopeDelete, runCatalogAgentScopeInstall } from "./agent-scope-service.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -101,22 +104,12 @@ export interface EntityActionCatalogRuntimes {
   readonly entity?: Readonly<Record<string, EntityActionCatalogRunner>>;
   readonly task?: (...args: Parameters<EntityActionCatalogRunner>) => Promise<WriteReceipt>;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
-  readonly localAgentInstall?: (input: {
-    readonly action: CommandAction;
-    readonly binding: CommandBinding;
-    readonly opId: string;
-    readonly authorizationDecision: AuthorizationDecision;
-  }) => WriteReceipt | Promise<WriteReceipt>;
-  readonly afterAgentInstall?: (input: {
-    readonly action: CommandAction;
-    readonly receipt: WriteReceipt;
-  }) => void | Promise<void>;
-  readonly afterLocalAgentInstall?: (input: {
-    readonly action: CommandAction;
-    readonly binding: CommandBinding;
-    readonly opId: string;
-    readonly receipt: WriteReceipt;
-  }) => void | Promise<void>;
+  readonly localAgentStore?: LocalAgentStorePort;
+  readonly authorizeAgentAction?: (
+    action: CommandAction,
+    binding: CommandBinding,
+    opId: string,
+  ) => Promise<AuthorizationDecision>;
   readonly commitRuntimeSession?: (bundle: RuntimeSessionBundle, binding: CommandBinding) => Promise<WriteReceipt>;
 }
 
@@ -255,22 +248,82 @@ export function makeEntityActionCatalogExecutor(input: {
     }
     const contract = getExecutableEntityAction(action.kind);
     executableAction(contract, action.kind);
+    if (contract.id === "delete" && contract.target.kind === "agent" && runtimes.localAgentStore) {
+      const agentId = typeof action.agentId === "string" ? action.agentId : "";
+      if (agentId && input.projection.getEntity("agent", agentId) === null && runtimes.localAgentStore.get(agentId)) {
+        const localDeleted = executeAgentScopeDelete(
+          {
+            localStore: runtimes.localAgentStore,
+            hasShared: false,
+            appliedCutWatermark: () => input.projection.readCut().watermark,
+          },
+          {
+            agentId,
+            reason: typeof action.reason === "string" ? action.reason : "",
+            expectedVersion: action.expectedVersion,
+            opId,
+            authorizationDecision: decisionAuthorization(action, binding, opId, input),
+          },
+        );
+        if (localDeleted !== null) return deriveActionResult(contract, action, localDeleted);
+      }
+    }
     const prepare = runtimes.prepare?.[contract.target.kind],
       preparedAction = prepare?.(contract, action, binding, opId) ?? action;
-    if (
-      contract.id === "install" &&
-      contract.target.kind === "agent" &&
-      (preparedAction.declaration as { readonly scope?: unknown } | undefined)?.scope === "local"
-    ) {
-      if (!runtimes.localAgentInstall) reject("unsupported_command", "Local Agent storage is unavailable.");
-      const authorizationDecision = decisionAuthorization(preparedAction, binding, opId, input),
-        result = runtimes.localAgentInstall({ action: preparedAction, binding, opId, authorizationDecision });
-      const settleLocal = async (receipt: WriteReceipt): Promise<WriteReceipt> => {
-        const derived = deriveActionResult(contract, preparedAction, receipt);
-        await runtimes.afterLocalAgentInstall?.({ action: preparedAction, binding, opId, receipt: derived });
-        return derived;
-      };
-      return result instanceof Promise ? result.then(settleLocal) : settleLocal(result);
+    if (contract.id === "install" && contract.target.kind === "agent" && preparedAction.declaration) {
+      const declaration = preparedAction.declaration as AgentDeclarationV1,
+        scoped = runCatalogAgentScopeInstall({
+          localStore: runtimes.localAgentStore,
+          preparedAction,
+          opId,
+          authorizationDecision: decisionAuthorization(preparedAction, binding, opId, input),
+          sharedRowValue: input.projection.getEntity("agent", declaration.id)?.value as
+            | Readonly<Record<string, unknown>>
+            | undefined,
+          report: preparedEntityReport(preparedAction),
+          warnings: preparedEntityWarnings(preparedAction),
+          appliedCutWatermark: () => input.projection.readCut().watermark,
+          compileDeclaration: (next) => {
+            compileAction(contract, { ...preparedAction, declaration: next }, binding, opId, input.now());
+          },
+          installSharedAgent: ({ declaration: next, expectedVersion: centerVersion, opId: shareOpId }) =>
+            runCompiled(
+              { ...preparedAction, declaration: next, expectedVersion: centerVersion },
+              binding,
+              shareOpId,
+              runtimes,
+            ),
+          ...(runtimes.authorizeAgentAction
+            ? {
+                authorizeSharedDelete: ({ agentId, reason, expectedVersion: delVersion, opId: delOpId }) =>
+                  runtimes.authorizeAgentAction!(
+                    { kind: "agent-delete", agentId, reason, expectedVersion: delVersion },
+                    binding,
+                    delOpId,
+                  ),
+              }
+            : {}),
+          prepareSharedDelete: (delAction, delOpId) =>
+            runtimes.prepare?.agent?.(
+              getExecutableEntityAction("agent-delete") as ExecutableAction,
+              delAction,
+              binding,
+              delOpId,
+            ) ?? delAction,
+          runSharedDelete: (preparedDelete, delOpId, authorizationDecision) =>
+            runCompiled(
+              preparedDelete,
+              authorizationDecision ? { ...binding, authorizationDecision } : binding,
+              delOpId,
+              runtimes,
+            ),
+        });
+      if (scoped !== null)
+        return scoped.then((receipt) =>
+          receipt !== null
+            ? deriveActionResult(contract, preparedAction, receipt)
+            : runCompiled(preparedAction, binding, opId, runtimes),
+        );
     }
     if (contract.execution.implementation === "catalog-runtime") {
       const runtime = contract.target.kind === "task" ? runtimes.task : runtimes.entity?.[contract.target.kind];
@@ -286,22 +339,8 @@ export function makeEntityActionCatalogExecutor(input: {
     if (
       contract.execution.implementation !== "task-lifecycle" &&
       contract.execution.implementation !== "task-completion"
-    ) {
-      const result = runCompiled(preparedAction, binding, opId, runtimes);
-      if (
-        contract.id !== "install" ||
-        contract.target.kind !== "agent" ||
-        (preparedAction.declaration as { readonly scope?: unknown } | undefined)?.scope !== "shared" ||
-        !runtimes.afterAgentInstall
-      )
-        return result;
-      return result instanceof Promise
-        ? result.then(async (receipt) => {
-            await runtimes.afterAgentInstall!({ action: preparedAction, receipt });
-            return receipt;
-          })
-        : (runtimes.afterAgentInstall({ action: preparedAction, receipt: result }), result);
-    }
+    )
+      return runCompiled(preparedAction, binding, opId, runtimes);
     if (!runtimes.task)
       throw Object.assign(new Error(`Action ${action.kind} requires the Task Action runtime.`), {
         code: "unsupported_command",

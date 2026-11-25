@@ -34,18 +34,6 @@
         "order": 1301
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.entityActionRuntimes.afterLocalAgentInstall.deletion:ecc1dd05aba8ba75593daf4a793cfb46",
-        "route": "agent-install",
-        "role": "effect",
-        "order": 1305
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.runtimeContext:c7efdf28c0eca6ef338cc38271340af5",
-        "route": "agent-install",
-        "role": "support",
-        "order": 1304
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/squad-action-runtime.ts#inspectAgent:f4ce902bba1bfdacd247597430fb5f37",
         "route": "agent-install",
         "role": "support",

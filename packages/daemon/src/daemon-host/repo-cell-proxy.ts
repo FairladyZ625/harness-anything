@@ -87,6 +87,7 @@ export async function openRepoCellProxy(
     supervisor = await openWriterSupervisor(
       {
         ...input,
+        userRoot,
         onRuntimeOutcome: (event) => {
           pokeOutcomeWaiters(event.payload.runtimeSessionId);
           input.onRuntimeOutcome?.(event);

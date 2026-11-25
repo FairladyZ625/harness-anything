@@ -185,6 +185,7 @@ export async function performOpenRegistered(
       storage: resolvedStorage,
       ...(repo.mode === "remote-edge" ? {} : { defaultWriterEpochFence: context.writerEpochFence(repo.repoId) }),
       ...(context.input.now ? { now: context.input.now } : {}),
+      userRoot: context.input.userRoot,
       runtimeDaemonRoute: context.runtimeDaemonRoute,
       ...(context.fleetCursorSecret ? { fleetCursorSecret: context.fleetCursorSecret } : {}),
       keycloakCenter: context.keycloakCenter,

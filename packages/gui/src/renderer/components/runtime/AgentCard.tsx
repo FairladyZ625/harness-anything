@@ -51,7 +51,7 @@ export type AgentDraft = {
 };
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
-  scope: detail.scope,
+  scope: detail.scope ?? "shared",
   role: detail.role,
   runtimes: detail.runtimes.map((target) => ({
     type: target.type,
@@ -814,21 +814,21 @@ export function AgentCard({
             )}
             <span className="flex-1" />
             <Button
-              testId={detail.scope === "local" ? "agent-publish-shared" : "agent-return-local"}
+              testId={(detail.scope ?? "shared") === "local" ? "agent-publish-shared" : "agent-return-local"}
               disabled={busy || !draft.name.trim() || !draft.instructions.trim()}
               onClick={() =>
                 onSave(
                   agentDeclarationFrom(detail.id, {
                     ...draft,
-                    scope: detail.scope === "local" ? "shared" : "local",
+                    scope: (detail.scope ?? "shared") === "local" ? "shared" : "local",
                   }),
                   detail.revision,
                 )
               }
             >
-              {detail.scope === "local" ? t("agentRuntime.publishShared") : t("agentRuntime.returnLocal")}
+              {(detail.scope ?? "shared") === "local" ? t("agentRuntime.publishShared") : t("agentRuntime.returnLocal")}
             </Button>
-            {!retired && onRetire !== undefined && (
+            {!retired && (detail.scope ?? "shared") !== "local" && onRetire !== undefined && (
               <Button testId="agent-retire-entry" onClick={onRetire}>
                 {t("agentRuntime.retireConfirm")}
               </Button>
@@ -837,9 +837,9 @@ export function AgentCard({
               <Button
                 variant="danger"
                 testId="agent-delete-entry"
-                disabled={deleteBlocked}
+                disabled={(detail.scope ?? "shared") !== "local" && deleteBlocked}
                 tip={
-                  deleteBlocked
+                  (detail.scope ?? "shared") !== "local" && deleteBlocked
                     ? t("agentRuntime.deleteReferencedTip", { refs: deleteBlockedBy.join("、") })
                     : undefined
                 }
@@ -848,7 +848,9 @@ export function AgentCard({
                 {t("agentRuntime.deleteConfirm")}
               </Button>
             )}
-            {deleteBlocked && onDelete !== undefined && <Hint>{t("agentRuntime.deleteReferencedShort")}</Hint>}
+            {(detail.scope ?? "shared") !== "local" && deleteBlocked && onDelete !== undefined && (
+              <Hint>{t("agentRuntime.deleteReferencedShort")}</Hint>
+            )}
             {!retired && (
               <Button
                 variant="primary"

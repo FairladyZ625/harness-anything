@@ -6,6 +6,7 @@ import path from "node:path";
 import { test } from "node:test";
 import {
   readLocalAgentDeclarations,
+  readLocalAgentRecord,
   removeLocalAgentDeclaration,
   writeLocalAgentDeclaration,
 } from "../src/daemon-host/local-agent-store.ts";
@@ -32,8 +33,26 @@ test("local Agent declarations persist under a repository-specific daemon user r
       code: "revision_conflict",
     });
     assert.equal(writeLocalAgentDeclaration(userRoot, "repo_123", declaration, 1), 2);
+    const intent = {
+      direction: "share" as const,
+      operationId: "op-share-1",
+      sourceRevision: 2,
+      targetScope: "shared" as const,
+      declarationSha256: "deadbeef",
+    };
+    assert.equal(
+      writeLocalAgentDeclaration(userRoot, "repo_123", declaration, 2, {
+        preserveRevision: true,
+        pendingTransfer: intent,
+      }),
+      2,
+    );
+    assert.deepEqual(readLocalAgentRecord(userRoot, "repo_123", declaration.id)?.pendingTransfer, intent);
+    assert.throws(() => removeLocalAgentDeclaration(userRoot, "repo_123", declaration.id, { expectedVersion: 99 }), {
+      code: "revision_conflict",
+    });
     assert.deepEqual(readLocalAgentDeclarations(userRoot, "repo_other"), []);
-    removeLocalAgentDeclaration(userRoot, "repo_123", declaration.id);
+    removeLocalAgentDeclaration(userRoot, "repo_123", declaration.id, { expectedVersion: 2 });
     assert.deepEqual(readLocalAgentDeclarations(userRoot, "repo_123"), []);
   } finally {
     removeTempRepository(userRoot);

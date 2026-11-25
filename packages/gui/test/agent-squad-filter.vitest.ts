@@ -101,12 +101,19 @@ describe("agent squad filters", () => {
   });
 
   it("filters local and project-shared Agents independently", () => {
-    const scoped = [agent("private-helper", { scope: "local" }), agent("team-reviewer", { scope: "shared" })];
+    const legacyShared = agent("legacy-shared");
+    delete (legacyShared as { scope?: string }).scope;
+    const scoped = [
+      agent("private-helper", { scope: "local" }),
+      agent("team-reviewer", { scope: "shared" }),
+      legacyShared,
+    ];
     expect(filterAgents(scoped, [], { ...DEFAULT_AGENT_SQUAD_FILTERS, scope: "local" }).map((row) => row.id)).toEqual([
       "private-helper",
     ]);
     expect(filterAgents(scoped, [], { ...DEFAULT_AGENT_SQUAD_FILTERS, scope: "shared" }).map((row) => row.id)).toEqual([
       "team-reviewer",
+      "legacy-shared",
     ]);
     expect(hasActiveAgentSquadFilters({ ...DEFAULT_AGENT_SQUAD_FILTERS, scope: "local" })).toBe(true);
   });

@@ -214,8 +214,7 @@ export function validateSquadDeclarationV1(value: unknown): readonly string[] {
   return validateEntityJsonSchema(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
 }
 export function parseAgentDeclarationV1(value: unknown): AgentDeclarationV1 {
-  const declaration = parse(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
-  return { ...declaration, scope: declaration.scope ?? "shared" };
+  return parse(AGENT_DECLARATION_V1_SCHEMA, value, "agent declaration");
 }
 
 /** Canonical declaration reads project the historical fields away without changing the source blob. */

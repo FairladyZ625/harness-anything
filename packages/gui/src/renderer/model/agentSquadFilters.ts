@@ -90,7 +90,7 @@ export function filterAgents(
     if (!isAvailableAgentEntityRow(row)) return filters.lifecycle === "active";
     const retired = row.retirement !== null;
     if ((filters.lifecycle === "retired") !== retired) return false;
-    if (filters.scope !== "all" && row.scope !== filters.scope) return false;
+    if (filters.scope !== "all" && (row.scope ?? "shared") !== filters.scope) return false;
     if (!substring(query, [row.name, row.id])) return false;
     if (filters.roles.length > 0 && !filters.roles.includes(row.role)) return false;
     if (filters.runtimeKinds.length > 0 && !row.runtimes.some((target) => filters.runtimeKinds.includes(target.type)))

@@ -128,4 +128,46 @@ describe("Agent host access is visible and selectable in the declaration editor"
       }),
     ).toMatchObject({ mcpPolicy: "inherit" });
   });
+
+  it("hides shared-only retire and enables local delete on local Agents while toggling publish/return-local", async () => {
+    const onSave = vi.fn(),
+      onRetire = vi.fn(),
+      onDelete = vi.fn(),
+      container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const localDetail = { ...detail("operator", "default"), scope: "local" as const };
+    await act(async () => {
+      root.render(
+        createElement(AgentCard, {
+          detail: localDetail as never,
+          row: null,
+          squads: [],
+          instances: [],
+          availableSkills: [],
+          presets: [],
+          busy: false,
+          onSave,
+          onRetire,
+          onDelete,
+          deleteBlockedBy: ["stale-shared-ref"],
+          onDispatch: noop,
+          onSelectRuntime: noop,
+          onSelectAgent: noop,
+        }),
+      );
+    });
+    mounted.push({ root, container });
+    expect(container.querySelector('[data-testid="agent-retire-entry"]')).toBeNull();
+    const deleteButton = container.querySelector<HTMLButtonElement>('[data-testid="agent-delete-entry"]')!;
+    expect(deleteButton).toBeTruthy();
+    expect(deleteButton.disabled).toBe(false);
+    await act(async () => deleteButton.click());
+    expect(onDelete).toHaveBeenCalledTimes(1);
+    const publishButton = container.querySelector<HTMLButtonElement>('[data-testid="agent-publish-shared"]')!;
+    expect(publishButton).toBeTruthy();
+    await act(async () => publishButton.click());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect((onSave.mock.calls[0]![0] as { scope?: string }).scope).toBe("shared");
+  });
 });

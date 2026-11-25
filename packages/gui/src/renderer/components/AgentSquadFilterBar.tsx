@@ -193,12 +193,16 @@ function FilterMenu({
                   {
                     key: "local",
                     label: t("agentRuntime.scopeLocal"),
-                    count: agents.filter(isAvailableAgentEntityRow).filter((agent) => agent.scope === "local").length,
+                    count: agents
+                      .filter(isAvailableAgentEntityRow)
+                      .filter((agent) => (agent.scope ?? "shared") === "local").length,
                   },
                   {
                     key: "shared",
                     label: t("agentRuntime.scopeShared"),
-                    count: agents.filter(isAvailableAgentEntityRow).filter((agent) => agent.scope === "shared").length,
+                    count: agents
+                      .filter(isAvailableAgentEntityRow)
+                      .filter((agent) => (agent.scope ?? "shared") === "shared").length,
                   },
                 ]}
                 value={filters.scope}

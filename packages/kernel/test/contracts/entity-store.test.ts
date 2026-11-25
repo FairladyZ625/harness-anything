@@ -170,11 +170,41 @@ test("Agent declaration hostAccess admits exactly isolated, operator, and bypass
     );
 });
 
-test("Agent declaration scope defaults historical declarations to shared", () => {
-  assert.equal(parseAgentDeclarationV1(agent).scope, "shared");
+test("Agent declaration scope preserves omitted historical declarations and resolves them to shared", async () => {
+  const {
+    agentDeclarationContentDigest,
+    judgeUnshareCompensation,
+    localDeclarationMatchesSharedValue,
+    requestedAgentScopeFromAction,
+    resolveAgentScope,
+  } = await import("../../src/domain/agent-scope.ts");
+  assert.equal(parseAgentDeclarationV1(agent).scope, undefined);
+  assert.equal(resolveAgentScope(parseAgentDeclarationV1(agent).scope), "shared");
   assert.equal(parseAgentDeclarationV1({ ...agent, scope: "local" }).scope, "local");
   assert.equal(parseAgentDeclarationV1({ ...agent, scope: "shared" }).scope, "shared");
   assert.match(validateAgentDeclarationV1({ ...agent, scope: "node" }).join("\n"), /must be local or shared/u);
+  assert.equal(requestedAgentScopeFromAction({ kind: "agent-install", scope: "local" }), "local");
+  assert.equal(
+    requestedAgentScopeFromAction({ kind: "agent-install", declaration: { ...agent, scope: "local" } }),
+    "local",
+  );
+  assert.equal(requestedAgentScopeFromAction({ kind: "agent-install", declaration: agent }), undefined);
+  const edited = parseAgentDeclarationV1({ ...agent, name: "Edited Draft", scope: "shared" });
+  assert.equal(
+    localDeclarationMatchesSharedValue(parseAgentDeclarationV1({ ...agent, scope: "local" }), edited, {
+      direction: "share",
+      operationId: "op-share",
+      sourceRevision: 1,
+      targetScope: "shared",
+      declarationSha256: agentDeclarationContentDigest(edited),
+    }),
+    true,
+  );
+  assert.equal(judgeUnshareCompensation({ outcome: "applied", durable: true }), "commit_complete");
+  assert.equal(judgeUnshareCompensation({ outcome: "op_rejected", durable: false }), "compensate_remove_local");
+  assert.equal(judgeUnshareCompensation({ outcome: "pending", durable: true }), "retain_local_uncertain");
+  assert.equal(judgeUnshareCompensation({ outcome: "op_rejected", durable: true }), "retain_local_uncertain");
+  assert.equal(judgeUnshareCompensation({ error: new Error("post-commit killpoint") }), "retain_local_uncertain");
 });
 
 test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {

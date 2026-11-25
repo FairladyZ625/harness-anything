@@ -1,17 +1,42 @@
 import { lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 import {
   consumeKnownError,
-  parseAgentDeclarationV1,
   entitySlug,
+  parseAgentDeclarationV1,
   type AgentDeclarationV1,
+  type LocalAgentRecordV1,
+  type LocalAgentStorePort,
+  type LocalAgentTransferIntent,
+  type LocalAgentWriteOptions,
 } from "@harness-anything/kernel";
 
-export interface LocalAgentRecord {
-  readonly declaration: AgentDeclarationV1;
-  readonly revision: number;
+export type LocalAgentRecord = LocalAgentRecordV1;
+
+function parsePendingTransfer(value: unknown): LocalAgentTransferIntent | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    throw new Error("Local Agent pendingTransfer must be a JSON object.");
+  const candidate = value as Record<string, unknown>;
+  if (
+    (candidate.direction !== "share" && candidate.direction !== "unshare") ||
+    typeof candidate.operationId !== "string" ||
+    candidate.operationId.trim().length === 0 ||
+    !Number.isSafeInteger(candidate.sourceRevision) ||
+    Number(candidate.sourceRevision) < 0 ||
+    (candidate.targetScope !== "local" && candidate.targetScope !== "shared") ||
+    typeof candidate.declarationSha256 !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/u.test(candidate.declarationSha256)
+  )
+    throw new Error("Local Agent pendingTransfer has an invalid shape.");
+  return {
+    direction: candidate.direction,
+    operationId: candidate.operationId,
+    sourceRevision: Number(candidate.sourceRevision),
+    targetScope: candidate.targetScope,
+    declarationSha256: candidate.declarationSha256,
+  };
 }
 
 export function readLocalAgentDeclarations(userRoot: string, repoId: string): readonly AgentDeclarationV1[] {
@@ -45,11 +70,7 @@ export function readLocalAgentDeclaration(
   return readLocalAgentRecord(userRoot, repoId, agentId)?.declaration ?? null;
 }
 
-export function readLocalAgentRecord(
-  userRoot: string,
-  repoId: string,
-  agentId: string,
-): { readonly declaration: AgentDeclarationV1; readonly revision: number } | null {
+export function readLocalAgentRecord(userRoot: string, repoId: string, agentId: string): LocalAgentRecord | null {
   if (!entitySlug(agentId)) return null;
   try {
     const directory = localAgentDirectory(userRoot, repoId);
@@ -62,8 +83,17 @@ export function readLocalAgentRecord(
       value.revision < 1
     )
       throw new Error(`Local Agent ${agentId} has an invalid storage record.`);
-    const declaration = parseAgentDeclarationV1(value.declaration);
-    return declaration.scope === "local" ? { declaration, revision: value.revision } : null;
+    const declaration = parseAgentDeclarationV1(value.declaration),
+      pendingTransfer = parsePendingTransfer(value.pendingTransfer);
+    return declaration.scope === "local"
+      ? {
+          schema: "local-agent-record/v1",
+          id: agentId,
+          declaration,
+          revision: value.revision,
+          ...(pendingTransfer ? { pendingTransfer } : {}),
+        }
+      : null;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       consumeKnownError(error);
@@ -73,27 +103,18 @@ export function readLocalAgentRecord(
   }
 }
 
-export function localAgentMatchesShared(local: AgentDeclarationV1, sharedValue: unknown): boolean {
-  if (typeof sharedValue !== "object" || sharedValue === null || Array.isArray(sharedValue)) return false;
-  const {
-    lifecycleState: _lifecycleState,
-    retirement: _retirement,
-    ...sharedDeclaration
-  } = sharedValue as Record<string, unknown>;
-  return isDeepStrictEqual(
-    parseAgentDeclarationV1({ ...local, scope: "shared" }),
-    parseAgentDeclarationV1(sharedDeclaration),
-  );
-}
-
 export function writeLocalAgentDeclaration(
   userRoot: string,
   repoId: string,
   declaration: AgentDeclarationV1,
-  expectedVersion?: number,
+  expectedVersionOrOptions?: number | LocalAgentWriteOptions,
 ): number {
   if (!entitySlug(declaration.id)) throw new Error("Local Agent id must be a lowercase slug.");
   if (declaration.scope !== "local") throw new Error("Only local Agent declarations can be written to local storage.");
+  const options: LocalAgentWriteOptions =
+    typeof expectedVersionOrOptions === "number"
+      ? { expectedVersion: expectedVersionOrOptions }
+      : (expectedVersionOrOptions ?? {});
   const directory = localAgentDirectory(userRoot, repoId),
     destination = path.join(directory, `${declaration.id}.json`),
     temporary = `${destination}.${randomUUID()}.tmp`;
@@ -102,28 +123,71 @@ export function writeLocalAgentDeclaration(
     throw new Error("Local Agent storage cannot traverse symbolic links.");
   const current = readLocalAgentRecord(userRoot, repoId, declaration.id),
     revision = current?.revision ?? 0;
-  if (expectedVersion !== undefined && expectedVersion !== revision)
+  if (options.expectedVersion !== undefined && options.expectedVersion !== revision)
     throw Object.assign(
-      new Error(`Local Agent ${declaration.id} expected revision ${expectedVersion}, current revision is ${revision}.`),
+      new Error(
+        `Local Agent ${declaration.id} expected revision ${options.expectedVersion}, current revision is ${revision}.`,
+      ),
       { code: "revision_conflict" },
     );
-  const nextRevision = revision + 1;
+  const nextRevision = options.preserveRevision === true && revision >= 1 ? revision : revision + 1,
+    pendingTransfer =
+      options.pendingTransfer === null
+        ? undefined
+        : options.pendingTransfer !== undefined
+          ? options.pendingTransfer
+          : current?.pendingTransfer;
+  const record: LocalAgentRecordV1 = {
+    schema: "local-agent-record/v1",
+    id: declaration.id,
+    revision: nextRevision,
+    declaration,
+    ...(pendingTransfer ? { pendingTransfer } : {}),
+  };
   /* @gate-identity state-store/agent.local-declarations */ writeFileSync(
     temporary,
-    `${JSON.stringify({ schema: "local-agent-record/v1", id: declaration.id, revision: nextRevision, declaration }, null, 2)}\n`,
+    `${JSON.stringify(record, null, 2)}\n`,
     { flag: "wx", mode: 0o600 },
   );
   /* @gate-identity state-store/agent.local-declarations */ renameSync(temporary, destination);
   return nextRevision;
 }
 
-export function removeLocalAgentDeclaration(userRoot: string, repoId: string, agentId: string): void {
+export function removeLocalAgentDeclaration(
+  userRoot: string,
+  repoId: string,
+  agentId: string,
+  options?: { readonly expectedVersion?: number },
+): boolean {
   if (!entitySlug(agentId)) throw new Error("Local Agent id must be a lowercase slug.");
   const target = path.join(localAgentDirectory(userRoot, repoId), `${agentId}.json`);
   assertLocalAgentDirectory(path.dirname(target));
   if (lstatSync(target, { throwIfNoEntry: false })?.isSymbolicLink())
     throw new Error("Local Agent storage cannot remove a symbolic link.");
+  const current = readLocalAgentRecord(userRoot, repoId, agentId);
+  if (options?.expectedVersion !== undefined) {
+    const revision = current?.revision ?? 0;
+    if (revision !== options.expectedVersion)
+      throw Object.assign(
+        new Error(
+          `Local Agent ${agentId} expected revision ${options.expectedVersion}, current revision is ${revision}.`,
+        ),
+        { code: "revision_conflict" },
+      );
+  }
+  if (current === null) return false;
   /* @gate-identity state-store/agent.local-declarations */ rmSync(target, { force: true });
+  return true;
+}
+
+/** Thin host adapter implementing Kernel's `LocalAgentStorePort` over per-repo user-state files. */
+export function createLocalAgentStorePort(userRoot: string, repoId: string): LocalAgentStorePort {
+  return {
+    list: () => readLocalAgentRecords(userRoot, repoId),
+    get: (agentId) => readLocalAgentRecord(userRoot, repoId, agentId),
+    write: (declaration, options) => writeLocalAgentDeclaration(userRoot, repoId, declaration, options),
+    remove: (agentId, options) => removeLocalAgentDeclaration(userRoot, repoId, agentId, options),
+  };
 }
 
 function localAgentDirectory(userRoot: string, repoId: string): string {

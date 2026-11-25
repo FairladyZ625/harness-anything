@@ -926,6 +926,7 @@ function bootstrapMessage(
   writerGeneration: number,
   readyWatchdogState: SharedArrayBuffer,
 ): RepoWriterBootstrapV1 {
+  const userRoot = input.userRoot ?? input.runtimeDaemonRoute?.userRoot;
   return {
     schema: "harness-repo-writer-bootstrap/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
@@ -934,7 +935,7 @@ function bootstrapMessage(
       ...(input.storage ? { storage: input.storage } : {}),
       repoId: input.repoId,
       rootDir: input.rootDir,
-      ...(input.userRoot ? { userRoot: input.userRoot } : {}),
+      ...(userRoot ? { userRoot } : {}),
       ownerId: input.ownerId,
       writerGeneration,
       ...(input.mode ? { mode: input.mode } : {}),

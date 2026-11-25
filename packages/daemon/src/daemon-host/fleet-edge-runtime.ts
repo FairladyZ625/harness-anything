@@ -65,8 +65,8 @@ import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { runtimeRecoveryError } from "./runtime-recovery-watch.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
-import { localAgentMatchesShared, readLocalAgentDeclaration } from "./local-agent-store.ts";
-import { daemonUserRoot } from "./client/local-daemon-target.ts";
+import { readLocalAgentRecord } from "./local-agent-store.ts";
+import { localDeclarationMatchesSharedValue } from "@harness-anything/kernel";
 import { mergeRepositoryLocalSettings, readLocalState } from "./repo-cell-settings-state.ts";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import {
@@ -1083,7 +1083,12 @@ export function openFleetEdgeRuntime(input: {
       const { request } = context();
       return (
         trustedScheduleAgents.get(agentId) ??
-        mirroredAgentDeclaration(request, agentId, verticalId ?? readSettings().defaultVertical)
+        mirroredAgentDeclaration(
+          request,
+          agentId,
+          input.daemonRoute.userRoot,
+          verticalId ?? readSettings().defaultVertical,
+        )
       );
     },
     resolveSquadDispatch: (squadId, leaderId, workerId, binding, verticalId) => {
@@ -1102,7 +1107,7 @@ export function openFleetEdgeRuntime(input: {
             ...(squadId ? { squadId } : {}),
             leaderId,
             ...(workerId ? { workerId } : {}),
-            userRoot: daemonUserRoot(),
+            userRoot: input.daemonRoute.userRoot,
             repoId: request.repoId,
             verticalId: verticalId ?? readSettings().defaultVertical,
             entityStore: {
@@ -1913,14 +1918,19 @@ function findMirroredAgentDeclaration(
 function mirroredAgentDeclaration(
   request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot" | "nodeId">,
   agentId: string,
+  userRoot: string,
   verticalId?: string,
 ): RuntimeAgent {
-  const local = readLocalAgentDeclaration(daemonUserRoot(), request.repoId, agentId),
+  const localRecord = readLocalAgentRecord(userRoot, request.repoId, agentId),
     shared = findMirroredAgentDeclaration(request, agentId);
-  if (local && shared && !localAgentMatchesShared(local, shared))
+  if (
+    localRecord &&
+    shared &&
+    !localDeclarationMatchesSharedValue(localRecord.declaration, shared, localRecord.pendingTransfer)
+  )
     throw edgeRuntimeError("agent_scope_conflict", `Agent ${agentId} exists in both local and shared scope.`);
   if (shared) return shared;
-  if (local) return local;
+  if (localRecord) return localRecord.declaration;
   const declaration = verticalId ? readBundledAgentDeclaration(agentId, verticalId, request.workspaceRoot) : null;
   if (declaration) return declaration;
   throw edgeRuntimeError(

@@ -271,10 +271,11 @@ export function AgentSquadView({
     id: string,
     revision: number,
     input: { readonly reason: string },
+    scope?: "local" | "shared",
   ) => {
     const settled =
       entity === "agent"
-        ? await workspace.deleteAgent({ agentId: id, reason: input.reason, expectedVersion: revision })
+        ? await workspace.deleteAgent({ agentId: id, reason: input.reason, expectedVersion: revision, scope })
         : await workspace.deleteSquad({ squadId: id, reason: input.reason, expectedVersion: revision });
     if (settled === null) return;
     setDialog(null);
@@ -566,7 +567,13 @@ export function AgentSquadView({
             const revision = heldDialog.entity === "agent" ? agentDetail.data?.revision : squadDetail.data?.revision;
             // 卡在而 detail 未到时按钮本就未渲染;这里只挡类型收窄,revision 缺失不发写。
             if (revision === undefined) return;
-            void deleteEntity(heldDialog.entity, heldDialog.id, revision, input);
+            void deleteEntity(
+              heldDialog.entity,
+              heldDialog.id,
+              revision,
+              input,
+              heldDialog.entity === "agent" ? (agentDetail.data?.scope ?? "shared") : undefined,
+            );
           }}
         />
       )}

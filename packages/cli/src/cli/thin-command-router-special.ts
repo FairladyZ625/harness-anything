@@ -19,8 +19,10 @@ export function parseRoutedSpecial(
     return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (route.id === "agent-share" || route.id === "agent-unshare") {
     const agentId = args[route.path.length];
-    if (!nonEmpty(agentId))
+    if (!nonEmpty(agentId) || agentId.startsWith("--"))
       return rejected("missing_field", `Use ha agent ${route.id === "agent-share" ? "share" : "unshare"} <id>.`, json);
+    const f = readFlags(route.id, args.slice(route.path.length + 1), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
     return accepted(
       rootDir,
       repoId,
@@ -29,7 +31,7 @@ export function parseRoutedSpecial(
         kind: "agent-install",
         agentId,
         scope: route.id === "agent-share" ? "shared" : "local",
-        localAgentTransfer: true,
+        ...projectFlags(route.id, f, inputs),
       },
       route.method,
     );
