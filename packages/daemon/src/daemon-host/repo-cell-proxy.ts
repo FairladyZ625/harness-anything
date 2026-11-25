@@ -454,6 +454,8 @@ export async function openRepoCellProxy(
     taskIdForDocumentPath: (logicalPath, signal) => query("taskIdForDocumentPath", [logicalPath], undefined, signal),
     readTaskAuthorizationMetadata: (taskIds, signal) =>
       query("readTaskAuthorizationMetadata", [taskIds], undefined, signal),
+    readTaskAuthorizationAncestry: (taskIds, signal) =>
+      query("readTaskAuthorizationAncestry", [taskIds], undefined, signal),
     readNodeAutoClaimAssignments: (binding, signal) => query("readNodeAutoClaimAssignments", [], binding, signal),
     readNodeAutoDispatchCandidates: (dispatchQuery, signal) =>
       query("readNodeAutoDispatchCandidates", [dispatchQuery], undefined, signal),

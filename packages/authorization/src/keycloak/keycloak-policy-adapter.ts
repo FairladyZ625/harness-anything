@@ -997,6 +997,89 @@ export class KeycloakPolicyAdapter
     return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
   }
 
+  /**
+   * Batch UMA evaluation with request-local covering-resource deduplication.
+   * Never caches across calls, so revocations take effect immediately on the next request.
+   */
+  async authorizeBatch(input: {
+    readonly userAccessToken: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }): Promise<readonly KeycloakPermissionDecision[]> {
+    if (input.targets.length === 0) return [];
+    const shortCircuit = Boolean(input.shortCircuit);
+    if (!this.#scopeKnown(input.action)) {
+      const first = encodeAuthorizationResource(input.targets[0]!.resource),
+        denied = Object.freeze({
+          outcome: "denied" as const,
+          reasonCode: "unknown_scope" as const,
+          resource: first,
+          scope: input.action,
+        });
+      return shortCircuit
+        ? [denied]
+        : input.targets.map((target) =>
+            Object.freeze({
+              outcome: "denied" as const,
+              reasonCode: "unknown_scope" as const,
+              resource: encodeAuthorizationResource(target.resource),
+              scope: input.action,
+            }),
+          );
+    }
+    const candidateGranted = new Map<string, boolean>(),
+      decisions: KeycloakPermissionDecision[] = [];
+    const checkResource = async (candidate: AuthorizationResource): Promise<boolean> => {
+      const encoded = encodeAuthorizationResource(candidate),
+        cached = candidateGranted.get(encoded);
+      if (cached !== undefined) return cached;
+      const result = await this.authorize({
+        userAccessToken: input.userAccessToken,
+        action: input.action,
+        resource: candidate,
+      });
+      const granted = result.outcome === "allowed";
+      candidateGranted.set(encoded, granted);
+      return granted;
+    };
+    for (const target of input.targets) {
+      const encoded = encodeAuthorizationResource(target.resource);
+      let granted = false;
+      if (target.resource.kind === "entity") {
+        const covering: AuthorizationResource[] = [
+          { kind: "repository", repoId: target.resource.repoId },
+          ...(target.resourceAncestors ?? []),
+          target.resource,
+        ];
+        const seen = new Set<string>();
+        for (const candidate of covering) {
+          const key = encodeAuthorizationResource(candidate);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          if (await checkResource(candidate)) {
+            granted = true;
+            break;
+          }
+        }
+      } else {
+        granted = await checkResource(target.resource);
+      }
+      const decision: KeycloakPermissionDecision = Object.freeze({
+        outcome: granted ? "allowed" : "denied",
+        reasonCode: granted ? "keycloak_allowed" : "keycloak_denied",
+        resource: encoded,
+        scope: input.action,
+      });
+      decisions.push(decision);
+      if (!granted && shortCircuit) break;
+    }
+    return decisions;
+  }
+
   /** Evaluate the authenticated person against the center realm's current grants. */
   async authorizePerson(input: {
     readonly adminAccessToken: string;
@@ -1012,6 +1095,47 @@ export class KeycloakPolicyAdapter
     this.#readCache.userIds.delete(input.personId);
     this.#readCache.resourceIds.clear();
     return this.#authorizePersonOnce(input);
+  }
+
+  /**
+   * Batch policy evaluation for one person with request-local covering-resource deduplication.
+   * Evaluates each unique covering resource at most once per batch without cross-request caching.
+   */
+  async authorizePersonBatch(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }): Promise<readonly KeycloakPermissionDecision[]> {
+    if (input.targets.length === 0) return [];
+    const first = await this.#attemptAuthorizePersonBatch(input);
+    if ("value" in first) return first.value;
+    if (!staleIdentifierResponse(first.error)) throw first.error;
+    this.#readCache.clientUuid = undefined;
+    this.#readCache.userIds.clear();
+    this.#readCache.resourceIds.clear();
+    return this.#authorizePersonBatchOnce(input);
+  }
+
+  async #attemptAuthorizePersonBatch(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }): Promise<{ readonly value: readonly KeycloakPermissionDecision[] } | { readonly error: unknown }> {
+    try {
+      return { value: await this.#authorizePersonBatchOnce(input) };
+    } catch (error) {
+      return { error };
+    }
   }
 
   async #attemptAuthorizePerson(input: {
@@ -1096,6 +1220,82 @@ export class KeycloakPolicyAdapter
         return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
     }
     return denied("keycloak_denied");
+  }
+
+  async #authorizePersonBatchOnce(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }): Promise<readonly KeycloakPermissionDecision[]> {
+    const shortCircuit = Boolean(input.shortCircuit);
+    const deniedFor = (resource: string, reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
+      Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
+    if (!this.#scopeKnown(input.action)) {
+      return shortCircuit
+        ? [deniedFor(encodeAuthorizationResource(input.targets[0]!.resource), "unknown_scope")]
+        : input.targets.map((target) => deniedFor(encodeAuthorizationResource(target.resource), "unknown_scope"));
+    }
+    const userId = await this.#cachedUserId(input.adminAccessToken, input.personId);
+    if (!userId) {
+      return shortCircuit
+        ? [deniedFor(encodeAuthorizationResource(input.targets[0]!.resource), "keycloak_denied")]
+        : input.targets.map((target) => deniedFor(encodeAuthorizationResource(target.resource), "keycloak_denied"));
+    }
+    const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`,
+      candidateGranted = new Map<string, boolean>(),
+      decisions: KeycloakPermissionDecision[] = [];
+    for (const target of input.targets) {
+      const resource = encodeAuthorizationResource(target.resource);
+      let granted = false;
+      for (const candidate of coveringResources(target.resource, target.resourceAncestors)) {
+        let permitted = candidateGranted.get(candidate);
+        if (permitted === undefined) {
+          const resourceId = await this.#cachedResourceId(input.adminAccessToken, server, candidate);
+          if (!resourceId) {
+            permitted = false;
+          } else {
+            const evaluation = (await (
+              await this.#request(input.adminAccessToken, `${server}/policy/evaluate`, {
+                method: "POST",
+                body: JSON.stringify({
+                  userId,
+                  roleIds: [],
+                  entitlements: false,
+                  context: { attributes: {} },
+                  resources: [{ _id: resourceId, scopes: [{ name: input.action }] }],
+                }),
+              })
+            ).json()) as { readonly status?: unknown; readonly results?: readonly { readonly status?: unknown }[] };
+            permitted =
+              evaluation.status === "PERMIT" &&
+              Array.isArray(evaluation.results) &&
+              evaluation.results.length > 0 &&
+              evaluation.results.every((result) => result.status === "PERMIT");
+          }
+          candidateGranted.set(candidate, permitted);
+        }
+        if (permitted) {
+          granted = true;
+          break;
+        }
+      }
+      const decision = granted
+        ? Object.freeze({
+            outcome: "allowed" as const,
+            reasonCode: "keycloak_allowed" as const,
+            resource,
+            scope: input.action,
+          })
+        : deniedFor(resource, "keycloak_denied");
+      decisions.push(decision);
+      if (!granted && shortCircuit) break;
+    }
+    return decisions;
   }
 
   async #ensureConsentClientScope(token: string): Promise<string> {

@@ -35,7 +35,11 @@ import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { createRepoCellActionContext } from "./repo-cell-action-context.ts";
 import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
 import { createRepoCellApi, repoCellSynchronousRead } from "./repo-cell-api.ts";
-import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
+import {
+  bindVerifiedExecutorClaim,
+  collectTaskAuthorizationAncestry,
+  type TaskAuthorizationAncestryCutCache,
+} from "./repo-cell-authorization.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellOpenInput } from "./repo-cell-types.ts";
@@ -99,6 +103,7 @@ export function makeRepoReadRuntime(
       reader.withSession((projection) => projection.readRuntimeSession(runtimeSessionId));
   let closed = false;
   let writerStatus: RepoCellStatus | undefined;
+  let taskAuthAncestryCache: TaskAuthorizationAncestryCutCache | undefined;
   const latched = () => "Query-only reader cannot start writer work.";
   const edgeConfig = input.edgeConfig ?? (() => null);
   /**
@@ -458,11 +463,21 @@ export function makeRepoReadRuntime(
     taskIdForDocumentPath: (logicalPath: string) =>
       query((projection) => projection.taskIdForDocumentPath(logicalPath)),
     readTaskAuthorizationMetadata: (taskIds: readonly string[]) =>
-      query((projection) =>
-        projection
-          .readTaskIndex({ taskIds, limit: taskIds.length })
-          .rows.map(({ taskId, parentTaskId, taskClass }) => ({ taskId, parentTaskId, taskClass })),
-      ),
+      taskIds.length === 0
+        ? []
+        : query((projection) =>
+            projection
+              .readTaskIndex({ taskIds })
+              .rows.map(({ taskId, parentTaskId, taskClass }) => ({ taskId, parentTaskId, taskClass })),
+          ),
+    readTaskAuthorizationAncestry: (taskIds: readonly string[]) =>
+      taskIds.length === 0
+        ? []
+        : query((projection) => {
+            const collected = collectTaskAuthorizationAncestry(projection, taskIds, taskAuthAncestryCache);
+            taskAuthAncestryCache = collected.cache;
+            return collected.rows;
+          }),
     readNodeAutoClaimAssignments: (binding?: RepoCellBinding) => {
       const readAssignments = (projection: TaskProjectionQueries) => {
         const graph = readAtCut(
@@ -556,6 +571,7 @@ export function makeRepoReadRuntime(
       query((projection) => readRepoInFlightWork({ projection, repoId: input.repoId, queueDepth })),
     close: async () => {
       closed = true;
+      taskAuthAncestryCache = undefined;
       await reader.close();
       await ledgerReader?.drain();
       ledgerReader = null;

@@ -110,7 +110,11 @@ import type {
   RepoCellReadMethod,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
-import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
+import {
+  evaluateRepoCellAction,
+  bindVerifiedExecutorClaim,
+  collectTaskAuthorizationAncestry,
+} from "./repo-cell-authorization.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
@@ -1319,9 +1323,13 @@ export function createRepoCellApi(
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
     taskIdForDocumentPath: async (logicalPath) => context.projection.taskIdForDocumentPath(logicalPath),
     readTaskAuthorizationMetadata: async (taskIds) =>
-      context.projection
-        .readTaskIndex({ taskIds, limit: taskIds.length })
-        .rows.map(({ taskId, parentTaskId, taskClass }) => ({ taskId, parentTaskId, taskClass })),
+      taskIds.length === 0
+        ? []
+        : context.projection
+            .readTaskIndex({ taskIds })
+            .rows.map(({ taskId, parentTaskId, taskClass }) => ({ taskId, parentTaskId, taskClass })),
+    readTaskAuthorizationAncestry: async (taskIds) =>
+      collectTaskAuthorizationAncestry(context.projection, taskIds).rows,
     readNodeAutoClaimAssignments: async (binding) => {
       const graph = await read(
         "repo.triadic.relationGraph",

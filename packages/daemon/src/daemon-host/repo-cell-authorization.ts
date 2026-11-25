@@ -24,6 +24,7 @@ import {
   type EntityRef,
   type ReceiptDiagnostic,
   type TaskProjection,
+  type TaskProjectionQueries,
   type TaskV2,
   isWorkRoot,
   baseEntityPolicyActions,
@@ -33,7 +34,7 @@ import {
 import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import type { AuthorizationPermissionDecision } from "@harness-anything/kernel";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoTaskAction, TaskAuthorizationMetadata } from "./repo-cell-types.ts";
 import { authorizationFetch } from "./tls-ca-certificate.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
@@ -118,6 +119,25 @@ export async function evaluateRepoCellAction(input: {
     : decision;
 }
 
+async function verifyExecutionPrincipalOnce(input: {
+  readonly credential: NonNullable<ReturnType<typeof onlineAuthorizationCredential>>;
+  readonly binding: RepoCellBinding;
+  readonly fetchPort?: typeof fetch;
+}): Promise<void> {
+  if (!input.binding.executionPrincipal) return;
+  if (!input.credential.center) throw executionCredentialRejected();
+  try {
+    await verifyRuntimeExecutionPrincipal(
+      await input.credential.center(),
+      input.binding.executionPrincipal,
+      input.fetchPort,
+    );
+  } catch (error) {
+    if (!isKeycloakTransportFailure(error)) throw error;
+    throw keycloakUnavailableFailure(error, "verifying the runtime execution credential");
+  }
+}
+
 export async function evaluateOnlinePersonAction(input: {
   readonly credential: NonNullable<ReturnType<typeof onlineAuthorizationCredential>>;
   readonly binding: RepoCellBinding;
@@ -130,19 +150,7 @@ export async function evaluateOnlinePersonAction(input: {
   ) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>;
   readonly fetchPort?: typeof fetch;
 }): Promise<AuthorizationDecision> {
-  if (input.binding.executionPrincipal) {
-    if (!input.credential.center) throw executionCredentialRejected();
-    try {
-      await verifyRuntimeExecutionPrincipal(
-        await input.credential.center(),
-        input.binding.executionPrincipal,
-        input.fetchPort,
-      );
-    } catch (error) {
-      if (!isKeycloakTransportFailure(error)) throw error;
-      throw keycloakUnavailableFailure(error, "verifying the runtime execution credential");
-    }
-  }
+  await verifyExecutionPrincipalOnce(input);
   const resourceAncestors = await canonicalResourceAncestors(input.readTask, input.resource);
   const result = await evaluateKeycloakPerson({
     credential: input.credential,
@@ -164,6 +172,64 @@ export async function evaluateOnlinePersonAction(input: {
     input.action,
   );
   return decision;
+}
+
+/**
+ * Evaluate a batch of resources for one acting person and action in a single request-scoped pass:
+ * execution principal and user-session validation run once, Work ancestors resolve in O(depth + N),
+ * and providers supporting batch evaluation deduplicate shared covering resources while stopping on
+ * the first denial (fail-closed).
+ */
+export async function evaluateOnlinePersonActionBatch(input: {
+  readonly credential: NonNullable<ReturnType<typeof onlineAuthorizationCredential>>;
+  readonly binding: RepoCellBinding;
+  readonly action: string;
+  readonly evaluatedAtCut: string;
+  readonly targets: readonly {
+    readonly envelope: ReturnType<typeof composeDurableActionEnvelope>;
+    readonly resource: AuthorizationResource;
+  }[];
+  readonly readTask?: (
+    taskId: string,
+  ) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>;
+  readonly fetchPort?: typeof fetch;
+}): Promise<AuthorizationDecision> {
+  await verifyExecutionPrincipalOnce(input);
+  const ancestorsByTarget = await resolveTaskResourceAncestorsBatch(
+    input.readTask,
+    input.targets.map((target) => target.resource),
+  );
+  const firstEnvelope = input.targets[0]!.envelope;
+  const results = await evaluateOnlinePersonTargets({
+    credential: input.credential,
+    personId: firstEnvelope.actor.principal.personId,
+    action: input.action,
+    targets: input.targets.map((target, index) => ({
+      resource: target.resource,
+      resourceAncestors: ancestorsByTarget[index]!,
+    })),
+    policyRef: firstEnvelope.authorizationRef,
+    fetchPort: input.fetchPort,
+    shortCircuit: true,
+  });
+  let lastDecision: AuthorizationDecision | undefined;
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]!,
+      target = input.targets[index]!;
+    const decision = buildOnlineAuthorizationDecision(
+      target.envelope,
+      input.evaluatedAtCut,
+      result.outcome,
+      result.reasonCode,
+      target.resource,
+      result.policyRef,
+      result.authority,
+      input.action,
+    );
+    lastDecision = decision;
+    if (decision.outcome === "denied") return decision;
+  }
+  return lastDecision!;
 }
 
 /**
@@ -235,6 +301,169 @@ export type TaskAncestorAuthorizationMetadata = {
   readonly metadata?: { readonly parentTaskId?: string | null };
 };
 
+const DEEP_ANCESTRY_FULL_INDEX_HOPS = 8;
+
+export interface TaskAuthorizationAncestryCutCache {
+  readonly cutKey: string;
+  readonly rows: Map<string, TaskAuthorizationMetadata | null>;
+  fullLoaded: boolean;
+}
+
+/**
+ * Resolve the complete parent-chain metadata closure for a batch of taskIds inside one projection session.
+ * Shallow trees use indexed point-set queries per hop; deep chains (>8 hops) load the cut's task index once
+ * and reuse it across reads at the same ready cut so repeated batch reads run in O(1) queries.
+ */
+export function collectTaskAuthorizationAncestry(
+  projection: Pick<TaskProjectionQueries, "readCut" | "readTaskIndex">,
+  taskIds: readonly string[],
+  existingCache?: TaskAuthorizationAncestryCutCache,
+): {
+  readonly rows: readonly TaskAuthorizationMetadata[];
+  readonly cache: TaskAuthorizationAncestryCutCache | undefined;
+} {
+  const uniqueTaskIds = [...new Set(taskIds)];
+  if (uniqueTaskIds.length === 0) return { rows: [], cache: existingCache };
+  const cut = projection.readCut(),
+    cacheable = cut.status === "ready",
+    cutKey = `${cut.sourceRevision}:${cut.watermark}`,
+    cache: TaskAuthorizationAncestryCutCache =
+      cacheable && existingCache?.cutKey === cutKey
+        ? existingCache
+        : { cutKey, rows: new Map<string, TaskAuthorizationMetadata | null>(), fullLoaded: false };
+  let frontier = uniqueTaskIds.filter((taskId) => !cache.rows.has(taskId));
+  let hops = 0;
+  while (frontier.length > 0 && !cache.fullLoaded) {
+    if (hops >= DEEP_ANCESTRY_FULL_INDEX_HOPS) {
+      for (const row of projection.readTaskIndex({}).rows) {
+        cache.rows.set(row.taskId, {
+          taskId: row.taskId,
+          parentTaskId: row.parentTaskId,
+          taskClass: row.taskClass,
+        });
+      }
+      cache.fullLoaded = true;
+      break;
+    }
+    const found = new Map(
+      projection
+        .readTaskIndex({ taskIds: frontier })
+        .rows.map(({ taskId, parentTaskId, taskClass }) => [taskId, { taskId, parentTaskId, taskClass }]),
+    );
+    const nextFrontier: string[] = [];
+    const queued = new Set<string>();
+    for (const taskId of frontier) {
+      const row = found.get(taskId) ?? null;
+      cache.rows.set(taskId, row);
+      const parentTaskId = row?.parentTaskId ?? null;
+      if (parentTaskId !== null && !cache.rows.has(parentTaskId) && !queued.has(parentTaskId)) {
+        queued.add(parentTaskId);
+        nextFrontier.push(parentTaskId);
+      }
+    }
+    frontier = nextFrontier;
+    hops += 1;
+  }
+  const closure: TaskAuthorizationMetadata[] = [];
+  const visited = new Set<string>();
+  const stack = [...uniqueTaskIds];
+  while (stack.length > 0) {
+    const taskId = stack.pop()!;
+    if (visited.has(taskId)) continue;
+    visited.add(taskId);
+    const row = cache.rows.get(taskId) ?? null;
+    if (row === null) continue;
+    closure.push(row);
+    if (row.parentTaskId !== null && !visited.has(row.parentTaskId)) stack.push(row.parentTaskId);
+  }
+  return { rows: closure, cache: cacheable ? cache : existingCache };
+}
+
+/**
+ * Resolve Work ancestors for a batch of resources in O(depth + N) using memoized bottom-up traversal,
+ * preserving exact canonicalResourceAncestors semantics (including fail-closed cycle elimination).
+ */
+export async function resolveTaskResourceAncestorsBatch(
+  read:
+    | ((taskId: string) => TaskAncestorAuthorizationMetadata | null | Promise<TaskAncestorAuthorizationMetadata | null>)
+    | undefined,
+  resources: readonly AuthorizationResource[],
+): Promise<readonly (readonly AuthorizationResource[])[]> {
+  if (!read || resources.length === 0) return resources.map(() => []);
+  const metadataCache = new Map<string, TaskAncestorAuthorizationMetadata | null>();
+  const load = async (taskId: string): Promise<TaskAncestorAuthorizationMetadata | null> => {
+    if (metadataCache.has(taskId)) return metadataCache.get(taskId) ?? null;
+    const value = await read(taskId);
+    metadataCache.set(taskId, value);
+    return value;
+  };
+  const workAncestorsByTask = new Map<string, readonly string[] | null>();
+  const resolveAncestors = async (taskId: string): Promise<readonly string[] | null> => {
+    const cached = workAncestorsByTask.get(taskId);
+    if (cached !== undefined) return cached;
+    const pathIds: string[] = [];
+    const pathIndex = new Map<string, number>();
+    let current: string | null = taskId;
+    let tail: readonly string[] | null = [];
+    while (current !== null) {
+      const memoized = workAncestorsByTask.get(current);
+      if (memoized !== undefined) {
+        if (memoized === null) {
+          tail = null;
+        } else {
+          const currentTask = metadataCache.get(current);
+          tail =
+            currentTask && isWorkRoot(currentTask.taskClass, currentTask.metadata?.parentTaskId ?? null, 1)
+              ? [current, ...memoized]
+              : memoized;
+        }
+        break;
+      }
+      if (pathIndex.has(current)) {
+        tail = null;
+        break;
+      }
+      pathIndex.set(current, pathIds.length);
+      pathIds.push(current);
+      const task = await load(current);
+      if (!task) {
+        tail = [];
+        break;
+      }
+      current = task.metadata?.parentTaskId ?? null;
+    }
+    if (tail === null) {
+      for (const id of pathIds) workAncestorsByTask.set(id, null);
+      return null;
+    }
+    let acc = tail;
+    for (let index = pathIds.length - 1; index >= 0; index -= 1) {
+      const id = pathIds[index]!;
+      workAncestorsByTask.set(id, acc);
+      const task = metadataCache.get(id);
+      if (task && isWorkRoot(task.taskClass, task.metadata?.parentTaskId ?? null, 1)) {
+        acc = [id, ...acc];
+      }
+    }
+    return workAncestorsByTask.get(taskId) ?? [];
+  };
+  const results: (readonly AuthorizationResource[])[] = [];
+  for (const resource of resources) {
+    if (resource.kind !== "entity" || !resource.entityRef.startsWith("task/")) {
+      results.push([]);
+      continue;
+    }
+    const targetId = resource.entityRef.slice("task/".length);
+    const workIds = await resolveAncestors(targetId);
+    results.push(
+      workIds === null
+        ? []
+        : workIds.map((workId) => ({ kind: "entity" as const, repoId: resource.repoId, entityRef: `task/${workId}` })),
+    );
+  }
+  return results;
+}
+
 type KeycloakPersonEvaluation = Pick<AuthorizationPermissionDecision, "outcome" | "reasonCode"> & {
   readonly policyRef: string;
   readonly authority: string;
@@ -250,6 +479,11 @@ type KeycloakPersonEvaluation = Pick<AuthorizationPermissionDecision, "outcome" 
  * applied. It is reported as `keycloak_unavailable` with its original cause, which is the same code
  * the read faces already use for a temporarily unreachable center.
  */
+function onlineAuthorizationTransportFailure(error: unknown): never {
+  if (!isKeycloakTransportFailure(error)) throw error;
+  throw keycloakUnavailableFailure(error, "authorizing this action");
+}
+
 export async function evaluateKeycloakPerson(input: {
   readonly credential: NonNullable<RepoCellBinding["keycloakAuthorization"]>;
   readonly personId: string;
@@ -344,8 +578,165 @@ export async function evaluateKeycloakPerson(input: {
       authority: centerProvider!.authority,
     };
   } catch (error) {
-    if (!isKeycloakTransportFailure(error)) throw error;
-    throw keycloakUnavailableFailure(error, "authorizing this action");
+    throw onlineAuthorizationTransportFailure(error);
+  }
+}
+
+async function evaluateOnlinePersonTargets(input: {
+  readonly credential: NonNullable<ReturnType<typeof onlineAuthorizationCredential>>;
+  readonly personId: string;
+  readonly action: string;
+  readonly targets: readonly {
+    readonly resource: AuthorizationResource;
+    readonly resourceAncestors?: readonly AuthorizationResource[];
+  }[];
+  readonly policyRef?: string;
+  readonly fetchPort?: typeof fetch;
+  readonly shortCircuit?: boolean;
+}): Promise<
+  readonly {
+    readonly outcome: AuthorizationPermissionDecision["outcome"];
+    readonly reasonCode: string;
+    readonly policyRef: string;
+    readonly authority: string;
+  }[]
+> {
+  try {
+    const { session, center } = input.credential;
+    const replicaPrincipal = input.credential.fleetReplicaPrincipal;
+    if (
+      session?.personId !== input.personId &&
+      (replicaPrincipal?.personId !== input.personId || replicaPrincipal.expiresAt <= Date.now())
+    ) {
+      const provider = session?.provider;
+      return [
+        {
+          outcome: "denied",
+          reasonCode: provider?.deniedReasonCode ?? "authentication_required",
+          policyRef: provider?.policyRef ?? input.policyRef ?? "authorization-provider@1",
+          authority: provider?.authority ?? "authorization-provider",
+        },
+      ];
+    }
+    const currentCenter = center ? await center() : undefined,
+      provider = session?.provider ?? currentCenter?.provider;
+    if (!provider)
+      return [
+        {
+          outcome: "denied",
+          reasonCode: "authentication_required",
+          policyRef: input.policyRef ?? "authorization-provider@1",
+          authority: "authorization-provider",
+        },
+      ];
+    const authority = session ?? currentCenter,
+      // The capability may have crossed a worker boundary or been built before the host installed
+      // a fetch interceptor. Rebind evaluation to the current global fetch while keeping this
+      // authority's CA and SNI, so diagnostics see the request without losing TLS trust.
+      decisionPort =
+        input.fetchPort ?? (authority && provider.withFetchPort ? authorizationFetch(authority) : undefined),
+      decisionProvider = decisionPort && provider.withFetchPort ? provider.withFetchPort(decisionPort) : provider,
+      centerPort = input.fetchPort ?? (currentCenter ? authorizationFetch(currentCenter) : undefined),
+      centerProvider = currentCenter
+        ? centerPort && currentCenter.provider.withFetchPort
+          ? currentCenter.provider.withFetchPort(centerPort)
+          : currentCenter.provider
+        : undefined;
+    if (replicaPrincipal && !currentCenter)
+      return [
+        {
+          outcome: "denied",
+          reasonCode: "authentication_required",
+          policyRef: provider.policyRef,
+          authority: provider.authority,
+        },
+      ];
+    const userToken = session
+      ? session.currentAccessToken
+        ? await session.currentAccessToken()
+        : session.accessToken
+      : undefined;
+    if (currentCenter && session) {
+      const valid = await decisionProvider.validateUserAccessToken(userToken!, input.personId);
+      if (!valid)
+        return [
+          {
+            outcome: "denied",
+            reasonCode: provider.deniedReasonCode,
+            policyRef: decisionProvider.policyRef,
+            authority: decisionProvider.authority,
+          },
+        ];
+    }
+    const normalizedTargets = input.targets.map((target) => ({
+      resource: target.resource,
+      resourceAncestors: target.resourceAncestors ?? [],
+    }));
+    if (!currentCenter) {
+      if (!session)
+        return [
+          {
+            outcome: "denied",
+            reasonCode: "authentication_required",
+            policyRef: provider.policyRef,
+            authority: provider.authority,
+          },
+        ];
+      if (normalizedTargets.length > 1 && decisionProvider.authorizeBatch) {
+        const results = await decisionProvider.authorizeBatch({
+          userAccessToken: userToken!,
+          action: input.action,
+          targets: normalizedTargets,
+          shortCircuit: input.shortCircuit,
+        });
+        return results.map((result) => ({
+          ...result,
+          policyRef: decisionProvider.policyRef,
+          authority: decisionProvider.authority,
+        }));
+      }
+      const decisions = [];
+      for (const target of normalizedTargets) {
+        const result = await decisionProvider.authorize({
+          userAccessToken: userToken!,
+          action: input.action,
+          resource: target.resource,
+          resourceAncestors: target.resourceAncestors,
+        });
+        decisions.push({ ...result, policyRef: decisionProvider.policyRef, authority: decisionProvider.authority });
+        if (input.shortCircuit && result.outcome === "denied") break;
+      }
+      return decisions;
+    }
+    if (normalizedTargets.length > 1 && centerProvider!.authorizePersonBatch) {
+      const results = await centerProvider!.authorizePersonBatch({
+        adminAccessToken: currentCenter.accessToken,
+        personId: input.personId,
+        action: input.action,
+        targets: normalizedTargets,
+        shortCircuit: input.shortCircuit,
+      });
+      return results.map((result) => ({
+        ...result,
+        policyRef: centerProvider!.policyRef,
+        authority: centerProvider!.authority,
+      }));
+    }
+    const decisions = [];
+    for (const target of normalizedTargets) {
+      const result = await centerProvider!.authorizePerson({
+        adminAccessToken: currentCenter.accessToken,
+        personId: input.personId,
+        action: input.action,
+        resource: target.resource,
+        resourceAncestors: target.resourceAncestors,
+      });
+      decisions.push({ ...result, policyRef: centerProvider!.policyRef, authority: centerProvider!.authority });
+      if (input.shortCircuit && result.outcome === "denied") break;
+    }
+    return decisions;
+  } catch (error) {
+    throw onlineAuthorizationTransportFailure(error);
   }
 }
 
@@ -373,7 +764,7 @@ export function authorizeRepoCellAction(input: {
   });
 }
 
-export function keycloakDecision(
+function buildOnlineAuthorizationDecision(
   action: ReturnType<typeof composeDurableActionEnvelope>,
   evaluatedAtCut: string,
   outcome: AuthorizationDecision["outcome"],
@@ -406,6 +797,28 @@ export function keycloakDecision(
     ),
     evaluatedAtCut,
   });
+}
+
+export function keycloakDecision(
+  action: ReturnType<typeof composeDurableActionEnvelope>,
+  evaluatedAtCut: string,
+  outcome: AuthorizationDecision["outcome"],
+  reasonCode: string,
+  resource?: AuthorizationResource,
+  policyRef = "authorization-provider@1",
+  authority = "authorization-provider",
+  policyAction = action.kind,
+): AuthorizationDecision {
+  return buildOnlineAuthorizationDecision(
+    action,
+    evaluatedAtCut,
+    outcome,
+    reasonCode,
+    resource,
+    policyRef,
+    authority,
+    policyAction,
+  );
 }
 
 function authorizationRefForBinding(binding: RepoCellBinding): string {

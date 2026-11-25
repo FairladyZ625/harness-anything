@@ -117,6 +117,15 @@ export interface AuthorizationDecisionPort {
     readonly resource: AuthorizationResource;
     readonly resourceAncestors?: readonly AuthorizationResource[];
   }) => Promise<AuthorizationPermissionDecision>;
+  readonly authorizeBatch?: (input: {
+    readonly userAccessToken: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }) => Promise<readonly AuthorizationPermissionDecision[]>;
   readonly authorizePerson: (input: {
     readonly adminAccessToken: string;
     readonly personId: string;
@@ -124,6 +133,16 @@ export interface AuthorizationDecisionPort {
     readonly resource: AuthorizationResource;
     readonly resourceAncestors?: readonly AuthorizationResource[];
   }) => Promise<AuthorizationPermissionDecision>;
+  readonly authorizePersonBatch?: (input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly targets: readonly {
+      readonly resource: AuthorizationResource;
+      readonly resourceAncestors?: readonly AuthorizationResource[];
+    }[];
+    readonly shortCircuit?: boolean;
+  }) => Promise<readonly AuthorizationPermissionDecision[]>;
   readonly validateUserAccessToken: (token: string, personId: string) => Promise<boolean>;
 }
 
