@@ -693,8 +693,10 @@ async function resolveTaskEscalation(
           { ...binding, source: dispatch.source },
         );
   if (resolved.outcome !== "applied") return resolved;
-  // A later explicit Task transition supersedes restoration. Replaying an old answer must not
-  // reopen a newer owner block; the indexed latest transition is bounded to this Task.
+  // A later explicit Task transition supersedes restoration, and a Task that is already out of
+  // `blocked` (e.g. manually unblocked/started before answering an old escalation) must never be
+  // forced back to `planned`. Replaying an old answer must also not reopen a newer owner block;
+  // the indexed latest transition is bounded to this Task.
   const transitionType = "task_transitioned",
     laterTransition =
       completing &&
@@ -703,26 +705,34 @@ async function resolveTaskEscalation(
         entity: `task/${taskId}`,
         limit: storageReadPolicy.defaultValue.pageSizes.one,
       })[0],
-    progressed =
-      completing && task.snapshot.revision > accepted.workspaceRevision && task.snapshot.task?.status !== "blocked",
-    transitioned =
-      (laterTransition && laterTransition.workspaceRevision > accepted.workspaceRevision) || progressed
+    alreadyUnblocked = task.snapshot.task?.status !== "blocked",
+    rawTransitioned =
+      (laterTransition && laterTransition.workspaceRevision > accepted.workspaceRevision) || alreadyUnblocked
         ? resolved
         : await cell.lifecycleAction(
             { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
             binding,
           ),
+    // A nested task-transition rejection carries criteria from task.transition (such as
+    // lifecycle-status/explainStatusTransition) that task.escalation-resolve does not declare.
+    // Strip foreign unmetCriteria so settlement returns a structured op_rejected receipt instead
+    // of throwing invalid_store (data-shape) and tripping the repo cell into unavailable.
+    transitioned =
+      rawTransitioned.outcome === "op_rejected" ? { ...rawTransitioned, unmetCriteria: [] } : rawTransitioned,
     escalatedDispatch = cell.projection.readRuntimeDispatchById(dispatchId)?.event,
     // A leader turn owns its ruling. The answered task is planned, but its old execution is
     // consumed: the run can only continue as a new Squad run under the execution `ha task start`
     // opens next, so the receipt names that continuation instead of leaving the operator to bridge
     // it by hand.
-    squadResume = squadRulingResumeNext({
-      runs: cell.projection.readSquadRuns(),
-      dispatchId,
-      runtimeInstanceId:
-        escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload.instanceId : null,
-    }),
+    squadResume =
+      transitioned.outcome === "op_rejected"
+        ? null
+        : squadRulingResumeNext({
+            runs: cell.projection.readSquadRuns(),
+            dispatchId,
+            runtimeInstanceId:
+              escalatedDispatch?.type === "runtime_dispatch_requested" ? escalatedDispatch.payload.instanceId : null,
+          }),
     next = Array.isArray(transitioned.next) ? transitioned.next : [];
   return {
     ...transitioned,
