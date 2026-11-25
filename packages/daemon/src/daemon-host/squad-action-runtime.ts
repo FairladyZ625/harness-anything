@@ -107,10 +107,11 @@ function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRo
       source: `agents/${id}.json`,
     };
   });
-  const localRoot = userRoot ?? cell.input.userRoot;
-  if (localRoot !== undefined) {
+  const localRoot = userRoot ?? cell.input?.userRoot,
+    localRepoId = cell.input?.repoId;
+  if (localRoot !== undefined && localRepoId !== undefined) {
     const sharedIds = new Set(agents.map((agent) => (agent as { readonly id: string }).id));
-    for (const record of readLocalAgentRecords(localRoot, cell.input.repoId)) {
+    for (const record of readLocalAgentRecords(localRoot, localRepoId)) {
       const declaration = record.declaration;
       if (sharedIds.has(declaration.id)) {
         const shared = cell.projection.getEntity("agent", declaration.id);
@@ -125,7 +126,7 @@ function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRo
         hostAccess: resolveAgentHostAccess(declaration.hostAccess).hostAccess,
         hostAccessSource: resolveAgentHostAccess(declaration.hostAccess).hostAccessSource,
         layer: "user",
-        source: `local-agents/${cell.input.repoId}/${declaration.id}.json`,
+        source: `local-agents/${localRepoId}/${declaration.id}.json`,
       });
     }
   }
@@ -140,8 +141,10 @@ function listAgents(cell: RepoCellRuntimeContext, scope: unknown = "all", userRo
 
 function inspectAgent(cell: RepoCellRuntimeContext, agentId: string, userRoot?: string): object {
   const row = cell.projection.getEntity("agent", agentId);
-  const localRoot = userRoot ?? cell.input.userRoot;
-  const local = localRoot === undefined ? null : readLocalAgentRecord(localRoot, cell.input.repoId, agentId);
+  const localRoot = userRoot ?? cell.input?.userRoot,
+    localRepoId = cell.input?.repoId;
+  const local =
+    localRoot === undefined || localRepoId === undefined ? null : readLocalAgentRecord(localRoot, localRepoId, agentId);
   if (local && row && !localDeclarationMatchesSharedValue(local.declaration, row.value, local.pendingTransfer))
     throw Object.assign(new Error(`Agent ${agentId} exists in both local and shared scope.`), {
       code: "agent_scope_conflict",

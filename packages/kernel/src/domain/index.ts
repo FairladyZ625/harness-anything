@@ -382,22 +382,11 @@ export {
 } from "./person-action-contract.ts";
 
 export {
-  DEFAULT_AGENT_SCOPE,
   agentDeclarationContentDigest,
   judgeUnshareCompensation,
   localDeclarationMatchesSharedValue,
   requestedAgentScopeFromAction,
   resolveAgentScope,
-} from "./agent-scope.ts";
-export type {
-  AgentScope,
-  LocalAgentRecordV1,
-  LocalAgentStorePort,
-  LocalAgentTransferIntent,
-  LocalAgentWriteOptions,
-  UnshareCompensationJudgment,
-} from "./agent-scope.ts";
-export {
   entityNonEmpty,
   entitySlug,
   parseAgentDeclarationV1,
@@ -409,6 +398,11 @@ export {
   validateSquadDeclarationV1,
 } from "./agent-squad-schema.ts";
 export type {
+  AgentScope,
+  LocalAgentRecordV1,
+  LocalAgentStorePort,
+  LocalAgentTransferIntent,
+  LocalAgentWriteOptions,
   AgentDeclarationV1,
   AgentEntityKind,
   AgentHostAccess,

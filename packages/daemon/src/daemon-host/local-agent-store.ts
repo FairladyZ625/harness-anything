@@ -14,6 +14,14 @@ import {
 
 export type LocalAgentRecord = LocalAgentRecordV1;
 
+class LocalAgentStoreError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 function parsePendingTransfer(value: unknown): LocalAgentTransferIntent | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -124,11 +132,9 @@ export function writeLocalAgentDeclaration(
   const current = readLocalAgentRecord(userRoot, repoId, declaration.id),
     revision = current?.revision ?? 0;
   if (options.expectedVersion !== undefined && options.expectedVersion !== revision)
-    throw Object.assign(
-      new Error(
-        `Local Agent ${declaration.id} expected revision ${options.expectedVersion}, current revision is ${revision}.`,
-      ),
-      { code: "revision_conflict" },
+    throw new LocalAgentStoreError(
+      "revision_conflict",
+      `Local Agent ${declaration.id} expected revision ${options.expectedVersion}, current revision is ${revision}.`,
     );
   const nextRevision = options.preserveRevision === true && revision >= 1 ? revision : revision + 1,
     pendingTransfer =
@@ -168,11 +174,9 @@ export function removeLocalAgentDeclaration(
   if (options?.expectedVersion !== undefined) {
     const revision = current?.revision ?? 0;
     if (revision !== options.expectedVersion)
-      throw Object.assign(
-        new Error(
-          `Local Agent ${agentId} expected revision ${options.expectedVersion}, current revision is ${revision}.`,
-        ),
-        { code: "revision_conflict" },
+      throw new LocalAgentStoreError(
+        "revision_conflict",
+        `Local Agent ${agentId} expected revision ${options.expectedVersion}, current revision is ${revision}.`,
       );
   }
   if (current === null) return false;

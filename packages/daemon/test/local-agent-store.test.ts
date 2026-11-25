@@ -38,10 +38,11 @@ test("local Agent declarations persist under a repository-specific daemon user r
       operationId: "op-share-1",
       sourceRevision: 2,
       targetScope: "shared" as const,
-      declarationSha256: "deadbeef",
+      declarationSha256: `sha256:${"a".repeat(64)}`,
     };
     assert.equal(
-      writeLocalAgentDeclaration(userRoot, "repo_123", declaration, 2, {
+      writeLocalAgentDeclaration(userRoot, "repo_123", declaration, {
+        expectedVersion: 2,
         preserveRevision: true,
         pendingTransfer: intent,
       }),

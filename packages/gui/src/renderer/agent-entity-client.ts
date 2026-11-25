@@ -121,9 +121,18 @@ export const agentEntityClient = {
     save(await invoke("repo.agent.entity.retire", { repoId, ...input } as { readonly repoId: string } & object)),
   deleteAgent: async (
     repoId: string,
-    input: { readonly agentId: string; readonly reason: string; readonly expectedVersion: number },
-  ): Promise<EntitySaveResult> =>
-    save(await invoke("repo.agent.entity.delete", { repoId, ...input } as { readonly repoId: string } & object)),
+    input: {
+      readonly agentId: string;
+      readonly reason: string;
+      readonly expectedVersion: number;
+      readonly scope?: "local" | "shared";
+    },
+  ): Promise<EntitySaveResult> => {
+    const { scope: _scope, ...payload } = input;
+    return save(
+      await invoke("repo.agent.entity.delete", { repoId, ...payload } as { readonly repoId: string } & object),
+    );
+  },
   deleteSquad: async (
     repoId: string,
     input: { readonly squadId: string; readonly reason: string; readonly expectedVersion: number },

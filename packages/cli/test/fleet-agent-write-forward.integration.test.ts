@@ -264,8 +264,42 @@ test(
   "remote-edge local Agents stay node-local while share, unshare, and local delete cross canonical authority (F-EDGE)",
   { timeout: 90_000 },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t);
-    const edge = await fleetEdgeHostFixture(t, f);
+    const installation = {
+      installationId: "edge-scope-codex",
+      kindId: "codex" as const,
+      executablePath: process.execPath,
+      version: "1.0.0",
+      observedAt: "2026-11-01T00:00:00.000Z",
+    };
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, false, {
+      runtimeDiscover: async () => [installation],
+    });
+    await registerFixtureRuntimeInstance(f.host, "lease-repo", localAuthFixture(), {
+      instanceId: "edge-scope-codex",
+      name: "Edge Scope Codex",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "subscription",
+    });
+    const edge = await fleetEdgeHostFixture(t, f, {
+      runtimeDiscover: async () => [installation],
+    });
+    const edgeRuntime = await edge.host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "edge-scope-codex",
+        name: "Edge Scope Codex",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        authMode: "subscription",
+      },
+      localAuthFixture(),
+    );
+    assert.equal(edgeRuntime.outcome, "applied", JSON.stringify(edgeRuntime));
     const localPkg = path.join(edge.edgeRoot, "edge-local-agent-pkg");
     mkdirSync(localPkg);
     const localAgent = {

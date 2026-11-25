@@ -22,13 +22,7 @@
         "order": 1303
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration:582286eb6568299e68f4b4ee645b1bd7",
-        "route": "agent-install",
-        "role": "effect",
-        "order": 1302
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration:752a9be7b071ab9254ef52f05df0cb21",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/local-agent-store.ts#writeLocalAgentDeclaration:12518b1ea2ff9a76d4fb0e9fef40e5e6",
         "route": "agent-install",
         "role": "effect",
         "order": 1301

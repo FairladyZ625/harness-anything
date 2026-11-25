@@ -9,7 +9,10 @@ import {
   readDaemonRegistry,
   requestedAgentScopeFromAction,
   resolveAgentScope,
+  sha256Text,
+  stableStringify,
   type AgentDeclarationV1,
+  type AuthorizationDecision,
   type WriteReceipt,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
@@ -23,16 +26,53 @@ import {
   readAgentEntityDeclarationSource,
   type AgentRuntimeInstanceView,
 } from "./agent-entities.ts";
+import { evaluateFleetAction } from "./host-action-authorization.ts";
 import { createLocalAgentStorePort } from "./local-agent-store.ts";
-import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { operationId } from "./repo-cell-proof.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+
+class EdgeAgentScopeError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
 
 interface EdgeSharedAgentSnapshot {
   readonly id: string;
   readonly value: Readonly<Record<string, unknown>>;
   readonly revision: number;
   readonly watermark: number;
+}
+
+function edgeOperationId(action: RepoTaskAction, binding: RepoCellBinding, repoId: string, revision: number): string {
+  const key = typeof action.idempotencyKey === "string" && action.idempotencyKey.trim() ? action.idempotencyKey : null;
+  const seed = stableStringify({
+    repoId,
+    kind: action.kind,
+    principal: binding.actor.principal.personId,
+    revision,
+    key: key ?? action,
+  });
+  return `op_${sha256Text(seed).slice(0, 48)}`;
+}
+
+function deniedEdgeReceipt(
+  action: RepoTaskAction,
+  opId: string,
+  authorizationDecision: AuthorizationDecision,
+): WriteReceiptDraft {
+  return {
+    outcome: "op_rejected",
+    opId,
+    code: "authorization_denied",
+    effects: [],
+    updatedProjection: null,
+    authorizationDecision,
+    rejectionExplanation:
+      authorizationDecision.nextActions.join(" ") ||
+      `Policy ${authorizationDecision.policyRef} denied ${action.kind}: ${authorizationDecision.reasonCodes.join(", ")}.`,
+  };
 }
 
 function readEdgeSharedAgent(input: {
@@ -129,8 +169,9 @@ export async function runEdgeAgentScopeAction(input: {
   const localStore = createLocalAgentStorePort(userRoot, repoId);
 
   if (action.kind === "agent-delete") {
-    const agentId = typeof action.agentId === "string" ? action.agentId.trim() : "";
-    if (!agentId || localStore.get(agentId) === null) return null;
+    const agentId = typeof action.agentId === "string" ? action.agentId.trim() : "",
+      localRecord = agentId ? localStore.get(agentId) : null;
+    if (!agentId || localRecord === null) return null;
     const binding = await input.binding(rootDir),
       shared = readEdgeSharedAgent({
         userRoot,
@@ -140,29 +181,29 @@ export async function runEdgeAgentScopeAction(input: {
         principalId: binding.actor.principal.personId,
       });
     if (shared !== null) return null;
-    const opId = operationId(action, binding, repoId, 0),
-      authorizationDecision = await evaluateRepoCellAction({
-        action,
+    const opId = edgeOperationId(action, binding, repoId, localRecord.revision),
+      authorizationDecision = await evaluateFleetAction({
+        kind: "agent-delete",
+        repoId,
         binding,
         actionId: opId,
-        repoId,
-        revision: 0,
-        now: input.now(),
-      }),
-      deleted = executeAgentScopeDelete(
-        {
-          localStore,
-          hasShared: false,
-          appliedCutWatermark: () => 0,
-        },
-        {
-          agentId,
-          reason: typeof action.reason === "string" ? action.reason : "",
-          expectedVersion: action.expectedVersion,
-          opId,
-          authorizationDecision,
-        },
-      );
+        evaluatedAtCut: "daemon-registry:current",
+      });
+    if (authorizationDecision.outcome !== "allowed") return deniedEdgeReceipt(action, opId, authorizationDecision);
+    const deleted = executeAgentScopeDelete(
+      {
+        localStore,
+        hasShared: false,
+        appliedCutWatermark: () => 0,
+      },
+      {
+        agentId,
+        reason: typeof action.reason === "string" ? action.reason : "",
+        expectedVersion: action.expectedVersion,
+        opId,
+        authorizationDecision,
+      },
+    );
     return deleted ? settleHostLocalReceipt(action, deleted as WriteReceipt) : null;
   }
 
@@ -178,9 +219,10 @@ export async function runEdgeAgentScopeAction(input: {
       requestedScope = requestedAgentScopeFromAction(action);
     if ("issues" in decoded) {
       if (requestedScope !== "local") return null;
-      throw Object.assign(new Error(decoded.issues[0]?.message ?? "Invalid Agent declaration."), {
-        code: decoded.issues[0]?.code ?? "invalid_manifest",
-      });
+      throw new EdgeAgentScopeError(
+        decoded.issues[0]?.code ?? "invalid_manifest",
+        decoded.issues[0]?.message ?? "Invalid Agent declaration.",
+      );
     }
     agentId = decoded.declaration.id;
     const hasLocal = localStore.get(agentId) !== null,
@@ -205,16 +247,16 @@ export async function runEdgeAgentScopeAction(input: {
       localAgent: (id) => localStore.get(id),
     }),
     declaration = prepared.declaration as AgentDeclarationV1,
-    opId = operationId(action, binding, repoId, shared?.revision ?? 0),
-    authorizationDecision = await evaluateRepoCellAction({
-      action,
+    opId = edgeOperationId(action, binding, repoId, shared?.revision ?? 0),
+    authorizationDecision = await evaluateFleetAction({
+      kind: "agent-install",
+      repoId,
       binding,
       actionId: opId,
-      repoId,
-      revision: shared?.revision ?? 0,
-      now: input.now(),
-    }),
-    installContract = getExecutableEntityAction("agent-install")!;
+      evaluatedAtCut: "daemon-registry:current",
+    });
+  if (authorizationDecision.outcome !== "allowed") return deniedEdgeReceipt(action, opId, authorizationDecision);
+  const installContract = getExecutableEntityAction("agent-install")!;
 
   const receipt = await executeAgentScopeInstall(
     {
@@ -240,9 +282,10 @@ export async function runEdgeAgentScopeAction(input: {
           idempotencyKey: shareOpId,
         });
         if (!forwarded)
-          throw Object.assign(new Error("The registered remote-edge configuration is unavailable."), {
-            code: "fleet_edge_config_invalid",
-          });
+          throw new EdgeAgentScopeError(
+            "fleet_edge_config_invalid",
+            "The registered remote-edge configuration is unavailable.",
+          );
         return forwarded as unknown as WriteReceiptDraft;
       },
       deleteSharedAgent: async ({ agentId: id, reason, expectedVersion, opId: deleteOpId }) => {
@@ -254,9 +297,10 @@ export async function runEdgeAgentScopeAction(input: {
           idempotencyKey: deleteOpId,
         });
         if (!forwarded)
-          throw Object.assign(new Error("The registered remote-edge configuration is unavailable."), {
-            code: "fleet_edge_config_invalid",
-          });
+          throw new EdgeAgentScopeError(
+            "fleet_edge_config_invalid",
+            "The registered remote-edge configuration is unavailable.",
+          );
         return forwarded as unknown as WriteReceiptDraft;
       },
     },

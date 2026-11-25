@@ -1,15 +1,16 @@
-import { createHash } from "node:crypto";
 import {
   agentDeclarationContentDigest,
   attributeEntityActionCriterion,
   judgeUnshareCompensation,
   localDeclarationMatchesSharedValue,
   resolveAgentScope,
+  sha256Text,
   type AgentDeclarationV1,
   type AuthorizationDecision,
   type LocalAgentRecordV1,
   type LocalAgentStorePort,
   type LocalAgentTransferIntent,
+  type LocalAgentWriteOptions,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { CommandAction } from "./command-ports.ts";
@@ -61,8 +62,32 @@ export interface AgentScopeDeleteRequest {
   readonly authorizationDecision: AuthorizationDecision;
 }
 
+class AgentScopeError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 function scopeError(code: string, message: string): Error & { readonly code: string } {
-  return Object.assign(new Error(message), { code });
+  return new AgentScopeError(code, message);
+}
+
+function persistLocalAgent(
+  localStore: LocalAgentStorePort,
+  declaration: AgentDeclarationV1,
+  options?: LocalAgentWriteOptions,
+): number {
+  return localStore.write(declaration, options);
+}
+
+function deleteLocalAgent(
+  localStore: LocalAgentStorePort,
+  agentId: string,
+  options?: { readonly expectedVersion?: number },
+): boolean {
+  return localStore.remove(agentId, options);
 }
 
 function dryRunLocalPreview(request: AgentScopeInstallRequest, revision: number): WriteReceipt {
@@ -75,7 +100,7 @@ function dryRunLocalPreview(request: AgentScopeInstallRequest, revision: number)
   };
   return {
     outcome: "pending",
-    opId: `preview:${createHash("sha256").update(request.opId).digest("hex")}`,
+    opId: `preview:${sha256Text(request.opId)}`,
     revision,
     evidence: JSON.stringify({
       report: { ...report, mode: "dry-run" },
@@ -186,7 +211,7 @@ export async function executeAgentScopeInstall(
         "install",
         "agent/entity-revision",
       );
-    const revision = ports.localStore.write(declaration, {
+    const revision = persistLocalAgent(ports.localStore, declaration, {
       expectedVersion: currentRevision,
       pendingTransfer: null,
     });
@@ -241,7 +266,7 @@ export async function executeAgentScopeInstall(
       targetScope: "local",
       declarationSha256: agentDeclarationContentDigest(declaration),
     };
-    const localRevision = ports.localStore.write(declaration, {
+    const localRevision = persistLocalAgent(ports.localStore, declaration, {
       expectedVersion: localRecord?.revision ?? 0,
       pendingTransfer: intent,
       preserveRevision: localRecord !== null,
@@ -249,9 +274,9 @@ export async function executeAgentScopeInstall(
 
     const restoreStagedLocal = () => {
       if (localRecord === null) {
-        ports.localStore.remove(declaration.id);
+        deleteLocalAgent(ports.localStore, declaration.id);
       } else {
-        ports.localStore.write(localRecord.declaration, {
+        persistLocalAgent(ports.localStore, localRecord.declaration, {
           expectedVersion: localRevision,
           pendingTransfer: localRecord.pendingTransfer ?? null,
           preserveRevision: true,
@@ -279,7 +304,7 @@ export async function executeAgentScopeInstall(
       durable: deleteReceipt.proof?.durable,
     });
     if (judgment === "commit_complete") {
-      ports.localStore.write(declaration, {
+      persistLocalAgent(ports.localStore, declaration, {
         expectedVersion: localRevision,
         pendingTransfer: null,
         preserveRevision: true,
@@ -351,7 +376,7 @@ export async function executeAgentScopeInstall(
     };
   // Stage pendingTransfer with the target declaration's digest (covers edited GUI drafts on retry)
   // while keeping the local declaration & revision intact until center confirms durability.
-  ports.localStore.write(sourceLocal.declaration, {
+  persistLocalAgent(ports.localStore, sourceLocal.declaration, {
     expectedVersion: sourceLocal.revision,
     pendingTransfer: shareIntent,
     preserveRevision: true,
@@ -364,11 +389,11 @@ export async function executeAgentScopeInstall(
   });
 
   if (sharedReceipt.outcome === "applied" || sharedReceipt.proof?.durable === true) {
-    ports.localStore.remove(declaration.id);
+    deleteLocalAgent(ports.localStore, declaration.id);
     return sharedReceipt;
   }
   if (sharedReceipt.outcome === "op_rejected") {
-    ports.localStore.write(sourceLocal.declaration, {
+    persistLocalAgent(ports.localStore, sourceLocal.declaration, {
       expectedVersion: sourceLocal.revision,
       pendingTransfer: null,
       preserveRevision: true,
@@ -403,7 +428,7 @@ export function executeAgentScopeDelete(
       "delete",
       "agent/entity-revision",
     );
-  ports.localStore.remove(request.agentId, { expectedVersion: localRecord.revision });
+  deleteLocalAgent(ports.localStore, request.agentId, { expectedVersion: localRecord.revision });
   return hostLocalAppliedReceipt({
     opId: request.opId,
     revision: localRecord.revision,

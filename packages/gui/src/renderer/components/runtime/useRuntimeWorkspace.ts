@@ -454,10 +454,9 @@ export function useAgentSquadWorkspace(repoId: string) {
       readonly expectedVersion: number;
       readonly scope?: "local" | "shared";
     }): Promise<EntitySaveResult | null> => {
-      const { scope, ...request } = input;
       const saved = (await channel.run(
         t("agentRuntime.opAgentDeleted"),
-        () => agentEntityClient.deleteAgent(repoId, request),
+        () => agentEntityClient.deleteAgent(repoId, input),
         false,
       )) as EntitySaveResult | null;
       if (saved === null) return null;
@@ -465,7 +464,7 @@ export function useAgentSquadWorkspace(repoId: string) {
         channel.reportError(saveFailureHint(saved));
         return null;
       }
-      if (scope === "local") {
+      if (input.scope === "local") {
         await Promise.all([
           client.invalidateQueries({ queryKey: ["agents", repoId], refetchType: "active" }),
           client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" }),

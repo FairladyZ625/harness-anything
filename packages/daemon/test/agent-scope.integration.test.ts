@@ -19,6 +19,7 @@ import { readAgentDeclaration } from "../src/daemon-host/agent-entities.ts";
 import {
   openBootstrappedRepoCell,
   registerBootstrappedDaemonRepo,
+  registerFixtureRuntimeInstance,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
@@ -272,7 +273,7 @@ test("local dryRun writes nothing and enforces instructions-ready compile valida
     const placeholder = {
       ...declaration,
       id: "placeholder-local",
-      instructions: "# Role\n\nTODO: fill in real instructions.",
+      instructions: "(To be written: this text becomes the agent's system prompt verbatim.)",
     };
     const dryRejected = await cell.run(
       {
@@ -476,7 +477,8 @@ test("unshare requires agent-delete policy, compensates pre-commit rejections, a
     );
     assert.equal(seededShared.outcome, "applied", JSON.stringify(seededShared));
     await waitForFixturePublication(cell, seededShared.opId, actorBinding);
-    writeLocalAgentDeclaration(userRoot, repoId, draftLocal, 0, {
+    writeLocalAgentDeclaration(userRoot, repoId, draftLocal, {
+      expectedVersion: 0,
       pendingTransfer: {
         direction: "share",
         operationId: "interrupted-gui-publish",
@@ -608,9 +610,17 @@ test("registered daemon host passes userRoot end-to-end for local Agents (F-ROOT
     createConvenienceLinks: false,
   });
   signInPolicyTestUser(userRoot, "person-scope-host", [repoId], "contributor");
+  const installation = {
+    installationId: "scope-host-codex",
+    kindId: "codex" as const,
+    executablePath: process.execPath,
+    version: "1.0.0",
+    observedAt: "2026-11-01T00:00:00.000Z",
+  };
   const host = await openDaemonHost({
     daemonId: "agent-scope-host-daemon",
     userRoot,
+    runtimeDiscover: async () => [installation],
     keycloakCenter: async () => ({
       url: policyTestRealm.url,
       realm: "harness",
@@ -624,6 +634,15 @@ test("registered daemon host passes userRoot end-to-end for local Agents (F-ROOT
   });
   try {
     await host.attachmentsSettled();
+    await registerFixtureRuntimeInstance(host, repoId, unixSocketAuth, {
+      instanceId: "scope-host-codex",
+      name: "Scope Host Codex",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      authMode: "subscription",
+    });
     const declaration = {
         schema: "agent-declaration/v1" as const,
         id: "host-local-agent",

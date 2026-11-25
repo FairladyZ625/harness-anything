@@ -886,35 +886,37 @@ export function createDaemonHostRepositoryApi(
       }
       if (!modeAdmission.ok && !forwardThroughPort)
         return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
-      try {
-        const edgeScopeReceipt = await runEdgeAgentScopeAction({
-          userRoot: relocationUserRoot,
-          repoId,
-          action: action as RepoTaskAction,
-          auth,
-          binding: (rootDir) => context.binding(rootDir, auth, undefined, undefined, true),
-          runtimeInstances: context.runtimePorts.runtimeInstances,
-          now: context.now,
-          forwardToCenter: (nextAction) =>
-            forward({
-              userRoot: relocationUserRoot,
-              repoId,
-              intent: forwardingIntentForAction(commandDescriptorForAction(nextAction.kind).method, nextAction),
-              auth,
-              oidc: context.oidc,
-              signal: context.closeSignal,
-              runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
-            }),
-        });
-        if (edgeScopeReceipt !== null) return edgeScopeReceipt;
-      } catch (error) {
-        return context.rejectHostAction(
-          action,
-          context.code(error),
-          context.daemonErrorMessage(error),
-          context.diagnosticForError?.(error),
-          extractCenterMoved(error),
-        );
+      if (action.kind === "agent-install" || action.kind === "agent-delete") {
+        try {
+          const edgeScopeReceipt = await runEdgeAgentScopeAction({
+            userRoot: relocationUserRoot,
+            repoId,
+            action: action as RepoTaskAction,
+            auth,
+            binding: (rootDir) => context.binding(rootDir, auth, undefined, undefined, true),
+            runtimeInstances: context.runtimePorts?.runtimeInstances,
+            now: context.now,
+            forwardToCenter: (nextAction) =>
+              forward({
+                userRoot: relocationUserRoot,
+                repoId,
+                intent: forwardingIntentForAction(commandDescriptorForAction(nextAction.kind).method, nextAction),
+                auth,
+                oidc: context.oidc,
+                signal: context.closeSignal,
+                runRuntime: (request, requestAuth) => context.host.fleet.edgeRuntime(request, requestAuth),
+              }),
+          });
+          if (edgeScopeReceipt !== null) return edgeScopeReceipt;
+        } catch (error) {
+          return context.rejectHostAction(
+            action,
+            context.code(error),
+            context.daemonErrorMessage(error),
+            context.diagnosticForError?.(error),
+            extractCenterMoved(error),
+          );
+        }
       }
       if (forwardThroughPort) {
         try {

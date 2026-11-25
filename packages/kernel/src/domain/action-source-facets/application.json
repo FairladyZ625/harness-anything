@@ -10,6 +10,20 @@
     ],
     "daemon-local-state": [
       {
+        "candidateId": "action:packages/application:packages/application/src/commands/agent-scope-service.ts#deleteLocalAgent:6b30e5c92ac63d9e9ec0bf09021024ff",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/domain/agent-squad-schema.ts#LocalAgentStorePort.remove",
+        "order": 1221
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/agent-scope-service.ts#persistLocalAgent:5147b3a6e37a9860ff5dd1c2b0d1d1a9",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/domain/agent-squad-schema.ts#LocalAgentStorePort.write",
+        "order": 1220
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/commands/decision-review-awaits.ts#runRelation.opId:f3220783d57d4b8cee48a2565021b256",
         "route": "daemon:bin",
         "role": "support",
