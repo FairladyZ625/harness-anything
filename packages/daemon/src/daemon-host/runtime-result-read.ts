@@ -1,19 +1,10 @@
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "../fleet-sync/fleet/replica-generation.ts";
 import { openSqliteEventStore } from "@harness-anything/storage";
-import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
+import { sha256Bytes } from "@harness-anything/kernel";
+import { readCanonicalRuntimeResult } from "@harness-anything/application/internal/queries/runtime-result-read.ts";
 
-export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
-  const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
-  if (!match)
-    throw Object.assign(new Error(`Invalid runtime result reference ${ref}.`), { code: "replica_unavailable" });
-  const bytes = store.readContentBlob(match[1]!);
-  if (!bytes)
-    throw Object.assign(new Error(`Runtime result ${ref} is unavailable at this cut.`), {
-      code: "replica_unavailable",
-    });
-  return decodeRuntimeResult(bytes);
-}
+export { readCanonicalRuntimeResult };
 
 /** The edge mirrors the center's ledger, so it answers exactly as the center does at its applied position. */
 export function readEdgeRuntimeResult(viewRoot: string, repoId: string, nodeId: string, ref: string): string {
@@ -79,12 +70,4 @@ function edgeObject(view: FleetMirrorView, sha256: string): Uint8Array | null {
       store.close();
     }
   });
-}
-
-function decodeRuntimeResult(bytes: Uint8Array): string {
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw Object.assign(new Error("Runtime result is not UTF-8 text."), { code: "replica_unavailable" });
-  }
 }

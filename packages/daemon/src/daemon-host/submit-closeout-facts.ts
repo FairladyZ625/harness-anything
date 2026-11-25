@@ -250,7 +250,6 @@ export function enrichCarriedCloseoutFacts(input: {
       {
         binding: closeoutDocBinding(binding, activeLease),
         workspaceId: cell.input.repoId,
-        rootDir: cell.rootDir,
         store: cell.store,
         projection: cell.projection,
         now: cell.now,

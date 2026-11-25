@@ -4,7 +4,7 @@ import type { RepoCellApiContext } from "./repo-cell-types.ts";
 import { requireTaskPackageMaterialization, settleAuthoredMaterialization } from "./repo-cell-materialization.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
-import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
+import { makeSquadCanonicalReader } from "@harness-anything/application/internal/queries/squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -93,7 +93,7 @@ import { makeGitReadinessSource } from "./process-port.ts";
 import { readObserveTail } from "./observe-tail.ts";
 import { readSchedulesGui } from "./schedules-gui-read.ts";
 import { readCollaboratorSchedules } from "@harness-anything/application/internal/queries/schedule-projection.ts";
-import { readScheduleRuns } from "./schedule-runs-read.ts";
+import { readScheduleRuns } from "@harness-anything/application/internal/queries/schedule-runs-read.ts";
 import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import {
   commandDescriptorForAction,

@@ -37,6 +37,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import { withPgProjectionReadSession } from "@harness-anything/storage/pg/read-only";
 import { createPgTaskQueryReader, type PgTaskQueryReader } from "../../../storage/src/pg/pg-task-query-reader.ts";
 import type { PgTaskQueryMethods } from "../../../storage/src/pg/pg-task-query-contract.ts";
+import { createCloudDomainRoutes } from "./cloud-domain-routes.ts";
 
 type ReadSession = Parameters<typeof withPgProjectionReadSession>[1];
 type Projection = Parameters<Parameters<typeof withPgProjectionReadSession>[2]>[0];
@@ -181,6 +182,11 @@ export interface CloudQueryHostOptions {
   readonly authorizer: CloudQueryAuthorizer;
   /** Deployment-owned repository admission. Values determine the PG tenant, project, epoch and reader scope. */
   readonly repositories: ReadonlyMap<string, ReadSession["scope"]>;
+  /** Optional reader factory for embedded PG/PGlite or test hosts without a TCP connection string. */
+  readonly openQueryReader?: (input: {
+    readonly repoId: string;
+    readonly scope: ReadSession["scope"];
+  }) => PgTaskQueryReader;
   /** Task-start authority. Absent means claimable reads fail closed; repository-read is not task-start. */
   readonly authorizeTaskClaim?: (input: {
     readonly token: string;
@@ -210,6 +216,7 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
     throw new RangeError("Cloud query admission requires positive, bounded limits.");
   const repositories = new Map(options.repositories);
   const readers = new Map<string, PgTaskQueryReader>();
+  const readerRoutes = createCloudDomainRoutes((status, code) => new QueryFault(status, code));
   let inFlight = 0;
   return async (request) => {
     const url = new URL(request.url);
@@ -217,7 +224,9 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
     const routeName = match?.[2];
     const route = routeName === undefined ? undefined : routes.get(routeName);
     const syncRoute = routeName === undefined ? undefined : syncRoutes.get(routeName);
-    if (!match || (route === undefined && syncRoute === undefined)) return fault(404, "route_not_found");
+    const readerRoute = routeName === undefined ? undefined : readerRoutes.get(routeName);
+    if (!match || (route === undefined && syncRoute === undefined && readerRoute === undefined))
+      return fault(404, "route_not_found");
     if (request.method !== "GET") return fault(405, "method_not_allowed", READ_ONLY_HEADERS);
     const repoId = match[1]!;
     const token = /^Bearer ([^\s,]+)$/iu.exec(request.headers.get("authorization") ?? "")?.[1];
@@ -240,15 +249,22 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
             ? await options.authorizeTaskClaim({ token, repoId, personId, signal })
             : null;
         const context = { search: url.searchParams, personId, claim };
-        const value = syncRoute
-          ? taskReader(readers, options.pool, repoId, scope).withSession((queries: PgTaskQueryMethods) =>
-              syncRoute(queries, context),
-            )
-          : await withPgProjectionReadSession(
-              options.pool,
-              { scope, repoId, signal, deadlineAt },
-              (projection: Projection) => route!(projection, context),
-            );
+        const value = readerRoute
+          ? readerRoute(taskReader(readers, options.pool, repoId, scope, options.openQueryReader), {
+              repoId,
+              statelessRoot: STATELESS_ROOT,
+              search: url.searchParams,
+              personId,
+            })
+          : syncRoute
+            ? taskReader(readers, options.pool, repoId, scope, options.openQueryReader).withSession(
+                (queries: PgTaskQueryMethods) => syncRoute(queries, context),
+              )
+            : await withPgProjectionReadSession(
+                options.pool,
+                { scope, repoId, signal, deadlineAt },
+                (projection: Projection) => route!(projection, context),
+              );
         signal.throwIfAborted();
         return Response.json(value, { headers: { "cache-control": "no-store" } });
       } catch (error) {
@@ -257,14 +273,28 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
           return fault(error.status, error.code, error.status === 401 ? BEARER_CHALLENGE_HEADERS : []);
         }
         const code = error instanceof Error && "code" in error ? error.code : undefined;
-        if (code === "task_not_found" || code === "settings_entity_missing") return fault(404, code);
-        if (code === "task_ambiguous_id") return fault(409, code);
-        if (code === "invalid_command" || code === "invalid_task_id") return fault(400, code);
+        if (
+          code === "task_not_found" ||
+          code === "settings_entity_missing" ||
+          code === "document_not_found" ||
+          code === "squad_run_not_found" ||
+          code === "entity_not_found"
+        )
+          return fault(404, code);
+        if (code === "task_ambiguous_id" || code === "content_changed") return fault(409, code);
+        if (
+          code === "invalid_command" ||
+          code === "invalid_task_id" ||
+          code === "invalid_squad_run_id" ||
+          code === "invalid_request"
+        )
+          return fault(400, code);
         if (code === "authorization_denied") return fault(403, code);
         if (
           code === "projection_pending" ||
           code === "claim_authorization_unavailable" ||
-          code === "query_store_unavailable"
+          code === "query_store_unavailable" ||
+          code === "replica_unavailable"
         )
           return fault(503, code);
         if (code === "57014") return fault(504, "query_timeout");
@@ -342,9 +372,15 @@ function taskReader(
   pool: { readonly options?: { readonly connectionString?: unknown } },
   repoId: string,
   scope: ReadSession["scope"],
+  openQueryReader?: CloudQueryHostOptions["openQueryReader"],
 ): PgTaskQueryReader {
   const cached = readers.get(repoId);
   if (cached) return cached;
+  if (openQueryReader) {
+    const reader = openQueryReader({ repoId, scope });
+    readers.set(repoId, reader);
+    return reader;
+  }
   const connectionString = pool.options?.connectionString;
   if (typeof connectionString !== "string" || connectionString.length === 0)
     throw new QueryFault(503, "query_store_unavailable");

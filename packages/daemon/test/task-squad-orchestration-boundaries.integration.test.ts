@@ -7,7 +7,7 @@ import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../src/dae
 import { canonicalRoot } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { makeScheduleScheduler } from "../src/daemon-host/schedule-scheduler.ts";
-import { activePhase } from "../src/daemon-host/squad-run-list.ts";
+import { activePhase } from "@harness-anything/application/internal/queries/squad-run-list.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import {

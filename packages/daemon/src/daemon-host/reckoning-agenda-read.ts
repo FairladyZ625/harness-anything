@@ -1,6 +1,9 @@
 import { isTerminalStatus, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { decodeEvidencePayload } from "@harness-anything/application/internal/queries/evidence-payload.ts";
-import { readScheduleRuns, type ScheduleRunsResult } from "./schedule-runs-read.ts";
+import {
+  readScheduleRuns,
+  type ScheduleRunsResult,
+} from "@harness-anything/application/internal/queries/schedule-runs-read.ts";
 
 const FENCE = /```harness-reckoning\s*\r?\n([\s\S]*?)\r?\n```/gu;
 const FINDING_STATUSES = new Set(["unresolved", "covered", "resolved", "observation"]);

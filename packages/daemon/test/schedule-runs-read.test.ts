@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createScheduleV1, type CanonicalEventV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { compileScheduleRunEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
-import { readScheduleRuns, validateScheduleRuns } from "../src/daemon-host/schedule-runs-read.ts";
+import { readScheduleRuns } from "@harness-anything/application/internal/queries/schedule-runs-read.ts";
+import { validateScheduleRuns } from "../src/daemon-host/protocol/schedule-runs-contract.ts";
 
 const actor = { principal: { personId: "schedule-runs-test" }, executor: null } as const;
 

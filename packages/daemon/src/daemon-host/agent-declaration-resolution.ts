@@ -1,93 +1,31 @@
 import { readAnyBundledAgentDeclaration, readBundledAgentDeclaration } from "@harness-anything/preset";
 import { openEntityStore } from "@harness-anything/storage";
-import { readLocalAgentRecord } from "./local-agent-store.ts";
 import {
-  withoutLegacyAgentInstanceBindings,
-  type AgentState,
-} from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
+  agentDeclarationInvalidCode,
+  agentDeclarationInvalidError,
+  isAgentDeclarationInvalid,
+  readProjectedAgentDeclaration,
+  type AgentDeclarationInvalid,
+  type ProjectedAgentDeclaration,
+  type StoredAgentDeclarationOutcome,
+} from "@harness-anything/application/internal/queries/agent-declaration-read.ts";
+import { readLocalAgentRecord } from "./local-agent-store.ts";
 import {
   consumeKnownError,
   entitySlug,
   localDeclarationMatchesSharedValue,
-  parseAgentDeclarationV1,
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";
 
-export type ProjectedAgentDeclaration = AgentDeclarationV1 & {
-  readonly lifecycleState?: AgentState;
-  readonly retirement?: { readonly retiredAt: string; readonly reason: string; readonly successor?: string };
+export {
+  agentDeclarationInvalidCode,
+  agentDeclarationInvalidError,
+  isAgentDeclarationInvalid,
+  readProjectedAgentDeclaration,
+  type AgentDeclarationInvalid,
+  type ProjectedAgentDeclaration,
+  type StoredAgentDeclarationOutcome,
 };
-
-/** Projection metadata is not part of the authored declaration schema. */
-export function readProjectedAgentDeclaration(value: unknown): ProjectedAgentDeclaration {
-  const { lifecycleState, retirement, ...declaration } = withoutLegacyAgentInstanceBindings(
-    value,
-  ) as ProjectedAgentDeclaration;
-  return {
-    ...parseAgentDeclarationV1(declaration),
-    ...(lifecycleState === undefined ? {} : { lifecycleState }),
-    ...(retirement === undefined ? {} : { retirement }),
-  };
-}
-
-export interface AgentDeclarationResolution {
-  readonly declaration: ProjectedAgentDeclaration;
-  readonly layer: "local" | "installed" | "bundled";
-}
-
-export const agentDeclarationInvalidCode = "agent_declaration_invalid" as const;
-
-/**
- * One installed declaration whose stored shape the current schema rejects — the window between a
- * declaration-schema change landing and the ledger being rewritten — fails as itself. Every read
- * and dispatch surface converts the raw contract error into this: it names the agent, the schema
- * reason, and the reinstall command, so the entry point never leaks a parse stack upward.
- */
-export function agentDeclarationInvalidError(
-  agentId: string,
-  cause: unknown,
-): Error & { readonly code: typeof agentDeclarationInvalidCode } {
-  const reason = cause instanceof Error ? cause.message : String(cause);
-  return Object.assign(
-    new Error(
-      `Agent ${agentId} is installed, but its stored declaration no longer satisfies ` +
-        `agent-declaration/v1 (${reason}). Rewrite harness/agents/${agentId}.json with the current ` +
-        `declaration shape, then run ha agent install --source harness/agents/${agentId}.json.`,
-    ),
-    { code: agentDeclarationInvalidCode },
-  );
-}
-
-export function isAgentDeclarationInvalid(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    (error as { readonly code?: unknown }).code === agentDeclarationInvalidCode
-  );
-}
-
-/**
- * A bundled id is a system agent: its lifecycle is closed. Retire and delete must name that
- * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
- * (install an overriding copy) stays open, which is how model changes reach it.
- */
-export function assertBundledAgentLifecycleOpen(agentId: string, rootDir?: string): void {
-  if (readAnyBundledAgentDeclaration(agentId, rootDir) === null) return;
-  throw Object.assign(
-    new Error(
-      `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
-        "Edit the declaration and install the override to change its model or instructions.",
-    ),
-    { code: "agent_system_builtin" },
-  );
-}
-
-export type AgentDeclarationInvalid = Error & { readonly code: typeof agentDeclarationInvalidCode };
-
-export type StoredAgentDeclarationOutcome<T> =
-  | { readonly kind: "ok"; readonly value: T }
-  | { readonly kind: "missing" }
-  | { readonly kind: "invalid"; readonly error: AgentDeclarationInvalid };
 
 function asAgentDeclarationInvalid(agentId: string, error: unknown): AgentDeclarationInvalid | null {
   if (isAgentDeclarationInvalid(error)) return error as AgentDeclarationInvalid;
@@ -118,6 +56,27 @@ export function storedAgentDeclarationOutcome<T>(input: {
     return { kind: "invalid", error: invalid };
   }
   return value === null || value === undefined ? { kind: "missing" } : { kind: "ok", value };
+}
+
+export interface AgentDeclarationResolution {
+  readonly declaration: ProjectedAgentDeclaration;
+  readonly layer: "local" | "installed" | "bundled";
+}
+
+/**
+ * A bundled id is a system agent: its lifecycle is closed. Retire and delete must name that
+ * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
+ * (install an overriding copy) stays open, which is how model changes reach it.
+ */
+export function assertBundledAgentLifecycleOpen(agentId: string, rootDir?: string): void {
+  if (readAnyBundledAgentDeclaration(agentId, rootDir) === null) return;
+  throw Object.assign(
+    new Error(
+      `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
+        "Edit the declaration and install the override to change its model or instructions.",
+    ),
+    { code: "agent_system_builtin" },
+  );
 }
 
 export class AgentScopeConflictError extends Error {

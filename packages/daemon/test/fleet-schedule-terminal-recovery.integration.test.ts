@@ -10,7 +10,7 @@ import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/daemon-hos
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { withEdgeReadModel } from "../src/daemon-host/fleet-edge-task-read.ts";
-import { readScheduleRuns } from "../src/daemon-host/schedule-runs-read.ts";
+import { readScheduleRuns } from "@harness-anything/application/internal/queries/schedule-runs-read.ts";
 import { readEdgeViewBlob } from "../src/daemon-host/runtime-result-read.ts";
 import { locateFleetMirrorView } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";

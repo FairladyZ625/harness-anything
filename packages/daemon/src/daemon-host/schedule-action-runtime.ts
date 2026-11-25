@@ -24,7 +24,7 @@ import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import type { EntityActionCatalogRunner } from "@harness-anything/application/internal/commands/entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeAttemptTerminal, TrustedScheduleRuntime, TrustedScheduleSpawn } from "./runtime-spawn.ts";
-import { readScheduleRuns } from "./schedule-runs-read.ts";
+import { readScheduleRuns } from "@harness-anything/application/internal/queries/schedule-runs-read.ts";
 import { inspectScheduleProjection } from "@harness-anything/application/internal/queries/schedule-projection.ts";
 import { readReckoningSignals } from "@harness-anything/application/internal/queries/reckoning-signals.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";

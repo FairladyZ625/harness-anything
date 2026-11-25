@@ -8,6 +8,7 @@ import {
   resolveHarnessLayout,
   type CanonicalEventV1,
   type TaskProjection,
+  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
@@ -29,7 +30,7 @@ import type { Snapshot } from "./repo-cell-types.ts";
  * Duplicating this walk per entry point is how the two channels drift apart.
  */
 export function taskWorktreeRoot(
-  cell: { readonly rootDir: string; readonly projection: TaskProjection },
+  cell: { readonly rootDir: string; readonly projection: TaskProjectionQueries },
   snapshot: Snapshot,
 ): string | null {
   const binding = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection));

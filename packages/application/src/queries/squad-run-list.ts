@@ -4,7 +4,7 @@ import {
   type SquadRunListRowDto,
   type SquadRunPhase,
   type SquadRunSummaryDto,
-} from "./squad-run-contract.ts";
+} from "./squad-run-types.ts";
 
 export function listQuery(payload: Readonly<Record<string, unknown>>): {
   readonly since: string | null;
@@ -68,7 +68,7 @@ export function compareRunSummaries(left: SquadRunListRowDto, right: SquadRunLis
   );
 }
 
-export function squadReadError(code: string, message: string): Error {
+export function squadReadError(code: string, message: string): Error & { readonly code: string } {
   const error = new Error(message) as Error & { code: string };
   error.code = code;
   return error;

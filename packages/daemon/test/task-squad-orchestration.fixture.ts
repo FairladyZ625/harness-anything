@@ -14,7 +14,7 @@ import { acquireWorkspaceLock } from "../src/daemon-host/repo-cell-lock.ts";
 import { openRepoWriterCell } from "../src/daemon-host/repo-cell-open.ts";
 import type { RuntimeLauncher } from "../src/daemon-host/runtime-spawn-types.ts";
 import type { SquadRunPhase, SquadRunReadResult } from "../src/daemon-host/squad-run-contract.ts";
-import { activePhase } from "../src/daemon-host/squad-run-list.ts";
+import { activePhase } from "@harness-anything/application/internal/queries/squad-run-list.ts";
 import { waitForArrival } from "../../../tools/fixtures/event-arrival.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { fixtureFence, settleSettingsEvent, waitForFixturePublication } from "./repo-settings.fixture.ts";

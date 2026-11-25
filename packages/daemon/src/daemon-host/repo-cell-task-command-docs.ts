@@ -166,7 +166,6 @@ export async function runTaskCommandWithDocs(
     {
       binding,
       workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
       store: cell.store,
       projection: cell.projection,
       now: cell.now,
