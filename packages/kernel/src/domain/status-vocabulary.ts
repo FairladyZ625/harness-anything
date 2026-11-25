@@ -110,6 +110,7 @@ import {
 } from "./dispatch-lifecycle.ts";
 import { inboxStatusVocabularies } from "./status-word-register-inbox.ts";
 import { centerSwitchoverFenceStates, centerSwitchoverPhases } from "./center-switchover.ts";
+import { residentCeoProfileStatuses, residentCeoWakeStatuses } from "./resident-ceo.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 export { rbacBackupStatuses };
@@ -118,6 +119,40 @@ export type { RbacBackupStatus } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
   ...consumerStatusVocabularies,
+  {
+    id: "resident-ceo.profile-status",
+    entity: "RuntimeSession",
+    field: "resident CEO status",
+    module: "packages/kernel/src/domain/resident-ceo.ts",
+    anchor: "residentCeoProfileStatuses",
+    words: residentCeoProfileStatuses,
+  },
+  {
+    id: "resident-ceo.wake-status",
+    entity: "RuntimeSession",
+    field: "resident CEO wake status",
+    module: "packages/kernel/src/domain/resident-ceo.ts",
+    anchor: "residentCeoWakeStatuses",
+    words: residentCeoWakeStatuses,
+  },
+  {
+    id: "gui.resident-ceo.profile-status",
+    entity: "GuiAdapter",
+    field: "resident CEO status",
+    module: "packages/gui/src/renderer/api-client.ts",
+    anchor: "ResidentCeoProfileStatus",
+    words: ["stopped", "running"],
+    scope: "view-local",
+  },
+  {
+    id: "gui.resident-ceo.wake-status",
+    entity: "GuiAdapter",
+    field: "resident CEO wake status",
+    module: "packages/gui/src/renderer/api-client.ts",
+    anchor: "ResidentCeoWakeStatus",
+    words: ["running", "succeeded", "failed"],
+    scope: "view-local",
+  },
   ...inboxStatusVocabularies,
   {
     id: "migration.rbac-backup-status",

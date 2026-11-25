@@ -382,6 +382,15 @@ export async function openRepoCellProxy(
       return supervisor.bootstrapReceipt() as RepoCell["bootstrapReceipt"];
     },
     run,
+    writeResidentCeoProfilesJson: async (serialized, binding) => {
+      if (binding.actor.executor !== null)
+        throw cellCodedError("authorization_denied", "Resident CEO profiles require a person principal.");
+      await supervisor.request(
+        "run",
+        { action: { kind: "settings-update", residentCeoProfilesJson: serialized } },
+        binding,
+      );
+    },
     recordReviewDispatchFailure: async (taskId, failure, binding) => {
       if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
       await Promise.resolve();

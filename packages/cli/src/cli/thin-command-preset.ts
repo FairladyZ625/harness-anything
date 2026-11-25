@@ -1,5 +1,13 @@
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { accepted, nonEmpty, promptInput, readFlags, rejectInput, rejected } from "./thin-command-flags.ts";
+import {
+  accepted,
+  nonEmpty,
+  promptInput,
+  readFlags,
+  rejectInput,
+  rejected,
+  taskActionMethodFor,
+} from "./thin-command-flags.ts";
 import { projectFlags } from "./thin-command-projection.ts";
 import { parseTaskCreate } from "./thin-command-task-create.ts";
 import type { ProtocolCommand, ThinCliInput, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -14,54 +22,8 @@ export function parsePreset(
 ): ThinParseResult {
   if (route.id === "task-create" || route.id === "work-create")
     return parseTaskCreate(route, args, rootDir, repoId, json, inputs);
-  if (route.id === "squad-run") {
-    const squadId = args[2],
-      f = readFlags(route.id, args.slice(3), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    if (!nonEmpty(squadId)) return rejected("missing_field", "squad id is required.", json);
-    const prompt = promptInput(f.one);
-    return accepted(
-      rootDir,
-      repoId,
-      json,
-      {
-        kind: "squad-run",
-        squadId,
-        runtimeInstanceId: f.one.get("--instance"),
-        ...(prompt ?? {}),
-        ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
-        ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
-        ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
-        ...(f.one.get("--mcp-policy") ? { mcpPolicy: f.one.get("--mcp-policy") } : {}),
-        // Without --cwd the Squad runs in the task's own worktree.
-        ...(f.one.get("--cwd")
-          ? {
-              cwd:
-                f.one.get("--cwd") !== "."
-                  ? { scope: "repo-relative", path: f.one.get("--cwd") }
-                  : { scope: "repo-root" },
-            }
-          : {}),
-        taskId: f.one.get("--task"),
-        ...(f.booleans.has("--detach") ? { detach: true } : {}),
-      },
-      route.method,
-    );
-  }
-  if (route.id === "squad-status") {
-    const squadRunId = args[2],
-      f = readFlags(route.id, args.slice(3), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    return nonEmpty(squadRunId)
-      ? accepted(
-          rootDir,
-          repoId,
-          json,
-          { kind: "squad-status", squadRunId, ...(f.booleans.has("--wait") ? { wait: true } : {}) },
-          route.method,
-        )
-      : rejected("missing_field", "squad run id is required.", json);
-  }
+  if (route.id === "squad-run") return parseSquadRun(route, args, rootDir, repoId, json, inputs);
+  if (route.id === "squad-status") return parseSquadStatus(route, args, rootDir, repoId, json, inputs);
   const positionalField = "positional" in route ? route.positional : undefined,
     positionalFields = "positionalFields" in route ? route.positionalFields : undefined,
     positional = positionalField ? args[route.path.length] : undefined,
@@ -122,13 +84,76 @@ export function parsePreset(
   const position =
       matched && positionalFields
         ? {
-            [positionalFields[0]]: matched[1],
-            [positionalFields[1]]: matched[2],
+            [positionalFields[0]!]: matched[1]!,
+            [positionalFields[1]!]: matched[2]!,
           }
         : positionalField
-          ? { [positionalField]: positional }
+          ? { [positionalField]: positional! }
           : {},
     defaults = "actionDefaults" in route ? route.actionDefaults : {},
-    kind = "actionKind" in route ? route.actionKind : route.id;
-  return accepted(rootDir, repoId, json, { ...defaults, kind, ...position, ...payload }, route.method);
+    kind = ("actionKind" in route ? route.actionKind : route.id) ?? route.id;
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    { ...defaults, kind, ...position, ...payload },
+    route.method ?? taskActionMethodFor(kind),
+  );
+}
+
+function parseSquadRun(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const squadId = args[2],
+    f = readFlags(route.id, args.slice(3), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  if (!nonEmpty(squadId)) return rejected("missing_field", "squad id is required.", json);
+  const prompt = promptInput(f.one),
+    cwd = f.one.get("--cwd");
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind: "squad-run",
+      squadId,
+      runtimeInstanceId: f.one.get("--instance"),
+      ...(prompt ?? {}),
+      ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
+      ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
+      ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
+      ...(f.one.get("--mcp-policy") ? { mcpPolicy: f.one.get("--mcp-policy") } : {}),
+      ...(cwd ? { cwd: cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" } } : {}),
+      taskId: f.one.get("--task"),
+      ...(f.booleans.has("--detach") ? { detach: true } : {}),
+    },
+    route.method,
+  );
+}
+
+function parseSquadStatus(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const squadRunId = args[2],
+    f = readFlags(route.id, args.slice(3), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  return nonEmpty(squadRunId)
+    ? accepted(
+        rootDir,
+        repoId,
+        json,
+        { kind: "squad-status", squadRunId, ...(f.booleans.has("--wait") ? { wait: true } : {}) },
+        route.method,
+      )
+    : rejected("missing_field", "squad run id is required.", json);
 }

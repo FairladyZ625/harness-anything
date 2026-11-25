@@ -4,6 +4,9 @@ import { daemonControlPhaseWords } from "../api/renderer-dto.ts";
 import { repoCellStateWords } from "../api/renderer-dto.ts";
 import { repoRegistrationStateWords } from "../api/renderer-dto.ts";
 
+type ResidentCeoProfileStatus = "stopped" | "running";
+type ResidentCeoWakeStatus = "running" | "succeeded" | "failed";
+
 import type {
   DaemonGuiReadPayloadMap,
   DaemonHomeOverviewResult,
@@ -215,6 +218,30 @@ export type SettingsUpdateInput = RepoScope &
   };
 
 export type RepoScope = { readonly repoId: string };
+export interface ResidentCeoProfileRead {
+  readonly schema: "resident-ceo-profile/v1";
+  readonly principalPersonId: string;
+  readonly runtimeInstanceId: string;
+  readonly model: string;
+  readonly heartbeatIntervalSec: number;
+  readonly persistentSessionId: string | null;
+  readonly status: ResidentCeoProfileStatus;
+  readonly lastWake: {
+    readonly wakeId: string;
+    readonly cause: "heartbeat" | "peer-request" | "human-chat";
+    readonly requestedAt: string;
+    readonly completedAt: string | null;
+    readonly status: ResidentCeoWakeStatus;
+    readonly runtimeSessionId: string | null;
+    readonly detail: string | null;
+  } | null;
+  readonly updatedAt: string;
+}
+export interface ResidentCeoReceipt {
+  readonly ok: true;
+  readonly profile: ResidentCeoProfileRead | null;
+  readonly response?: string;
+}
 export type ObserveTailRequest = RepoScope & ObserveTailPayload;
 export interface SystemRepoRow {
   readonly repoId: string;
@@ -306,6 +333,30 @@ export type {
 } from "./api-client-catalog.ts";
 
 export const harnessClient = {
+  async getResidentCeo(payload: RepoScope): Promise<ResidentCeoReceipt> {
+    const result = await invoke("repo.residentCeo.status", payload);
+    if (!result || result.ok !== true || (result.profile !== null && !isResidentCeoProfile(result.profile)))
+      throw new Error(localErrorHint(result, "Resident CEO status returned an invalid result."));
+    return { ...result, profile: result.profile } as unknown as ResidentCeoReceipt;
+  },
+  async configureResidentCeo(
+    payload: RepoScope & {
+      readonly runtimeInstanceId: string;
+      readonly model: string;
+      readonly heartbeatIntervalSec: number;
+    },
+  ): Promise<ResidentCeoReceipt> {
+    return readResidentCeoReceipt(await invoke("repo.residentCeo.config", payload));
+  },
+  async startResidentCeo(payload: RepoScope): Promise<ResidentCeoReceipt> {
+    return readResidentCeoReceipt(await invoke("repo.residentCeo.start", payload));
+  },
+  async stopResidentCeo(payload: RepoScope): Promise<ResidentCeoReceipt> {
+    return readResidentCeoReceipt(await invoke("repo.residentCeo.stop", payload));
+  },
+  async chatResidentCeo(payload: RepoScope & { readonly message: string }): Promise<ResidentCeoReceipt> {
+    return readResidentCeoReceipt(await invoke("repo.residentCeo.chat", payload));
+  },
   async getHomeOverview(): Promise<DaemonHomeOverviewResult> {
     return (await invoke("daemon.gui.home.read", {})) as DaemonHomeOverviewResult;
   },
@@ -904,6 +955,30 @@ function isSystemStatusSuccess(value: unknown): value is SystemStatusSuccess {
         (repoRegistrationStateWords as readonly string[]).includes(String(repo.registrationState)) &&
         (repoCellStateWords as readonly string[]).includes(String(repo.cellState)),
     )
+  );
+}
+function readResidentCeoReceipt(value: unknown): ResidentCeoReceipt {
+  if (
+    !isRendererRecord(value) ||
+    value.ok !== true ||
+    !isResidentCeoProfile(value.profile) ||
+    (value.response !== undefined && typeof value.response !== "string")
+  )
+    throw new Error(localErrorHint(value, "Resident CEO command returned an invalid result."));
+  return value as unknown as ResidentCeoReceipt;
+}
+function isResidentCeoProfile(value: unknown): value is ResidentCeoProfileRead {
+  return (
+    isRendererRecord(value) &&
+    value.schema === "resident-ceo-profile/v1" &&
+    typeof value.principalPersonId === "string" &&
+    typeof value.runtimeInstanceId === "string" &&
+    typeof value.model === "string" &&
+    Number.isSafeInteger(value.heartbeatIntervalSec) &&
+    (value.persistentSessionId === null || typeof value.persistentSessionId === "string") &&
+    (value.status === "running" || value.status === "stopped") &&
+    (value.lastWake === null || isRendererRecord(value.lastWake)) &&
+    typeof value.updatedAt === "string"
   );
 }
 function isDaemonControlReceipt(value: unknown): value is DaemonControlReceipt {

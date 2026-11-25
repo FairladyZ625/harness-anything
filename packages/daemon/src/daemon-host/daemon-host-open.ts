@@ -9,23 +9,15 @@ import {
 } from "./fleet/forwarding-intent.ts";
 import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
-import type { FleetDeviceLoginNotice, TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
+import type { TaskReviewDispatchFailureV1 } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import {
   readFleetCenterCertificatePaths,
   readFleetCenterConfig,
   resolveFleetCursorSecret,
 } from "./fleet-center-config.ts";
-import {
-  keycloakNodeRegistry,
-  prepareFleetCenterAdmission,
-  startFleetCenterAdmission,
-} from "./fleet-center-admission.ts";
-import { rebindCenterRelocationRouting } from "./fleet/center-relocation-command.ts";
-import {
-  createHostContextSwitchoverControl,
-  createStandbyCandidateAnnouncer,
-} from "./fleet/center-switchover-transport.ts";
+import { restoreSavedFleetCenter } from "./daemon-host-fleet-center-restore.ts";
+import { createStandbyCandidateAnnouncer } from "./fleet/center-switchover-transport.ts";
 import { executionCredentialRejected, runtimeExecutionActor } from "./runtime-execution-credential.ts";
 import { centerReviewFailurePrefix } from "./task-review-dispatch.ts";
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
@@ -1138,6 +1130,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakSession,
     triggerCenterReviewFallback,
     oidc,
+    ensureRbacResumed,
     loginListenerCertificate: () => managedRbac.loginListenerCertificate(),
     get accessAdmin() {
       return accessAdminRef.current!;
@@ -1251,6 +1244,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
+  const { restoreResidentCeos, closeResidentCeos, ...runtimeApi } = createDaemonHostRuntimeApi(hostContext);
   void ensureRbacResumed().catch(consumeKnownError);
   identityReadiness.start();
   const edgeJoinProgress = createEdgeJoinProgressTap();
@@ -1357,7 +1351,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     parkedWaitSignal: closeController.signal,
     ...createDaemonHostRepositoryApi(hostContext),
-    ...createDaemonHostRuntimeApi(hostContext),
+    ...runtimeApi,
     ...createDaemonHostControlApi(hostContext),
     ...lifecycle,
     manageRbac: (request, auth) => {
@@ -1614,6 +1608,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ["auto-claim.close", () => autoClaimLoop.close()],
         ["auto-dispatch.close", () => autoDispatchLoop.close()],
         ["center-review-fallback.close", () => centerReviewLoop.close()],
+        ["resident-ceo.close", () => closeResidentCeos()],
         ["runtime-auth-warmup.close", () => instanceStore.closeAuthWarmup()],
         ["runtime-discovery.close", () => discoveryInFlight?.catch(consumeKnownError) ?? Promise.resolve()],
         [
@@ -1855,80 +1850,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       runtimeRecoveryWatch.observeConfirm(repoId, null, now());
     }
   };
-  try {
-    const config = readFleetCenterConfig(input.userRoot, input.daemonId);
-    if (config) {
-      const authorityRepo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
-        (repo) =>
-          repo.repoId === config.repoId &&
-          repo.state === "enabled" &&
-          repo.mode !== "remote-proxy" &&
-          repo.canonicalRoot !== null,
-      );
-      if (!authorityRepo)
-        throw hostCodedError("repo_namespace_unknown", "Saved fleet center authority repository is not enabled.");
-      const started = await startFleetCenterAdmission(
-        await prepareFleetCenterAdmission({
-          host,
-          storage: input.storage,
-          buildDraining: input.buildDraining,
-          onDeliverySettled: input.onRepoStatusChange,
-          onNodeDisconnected: () => triggerCenterReviewFallback("fleet-node-disconnected"),
-          recordTraffic: input.recordTraffic,
-          onRequestStarted: input.onFleetRequestStarted,
-          onRequestSettled: input.onFleetRequestSettled,
-          ...(input.authenticateExecutionPrincipal && {
-            authenticateExecutionPrincipal: input.authenticateExecutionPrincipal,
-          }),
-          userRoot: input.userRoot,
-          writerEpochLease: hostContext.writerEpochLease,
-          onSwitchoverControl: createHostContextSwitchoverControl(
-            hostContext,
-            config.stateRoot,
-            rebindCenterRelocationRouting,
-          ),
-          payload: config,
-          nodes: {
-            ...keycloakNodeRegistry(hostContext.keycloakCenter),
-            loginAuthority: (nodeId) => oidc.discovery(nodeId),
-            ...(oidc.revokeDeviceSessions && {
-              revokeDeviceSessions: (nodeId: string) => oidc.revokeDeviceSessions!(nodeId),
-            }),
-            ...(oidc.receiveDeviceNotice && {
-              deviceLoginNotice: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) =>
-                oidc.receiveDeviceNotice!(nodeId, personId, notice),
-            }),
-            verifyHuman: (auth) => oidc.bind(auth),
-            ...(oidc.bindReplica && { verifyReplica: (auth: DaemonAuthenticationContext) => oidc.bindReplica!(auth) }),
-            createMemberEdgeJoin: (repos, person, token) => accessAdmin.createMemberEdgeJoin(repos, person, token),
-            edgeJoinStatus: (input) => accessAdmin.edgeJoinStatus(input),
-            edgeJoin: (input) =>
-              accessAdmin.admitEdgeJoin({
-                joinId: input.joinId,
-                inviteToken: input.inviteToken,
-                ...(input.recovery ? { recovery: input.recovery } : {}),
-                accessToken: input.accessToken,
-              }),
-          },
-        }),
-      );
-      fleetCenter = started.center;
-      void host.attachmentsSettled().then(() => {
-        triggerCenterReviewFallback("fleet-center-restored");
-        if (authorityRepo.mode === "remote-edge" && authorityRepo.canonicalRoot)
-          standbyCandidateAnnouncer.announceIfReady(authorityRepo.repoId, authorityRepo.canonicalRoot);
-      });
-      await accessAdmin.resumeEdgeJoinTunnels(started.center.port);
-    }
-  } catch (error) {
-    fleetCenterRestoreFailed = true;
-    input.recordLifecycle?.({
-      event: "fleet_center_restore_failed",
-      error: error instanceof Error ? error.message : String(error),
-    });
-    if (input.runtimeAuthWarmup === true) void instanceStore.warmAuthReadiness(closeController.signal);
-    return host;
-  }
+  const restoredCenter = await restoreSavedFleetCenter(hostContext, (repoId, rootDir) =>
+    standbyCandidateAnnouncer.announceIfReady(repoId, rootDir),
+  );
+  if (restoredCenter.restoreFailed) fleetCenterRestoreFailed = true;
   if (input.runtimeAuthWarmup === true) void instanceStore.warmAuthReadiness(closeController.signal);
   return host;
   async function closeCell(repoId: string): Promise<void> {
@@ -1975,6 +1900,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       initialAttachmentsSettled = true;
       if (closing) return;
       startReplicaSyncs();
+      restoreResidentCeos();
       return scheduleScheduler.start();
     });
   }

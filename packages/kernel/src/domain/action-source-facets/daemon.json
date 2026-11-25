@@ -8,6 +8,24 @@
         "order": 2
       }
     ],
+    "ceo-config": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.acknowledgeResidentCeoPeer.reply:7e250c8a72d653aa08d5e7d049462d13",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.receipt:5ea1b5229386cd7d2f87137673dfd5cf",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox:5d93495c314b2642dad4340b4b7b0bb6",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-profile-store.ts#openResidentCeoProfileStore.write:95dc514598a4657c1c4ae3480de2f19b",
+        "route": "ceo-config"
+      }
+    ],
     "channel-deliver": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/channel-action.ts#dispatchChannelAction:7c8ca95c08161e4be116c3f55168667e",

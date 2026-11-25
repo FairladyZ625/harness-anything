@@ -22,6 +22,7 @@ export function parseChannel(
 
 export const peerRouteParsers: readonly (readonly [string, typeof parsePeer])[] = [
   ["peer-ask", parsePeer],
+  ["peer-delegate", parsePeer],
   ["peer-reply", parsePeer],
   ["peer-watch", parsePeer],
   ["peer-inbox", parsePeer],
@@ -40,6 +41,33 @@ export function parsePeer(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
+  if (route.id === "peer-delegate") {
+    const parsed = parseProjected(
+      route.id,
+      args.slice(2),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      { kind: "peer-ask" },
+      { requestKind: "delegate" },
+      route.method,
+    );
+    if (!parsed.ok) return parsed;
+    const summary = typeof parsed.command.action.summary === "string" ? parsed.command.action.summary : undefined;
+    if (summary === undefined) return parsed;
+    return {
+      ok: true,
+      command: {
+        ...parsed.command,
+        action: {
+          ...parsed.command.action,
+          ...(parsed.command.action.claim === undefined ? { claim: summary } : {}),
+          ...(parsed.command.action.requestedAction === undefined ? { requestedAction: summary } : {}),
+        },
+      },
+    };
+  }
   const hasPositional =
     route.id === "peer-reply" ||
     route.id === "peer-promote" ||

@@ -1408,8 +1408,9 @@ test("all live non-main GUI client and daemon-local-state sources pass source pr
   // dec_4276A0CEACD4D402F122295925/CH1 adds 4 living-dossier client callsites (+1 action kind: dossier-synthesize).
   // dec_AAEC26DBB6F23BDF80876ABB2C/CH5 adds 3 center-settings preload callsites (+2 action kinds: fleet-center-switchover, fleet-center-relocate).
   // dec_166C5D2EAB57F8BCA3F15107E2/CH2,CH4 adds 3 channel/peer client callsites (+2 action kinds: peer-reply, peer-promote).
-  assert.equal(guiClientPairs.length, 254);
-  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 91);
+  // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4) adds 5 resident CEO renderer callsites (+4 action kinds: ceo-config, ceo-start, ceo-stop, ceo-chat; status binds repository-read).
+  assert.equal(guiClientPairs.length, 259);
+  assert.equal(new Set(guiClientPairs.map(({ action }) => action.kind)).size, 95);
   // Stream cancellation adds two local support sites, with source proof for every entry.
   assert.equal(guiLocalSources.length, 113);
 

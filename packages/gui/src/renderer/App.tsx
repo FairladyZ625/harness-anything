@@ -77,6 +77,7 @@ import { AgentSquadView } from "./views/AgentSquadView.tsx";
 import { useRuntimeAuthTerminal } from "./useRuntimeAuthTerminal.ts";
 import { ActionError } from "./components/runtime/ActionError.tsx";
 import { ProvidersView } from "./views/ProvidersView.tsx";
+import { ResidentCeoView } from "./views/ResidentCeoView.tsx";
 import { TokenUsageView } from "./views/TokenUsageView.tsx";
 import { useTaskActions } from "./task-actions.ts";
 import { useDecisionActions } from "./decision-actions.ts";
@@ -1329,6 +1330,8 @@ function AppShell() {
                     goto("terminal");
                   }}
                 />
+              ) : view === "residentCeo" ? (
+                <ResidentCeoView repoId={projectId} />
               ) : view === "tokenUsage" ? (
                 <TokenUsageView
                   repoId={projectId}

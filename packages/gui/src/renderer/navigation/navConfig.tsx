@@ -63,6 +63,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   artifacts: "shell.nav.artifacts",
   agentSquad: "shell.nav.agentSquad",
   providers: "shell.nav.providers",
+  residentCeo: "shell.nav.residentCeo",
   tokenUsage: "shell.nav.tokenUsage",
   terminal: "shell.nav.terminal",
   browser: "shell.nav.browser",
@@ -128,6 +129,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "artifacts", icon: <FileHtml weight="duotone" /> },
       { id: "agentSquad", icon: <Users weight="duotone" /> },
       { id: "providers", icon: <PlugsConnected weight="duotone" /> },
+      { id: "residentCeo", icon: <IdentificationCard weight="duotone" /> },
     ],
   },
   {

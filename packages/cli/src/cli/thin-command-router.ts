@@ -228,7 +228,7 @@ export function parseRouted(
   )
     return parseEntityAssignment(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
-  if (rootCommand === "access" || rootCommand === "settings" || rootCommand === "ci" || rootCommand === "dossier")
+  if (["access", "settings", "ci", "dossier", "ceo"].includes(rootCommand))
     return parseProjected(
       route.id,
       args.slice(route.path.length),

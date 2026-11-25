@@ -2,6 +2,7 @@ import {
   cliInput,
   defineCliCommand,
   defineCenterForwardWriteCommand,
+  defineHostAdminCommand,
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   generatedSettingsFieldProtocolProjection,
@@ -327,6 +328,23 @@ const peerProtocolCommands = (
       ],
     },
     {
+      id: "delegate",
+      read: false,
+      summary:
+        "Delegate work to another principal as a PeerRequest (intent=delegate) with atomic Inbox wakeup; Phase 1 resident CEO replies with read-only assessment and proposed next action.",
+      fields: [
+        peerCliText("toPersonId", true, "--to"),
+        peerCliText("summary", true, "--title"),
+        peerCliText("claim", false, "--claim"),
+        peerCliText("requestedAction", false, "--action"),
+        peerCliText("workId", false, "--work"),
+        peerCliText("lane", false, "--lane"),
+        peerCliIdempotency,
+      ],
+      actionKind: "peer-ask",
+      actionDefaults: { requestKind: "delegate" },
+    },
+    {
       id: "reply",
       read: false,
       summary: "Reply to, complete, or reject a PeerRequest under Tier-A authorization ceilings.",
@@ -444,7 +462,7 @@ const peerProtocolCommands = (
       ],
     },
   ] as const
-).map(({ id, read, summary, fields }) => {
+).map(({ id, read, summary, fields, ...routeOptions }) => {
   const hasPositional =
       id === "reply" ||
       id === "promote" ||
@@ -462,6 +480,7 @@ const peerProtocolCommands = (
     summary,
     method: read ? "repo.task.read" : "repo.task.run",
     repositoryRead: read,
+    ...routeOptions,
     positional: hasPositional ? positionalField : undefined,
     positionalInputs: hasPositional ? [{ name: positionalName, pathKind: "non-path", pathReader: "none" }] : [],
     inputs: (fields as readonly EntityActionInputField[]).flatMap((field) =>
@@ -479,6 +498,89 @@ const peerProtocolCommands = (
   };
   return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });
+
+const residentCeoProtocolCommands = Object.freeze([
+  defineHostAdminCommand({
+    id: "ceo-config",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "config"],
+    summary:
+      "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+    method: "repo.residentCeo.config",
+    payloadFields: [],
+    inputs: [
+      cliInput(
+        "--instance",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          field: "runtimeInstanceId",
+          pathKind: "non-path",
+        },
+      ),
+      cliInput("--model", "single", true, { code: "invalid_field" }, { field: "model", pathKind: "non-path" }),
+      cliInput(
+        "--heartbeat-interval-sec",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          field: "heartbeatIntervalSec",
+          pathKind: "non-path",
+          projection: "number",
+          regex: "^(?:0|[1-9][0-9]*)$",
+        },
+      ),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-start",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "start"],
+    summary:
+      "Start the signed-in person's resident CEO (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+    method: "repo.residentCeo.start",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-stop",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "stop"],
+    summary: "Stop the signed-in person's resident CEO.",
+    method: "repo.residentCeo.stop",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineRepoReadCommand({
+    id: "ceo-status",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "status"],
+    summary:
+      "Read the signed-in person's resident CEO status and most recent wake receipt (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+    method: "repo.residentCeo.status",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-chat",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "chat"],
+    summary:
+      "Send a message to the signed-in person's resident CEO and continue its persistent provider session (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+    method: "repo.residentCeo.chat",
+    payloadFields: [],
+    inputs: [
+      cliInput("--message", "single", true, { code: "invalid_field" }, { field: "message", pathKind: "non-path" }),
+    ],
+  }),
+]);
 
 const channelCliText = (field: string, flag: string, required: boolean) =>
   cliInput(flag, "single", required, { code: "invalid_field" }, { pathKind: "non-path", field });
@@ -552,6 +654,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...doctorProtocolCommands,
   ...todoProtocolCommands,
   ...peerProtocolCommands,
+  ...residentCeoProtocolCommands,
   ...channelProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
@@ -699,7 +802,11 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
         : command && "actionDefaults" in command
           ? command.actionDefaults
           : {};
-  return { ...defaults, kind: "actionKind" in descriptor ? descriptor.actionKind : descriptor.id, ...payload };
+  return {
+    ...defaults,
+    kind: "actionKind" in descriptor ? (descriptor.actionKind ?? descriptor.id) : descriptor.id,
+    ...payload,
+  };
 }
 
 /** Socket reads share the host's repository-read admission without declaring GUI routes. */
@@ -752,7 +859,9 @@ export const daemonRepositoryReadMethods = Object.freeze([
 ] as const);
 
 const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolCommands)[number]> = new Map(
-    [...daemonProtocolCommands].reverse().map((entry) => ["actionKind" in entry ? entry.actionKind : entry.id, entry]),
+    [...daemonProtocolCommands]
+      .reverse()
+      .map((entry) => ["actionKind" in entry ? (entry.actionKind ?? entry.id) : entry.id, entry]),
   ),
   // Methods with their own server branch (agenda, the runtime overview) never travel the
   // contracted command family, but the execution-scope precheck resolves every method through

@@ -221,6 +221,11 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   const submission = { completionClaim: "Ready.", deliverables: ["code"], outputs: ["packages/daemon/src/daemon-host/repo-cell.ts"], verificationNotes: ["tests"], knownGaps: [], residualRisks: [], commitSha: "a".repeat(40) }, proposal = { title: "Typed actions", question: "Ship?", riskTier: "medium", urgency: "high", vertical: "software/coding", preset: "standard-task", appliesTo: { modules: ["daemon"], productLines: ["gui"] }, decisionClass: "ordinary", chosen: [{ id: "CH1", text: "Ship" }], rejected: [{ id: "RJ1", text: "Wait", whyNot: "No need" }], body: "# Typed actions\n", claims: [], fulfillments: [] };
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: a single explicit handoff facet.
   const cases = new Map<string, Record<string, unknown>>([
+    ["repo.residentCeo.config", { runtimeInstanceId: "instance-codex", model: "gpt-5.6-sol", heartbeatIntervalSec: 300 }],
+    ["repo.residentCeo.start", {}],
+    ["repo.residentCeo.stop", {}],
+    ["repo.residentCeo.status", {}],
+    ["repo.residentCeo.chat", { message: "Check status." }],
     ["repo.agentRuntime.handoff", { operation: "export", dispatchId: "dispatch_" + "a".repeat(24) }],
     ["daemon.gui.control.request", { kind: "refresh", authorityRepoId: "alpha", reason: "Refresh catalog" }],
     ["repo.task.create", { title: "Create from GUI", presetId: "standard-task" }],

@@ -401,6 +401,7 @@ export interface RepoCell {
     onExecutionStart?: () => void,
     queueObservation?: RepoCellQueueObservation,
   ) => Promise<WriteReceipt | SquadControlResult>;
+  readonly writeResidentCeoProfilesJson?: (serialized: string, binding: RepoCellBinding) => Promise<void>;
   readonly recordReviewDispatchFailure: (
     taskId: string,
     failure: TaskReviewDispatchFailureV1 | null,

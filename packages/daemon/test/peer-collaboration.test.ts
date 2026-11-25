@@ -96,6 +96,45 @@ test("peer collaboration: multi-window routing, Tier-A L0/L1/L2 fences, OIDC bin
     assert.equal(watchWork.matched, true);
     assert.equal(watchWork.request.requestId, workReq.requestId);
 
+    const genericOps = await cell.run(
+      {
+        kind: "peer-ask",
+        toPersonId: "person_bob",
+        requestKind: "ops-request",
+        summary: "Inspect disk usage",
+        claim: "Disk is 80% full.",
+        requestedAction: "Report largest directories.",
+      },
+      aliceBinding,
+    );
+    assert.equal(genericOps.outcome, "applied", JSON.stringify(genericOps));
+    const { request: genericOpsRequest } = evidence(genericOps) as { request: PeerRequestV1 };
+    assert.equal(genericOpsRequest.kind, "ops-request");
+    assert.equal(genericOpsRequest.intent, undefined);
+
+    const delegate = await cell.run(
+      {
+        kind: "peer-ask",
+        toPersonId: "person_bob",
+        requestKind: "delegate",
+        summary: "Prepare the migration review",
+      },
+      aliceBinding,
+    );
+    assert.equal(delegate.outcome, "applied", JSON.stringify(delegate));
+    const { request: delegateRequest } = evidence(delegate) as { request: PeerRequestV1 };
+    assert.equal(delegateRequest.kind, "ops-request");
+    assert.equal(delegateRequest.intent, "delegate");
+    assert.equal(delegateRequest.to.personId, "person_bob");
+
+    const delegatedInbox = evidence(
+      await cell.run({ kind: "peer-inbox", requestKind: "delegate", state: "OPEN" }, bobBinding),
+    ) as { requests: PeerRequestV1[] };
+    assert.deepEqual(
+      delegatedInbox.requests.map((entry) => entry.requestId),
+      [delegateRequest.requestId],
+    );
+
     const reply = await cell.run(
       {
         kind: "peer-reply",

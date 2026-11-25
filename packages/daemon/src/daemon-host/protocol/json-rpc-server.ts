@@ -685,6 +685,20 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
+    if (method.startsWith("repo.residentCeo.")) {
+      const residentCeoParams = params as { readonly repo: { readonly repoId: string }; readonly payload: JsonObject };
+      const operation = method.slice("repo.residentCeo.".length) as "config" | "start" | "stop" | "status" | "chat",
+        repo = residentCeoParams.repo.repoId;
+      markDaemonOperationPhase(operation === "status" ? "projection-read" : "write-prepare");
+      try {
+        return reply(
+          method,
+          await options.host.residentCeo(repo, operation, residentCeoParams.payload, options.authContext),
+        );
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
     if (isRepositoryReadCall(call)) {
       const { method, params } = call,
         repo = params.repo.repoId;
