@@ -26,9 +26,20 @@ export {
 
 export const RETRO_CASES_SCHEMA = "retro-cases/v1";
 export const RETRO_EVAL_REPORT_SCHEMA = "retro-eval-report/v1";
+export const RETRO_DISTILL_PROPOSAL_SCHEMA = "retro-distill-proposal/v1";
 export const VALID_EVAL_MODES = Object.freeze(["dry-run", "input", "live"]);
 export const VALID_REPLAY_MODES = Object.freeze(["diff-only", "tree-snapshot"]);
 export const VALID_FUNNEL_STAGES = Object.freeze(["raw", "postVerification", "finalVerdict"]);
+export const VALID_DISTILL_TARGETS = Object.freeze(["semantic-rule", "deterministic-gate"]);
+export const VALID_DISTILL_PROPOSAL_STATUSES = Object.freeze([
+  "approved_for_pr",
+  "rejected_false_positive",
+  "rejected_self_test",
+]);
+export const VALID_FALSIFICATION_VERDICTS = Object.freeze(["pass", "reject"]);
+export const DISTILL_MIN_CLUSTER_TASKS = 2;
+export const DISTILL_PROBE_TRIALS = 3;
+export const DISTILL_SEMANTIC_MIN_HITS = 2;
 export const VALID_ORIGINS = Object.freeze(["review-execution", "task-rework", "git-revert", "clean-control", "seed"]);
 export const VALID_SPLITS = Object.freeze(["tuning", "holdout"]);
 export const VALID_DATASET_SPLITS = Object.freeze(["tuning", "holdout", "all"]);
@@ -280,6 +291,153 @@ export function collectRetroEvalReportIssues(report) {
     issues.push("outcomes must be an array");
   } else if (Number.isSafeInteger(report.totalCases) && report.outcomes.length !== report.totalCases) {
     issues.push(`outcomes length (${report.outcomes.length}) !== totalCases (${report.totalCases})`);
+  }
+
+  return issues;
+}
+
+function collectGateSelfTestSpecIssues(spec, label) {
+  const issues = [];
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
+    return [`${label}: gateSelfTestSpec is required for deterministic-gate proposals`];
+  }
+  if (typeof spec.command !== "string" || !spec.command.includes("--self-test")) {
+    issues.push(`${label}: gateSelfTestSpec.command must include --self-test`);
+  }
+  if (!Array.isArray(spec.positiveFixtures) || spec.positiveFixtures.length === 0) {
+    issues.push(`${label}: gateSelfTestSpec.positiveFixtures must be a non-empty array`);
+  }
+  if (!Array.isArray(spec.negativeFixtures) || spec.negativeFixtures.length === 0) {
+    issues.push(`${label}: gateSelfTestSpec.negativeFixtures must be a non-empty array`);
+  }
+  if (!Number.isSafeInteger(spec.hitCount) || spec.hitCount < 0) {
+    issues.push(`${label}: gateSelfTestSpec.hitCount must be a non-negative integer`);
+  }
+  return issues;
+}
+
+function collectDistillFalsificationIssues(falsification, label) {
+  const issues = [];
+  if (!falsification || typeof falsification !== "object" || Array.isArray(falsification)) {
+    return [`${label}: missing falsification object`];
+  }
+  if (!Array.isArray(falsification.agents) || falsification.agents.length !== 3) {
+    issues.push(`${label}: falsification.agents must contain exactly 3 agent reviews`);
+  }
+  if (!Number.isSafeInteger(falsification.falsePositiveDelta)) {
+    issues.push(`${label}: falsification.falsePositiveDelta must be a safe integer`);
+  }
+  if (!VALID_FALSIFICATION_VERDICTS.includes(falsification.verdict)) {
+    issues.push(`${label}: invalid falsification.verdict ${String(falsification.verdict)}`);
+  }
+  return issues;
+}
+
+function collectSingleDistillProposalIssues(entry, index) {
+  const issues = [];
+  const label = entry?.proposalId ? `proposal ${entry.proposalId}` : `proposals[${index}]`;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return [`${label}: must be an object`];
+  }
+  if (typeof entry.proposalId !== "string" || entry.proposalId.trim() === "") {
+    issues.push(`${label}: missing proposalId`);
+  }
+  if (typeof entry.clusterKey !== "string" || entry.clusterKey.trim() === "") {
+    issues.push(`${label}: missing clusterKey`);
+  }
+  if (!Array.isArray(entry.taskIds) || new Set(entry.taskIds.filter(Boolean)).size < DISTILL_MIN_CLUSTER_TASKS) {
+    issues.push(`${label}: requires at least ${DISTILL_MIN_CLUSTER_TASKS} distinct taskIds`);
+  }
+  if (!VALID_DISTILL_TARGETS.includes(entry.target)) {
+    issues.push(`${label}: invalid target ${String(entry.target)}`);
+  }
+  if (!VALID_DISTILL_PROPOSAL_STATUSES.includes(entry.status)) {
+    issues.push(`${label}: invalid status ${String(entry.status)}`);
+  }
+
+  // L6 four elements: target, scope, invariant, verification
+  if (!entry.scope || typeof entry.scope !== "object" || !Array.isArray(entry.scope.modules)) {
+    issues.push(`${label}: missing L6 scope.modules array`);
+  }
+  if (typeof entry.invariant !== "string" || entry.invariant.trim() === "") {
+    issues.push(`${label}: missing L6 invariant statement`);
+  }
+  if (!entry.verification || typeof entry.verification !== "object") {
+    issues.push(`${label}: missing L6 verification object`);
+  }
+
+  const probe = entry.probe;
+  if (!probe || typeof probe !== "object") {
+    issues.push(`${label}: missing probe object`);
+  } else {
+    if (probe.trials !== DISTILL_PROBE_TRIALS) {
+      issues.push(`${label}: probe.trials must equal ${DISTILL_PROBE_TRIALS}`);
+    }
+    if (!Number.isSafeInteger(probe.hits) || probe.hits < 0 || probe.hits > DISTILL_PROBE_TRIALS) {
+      issues.push(`${label}: probe.hits must be an integer between 0 and ${DISTILL_PROBE_TRIALS}`);
+    } else if (probe.hits < DISTILL_SEMANTIC_MIN_HITS) {
+      if (entry.target !== "deterministic-gate") {
+        issues.push(`${label}: probe.hits=${probe.hits}/${DISTILL_PROBE_TRIALS} must route to deterministic-gate`);
+      }
+      if (entry.ruleDraft !== null && entry.ruleDraft !== undefined) {
+        issues.push(`${label}: probe.hits=${probe.hits}/${DISTILL_PROBE_TRIALS} must not emit a semantic ruleDraft`);
+      }
+    }
+  }
+
+  if (entry.target === "deterministic-gate") {
+    issues.push(...collectGateSelfTestSpecIssues(entry.gateSelfTestSpec, label));
+    if (entry.status === "approved_for_pr" && (entry.gateSelfTestSpec?.hitCount ?? 0) <= 0) {
+      issues.push(`${label}: approved deterministic-gate requires gateSelfTestSpec.hitCount > 0`);
+    }
+  } else if (entry.target === "semantic-rule") {
+    if (!entry.ruleDraft || typeof entry.ruleDraft !== "object" || typeof entry.ruleDraft.ruleText !== "string") {
+      issues.push(`${label}: semantic-rule requires ruleDraft.ruleText`);
+    }
+  }
+
+  issues.push(...collectDistillFalsificationIssues(entry.falsification, label));
+  if (
+    entry.status === "approved_for_pr" &&
+    (entry.falsification?.falsePositiveDelta > 0 || entry.falsification?.verdict !== "pass")
+  ) {
+    issues.push(`${label}: cannot be approved_for_pr when falsification rejects or falsePositiveDelta > 0`);
+  }
+
+  return issues;
+}
+
+/** Validate a `retro-distill-proposal/v1` document including L6 four-element & probe-routing invariants. */
+export function collectRetroDistillProposalIssues(doc, options = {}) {
+  const issues = [];
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    return ["distill proposal must be a JSON object"];
+  }
+  if (doc.schema !== RETRO_DISTILL_PROPOSAL_SCHEMA) {
+    issues.push(`expected schema ${RETRO_DISTILL_PROPOSAL_SCHEMA}, got ${String(doc.schema)}`);
+  }
+  if (doc.version !== 1) {
+    issues.push(`expected version 1, got ${String(doc.version)}`);
+  }
+  if (typeof doc.runId !== "string" || doc.runId.trim() === "") {
+    issues.push("missing non-empty runId");
+  }
+  if (!Array.isArray(doc.proposals)) {
+    issues.push("proposals must be an array");
+  } else {
+    for (const [index, entry] of doc.proposals.entries()) {
+      issues.push(...collectSingleDistillProposalIssues(entry, index));
+    }
+  }
+  if (!Array.isArray(doc.rejectedClusters)) {
+    issues.push("rejectedClusters must be an array");
+  }
+
+  const leakScan = findRetroPrivateLeakage(doc, options);
+  if (!leakScan.ok) {
+    for (const hit of leakScan.hits) {
+      issues.push(`private leakage (${hit.rule}): ${hit.match}`);
+    }
   }
 
   return issues;

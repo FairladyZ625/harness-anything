@@ -18,6 +18,9 @@ import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.t
 
 /** dec_9979850C7CE87C17271D78E4D1 CH3: one batched history read covers at most this many paths. */
 export const MAX_TRACED_FILES = 5;
+/** dec_D8EECF29C93D0C300252060A10 CH4: review-time on-demand causal activation caps (no 5-file limit). */
+export const DEFAULT_REVIEW_MAX_DECISIONS = 10;
+export const DEFAULT_REVIEW_MAX_FACTS = 5;
 export const DEFAULT_TRACE_COMMITS = 20;
 export const MAX_TRACE_COMMITS = 200;
 /** Per-section row count for `ha trace`; every projection read below is a bounded, indexed page. */
@@ -624,5 +627,198 @@ export function selectPassiveTraceContext(input: {
       .filter((fact) => !input.excludeFactRefs.includes(fact.ref))
       .sort((a, b) => Number(b.matchReason === "evidence_source") - Number(a.matchReason === "evidence_source"))
       .slice(0, input.maxFacts),
+  };
+}
+
+export interface ReviewTraceSelection {
+  readonly schema: "review-trace-context/v1";
+  readonly paths: readonly string[];
+  readonly projectionCut: ProjectionCut;
+  readonly reads: readonly ProjectionCut[];
+  readonly decisions: readonly TraceDecision[];
+  readonly facts: readonly TraceFact[];
+}
+
+function modulePrefixDepth(prefix: string | null): number {
+  if (prefix === null || prefix.length === 0) return 0;
+  return prefix.split("/").length;
+}
+
+function deepestModuleMatch(modules: readonly string[], paths: readonly string[]): string | null {
+  let best: string | null = null;
+  let bestDepth = 0;
+  for (const path of paths) {
+    for (const prefix of modules) {
+      if (path !== prefix && !path.startsWith(`${prefix}/`)) continue;
+      const depth = modulePrefixDepth(prefix);
+      if (depth > bestDepth || (depth === bestDepth && best !== null && prefix.length > best.length)) {
+        best = prefix;
+        bestDepth = depth;
+      }
+    }
+  }
+  return best;
+}
+
+function reviewTraceDecision(row: DecisionProjectionRow, paths: readonly string[]): TraceDecision {
+  const modules = row.appliesTo.modules
+    .map((entry) => normalizeTraceTargetPath(entry.replace(/[\\/]+$/u, "")))
+    .flatMap((entry) => (entry.ok ? [entry.path] : []));
+  const viaModulePrefix = deepestModuleMatch(modules, paths);
+  const tracePaths = paths.filter((path) => modules.some((prefix) => path === prefix || path.startsWith(`${prefix}/`)));
+  return {
+    decisionId: row.decisionId,
+    title: row.title,
+    state: row.state,
+    summary: row.chosen[0]?.text ?? row.question ?? row.title,
+    viaTaskIds: [],
+    viaModulePrefix,
+    tracePaths,
+    chosen: row.chosen.map((entry) => ({ id: entry.id, summary: entry.text })),
+    rejected: row.rejected.map((entry) => ({ id: entry.id, summary: entry.text, whyNot: entry.whyNot })),
+  };
+}
+
+function rankReviewDecisions(decisions: readonly TraceDecision[]): readonly TraceDecision[] {
+  const redlineScore = (decision: TraceDecision) =>
+    decision.rejected.some((entry) => entry.whyNot.trim() !== "") ? 1 : 0;
+  return [...decisions].sort(
+    (a, b) =>
+      modulePrefixDepth(b.viaModulePrefix) - modulePrefixDepth(a.viaModulePrefix) ||
+      (b.viaModulePrefix?.length ?? 0) - (a.viaModulePrefix?.length ?? 0) ||
+      redlineScore(b) - redlineScore(a) ||
+      b.tracePaths.length - a.tracePaths.length ||
+      a.decisionId.localeCompare(b.decisionId),
+  );
+}
+
+/**
+ * Pure read-only review-time causal activation (dec_D8EECF29C93D0C300252060A10 CH4):
+ * accepts arbitrary PR diff path counts (no MAX_TRACED_FILES=5 cap), spawns zero Git processes,
+ * activates up to `maxDecisions` (default 10) in-effect Decisions ranked by deepest module-prefix
+ * specificity, and returns up to `maxFacts` (default 5) finalized non-archived standing Facts.
+ */
+export function selectReviewTraceContext(input: {
+  readonly projection: TraceProjection;
+  readonly changedPaths: readonly string[];
+  readonly maxDecisions?: number;
+  readonly maxFacts?: number;
+  readonly excludeDecisionIds?: readonly string[];
+  readonly excludeFactRefs?: readonly string[];
+}): ReviewTraceSelection {
+  const maxDecisions = Math.max(0, Math.floor(input.maxDecisions ?? DEFAULT_REVIEW_MAX_DECISIONS));
+  const maxFacts = Math.max(0, Math.floor(input.maxFacts ?? DEFAULT_REVIEW_MAX_FACTS));
+  const excludeDecisionIds = new Set(input.excludeDecisionIds ?? []);
+  const excludeFactRefs = new Set(input.excludeFactRefs ?? []);
+
+  const paths: string[] = [];
+  const seenPaths = new Set<string>();
+  for (const rawPath of input.changedPaths) {
+    const normalized = normalizeTraceTargetPath(rawPath);
+    if (!normalized.ok || seenPaths.has(normalized.path)) continue;
+    seenPaths.add(normalized.path);
+    paths.push(normalized.path);
+  }
+
+  const reads: ProjectionCut[] = [input.projection.readCut()];
+  if (paths.length === 0) {
+    return {
+      schema: "review-trace-context/v1",
+      paths: [],
+      projectionCut: requireSameProjectionCut("review trace context", reads),
+      reads,
+      decisions: [],
+      facts: [],
+    };
+  }
+
+  const prefixes = [...new Set(paths.flatMap(traceModulePrefixes))];
+  const decisionLimit = Math.max(TRACE_SECTION_ROWS, maxDecisions * 4);
+  const decisionRead =
+    maxDecisions > 0
+      ? input.projection.listDecisions({
+          state: "in_effect",
+          modulePrefixes: prefixes,
+          withBody: false,
+          limit: decisionLimit,
+        })
+      : null;
+  if (decisionRead !== null) reads.push(decisionRead);
+
+  const decisions = rankReviewDecisions(
+    (decisionRead?.decisions ?? [])
+      .filter((row) => row.state === "in_effect" && !excludeDecisionIds.has(row.decisionId))
+      .map((row) => reviewTraceDecision(row, paths))
+      .filter((decision) => decision.viaModulePrefix !== null && decision.tracePaths.length > 0),
+  ).slice(0, maxDecisions);
+
+  const factLimit = Math.max(TRACE_SECTION_ROWS, maxFacts * 4);
+  const factRead =
+    maxFacts > 0
+      ? input.projection.searchFacts({
+          evidenceSourcePaths: paths,
+          limit: factLimit,
+        })
+      : null;
+  if (factRead !== null) reads.push(factRead);
+
+  const candidateFacts: Array<{ readonly row: FactProjectionRow; readonly tracePaths: readonly string[] }> = [];
+  const seenFactRefs = new Set<string>();
+  for (const row of factRead?.facts ?? []) {
+    if (row.archived || row.invalidated || excludeFactRefs.has(row.ref) || seenFactRefs.has(row.ref)) continue;
+    const matchedPaths = paths.filter(
+      (path) =>
+        row.evidenceSource === path ||
+        row.evidenceSource.startsWith(`${path}:`) ||
+        row.evidenceSource.startsWith(`${path}#`),
+    );
+    if (matchedPaths.length === 0) continue;
+    seenFactRefs.add(row.ref);
+    candidateFacts.push({ row, tracePaths: matchedPaths });
+  }
+
+  const factTaskIds = [
+    ...new Set(
+      candidateFacts
+        .map((entry) => entry.row.taskId)
+        .filter((taskId): taskId is string => typeof taskId === "string" && taskId.length > 0),
+    ),
+  ];
+  const taskStatusById = new Map<string, string>();
+  if (factTaskIds.length > 0) {
+    const taskRead = input.projection.readTaskIndex({ taskIds: factTaskIds });
+    reads.push(taskRead);
+    for (const row of taskRead.rows) taskStatusById.set(row.taskId, row.status);
+  }
+
+  const finalizedFacts: TraceFact[] = [];
+  for (const { row, tracePaths } of candidateFacts) {
+    if (typeof row.taskId === "string" && row.taskId.length > 0 && taskStatusById.get(row.taskId) !== "done") {
+      continue;
+    }
+    finalizedFacts.push({
+      factId: row.factId,
+      ref: row.ref,
+      domainType: row.domainTypes?.[0] ?? "general",
+      summary: row.statement,
+      evidenceSource: row.evidenceSource,
+      observedCommit: row.observedCommit ?? null,
+      recordedByTaskId: row.taskId ?? null,
+      matchReason: "evidence_source",
+      tracePaths,
+    });
+  }
+
+  const facts = finalizedFacts
+    .sort((a, b) => b.tracePaths.length - a.tracePaths.length || a.factId.localeCompare(b.factId))
+    .slice(0, maxFacts);
+
+  return {
+    schema: "review-trace-context/v1",
+    paths,
+    projectionCut: requireSameProjectionCut("review trace context", reads),
+    reads,
+    decisions,
+    facts,
   };
 }
