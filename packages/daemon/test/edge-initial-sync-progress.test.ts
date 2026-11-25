@@ -180,9 +180,9 @@ test("withEdgeReadModel exposes replica_syncing with structured progress only du
 
 test("walreceiver publishes basebackup, installing, and projecting progress into replica-health.json and clears on ack", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-wal-progress-"));
-  let slots: ReturnType<typeof openReplicationSlots> | undefined;
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
   t.after(() => {
-    slots?.close();
+    slots.close();
     removeTempRepository(root);
   });
 
@@ -201,7 +201,6 @@ test("walreceiver publishes basebackup, installing, and projecting progress into
     projectionSchema: 1,
   };
 
-  slots = openReplicationSlots(path.join(root, "slots.sqlite"));
   const lease = slots.claim({ repoId: metadata.repoId, nodeId: "edge-air" }, metadata.position.history);
 
   const viewDir = path.join(root, "repos", metadata.repoId, "views", "edge-air");
