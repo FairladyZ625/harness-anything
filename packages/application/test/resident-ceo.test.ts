@@ -24,7 +24,7 @@ function fixture() {
         });
         return {
           runtimeSessionId: `session-${runs.length}`,
-          response: Promise.resolve({
+          awaitResponse: async () => ({
             response: `reply-${runs.length}`,
             persistentSessionId: `provider-session-${runs.length}`,
           }),
@@ -123,4 +123,92 @@ test("changing provider instance or model clears an incompatible provider sessio
   });
   assert.equal(changed.persistentSessionId, null);
   assert.equal(changed.status, "running");
+});
+
+test("failed runtime response settles cleanly without unhandled rejection while profile persistence is pending", async () => {
+  let profile: ResidentCeoProfile | null = null;
+  let now = "2026-11-24T00:00:00.000Z";
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const service = makeResidentCeoService({
+      profiles: {
+        read: async () => profile,
+        write: async (next, expectedUpdatedAt) => {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          assert.equal(expectedUpdatedAt, profile?.updatedAt ?? null);
+          profile = next;
+        },
+      },
+      runtime: {
+        run: async () => ({
+          runtimeSessionId: "session-fail",
+          awaitResponse: async () => {
+            throw new Error("Runtime session lost: Dispatch stalled after 300000 ms.");
+          },
+        }),
+      },
+      now: () => now,
+      createId: () => "wake-fail",
+    });
+    await service.configure("person_owner", {
+      runtimeInstanceId: "instance-one",
+      model: "model-one",
+      heartbeatIntervalSec: 60,
+    });
+    await service.start("person_owner");
+    now = "2026-11-24T00:00:05.000Z";
+    await assert.rejects(
+      service.wake("person_owner", "peer-request", "Check stalled turn.", "peer_request_fail"),
+      /Dispatch stalled after 300000 ms/u,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(unhandled.length, 0);
+    const saved = await service.status("person_owner");
+    assert.equal(saved.lastWake?.status, "failed");
+    assert.equal(saved.lastWake?.runtimeSessionId, "session-fail");
+    assert.match(saved.lastWake?.detail ?? "", /Dispatch stalled after 300000 ms/u);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+test("profile write failure before awaiting response does not invoke awaitResponse", async () => {
+  let profile: ResidentCeoProfile | null = null;
+  let writeCount = 0;
+  let awaitResponseCalled = false;
+  const service = makeResidentCeoService({
+    profiles: {
+      read: async () => profile,
+      write: async (next, expectedUpdatedAt) => {
+        writeCount += 1;
+        // Writes: 1 configure, 2 start, 3 initial wake ("running"), 4 persist runtimeSessionId -> fail here.
+        if (writeCount === 4) throw new Error("simulated write failure");
+        assert.equal(expectedUpdatedAt, profile?.updatedAt ?? null);
+        profile = next;
+      },
+    },
+    runtime: {
+      run: async () => ({
+        runtimeSessionId: "session-orphaned",
+        awaitResponse: async () => {
+          awaitResponseCalled = true;
+          throw new Error("must not run when runtimeSessionId write fails");
+        },
+      }),
+    },
+    now: () => "2026-11-24T00:00:00.000Z",
+    createId: () => "wake-write-fail",
+  });
+  await service.configure("person_owner", {
+    runtimeInstanceId: "instance-one",
+    model: "model-one",
+    heartbeatIntervalSec: 60,
+  });
+  await service.start("person_owner");
+  await assert.rejects(service.wake("person_owner", "human-chat", "Hi"), /simulated write failure/u);
+  assert.equal(awaitResponseCalled, false);
 });

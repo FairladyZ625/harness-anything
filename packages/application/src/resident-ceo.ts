@@ -26,7 +26,7 @@ export interface ResidentCeoRuntime {
     readonly peerRequestId?: string;
   }) => Promise<{
     readonly runtimeSessionId: string;
-    readonly response: Promise<{ readonly response: string; readonly persistentSessionId: string | null }>;
+    readonly awaitResponse: () => Promise<{ readonly response: string; readonly persistentSessionId: string | null }>;
   }>;
 }
 
@@ -194,9 +194,9 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
           ...(peerRequestId === undefined ? {} : { peerRequestId }),
         }),
       );
-      let completedResponse: Awaited<Awaited<ReturnType<ResidentCeoRuntime["run"]>>["response"]>;
+      let completedResponse: Awaited<ReturnType<Awaited<ReturnType<ResidentCeoRuntime["run"]>>["awaitResponse"]>>;
       try {
-        completedResponse = await run.response;
+        completedResponse = await run.awaitResponse();
       } catch (error) {
         const completedAt = input.now();
         profile = await requiredProfile(principalPersonId, repoId);

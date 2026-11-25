@@ -262,11 +262,11 @@ test(
     initIngressRepo(rootDir, process.getuid?.() ?? 0);
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
     signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
-    let nowMs = Date.parse("2026-11-25T10:00:00.000Z");
+    let clockOffsetMs = 0;
     const host = await openDaemonHost({
       daemonId: repoId,
       userRoot,
-      now: () => new Date(nowMs).toISOString(),
+      now: () => new Date(Date.now() + clockOffsetMs).toISOString(),
       runtimeDiscover: () => [installation],
     });
     try {
@@ -303,7 +303,7 @@ test(
       // Advance clock past the 30s heartbeat interval, then emit an unrelated event for another
       // recipient so Bob's watcher wakes immediately, evaluates the due heartbeat on an empty
       // inbox, and advances nextHeartbeat without spawning any LLM runtime.
-      nowMs += 35_000;
+      clockOffsetMs += 35_000;
       const unrelated = await host.run(
         repoId,
         {
@@ -343,8 +343,9 @@ test(
       const woke = await eventuallyValue(async () => {
         const status = await ceo("status");
         const profile = status.profile as {
-          readonly lastWake: { readonly cause: string; readonly status: string } | null;
+          readonly lastWake: { readonly cause: string; readonly status: string; readonly detail: string | null } | null;
         };
+        assert.notEqual(profile.lastWake?.status, "failed", JSON.stringify(profile.lastWake));
         return profile.lastWake?.status === "succeeded" ? profile : null;
       }, "resident CEO wakes for real delegation after empty heartbeat");
       assert.equal(woke.lastWake?.cause, "peer-request");

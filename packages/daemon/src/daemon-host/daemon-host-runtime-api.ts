@@ -270,7 +270,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             throw context.hostCodedError("runtime_spawn_failed", "Resident CEO runtime did not return a session id.");
           return {
             runtimeSessionId,
-            response: (async () => {
+            awaitResponse: async () => {
               await cell.awaitRuntimeOutcome(runtimeSessionId);
               const session = await context.host.read(
                 repoId,
@@ -288,7 +288,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
               if (request.peerRequestId !== undefined)
                 await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth, response);
               return { response, persistentSessionId: session.session.providerSessionId };
-            })(),
+            },
           };
         },
       },
