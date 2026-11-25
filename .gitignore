@@ -43,3 +43,6 @@ packages/gui-fde/dist-electron/
 packages/gui/build-resources/node/
 packages/gui/build-resources/app-node_modules/
 packages/gui/.runtime-cache/
+
+# Retrospective local private mappings and run artifacts (never tracked in public repo).
+.retro-local/
