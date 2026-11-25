@@ -50,7 +50,7 @@ export const daemonActionRoutes = Object.freeze([
     method: "repo.residentCeo.config",
     actionKind: "ceo-config",
     requiresRepo: true,
-    commandClass: "repo-write",
+    commandClass: "admin",
     params: shape({
       repo: shape({ repoId: "string" }),
       payload: shape({ runtimeInstanceId: "string", model: "string", heartbeatIntervalSec: "number" }),
@@ -63,7 +63,7 @@ export const daemonActionRoutes = Object.freeze([
     method: "repo.residentCeo.start",
     actionKind: "ceo-start",
     requiresRepo: true,
-    commandClass: "repo-write",
+    commandClass: "admin",
     params: shape({ repo: shape({ repoId: "string" }), payload: shape({}) }),
   },
   {
@@ -73,7 +73,7 @@ export const daemonActionRoutes = Object.freeze([
     method: "repo.residentCeo.stop",
     actionKind: "ceo-stop",
     requiresRepo: true,
-    commandClass: "repo-write",
+    commandClass: "admin",
     params: shape({ repo: shape({ repoId: "string" }), payload: shape({}) }),
   },
   {
@@ -93,7 +93,7 @@ export const daemonActionRoutes = Object.freeze([
     method: "repo.residentCeo.chat",
     actionKind: "ceo-chat",
     requiresRepo: true,
-    commandClass: "repo-write",
+    commandClass: "admin",
     params: shape({ repo: shape({ repoId: "string" }), payload: shape({ message: "string" }) }),
   },
   actionRpc(

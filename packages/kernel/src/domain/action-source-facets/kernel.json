@@ -140,31 +140,6 @@
         "read": false
       }
     },
-    "ceo-status": {
-      "owner": "daemon",
-      "concurrency": {
-        "expectedVersion": {
-          "authority": "not-applicable"
-        },
-        "leasePolicy": {
-          "authority": "daemon-host"
-        },
-        "occurrenceClaim": {
-          "authority": "not-applicable"
-        },
-        "idempotency": {
-          "authority": "caller-owned"
-        },
-        "artifactOwnership": {
-          "owner": "host-local",
-          "refTemplate": "daemon-host"
-        }
-      },
-      "execution": {
-        "ingress": "ceo-status",
-        "read": true
-      }
-    },
     "ceo-stop": {
       "owner": "daemon",
       "concurrency": {

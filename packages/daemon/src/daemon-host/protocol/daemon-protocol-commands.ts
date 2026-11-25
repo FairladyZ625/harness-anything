@@ -2,7 +2,7 @@ import {
   cliInput,
   defineCliCommand,
   defineCenterForwardWriteCommand,
-  nodeLocalWriteCommandTopology,
+  defineHostAdminCommand,
   defineRepoReadCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
   generatedSettingsFieldProtocolProjection,
@@ -498,88 +498,84 @@ const peerProtocolCommands = (
   return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });
 
-const residentCeoProtocolCommands = Object.freeze(
-  [
-    defineCenterForwardWriteCommand({
-      id: "ceo-config",
-      hostAuthority: "own-session",
-      phase: "ResidentCeo",
-      path: ["ceo", "config"],
-      summary: "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval.",
-      method: "repo.residentCeo.config",
-      payloadFields: [],
-      inputs: [
-        cliInput(
-          "--instance",
-          "single",
-          true,
-          { code: "invalid_field" },
-          {
-            field: "runtimeInstanceId",
-            pathKind: "non-path",
-          },
-        ),
-        cliInput("--model", "single", true, { code: "invalid_field" }, { field: "model", pathKind: "non-path" }),
-        cliInput(
-          "--heartbeat-interval-sec",
-          "single",
-          true,
-          { code: "invalid_field" },
-          {
-            field: "heartbeatIntervalSec",
-            pathKind: "non-path",
-            projection: "number",
-            regex: "^(?:0|[1-9][0-9]*)$",
-          },
-        ),
-      ],
-    }),
-    defineCenterForwardWriteCommand({
-      id: "ceo-start",
-      hostAuthority: "own-session",
-      phase: "ResidentCeo",
-      path: ["ceo", "start"],
-      summary: "Start the signed-in person's resident CEO.",
-      method: "repo.residentCeo.start",
-      payloadFields: [],
-      inputs: [],
-    }),
-    defineCenterForwardWriteCommand({
-      id: "ceo-stop",
-      hostAuthority: "own-session",
-      phase: "ResidentCeo",
-      path: ["ceo", "stop"],
-      summary: "Stop the signed-in person's resident CEO.",
-      method: "repo.residentCeo.stop",
-      payloadFields: [],
-      inputs: [],
-    }),
-    defineEdgeReplicaQueryOnlyReadCommand({
-      id: "ceo-status",
-      hostAuthority: "own-session",
-      phase: "ResidentCeo",
-      path: ["ceo", "status"],
-      summary: "Read the signed-in person's resident CEO status and most recent wake receipt.",
-      method: "repo.residentCeo.status",
-      payloadFields: [],
-      inputs: [],
-    }),
-    defineCenterForwardWriteCommand({
-      id: "ceo-chat",
-      hostAuthority: "own-session",
-      phase: "ResidentCeo",
-      path: ["ceo", "chat"],
-      summary: "Send a message to the signed-in person's resident CEO and continue its persistent provider session.",
-      method: "repo.residentCeo.chat",
-      payloadFields: [],
-      inputs: [
-        cliInput("--message", "single", true, { code: "invalid_field" }, { field: "message", pathKind: "non-path" }),
-      ],
-    }),
-  ].map((command) =>
-    command.commandClass === "repo-write" ? { ...command, ...nodeLocalWriteCommandTopology } : command,
-  ),
-);
+const residentCeoProtocolCommands = Object.freeze([
+  defineHostAdminCommand({
+    id: "ceo-config",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "config"],
+    summary: "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval.",
+    method: "repo.residentCeo.config",
+    payloadFields: [],
+    inputs: [
+      cliInput(
+        "--instance",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          field: "runtimeInstanceId",
+          pathKind: "non-path",
+        },
+      ),
+      cliInput("--model", "single", true, { code: "invalid_field" }, { field: "model", pathKind: "non-path" }),
+      cliInput(
+        "--heartbeat-interval-sec",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          field: "heartbeatIntervalSec",
+          pathKind: "non-path",
+          projection: "number",
+          regex: "^(?:0|[1-9][0-9]*)$",
+        },
+      ),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-start",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "start"],
+    summary: "Start the signed-in person's resident CEO.",
+    method: "repo.residentCeo.start",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-stop",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "stop"],
+    summary: "Stop the signed-in person's resident CEO.",
+    method: "repo.residentCeo.stop",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineRepoReadCommand({
+    id: "ceo-status",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "status"],
+    summary: "Read the signed-in person's resident CEO status and most recent wake receipt.",
+    method: "repo.residentCeo.status",
+    payloadFields: [],
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-chat",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "chat"],
+    summary: "Send a message to the signed-in person's resident CEO and continue its persistent provider session.",
+    method: "repo.residentCeo.chat",
+    payloadFields: [],
+    inputs: [
+      cliInput("--message", "single", true, { code: "invalid_field" }, { field: "message", pathKind: "non-path" }),
+    ],
+  }),
+]);
 
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...entityPinProtocolCommands,

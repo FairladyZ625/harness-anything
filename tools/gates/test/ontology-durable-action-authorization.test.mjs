@@ -819,11 +819,12 @@ partitionedTest(
     // runtime-instance-list, provider-list, provider-show, and provider-probe.
     // dec_4276A0CEACD4D402F122295925/CH1 adds 4 dossier-client routes (+1 action kind: dossier-synthesize).
     // dec_AAEC26DBB6F23BDF80876ABB2C/CH5 adds 3 center-settings preload callsites (+2 action kinds: fleet-center-switchover, fleet-center-relocate).
-    assert.equal(allGuiClientActions.length, 89);
+    // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4) adds 5 resident CEO renderer callsites (+4 action kinds: ceo-config, ceo-start, ceo-stop, ceo-chat; status binds repository-read).
+    assert.equal(allGuiClientActions.length, 93);
     const expectedGuiClientCount = allGuiClientActions
       .flatMap((action) => action.ontology?.sources ?? [])
       .filter((source) => source.role === "client" && isNonMainGui(source.candidateId)).length;
-    assert.equal(expectedGuiClientCount, 251);
+    assert.equal(expectedGuiClientCount, 256);
     // dec_89D06D7360CBEC09795F7B12EC/CH3. The transport keeps a typed host-local cancellation port.
     assert.equal((localState.ontology.sources ?? []).filter((source) => isNonMainGui(source.candidateId)).length, 113);
 

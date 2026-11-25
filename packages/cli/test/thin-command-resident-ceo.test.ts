@@ -13,6 +13,8 @@ test("peer delegate CLI compiles to the canonical PeerRequest ask action", () =>
     requestKind: "delegate",
     toPersonId: "person_bob",
     summary: "Review the migration",
+    claim: "Review the migration",
+    requestedAction: "Review the migration",
   });
 });
 

@@ -713,7 +713,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D): ha peer ask/reply/promote/handoff (183 -> 187).
   // task_264a7b96ca095b51af03dc8686: ha peer accept-handoff/takeover/checkpoint (187 -> 190).
   // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3): ha fleet center switch (190 -> 191).
-  assert.equal(actionDeclarations.length, 191);
+  // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4): resident CEO config/start/stop/chat (191 -> 195).
+  assert.equal(actionDeclarations.length, 195);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),
@@ -1024,7 +1025,13 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   )) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === actionKind);
     if (declaration) {
-      const hostOnly = actionKind === "doc-materialize" || actionKind === "runtime-incident-dismiss";
+      const hostOnly =
+        actionKind === "doc-materialize" ||
+        actionKind === "runtime-incident-dismiss" ||
+        actionKind === "ceo-config" ||
+        actionKind === "ceo-start" ||
+        actionKind === "ceo-stop" ||
+        actionKind === "ceo-chat";
       assert.equal(declaration.receiptSettlement, hostOnly ? "none" : "canonical-acceptance", method);
       if (hostOnly) assert.equal(declaration.residency.scope, "host-local");
     }

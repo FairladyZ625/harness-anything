@@ -25,7 +25,7 @@ export function parsePeer(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
   if (route.id === "peer-delegate") {
-    return parseProjected(
+    const parsed = parseProjected(
       route.id,
       args.slice(2),
       rootDir,
@@ -36,6 +36,20 @@ export function parsePeer(
       { requestKind: "delegate" },
       route.method,
     );
+    if (!parsed.ok) return parsed;
+    const summary = typeof parsed.command.action.summary === "string" ? parsed.command.action.summary : undefined;
+    if (summary === undefined) return parsed;
+    return {
+      ok: true,
+      command: {
+        ...parsed.command,
+        action: {
+          ...parsed.command.action,
+          ...(parsed.command.action.claim === undefined ? { claim: summary } : {}),
+          ...(parsed.command.action.requestedAction === undefined ? { requestedAction: summary } : {}),
+        },
+      },
+    };
   }
   const hasPositional =
     route.id === "peer-reply" ||

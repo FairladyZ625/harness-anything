@@ -138,7 +138,8 @@ test("policy metadata from both production providers omits technical actions and
     // task_df089d8b9cc39ed80bd3a03e57 (dec_2B573FD17D82C9ADDE2FC69C5D): ha peer ask/reply/promote/handoff (179 -> 183).
     // task_264a7b96ca095b51af03dc8686: ha peer accept-handoff/takeover/checkpoint (183 -> 186).
     // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3): ha fleet center switch (186 -> 187).
-    assert.equal(actions.length, 187);
+    // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4): resident CEO config/start/stop/chat (187 -> 191).
+    assert.equal(actions.length, 191);
     assert.ok(actions.includes("dossier-synthesize"));
     for (const scope of technicalScopes) assert.equal(actions.includes(scope), false, scope);
     for (const scope of business.scopes) assert.equal(actions.includes(scope), true, scope);
