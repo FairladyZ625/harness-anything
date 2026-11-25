@@ -12,6 +12,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 
 import { grantTestPolicyGroups, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { recordStoppedFixtureContainment, type FixtureDispatchPersistence } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 // The ask-agent conversation slice: an unbound read-only agent dispatch carries an allowlist
@@ -117,12 +118,13 @@ test(
           prompt: request.prompt,
         };
       },
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         launchCredentials.push(prepared.env.HARNESS_EXECUTION_CREDENTIAL);
         return askFakeProcess(
           prepared.prompt.includes("第一问")
             ? "第一轮答案：重构组有 3 项在进行。"
             : "第二轮：继续第一轮的结论，引用 provider-ask-session。",
+          persistence,
         );
       },
     });
@@ -223,11 +225,13 @@ test(
 );
 
 /** A Codex-shaped fake that always binds the one conversation provider session and succeeds. */
-function askFakeProcess(answer: string): RuntimeProcess {
+function askFakeProcess(answer: string, persistence: FixtureDispatchPersistence): RuntimeProcess {
+  const pid = 2_147_483_646;
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
+  recordStoppedFixtureContainment(persistence, pid);
   return {
-    pid: Math.floor(Math.random() * 100_000) + 1,
+    pid,
     onOutput: (listener) => {
       output = listener;
     },

@@ -20,6 +20,7 @@ import {
 } from "@harness-anything/storage";
 import { launchExitNotification } from "../src/daemon-host/runtime-spawn.ts";
 import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 function dispatchText(root: string, dispatchId: string): string {
@@ -33,10 +34,12 @@ async function stopFixtureGroup(child: ReturnType<typeof spawn>): Promise<void> 
     child.exitCode !== null || child.signalCode !== null
       ? Promise.resolve()
       : new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  try {
-    process.kill(-child.pid, "SIGKILL");
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+  if (process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+    }
   }
   child.kill("SIGKILL");
   await exited;
@@ -117,7 +120,7 @@ test(
             prompt: request.prompt,
           };
         },
-        runtimeLaunch: () => {
+        runtimeLaunch: (_prepared, persistence) => {
           if (failLaunch) {
             failLaunch = false;
             // CH3 (dec_DA1602487428A58E8B446ECE38): the child is created only below this branch.
@@ -132,13 +135,21 @@ test(
             },
           );
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+          const pid = child.pid;
           child.unref();
           fixtureChild = child;
+          let containmentRecorded = false;
+          const markStopped = (): void => {
+            if (containmentRecorded) return;
+            containmentRecorded = true;
+            recordStoppedFixtureContainment(persistence, pid);
+          };
+          child.once("exit", markStopped);
           const stop = (): void => {
-            void stopFixtureGroup(child);
+            void stopFixtureGroup(child).then(markStopped);
           };
           return {
-            pid: child.pid,
+            pid,
             onOutput: (listener) => {
               output = listener;
             },
@@ -146,19 +157,25 @@ test(
             onExit: (listener) => {
               exit = () => {
                 if (child.exitCode !== null || child.signalCode !== null) {
+                  markStopped();
                   listener(0);
                   return;
                 }
-                child.once("exit", () => listener(0));
+                child.once("exit", () => {
+                  markStopped();
+                  listener(0);
+                });
                 child.stdin.end("stop");
               };
             },
             terminate: stop,
             terminateTree: async () => {
-              if (child.exitCode !== null || child.signalCode !== null) return;
-              const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-              child.stdin.end("stop");
-              await exited;
+              if (child.exitCode === null && child.signalCode === null) {
+                const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+                child.stdin.end("stop");
+                await exited;
+              }
+              markStopped();
             },
           };
         },
@@ -672,7 +689,7 @@ test(
           cwd: request.cwd,
           prompt: request.prompt,
         }),
-        runtimeLaunch: () => {
+        runtimeLaunch: (_prepared, persistence) => {
           const child = spawn(
             process.execPath,
             ["-e", "process.stdin.once('data', () => process.exit(0)); process.stdin.resume()"],
@@ -682,31 +699,45 @@ test(
             },
           );
           if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+          const pid = child.pid;
           child.unref();
           fixtureChild = child;
+          let containmentRecorded = false;
+          const markStopped = (): void => {
+            if (containmentRecorded) return;
+            containmentRecorded = true;
+            recordStoppedFixtureContainment(persistence, pid);
+          };
+          child.once("exit", markStopped);
           const stop = (): void => {
-            void stopFixtureGroup(child);
+            void stopFixtureGroup(child).then(markStopped);
           };
           return {
-            pid: child.pid,
+            pid,
             onOutput: () => undefined,
             onErrorOutput: () => undefined,
             onExit: (listener) => {
               exit = () => {
                 if (child.exitCode !== null || child.signalCode !== null) {
+                  markStopped();
                   listener(0);
                   return;
                 }
-                child.once("exit", () => listener(0));
+                child.once("exit", () => {
+                  markStopped();
+                  listener(0);
+                });
                 child.stdin.end("stop");
               };
             },
             terminate: stop,
             terminateTree: async () => {
-              if (child.exitCode !== null || child.signalCode !== null) return;
-              const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-              child.stdin.end("stop");
-              await exited;
+              if (child.exitCode === null && child.signalCode === null) {
+                const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+                child.stdin.end("stop");
+                await exited;
+              }
+              markStopped();
             },
           };
         },

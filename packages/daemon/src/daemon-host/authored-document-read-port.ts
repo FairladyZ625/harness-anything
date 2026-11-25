@@ -9,13 +9,13 @@ import { workspacePathResolutionRule } from "@harness-anything/preset/internal/p
  */
 export function readAuthoredDocumentBytes(authoredRoot: string, logicalPath: string): Uint8Array {
   try {
-    const root = realpathSync(authoredRoot);
+    const root = realpathSync.native(authoredRoot);
     const requested = path.resolve(root, logicalPath),
-      parent = realpathSync(path.dirname(requested)),
+      parent = realpathSync.native(path.dirname(requested)),
       candidate = path.join(parent, path.basename(requested));
     if (
       (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) ||
-      (realpathSync(candidate) !== root && !realpathSync(candidate).startsWith(`${root}${path.sep}`))
+      (realpathSync.native(candidate) !== root && !realpathSync.native(candidate).startsWith(`${root}${path.sep}`))
     )
       throw new Error("authored document path is outside the task package root");
     return readFileSync(candidate);

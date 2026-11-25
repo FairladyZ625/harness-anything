@@ -44,14 +44,14 @@ const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as con
     observedAt: "2026-10-22T00:00:00.000Z",
     digest: `sha256:${"a".repeat(64)}`,
   },
-  standard = path.join("harness", "governance", "standards", "testing-standard.md"),
-  skill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md"),
-  skillScript = path.join("harness", "skills", "agent-dev-standards", "scripts", "census.mjs"),
+  standard = "harness/governance/standards/testing-standard.md",
+  skill = "harness/skills/agent-dev-standards/SKILL.md",
+  skillScript = "harness/skills/agent-dev-standards/scripts/census.mjs",
   // As written in a prompt: forward slashes, exactly what the reference extractor records.
   entry = "harness/skills/test-isolation/dispatch-isolated-test.mjs";
 
 test("a real worktree dispatch hands the worker an openable path for every private file it names", async (t) => {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-worktree-private-")));
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-worktree-private-")));
   let prepared: { readonly cwd: string; readonly prompt: string } | undefined;
   t.after(() => removeTempRepository(root));
   repositoryWithPrivateLedger(root);
@@ -136,6 +136,7 @@ test("a real worktree dispatch hands the worker an openable path for every priva
   const requiredSkill = /(?:^|\n)- agent-dev-standards: (.+)(?:\n|$)/u.exec(prompt)?.[1];
   assert.ok(requiredSkill, "Required Skills must name the selected skill");
   assert.match(requiredSkill, /runtime[/\\]sealed-skills[/\\][^/\\]+[/\\]agent-dev-standards[/\\]SKILL\.md$/u);
+  const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
   for (const [reference, readable] of [
     [standard, workerLedgerPath(root, prepared!.cwd, path.join(root, standard))],
     [skill, requiredSkill],
@@ -143,7 +144,7 @@ test("a real worktree dispatch hands the worker an openable path for every priva
     assert.equal(existsSync(readable), true, `${reference} must be openable at ${readable}`);
     assert.match(
       prompt,
-      new RegExp(`${reference.replaceAll("/", "\\/")} -> ${readable.replaceAll("/", "\\/")}`, "u"),
+      new RegExp(`${escapeRegex(reference)} -> ${escapeRegex(readable)}`, "u"),
       `${reference} must be paired with its openable path`,
     );
     // Required Skills prints `- <id>: <path>` and the appendix prints `- <ref> -> <path>`. One port
@@ -182,7 +183,7 @@ test("a real worktree dispatch hands the worker an openable path for every priva
   assert.equal(existsSync(entryReadable), true, `the fixed entry must be openable at ${entryReadable}`);
   assert.match(
     prompt,
-    new RegExp(`- ${entry.replaceAll("/", "\\/")} -> ${entryReadable.replaceAll("/", "\\/")}`, "u"),
+    new RegExp(`- ${escapeRegex(entry)} -> ${escapeRegex(entryReadable)}`, "u"),
     "the fixed entry must be paired with its openable path",
   );
   t.diagnostic(`worktree=${prepared!.cwd} prompt bytes=${String(prompt.length)}`);

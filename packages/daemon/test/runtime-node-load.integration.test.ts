@@ -90,8 +90,8 @@ for (const selectionStrategy of ["sticky", "lru"] as const) {
               cwd: request.cwd,
               prompt: request.prompt,
             }),
-            runtimeLaunch: () => ({
-              ...fixtureRuntimeProcess(t),
+            runtimeLaunch: (_prepared, persistence) => ({
+              ...fixtureRuntimeProcess(t, persistence),
               onOutput: () => undefined,
               onErrorOutput: () => undefined,
               onExit: () => undefined,

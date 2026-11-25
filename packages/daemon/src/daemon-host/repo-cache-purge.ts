@@ -39,7 +39,7 @@ export function cachePurgePreservedPaths(rootDir: string): readonly string[] {
 }
 
 export function purgeRepoCache(rootDir: string): readonly string[] {
-  const canonicalRoot = realpathSync(rootDir),
+  const canonicalRoot = realpathSync.native(rootDir),
     layout = resolveHarnessLayout(canonicalRoot),
     localRoot = layout.localRoot,
     dispatchIds = readDispatchStreamHeaders(canonicalRoot, true).map((header) => header.dispatchId),
@@ -105,7 +105,7 @@ export function aggregateLocalRootEntryClass(classes: readonly LocalRootLeafClas
 
 /** Deletes the repository's local and authored Harness roots; callers must have a drilled backup first. */
 export function removeRepoHarnessRoots(rootDir: string): readonly string[] {
-  const layout = resolveHarnessLayout(realpathSync(rootDir)),
+  const layout = resolveHarnessLayout(realpathSync.native(rootDir)),
     removed: string[] = [];
   for (const [target, receiptPath] of [
     [layout.localRoot, path.relative(layout.rootDir, layout.localRoot)],

@@ -17,6 +17,7 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
+import { recordStoppedFixtureContainment, type FixtureDispatchPersistence } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const bindingSessionId = "runtime_89abcdef0123456789abcdef",
@@ -71,7 +72,7 @@ test(
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => fakeProcess(7102, "success"),
+      runtimeLaunch: (_prepared, persistence) => fakeProcess(7102, "success", persistence),
     });
     try {
       await installSquad(cell);
@@ -135,10 +136,10 @@ test(
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => {
+      runtimeLaunch: (_prepared, persistence) => {
         const attempt = launches;
         launches += 1;
-        return fakeProcess(7103 + attempt, attempt === 0 ? "converged" : "failed-converged");
+        return fakeProcess(7103 + attempt, attempt === 0 ? "converged" : "failed-converged", persistence);
       },
     });
     try {
@@ -364,10 +365,15 @@ function definition(instanceId: string, model: string): AgentDefinitionSnapshot 
   };
 }
 
-function fakeProcess(pid: number, behavior: "success" | "converged" | "failed-converged" | "429"): RuntimeProcess {
+function fakeProcess(
+  pid: number,
+  behavior: "success" | "converged" | "failed-converged" | "429",
+  persistence: FixtureDispatchPersistence,
+): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null,
     terminated = false;
+  recordStoppedFixtureContainment(persistence, pid);
   return {
     pid,
     onOutput: (listener) => {

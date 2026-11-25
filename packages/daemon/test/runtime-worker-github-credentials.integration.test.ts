@@ -8,7 +8,7 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from "
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { makeTaskEventReader } from "@harness-anything/storage";
+import { cmdShellInvocation, makeTaskEventReader } from "@harness-anything/storage";
 
 import {
   openRuntimeInstanceStore,
@@ -19,6 +19,7 @@ import type { RuntimeProcess } from "../src/daemon-host/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { recordStoppedFixtureContainment, type FixtureDispatchPersistence } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../..");
@@ -120,7 +121,7 @@ async function exerciseTaskPush(
         assert.equal(environment?.GH_TOKEN, secret, `push for ${repoId} must use its own credential`);
         return environment;
       },
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         const taskBound = prepared.env.HARNESS_TASK_BOUND === "1";
         if (taskBound) {
           taskBoundLaunches += 1;
@@ -143,11 +144,24 @@ async function exerciseTaskPush(
             gitText(workerRoot, "log", "-1", "--format=%an <%ae>").trim(),
             "GitHub Worker Test <github-worker@example.invalid>",
           );
-          mainPush = spawnSync("git", ["-C", workerRoot, "push", "origin", "HEAD:main"], {
-            cwd: workerRoot,
-            encoding: "utf8",
-            env: prepared.env,
-          });
+          const pushInvocation =
+            process.platform === "win32"
+              ? cmdShellInvocation(
+                  path.join(root, "tools", "git-hooks", "git.cmd"),
+                  ["-C", workerRoot, "push", "origin", "HEAD:main"],
+                  prepared.env,
+                )
+              : null;
+          mainPush = spawnSync(
+            pushInvocation?.command ?? "git",
+            pushInvocation?.args ?? ["-C", workerRoot, "push", "origin", "HEAD:main"],
+            {
+              cwd: workerRoot,
+              encoding: "utf8",
+              env: prepared.env,
+              ...(pushInvocation ? { windowsVerbatimArguments: pushInvocation.windowsVerbatimArguments } : {}),
+            },
+          );
         } else {
           // The launch inherits the operator's GitHub credential; a task-bound worker keeps it
           // only through `GH_TOKEN` and adds no askpass or commit-identity variable of its own.
@@ -159,6 +173,7 @@ async function exerciseTaskPush(
           assert.equal(prepared.env.GIT_COMMITTER_EMAIL, undefined);
         }
         return successfulRuntimeProcess(
+          persistence,
           taskBound
             ? (listener) => {
                 finishTask = listener;
@@ -345,11 +360,12 @@ test("two repositories sharing one instance publish with distinct refs without a
   }
 });
 
-function successfulRuntimeProcess(onExit?: RuntimeProcess["onExit"]) {
+function successfulRuntimeProcess(persistence: FixtureDispatchPersistence, onExit?: RuntimeProcess["onExit"]) {
   const child = spawnSync(process.execPath, ["-e", ""]);
   if (child.error) throw child.error;
   assert.ok(child.pid && child.pid > 1, "the stopped runtime fixture must have a child PID");
   assert.equal(child.status, 0);
+  recordStoppedFixtureContainment(persistence, child.pid);
   return {
     pid: child.pid,
     onOutput: (listener: (chunk: string) => void) => {
@@ -394,7 +410,7 @@ function initRepo(root: string, repoId: string): void {
 function installGitHelpers(root: string): void {
   const target = path.join(root, "tools", "git-hooks");
   mkdirSync(target, { recursive: true });
-  for (const name of ["git", "git-askpass"]) {
+  for (const name of process.platform === "win32" ? ["git", "git.cmd", "git-askpass"] : ["git", "git-askpass"]) {
     const destination = path.join(target, name);
     copyFileSync(path.join(repositoryRoot, "tools", "git-hooks", name), destination);
     chmodSync(destination, 0o755);

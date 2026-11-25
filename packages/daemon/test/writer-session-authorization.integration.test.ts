@@ -330,7 +330,7 @@ for (const exitCode of [0, 1]) {
           }),
           runtimeLaunch: (_launch, persistence): RuntimeProcess => {
             const listeners: { output?: (chunk: string) => void; exit?: (code: number | null) => void } = {},
-              runtime = fixtureRuntimeProcess(t);
+              runtime = fixtureRuntimeProcess(t, persistence);
             callbacks.set(persistence.dispatchId, listeners);
             return {
               ...runtime,

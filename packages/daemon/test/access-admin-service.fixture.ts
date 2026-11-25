@@ -29,7 +29,10 @@ export async function accessAdminFixture(
     oidc = createIdentitySession(user.root, { fetch: fetchPort, ...(ports.now ? { now: ports.now } : {}) }),
     admin = new AccessAdminService(oidc, user.root, { fetch: fetchPort }),
     config = { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" };
-  t.after(user.cleanup);
+  t.after(() => {
+    admin.close();
+    user.cleanup();
+  });
   const provider = new KeycloakPolicyAdapter(config, keycloak.fetch);
   await provider.syncBasePolicy("center-token");
   if (!ports.withoutAdmin) keycloak.accessAdmin();

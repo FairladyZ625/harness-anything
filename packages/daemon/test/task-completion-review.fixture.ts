@@ -2,7 +2,7 @@
  * settlement drivers, and outcome polling. `failProvider` true fails every launch; a number
  * fails only that many first launches, then hangs. */
 import { readSubmissionArtifact } from "@harness-anything/application/commands";
-import { fixtureRuntimeProcess } from "./fixtures/runtime-process.ts";
+import { fixtureRuntimeProcess, recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
@@ -334,12 +334,16 @@ export async function fixture(
         for (const notify of launchWaiters) notify();
         const runtime =
           options.runtimePid === undefined
-            ? fixtureRuntimeProcess({
-                after: (stop) => {
-                  runtimeStops.push(stop);
+            ? fixtureRuntimeProcess(
+                {
+                  after: (stop) => {
+                    runtimeStops.push(stop);
+                  },
                 },
-              })
+                persistence,
+              )
             : { pid: options.runtimePid, terminate: () => undefined, terminateTree: async () => undefined };
+        if (options.runtimePid !== undefined) recordStoppedFixtureContainment(persistence, options.runtimePid);
         // The real launcher records its worker pid; without the record, post-restart adoption treats
         // a still-live reviewer as lost.
         appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {

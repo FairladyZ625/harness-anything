@@ -11,6 +11,7 @@ import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
 import { openNodeAutoDispatchLoop, parseNodeAutoDispatchSnapshot } from "../src/daemon-host/node-auto-dispatch.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 
 test(
@@ -63,7 +64,7 @@ test(
         endpoint: path.join(fixture.root, "edge-review-recovery.sock"),
       },
       ports: scheduleRuntimePorts(),
-      launch: () => {
+      launch: (_prepared, persistence) => {
         let output: ((chunk: string) => void) | null = null,
           exit: ((code: number | null) => void) | null = null;
         const launchedProcess = {
@@ -71,6 +72,7 @@ test(
           exit: (code: number | null) => exit?.(code),
         };
         launched.push(launchedProcess);
+        recordStoppedFixtureContainment(persistence, 91420);
         return {
           pid: 91420,
           onOutput: (listener: (chunk: string) => void) => {
@@ -276,11 +278,13 @@ test(
             endpoint: path.join(daemonRoot, "daemon.sock"),
           },
           ports: scheduleRuntimePorts(),
-          launch: () => {
+          launch: (_prepared, persistence) => {
             if (nodeId === "node-one") launchesOne += 1;
             else launchesTwo += 1;
+            const pid = 92000 + launchesOne + launchesTwo;
+            recordStoppedFixtureContainment(persistence, pid);
             return {
-              pid: 92000 + launchesOne + launchesTwo,
+              pid,
               onOutput: () => undefined,
               onErrorOutput: () => undefined,
               onExit: () => undefined,
@@ -492,11 +496,13 @@ test(
         endpoint: path.join(fixture.root, "edge.sock"),
       },
       ports: scheduleRuntimePorts(),
-      launch: (prepared) => {
+      launch: (prepared, persistence) => {
         launches += 1;
         launchedPrompts.push(prepared.prompt);
+        const pid = 91200 + launches;
+        recordStoppedFixtureContainment(persistence, pid);
         return {
-          pid: 91200 + launches,
+          pid,
           onOutput: () => undefined,
           onErrorOutput: () => undefined,
           onExit: () => undefined,

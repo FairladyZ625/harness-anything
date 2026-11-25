@@ -288,10 +288,10 @@ test(
       daemonId: "fleet-runtime-edge",
       userRoot: edgeUserRoot,
       runtimeDiscover: () => [runtimeInstallation, alternateInstallation],
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         launchedEnv = prepared.env;
         const launchIndex = launchedInstances.push(prepared.definition.instanceId) - 1,
-          runtime = runtimeProcessFixture(t);
+          runtime = runtimeProcessFixture(t, persistence);
         processGroups.add(runtime.pid);
         let output: ((chunk: string) => void) | null = null,
           exit: ((code: number | null) => void) | null = null;
@@ -928,10 +928,10 @@ test(
         daemonId: "fleet-worker-edge",
         userRoot: edgeUserRoot,
         runtimeDiscover: () => [installation],
-        runtimeLaunch: (prepared) => {
+        runtimeLaunch: (prepared, persistence) => {
           launchedIn.push(prepared.cwd);
           launchedFrom.push(git(prepared.cwd, "rev-parse", "HEAD"));
-          const runtime = runtimeProcessFixture(t);
+          const runtime = runtimeProcessFixture(t, persistence);
           let output: ((chunk: string) => void) | null = null;
           return {
             ...runtime,
@@ -1231,8 +1231,8 @@ test(
         endpoint: path.join(fixture.root, "paged-runtime.sock"),
       },
       ports: scheduleRuntimePorts(),
-      launch: () => ({
-        ...runtimeProcessFixture(t),
+      launch: (_prepared, persistence) => ({
+        ...runtimeProcessFixture(t, persistence),
         onOutput: () => undefined,
         onErrorOutput: () => undefined,
       }),
@@ -1384,8 +1384,8 @@ test(
         endpoint: path.join(fixture.root, "edge-allowlist.sock"),
       },
       ports: scheduleRuntimePorts(),
-      launch: () => {
-        const proc = runtimeProcessFixture(t);
+      launch: (_prepared, persistence) => {
+        const proc = runtimeProcessFixture(t, persistence);
         let output: ((chunk: string) => void) | null = null;
         return {
           ...proc,

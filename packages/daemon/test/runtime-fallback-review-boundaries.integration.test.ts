@@ -370,11 +370,14 @@ test(
               instanceId: prepared.definition.instanceId,
               cwd: prepared.cwd,
             });
-            const proc = fixtureRuntimeProcess({
-              after: (stop) => {
-                runtimeStops.push(stop);
+            const proc = fixtureRuntimeProcess(
+              {
+                after: (stop) => {
+                  runtimeStops.push(stop);
+                },
               },
-            });
+              persistence,
+            );
             return {
               pid: proc.pid,
               onOutput: (listener) => {

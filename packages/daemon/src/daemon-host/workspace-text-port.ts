@@ -15,13 +15,13 @@ function readWorkspaceFileText(rootDir: string, requested: string, field: string
     candidate: string,
     bytes: Uint8Array;
   try {
-    root = realpathSync(rootDir);
+    root = realpathSync.native(rootDir);
     const tasksRootPath = resolveHarnessLayout(root).tasksRoot;
-    tasksRoot = existsSync(tasksRootPath) ? realpathSync(tasksRootPath) : null;
+    tasksRoot = existsSync(tasksRootPath) ? realpathSync.native(tasksRootPath) : null;
     requestedPath = path.resolve(root, requested);
-    requestedPath = path.join(realpathSync(path.dirname(requestedPath)), path.basename(requestedPath));
+    requestedPath = path.join(realpathSync.native(path.dirname(requestedPath)), path.basename(requestedPath));
     if (requestedPath !== root && !requestedPath.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
-    candidate = realpathSync(requestedPath);
+    candidate = realpathSync.native(requestedPath);
     if (candidate !== root && !candidate.startsWith(`${root}${path.sep}`)) throw boundaryError(field, root);
     if (tasksRoot && (candidate === tasksRoot || candidate.startsWith(`${tasksRoot}${path.sep}`)))
       throw boundaryError(

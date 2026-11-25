@@ -97,8 +97,8 @@ test(
       },
       ports: scheduleRuntimePorts(),
       onTaskSettled: (taskId) => notified.push(taskId),
-      launch: () => ({
-        ...fixtureRuntimeProcess(t),
+      launch: (_prepared, persistence) => ({
+        ...fixtureRuntimeProcess(t, persistence),
         onOutput: (listener) => {
           emit = listener;
         },
