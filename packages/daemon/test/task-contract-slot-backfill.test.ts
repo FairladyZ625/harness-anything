@@ -8,7 +8,7 @@ import { readSettingsFacet, type TaskV2 } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
 import { backfillRestatedContractDocuments } from "../src/daemon-host/migration-import-task-restatement.ts";
 import { withBackfilledContractDocuments } from "../src/daemon-host/repo-cell-task-maintenance.ts";
-import { taskMutation } from "../src/daemon-host/repo-cell-task-mutation.ts";
+import { taskMutation } from "@harness-anything/application/internal/commands/task-mutation.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 

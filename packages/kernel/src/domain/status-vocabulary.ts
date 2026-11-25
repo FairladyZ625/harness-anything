@@ -35,7 +35,8 @@ export type StatusEntity =
   | "Host"
   | "Migration"
   | "Projection"
-  | "Inbox";
+  | "Inbox"
+  | "Channel";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 
@@ -98,6 +99,7 @@ import { domainStatuses } from "./lifecycle-status.ts";
 import { rbacBackupStatuses, statusWordRegister } from "./status-word-register.ts";
 import { authoredDocumentStatusVocabularies } from "./status-word-register-authored-document.ts";
 import { peerRequestStates } from "./peer-collaboration.ts";
+import { channelDeliveryStatuses } from "./channel-adapter.ts";
 import {
   dispatchAttemptPhases,
   dispatchCapacityDispositions,
@@ -519,6 +521,15 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     words: peerRequestStates,
     ownerStore: "peer-request.events",
     note: "Canonical lifecycle of a cross-principal peer request.",
+  },
+  {
+    id: "channel.delivery",
+    entity: "Channel",
+    field: "delivery status",
+    module: "packages/kernel/src/domain/channel-adapter.ts",
+    anchor: "channelDeliveryStatuses",
+    words: channelDeliveryStatuses,
+    note: "Idempotent delivery receipt status for channel adapter inbound/outbound routing.",
   },
   {
     id: "task-blocking.assessment",

@@ -4,7 +4,7 @@ import {
   validateAgentRuntimeSessionGroups,
 } from "../agent-runtime-contract.ts";
 import type { AgentRuntimeUnattributedGroupKey } from "./daemon-protocol-vocabulary.ts";
-import { validateScheduleRuns } from "../schedule-runs-read.ts";
+import { validateScheduleRuns } from "./schedule-runs-contract.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import {

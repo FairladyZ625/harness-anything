@@ -36,7 +36,7 @@ export const taskLeasePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#assertLeaseReservation:70ea4017a2be5cd69d8cccb06b9f4005",
     "policy:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#decideRawTaskLease:dfd5eb621e0e684bfa80524edea23545",
     "policy:packages/kernel:packages/kernel/src/domain/task-lease-policy.ts#decideReadableTaskLease:604b0c933f01414f14bbc867d23eb635",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-reads.ts#readProjectedDocumentAtCut:2100e31b96bf22742faa1e2ab00cf090",
+    "policy:packages/application:packages/application/src/queries/doc-sync-reads.ts#readProjectedDocumentAtCut:5f5655dcb96db5f1b31552ef24badcf9",
     "policy:packages/daemon:packages/daemon/src/daemon-host/doc-sync-reads.ts#observeExecution:0866d3bf693724b70845c19fb0662556",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-authorization.ts#bindVerifiedExecutorClaim.claimedActor:2411b7d38d06b949e664a60e2b21fb4a",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-authorization.ts#bindVerifiedExecutorClaim:f80807f9fa6ef7a6e4c474e28c7504dc",
@@ -58,8 +58,8 @@ export const taskLeasePolicy = {
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-child.ts#settleSquadChildAssignment.release:2991c295bc25420e69d71f74c505b837",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-squad-child.ts#settleSquadChildAssignment:a4f0a8f9f7c5d827695be49cd05073e6",
     "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-maintenance.ts#supersedeWithNewTask:81c4b83f01cadd693b648e6f8420a82a",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-mutation.ts#terminalExecutionRuntimeBinding:ea5eac8b5b51037492fb4ab946496412",
-    "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-progress.ts#appendProgress.recoverySnapshot:a22f1b86a9270d69a51019d7fab3c976",
+    "policy:packages/application:packages/application/src/commands/task-mutation.ts#terminalExecutionRuntimeBinding:ea5eac8b5b51037492fb4ab946496412",
+    "policy:packages/application:packages/application/src/commands/task-progress-append.ts#appendProgress.recoverySnapshot:a22f1b86a9270d69a51019d7fab3c976",
   ].map((candidateId) => ({ candidateId, route: "taskLeasePolicy" })),
 } as const satisfies OntologyPolicyDeclaration;
 // dec_7E44897ECDCAEF2B92EC66A260/CH1: lease phase reads across task commands, progress and replay.

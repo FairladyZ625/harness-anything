@@ -4,8 +4,8 @@ import test from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
 import type { RepoCellActionContext } from "../src/daemon-host/repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "../src/daemon-host/repo-cell-types.ts";
-import { withRetiredTaskClass } from "../src/daemon-host/repo-cell-task-maintenance.ts";
-import { taskMutation } from "../src/daemon-host/repo-cell-task-mutation.ts";
+import { withRetiredTaskClass } from "@harness-anything/application/internal/commands/task-maintenance-selection.ts";
+import { taskMutation } from "@harness-anything/application/internal/commands/task-mutation.ts";
 
 const binding = { actor: "operator", source: "local" } as const,
   codedCell = {

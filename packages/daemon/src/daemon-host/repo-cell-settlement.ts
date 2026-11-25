@@ -3,7 +3,6 @@ import {
   completionBlockers,
   getExecutableEntityAction,
   type EntityActionContract,
-  type TaskProgressEvidence,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import {
@@ -180,19 +179,4 @@ export function projectionReady(value: { readonly status: string }): boolean {
 
 export function cellStringList(value: unknown): readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [];
-}
-
-export function progressEvidence(value: unknown): readonly TaskProgressEvidence[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value)) throw cellCodedError("invalid_progress", "evidence must be an ordered list");
-  return value.map((entry) => {
-    if (!entry || typeof entry !== "object")
-      throw cellCodedError("invalid_progress", "evidence entries require type, path, and summary");
-    const item = entry as Record<string, unknown>;
-    return {
-      type: requiredCellText(item.type, "evidence.type"),
-      path: requiredCellText(item.path, "evidence.path"),
-      summary: requiredCellText(item.summary, "evidence.summary"),
-    };
-  });
 }

@@ -122,6 +122,18 @@
       "errors": "QueryFault, task_not_found, PG statement_timeout (57014), identity_unavailable / daemon_error, abort/timeout, and unexpected read failures mapped to HTTP error responses",
       "reason": "The stateless cloud query Fetch handler is an HTTP protocol boundary that must return explicit HTTP error responses (400/401/403/404/499/500/503/504) with cache-control: no-store and forward unexpected failures to options.onError; it never substitutes a successful read payload. Timed-out requests also consume the trailing background settlement rejection via consumeKnownError after already returning 499/504."
     },
+    "packages/daemon/src/writer-cell/cloud-writer-shard.ts#handle": {
+      "task": "task_3ed06c7dc96213b89b05370a22",
+      "decision": "dec_04A9211B073F29F0FC1E1CA573",
+      "errors": "WriteFault, writer_epoch_stale, idempotency_key_reused / op_conflict, coded domain refusals, authorization abort/timeout, and unexpected write failures mapped to HTTP error responses",
+      "reason": "The cloud single-writer Fetch handler is an HTTP protocol boundary that must return explicit HTTP error responses (400/401/403/404/409/422/429/499/500/503/504) with cache-control: no-store; a stale writer epoch additionally fences the repository on this shard. Unexpected failures are forwarded to options.onError; the handler never substitutes an accepted receipt."
+    },
+    "packages/daemon/src/writer-cell/cloud-writer-shard.ts#schedulePublication": {
+      "task": "task_3ed06c7dc96213b89b05370a22",
+      "decision": "dec_04A9211B073F29F0FC1E1CA573",
+      "errors": "Asynchronous outbox publisher rejections after the write was durably appended and its receipt returned",
+      "reason": "Outbox publication runs after the writer-epoch fence is released and after the response is decided; the accepted write cannot be rejected by a later publication failure, so the rejection is consumed and forwarded to options.onError for the publisher's own retry and alerting instead of being turned into a write failure."
+    },
     "packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker": {
       "task": "task_557b9975f04b275d492f25c1cb",
       "decision": "dec_04A9211B073F29F0FC1E1CA573",
@@ -357,6 +369,7 @@
       "packages/daemon/src/runtime-engine/runtime-spawn-deepseek-session.ts#readDeepSeekSessionTranscript",
       "packages/daemon/src/runtime-engine/skill-eval-runner.ts#runCase",
       "packages/daemon/src/writer-cell/canonical-commit-worker.ts#startCanonicalCommitWorker",
+      "packages/daemon/src/writer-cell/cloud-writer-shard.ts#schedulePublication",
       "packages/dsh-plugin/src/broker.ts#jsonLines",
       "packages/dsh-plugin/src/client.ts#openTabWhenSessionMounts",
       "packages/dsh-plugin/src/tutorial.ts#writeClipboard",
@@ -534,6 +547,7 @@
       "packages/daemon/src/daemon-host/canonical-path.ts#canonicalPath",
       "packages/daemon/src/daemon-host/terminal-environment.ts#terminalEnvironment",
       "packages/daemon/src/fleet-sync/cloud-query-host.ts#createCloudQueryHost",
+      "packages/daemon/src/writer-cell/cloud-writer-shard.ts#handle",
       "packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository",
       "packages/gui/src/main/local-composition-root.ts#daemonRpc",
       "packages/gui/src/main/local-composition-root.ts#request",

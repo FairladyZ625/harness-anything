@@ -1,6 +1,6 @@
 import { runtimeSteerSupported } from "@harness-anything/kernel/internal/domain/runtime-instance-scheduling.ts";
 import { AgentScopeConflictError, readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
-import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
+import { makeSquadCanonicalReader } from "@harness-anything/application/internal/queries/squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { createEntityStore } from "@harness-anything/storage";
 import { readLocalAgentRecord, readLocalAgentRecords } from "./local-agent-store.ts";
@@ -43,7 +43,7 @@ export function makeSquadActionRuntime(cell: RepoCellRuntimeContext): EntityActi
       const raw = makeSquadCanonicalReader({
         projection: cell.projection,
         readResult: (ref) => readCanonicalRuntimeResult(cell.store, ref),
-      }).status(squadRequiredText(action.squadRunId, "squadRunId"));
+      }).status(squadRequiredText(action.squadRunId, "squadRunId")) as unknown as JsonObject;
       return coordinatorReceipt(cell, raw, opId, revision, []);
     }
     throw cell.cellCodedError("invalid_store", `Squad Action ${contract.id} has no catalog runtime implementation.`);

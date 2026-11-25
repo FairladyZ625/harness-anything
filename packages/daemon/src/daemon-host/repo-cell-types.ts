@@ -75,7 +75,6 @@ import type {
   completionSettlement,
   completionStopped,
   failed,
-  progressEvidence,
   projectionReady,
   rejected,
   requiredCellText,
@@ -84,7 +83,10 @@ import type {
   runTaskCommandWithDocs as runTaskCommandWithDocsImpl,
   taskSurfaceWrite as taskSurfaceWriteImpl,
 } from "./repo-cell-task-command-docs.ts";
-import type { taskMutation as taskMutationImpl } from "./repo-cell-task-mutation.ts";
+import type {
+  TaskLiveDispatchEntry,
+  taskMutation as taskMutationImpl,
+} from "@harness-anything/application/internal/commands/task-mutation.ts";
 import type { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import type {
   createTask as createTaskImpl,
@@ -98,8 +100,8 @@ import type {
   migrateTaskContracts as migrateTaskContractsImpl,
   supersedeWithNewTask as supersedeWithNewTaskImpl,
 } from "./repo-cell-task-maintenance.ts";
+import type { appendProgress as appendProgressImpl } from "@harness-anything/application/internal/commands/task-progress-append.ts";
 import type {
-  appendProgress as appendProgressImpl,
   completeTask as completeTaskImpl,
   completionContext as completionContextImpl,
 } from "./repo-cell-task-progress.ts";
@@ -602,6 +604,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly runtimeInstanceCapacities?: Readonly<Record<string, number>>;
+    readonly channelOutboundBridge?: import("./channel-outbox.ts").ChannelOutboundBridge;
     readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
       provider: "github" | "gitlab",
@@ -663,6 +666,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly uniqueDerivedExecutionId: typeof uniqueDerivedExecutionId;
   readonly receiptProof: typeof receiptProof;
   readonly taskMutation: Bound<typeof taskMutationImpl>;
+  readonly readDispatchLiveEntries: (taskIds: readonly string[]) => readonly TaskLiveDispatchEntry[];
   readonly withoutDryRun: typeof withoutDryRun;
   readonly previewResult: Bound<typeof previewResultImpl>;
   readonly projectedTaskIds: Bound<typeof projectedTaskIdsImpl>;
@@ -673,7 +677,6 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly renderEvidencePayload: typeof renderEvidencePayload;
   readonly createTaskId: typeof createTaskId;
   readonly progressReceipt: Bound<typeof progressReceiptImpl>;
-  readonly progressEvidence: typeof progressEvidence;
   readonly completionApplied: typeof completionApplied;
   readonly completionContext: Bound<typeof completionContextImpl>;
   readonly completeRetryCommand: typeof completeRetryCommand;
@@ -829,6 +832,7 @@ export interface RepoCellOpenInput {
   readonly onQueueDepthChange?: (queueDepth: number) => void;
   readonly onOpenProgress?: (progress: RepoCellAttachProgress) => void;
   readonly now?: () => string;
+  readonly channelOutboundBridge?: import("./channel-outbox.ts").ChannelOutboundBridge;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
   /** Read-only async Git history runner used before the write slot; defaults to runGitHistoryLogAsync. */

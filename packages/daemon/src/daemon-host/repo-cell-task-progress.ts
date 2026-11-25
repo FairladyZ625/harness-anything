@@ -1,23 +1,15 @@
-import { createHash } from "node:crypto";
 import {
-  canStartExecution,
-  compileTaskProgress,
   completionBlockers,
   completionPreparationBlockers,
   taskCompletionNext,
   completionGuidance,
   consumeKnownError,
-  isTaskProgressEvent,
-  resolveTaskBoundRuntimeBinding,
-  runtimeSessionIdFromActor,
   stableStringify,
   closeoutReadiness,
-  taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
-  type TaskProgressEventV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runDocAction } from "./doc-sync-actions.ts";
@@ -32,108 +24,6 @@ import type { RepoCellOperationalContext } from "./repo-cell-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { liveUpstreamFreshnessBlocker } from "./repo-cell-command-witness.ts";
-
-export function appendProgress(
-  cell: RepoCellOperationalContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-  carried: {
-    readonly changes: readonly import("@harness-anything/kernel").DocEventChange[];
-    readonly blobs: readonly {
-      readonly sha256: string;
-      readonly size: number;
-      readonly mediaType: string;
-      readonly body: string;
-    }[];
-  } | null = null,
-): WriteReceipt {
-  const taskId = cell.requiredCellText(action.taskId, "taskId"),
-    task = cell.projection.read(taskId),
-    expectedRevision = task.snapshot.revision,
-    opId = cell.operationId(action, binding, cell.input.repoId, expectedRevision),
-    existing = cell.store.readEvent(opId);
-  if (existing) {
-    if (!isTaskProgressEvent(existing))
-      throw cell.cellCodedError("op_conflict", `opId ${opId} belongs to another event`);
-    if (stableStringify(existing.payload.carriedDocumentClaims ?? null) !== stableStringify(carried?.changes ?? null))
-      throw cell.cellCodedError("op_conflict", `opId ${opId} already carries different task documents`);
-    return cell.progressReceipt(existing, cell.publicPublication(cell.store.publication(existing)));
-  }
-  if (task.watermark < task.sourceRevision || !task.snapshot.task || !task.packagePath)
-    throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for progress append.`);
-  const at = cell.now(),
-    lease = cell.projection.currentLease(taskId, at),
-    executionId =
-      typeof action.executionId === "string"
-        ? action.executionId
-        : (lease?.executionId ??
-          task.snapshot.executions.findLast((value) => value.iteration === task.snapshot.task?.iteration)
-            ?.executionId ??
-          ""),
-    recoveryExecutionId =
-      lease?.executionId ??
-      task.snapshot.executions.find(
-        (value) => value.iteration === task.snapshot.task?.iteration && value.state === "active",
-      )?.executionId ??
-      "progress-recovery",
-    recoverySnapshot = lease?.phase === "orphaned" ? { ...task.snapshot, lease: null } : task.snapshot,
-    runtimeSessionId = runtimeSessionIdFromActor(binding.actor),
-    runtimeSession = runtimeSessionId === null ? null : cell.projection.readRuntimeSession(runtimeSessionId),
-    runtimeBinding = resolveTaskBoundRuntimeBinding(runtimeSession, taskId, executionId),
-    progressPath = `${task.packagePath}/progress.md`,
-    document = cell.projection.readDocument(progressPath);
-  if (document.watermark < document.sourceRevision)
-    throw cell.cellCodedError("content_not_ready", `Progress projection for ${taskId} is not ready.`);
-  const compiled = compileTaskProgress({
-    taskId,
-    executionId,
-    packagePath: task.packagePath,
-    text: cell.requiredCellText(action.text, "text"),
-    evidence: cell.progressEvidence(action.evidence),
-    ...(typeof action.baseDocumentSha256 === "string" || action.baseDocumentSha256 === null
-      ? { expectedBaseSha256: action.baseDocumentSha256 }
-      : {}),
-    currentDocument:
-      document.document && document.document.path === progressPath
-        ? {
-            path: progressPath,
-            blobSha256: document.document.blobSha256,
-            body: document.document.body,
-          }
-        : null,
-    activeLease: lease,
-    startRecoveryAvailable: canStartExecution(recoverySnapshot, recoveryExecutionId),
-    ...(runtimeBinding ? { runtimeBinding } : {}),
-    asOwner: action.asOwner === true,
-    taskCreatedBy: task.snapshot.task.createdBy,
-    taskClass: task.snapshot.task.taskClass,
-    actor: binding.actor,
-    source: binding.source,
-    eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-    opId,
-    workspaceRevision: (cell.store.readHead()?.revision ?? 0) + 1,
-    occurredAt: at,
-  });
-  const event =
-      carried === null
-        ? compiled.event
-        : ({
-            ...compiled.event,
-            payload: {
-              ...compiled.event.payload,
-              carriedDocumentClaims: carried.changes,
-            },
-          } as TaskProgressEventV1),
-    plan = carried === null ? compiled.plan : taskProgressWritePlan(event),
-    blobs = carried === null ? compiled.blobs : [...compiled.blobs, ...carried.blobs];
-  const appended = cell.store.append({ event, plan, blobs });
-  cell.input.killpoint?.("after_store_commit");
-  cell.projection.apply(event, plan);
-  const receipt = cell.progressReceipt(event, cell.publicPublication(appended));
-  cell.input.killpoint?.("before_response_write");
-  cell.input.killpoint?.("after_response_write");
-  return receipt;
-}
 
 export async function completeTask(
   cell: RepoCellOperationalContext,

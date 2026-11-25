@@ -8,6 +8,7 @@ import { authoredDocumentStatusWordRegister } from "./status-word-register-autho
 import { dispatchStatusWordRegister } from "./status-word-register-dispatch.ts";
 import { inboxStatusWordRegister } from "./status-word-register-inbox.ts";
 import { centerSwitchoverPhases } from "./center-switchover.ts";
+import { channelDeliveryStatuses } from "./channel-adapter.ts";
 
 export const rbacBackupStatuses = ["verified", "unavailable", "unknown"] as const;
 export type RbacBackupStatus = (typeof rbacBackupStatuses)[number];
@@ -81,6 +82,21 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped" as const,
   })),
   ...inboxStatusWordRegister,
+  ...channelDeliveryStatuses.map((word) => ({
+    word,
+    entity: "Channel" as const,
+    field: "delivery status",
+    meaning: {
+      accepted: "The channel delivery was admitted for processing.",
+      duplicate: "The channel delivery idempotency key was already observed.",
+      rejected: "The channel delivery was refused by validation or authorization.",
+      routed: "The channel delivery was routed to its target adapter.",
+      delivered: "The channel delivery reached its target adapter.",
+      failed: "The channel delivery attempt failed.",
+      pending_retry: "The channel delivery failed and remains eligible for retry.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
   {
     word: "scheduled",
     entity: "RuntimeSession",

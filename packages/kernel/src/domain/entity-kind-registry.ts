@@ -27,10 +27,11 @@ import {
   dispatchLifecyclePolicies,
   dispatchLifecycleJudgment,
 } from "./dispatch-lifecycle-ontology.ts";
-import { inboxJudgments, inboxPolicies } from "./inbox-ontology.ts";
+import { inboxJudgments, inboxPolicies } from "./inbox.ts";
 import { todoSchema } from "./todo.ts";
 import { createTodoActionCatalog } from "./todo-action-contract.ts";
 import { createPeerActionCatalog, peerJudgments, peerPolicies } from "./peer-collaboration.ts";
+import { channelV1Schema, createChannelActionCatalog, channelJudgments, channelPolicies } from "./channel-adapter.ts";
 import {
   AGENT_DECLARATION_V1_SCHEMA,
   SQUAD_DECLARATION_V1_SCHEMA,
@@ -1251,8 +1252,8 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
       reason: "Runtime settlement cannot release a later holder or bypass the existing mutation fence.",
       fixtures: ["packages/daemon/test/runtime-spawn-lifecycle-settlement.integration.test.ts"],
       sources: [
-      { candidateId: "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/daemon/src/daemon-host/repo-cell-task-mutation.ts#taskMutation" },
-      { candidateId: "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/daemon/src/daemon-host/repo-cell-task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/application:packages/application/src/commands/task-mutation.ts#taskMutation:4254517165b44213a35c3638508ba56d", route: "packages/application/src/commands/task-mutation.ts#taskMutation" },
+      { candidateId: "policy:packages/application:packages/application/src/commands/task-mutation.ts#taskMutation:c2a07f207dff3812d7cd929fca87048e", route: "packages/application/src/commands/task-mutation.ts#taskMutation" },
       { candidateId: "policy:packages/daemon:packages/daemon/src/daemon-host/repo-cell-open.ts#openRepoWriterCell.releaseUnadmittedLease.releaseAction:1548d05acb20300aa42a5aa0827c30db", route: "rejected dispatch → task/release with the exact claimOpId" },
       ],
     }, {
@@ -1694,6 +1695,22 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     policies: [...peerPolicies],
     actionCatalog: createPeerActionCatalog((id) =>
       entityAction("peer-request", requireEntityTypeContract("peer-request").id, id),
+    ),
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "channel",
+    ...entityTypeContractFields("channel"),
+    schema: channelV1Schema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    stateStores: stateStoresForKind("channel"),
+    judgments: [...channelJudgments],
+    policies: [...channelPolicies],
+    actionCatalog: createChannelActionCatalog((id) =>
+      entityAction("channel", requireEntityTypeContract("channel").id, id),
     ),
     entityStore: null,
     authoring: null,

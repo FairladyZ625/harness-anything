@@ -1,15 +1,29 @@
-import { cellCriterionError } from "./repo-cell-errors.ts";
-import { dispatchLifecycleSummary, type CanonicalSquadRun, type TaskProjectionQueries } from "@harness-anything/kernel";
+import {
+  attributeEntityActionCriterion,
+  dispatchLifecycleSummary,
+  type CanonicalSquadRun,
+  type TaskProjectionQueries,
+} from "@harness-anything/kernel";
 import { writeSourceNodeId } from "@harness-anything/kernel/internal/domain/write-source.ts";
-import { activePhase, compareRunSummaries, listQuery, matchesRunQuery, runInActivityWindow } from "./squad-run-list.ts";
-import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import type {
-  SquadRunReadResult,
-  SquadRunsListResult,
-  SquadRunSummaryDto,
-  SquadRunTurnStatus,
-} from "./squad-run-contract.ts";
-import { isAvailableSquadRunDetail } from "./squad-run-contract.ts";
+import {
+  activePhase,
+  compareRunSummaries,
+  listQuery,
+  matchesRunQuery,
+  runInActivityWindow,
+  squadReadError,
+} from "./squad-run-list.ts";
+import {
+  isAvailableSquadRunDetail,
+  type SquadRunReadResult,
+  type SquadRunsListResult,
+  type SquadRunSummaryDto,
+  type SquadRunTurnStatus,
+} from "./squad-run-types.ts";
+
+function squadCriterionError(code: string, message: string, actionId: string, criterionRef: string): Error {
+  return attributeEntityActionCriterion(squadReadError(code, message), actionId, criterionRef, []);
+}
 
 /** Repository reads have no coordinator, dispatch stream, process or filesystem dependency. */
 export function makeSquadCanonicalReader(input: {
@@ -19,10 +33,15 @@ export function makeSquadCanonicalReader(input: {
   const { projection } = input;
   function state(id: string): CanonicalSquadRun {
     if (!/^squad_[a-f0-9]{24}$/u.test(id))
-      throw cellCriterionError("invalid_squad_run_id", "Use the canonical Squad run handle.", "status", "squad/run-id");
+      throw squadCriterionError(
+        "invalid_squad_run_id",
+        "Use the canonical Squad run handle.",
+        "status",
+        "squad/run-id",
+      );
     const row = projection.readSquadRun(id);
     if (!row)
-      throw cellCriterionError(
+      throw squadCriterionError(
         "squad_run_not_found",
         `Squad run ${id} does not exist at this cut.`,
         "status",
@@ -30,7 +49,7 @@ export function makeSquadCanonicalReader(input: {
       );
     return row.state as unknown as CanonicalSquadRun;
   }
-  function attempt(runtimeSessionId: string | null) {
+  function attempt(runtimeSessionId: string | null, includeResult = true) {
     const session = runtimeSessionId ? projection.readRuntimeSession(runtimeSessionId) : null;
     const dispatch = runtimeSessionId ? projection.readRuntimeDispatch(runtimeSessionId) : null;
     const events = runtimeSessionId
@@ -52,7 +71,7 @@ export function makeSquadCanonicalReader(input: {
       tokenUsage: { input: metrics?.inputTokens ?? null, output: metrics?.outputTokens ?? null },
       toolCallCount: metrics?.toolCallCount ?? null,
       compacted: null,
-      resultText: session?.resultRef ? input.readResult(session.resultRef) : null,
+      resultText: includeResult && session?.resultRef ? input.readResult(session.resultRef) : null,
     };
   }
   function identity(run: CanonicalSquadRun) {
@@ -115,7 +134,7 @@ export function makeSquadCanonicalReader(input: {
         currentLeaderRuntimeSessionId: run.currentLeaderRuntimeSessionId,
         leaderTurns: run.leaderTurns.map((turn) => ({ ...turn, ...attempt(turn.runtimeSessionId) })),
         workerAttempts: run.workerAttempts.map((worker) => {
-          const { resultText: _resultText, ...observed } = attempt(worker.runtimeSessionId);
+          const { resultText: _resultText, ...observed } = attempt(worker.runtimeSessionId, false);
           return {
             attemptId: worker.attemptId,
             workerId: worker.workerId,
@@ -158,7 +177,7 @@ export function makeSquadCanonicalReader(input: {
       truncated: rows.length > query.limit,
     };
   }
-  function status(id: string): JsonObject {
+  function status(id: string): Record<string, unknown> {
     const run = state(id),
       detail = read(id).run;
     return {
@@ -174,11 +193,8 @@ export function makeSquadCanonicalReader(input: {
       workerCallbackCount: run.workerCallbackCount,
       pendingLeaderCallbackCount: run.pendingLeaderCallbackCount,
       ...(activePhase(run.phase) ? {} : { exitCode: run.phase === "converged" ? 0 : 1 }),
-      // The command-receipt envelope drops a top-level `error`, so a terminal failure that only
-      // lives there is invisible in `ha squad status`. The summary is the one owner-visible field
-      // every receipt keeps; carry the terminal reason with it.
       summary: `squad-run ${run.squadId}: ${run.phase}${run.error === null ? "" : ` — ${run.error}`}`,
-    } as unknown as JsonObject;
+    };
   }
   return { read, list, status };
 }

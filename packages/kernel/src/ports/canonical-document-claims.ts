@@ -272,7 +272,12 @@ export function contentClaims(event: PersistedCanonicalEventV1): readonly {
                     : isMigrationImportEvent(event)
                       ? migrationImportContentClaims(event)
                       : isAgentRuntimeEvent(event)
-                        ? runtimeEventContentClaims(event)
+                        ? [
+                            ...runtimeEventContentClaims(event),
+                            ...(event.type === "inbox_item_enqueued" && event.payload.bodyContentClaim
+                              ? [event.payload.bodyContentClaim]
+                              : []),
+                          ]
                         : isPeerRequestEvent(event)
                           ? peerRequestEventContentClaims(event)
                           : [];

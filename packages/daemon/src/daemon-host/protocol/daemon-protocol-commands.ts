@@ -582,6 +582,72 @@ const residentCeoProtocolCommands = Object.freeze([
   }),
 ]);
 
+const channelCliText = (field: string, flag: string, required: boolean) =>
+  cliInput(flag, "single", required, { code: "invalid_field" }, { pathKind: "non-path", field });
+const channelCliNumber = (field: string, flag: string) =>
+  cliInput(flag, "single", false, { code: "invalid_field" }, { pathKind: "non-path", field, projection: "number" });
+const channelProtocolCommands = [
+  defineEdgeReplicaQueryOnlyReadCommand({
+    id: "channel-list",
+    phase: "W3",
+    path: ["channel", "list"],
+    summary: "List unified Inbox and Outbox channel records for the authenticated principal.",
+    method: "repo.task.read",
+    repositoryRead: true,
+    inputs: [
+      channelCliText("channelKind", "--channel", false),
+      channelCliText("direction", "--direction", false),
+      channelCliNumber("limit", "--limit"),
+      channelCliText("cursor", "--cursor", false),
+    ],
+    payloadFields: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "channel-deliver",
+    phase: "W3",
+    path: ["channel", "deliver"],
+    summary: "Deliver a standardized channel envelope through the authorized Inbox adapter.",
+    method: "repo.task.run",
+    inputs: [
+      channelCliText("channelKind", "--channel", true),
+      channelCliText("envelopeId", "--envelope-id", false),
+      channelCliText("principalPersonId", "--principal", false),
+      channelCliText("summary", "--summary", true),
+      channelCliText("body", "--body", false),
+      channelCliText("senderRef", "--sender", false),
+      channelCliText("route", "--route", false),
+      channelCliText("correlationId", "--correlation-id", false),
+      channelCliText("workId", "--work", false),
+      channelCliText("lane", "--lane", false),
+      channelCliText("anchorRef", "--anchor-ref", false),
+      channelCliText("toPersonId", "--to", false),
+      channelCliText("claim", "--claim", false),
+      channelCliText("requestedAction", "--action", false),
+      channelCliText("requestKind", "--kind", false),
+      channelCliText("idempotencyKey", "--idempotency-key", false),
+    ],
+    payloadFields: [],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "channel-send",
+    phase: "W3",
+    path: ["channel", "send"],
+    summary: "Route an Outbox message through a registered channel adapter and record its receipt.",
+    method: "repo.task.run",
+    inputs: [
+      channelCliText("channelKind", "--channel", true),
+      channelCliText("messageId", "--message-id", false),
+      channelCliText("recipientRef", "--to", true),
+      channelCliText("summary", "--summary", true),
+      channelCliText("body", "--body", false),
+      channelCliText("route", "--route", false),
+      channelCliText("correlationId", "--correlation-id", false),
+      channelCliText("idempotencyKey", "--idempotency-key", false),
+    ],
+    payloadFields: [],
+  }),
+];
+
 export const daemonOwnedProtocolCommands = Object.freeze([
   ...entityPinProtocolCommands,
   ...taskSurfaceProtocolCommands,
@@ -589,6 +655,7 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...todoProtocolCommands,
   ...peerProtocolCommands,
   ...residentCeoProtocolCommands,
+  ...channelProtocolCommands,
   ...agentProtocolCommands,
   ...assignmentProtocolCommands,
   ...taskExecutionProtocolCommands,

@@ -53,9 +53,9 @@ test("dec_7E44897ECDCAEF2B92EC66A260/CH1: non-main packages/gui action candidate
   const nonMainGuiActions = result.classified.filter((row) => row.category === "action" && isNonMainGuiPath(row.file));
   // dec_89D06D7360CBEC09795F7B12EC unifies the routes: 27 net client sites and
   // two net daemon-local-state sites raise the registered census from 343 to 372.
-  // dec_4276A0CEACD4D402F122295925/CH1 (+4 -> 376); dec_AAEC26DBB6F23BDF80876ABB2C/CH5 (+3 -> 379).
-  // task_211789c20aee8c48a40535b9ac adds five registered Resident CEO GUI actions (379 -> 384).
-  assert.equal(nonMainGuiActions.length, 384);
+  // dec_4276A0CEACD4D402F122295925/CH1 (+4 -> 376); dec_AAEC26DBB6F23BDF80876ABB2C/CH5 (+3 -> 379); dec_166C5D2EAB57F8BCA3F15107E2/CH2,CH4 (+3 -> 382).
+  // task_211789c20aee8c48a40535b9ac adds five registered Resident CEO GUI actions (382 -> 387).
+  assert.equal(nonMainGuiActions.length, 387);
   assert.deepEqual(
     nonMainGuiActions.filter((row) => row.status !== "registered"),
     [],

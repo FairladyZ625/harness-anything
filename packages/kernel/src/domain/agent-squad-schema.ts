@@ -473,18 +473,18 @@ export const daemonSquadPolicySources = [
     "return squadRunRecord(value) &&",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/squad-run-list.ts#listQuery:fa138dbee2dfc5729a9c0df606ff2726",
-    "packages/daemon/src/daemon-host/squad-run-list.ts#listQuery",
+    "policy:packages/application:packages/application/src/queries/squad-run-list.ts#listQuery:fa138dbee2dfc5729a9c0df606ff2726",
+    "packages/application/src/queries/squad-run-list.ts#listQuery",
     "if (",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/squad-run-list.ts#listQuery.limit:13e34ed06a7f8e0b91c55872c8faef0b",
-    "packages/daemon/src/daemon-host/squad-run-list.ts#listQuery.limit",
+    "policy:packages/application:packages/application/src/queries/squad-run-list.ts#listQuery.limit:13e34ed06a7f8e0b91c55872c8faef0b",
+    "packages/application/src/queries/squad-run-list.ts#listQuery.limit",
     'limit: typeof limit === "number" ? limit : 200,',
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/squad-run-state.ts#squadState:531cd70010a6e5aa264f25873ee04731",
-    "packages/daemon/src/daemon-host/squad-run-state.ts#squadState",
+    "policy:packages/application:packages/application/src/queries/squad-run-state.ts#squadState:58d2fa377245fd6d5cb33f221c549339",
+    "packages/application/src/queries/squad-run-state.ts#squadState",
     'return row.schema === "squad-run/v1" &&',
   ],
   [

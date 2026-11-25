@@ -434,7 +434,8 @@
         "task-amend": {
           "measurements": [
             "task-amend:patches",
-            "task-amend:anchored-relations"
+            "task-amend:anchored-relations",
+            "task-amend:cloud-writer-collections"
           ]
         },
         "decision-override-review": {
@@ -484,6 +485,13 @@
         }
       },
       "notApplicable": [
+        {
+          "actions": [
+            "channel-deliver",
+            "channel-send"
+          ],
+          "reason": "Each channel operation accepts one message and writes a fixed number of canonical Inbox events, independent of repository history size."
+        },
         {
           "actions": [
             "entity-archive"
@@ -1265,6 +1273,11 @@
             "cli-task-list"
           ]
         },
+        "command:channel-list": {
+          "measurements": [
+            "cli-channel-list"
+          ]
+        },
         "command:task-read-set": {
           "measurements": [
             "cli-task-read-set"
@@ -1565,6 +1578,16 @@
         "method:repo.tasks.list": {
           "measurements": [
             "task-list"
+          ]
+        },
+        "method:repo.channel.list": {
+          "measurements": [
+            "repo.channel.list"
+          ]
+        },
+        "method:repo.peer.inbox": {
+          "measurements": [
+            "repo.peer.inbox"
           ]
         },
         "method:repo.tasks.runtimeContext.read": {

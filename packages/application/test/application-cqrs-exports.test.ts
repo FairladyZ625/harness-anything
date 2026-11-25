@@ -4,14 +4,18 @@ import test from "node:test";
 import {
   decisionAmendmentConsent,
   decisionApproval,
+  drainChannelOutbox,
   makeEntityActionCatalogExecutor,
   noChanges,
   prepareDecisionAmend,
   reject,
+  runChannelWriteAction,
 } from "@harness-anything/application/commands";
 import {
   decodeEvidencePayload,
   projectionCut,
+  readChannelList,
+  readChannelListAction,
   readTodos,
   renderEvidencePayload,
   requireSameProjectionCut,
@@ -125,4 +129,21 @@ test("application ./queries barrel exposes pure CQRS read assemblers and project
   assert.equal(todos.length, 1);
   assert.equal(todos[0]?.ref, "todo/todo_0123456789abcdef01234567");
   assert.equal(todos[0]?.open, true);
+
+  assert.equal(typeof runChannelWriteAction, "function");
+  assert.equal(typeof drainChannelOutbox, "function");
+  assert.equal(typeof readChannelListAction, "function");
+
+  const channelRead = readChannelList(
+    {
+      readCut: () => ({ status: "current", watermark: 9, sourceRevision: 9 }),
+      readInbox: () => ({ status: "ready", items: [], nextCursor: null }),
+      readPeerRequests: () => ({ status: "ready", requests: [], nextCursor: null }),
+    } as unknown as Parameters<typeof readChannelList>[0],
+    { principalPersonId: "person_owner", channelKind: "gui", direction: "inbound", limit: 10 },
+    (message) => {
+      throw Object.assign(new Error(message), { code: "invalid_field" });
+    },
+  );
+  assert.deepEqual(channelRead, { items: [], nextCursor: null, watermark: 9, sourceRevision: 9 });
 });

@@ -36,6 +36,7 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   "vertical-declaration": "default",
   host: "singleton",
   "peer-request": "peer_123",
+  channel: "channel_123",
 };
 
 test("all registered kinds are referenceable relation endpoints from one type contract", () => {
@@ -52,14 +53,14 @@ test("all registered kinds are referenceable relation endpoints from one type co
     referenceableKinds.push(parsed!.kind);
     assert.deepEqual(
       contract.baseActions,
-      contract.kind === "peer-request" ? ["explain"] : baseEntityActionIds,
+      contract.kind === "peer-request" || contract.kind === "channel" ? ["explain"] : baseEntityActionIds,
       contract.kind,
     );
     assert.equal(contract.relationEndpoint.eligible, true, contract.kind);
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 20);
+  assert.equal(registeredKinds.length, 21);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
   assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {

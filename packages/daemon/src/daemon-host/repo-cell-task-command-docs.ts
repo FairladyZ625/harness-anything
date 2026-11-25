@@ -1,8 +1,7 @@
-import { createTaskEvent } from "@harness-anything/kernel";
+import { compileTaskMutationWrite } from "@harness-anything/application/internal/commands/task-mutation-write.ts";
 import { assertEntityAssignment, assignmentFromRelations } from "./entity-assignment-runtime.ts";
 import { preparedSubmission, type PreparedSubmissionAction } from "./submission-preparation.ts";
 import { readCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "./repo-cell-submit.ts";
-import { createHash } from "node:crypto";
 import {
   compileTaskLifecycleWrite,
   taskCompletionNext,
@@ -10,15 +9,12 @@ import {
   isTaskEvent,
   isSameExecution,
   sameWriteSource,
-  lifecycleDocumentFetchPaths,
   parseDocWriteIntent,
-  reduceTaskEvent,
   serializeEventHead,
   serializePersistedCanonicalEvent,
   sha256Text,
   type DocClaimRef,
   type DocEventChange,
-  type TaskEventV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
@@ -170,7 +166,6 @@ export async function runTaskCommandWithDocs(
     {
       binding,
       workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
       store: cell.store,
       projection: cell.projection,
       now: cell.now,
@@ -567,32 +562,16 @@ export function prepareTaskSurfaceWriteAt(
   const opId = assigned?.opId ?? canonicalOpId,
     existing = cell.store.readEvent(opId);
   if (existing) return cell.receiptForOperation(opId, binding);
-  const event = createTaskEvent(
-      {
-        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
-        workspaceRevision: assigned?.workspaceRevision ?? (cell.store.readHead()?.revision ?? 0) + 1,
-        opId,
-        taskId,
-        actor: binding.actor,
-        source: binding.source,
-        occurredAt,
-      },
-      mutation.type,
-      (mutation.execution
-        ? {
-            task: mutation.task,
-            execution: mutation.execution,
-            releasedLease: mutation.releasedLease,
-            mutation: mutation.audit,
-          }
-        : {
-            task: mutation.task,
-            mutation: mutation.audit,
-          }) as TaskEventV1["payload"],
-    ),
-    next = reduceTaskEvent(snapshot, event),
-    paths = lifecycleDocumentFetchPaths(event, current.packagePath),
-    documents = paths.flatMap((target) => {
+  const compiled = compileTaskMutationWrite({
+    taskId,
+    packagePath: current.packagePath,
+    snapshot,
+    mutation,
+    binding,
+    opId,
+    workspaceRevision: assigned?.workspaceRevision ?? (cell.store.readHead()?.revision ?? 0) + 1,
+    occurredAt,
+    readDocument: (target) => {
       const active = cell.projection.readDocument(target),
         read = active.document ? active : (cell.projection.readDocumentHistory?.(target) ?? active);
       if (!cell.projectionReady(read))
@@ -628,30 +607,13 @@ export function prepareTaskSurfaceWriteAt(
           ? action.repairTaskContractBody
           : null;
       return repairBody !== null
-        ? [
-            {
-              path: target,
-              body: repairBody,
-              blobSha256: sha256Text(repairBody),
-            },
-          ]
+        ? { path: target, body: repairBody, blobSha256: sha256Text(repairBody) }
         : read.document
-          ? [
-              {
-                path: target,
-                body: read.document.body,
-                blobSha256: read.document.blobSha256,
-              },
-            ]
-          : [];
-    }),
-    compiled = compileTaskLifecycleWrite({
-      event,
-      snapshot: next,
-      packagePath: current.packagePath,
-      currentDocuments: documents,
-      completionContext: readCompletionContext(cell.projection, taskId, next, current.status, cell.rootDir),
-    });
+          ? { path: target, body: read.document.body, blobSha256: read.document.blobSha256 }
+          : null;
+    },
+    completionContext: (next) => readCompletionContext(cell.projection, taskId, next, current.status, cell.rootDir),
+  });
   return {
     compiled,
     taskId,

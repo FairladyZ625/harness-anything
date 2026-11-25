@@ -16,6 +16,8 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["ceo-config", "admin"],
     ["ceo-start", "admin"],
     ["ceo-stop", "admin"],
+    ["channel-deliver", "repo-write"],
+    ["channel-send", "repo-write"],
     ["cli-local-effects", "admin"],
     ["daemon-connection-add", "admin"],
     ["daemon-connection-probe", "admin"],

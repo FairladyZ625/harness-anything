@@ -45,6 +45,7 @@ export interface RepoWriterBootstrapV1 {
   };
   readonly capabilities: {
     readonly runtimeInstanceScheduling?: boolean;
+    readonly channelOutbound?: boolean;
     /** Only an injected (test) clock crosses threads; a production writer reads its own clock. */
     readonly canonicalStore?: boolean;
     readonly now: boolean;
@@ -203,6 +204,7 @@ export type RepoWriterCapabilityName =
   | "shouldStop"
   | "runtimeInstances"
   | "runtimeInstanceScheduling"
+  | "channelOutbound"
   | "keycloakCenter"
   | "keycloakSession"
   | "currentAccessToken"

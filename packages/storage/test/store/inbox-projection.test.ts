@@ -117,6 +117,24 @@ test("SQLite Inbox projection folds per item, dedupes, orders queues, and rebuil
     assert.equal(peerCompleted?.status, "completed", "interactive consumers can settle a claimed request");
     const [peerFailed] = items(projection.readInbox({ by: "item", inboxId: "person:owner", itemId: "peer-failed" }));
     assert.equal(peerFailed?.status, "failed", "interactive consumers can fail a claimed request");
+    const historyPage1 = projection.readInbox({ by: "inbox", inboxId: "person:owner", limit: 2 });
+    assert.deepEqual(
+      items(historyPage1).map(({ itemId, status }) => [itemId, status]),
+      [
+        ["peer-request", "claimed"],
+        ["peer-reply", "pending"],
+      ],
+    );
+    assert.equal(historyPage1.status === "ready" ? historyPage1.nextCursor : undefined, "12");
+    const historyPage2 = projection.readInbox({ by: "inbox", inboxId: "person:owner", limit: 2, cursor: "12" });
+    assert.deepEqual(
+      items(historyPage2).map(({ itemId, status }) => [itemId, status]),
+      [
+        ["peer-completed", "completed"],
+        ["peer-failed", "failed"],
+      ],
+    );
+    assert.equal(historyPage2.status === "ready" ? historyPage2.nextCursor : undefined, null);
     assert.throws(
       () => projection.readInbox({ by: "queue", status: "pending", consumerKind: "unattended_dispatch", cursor: "x" }),
       /cursor is invalid/u,

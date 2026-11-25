@@ -166,6 +166,11 @@ const peerRequestIdentity = Object.freeze({
   pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
   refTemplate: "peer-request/{id}" as const,
 });
+const channelIdentity = Object.freeze({
+  field: "envelopeId",
+  pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$",
+  refTemplate: "channel/{id}" as const,
+});
 const relationIdentity = Object.freeze({
   field: "id",
   pattern: "^rel_[0-9a-f]{16}$",
@@ -240,6 +245,11 @@ export const entityTypeContracts = Object.freeze([
   {
     kind: "peer-request",
     ...baseEntityTypeContract(peerRequestIdentity, authoredResidency),
+    baseActions: Object.freeze(["explain"] as const),
+  },
+  {
+    kind: "channel",
+    ...baseEntityTypeContract(channelIdentity, authoredResidency),
     baseActions: Object.freeze(["explain"] as const),
   },
   {

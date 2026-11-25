@@ -210,6 +210,9 @@ export function connectRepoWriterHost(worker: Worker, bootstrap: RepoWriterBoots
           repoId: config.repoId as RepoCellOpenInput["repoId"],
           rootDir: config.rootDir as RepoCellOpenInput["rootDir"],
           ...(bootstrap.capabilities.now ? { now: () => syncCapability<string>("now", null) } : {}),
+          ...(bootstrap.capabilities.channelOutbound
+            ? { channelOutboundBridge: (req) => syncCapability("channelOutbound", req) }
+            : {}),
           ...(bootstrap.capabilities.killpoint
             ? { killpoint: (point) => void syncCapability("killpoint", point) }
             : {}),

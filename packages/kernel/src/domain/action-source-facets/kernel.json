@@ -165,6 +165,12 @@
         "read": false
       }
     },
+    "channel-deliver": {
+      "owner": "channel"
+    },
+    "channel-send": {
+      "owner": "channel"
+    },
     "cli-local-effects": {
       "owner": "cli",
       "authority": "local-process",

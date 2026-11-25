@@ -10,19 +10,28 @@ import {
   documentWorkspacePath,
   resolveHarnessLayout,
   runtimeArchiveText,
-  type DocSyncReceiptDetail,
   type EventPublicationKillpoint,
-  type WriteReceiptDraft as WriteReceipt,
-  type WriteSource,
 } from "@harness-anything/kernel";
-import type { Action, Input } from "./doc-sync-command-actions.ts";
+import {
+  docSyncError,
+  hasExactDocSyncActionFields,
+  localProseSource,
+  proof,
+  rejectDocSyncAction,
+  requiredDocSyncText,
+} from "@harness-anything/application/internal/queries/doc-sync-details.ts";
+import type { Input } from "./doc-sync-command-actions.ts";
 import type { RuntimeDispatchArchive } from "./doc-sync-publication.ts";
 
-export function localProseSource(source: WriteSource): boolean {
-  return source === "local";
-}
-
-export { runtimeArchiveText };
+export {
+  docSyncError,
+  hasExactDocSyncActionFields,
+  localProseSource,
+  proof,
+  rejectDocSyncAction,
+  requiredDocSyncText,
+  runtimeArchiveText,
+};
 
 export function runtimeArchiveMissionRef(
   input: Omit<Input, "action">,
@@ -129,61 +138,9 @@ export function postCommit(input: Pick<Input, "killpoint">, point: EventPublicat
     const error = docSyncError(
       "publication_indeterminate",
       `publication result is unknown; run ha receipt show ${opId} before retrying`,
-    ) as Error & { opId: string; cause?: unknown };
+    ) as Error & { code: string; opId?: string; cause?: unknown };
     error.opId = opId;
     error.cause = cause;
     throw error;
   }
-}
-
-export function proof(
-  committedRevision: number,
-  appliedCut: number,
-  canonicalVisible: boolean,
-  worktreeVisible: boolean | null,
-) {
-  return {
-    committedRevision,
-    appliedCut,
-    durable: true,
-    canonicalVisible,
-    worktreeVisible,
-  };
-}
-
-export function rejectDocSyncAction(
-  opId: string,
-  code: string,
-  receiptDetail: DocSyncReceiptDetail,
-  routing?: string,
-): WriteReceipt {
-  return {
-    outcome: "op_rejected",
-    opId,
-    code,
-    origin: "doc-sync-contract",
-    ...(code === "base_blob_changed"
-      ? {
-          rejectionExplanation:
-            "Concurrent document conflict: a submitted document changed at the center. Sync the latest documents, resolve any staged conflict with ha doc conflict resolve|discard-local|overwrite-center, then submit again.",
-        }
-      : {}),
-    evidence: routing === undefined ? `contract-rejection:${code}` : `contract-rejection:${code}:${routing}`,
-    detail: receiptDetail,
-  };
-}
-
-export function requiredDocSyncText(value: unknown, name: string): string {
-  if (typeof value === "string" && value.trim()) return value;
-  throw docSyncError("invalid_command", `${name} is required`);
-}
-
-export function hasExactDocSyncActionFields(value: Action, fields: readonly string[]): boolean {
-  return Object.keys(value).length === fields.length && fields.every((field) => Object.hasOwn(value, field));
-}
-
-export function docSyncError(code: string, message: string): Error {
-  const error = new Error(message) as Error & { code: string };
-  error.code = code;
-  return error;
 }
