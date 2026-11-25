@@ -68,7 +68,7 @@ export function keycloakNodeRegistry(
   };
 }
 export interface FleetCenterAdmissionRequest {
-  readonly storage?: FleetCenterOptions["storage"];
+  readonly storage: FleetCenterOptions["storage"];
   readonly host: FleetCenterOptions["host"];
   readonly buildDraining?: FleetCenterOptions["buildDraining"];
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];

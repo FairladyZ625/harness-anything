@@ -538,6 +538,7 @@ export function createDaemonHostRuntimeApi(
           );
           const prepared = await prepareFleetCenterAdmission({
             host: context.host,
+            storage: context.input.storage,
             buildDraining: context.input.buildDraining,
             onDeliverySettled: context.input.onRepoStatusChange,
             onNodeDisconnected: () => context.triggerCenterReviewFallback?.("fleet-node-disconnected"),

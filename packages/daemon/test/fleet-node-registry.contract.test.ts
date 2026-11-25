@@ -41,6 +41,7 @@ test("fleet center admission rejects unreadable TLS material before opening a li
   await assert.rejects(
     prepareFleetCenterAdmission({
       host: {} as Parameters<typeof prepareFleetCenterAdmission>[0]["host"],
+      storage: undefined,
       userRoot: root,
       nodes: { authenticate: () => false, nodeOwner: () => null },
       payload: {
