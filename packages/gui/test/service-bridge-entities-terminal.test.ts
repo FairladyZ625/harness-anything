@@ -285,6 +285,43 @@ test("GUI entity channel retires and deletes declarations through the CLI's acti
     assert.equal(reinstall.outcome, "op_rejected");
     assert.equal((reinstall as { readonly error?: { readonly code?: string } }).error?.code, "agent_retired");
 
+    // 显式恢复:走同一条 agent-restore 动作,清除退役状态并保留历史事件。
+    const restored = parseDaemonActionResponse(
+      "repo.agent.entity.restore",
+      await bridge.invoke(
+        "repo.agent.entity.restore",
+        scopedRpcParams("repo.agent.entity.restore", {
+          ...scope,
+          agentId: "gui-lifecycle-agent",
+          reason: "Restore agent via GUI bridge.",
+          expectedVersion: shownAfterRetire.agent.revision,
+        }),
+      ),
+    );
+    assert.equal(restored.outcome, "applied", JSON.stringify(restored));
+    const shownAfterRestore = parseDaemonReadResult(
+      "repo.agent.entity.read",
+      await bridge.invoke(
+        "repo.agent.entity.read",
+        scopedRpcParams("repo.agent.entity.read", { ...scope, agentId: "gui-lifecycle-agent" }),
+      ),
+    );
+    assert.equal(shownAfterRestore.agent.retirement, null);
+    // 再次恢复幂等返回 no_changes。
+    const repeatRestore = parseDaemonActionResponse(
+      "repo.agent.entity.restore",
+      await bridge.invoke(
+        "repo.agent.entity.restore",
+        scopedRpcParams("repo.agent.entity.restore", {
+          ...scope,
+          agentId: "gui-lifecycle-agent",
+          reason: "Idempotent repeat restore.",
+          expectedVersion: shownAfterRestore.agent.revision,
+        }),
+      ),
+    );
+    assert.equal(repeatRestore.outcome, "no_changes", JSON.stringify(repeatRestore));
+
     // 删除小队:stale revision 拒绝 revision_conflict,新 revision 删除成功。
     const squadShown = parseDaemonReadResult(
       "repo.squad.entity.read",

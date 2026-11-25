@@ -41,6 +41,15 @@
         "order": 9
       }
     ],
+    "agent-restore": [
+      {
+        "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.restoreAgent:191cfe0297eb156b2f296ea63a5cfffb",
+        "route": "agent.entity.restore",
+        "role": "client",
+        "port": "packages/gui/src/renderer/api-client-invoke.ts#invoke",
+        "order": 0
+      }
+    ],
     "agent-retire": [
       {
         "candidateId": "action:packages/gui:packages/gui/src/renderer/agent-entity-client.ts#agentEntityClient.retireAgent:c8e993e8ccef02a2623431dc8a8d069d",

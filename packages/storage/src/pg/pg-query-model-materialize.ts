@@ -132,6 +132,20 @@ export async function materializePgQueryModels(
             },
           },
         });
+    } else if (event.type === "agent_reactivated") {
+      const current = await get<EntityProjectionRow>(model, entityId);
+      if (current) {
+        const {
+          lifecycleState: _lifecycleState,
+          retirement: _retirement,
+          ...rest
+        } = current.value as Record<string, unknown>;
+        await put(model, entityId, {
+          ...current,
+          workspaceRevision: revision,
+          value: rest,
+        });
+      }
     } else if (isEntityDeclarationEvent(event)) {
       const contract = contractForDeclarationEvent(event);
       let raw: unknown;

@@ -34,7 +34,7 @@ export const isAvailableAgentEntityRow = (row: AgentEntityRow): row is AgentEnti
 export const isAvailableSquadEntityRow = (row: SquadEntityRow): row is SquadEntityAvailableRow => !("state" in row);
 export type AgentSkillRow = AgentSkillGuiRead["skills"][number];
 export type EntitySaveResult = {
-  readonly outcome: Extract<DomainStatus.WriteReceiptOutcome, "applied" | "pending" | "op_rejected">;
+  readonly outcome: Extract<DomainStatus.WriteReceiptOutcome, "applied" | "pending" | "no_changes" | "op_rejected">;
   readonly opId?: string;
   readonly revision?: number;
   readonly proof?: {
@@ -119,6 +119,11 @@ export const agentEntityClient = {
     input: { readonly agentId: string; readonly reason: string; readonly successor?: string },
   ): Promise<EntitySaveResult> =>
     save(await invoke("repo.agent.entity.retire", { repoId, ...input } as { readonly repoId: string } & object)),
+  restoreAgent: async (
+    repoId: string,
+    input: { readonly agentId: string; readonly reason: string; readonly expectedVersion?: number },
+  ): Promise<EntitySaveResult> =>
+    save(await invoke("repo.agent.entity.restore", { repoId, ...input } as { readonly repoId: string } & object)),
   deleteAgent: async (
     repoId: string,
     input: {
@@ -168,7 +173,7 @@ function save(value: unknown): EntitySaveResult {
     outcome = row.outcome;
   const proof = entityRecord(row.proof);
   if (containsSecretLikeKey(row)) throw new Error("Agent entity save returned a forbidden credential-shaped key.");
-  if (!["applied", "pending", "op_rejected"].includes(String(outcome)))
+  if (!["applied", "pending", "no_changes", "op_rejected"].includes(String(outcome)))
     throw new Error(rendererErrorHint(row, "Agent entity save returned an invalid receipt."));
   const error = entityRecord(row.error);
   return {

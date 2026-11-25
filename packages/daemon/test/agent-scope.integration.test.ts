@@ -671,6 +671,76 @@ test("registered daemon host passes userRoot end-to-end for local Agents (F-ROOT
       readonly agents: readonly { readonly id: string; readonly scope?: string }[];
     };
     assert.equal(guiList.agents.find((row) => row.id === declaration.id)?.scope, "local");
+
+    // Retired shared agent refuses unshare (--scope local), detects local conflict on restore, and unshares after restore.
+    const sharedDecl = {
+        schema: "agent-declaration/v1" as const,
+        id: "scope-retired-agent",
+        name: "Scope Retired Agent",
+        instructions: "Shared agent that will be retired and restored.",
+        runtimes: [{ type: "codex" }],
+        scope: "shared" as const,
+      },
+      sharedCreated = await host.run(
+        repoId,
+        { kind: "agent-install", declaration: sharedDecl, expectedVersion: 0, idempotencyKey: "scope-retired-create" },
+        unixSocketAuth,
+      );
+    assert.equal(sharedCreated.outcome, "applied", JSON.stringify(sharedCreated));
+    const sharedRetired = await host.run(
+      repoId,
+      {
+        kind: "agent-retire",
+        agentId: sharedDecl.id,
+        reason: "Pause shared agent.",
+        expectedVersion: sharedCreated.revision,
+        idempotencyKey: "scope-retired-retire",
+      },
+      unixSocketAuth,
+    );
+    assert.equal(sharedRetired.outcome, "applied", JSON.stringify(sharedRetired));
+
+    const unshareRetired = await host.run(
+      repoId,
+      {
+        kind: "agent-install",
+        agentId: sharedDecl.id,
+        scope: "local",
+        reactivate: true,
+        expectedVersion: sharedCreated.revision,
+        idempotencyKey: "scope-retired-unshare-blocked",
+      },
+      unixSocketAuth,
+    );
+    assert.equal(unshareRetired.outcome, "op_rejected", JSON.stringify(unshareRetired));
+    assert.equal(unshareRetired.code, "agent_retired");
+
+    const restoredShared = await host.run(
+      repoId,
+      {
+        kind: "agent-restore",
+        agentId: sharedDecl.id,
+        reason: "Restore shared agent before unshare.",
+        expectedVersion: sharedCreated.revision,
+        idempotencyKey: "scope-retired-restore",
+      },
+      unixSocketAuth,
+    );
+    assert.equal(restoredShared.outcome, "applied", JSON.stringify(restoredShared));
+
+    const unsharedAfterRestore = await host.run(
+      repoId,
+      {
+        kind: "agent-install",
+        agentId: sharedDecl.id,
+        scope: "local",
+        expectedVersion: sharedCreated.revision,
+        idempotencyKey: "scope-retired-unshare-after-restore",
+      },
+      unixSocketAuth,
+    );
+    assert.equal(unsharedAfterRestore.outcome, "applied", JSON.stringify(unsharedAfterRestore));
+    assert.notEqual(readLocalAgentRecord(userRoot, repoId, sharedDecl.id), null);
   } finally {
     await host.close();
     removeTempRepository(rootDir);

@@ -83,8 +83,32 @@ test("registered declaration Entity kinds explain the same contract shape from t
     },
     {
       catalogRef: "kernel/agent-action/v1",
-      available: ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign", "pin", "unpin"],
-      declared: ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign", "pin", "unpin"],
+      available: [
+        "install",
+        "delete",
+        "retire",
+        "restore",
+        "validate",
+        "list",
+        "inspect",
+        "assign",
+        "unassign",
+        "pin",
+        "unpin",
+      ],
+      declared: [
+        "install",
+        "delete",
+        "retire",
+        "restore",
+        "validate",
+        "list",
+        "inspect",
+        "assign",
+        "unassign",
+        "pin",
+        "unpin",
+      ],
     },
   );
   assert.deepEqual(
@@ -533,4 +557,115 @@ test("write-target comparison is order independent, rejects duplicates, and read
   assert.ok(reads <= count * 8, `comparison read ${reads} paths for ${count} targets`);
   assert.equal(sameWriteTargets([targets[0]!, targets[0]!], targets.slice(0, 2)), false);
   assert.equal(sameWriteTargets(targets.slice(0, 2), [targets[0]!, targets[0]!]), false);
+});
+
+test("agent_reactivated compiles, validates, clears EntityStore retirement, and preserves immutable history", async () => {
+  const { assertEntityEventInputs, isEntityDeclarationEvent, validateCurrentEntityEvent } = await import(
+      "../../src/domain/entity-event.ts"
+    ),
+    { compileAgentReactivated, compileAgentRetired } = await import("../../src/domain/entity-event-compile.ts"),
+    { compileAgentRestoreAction } = await import("../../src/domain/agent-action-contract.ts");
+  const events: EntityEventV1[] = [],
+    blobs = new Map<string, Uint8Array>(),
+    store = createEntityStore(entitySource(events, blobs)),
+    upserted = upsert(store, "agent", agent, 1);
+  events.push(upserted.event);
+  for (const blob of upserted.blobs) blobs.set(blob.sha256, Buffer.from(blob.body));
+
+  const retired = compileAgentRetired({
+    eventId: "event-retire-terra",
+    opId: "op-retire-terra",
+    workspaceRevision: 2,
+    actor,
+    source: "local",
+    occurredAt: "2026-11-25T07:00:00.000Z",
+    entityId: "terra",
+    priorVersion: 1,
+    retiredAt: "2026-11-25T07:00:00.000Z",
+    reason: "Temporarily paused.",
+    successor: "replacement",
+  });
+  events.push(retired.event);
+  assert.equal((store.get("agent", "terra")?.value as { lifecycleState?: string }).lifecycleState, "retired");
+
+  const reactivated = compileAgentReactivated({
+    eventId: "event-reactivate-terra",
+    opId: "op-reactivate-terra",
+    workspaceRevision: 3,
+    actor,
+    source: "local",
+    occurredAt: "2026-11-25T07:30:00.000Z",
+    entityId: "terra",
+    priorVersion: 1,
+    reactivatedAt: "2026-11-25T07:30:00.000Z",
+    reason: "Re-enabling after maintenance.",
+  });
+  assert.deepEqual(validateCurrentEntityEvent(reactivated.event), []);
+  assert.equal(isEntityDeclarationEvent(reactivated.event), false);
+  assert.doesNotThrow(() => assertEntityEventInputs(reactivated.event, reactivated.plan, reactivated.blobs));
+  assert.ok(
+    validateCurrentEntityEvent({
+      ...reactivated.event,
+      payload: { ...reactivated.event.payload, reason: "   " },
+    }).length > 0,
+  );
+  assert.ok(
+    validateCurrentEntityEvent({
+      ...reactivated.event,
+      payload: { ...reactivated.event.payload, extra: true },
+    }).length > 0,
+  );
+  events.push(reactivated.event);
+  const after = store.get<Record<string, unknown>>("agent", "terra");
+  assert.ok(after);
+  assert.equal(after.value.lifecycleState, undefined);
+  assert.equal(after.value.retirement, undefined);
+  assert.equal(after.workspaceRevision, 1, "declaration revision remains unchanged across lifecycle events");
+  assert.deepEqual(
+    events.map((item) => item.type),
+    ["entity_upserted", "agent_retired", "agent_reactivated"],
+  );
+
+  const compileInput = {
+    action: { kind: "agent-restore", agentId: "terra", reason: "Restore after pause.", expectedVersion: 1 },
+    actor,
+    source: "local" as const,
+    session: { sessionId: "session-1", runtimeInstanceId: null, startedAt: "2026-11-25T07:30:00.000Z" },
+    opId: "op-restore-1",
+    occurredAt: "2026-11-25T07:30:00.000Z",
+    workspaceRevision: 4,
+    entityRevision: 1,
+    currentEntity: { ...agent, lifecycleState: "retired" },
+  };
+  assert.deepEqual(compileAgentRestoreAction(compileInput), {
+    kind: "agent-restore",
+    entityId: "terra",
+    priorVersion: 1,
+    reactivatedAt: "2026-11-25T07:30:00.000Z",
+    reason: "Restore after pause.",
+  });
+  assert.deepEqual(compileAgentRestoreAction({ ...compileInput, currentEntity: agent }), {
+    kind: "agent-restore",
+    entityId: "terra",
+    priorVersion: 1,
+    reactivatedAt: "2026-11-25T07:30:00.000Z",
+    reason: "Restore after pause.",
+    noChanges: true,
+  });
+  assert.throws(
+    () =>
+      compileAgentRestoreAction({
+        ...compileInput,
+        action: { ...compileInput.action, expectedVersion: 99 },
+        currentEntity: agent,
+      }),
+    { code: "revision_conflict" },
+  );
+  assert.throws(() => compileAgentRestoreAction({ ...compileInput, entityRevision: undefined }), {
+    code: "agent_not_found",
+  });
+  assert.throws(
+    () => compileAgentRestoreAction({ ...compileInput, currentEntity: { ...agent, lifecycleState: "configured" } }),
+    { code: "agent_not_retired" },
+  );
 });

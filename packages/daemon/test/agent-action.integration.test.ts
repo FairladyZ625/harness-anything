@@ -936,3 +936,242 @@ test("agent list and inspect state the effective host access and whether it is d
     removeTempRepository(rootDir);
   }
 });
+
+test("retired agents reactivate via agent-restore and agent-install --reactivate with immutable history and idempotency", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-reactivate-"));
+  initRepo(rootDir);
+  let cell = await openRepoCell({
+    repoId: workspaceId("agent-reactivate"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "agent-reactivate-test",
+  });
+  try {
+    const initial = { ...declaration, id: "reactivate-worker", name: "Reactivate Worker" };
+    const installed = await cell.run(
+      { kind: "agent-install", declaration: initial, expectedVersion: 0, idempotencyKey: "reactivate-install-v1" },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const v1Revision = installed.revision!;
+
+    const retired = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: initial.id,
+        reason: "Retired by mistake.",
+        successor: "other-worker",
+        expectedVersion: v1Revision,
+        idempotencyKey: "reactivate-retire-1",
+      },
+      binding,
+    );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+
+    // Plain reinstall without --reactivate still rejects with agent_retired.
+    const plainReinstall = await cell.run(
+      { kind: "agent-install", declaration: initial, idempotencyKey: "reactivate-plain-blocked" },
+      binding,
+    );
+    assert.equal(plainReinstall.outcome, "op_rejected", JSON.stringify(plainReinstall));
+    assert.equal(plainReinstall.code, "agent_retired");
+
+    // Stale expectedVersion on restore rejects with revision_conflict without appending.
+    const staleRestore = await cell.run(
+      {
+        kind: "agent-restore",
+        agentId: initial.id,
+        reason: "Stale attempt.",
+        expectedVersion: v1Revision + 99,
+        idempotencyKey: "reactivate-stale",
+      },
+      binding,
+    );
+    assert.equal(staleRestore.outcome, "op_rejected", JSON.stringify(staleRestore));
+    assert.equal(staleRestore.code, "revision_conflict");
+
+    // Missing agent rejects with agent_not_found.
+    const missingRestore = await cell.run(
+      {
+        kind: "agent-restore",
+        agentId: "does-not-exist",
+        reason: "Missing agent.",
+        idempotencyKey: "reactivate-missing",
+      },
+      binding,
+    );
+    assert.equal(missingRestore.outcome, "op_rejected", JSON.stringify(missingRestore));
+    assert.equal(missingRestore.code, "agent_not_found");
+
+    // Inspect exposes declaration revision (v1Revision), which agent-restore accepts as expectedVersion.
+    const inspectedRetired = await cell.run({ kind: "agent-inspect", agentId: initial.id }, binding);
+    assert.equal(JSON.parse(String(inspectedRetired.evidence)).workspaceRevision, v1Revision);
+
+    // Explicit agent-restore transitions retired -> active via agent_reactivated.
+    const restored = await cell.run(
+      {
+        kind: "agent-restore",
+        agentId: initial.id,
+        reason: "Mistaken retirement rolled back.",
+        expectedVersion: v1Revision,
+        idempotencyKey: "reactivate-restore-1",
+      },
+      binding,
+    );
+    assert.equal(restored.outcome, "applied", JSON.stringify(restored));
+    assert.deepEqual(restored.effects, ["entity-event/agent_reactivated"]);
+
+    // Verify immutable event history retains agent_retired and agent_reactivated.
+    const eventStore = openSqliteEventStore({
+      repoId: workspaceId("agent-reactivate"),
+      rootInput: rootDir,
+      readOnly: true,
+    });
+    try {
+      const retireEvent = eventStore.event(retired.opId),
+        restoreEvent = eventStore.event(restored.opId);
+      assert.equal(retireEvent?.type, "agent_retired");
+      assert.equal(restoreEvent?.type, "agent_reactivated");
+      if (restoreEvent?.type === "agent_reactivated") {
+        assert.equal(restoreEvent.payload.priorVersion, v1Revision);
+        assert.equal(restoreEvent.payload.reason, "Mistaken retirement rolled back.");
+      }
+      const stored = openEntityStore(rootDir).get<Record<string, unknown>>("agent", initial.id);
+      assert.equal(stored?.value.lifecycleState, undefined);
+      assert.equal(stored?.value.retirement, undefined);
+    } finally {
+      eventStore.close();
+    }
+
+    // Active again on inspect, list, dispatch gate, and dry-run spawn.
+    const inspectedActive = await cell.run({ kind: "agent-inspect", agentId: initial.id }, binding),
+      activeEvidence = JSON.parse(String(inspectedActive.evidence));
+    assert.equal(activeEvidence.workspaceRevision, v1Revision);
+    assert.deepEqual(activeEvidence.agent, initial);
+    assert.equal(assertAgentDispatchable(readAgentDeclaration({ rootDir, agentId: initial.id })), "active");
+
+    // Repeated restore on an already-active agent is idempotent (no_changes, no duplicate event).
+    const repeatRestore = await cell.run(
+      {
+        kind: "agent-restore",
+        agentId: initial.id,
+        reason: "Already active.",
+        expectedVersion: v1Revision,
+        idempotencyKey: "reactivate-restore-repeat",
+      },
+      binding,
+    );
+    assert.equal(repeatRestore.outcome, "no_changes", JSON.stringify(repeatRestore));
+    assert.deepEqual(repeatRestore.effects, []);
+
+    // Stale expectedVersion still fails even when the agent is already active.
+    const staleActiveRestore = await cell.run(
+      {
+        kind: "agent-restore",
+        agentId: initial.id,
+        reason: "Stale active restore.",
+        expectedVersion: v1Revision + 5,
+        idempotencyKey: "reactivate-restore-stale-active",
+      },
+      binding,
+    );
+    assert.equal(staleActiveRestore.outcome, "op_rejected", JSON.stringify(staleActiveRestore));
+    assert.equal(staleActiveRestore.code, "revision_conflict");
+
+    // Cold projection rebuild preserves active state after retire -> reactivate.
+    await cell.close();
+    const staleDb = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite"));
+    staleDb.exec("UPDATE projection_meta SET schema_version = 32 WHERE singleton = 1");
+    staleDb.close();
+    cell = await openRepoCell({
+      repoId: workspaceId("agent-reactivate"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "agent-reactivate-reopened",
+    });
+    const afterRebuild = await cell.run({ kind: "agent-inspect", agentId: initial.id }, binding);
+    assert.deepEqual(JSON.parse(String(afterRebuild.evidence)).agent, initial);
+
+    // Retire a second time (using declaration revision v1Revision) -> reactivate via agent-install --reactivate.
+    const retiredAgain = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: initial.id,
+        reason: "Retire before declaration upgrade.",
+        expectedVersion: v1Revision,
+        idempotencyKey: "reactivate-retire-2",
+      },
+      binding,
+    );
+    assert.equal(retiredAgain.outcome, "applied", JSON.stringify(retiredAgain));
+
+    const upgraded = { ...initial, name: "Reactivate Worker v2", instructions: "Updated instructions after restore." };
+    const reactivatedInstall = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: upgraded,
+        reactivate: true,
+        reason: "Reinstall with updated instructions.",
+        expectedVersion: v1Revision,
+        idempotencyKey: "reactivate-install-v2",
+      },
+      binding,
+    );
+    assert.equal(reactivatedInstall.outcome, "applied", JSON.stringify(reactivatedInstall));
+    assert.deepEqual(reactivatedInstall.effects, ["entity-event/agent_reactivated", "entity-event/entity_upserted"]);
+    const v2Revision = reactivatedInstall.revision!;
+    assert.ok(v2Revision > v1Revision);
+
+    const inspectedV2 = await cell.run({ kind: "agent-inspect", agentId: initial.id }, binding);
+    assert.deepEqual(JSON.parse(String(inspectedV2.evidence)).agent, upgraded);
+    assert.equal(JSON.parse(String(inspectedV2.evidence)).workspaceRevision, v2Revision);
+    assert.equal(
+      openEntityStore(rootDir).get<Record<string, unknown>>("agent", initial.id)?.value.retirement,
+      undefined,
+    );
+
+    // Retire a third time -> in-place agent-install --id --reactivate without overrides.
+    const retiredThird = await cell.run(
+      {
+        kind: "agent-retire",
+        agentId: initial.id,
+        reason: "Retire before id-only reactivate.",
+        expectedVersion: v2Revision,
+        idempotencyKey: "reactivate-retire-3",
+      },
+      binding,
+    );
+    assert.equal(retiredThird.outcome, "applied", JSON.stringify(retiredThird));
+    const reactivatedById = await cell.run(
+      {
+        kind: "agent-install",
+        agentId: initial.id,
+        reactivate: true,
+        reason: "In-place reactivate via install --id.",
+        expectedVersion: v2Revision,
+        idempotencyKey: "reactivate-install-id-only",
+      },
+      binding,
+    );
+    assert.equal(reactivatedById.outcome, "applied", JSON.stringify(reactivatedById));
+    assert.deepEqual(reactivatedById.effects, ["entity-event/agent_reactivated"]);
+    const inspectedAfterIdOnly = await cell.run({ kind: "agent-inspect", agentId: initial.id }, binding);
+    assert.deepEqual(JSON.parse(String(inspectedAfterIdOnly.evidence)).agent, upgraded);
+    assert.equal(JSON.parse(String(inspectedAfterIdOnly.evidence)).workspaceRevision, v2Revision);
+
+    // Repeat id-only reactivate when active returns no_changes.
+    const repeatById = await cell.run(
+      {
+        kind: "agent-install",
+        agentId: initial.id,
+        reactivate: true,
+        expectedVersion: v2Revision,
+        idempotencyKey: "reactivate-install-id-repeat",
+      },
+      binding,
+    );
+    assert.equal(repeatById.outcome, "no_changes", JSON.stringify(repeatById));
+    assert.deepEqual(repeatById.effects, []);
+  } finally {
+    await cell.close();
+    removeTempRepository(rootDir);
+  }
+});

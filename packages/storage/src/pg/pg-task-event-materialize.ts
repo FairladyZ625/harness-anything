@@ -915,6 +915,36 @@ async function storeEntityEvent(
     tables.add("ha_agents");
     return;
   }
+  if ((event.type as string) === "agent_reactivated") {
+    if (getClientDialectCapabilities(client).supportsExtendedJsonb) {
+      await client.query(
+        `UPDATE ha_agents SET declaration = declaration - 'lifecycleState' - 'retirement', workspace_revision=$1, updated_at=$2::timestamptz WHERE tenant_id=$3 AND project_id=$4 AND policy_epoch=$5 AND agent_id=$6`,
+        [event.workspaceRevision, event.occurredAt, scope.tenantId, scope.projectId, scope.policyEpoch, id],
+      );
+    } else {
+      const existing = await client.query<{ readonly declaration: Record<string, unknown> }>(
+        `SELECT declaration FROM ha_agents WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND agent_id=$4 FOR UPDATE`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, id],
+      );
+      if (existing.rows[0]) {
+        const { lifecycleState: _lifecycleState, retirement: _retirement, ...rest } = existing.rows[0].declaration;
+        await client.query(
+          `UPDATE ha_agents SET declaration = $1::jsonb, workspace_revision=$2, updated_at=$3::timestamptz WHERE tenant_id=$4 AND project_id=$5 AND policy_epoch=$6 AND agent_id=$7`,
+          [
+            JSON.stringify(rest),
+            event.workspaceRevision,
+            event.occurredAt,
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            id,
+          ],
+        );
+      }
+    }
+    tables.add("ha_agents");
+    return;
+  }
   if (kind !== "agent" && kind !== "squad") return;
   let raw: unknown;
   let documentPath: string | null = null;

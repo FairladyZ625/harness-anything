@@ -1,4 +1,5 @@
 import {
+  agentReactivatedWritePlan,
   agentRetiredWritePlan,
   entityDeletedWritePlan,
   entityUpsertWritePlan,
@@ -8,6 +9,7 @@ import {
   type EntityActionContract,
   type EntityDeletedBundle,
   type EntityUpsertBundle,
+  type AgentReactivatedBundle,
   type AgentRetiredBundle,
   type DecisionEventV1,
   type FactEventV1,
@@ -22,6 +24,7 @@ type ReplayBundle =
   | EntityUpsertBundle
   | EntityDeletedBundle
   | AgentRetiredBundle
+  | AgentReactivatedBundle
   | RuntimeSessionBundle
   | ReturnType<typeof factReplayBundle>
   | {
@@ -78,6 +81,12 @@ export function matchingReplayBundle(
     existing.payload.entityKind === contract.target.kind
   )
     return { event: existing, plan: agentRetiredWritePlan(existing), blobs: [] };
+  if (
+    existing?.schema === "entity-event/v1" &&
+    existing.type === "agent_reactivated" &&
+    existing.payload.entityKind === contract.target.kind
+  )
+    return { event: existing, plan: agentReactivatedWritePlan(existing), blobs: [] };
   if (existing?.schema === "fact-event/v1" && writesFact)
     return factReplayBundle(store, existing as FactEventV1) as ReplayBundle;
   if (existing?.schema === "decision-event/v1" && !writesFact) {

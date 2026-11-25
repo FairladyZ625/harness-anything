@@ -17,6 +17,8 @@ export function reduceEntityDeclarationState(
           reason: event.payload.reason,
           ...(event.payload.successor === undefined ? {} : { successor: event.payload.successor }),
         }
-      : (before?.retirement ?? null);
+      : event.type === "agent_reactivated"
+        ? null
+        : (before?.retirement ?? null);
   return { declaration, retirement };
 }

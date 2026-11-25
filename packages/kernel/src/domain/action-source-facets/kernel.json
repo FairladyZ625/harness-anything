@@ -59,6 +59,9 @@
     "agent-install": {
       "owner": "agent"
     },
+    "agent-restore": {
+      "owner": "agent"
+    },
     "agent-retire": {
       "owner": "agent"
     },
@@ -1919,6 +1922,26 @@
         "route": "agent-assign",
         "role": "support",
         "order": 0
+      }
+    ],
+    "agent-restore": [
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRestoreAction:0cfb2c9886f93f3ea6b4439b823ed8aa",
+        "route": "agent-restore",
+        "role": "support",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRestoreAction:4c7a3d2c41e53e97705fb6cc5809681f",
+        "route": "agent-restore",
+        "role": "support",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#compileAgentRestoreAction:94b457092020182e99ead3de44dde444",
+        "route": "agent-restore",
+        "role": "support",
+        "order": 2
       }
     ],
     "agent-retire": [

@@ -765,6 +765,7 @@ export const hostKernelPolicies = [
       "policy:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#createAgentActionCatalog.actions.concurrency.artifactOwnership.policy:20645fb96fa39ee38211b2808a0eb831",
       "policy:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#createAgentActionCatalog.actions.concurrency.idempotency.retry:07cfb06bbdf2ce5bc3d4540d00cee5ff:2",
       "policy:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#createAgentActionCatalog.actions.concurrency.idempotency.retry:07cfb06bbdf2ce5bc3d4540d00cee5ff:3",
+      "policy:packages/kernel:packages/kernel/src/domain/agent-action-contract.ts#createAgentActionCatalog.actions.concurrency.idempotency.retry:07cfb06bbdf2ce5bc3d4540d00cee5ff:4",
       "policy:packages/kernel:packages/kernel/src/domain/person-action-contract.ts#personConcurrency.idempotency.retry:a65042f17fee2b0b045db9c29cb224ed",
       "policy:packages/kernel:packages/kernel/src/domain/runtime-session-action-contract.ts#concurrency.idempotency.retry:0cc2df45fcafed5e46eb80318ab3504d",
       "policy:packages/kernel:packages/kernel/src/domain/runtime-session-action-contract.ts#concurrency.artifactOwnership.policy:fdf3c2cc24ee85f50e1be0801ffc55c4",

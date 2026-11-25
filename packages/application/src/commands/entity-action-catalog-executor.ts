@@ -6,6 +6,7 @@ import {
   compileEntityUpsert,
   compileEntityDeleted,
   compileAgentRetired,
+  compileAgentReactivated,
   compileDecisionWrite,
   compileFactWrite,
   decisionRelationLinkResolver,
@@ -34,6 +35,7 @@ import {
   type EntityUpsertBundle,
   type EntityDeletedBundle,
   type AgentRetiredBundle,
+  type AgentReactivatedBundle,
   type EventPublicationKillpoint,
   type SessionIdentity,
   type TaskProjection,
@@ -86,8 +88,25 @@ import { executeAgentScopeDelete, runCatalogAgentScopeInstall } from "./agent-sc
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
-type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle | AgentRetiredBundle;
-type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle | RuntimeSessionNoChanges;
+type EntityUpsertCatalogBundle = EntityUpsertBundle & { readonly preceding: readonly [AgentReactivatedBundle] };
+type EntityCatalogBundle =
+  | EntityUpsertBundle
+  | EntityUpsertCatalogBundle
+  | EntityDeletedBundle
+  | AgentRetiredBundle
+  | AgentReactivatedBundle;
+type AgentRestoreNoChanges = {
+  readonly noChanges: true;
+  readonly entityId: string;
+  readonly priorVersion: number;
+};
+type CatalogBundle =
+  | FactBundle
+  | DecisionBundle
+  | EntityCatalogBundle
+  | RuntimeSessionBundle
+  | RuntimeSessionNoChanges
+  | AgentRestoreNoChanges;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: CommandAction,
@@ -519,7 +538,24 @@ export function makeEntityActionCatalogExecutor(input: {
     ) {
       bundle = input.attachDecisionReviewerArtifact(bundle, { action, binding });
     }
-    if ("noChanges" in bundle)
+    if ("noChanges" in bundle) {
+      if ("entityId" in bundle)
+        return deriveActionResult(contract, action, {
+          ...noChanges({
+            opId,
+            revision: bundle.priorVersion,
+            headRevision: input.projection.readCut().watermark,
+            evidence: JSON.stringify({
+              schema: "agent-restore-no-changes/v1",
+              entityId: bundle.entityId,
+              action: contract.id,
+              lifecycleState: "active",
+            }),
+            authorizationDecision,
+            origin: `agent/${contract.id}`,
+          }),
+          effects: [],
+        });
       return deriveActionResult(
         contract,
         action,
@@ -536,6 +572,7 @@ export function makeEntityActionCatalogExecutor(input: {
           origin: `runtime-session/${contract.id}`,
         }),
       );
+    }
     if (isRuntimeSessionBundle(bundle)) {
       if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       if (bundle.event.type === "runtime_session_outcome_observed") {
@@ -554,9 +591,23 @@ export function makeEntityActionCatalogExecutor(input: {
     }
     if (isEntityBundle(bundle)) {
       if (dryRun) {
-        if (!isEntityUpsertBundle(bundle))
-          reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
-        return entityPreview(action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
+        if (isEntityUpsertBundle(bundle))
+          return entityPreview(action, bundle, input.store.readHead()?.revision ?? 0, authorizationDecision);
+        if (bundle.event.type === "agent_reactivated" && action.kind === "agent-install")
+          return {
+            outcome: "pending",
+            opId: `preview:${createHash("sha256").update(bundle.event.opId).digest("hex")}`,
+            revision: input.store.readHead()?.revision ?? 0,
+            evidence: JSON.stringify({
+              report: preparedEntityReport(action),
+              event: bundle.event,
+              dryRun: true,
+            }),
+            effects: [],
+            updatedProjection: null,
+            authorizationDecision,
+          };
+        reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       }
       return deriveActionResult(
         contract,
@@ -602,20 +653,31 @@ export function makeEntityActionCatalogExecutor(input: {
     authorizationDecision: AuthorizationDecision,
   ): WriteReceipt => {
     const appended = input.store.append(bundle);
-    if (!replay) input.projection.apply(bundle.event, bundle.plan);
+    if (!replay) {
+      for (const preceding of "preceding" in bundle ? (bundle.preceding ?? []) : [])
+        input.projection.apply(preceding.event, preceding.plan);
+      input.projection.apply(bundle.event, bundle.plan);
+    }
     publicationKillpoints(input.killpoint);
     const applied = input.projection.readOperation(bundle.event.opId),
       visible = !!applied && applied.watermark >= bundle.event.workspaceRevision,
       warnings = preparedEntityWarnings(action),
+      hasPrecedingReactivation =
+        "preceding" in bundle && (bundle.preceding ?? []).some(({ event }) => event.type === "agent_reactivated"),
       path =
         bundle.event.type === "entity_deleted"
           ? bundle.event.payload.ownedContent.retirements[0]!.path
-          : bundle.event.type === "agent_retired"
+          : bundle.event.type === "agent_retired" || bundle.event.type === "agent_reactivated"
             ? `agents/${bundle.event.payload.entityId}.json`
             : bundle.event.payload.declarationDocumentClaim.path,
       receipt = {
         opId: bundle.event.opId,
         revision: appended.revision,
+        ...(hasPrecedingReactivation
+          ? { effects: ["entity-event/agent_reactivated", "entity-event/entity_upserted"] }
+          : bundle.event.type === "agent_reactivated"
+            ? { effects: ["entity-event/agent_reactivated"] }
+            : {}),
         evidence: JSON.stringify({
           report: preparedEntityReport(action),
           event: {
@@ -635,7 +697,9 @@ export function makeEntityActionCatalogExecutor(input: {
           canonicalVisible: visible,
           worktreeVisible: true,
         },
-        ...(bundle.event.type === "entity_deleted" || bundle.event.type === "agent_retired"
+        ...(bundle.event.type === "entity_deleted" ||
+        bundle.event.type === "agent_retired" ||
+        bundle.event.type === "agent_reactivated"
           ? {}
           : {
               detail: {
@@ -675,19 +739,7 @@ export function makeEntityActionCatalogExecutor(input: {
     const headRevision = input.store.readHead()?.revision ?? 0,
       workspaceRevision = allocatedRevision ?? headRevision + 1,
       coverage = contract.id === "reckon" ? decisionCoverage(action, decisions) : undefined,
-      currentEntity =
-        contract.target.kind === "runtime-session"
-          ? input.projection.readRuntimeSession(requiredCommandText(action.runtimeSessionId, "runtimeSessionId"))
-          : contract.target.kind === "agent" || contract.target.kind === "squad"
-            ? input.projection.getEntity(
-                contract.target.kind,
-                requiredCommandText(
-                  action[contract.execution.targetIdField ?? "entityId"],
-                  contract.execution.targetIdField ?? "entityId",
-                ),
-              )?.value
-            : undefined,
-      entityRevision =
+      entityRow =
         contract.target.kind === "agent" || contract.target.kind === "squad"
           ? input.projection.getEntity(
               contract.target.kind,
@@ -695,8 +747,44 @@ export function makeEntityActionCatalogExecutor(input: {
                 action[contract.execution.targetIdField ?? "entityId"],
                 contract.execution.targetIdField ?? "entityId",
               ),
-            )?.workspaceRevision
+            )
           : undefined,
+      currentEntity =
+        contract.target.kind === "runtime-session"
+          ? input.projection.readRuntimeSession(requiredCommandText(action.runtimeSessionId, "runtimeSessionId"))
+          : entityRow?.value,
+      entityRevision = entityRow
+        ? typeof entityRow.currentVersion === "number"
+          ? entityRow.currentVersion
+          : entityRow.workspaceRevision
+        : undefined,
+      reactivateRetired =
+        contract.target.kind === "agent" &&
+        contract.id === "install" &&
+        typeof action.reactivateRetired === "object" &&
+        action.reactivateRetired !== null
+          ? (action.reactivateRetired as { readonly priorVersion: number; readonly reason: string })
+          : null;
+    if (contract.target.kind === "agent" && contract.id === "install" && action.reactivateOnly === true) {
+      const entityId = requiredCommandText(action.entityId ?? action.agentId, "agentId");
+      if (reactivateRetired === null) {
+        if (entityRevision === undefined) reject("agent_not_found", `${entityId} is not an installed agent.`);
+        return { noChanges: true, entityId, priorVersion: entityRevision };
+      }
+      return compileAgentReactivated({
+        eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
+        opId,
+        workspaceRevision,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt,
+        entityId,
+        priorVersion: reactivateRetired.priorVersion,
+        reactivatedAt: occurredAt,
+        reason: reactivateRetired.reason,
+      });
+    }
+    const targetRevision = reactivateRetired ? workspaceRevision + 1 : workspaceRevision,
       draft = compile({
         action,
         actor: binding.actor,
@@ -704,18 +792,18 @@ export function makeEntityActionCatalogExecutor(input: {
         session: input.sessionIdentity(binding),
         opId,
         occurredAt,
-        workspaceRevision,
+        workspaceRevision: targetRevision,
         ...(currentEntity === undefined ? {} : { currentEntity }),
         ...(entityRevision === undefined ? {} : { entityRevision }),
         ...(coverage ? { coverage } : {}),
       });
-    return compileDraft(
+    const compiled = compileDraft(
       input.projection,
       draft,
       {
         eventId: `event-${createHash("sha256").update(opId).digest("hex")}`,
         opId,
-        workspaceRevision,
+        workspaceRevision: targetRevision,
         actor: binding.actor,
         source: binding.source,
         occurredAt,
@@ -724,6 +812,23 @@ export function makeEntityActionCatalogExecutor(input: {
       readDecisionReviewRequirement,
       relationBundle,
     );
+    if (reactivateRetired && isEntityBundle(compiled) && isEntityUpsertBundle(compiled)) {
+      const reactivatedOpId = `op_${createHash("sha256").update(`${opId}:reactivate`).digest("hex")}`,
+        reactivatedBundle = compileAgentReactivated({
+          eventId: `event-${createHash("sha256").update(reactivatedOpId).digest("hex")}`,
+          opId: reactivatedOpId,
+          workspaceRevision,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt,
+          entityId: compiled.event.payload.entityId,
+          priorVersion: reactivateRetired.priorVersion,
+          reactivatedAt: occurredAt,
+          reason: reactivateRetired.reason,
+        });
+      return { ...compiled, preceding: [reactivatedBundle] };
+    }
+    return compiled;
   };
 
   return Object.freeze({ run });
@@ -854,6 +959,16 @@ function compileDraft(
       reason: draft.reason,
       ...(draft.successor === undefined ? {} : { successor: draft.successor }),
     });
+  if (draft.kind === "agent-restore")
+    return draft.noChanges === true
+      ? { noChanges: true, entityId: draft.entityId, priorVersion: draft.priorVersion }
+      : compileAgentReactivated({
+          ...event,
+          entityId: draft.entityId,
+          priorVersion: draft.priorVersion,
+          reactivatedAt: draft.reactivatedAt,
+          reason: draft.reason,
+        });
   if (draft.kind === "runtime-session") {
     if (draft.noChanges && draft.event.type === "runtime_session_outcome_observed") {
       const lifecycle = projection.readDispatchLifecycle({

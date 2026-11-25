@@ -741,6 +741,8 @@ export const agentProtocolCommands = Object.freeze([
         { code: "invalid_runtime_mcp_policy" },
         { field: "clearMcpPolicy", conflictsWith: ["--mcp-policy"] },
       ),
+      cliInput("--reactivate", "boolean", false, { code: "invalid_field" }, { field: "reactivate" }),
+      cliInput("--reason", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
       cliInput(
         "--expected-version",
@@ -951,6 +953,48 @@ export const agentProtocolCommands = Object.freeze([
     inputs: [
       cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
       cliInput("--successor", "single", false, { code: "invalid_field" }, { pathKind: "non-path" }),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "agent-restore",
+    phase: "Runtime-B",
+    path: ["agent", "restore", "<agent-id>"],
+    summary: "Reactivate a retired Agent while preserving its canonical retirement history.",
+    method: "repo.task.run",
+    positional: "agentId",
+    positionalInputs: [{ name: "<agent-id>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
+      ),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "agent-unretire",
+    // CLI alias only: forwards to the canonical agent-restore action so authorization,
+    // receipt rendering, and the Action inventory stay singular. Declared after agent-restore
+    // so action-kind lookups resolve to agent-restore.
+    actionKind: "agent-restore",
+    phase: "Runtime-B",
+    path: ["agent", "unretire", "<agent-id>"],
+    summary: "Reactivate a retired Agent (alias of agent restore).",
+    method: "repo.task.run",
+    positional: "agentId",
+    positionalInputs: [{ name: "<agent-id>", pathKind: "non-path", pathReader: "none" }],
+    inputs: [
+      cliInput("--reason", "single", true, { code: "missing_field" }, { pathKind: "non-path" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { pathKind: "non-path", regex: "^[0-9]+$", projection: "number" },
+      ),
     ],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({

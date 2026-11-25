@@ -49,7 +49,7 @@ test("SQLite current declarations skip tombstones and writer catch-up repairs an
       const reader = openEntityStore(rootDir);
       try {
         assert.throws(() => reader.get("agent", "factory-agent"), { code: "projection_pending" });
-        store.append(bundle(eventAt(6)));
+        store.append(bundle(eventAt((store.readHead()?.revision ?? 0) + 1)));
         assert.throws(() => reader.get("agent", "factory-agent"), { code: "projection_pending" });
       } finally {
         reader.close();

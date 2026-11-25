@@ -152,6 +152,34 @@ test(
       reason: "Retire test worker.",
     });
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    const staleRestore = await edge.command({
+      kind: "agent-restore",
+      agentId: agent.id,
+      expectedVersion: 0,
+      reason: "Stale restore.",
+    });
+    assert.equal(staleRestore.code, "revision_conflict", JSON.stringify(staleRestore));
+    const restored = await edge.command({
+      kind: "agent-restore",
+      agentId: agent.id,
+      expectedVersion: installed.revision,
+      reason: "Restore test worker over fleet channel.",
+    });
+    assert.equal(restored.outcome, "applied", JSON.stringify(restored));
+    const repeatRestored = await edge.command({
+      kind: "agent-restore",
+      agentId: agent.id,
+      expectedVersion: installed.revision,
+      reason: "Repeat restore is idempotent.",
+    });
+    assert.equal(repeatRestored.outcome, "no_changes", JSON.stringify(repeatRestored));
+    const retiredBeforeDelete = await edge.command({
+      kind: "agent-retire",
+      agentId: agent.id,
+      expectedVersion: installed.revision,
+      reason: "Retire test worker again.",
+    });
+    assert.equal(retiredBeforeDelete.outcome, "applied", JSON.stringify(retiredBeforeDelete));
     const inspected = await f.host.run("lease-repo", { kind: "agent-inspect", agentId: agent.id }, localAuthFixture());
     assert.equal(inspected.outcome, "applied", JSON.stringify(inspected));
     const deleted = await edge.command({

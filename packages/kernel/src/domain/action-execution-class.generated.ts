@@ -8,6 +8,7 @@ export const actionExecutionClasses: Readonly<Record<string, ActionExecutionClas
     ["agent-assign", "repo-write"],
     ["agent-delete", "repo-write"],
     ["agent-install", "repo-write"],
+    ["agent-restore", "repo-write"],
     ["agent-retire", "repo-write"],
     ["agent-run", "repo-write"],
     ["agent-unassign", "repo-write"],

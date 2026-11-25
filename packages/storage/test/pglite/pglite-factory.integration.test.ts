@@ -65,7 +65,7 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
         });
         // Closing one facade cannot stop the owner still used by the other facade.
         projection.close();
-        assert.equal(store.readHead()?.revision, events.length + 5);
+        assert.equal(store.readHead()?.revision, events.length + 6);
         await store.drain();
         // Simulate a pre-expansion database, using the physical owner only after all facades closed.
         const old = await createPGliteStorageBackend({ repoId, storage });
@@ -87,14 +87,14 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
           });
         try {
           const receipt = await warmed.catchUpAsync!();
-          assert.equal(receipt.watermark, events.length + 5);
+          assert.equal(receipt.watermark, events.length + 6);
           assert.equal(receipt.metrics.maxBatchItems, 1);
           assert.deepEqual(
             progress,
-            Array.from({ length: events.length + 5 }, (_, i) => i + 1),
+            Array.from({ length: events.length + 6 }, (_, i) => i + 1),
           );
           assert.equal(warmed.catchUp!().metrics.reducedItems, 0);
-          assert.equal(reopened.readHead()?.revision, events.length + 5);
+          assert.equal(reopened.readHead()?.revision, events.length + 6);
           assert.deepEqual(
             reader.withSession((queries) => queries.read("task-factory").snapshot),
             snapshot,

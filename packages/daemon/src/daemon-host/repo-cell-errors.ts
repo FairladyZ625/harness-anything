@@ -154,7 +154,8 @@ export function fatalCellError(error: unknown): boolean {
     normalized.code === "revision_conflict" &&
     (((criterion?.actionId === "install" || criterion?.actionId === "delete") &&
       (criterion.criterionRef === "agent/entity-revision" || criterion.criterionRef === "squad/entity-revision")) ||
-      (criterion?.actionId === "retire" && criterion.criterionRef === "agent/entity-revision"))
+      ((criterion?.actionId === "retire" || criterion?.actionId === "restore") &&
+        criterion.criterionRef === "agent/entity-revision"))
   )
     return false;
   switch (normalized._tag) {

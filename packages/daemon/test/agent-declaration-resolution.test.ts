@@ -11,7 +11,11 @@ import {
   readAgentDeclaration,
   readAgentDeclarationResolution,
 } from "../src/daemon-host/agent-declaration-resolution.ts";
-import { prepareAgentEntityDelete, prepareAgentEntityInstall } from "../src/daemon-host/agent-entities.ts";
+import {
+  prepareAgentEntityDelete,
+  prepareAgentEntityInstall,
+  prepareAgentEntityRestore,
+} from "../src/daemon-host/agent-entities.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const installed: AgentDeclarationV1 = {
@@ -512,5 +516,90 @@ test("HA09-10: already-retired custom agent colliding with a newly shipped bundl
         entityStore: makeStore(retiredOrdinary),
       }),
     { code: "agent_retired" },
+  );
+
+  // 6. Explicit reactivate: true on an ordinary retired custom agent prepares reactivation metadata.
+  const preparedCustomReactivate = prepareAgentEntityInstall({
+    rootDir: "/unused",
+    action: {
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "retired-custom-only",
+        name: "Revived Custom",
+        role: "worker",
+        instructions: "Explicitly reactivated custom agent.",
+        runtimes: [{ type: "codex", model: "active-model" }],
+      },
+      reactivate: true,
+      reason: "Operator requested reinstall reactivation.",
+      expectedVersion: 10,
+    },
+    entityStore: makeStore(retiredOrdinary),
+  });
+  assert.deepEqual(preparedCustomReactivate.reactivateRetired, {
+    priorVersion: 10,
+    reason: "Operator requested reinstall reactivation.",
+  });
+
+  // 7. Reactivate-only install by agentId strips retirement metadata and marks reactivateOnly.
+  const preparedIdOnly = prepareAgentEntityInstall({
+    rootDir: "/unused",
+    action: {
+      kind: "agent-install",
+      agentId: "retired-custom-only",
+      reactivate: true,
+      reason: "Restore without overrides.",
+      expectedVersion: 10,
+    },
+    entityStore: makeStore(retiredOrdinary),
+  });
+  assert.equal(preparedIdOnly.reactivateOnly, true);
+  assert.deepEqual(preparedIdOnly.reactivateRetired, {
+    priorVersion: 10,
+    reason: "Restore without overrides.",
+  });
+
+  // 8. Retired shared agent cannot bypass retirement by switching to local scope.
+  assert.throws(
+    () =>
+      prepareAgentEntityInstall({
+        rootDir: "/unused",
+        action: {
+          kind: "agent-install",
+          agentId: "retired-custom-only",
+          scope: "local",
+          reactivate: true,
+          expectedVersion: 10,
+        },
+        entityStore: makeStore(retiredOrdinary),
+      }),
+    { code: "agent_retired" },
+  );
+
+  // 9. prepareAgentEntityRestore blocks divergent local/shared scope conflicts.
+  assert.throws(
+    () =>
+      prepareAgentEntityRestore({
+        action: { kind: "agent-restore", agentId: "retired-custom-only", reason: "Restore" },
+        replayed: null,
+        projection: {
+          getEntity: () => ({ value: retiredOrdinary }) as never,
+        },
+        localAgent: () => ({
+          schema: "local-agent-record/v1",
+          id: "retired-custom-only",
+          revision: 1,
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "retired-custom-only",
+            name: "Divergent local copy",
+            instructions: "Different body.",
+            runtimes: [{ type: "codex" }],
+            scope: "local",
+          },
+        }),
+      }),
+    { code: "agent_scope_conflict" },
   );
 });

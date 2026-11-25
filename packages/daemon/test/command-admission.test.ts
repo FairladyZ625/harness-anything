@@ -80,6 +80,9 @@ test("fleet forwarded writes use their declared entity identity", () => {
   for (const action of [
     { kind: "agent-delete", agentId: "worker", reason: "Remove worker.", expectedVersion: 1 },
     { kind: "agent-retire", agentId: "worker", reason: "Retire worker." },
+    { kind: "agent-restore", agentId: "worker", reason: "Restore worker." },
+    { kind: "agent-restore", agentId: "worker", reason: "Restore worker.", expectedVersion: 1 },
+    { kind: "agent-install", agentId: "worker", reactivate: true, reason: "Reactivate worker.", expectedVersion: 1 },
     { kind: "squad-delete", squadId: "team", reason: "Remove team.", expectedVersion: 1 },
     { kind: "vertical-kind-publish-schema", kindId: "software/document", attributes: {}, expectedVersion: 1 },
     { kind: "vertical-kind-retire", kindId: "software/document", reason: "Retire kind.", expectedVersion: 1 },

@@ -25,9 +25,25 @@ export type AgentActionDraft =
       readonly retiredAt: string;
       readonly reason: string;
       readonly successor?: string;
+    }
+  | {
+      readonly kind: "agent-restore";
+      readonly entityId: string;
+      readonly priorVersion: number;
+      readonly reactivatedAt: string;
+      readonly reason: string;
+      readonly noChanges?: true;
     };
 
-export const agentActionIds = Object.freeze(["install", "delete", "retire", "validate", "list", "inspect"] as const);
+export const agentActionIds = Object.freeze([
+  "install",
+  "delete",
+  "retire",
+  "restore",
+  "validate",
+  "list",
+  "inspect",
+] as const);
 export type AgentActionId = (typeof agentActionIds)[number];
 
 const input = (
@@ -68,6 +84,8 @@ export function createAgentActionCatalog(
             { field: "scope", type: "string", required: false, enum: ["local", "shared"] },
             { field: "mcpPolicy", type: "string", required: false, enum: ["disabled", "inherit"] },
             { field: "clearMcpPolicy", type: "boolean", required: false },
+            { field: "reactivate", type: "boolean", required: false },
+            { field: "reason", type: "string", required: false },
             { field: "dryRun", type: "boolean", required: false },
             { field: "expectedVersion", type: "number", required: false },
             { field: "idempotencyKey", type: "string", required: false },
@@ -103,7 +121,7 @@ export function createAgentActionCatalog(
           {
             ref: "agent/lifecycle",
             failureCode: "agent_retired",
-            explain: "A retired Agent identity cannot be reinstalled or revived.",
+            explain: "A retired Agent identity cannot be reinstalled unless reactivated explicitly.",
           },
           {
             ref: "agent/entity-revision",
@@ -258,6 +276,58 @@ export function createAgentActionCatalog(
         }),
       }),
       Object.freeze({
+        ...baseAction("restore"),
+        input: input([
+          { field: "agentId", type: "string", required: true },
+          { field: "reason", type: "string", required: true },
+          { field: "expectedVersion", type: "number", required: false },
+          { field: "idempotencyKey", type: "string", required: false },
+        ]),
+        criteria: Object.freeze([
+          {
+            ref: "agent/entity-present",
+            failureCode: "agent_not_found",
+            explain: "The Agent exists at the canonical projection cut before reactivation.",
+          },
+          {
+            ref: "agent/lifecycle",
+            failureCode: "agent_not_retired",
+            explain: "Only a retired Agent can transition back to active; active Agents settle with no changes.",
+          },
+          {
+            ref: "agent/entity-revision",
+            failureCode: "revision_conflict",
+            explain: "When supplied, expectedVersion matches the current Agent declaration revision.",
+          },
+        ]),
+        concurrency: Object.freeze({
+          ...declared.concurrency,
+          expectedVersion: Object.freeze({
+            authority: "entity-event/v1 Agent projection revision",
+            required: false,
+            conflict: "revision_conflict",
+          }),
+          idempotency: Object.freeze({
+            authority: "operation-id",
+            input: "idempotencyKey",
+            scope: "agent/{id}/restore",
+            retry: "canonical-event-replay",
+          }),
+        }),
+        effects: Object.freeze([{ ref: "entity-event/agent_reactivated", projection: "AgentProjection" }]),
+        returns: actionResultContract,
+        explain:
+          "Reactivate one retired Agent through the canonical entity event stream while preserving retirement history.",
+        execution: Object.freeze({
+          ingress: "agent-restore",
+          compile: compileAgentRestoreAction,
+          read: false,
+          implementation: "compiled-event" as const,
+          topology: "center-forward-write" as const,
+          targetIdField: "agentId",
+        }),
+      }),
+      Object.freeze({
         ...baseAction("validate"),
         input: input([{ field: "packageSource", type: "string", required: true }]),
         policy: Object.freeze({ ref: "keycloak-policy@1", action: null }),
@@ -396,6 +466,62 @@ export const compileAgentRetireAction: EntityActionCompileHook = (input): AgentA
     retiredAt: input.occurredAt,
     reason,
     ...(successor === undefined ? {} : { successor }),
+  };
+};
+
+export const compileAgentRestoreAction: EntityActionCompileHook = (input): AgentActionDraft => {
+  const entityId = requiredPreparedText("Agent", input.action.agentId, "agentId"),
+    reason = requiredPreparedText("Agent", input.action.reason, "reason"),
+    priorVersion = input.entityRevision;
+  if (!Number.isSafeInteger(priorVersion) || priorVersion === undefined || priorVersion < 1)
+    throw attributeEntityActionCriterion(
+      Object.assign(new Error(`Agent ${entityId} has no current projection revision.`), {
+        code: "agent_not_found",
+      }),
+      "restore",
+      "agent/entity-present",
+    );
+  if (
+    input.action.expectedVersion !== undefined &&
+    (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) !== priorVersion)
+  )
+    throw attributeEntityActionCriterion(
+      Object.assign(
+        new Error(
+          `Agent ${entityId} expected revision ${String(input.action.expectedVersion)} differs from current revision ${String(priorVersion)}.`,
+        ),
+        { code: "revision_conflict" },
+      ),
+      "restore",
+      "agent/entity-revision",
+    );
+  const lifecycleState =
+    typeof input.currentEntity === "object" && input.currentEntity !== null
+      ? ((input.currentEntity as { readonly lifecycleState?: string }).lifecycleState ?? "active")
+      : "active";
+  if (lifecycleState === "active")
+    return {
+      kind: "agent-restore",
+      entityId,
+      priorVersion,
+      reactivatedAt: input.occurredAt,
+      reason,
+      noChanges: true,
+    };
+  if (lifecycleState !== "retired")
+    throw attributeEntityActionCriterion(
+      Object.assign(new Error(`Agent ${entityId} is ${lifecycleState} and cannot be restored.`), {
+        code: "agent_not_retired",
+      }),
+      "restore",
+      "agent/lifecycle",
+    );
+  return {
+    kind: "agent-restore",
+    entityId,
+    priorVersion,
+    reactivatedAt: input.occurredAt,
+    reason,
   };
 };
 

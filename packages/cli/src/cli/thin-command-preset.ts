@@ -75,11 +75,12 @@ export function parsePreset(
       f.one.has("--id") &&
       !f.one.has("--mcp-policy") &&
       !f.booleans.has("--clear-mcp-policy") &&
-      !f.one.has("--selection-strategy")
+      !f.one.has("--selection-strategy") &&
+      !f.booleans.has("--reactivate")
     )
       return rejected(
         "missing_field",
-        "ha agent install --id requires --mcp-policy, --clear-mcp-policy, or --selection-strategy.",
+        "ha agent install --id requires --mcp-policy, --clear-mcp-policy, --selection-strategy, or --reactivate.",
         json,
       );
   }

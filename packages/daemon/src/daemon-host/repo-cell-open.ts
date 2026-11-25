@@ -27,6 +27,7 @@ import { createPresetProcessService, presetUserRoot } from "@harness-anything/pr
 import {
   prepareAgentEntityDelete,
   prepareAgentEntityInstall,
+  prepareAgentEntityRestore,
   prepareAgentEntityRetire,
   readAgentDeclaration,
   resolveSquadDispatch,
@@ -777,6 +778,15 @@ export async function openRepoWriterCell(
           action,
           replayed: store.readEvent(opId),
         });
+      if (contract.target.kind === "agent" && contract.id === "restore")
+        prepareAgentEntityRestore({
+          action,
+          replayed: store.readEvent(opId),
+          projection,
+          ...(input.userRoot
+            ? { localAgent: (agentId: string) => readLocalAgentRecord(input.userRoot!, input.repoId, agentId) }
+            : {}),
+        });
       if (contract.id === "delete") {
         const existing = store.readEvent(opId);
         if (
@@ -819,6 +829,8 @@ export async function openRepoWriterCell(
         entityId: prepared.declaration.id,
         ...(prepared.sharedAgentRevision === undefined ? {} : { sharedAgentRevision: prepared.sharedAgentRevision }),
         ...(prepared.sharedAgentValue === undefined ? {} : { sharedAgentValue: prepared.sharedAgentValue }),
+        ...(prepared.reactivateRetired === undefined ? {} : { reactivateRetired: prepared.reactivateRetired }),
+        ...(prepared.reactivateOnly ? { reactivateOnly: true as const } : {}),
         preparedEntityAction: { report: prepared.report },
       };
     };

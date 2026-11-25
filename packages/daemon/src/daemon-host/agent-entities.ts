@@ -159,6 +159,8 @@ export interface PreparedAgentEntityInstall {
   readonly body: string;
   readonly sharedAgentRevision?: number;
   readonly sharedAgentValue?: Readonly<Record<string, unknown>>;
+  readonly reactivateRetired?: { readonly priorVersion: number; readonly reason: string };
+  readonly reactivateOnly?: true;
   readonly report: {
     readonly schema: "agent-install-report/v1" | "squad-install-report/v1";
     readonly entityId: string;
@@ -730,15 +732,16 @@ export function prepareAgentEntityInstall(input: {
     const agentId = requiredEntityText(input.action.agentId, "agentId");
     if (input.action.scope !== undefined && input.action.scope !== "local" && input.action.scope !== "shared")
       throw entityError("invalid_agent_scope", "Agent scope must be local or shared.");
-    if (
+    const hasOverrides = !(
       input.action.mcpPolicy === undefined &&
       input.action.clearMcpPolicy !== true &&
       input.action.selectionStrategy === undefined &&
       input.action.scope === undefined
-    )
+    );
+    if (!hasOverrides && input.action.reactivate !== true)
       throw entityError(
         "invalid_command",
-        "agent install with agentId requires mcpPolicy, clearMcpPolicy, or selectionStrategy.",
+        "agent install with agentId requires mcpPolicy, clearMcpPolicy, selectionStrategy, or reactivate.",
       );
     const local = input.localAgent?.(agentId) ?? null,
       stored = readStoredDeclarationForInstall(store, "agent", agentId),
@@ -760,7 +763,15 @@ export function prepareAgentEntityInstall(input: {
           : { value: null, workspaceRevision: null };
     const projectedLifecycle = input.projection?.getEntity?.("agent", agentId)?.value?.lifecycleState;
     const isRetired = current.value?.lifecycleState === "retired" || projectedLifecycle === "retired";
-    if (isRetired && readAnyBundledAgentDeclaration(agentId, input.rootDir) === null)
+    const bundledCollision = readAnyBundledAgentDeclaration(agentId, input.rootDir) !== null;
+    if (isRetired && input.action.scope === "local")
+      throw agentInstallError(
+        "agent",
+        "agent_retired",
+        `Agent ${agentId} is retired; restore it in shared scope before changing scope to local.`,
+        "agent/lifecycle",
+      );
+    if (isRetired && !bundledCollision && input.action.reactivate !== true)
       throw agentInstallError(
         "agent",
         "agent_retired",
@@ -787,11 +798,19 @@ export function prepareAgentEntityInstall(input: {
       input.action.scope === undefined
         ? patched.declaration
         : { ...patched.declaration, scope: input.action.scope as AgentDeclarationV1["scope"] };
+    const reactivateRetired = isRetired
+      ? {
+          priorVersion: current.workspaceRevision ?? 1,
+          reason: agentReactivationReason(input.action, bundledCollision),
+        }
+      : undefined;
     return finalizePreparedEntityInstall({
       kind: "agent",
       declaration,
       hasLocal: local !== null,
       ...(shared ? { sharedAgentRevision: shared.workspaceRevision, sharedAgentValue: shared.value } : {}),
+      ...(reactivateRetired ? { reactivateRetired } : {}),
+      ...(!hasOverrides && input.action.reactivate === true ? { reactivateOnly: true as const } : {}),
       source: `entity:agent/${agentId}`,
       current,
       action: input.action,
@@ -830,17 +849,29 @@ export function prepareAgentEntityInstall(input: {
         : { value: null, workspaceRevision: null };
   const projectedLifecycle =
     kind === "agent" ? input.projection?.getEntity?.("agent", declaration.id)?.value?.lifecycleState : undefined;
-  if (
-    kind === "agent" &&
-    (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired") &&
-    readAnyBundledAgentDeclaration(declaration.id, input.rootDir) === null
-  )
+  const isRetired =
+    kind === "agent" && (current.value?.lifecycleState === "retired" || projectedLifecycle === "retired");
+  const bundledCollision = kind === "agent" && readAnyBundledAgentDeclaration(declaration.id, input.rootDir) !== null;
+  if (isRetired && resolveAgentScope((declaration as AgentDeclarationV1).scope) === "local")
+    throw agentInstallError(
+      "agent",
+      "agent_retired",
+      `Agent ${declaration.id} is retired; restore it in shared scope before changing scope to local.`,
+      "agent/lifecycle",
+    );
+  if (isRetired && !bundledCollision && input.action.reactivate !== true)
     throw agentInstallError(
       "agent",
       "agent_retired",
       `Agent ${declaration.id} is retired and cannot be reinstalled.`,
       "agent/lifecycle",
     );
+  const reactivateRetired = isRetired
+    ? {
+        priorVersion: current.workspaceRevision ?? 1,
+        reason: agentReactivationReason(input.action, bundledCollision),
+      }
+    : undefined;
   return finalizePreparedEntityInstall({
     kind,
     declaration,
@@ -848,6 +879,7 @@ export function prepareAgentEntityInstall(input: {
     ...(kind === "agent" && shared
       ? { sharedAgentRevision: shared.workspaceRevision, sharedAgentValue: shared.value }
       : {}),
+    ...(reactivateRetired ? { reactivateRetired } : {}),
     source,
     current,
     action: input.action,
@@ -855,6 +887,13 @@ export function prepareAgentEntityInstall(input: {
     runtimeInstances: input.runtimeInstances,
     replay: input.replay,
   });
+}
+
+function agentReactivationReason(action: Readonly<Record<string, unknown>>, bundledCollision: boolean): string {
+  if (typeof action.reason === "string" && action.reason.trim()) return action.reason.trim();
+  return bundledCollision
+    ? "Reactivated bundled agent override via agent install."
+    : "Reactivated retired agent via agent install.";
 }
 
 function finalizePreparedEntityInstall(input: {
@@ -872,6 +911,8 @@ function finalizePreparedEntityInstall(input: {
   readonly hasLocal?: boolean;
   readonly sharedAgentRevision?: number;
   readonly sharedAgentValue?: Readonly<Record<string, unknown>>;
+  readonly reactivateRetired?: { readonly priorVersion: number; readonly reason: string };
+  readonly reactivateOnly?: true;
 }): PreparedAgentEntityInstall {
   const { kind, source, current } = input,
     existingScope =
@@ -919,7 +960,10 @@ function finalizePreparedEntityInstall(input: {
     if (skillIssue) throw agentInstallError("agent", skillIssue.code, skillIssue.message, "agent/skill-resolution");
   }
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
-    changed = current.value === null || `${JSON.stringify(current.value, null, 2)}\n` !== body,
+    changed =
+      input.reactivateRetired !== undefined ||
+      current.value === null ||
+      `${JSON.stringify(current.value, null, 2)}\n` !== body,
     // Install is the last moment the author can state a preference before dispatch guesses, so the
     // ambiguity rides the receipt as a warning instead of failing an otherwise valid declaration.
     warnings =
@@ -937,6 +981,8 @@ function finalizePreparedEntityInstall(input: {
     body,
     ...(input.sharedAgentRevision === undefined ? {} : { sharedAgentRevision: input.sharedAgentRevision }),
     ...(input.sharedAgentValue === undefined ? {} : { sharedAgentValue: input.sharedAgentValue }),
+    ...(input.reactivateRetired === undefined ? {} : { reactivateRetired: input.reactivateRetired }),
+    ...(input.reactivateOnly ? { reactivateOnly: true as const } : {}),
     report: {
       schema: `${kind}-install-report/v1`,
       entityId: declaration.id,
@@ -967,6 +1013,22 @@ export function prepareAgentEntityRetire(input: {
       "agent/system-bundled",
     );
   }
+}
+
+export function prepareAgentEntityRestore(input: {
+  readonly action: Readonly<Record<string, unknown>>;
+  readonly replayed: unknown;
+  readonly projection?: Pick<TaskProjection, "getEntity">;
+  readonly localAgent?: (agentId: string) => LocalAgentRecord | null;
+}): void {
+  const replayed = input.replayed as { readonly schema?: unknown; readonly type?: unknown } | null;
+  if (replayed?.schema === "entity-event/v1" && replayed.type === "agent_reactivated") return;
+  const agentId = typeof input.action.agentId === "string" ? input.action.agentId.trim() : "";
+  if (!agentId || !input.localAgent || !input.projection) return;
+  const local = input.localAgent(agentId),
+    shared = input.projection.getEntity("agent", agentId);
+  if (local && shared && !localDeclarationMatchesSharedValue(local.declaration, shared.value, local.pendingTransfer))
+    throw entityError("agent_scope_conflict", `Agent ${agentId} exists in both local and shared scope.`);
 }
 
 export function assertAgentDispatchable(agent: ProjectedAgentDeclaration): AgentState {

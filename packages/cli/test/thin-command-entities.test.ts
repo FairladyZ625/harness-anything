@@ -1627,3 +1627,63 @@ test("runtime instance create accepts a Codex search tier and rejects it on a ki
   ]);
   assert.equal(claude.ok, false, JSON.stringify(claude));
 });
+
+test("agent restore, unretire alias, and install --reactivate parse into canonical daemon Actions", () => {
+  for (const verb of ["restore", "unretire"] as const) {
+    const parsed = parseThinCommand([
+      "agent",
+      verb,
+      "old-worker",
+      "--reason",
+      "Re-enable worker",
+      "--expected-version",
+      "7",
+    ]);
+    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+    if (parsed.ok)
+      assert.deepEqual(parsed.command.action, {
+        kind: "agent-restore",
+        agentId: "old-worker",
+        reason: "Re-enable worker",
+        expectedVersion: 7,
+      });
+    const missingReason = parseThinCommand(["agent", verb, "old-worker"]);
+    assert.equal(missingReason.ok, false);
+    if (!missingReason.ok) assert.equal(missingReason.code, "missing_field");
+  }
+  const installById = parseThinCommand([
+    "agent",
+    "install",
+    "--id",
+    "old-worker",
+    "--reactivate",
+    "--reason",
+    "Reinstall retired worker",
+    "--expected-version",
+    "7",
+  ]);
+  assert.equal(installById.ok, true, JSON.stringify(installById));
+  if (installById.ok)
+    assert.deepEqual(installById.command.action, {
+      kind: "agent-install",
+      agentId: "old-worker",
+      reactivate: true,
+      reason: "Reinstall retired worker",
+      expectedVersion: 7,
+    });
+  const installBySource = parseThinCommand([
+    "agent",
+    "install",
+    "--source",
+    "agents/old-worker.json",
+    "--reactivate",
+    "--reason",
+    "Reinstall from package",
+  ]);
+  assert.equal(installBySource.ok, true, JSON.stringify(installBySource));
+  if (installBySource.ok) {
+    assert.equal(installBySource.command.action.kind, "agent-install");
+    assert.equal(installBySource.command.action.reactivate, true);
+    assert.equal(installBySource.command.action.reason, "Reinstall from package");
+  }
+});

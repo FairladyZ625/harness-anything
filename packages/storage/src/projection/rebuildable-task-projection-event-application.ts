@@ -312,6 +312,14 @@ function applyEventProjection(
           event.payload.entityId,
           event.workspaceRevision,
         );
+      } else if (event.type === "agent_reactivated") {
+        runSql(
+          db,
+          "UPDATE entity_projection SET workspace_revision = ?, value_json = json_remove(value_json, '$.lifecycleState', '$.retirement') WHERE entity_kind = 'agent' AND entity_id = ? AND task_id = '' AND workspace_revision <= ?",
+          event.workspaceRevision,
+          event.payload.entityId,
+          event.workspaceRevision,
+        );
       } else markEntityProjectionMissing(db, event.payload.entityKind, event.payload.entityId, event.workspaceRevision);
       return;
     }

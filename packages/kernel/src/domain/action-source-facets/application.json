@@ -36,7 +36,19 @@
         "order": 1173
       },
       {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1171
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.eventId:a29f1d8dc5945125c2c24bf5941ea324",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1171
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.compileAction.reactivatedBundle.eventId:53dd2a6733c745c8936219bc0ca784fd",
         "route": "daemon:bin",
         "role": "support",
         "order": 1171
@@ -71,6 +83,12 @@
         "role": "technical-port",
         "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
         "order": 1170
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#makeEntityActionCatalogExecutor.runWrite.opId:8985ddb15391fce4881a86acde47ef4e",
+        "route": "daemon:bin",
+        "role": "support",
+        "order": 1171
       },
       {
         "candidateId": "action:packages/application:packages/application/src/commands/entity-action-catalog-executor.ts#resolveActionCriterion:08a06fa1f7e195c18289260d0cb24fd6",

@@ -528,6 +528,12 @@
         },
         {
           "actions": [
+            "agent-restore"
+          ],
+          "reason": "compiled agent-reactivated event reads one current entity revision; no collection is traversed."
+        },
+        {
+          "actions": [
             "assignment-migrate"
           ],
           "reason": "relation assignment migration is a single relation event; assignment-history growth is measured by the assign/unassign probes."

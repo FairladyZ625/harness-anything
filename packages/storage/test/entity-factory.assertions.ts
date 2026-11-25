@@ -4,6 +4,7 @@ import {
   compileEntityUpsert,
   compileEntityDeleted,
   compileAgentRetired,
+  compileAgentReactivated,
 } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
 import { createEntityStore, type OpenedEntityStore } from "../src/store/entity-store.ts";
 
@@ -93,6 +94,19 @@ export function assertEntityFactory(input: {
     assert.deepEqual(reader.list("agent"), []);
     append(upsert(5));
     assert.equal((reader.get("agent", "factory-agent")!.value as { lifecycleState: string }).lifecycleState, "retired");
+    append(
+      compileAgentReactivated({
+        ...envelope(6),
+        entityId: "factory-agent",
+        priorVersion: base + 5,
+        reactivatedAt: "2026-11-04T02:00:00.000Z",
+        reason: "Explicit reactivation clears retirement state across backends",
+      }),
+    );
+    assert.equal(
+      (reader.get("agent", "factory-agent")!.value as { lifecycleState?: string }).lifecycleState,
+      undefined,
+    );
   } finally {
     reader.close();
   }

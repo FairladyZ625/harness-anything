@@ -128,6 +128,14 @@ export interface AgentRetiredPayload {
   readonly successor?: string;
 }
 
+export interface AgentReactivatedPayload {
+  readonly entityKind: "agent";
+  readonly entityId: string;
+  readonly priorVersion: number;
+  readonly reactivatedAt: string;
+  readonly reason: string;
+}
+
 export type EntityUpsertEventV1 = EventEnvelope<
   "entity-event/v1",
   "entity_upserted",
@@ -171,6 +179,12 @@ export type EntityDeletedEventV1 = EventEnvelope<
   EntityDeletedPayload
 >;
 export type AgentRetiredEventV1 = EventEnvelope<"entity-event/v1", "agent_retired", ActorIdentity, AgentRetiredPayload>;
+export type AgentReactivatedEventV1 = EventEnvelope<
+  "entity-event/v1",
+  "agent_reactivated",
+  ActorIdentity,
+  AgentReactivatedPayload
+>;
 export type EntityEventV1 =
   | EntityUpsertEventV1
   | EntityContentObservedEventV1
@@ -179,7 +193,8 @@ export type EntityEventV1 =
   | EntityUpdatedEventV1
   | EntityArchivedEventV1
   | EntityDeletedEventV1
-  | AgentRetiredEventV1;
+  | AgentRetiredEventV1
+  | AgentReactivatedEventV1;
 
 // Append-only history predating the generic store carries the upsert payload under this retired envelope.
 export type LegacyAgentEntityEventV1 = EventEnvelope<
@@ -206,6 +221,7 @@ const entityEventEnvelopes: ReadonlyArray<readonly [schema: string, type: string
   ["entity-event/v1", "entity_archived"],
   ["entity-event/v1", "entity_deleted"],
   ["entity-event/v1", "agent_retired"],
+  ["entity-event/v1", "agent_reactivated"],
   ["agent-entity-event/v1", "agent_entity_written"],
 ];
 const LEGACY_AGENT_ENTITY_POLICY_ID = "typed-agent-entity/v1";
@@ -280,6 +296,8 @@ function validateEntityEventFields(value: unknown, allowUnknownFields: boolean):
   }
   if (value.type === "entity_deleted") return validateDeletedPayload(value.payload, hasFields, allowUnknownFields);
   if (value.type === "agent_retired") return validateAgentRetiredPayload(value.payload, hasFields, allowUnknownFields);
+  if (value.type === "agent_reactivated")
+    return validateAgentReactivatedPayload(value.payload, hasFields, allowUnknownFields);
   if (value.type === "entity_target_missing")
     return validateMissingPayload(value.payload, hasFields, String(value.opId), allowUnknownFields);
   return validateUpsertPayload(value.schema, value.payload, hasFields, allowUnknownFields);
@@ -318,6 +336,30 @@ export function validateAgentRetiredPayload(
   return [];
 }
 
+export function validateAgentReactivatedPayload(
+  payload: unknown,
+  hasFields: (value: Readonly<Record<string, unknown>>, fields: readonly string[]) => boolean,
+  allowUnknownFields: boolean,
+): readonly string[] {
+  const required = ["entityKind", "entityId", "priorVersion", "reactivatedAt", "reason"] as const;
+  if (!isRecord(payload) || !(allowUnknownFields ? hasFields(payload, required) : hasOnlyFields(payload, required)))
+    return ["agent reactivated payload is invalid"];
+  const priorVersion = payload.priorVersion;
+  if (
+    typeof payload.entityId !== "string" ||
+    !payload.entityId.length ||
+    !Number.isSafeInteger(priorVersion) ||
+    Number(priorVersion) < 1 ||
+    typeof payload.reactivatedAt !== "string" ||
+    !payload.reactivatedAt.length ||
+    typeof payload.reason !== "string" ||
+    !payload.reason.trim() ||
+    payload.entityKind !== "agent"
+  )
+    return ["agent reactivated payload is invalid"];
+  return [];
+}
+
 export function isEntityEvent(event: { readonly schema: string; readonly type: string }): event is StoredEntityEventV1 {
   return isEntityEventEnvelope(event.schema, event.type);
 }
@@ -327,7 +369,8 @@ export function isEntityDeclarationEvent(event: StoredEntityEventV1): event is E
     event.type !== "entity_target_missing" &&
     event.type !== "entity_archived" &&
     event.type !== "entity_deleted" &&
-    event.type !== "agent_retired"
+    event.type !== "agent_retired" &&
+    event.type !== "agent_reactivated"
   );
 }
 
@@ -342,6 +385,20 @@ export function agentRetiredWritePlan(event: AgentRetiredEventV1): FrozenWritePl
       ],
     },
     ["AgentRetired"],
+  );
+}
+
+export function agentReactivatedWritePlan(event: AgentReactivatedEventV1): FrozenWritePlan<"AgentReactivated"> {
+  return freezeDeclaredWritePlan(
+    {
+      commandType: "AgentReactivated",
+      targets: [
+        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+        { kind: "projection_invalidation", projection: "entity/v1", key: event.payload.entityId },
+      ],
+    },
+    ["AgentReactivated"],
   );
 }
 
@@ -456,7 +513,8 @@ export function assertEntityEventInputs(
     event.type === "entity_target_missing" ||
     event.type === "entity_archived" ||
     event.type === "entity_deleted" ||
-    event.type === "agent_retired"
+    event.type === "agent_retired" ||
+    event.type === "agent_reactivated"
   ) {
     assertExactWritePlan(
       plan,
@@ -466,7 +524,9 @@ export function assertEntityEventInputs(
           ? entityDeletedWritePlan(event)
           : event.type === "agent_retired"
             ? agentRetiredWritePlan(event)
-            : entityTargetMissingWritePlan(event),
+            : event.type === "agent_reactivated"
+              ? agentReactivatedWritePlan(event)
+              : entityTargetMissingWritePlan(event),
     );
     if (blobs.length) throw new Error("entity target-missing event must not carry content blobs");
     return;
@@ -520,7 +580,9 @@ export function assertEntityUpsertWritePlan(event: EntityEventV1, plan: FrozenWr
                 ? declarationWritePlan("EntityUpdated", event, "entity/v1")
                 : event.type === "agent_retired"
                   ? agentRetiredWritePlan(event)
-                  : entityUpsertWritePlan(event);
+                  : event.type === "agent_reactivated"
+                    ? agentReactivatedWritePlan(event)
+                    : entityUpsertWritePlan(event);
   assertExactWritePlan(plan, expected);
 }
 

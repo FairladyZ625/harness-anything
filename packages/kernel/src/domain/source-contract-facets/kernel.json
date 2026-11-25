@@ -860,7 +860,7 @@
         "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertEntityEventInputs:2f934717957e043173b5a081e528c312",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertEntityEventInputs:e9184b766ac996766f394441edcba1b2",
             "route": "packages/kernel/src/domain/entity-event.ts#assertEntityEventInputs"
           }
         ],
@@ -872,7 +872,7 @@
         "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertEntityUpsertWritePlan:291b62d4b3990c007885120bd7797a3f",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#assertEntityUpsertWritePlan:fca36a1e2e4d3e8c5ff52698a795bfea",
             "route": "packages/kernel/src/domain/entity-event.ts#assertEntityUpsertWritePlan"
           }
         ],
@@ -889,6 +889,18 @@
           }
         ],
         "order": 54
+      },
+      {
+        "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateAgentReactivatedPayload",
+        "symbol": "packages/kernel/src/domain/entity-event.ts#validateAgentReactivatedPayload",
+        "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
+        "sources": [
+          {
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateAgentReactivatedPayload:cc0c9fe5cd7a0ae14033a2cb41bf9bb9",
+            "route": "packages/kernel/src/domain/entity-event.ts#validateAgentReactivatedPayload"
+          }
+        ],
+        "order": 44
       },
       {
         "id": "kernel/src/domain/entity-event.ts#EntityEventV1.validateAgentRetiredPayload",
@@ -952,7 +964,7 @@
         "explain": "EntityEventV1: Entity event payload and exact declared publication inputs.",
         "sources": [
           {
-            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateEntityEventFields:38c1cc053fd80f0ac10c653046f2c0c0",
+            "candidateId": "judgment:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateEntityEventFields:cde5b5c6247295e9a8d24420c72574c7",
             "route": "packages/kernel/src/domain/entity-event.ts#validateEntityEventFields"
           }
         ],

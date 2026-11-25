@@ -88,17 +88,23 @@ export const entityDeclarationRoutes = Object.freeze([
     // revision the editor read. Optional because the same facet also serves a first create, which
     // sends expectedVersion 0; an omitted value keeps the pre-fence behavior for callers that do
     // not hold a revision.
-    shape({ declaration: "json", expectedVersion: "number?" }),
+    shape({ declaration: "json", expectedVersion: "number?", reactivate: "boolean?", reason: "string?" }),
   ),
   actionRpc("squad.entity.write", "repo.squad.entity.write", "squad-install", shape({ declaration: "json" })),
-  // The U/D of the GUI entity CRUD: named ingresses onto the same agent-retire / agent-delete /
-  // squad-delete actions the CLI uses, so retirement and deletion validation (system-bundled
-  // closure, the entity revision fence, agent_referenced) stays in the one daemon executor.
+  // The U/D of the GUI entity CRUD: named ingresses onto the same agent-retire / agent-restore /
+  // agent-delete / squad-delete actions the CLI uses, so lifecycle and deletion validation stays
+  // in the one daemon executor.
   actionRpc(
     "agent.entity.retire",
     "repo.agent.entity.retire",
     "agent-retire",
     shape({ agentId: "string", reason: "string", successor: "string?" }),
+  ),
+  actionRpc(
+    "agent.entity.restore",
+    "repo.agent.entity.restore",
+    "agent-restore",
+    shape({ agentId: "string", reason: "string", expectedVersion: "number?" }),
   ),
   actionRpc(
     "agent.entity.delete",
