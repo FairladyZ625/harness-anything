@@ -103,43 +103,85 @@ test("start-center.sh enforces PG storage, reconciles Fleet upgrades/disable, re
     // - In exec steady-state mode (rbac/config.json already present), records its launch and exits immediately.
     const stubDaemon = path.join(sandbox, "stub-daemon.cjs");
     const stubCli = path.join(sandbox, "stub-cli.cjs");
+    // Mirror real `ha daemon status`: only exit 0 after stubDaemon has observed initial hasRbac,
+    // recorded its launch, installed its SIGTERM handler, and published its live PID marker.
+    const stubDaemonStatusCheck = `
+if (args[0] === "daemon" && args[1] === "status") {
+  const readyMarker = path.join(process.env.HARNESS_DAEMON_USER_ROOT, ".stub-daemon-ready");
+  if (!fs.existsSync(readyMarker)) process.exit(1);
+  const pid = Number(fs.readFileSync(readyMarker, "utf8").trim());
+  if (!Number.isInteger(pid) || pid <= 0) process.exit(1);
+  try {
+    process.kill(pid, 0);
+  } catch {
+    process.exit(1);
+  }
+  process.exit(0);
+}
+`;
     writeFileSync(
       stubDaemon,
       `
 const fs = require("node:fs");
 const path = require("node:path");
 const userRoot = process.env.HARNESS_DAEMON_USER_ROOT;
+const readyMarker = path.join(userRoot, ".stub-daemon-ready");
 const readyFlag = process.env.STUB_READY_FILE;
 const drainStarted = process.env.STUB_DRAIN_STARTED_FILE;
 const drainMarker = process.env.STUB_DRAIN_COMPLETE_FILE;
 const drainGate = process.env.STUB_DRAIN_GATE_FILE;
+const writeAtomic = (targetPath, content) => {
+  const tmpPath = targetPath + "." + String(process.pid) + ".tmp";
+  fs.writeFileSync(tmpPath, content);
+  fs.renameSync(tmpPath, targetPath);
+};
+const cleanupReadyMarker = () => {
+  try {
+    if (fs.existsSync(readyMarker) && fs.readFileSync(readyMarker, "utf8").trim() === String(process.pid)) {
+      fs.rmSync(readyMarker, { force: true });
+    }
+  } catch {
+    // Best-effort cleanup during stub daemon shutdown.
+  }
+};
 const hasRbac = fs.existsSync(path.join(userRoot, "rbac", "config.json"));
 fs.appendFileSync(${JSON.stringify(daemonLog)}, JSON.stringify({ pid: process.pid, argv: process.argv.slice(2), hasRbac }) + "\\n");
 if (hasRbac && process.env.STUB_WAIT_FOR_TERM !== "1") {
-  if (readyFlag) fs.writeFileSync(readyFlag, String(process.pid) + "\\n");
+  if (readyFlag) writeAtomic(readyFlag, String(process.pid) + "\\n");
   process.exit(0);
 }
-// Register SIGTERM handler and event-loop keeper BEFORE writing readyFlag so callers cannot race the signal handler.
+// Register SIGTERM handler and event-loop keeper BEFORE writing readiness markers so callers cannot race startup or signals.
 const keeper = fs.watch(userRoot, () => {});
+let draining = false;
 process.on("SIGTERM", () => {
-  if (drainStarted) fs.writeFileSync(drainStarted, "draining\\n");
+  if (draining) return;
+  draining = true;
   const finish = () => {
     keeper.close();
-    if (drainMarker) fs.writeFileSync(drainMarker, "drained\\n");
+    cleanupReadyMarker();
+    if (drainMarker) writeAtomic(drainMarker, "drained\\n");
     process.exit(0);
   };
   if (!drainGate || fs.existsSync(drainGate)) {
+    if (drainStarted) writeAtomic(drainStarted, "draining\\n");
     finish();
     return;
   }
+  // Register drainGate watcher BEFORE publishing drainStarted so callers cannot race creating drainGate.
   const watcher = fs.watch(path.dirname(drainGate), () => {
     if (fs.existsSync(drainGate)) {
       watcher.close();
       finish();
     }
   });
+  if (drainStarted) writeAtomic(drainStarted, "draining\\n");
+  if (fs.existsSync(drainGate)) {
+    watcher.close();
+    finish();
+  }
 });
-if (readyFlag) fs.writeFileSync(readyFlag, String(process.pid) + "\\n");
+writeAtomic(readyMarker, String(process.pid) + "\\n");
+if (readyFlag) writeAtomic(readyFlag, String(process.pid) + "\\n");
 `,
     );
     writeFileSync(
@@ -150,6 +192,7 @@ const path = require("node:path");
 const args = process.argv.slice(2);
 const stdin = args.includes("--client-secret-stdin") ? fs.readFileSync(0, "utf8") : null;
 fs.appendFileSync(${JSON.stringify(cliLog)}, JSON.stringify({ args, stdin }) + "\\n");
+${stubDaemonStatusCheck}
 if (args[0] === "bootstrap") {
   const rbacDir = path.join(process.env.HARNESS_DAEMON_USER_ROOT, "rbac");
   fs.mkdirSync(rbacDir, { recursive: true });
@@ -183,8 +226,8 @@ if (args[0] === "bootstrap") {
       HARNESS_FLEET_QUOTA_BYTES: "1073741824",
       HARNESS_FLEET_TLS_CERT_FILE: path.join(tlsDir, "tls.crt"),
       HARNESS_FLEET_TLS_KEY_FILE: path.join(tlsDir, "tls.key"),
-      HARNESS_BOOTSTRAP_WAIT_ATTEMPTS: "10",
-      HARNESS_BOOTSTRAP_WAIT_INTERVAL_SECONDS: "1",
+      HARNESS_BOOTSTRAP_WAIT_ATTEMPTS: "200",
+      HARNESS_BOOTSTRAP_WAIT_INTERVAL_SECONDS: "0.05",
     };
 
     // F-G7-11: postgres backend without daemon-storage.json must fail closed (never silently fall back to SQLite)
@@ -423,6 +466,7 @@ if (args[0] === "bootstrap") {
 const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
+${stubDaemonStatusCheck}
 if (args[0] === "bootstrap") {
   const mode = process.env.STUB_BOOTSTRAP_MODE || "pending";
   fs.appendFileSync(${JSON.stringify(pendingBootstrapAttemptsLog)}, JSON.stringify({ mode, args }) + "\\n");
@@ -556,20 +600,23 @@ process.exit(0);
     const drainGateFile = path.join(sandbox, "drain-gate");
     const drainCompleteFile = path.join(sandbox, "drain-complete");
     const blockingBootstrapCli = path.join(sandbox, "blocking-bootstrap-cli.cjs");
-    // daemon status succeeds immediately, then `bootstrap` writes bootstrapStartedFile and blocks indefinitely
+    // daemon status waits until stubDaemon is ready, then `bootstrap` installs SIGTERM handler before publishing bootstrapStartedFile
     writeFileSync(
       blockingBootstrapCli,
       `
 const fs = require("node:fs");
+const path = require("node:path");
 const args = process.argv.slice(2);
-if (args[0] === "daemon" && args[1] === "status") process.exit(0);
+${stubDaemonStatusCheck}
 if (args[0] === "bootstrap") {
-  fs.writeFileSync(${JSON.stringify(bootstrapStartedFile)}, String(process.pid) + "\\n");
   const keeper = fs.watch(${JSON.stringify(sandbox)}, () => {});
   process.on("SIGTERM", () => {
     keeper.close();
     process.exit(143);
   });
+  const tmpFile = ${JSON.stringify(bootstrapStartedFile)} + "." + String(process.pid) + ".tmp";
+  fs.writeFileSync(tmpFile, String(process.pid) + "\\n");
+  fs.renameSync(tmpFile, ${JSON.stringify(bootstrapStartedFile)});
 }
 `,
     );
@@ -579,8 +626,8 @@ if (args[0] === "bootstrap") {
         ...sharedEnv,
         HARNESS_DAEMON_USER_ROOT: drainRoot,
         HARNESS_CLI_ENTRY: blockingBootstrapCli,
-        HARNESS_BOOTSTRAP_WAIT_ATTEMPTS: "60",
-        HARNESS_BOOTSTRAP_WAIT_INTERVAL_SECONDS: "1",
+        HARNESS_BOOTSTRAP_WAIT_ATTEMPTS: "200",
+        HARNESS_BOOTSTRAP_WAIT_INTERVAL_SECONDS: "0.05",
         STUB_READY_FILE: readyFile,
         STUB_DRAIN_STARTED_FILE: drainStartedFile,
         STUB_DRAIN_GATE_FILE: drainGateFile,
@@ -644,7 +691,13 @@ if (args[0] === "bootstrap") {
     const failBootstrapCli = path.join(sandbox, "fail-bootstrap-cli.cjs");
     writeFileSync(
       failBootstrapCli,
-      `const args = process.argv.slice(2); process.exit(args[0] === "bootstrap" ? 7 : 0);\n`,
+      `
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+${stubDaemonStatusCheck}
+process.exit(args[0] === "bootstrap" ? 7 : 0);
+`,
     );
     const failBootRes = spawnSync("/bin/sh", [scriptPath], {
       env: {
