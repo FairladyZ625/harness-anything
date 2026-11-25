@@ -21,7 +21,6 @@ import { relationDocumentUpdates } from "@harness-anything/application/internal/
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
 import { taskDecisionGuidance } from "@harness-anything/preset/internal/preset-command-contract";
 import {
-  assertTaskCreateProfileAdmissible,
   selectTaskCreateProfile,
   taskDecisionTarget,
 } from "@harness-anything/application/internal/commands/task-create-admission.ts";
@@ -184,7 +183,14 @@ export function prepareTaskCreateAt(
   if (existing) {
     return cell.receiptForOperation(opId, binding);
   }
-  assertTaskCreateProfileAdmissible(cell, canonicalAction);
+  if (
+    canonicalAction.profileId === "lightweight" &&
+    !["migration", "import"].includes(String(canonicalAction.createMode ?? ""))
+  )
+    throw cell.cellCodedError(
+      "invalid_field",
+      "The lightweight profile is selected automatically for low-risk tasks when the preset provides it; choose --risk-tier low instead.",
+    );
   const idempotent =
     !dryRun && typeof canonicalAction.idempotencyKey === "string"
       ? cell.projection.readTaskByIdempotencyKey(canonicalAction.idempotencyKey)

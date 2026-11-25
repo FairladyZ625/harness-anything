@@ -17,16 +17,8 @@ export interface TaskCreateProfileCandidate {
 
 const importModes = ["migration", "import"];
 
-export function isImportCreateMode(action: CommandAction): boolean {
+function isImportCreateMode(action: CommandAction): boolean {
   return importModes.includes(String(action.createMode ?? ""));
-}
-
-export function assertTaskCreateProfileAdmissible(cell: TaskCreateAdmissionCell, action: CommandAction): void {
-  if (action.profileId === "lightweight" && !isImportCreateMode(action))
-    throw cell.cellCodedError(
-      "invalid_field",
-      "The lightweight profile is selected automatically for low-risk tasks when the preset provides it; choose --risk-tier low instead.",
-    );
 }
 
 /** Compiles with the caller's profile, then recompiles once when the risk tier selects another one:

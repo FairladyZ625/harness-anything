@@ -91,6 +91,7 @@
   "packages/daemon/test/claude-command-interception.integration.test.ts": 1014,
   "packages/daemon/test/closeout-skeleton-submit.integration.test.ts": 12026,
   "packages/daemon/test/closeout-submit-holder.integration.test.ts": 4095,
+  "packages/daemon/test/cloud-writer-shard.integration.test.ts": 100,
   "packages/daemon/test/codex-callback-sandbox.integration.test.ts": 1376,
   "packages/daemon/test/commitless-completion-gates.integration.test.ts": 320,
   "packages/daemon/test/completion-command-matrix.integration.test.ts": 62994,

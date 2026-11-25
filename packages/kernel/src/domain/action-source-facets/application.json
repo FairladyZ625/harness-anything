@@ -122,6 +122,13 @@
         "order": 1179
       },
       {
+        "candidateId": "action:packages/application:packages/application/src/commands/task-progress-append.ts#appendProgress.appended:67fd293f13744cdb1dd5cb40ed04452a",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/kernel/src/ports/task-event-store.ts#CanonicalEventStore.append",
+        "order": 1222
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/commands/task-witness-action.ts#runTaskWitnessAction.compiled.eventId:a29f1d8dc5945125c2c24bf5941ea324",
         "route": "daemon:bin",
         "role": "support",

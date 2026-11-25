@@ -11,11 +11,10 @@ import {
   type DocEventChange,
   type EventPublicationKillpoint,
   type TaskProgressEventV1,
+  type TaskProgressEvidence,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import type { CommandAction, CommandBinding, CommandOperationPort, PublicPublication } from "./command-ports.ts";
-
-type ProgressEvidence = Parameters<typeof compileTaskProgress>[0]["evidence"];
 
 /** Write-side port for one progress append. Every read is a projection or canonical-store read, so
  *  a local RepoCell and a cloud writer shard drive the same validation and event compilation. */
@@ -133,7 +132,7 @@ export function appendProgress(
 function parseProgressEvidence(
   cell: Pick<CommandOperationPort, "cellCodedError" | "requiredCellText">,
   value: unknown,
-): ProgressEvidence {
+): readonly TaskProgressEvidence[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw cell.cellCodedError("invalid_progress", "evidence must be an ordered list");
   return value.map((entry) => {

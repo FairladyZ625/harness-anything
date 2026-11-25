@@ -488,7 +488,7 @@ function terminalExecutionRuntimeBinding(
   lease: LeaseV1,
   runtimeSessionId: string | null,
 ): TaskBoundRuntimeBinding | null {
-  const readRuntimeSession = cell.projection.readRuntimeSession;
+  const readRuntimeSession = cell.projection?.readRuntimeSession;
   if (typeof readRuntimeSession !== "function") return null;
   const actorRuntimeSessionId = runtimeSessionIdFromActor(lease.actor);
   if (actorRuntimeSessionId === null) return null;

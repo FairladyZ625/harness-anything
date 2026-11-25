@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { readSettingsFacet, sha256Text, taskBootstrapWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
+import {
+  readSettingsFacet,
+  sha256Text,
+  taskBootstrapWritePlan,
+  type CanonicalEventStore,
+} from "@harness-anything/kernel";
 import { compileRepoTaskBootstrap } from "@harness-anything/preset";
 import { actor } from "../migration-import.fixtures.ts";
 

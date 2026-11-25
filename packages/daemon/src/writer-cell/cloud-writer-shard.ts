@@ -17,6 +17,7 @@ import {
   type WriteSource,
 } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 
 /** A writer with no checkout. Layout discovery starts here and must not assume a task worktree. */
 export const CLOUD_WRITER_ROOT = path.join(path.parse(process.cwd()).root, "harness-cloud-writer");
@@ -63,6 +64,7 @@ export interface CloudWriterShardOptions {
   readonly source: WriteSource;
   /** Admitted requests, including those waiting for authorization; beyond it the shard sheds load. */
   readonly maxInFlight: number;
+  /** Authorization deadline; defaults to the declared storage request deadline. */
   readonly authorizationTimeoutMs?: number;
   readonly now?: () => string;
   /** Asynchronous outbox publisher. It runs after the response is decided and never holds the fence. */
@@ -90,7 +92,6 @@ const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{1,200}$/u;
 const WRITE_ONLY_HEADERS: ReadonlyArray<readonly [string, string]> = [["allow", "POST"]];
 const OVERLOAD_HEADERS: ReadonlyArray<readonly [string, string]> = [["retry-after", "1"]];
 const BEARER_CHALLENGE_HEADERS: ReadonlyArray<readonly [string, string]> = [["www-authenticate", "Bearer"]];
-const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 10_000;
 
 /**
  * Stateful single-writer shard for POST /v1/repositories/{repoId}/commands. Each repository write
@@ -100,26 +101,26 @@ const DEFAULT_AUTHORIZATION_TIMEOUT_MS = 10_000;
  * appending again. Outbox publication runs after the fence is released.
  */
 export function createCloudWriterShard(options: CloudWriterShardOptions): CloudWriterShard {
-  const authorizationTimeoutMs = options.authorizationTimeoutMs ?? DEFAULT_AUTHORIZATION_TIMEOUT_MS;
+  const authorizationTimeoutMs = options.authorizationTimeoutMs ?? storageReadPolicy.defaultValue.deadlines.query;
   if (!isPositiveSafeInteger(options.maxInFlight) || !isPositiveSafeInteger(authorizationTimeoutMs))
     throw new RangeError("Cloud writer admission requires positive, bounded limits.");
   const repositories = new Map(options.repositories),
     fenced = new Set<string>(),
-    publications = new Set<Promise<void>>(),
     now = options.now ?? (() => new Date().toISOString());
-  let inFlight = 0;
+  let inFlight = 0,
+    // One ordered outbox chain: records publish in acceptance order, after their write turn.
+    outbox: Promise<void> = Promise.resolve();
 
   const schedulePublication = (record: CloudOutboxRecord) => {
     const publish = options.publish;
     if (!publish) return;
-    const publication = new Promise<void>((resolve) => setImmediate(resolve))
+    outbox = outbox
+      .then(() => new Promise<void>((resolve) => setImmediate(resolve)))
       .then(() => publish(record))
       .catch((error: unknown) => {
         consumeKnownError(error);
         options.onError?.(error);
-      })
-      .finally(() => publications.delete(publication));
-    publications.add(publication);
+      });
   };
 
   const handle = async (request: Request): Promise<Response> => {
@@ -146,13 +147,16 @@ export function createCloudWriterShard(options: CloudWriterShardOptions): CloudW
         ...(actor.authorizationDecision ? { authorizationDecision: actor.authorizationDecision } : {}),
       };
       const opId = `cloud-${sha256Text(stableStringify({ repoId, person: actor.actor.principal, idempotencyKey }))}`;
-      const result = repository.withAppendFence(() =>
-        executeWrite(repository, repoId, action, binding, opId, now),
-      );
+      const result = repository.withAppendFence(() => executeWrite(repository, repoId, action, binding, opId, now));
       if (result.appended) schedulePublication({ repoId, ...result.appended });
       return Response.json(
         { receipt: result.receipt, replayed: result.appended === null },
-        { headers: [["cache-control", "no-store"], ...(result.appended === null ? [["idempotent-replay", "true"] as [string, string]] : [])] },
+        {
+          headers: [
+            ["cache-control", "no-store"],
+            ...(result.appended === null ? [["idempotent-replay", "true"] as [string, string]] : []),
+          ],
+        },
       );
     } catch (error) {
       if (error instanceof WriteFault) return fault(error.status, error.code, error.headers);
@@ -174,7 +178,11 @@ export function createCloudWriterShard(options: CloudWriterShardOptions): CloudW
   return {
     handle,
     drain: async () => {
-      while (publications.size > 0) await Promise.all([...publications]);
+      let settled: Promise<void>;
+      do {
+        settled = outbox;
+        await settled;
+      } while (settled !== outbox);
     },
   };
 }
@@ -196,35 +204,42 @@ function executeWrite(
   const { store, projection } = repository,
     existing = store.readEvent(opId);
   if (existing) return { receipt: replayReceipt(existing, action, opId), appended: null };
-  let appended: CanonicalEventAppendReceipt | null = null;
-  const recordingStore = Object.create(store, {
-      append: {
-        value: (...args: Parameters<CanonicalEventStore["append"]>) => (appended = store.append(...args)),
+  const port = {
+    input: { repoId },
+    store,
+    projection,
+    now,
+    operationId: () => opId,
+    cellCodedError: codedError,
+    requiredCellText,
+    publicPublication: (value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">) => ({
+      commitSha: value.commitSha?.sha ?? null,
+      cut: value.cut,
+    }),
+    progressReceipt: (event: CanonicalEventV1) => ({
+      outcome: "applied" as const,
+      opId,
+      revision: event.workspaceRevision,
+      evidence: `event-object:${opId}`,
+      visibility: "center" as const,
+      proof: {
+        committedRevision: event.workspaceRevision,
+        appliedCut: event.workspaceRevision,
+        durable: true,
+        canonicalVisible: true,
+        worktreeVisible: false,
       },
-    }) as CanonicalEventStore,
-    port = {
-      input: { repoId },
-      store: recordingStore,
-      projection,
-      now,
-      operationId: () => opId,
-      cellCodedError: codedError,
-      requiredCellText,
-      publicPublication: (value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">) => ({
-        commitSha: value.commitSha,
-        cut: value.cut,
-      }),
-      progressReceipt: (event: CanonicalEventV1) => receiptFor(event, opId),
-      projectedTaskIds: () => new Set<string>(),
-      // A cloud shard tracks no host-local dispatch index; supersede, which needs it, is not routed here.
-      readDispatchLiveEntries: () => [],
-    };
+    }),
+    projectedTaskIds: () => new Set<string>(),
+    // A cloud shard tracks no host-local dispatch index; supersede, which needs it, is not routed here.
+    readDispatchLiveEntries: () => [],
+  };
   if (action.kind === PROGRESS_KIND) appendProgress(port, action, binding);
   else {
     const taskId = requiredCellText(action.taskId, "taskId"),
       current = projection.read(taskId);
     if (current.status !== "ready" || !current.snapshot.task || !current.packagePath)
-      throw codedError("task_not_found", `Task ${taskId} is not ready in this repository's projection.`);
+      throw new CodedError("task_not_found", `Task ${taskId} is not ready in this repository's projection.`);
     const packagePath = current.packagePath,
       mutation = taskMutation(port, action, current.snapshot.task, current.snapshot, binding),
       compiled = compileTaskMutationWrite({
@@ -240,22 +255,24 @@ function executeWrite(
           const active = projection.readDocument(target),
             read = active.document ? active : (projection.readDocumentHistory?.(target) ?? active);
           if (read.status !== "ready")
-            throw codedError("content_not_ready", `Retry ${action.kind} after document projection ${target} catches up.`);
+            throw new CodedError(
+              "content_not_ready",
+              `Retry ${action.kind} after document projection ${target} catches up.`,
+            );
           return read.document
             ? { path: target, body: read.document.body, blobSha256: read.document.blobSha256 }
             : null;
         },
         completionContext: (next) => readCompletionContext(projection, taskId, next, current.status, CLOUD_WRITER_ROOT),
       });
-    recordingStore.append(compiled);
+    store.append(compiled);
     projection.apply(compiled.event, compiled.plan);
   }
-  const accepted = appended as CanonicalEventAppendReceipt | null,
-    event = store.readEvent(opId);
-  if (accepted === null || event === null) throw codedError("write_not_accepted", `Write ${opId} was not appended.`);
+  const event = store.readEvent(opId);
+  if (event === null) throw new CodedError("write_not_accepted", `Write ${opId} was not appended.`);
   return {
     receipt: receiptFor(event, opId),
-    appended: { opId, revision: event.workspaceRevision, cut: accepted.cut },
+    appended: { opId, revision: event.workspaceRevision, cut: store.publication(event).cut },
   };
 }
 
@@ -267,7 +284,10 @@ function replayReceipt(
   const receipt = receiptFor(event, opId),
     sameKind = action.kind === PROGRESS_KIND ? isTaskProgressEvent(event) : !isTaskProgressEvent(event);
   if (!sameKind || receipt.taskId !== action.taskId)
-    throw codedError("idempotency_key_reused", `Idempotency key already accepted operation ${opId} for another write.`);
+    throw new CodedError(
+      "idempotency_key_reused",
+      `Idempotency key already accepted operation ${opId} for another write.`,
+    );
   return receipt;
 }
 
@@ -284,7 +304,8 @@ function receiptFor(event: CanonicalEventV1, opId: string): CloudWriteReceipt {
     opId,
     revision: event.workspaceRevision,
     taskId,
-    eventType: "type" in event && typeof event.type === "string" ? event.type : event.schema,
+    eventType:
+      "type" in event && typeof event.type === "string" ? event.type : (event as { readonly schema: string }).schema,
   };
 }
 
@@ -311,12 +332,21 @@ async function authorize(
   return decision;
 }
 
+class CodedError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 function codedError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
+  return new CodedError(code, message);
 }
 
 function requiredCellText(value: unknown, name: string): string {
-  if (typeof value !== "string" || value.trim() === "") throw codedError("invalid_command", `${name} is required.`);
+  if (typeof value !== "string" || value.trim() === "") throw new CodedError("invalid_command", `${name} is required.`);
   return value.trim();
 }
 

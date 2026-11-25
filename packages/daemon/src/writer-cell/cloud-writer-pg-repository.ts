@@ -2,7 +2,6 @@ import {
   makePgCanonicalEventStore,
   makePgTaskProjection,
   openPgWriterEpoch,
-  withWriterEpochFenceDescriptor,
   type PostgresStorageBackendConfig,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage/pg";
@@ -45,7 +44,7 @@ export function openPgCloudWriterRepository(options: {
       store,
       projection,
       fence,
-      withAppendFence: (operation) => withWriterEpochFenceDescriptor(fence, operation),
+      withAppendFence: (operation) => authority.withAppendFence(options.repoId, lease.epoch, lease.holderId, operation),
       close: async () => {
         projection.close();
         await store.drain();

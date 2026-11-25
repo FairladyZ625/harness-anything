@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -12,6 +12,8 @@ import {
 } from "@harness-anything/storage";
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 import { pgliteIntegrationSuite } from "../../storage/test/pglite/pglite-runtime.fixture.ts";
+import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
+import { openPgCloudWriterRepository } from "../src/writer-cell/cloud-writer-pg-repository.ts";
 import {
   createCloudWriterShard,
   type CloudOutboxRecord,
@@ -105,14 +107,18 @@ function shardSuite(backend: Backend): void {
         },
       });
       const before = head();
-      const first = await shard.handle(cloudRequest(repoId, amend(taskIds[0], "Cloud renamed"), { idempotencyKey: "k-1" }));
+      const first = await shard.handle(
+        cloudRequest(repoId, amend(taskIds[0], "Cloud renamed"), { idempotencyKey: "k-1" }),
+      );
       assert.equal(first.status, 200, await first.clone().text());
       const accepted = (await first.json()) as { receipt: { opId: string; revision: number }; replayed: boolean };
       assert.equal(accepted.replayed, false);
       assert.equal(head(), before + 1);
       assert.deepEqual(published, [], "the outbox publishes after the response, outside the write turn");
 
-      const retry = await shard.handle(cloudRequest(repoId, amend(taskIds[0], "Cloud renamed"), { idempotencyKey: "k-1" }));
+      const retry = await shard.handle(
+        cloudRequest(repoId, amend(taskIds[0], "Cloud renamed"), { idempotencyKey: "k-1" }),
+      );
       assert.equal(retry.status, 200);
       assert.equal(retry.headers.get("idempotent-replay"), "true");
       const replayed = (await retry.json()) as typeof accepted;
@@ -141,7 +147,9 @@ function shardSuite(backend: Backend): void {
         source,
         maxInFlight: 4,
       });
-      const accepted = await stale.handle(cloudRequest(repoId, amend(taskIds[0], "Before takeover"), { idempotencyKey: "a-1" }));
+      const accepted = await stale.handle(
+        cloudRequest(repoId, amend(taskIds[0], "Before takeover"), { idempotencyKey: "a-1" }),
+      );
       assert.equal(accepted.status, 200, await accepted.clone().text());
       const successor = createCloudWriterShard({
         repositories: new Map([[repoId, repository(acquire("shard-b"))]]),
@@ -156,7 +164,9 @@ function shardSuite(backend: Backend): void {
       assert.equal(head(), before, "the stale writer appended nothing");
       const fenced = await stale.handle(cloudRequest(repoId, amend(taskIds[1], "Retry"), { idempotencyKey: "a-3" }));
       assert.equal(fenced.status, 409, "a fenced shard keeps refusing without touching the ledger");
-      const owned = await successor.handle(cloudRequest(repoId, amend(taskIds[1], "Successor write"), { idempotencyKey: "b-1" }));
+      const owned = await successor.handle(
+        cloudRequest(repoId, amend(taskIds[1], "Successor write"), { idempotencyKey: "b-1" }),
+      );
       assert.equal(owned.status, 200, await owned.clone().text());
       assert.equal(head(), before + 1);
     });
@@ -205,7 +215,11 @@ function shardSuite(backend: Backend): void {
           { idempotencyKey: "progress-1" },
         ),
       );
-      assert.equal(progress.status, 200, `${await progress.clone().text()} ${errors.map((error) => (error instanceof Error ? error.stack : String(error))).join("\n")}`);
+      assert.equal(
+        progress.status,
+        200,
+        `${await progress.clone().text()} ${errors.map((error) => (error instanceof Error ? error.stack : String(error))).join("\n")}`,
+      );
       const body = (await progress.json()) as { receipt: { eventType: string; taskId: string } };
       assert.equal(body.receipt.taskId, taskIds[1]);
       assert.equal(head(), before + 1);
@@ -224,3 +238,117 @@ function shardSuite(backend: Backend): void {
 
 shardSuite("sqlite");
 pgliteIntegrationSuite("cloud writer shard on PGlite", () => shardSuite("pglite"));
+
+test("postgres: openPgCloudWriterRepository enforces PG writer-epoch preemption, idempotency, progress and outbox without SQLite", async () => {
+  const fixture = await pgRuntimeFixture();
+  const seedDir = path.join(fixture.root, "seed");
+  const stateRoot = path.join(fixture.root, "state");
+  initRepo(seedDir);
+  mkdirSync(stateRoot, { recursive: true });
+  const storage = {
+    backend: "postgres" as const,
+    connectionString: fixture.connectionString,
+    authorityConnectionString: fixture.managementConnectionString,
+    scope: { tenantId: "tenant", projectId: "cloud-writer-pg", readers: [], policyEpoch: 1 },
+  };
+  let repoA: ReturnType<typeof openPgCloudWriterRepository> | undefined;
+  let repoB: ReturnType<typeof openPgCloudWriterRepository> | undefined;
+  try {
+    repoA = openPgCloudWriterRepository({ repoId, storage, stateRoot, holderId: "pg-shard-a" });
+    const taskIds = ["task_pg_one", "task_pg_two"] as const;
+    repoA.withAppendFence(() => {
+      seedCloudTask(repoA!.store, seedDir, taskIds[0], "PG cloud task");
+      seedCloudTask(repoA!.store, seedDir, taskIds[1], "PG cloud work", "work");
+    });
+    repoA.projection.catchUp?.();
+
+    const published: CloudOutboxRecord[] = [];
+    const shardA = createCloudWriterShard({
+      repositories: new Map([[repoId, repoA]]),
+      authorizer: allowOwner,
+      source,
+      maxInFlight: 2,
+      publish: async (record) => {
+        published.push(record);
+      },
+    });
+
+    const before = repoA.store.readHead()?.revision ?? 0;
+    const first = await shardA.handle(
+      cloudRequest(repoId, amend(taskIds[0], "PG renamed"), { idempotencyKey: "pg-k1" }),
+    );
+    assert.equal(first.status, 200, await first.clone().text());
+    const accepted = (await first.json()) as { receipt: { opId: string; revision: number }; replayed: boolean };
+    assert.equal(accepted.replayed, false);
+    assert.equal(repoA.store.readHead()?.revision ?? 0, before + 1);
+    assert.deepEqual(published, []);
+
+    const replay = await shardA.handle(
+      cloudRequest(repoId, amend(taskIds[0], "PG renamed"), { idempotencyKey: "pg-k1" }),
+    );
+    assert.equal(replay.status, 200);
+    assert.equal(replay.headers.get("idempotent-replay"), "true");
+    assert.deepEqual(((await replay.json()) as typeof accepted).receipt, accepted.receipt);
+    assert.equal(repoA.store.readHead()?.revision ?? 0, before + 1);
+
+    const conflict = await shardA.handle(cloudRequest(repoId, amend(taskIds[1], "Other"), { idempotencyKey: "pg-k1" }));
+    assert.equal(conflict.status, 409);
+    assert.deepEqual(await conflict.json(), { error: { code: "idempotency_key_reused" } });
+
+    const progress = await shardA.handle(
+      cloudRequest(
+        repoId,
+        { kind: "task-progress-append", taskId: taskIds[1], text: "PG progress" },
+        { idempotencyKey: "pg-p1" },
+      ),
+    );
+    assert.equal(progress.status, 200, await progress.clone().text());
+    assert.equal(repoA.store.readHead()?.revision ?? 0, before + 2);
+
+    await shardA.drain();
+    assert.equal(published.length, 2);
+
+    // A successor shard opens the same repository on PostgreSQL and raises the writer epoch.
+    repoB = openPgCloudWriterRepository({ repoId, storage, stateRoot, holderId: "pg-shard-b" });
+    assert.ok(repoB.fence.epoch > repoA.fence.epoch, "successor must hold a strictly higher PG writer epoch");
+    const shardB = createCloudWriterShard({
+      repositories: new Map([[repoId, repoB]]),
+      authorizer: allowOwner,
+      source: { kind: "node", nodeId: "cloud-writer-b" },
+      maxInFlight: 2,
+    });
+
+    const headBeforePreempt = repoB.store.readHead()?.revision ?? 0;
+    const staleWrite = await shardA.handle(
+      cloudRequest(repoId, amend(taskIds[0], "Stale PG write"), { idempotencyKey: "pg-stale-1" }),
+    );
+    assert.equal(staleWrite.status, 409);
+    assert.deepEqual(await staleWrite.json(), { error: { code: "writer_epoch_stale" } });
+    assert.equal(repoB.store.readHead()?.revision ?? 0, headBeforePreempt);
+
+    const fencedWrite = await shardA.handle(
+      cloudRequest(repoId, amend(taskIds[0], "Fenced PG retry"), { idempotencyKey: "pg-stale-2" }),
+    );
+    assert.equal(fencedWrite.status, 409);
+    assert.deepEqual(await fencedWrite.json(), { error: { code: "writer_epoch_stale" } });
+
+    const successorWrite = await shardB.handle(
+      cloudRequest(repoId, amend(taskIds[0], "Successor PG write"), { idempotencyKey: "pg-b-1" }),
+    );
+    assert.equal(successorWrite.status, 200, await successorWrite.clone().text());
+    assert.equal(repoB.store.readHead()?.revision ?? 0, headBeforePreempt + 1);
+
+    assert.deepEqual(
+      readdirSync(stateRoot, { recursive: true })
+        .map(String)
+        .filter((name) => /\.sqlite(?:$|-)/u.test(name)),
+      [],
+      "PG cloud writer shard must not create SQLite epoch or ledger files",
+    );
+  } finally {
+    await repoA?.close();
+    await repoB?.close();
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});

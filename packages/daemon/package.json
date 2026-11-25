@@ -6,6 +6,8 @@
   "exports": {
     ".": "./src/daemon-host/index.ts",
     "./cloud-query-host": "./src/fleet-sync/cloud-query-host.ts",
+    "./cloud-writer-shard": "./src/writer-cell/cloud-writer-shard.ts",
+    "./cloud-writer-pg-repository": "./src/writer-cell/cloud-writer-pg-repository.ts",
     "./client": {
       "default": "./src/daemon-host/client/index.ts"
     },
@@ -90,6 +92,8 @@
     "exports": {
       ".": "./dist/daemon/src/daemon-host/index.js",
       "./cloud-query-host": "./dist/daemon/src/fleet-sync/cloud-query-host.js",
+      "./cloud-writer-shard": "./dist/daemon/src/writer-cell/cloud-writer-shard.js",
+      "./cloud-writer-pg-repository": "./dist/daemon/src/writer-cell/cloud-writer-pg-repository.js",
       "./client": "./dist/daemon/src/daemon-host/client/index.js",
       "./protocol": "./dist/daemon/src/daemon-host/protocol/index.js",
       "./protocol/validation": "./dist/daemon/src/daemon-host/protocol/daemon-protocol-rpc-validation.js",
