@@ -560,7 +560,7 @@ export function assertTaskReviewDispatchMeasurement(result, size, publications) 
 }
 
 export async function measureTaskAmendPatches(rootDir, size) {
-  const { taskMutation } = await load(rootDir, "packages/daemon/src/daemon-host/repo-cell-task-mutation.ts"),
+  const { taskMutation } = await load(rootDir, "packages/application/src/commands/task-mutation.ts"),
     counts = { patchesExamined: 0 },
     patches = counted(
       Array.from({ length: size }, () => ({ field: "reviewer", value: "closeout-reviewer" })),

@@ -1,4 +1,3 @@
-import { taskMutationDraft } from "@harness-anything/kernel";
 import {
   isSameExecution,
   isSamePerson,
@@ -6,19 +5,22 @@ import {
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   supersededTaskState,
-  taskClasses,
   taskAmendment,
+  taskClasses,
+  taskMutationDraft,
   type AuthorizationDecision,
+  type CanonicalEventStore,
   type LeaseV1,
   type TaskBoundRuntimeBinding,
   type TaskEventV1,
+  type TaskLifecycleSnapshot as Snapshot,
+  type TaskProjection,
   type TaskV2,
 } from "@harness-anything/kernel";
-import { readDispatchLiveIndex } from "./dispatch-stream.ts";
-import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import type { RepoCellActionContext } from "./repo-cell-types.ts";
+import type { OrphanRuntimeRecoveryAudit } from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
+import type { CommandAction, CommandBinding, CommandOperationPort } from "./command-ports.ts";
 
-interface TaskMutation {
+export interface TaskMutation {
   readonly type: TaskEventV1["type"];
   readonly task: TaskV2;
   readonly audit: {
@@ -31,12 +33,32 @@ interface TaskMutation {
   readonly authorizationDecision?: AuthorizationDecision;
 }
 
+/** A live dispatch the host still tracks for a task; the host owns where that index is kept. */
+export interface TaskLiveDispatchEntry {
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+}
+
+/** Narrow write-side port for task metadata/disposition mutations. Every read is a projection or
+ *  canonical-store read; the host supplies only its live dispatch index. */
+export interface TaskMutationCommandCell extends Pick<CommandOperationPort, "cellCodedError" | "requiredCellText"> {
+  readonly store: Pick<CanonicalEventStore, "readEvent">;
+  readonly projection: Pick<TaskProjection, "read" | "readRuntimeDispatch" | "readDispatchLifecycle"> &
+    Partial<Pick<TaskProjection, "readRuntimeSession">>;
+  readonly projectedTaskIds: () => ReadonlySet<string>;
+  readonly readDispatchLiveEntries: (taskIds: readonly string[]) => readonly TaskLiveDispatchEntry[];
+}
+
+export interface TaskMutationBinding extends CommandBinding {
+  readonly orphanRecovery?: { readonly dispatchId: string; readonly audit: OrphanRuntimeRecoveryAudit };
+}
+
 export function taskMutation(
-  cell: RepoCellActionContext,
-  action: RepoTaskAction,
+  cell: TaskMutationCommandCell,
+  action: CommandAction,
   task: TaskV2,
   snapshot: Snapshot,
-  binding: RepoCellBinding,
+  binding: TaskMutationBinding,
 ): TaskMutation {
   const forceTakeover = action.kind === "task-release" && action.forceTakeover === true,
     reason = forceTakeover
@@ -448,7 +470,7 @@ function optionalReleaseText(value: unknown): string | null {
  *  cycle, so it is refused at the write boundary instead of being tolerated by cycle-safe reads.
  *  Each round consumes one unseen ancestor; a legacy cycle ends the walk, never hangs it. */
 function parentChainReaches(
-  cell: Pick<RepoCellActionContext, "projection">,
+  cell: Pick<TaskMutationCommandCell, "projection">,
   ancestorId: string,
   taskId: string,
 ): boolean {
@@ -462,11 +484,12 @@ function parentChainReaches(
 }
 
 function terminalExecutionRuntimeBinding(
-  cell: RepoCellActionContext,
+  cell: TaskMutationCommandCell,
   lease: LeaseV1,
   runtimeSessionId: string | null,
 ): TaskBoundRuntimeBinding | null {
-  if (typeof cell.projection?.readRuntimeSession !== "function") return null;
+  const readRuntimeSession = cell.projection.readRuntimeSession;
+  if (typeof readRuntimeSession !== "function") return null;
   const actorRuntimeSessionId = runtimeSessionIdFromActor(lease.actor);
   if (actorRuntimeSessionId === null) return null;
   if (runtimeSessionId !== null && actorRuntimeSessionId !== runtimeSessionId) return null;
@@ -481,16 +504,13 @@ function terminalExecutionRuntimeBinding(
     row.groupPhase === "waiting_backoff"
   )
     return null;
-  const session = cell.projection.readRuntimeSession(actorRuntimeSessionId);
+  const session = readRuntimeSession.call(cell.projection, actorRuntimeSessionId);
   if (session === null) return null;
   return resolveTaskBoundRuntimeBinding(session, lease.taskId, lease.executionId);
 }
 
-function unsettledTaskDispatch(
-  cell: RepoCellActionContext,
-  taskId: string,
-): { readonly dispatchId: string; readonly runtimeSessionId: string } | null {
-  for (const entry of readDispatchLiveIndex(cell.rootDir, [taskId]).entries) {
+function unsettledTaskDispatch(cell: TaskMutationCommandCell, taskId: string): TaskLiveDispatchEntry | null {
+  for (const entry of cell.readDispatchLiveEntries([taskId])) {
     const lifecycle = cell.projection.readDispatchLifecycle({ by: "dispatch", dispatchIds: [entry.dispatchId] });
     // Supersede must wait for the aggregate projection to prove the whole group is closed. A
     // pending projection or missing row is treated as unsettled so it cannot race a late write.
