@@ -27,6 +27,19 @@ export {
 export const RETRO_CASES_SCHEMA = "retro-cases/v1";
 export const RETRO_EVAL_REPORT_SCHEMA = "retro-eval-report/v1";
 export const RETRO_DISTILL_PROPOSAL_SCHEMA = "retro-distill-proposal/v1";
+export const RETRO_AUDIT_REPORT_SCHEMA = "retro-audit-report/v1";
+export const RETRO_BASELINES_SCHEMA = "retro-baselines/v1";
+export const RETRO_PRUNE_PLAN_SCHEMA = "retro-prune-plan/v1";
+export const VALID_ALLOWLIST_OBSERVABILITY = Object.freeze(["observable", "unobservable"]);
+export const VALID_PRUNE_ACTIONS = Object.freeze([
+  "remove_quarantine",
+  "remove_allowlist_entry",
+  "review_waiver_dispute",
+  "enrich_decision_whynot",
+  "quarantine_or_archive_fact",
+  "retire_stale_rule",
+]);
+export const VALID_PRUNE_PRIORITIES = Object.freeze(["high", "medium", "low"]);
 export const VALID_EVAL_MODES = Object.freeze(["dry-run", "input", "live"]);
 export const VALID_REPLAY_MODES = Object.freeze(["diff-only", "tree-snapshot"]);
 export const VALID_FUNNEL_STAGES = Object.freeze(["raw", "postVerification", "finalVerdict"]);
@@ -440,5 +453,231 @@ export function collectRetroDistillProposalIssues(doc, options = {}) {
     }
   }
 
+  return issues;
+}
+
+function collectHotFilesIssues(hotFiles, label) {
+  const issues = [];
+  if (!Array.isArray(hotFiles)) {
+    return [`${label} must be an array`];
+  }
+  if (hotFiles.length > 20) {
+    issues.push(`${label} must contain at most 20 entries (got ${hotFiles.length})`);
+  }
+  for (const [index, item] of hotFiles.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      issues.push(`${label}[${index}] must be an object`);
+      continue;
+    }
+    if (typeof item.path !== "string" || item.path.trim() === "") {
+      issues.push(`${label}[${index}].path must be a non-empty string`);
+    }
+    if (!Number.isSafeInteger(item.touchCount) || item.touchCount < 1) {
+      issues.push(`${label}[${index}].touchCount must be a positive integer`);
+    }
+  }
+  return issues;
+}
+
+function collectDurationMetricIssue(value, label) {
+  if (value === null) return [];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return [`${label} must be null or a non-negative finite number`];
+  }
+  return [];
+}
+
+function collectRateMetricIssue(value, label) {
+  if (value === null) return [];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+    return [`${label} must be null or a finite number in [0, 1]`];
+  }
+  return [];
+}
+
+/** Validate a `retro-baselines/v1` snapshot document including strict zero-private-leakage enforcement. */
+export function collectRetroBaselinesIssues(doc, options = {}) {
+  const issues = [];
+  if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+    return ["baselines document must be a JSON object"];
+  }
+  if (doc.schema !== RETRO_BASELINES_SCHEMA) {
+    issues.push(`expected schema ${RETRO_BASELINES_SCHEMA}, got ${String(doc.schema)}`);
+  }
+  if (doc.version !== 1) {
+    issues.push(`expected version 1, got ${String(doc.version)}`);
+  }
+  if (typeof doc.generatedAt !== "string" || doc.generatedAt.trim() === "") {
+    issues.push("missing non-empty generatedAt");
+  }
+  if (!Number.isSafeInteger(doc.windowDays) || doc.windowDays <= 0) {
+    issues.push(`windowDays must be a positive integer (got ${String(doc.windowDays)})`);
+  }
+  const metrics = doc.metrics;
+  if (!metrics || typeof metrics !== "object" || Array.isArray(metrics)) {
+    issues.push("missing metrics object");
+  } else {
+    for (const field of ["sampleSize", "completedCount", "reworkedCount"]) {
+      if (!Number.isSafeInteger(metrics[field]) || metrics[field] < 0) {
+        issues.push(`metrics.${field} must be a non-negative integer`);
+      }
+    }
+    issues.push(...collectDurationMetricIssue(metrics.p50DurationMs, "metrics.p50DurationMs"));
+    issues.push(...collectDurationMetricIssue(metrics.p90DurationMs, "metrics.p90DurationMs"));
+    issues.push(...collectRateMetricIssue(metrics.reworkRate, "metrics.reworkRate"));
+  }
+  issues.push(...collectHotFilesIssues(doc.topHotFiles, "topHotFiles"));
+
+  const leakScan = findRetroPrivateLeakage(doc, options);
+  if (!leakScan.ok) {
+    for (const hit of leakScan.hits) {
+      issues.push(`private leakage (${hit.rule}): ${hit.match}`);
+    }
+  }
+  return issues;
+}
+
+/** Validate a `retro-audit-report/v1` offline governance audit report. */
+export function collectRetroAuditReportIssues(report) {
+  const issues = [];
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return ["audit report must be a JSON object"];
+  }
+  if (report.schema !== RETRO_AUDIT_REPORT_SCHEMA) {
+    issues.push(`expected schema ${RETRO_AUDIT_REPORT_SCHEMA}, got ${String(report.schema)}`);
+  }
+  if (report.version !== 1) {
+    issues.push(`expected version 1, got ${String(report.version)}`);
+  }
+  if (typeof report.generatedAt !== "string" || report.generatedAt.trim() === "") {
+    issues.push("missing non-empty generatedAt");
+  }
+  if (typeof report.strict !== "boolean") {
+    issues.push("strict must be a boolean");
+  }
+
+  const summary = report.summary;
+  if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
+    issues.push("missing summary object");
+  } else {
+    for (const field of [
+      "expiredQuarantineCount",
+      "closedOwnerQuarantineCount",
+      "unreachedAllowlistCount",
+      "unobservableAllowlistCount",
+      "nullWaiverCount",
+      "hollowDecisionCount",
+      "contagiousFactCount",
+      "strictViolations",
+    ]) {
+      if (!Number.isSafeInteger(summary[field]) || summary[field] < 0) {
+        issues.push(`summary.${field} must be a non-negative integer`);
+      }
+    }
+  }
+
+  const baselines = report.taskBaselines;
+  if (!baselines || typeof baselines !== "object" || Array.isArray(baselines)) {
+    issues.push("missing taskBaselines object");
+  } else {
+    if (!Number.isSafeInteger(baselines.sampleSize) || baselines.sampleSize < 0) {
+      issues.push("taskBaselines.sampleSize must be a non-negative integer");
+    }
+    issues.push(...collectDurationMetricIssue(baselines.p50DurationMs, "taskBaselines.p50DurationMs"));
+    issues.push(...collectDurationMetricIssue(baselines.p90DurationMs, "taskBaselines.p90DurationMs"));
+    issues.push(...collectRateMetricIssue(baselines.reworkRate, "taskBaselines.reworkRate"));
+    issues.push(...collectHotFilesIssues(baselines.topHotFiles, "taskBaselines.topHotFiles"));
+  }
+
+  if (
+    !report.quarantineAudit ||
+    !Array.isArray(report.quarantineAudit.expired) ||
+    !Array.isArray(report.quarantineAudit.closedOwnerTasks)
+  ) {
+    issues.push("quarantineAudit must contain expired and closedOwnerTasks arrays");
+  }
+  if (
+    !report.unreachedAllowlists ||
+    !Array.isArray(report.unreachedAllowlists.unreached) ||
+    !Array.isArray(report.unreachedAllowlists.unobservable)
+  ) {
+    issues.push("unreachedAllowlists must contain unreached and unobservable arrays");
+  }
+  if (
+    !report.waiverExposure ||
+    !Array.isArray(report.waiverExposure.nullWaivers) ||
+    !Array.isArray(report.waiverExposure.disputeDrafts)
+  ) {
+    issues.push("waiverExposure must contain nullWaivers and disputeDrafts arrays");
+  }
+  if (!report.decisionWhyNotAudit || !Array.isArray(report.decisionWhyNotAudit.hollowDecisions)) {
+    issues.push("decisionWhyNotAudit must contain hollowDecisions array");
+  }
+  if (!report.factContagionFlags || !Array.isArray(report.factContagionFlags.flags)) {
+    issues.push("factContagionFlags must contain flags array");
+  }
+
+  return issues;
+}
+
+/** Validate a `retro-prune-plan/v1` read-only retirement proposal document. */
+export function collectRetroPrunePlanIssues(plan) {
+  const issues = [];
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) {
+    return ["prune plan must be a JSON object"];
+  }
+  if (plan.schema !== RETRO_PRUNE_PLAN_SCHEMA) {
+    issues.push(`expected schema ${RETRO_PRUNE_PLAN_SCHEMA}, got ${String(plan.schema)}`);
+  }
+  if (plan.version !== 1) {
+    issues.push(`expected version 1, got ${String(plan.version)}`);
+  }
+  if (typeof plan.generatedAt !== "string" || plan.generatedAt.trim() === "") {
+    issues.push("missing non-empty generatedAt");
+  }
+  if (plan.readOnly !== true) {
+    issues.push("prune plan must explicitly assert readOnly: true");
+  }
+  if (!plan.sources || typeof plan.sources !== "object" || Array.isArray(plan.sources)) {
+    issues.push("missing sources object");
+  } else if (!Number.isSafeInteger(plan.sources.evalReportCount) || plan.sources.evalReportCount < 0) {
+    issues.push("sources.evalReportCount must be a non-negative integer");
+  }
+  if (!plan.summary || typeof plan.summary !== "object" || Array.isArray(plan.summary)) {
+    issues.push("missing summary object");
+  } else if (!Number.isSafeInteger(plan.summary.totalProposals) || plan.summary.totalProposals < 0) {
+    issues.push("summary.totalProposals must be a non-negative integer");
+  }
+  if (!Array.isArray(plan.proposals)) {
+    issues.push("proposals must be an array");
+  } else {
+    if (plan.summary && plan.summary.totalProposals !== plan.proposals.length) {
+      issues.push(
+        `summary.totalProposals (${plan.summary.totalProposals}) !== proposals.length (${plan.proposals.length})`,
+      );
+    }
+    for (const [index, entry] of plan.proposals.entries()) {
+      const label = entry?.proposalId ? `proposal ${entry.proposalId}` : `proposals[${index}]`;
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        issues.push(`${label}: must be an object`);
+        continue;
+      }
+      if (typeof entry.proposalId !== "string" || entry.proposalId.trim() === "") {
+        issues.push(`${label}: missing proposalId`);
+      }
+      if (!VALID_PRUNE_ACTIONS.includes(entry.action)) {
+        issues.push(`${label}: invalid action ${String(entry.action)}`);
+      }
+      if (!VALID_PRUNE_PRIORITIES.includes(entry.priority)) {
+        issues.push(`${label}: invalid priority ${String(entry.priority)}`);
+      }
+      if (typeof entry.target !== "string" || entry.target.trim() === "") {
+        issues.push(`${label}: missing target`);
+      }
+      if (typeof entry.reason !== "string" || entry.reason.trim() === "") {
+        issues.push(`${label}: missing reason`);
+      }
+    }
+  }
   return issues;
 }

@@ -14,9 +14,11 @@
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { runAuditCli } from "./audit.mjs";
 import { runDistillCli } from "./distill.mjs";
 import { runEvalCli } from "./eval.mjs";
 import { runExtractCli } from "./extract.mjs";
+import { runPruneCli } from "./prune.mjs";
 
 const BUDGET_EXIT_CODE = 3;
 
@@ -75,12 +77,15 @@ export async function runCli(argv = process.argv.slice(2), io = {}) {
     return runDistillCli(rest, { stdout, stderr });
   }
 
-  if (rest.includes("--help") || rest.includes("-h")) {
-    stdout(`retro ${command}: scheduled for a subsequent retro slice (see dec_D8EECF29C93D0C300252060A10).`);
-    return EXIT_CODES.OK;
+  if (command === "audit") {
+    return runAuditCli(rest, { stdout, stderr });
   }
 
-  stderr(`Subcommand "retro ${command}" is not yet implemented.`);
+  if (command === "prune") {
+    return runPruneCli(rest, { stdout, stderr });
+  }
+
+  stderr(`Unknown retro subcommand: ${command}`);
   return EXIT_CODES.INVALID_INPUT;
 }
 
