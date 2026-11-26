@@ -475,8 +475,17 @@ async function restoreRuntime(
     ...(processState ? { pid: processState.pid } : {}),
   });
   await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-  if (context.closed?.()) return false;
+  if (context.closed?.()) {
+    active.process.release?.();
+    active.releaseAuthorization?.();
+    return false;
+  }
   const observedLifecycle = await readDispatchLifecycle(context, { by: "dispatch", dispatchIds: [active.dispatchId] });
+  if (context.closed?.()) {
+    active.process.release?.();
+    active.releaseAuthorization?.();
+    return false;
+  }
   if (observedLifecycle.status !== "ready")
     throw dispatchLifecyclePendingError(observedLifecycle, context.runtimeSpawnError);
   const observedAttempt = observedLifecycle.rows.find(

@@ -1740,6 +1740,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       fallbackAttempt: fallbackAttempt ?? null,
       resumeProviderSessionId: providerSessionId ?? null,
     });
+    if (fallbackClosed) {
+      await cleanupFailedLaunch(runtimeSpawnError("daemon_closed", "Runtime spawner closed."));
+      throw runtimeSpawnError("daemon_closed", "Runtime spawner closed.");
+    }
     activeRuntimeHandles.set(runtimeSessionId, active);
     input.recordLifecycle?.({
       event: "runtime_spawn",
@@ -1956,29 +1960,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       return null;
     },
     flushPendingSteerReceipts: async (defaultBinding?: RuntimeBinding): Promise<void> => {
-      const runtimeHandles = activeRuntimeHandles;
-      const { flushPendingSteerReceipts: flushReceipts } = await import("./runtime-spawn-active.ts");
-      const { readAllPendingSteerReceipts } = await import("./dispatch-steer-state.ts");
-      const { readDispatchStreamHeader } = await import("./dispatch-stream.ts");
-      const entries = readAllPendingSteerReceipts(input.rootDir);
-      if (entries.length === 0) return;
-      const dispatches = new Map<string, string>();
-      for (const entry of entries) {
-        if (!dispatches.has(entry.dispatchId)) dispatches.set(entry.dispatchId, entry.runtimeSessionId);
-      }
-      for (const [dispatchId, runtimeSessionId] of dispatches) {
-        const active = runtimeHandles.get(runtimeSessionId),
-          binding = active?.binding ?? readDispatchStreamHeader(input.rootDir, dispatchId)?.binding ?? defaultBinding;
-        if (!binding) continue;
-        await flushReceipts(extracted, dispatchId, runtimeSessionId, binding);
-      }
+      const { flushAllPendingSteerReceipts } = await import("./runtime-spawn-active.ts");
+      await flushAllPendingSteerReceipts(extracted, (id) => activeRuntimeHandles.get(id)?.binding, defaultBinding);
     },
     isIdle: () => activeRuntimeHandles.size === 0 && exiting.size === 0,
     close: () => {
       fallbackClosed = true;
       fallbackAbort.abort(new DOMException("Runtime spawner closed.", "AbortError"));
       if (ownsModelSlotQueue) modelSlotQueue.close();
-      closeRuntimes(extracted);
+      return closeRuntimes(extracted);
     },
   };
   async function publishRuntimeEvent<T extends RuntimeEventType>(

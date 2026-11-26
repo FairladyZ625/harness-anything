@@ -1,8 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import net from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { pathToFileURL } from "node:url";
@@ -10,13 +10,13 @@ import { submissionDigest } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
-import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/daemon-host/fleet-edge-task.ts";
 import { readFleetOperationalClient } from "../src/daemon-host/fleet/peer.ts";
 import { parseNodeAutoDispatchSnapshot } from "../src/daemon-host/node-auto-dispatch.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
@@ -39,6 +39,8 @@ function runtimeProcess() {
     terminate: () => undefined,
   };
 }
+
+const centerReviewTimeoutMs = process.platform === "win32" ? 180_000 : 90_000;
 
 async function submitFromEdge(t: TestContext, delivery: "git" | "ledger", edgeReviewerUnavailable = false) {
   const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-center-review-probe-"));
@@ -280,7 +282,7 @@ async function submitFromEdge(t: TestContext, delivery: "git" | "ledger", edgeRe
 
 test(
   "a disconnected edge's published cut is independently reviewed at its exact origin SHA",
-  { timeout: 90_000 },
+  { timeout: centerReviewTimeoutMs },
   async (t) => {
     const f = await submitFromEdge(t, "git"),
       { repoId } = f.subject,
@@ -343,7 +345,7 @@ test(
 
 test(
   "a disconnected edge's locally cached but unreachable SHA never launches a reviewer",
-  { timeout: 90_000 },
+  { timeout: centerReviewTimeoutMs },
   async (t) => {
     const f = await submitFromEdge(t, "git"),
       sha = f.cut.commitSha;
@@ -368,7 +370,7 @@ test(
 
 test(
   "a connected edge without a reviewer slot hands synced ledger evidence to Center",
-  { timeout: 90_000 },
+  { timeout: centerReviewTimeoutMs },
   async (t) => {
     const f = await submitFromEdge(t, "ledger", true);
     assert.equal(f.cut.commitSha, null);

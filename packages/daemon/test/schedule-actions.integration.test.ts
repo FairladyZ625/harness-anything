@@ -21,6 +21,7 @@ import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/daemon-host/fleet/center.ts";
 import { startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const actor = withPolicyGroup(
@@ -124,10 +125,11 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         workerGitEnvironmentRequests += 1;
         return { GITHUB_TOKEN: "must-not-reach-detect-runtime" };
       },
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         launchCount += 1;
         if (launchCount === 2) secondLaunch.resolve();
         launched = { env: prepared.env, prompt: prepared.prompt };
+        recordStoppedFixtureContainment(persistence, 4242);
         return {
           pid: 4242,
           onOutput: (listener) => {
@@ -698,11 +700,13 @@ test(
               endpoint: path.join(root, `edge-user-${index + 1}`, "daemon.sock"),
             },
             ports: scheduleRuntimePorts(),
-            launch: () => {
+            launch: (_prepared, persistence) => {
               launches[index] += 1;
               let output: ((chunk: string) => void) | undefined;
+              const pid = 4300 + index;
+              recordStoppedFixtureContainment(persistence, pid);
               return {
-                pid: 4300 + index,
+                pid,
                 onOutput: (listener) => {
                   output = listener;
                 },
@@ -1033,9 +1037,10 @@ test("scheduled single-agent runs honor declared permissionMode ceilings across 
           prompt: request.prompt,
         };
       },
-      runtimeLaunch: () => {
+      runtimeLaunch: (_prepared, persistence) => {
         launchCount += 1;
         const pid = nextPid++;
+        recordStoppedFixtureContainment(persistence, pid);
         return {
           pid,
           onOutput: () => undefined,

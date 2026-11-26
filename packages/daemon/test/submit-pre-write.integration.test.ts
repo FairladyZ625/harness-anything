@@ -8,6 +8,8 @@ import test from "node:test";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { executionId, fixture, taskId, principal, owner } from "./task-completion-review.fixture.ts";
 
+const submitPreWriteTimeoutMs = process.platform === "win32" ? 120_000 : 20_000;
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
@@ -106,7 +108,7 @@ for (const [phase, mode] of [
   ["fetch", "settle"],
   ["risk", "settle-rejoin"],
 ] as const) {
-  test(`an unrelated write commits while ${mode} awaits ${phase}`, { timeout: 20_000 }, async (t) => {
+  test(`an unrelated write commits while ${mode} awaits ${phase}`, { timeout: submitPreWriteTimeoutMs }, async (t) => {
     const { f, entered, release, baseSha, headSha, file, captured } = await preparationFixture(t, phase);
     if (mode === "settle-rejoin") assert.equal((await f.run({ kind: "task-release", taskId })).outcome, "applied");
     let returned = false;
@@ -163,106 +165,118 @@ for (const [phase, mode] of [
   });
 }
 
-test("review dispatch diagnostics can settle while a submission is prepared", { timeout: 20_000 }, async (t) => {
-  const { f, entered, release } = await preparationFixture(t, "risk", true),
-    submitting = f.run({ kind: "task-submit", taskId, executionId });
-  try {
-    await entered.promise;
-    const changed = await f.run({
-      kind: "task-amend",
-      taskId,
-      patches: [
-        {
-          field: "reviewDispatchFailure",
-          value: JSON.stringify({
-            executionId,
-            dispatchKey: "review-diagnostic",
-            code: "runtime_spawn_failed",
-            message: "Reviewer runtime unavailable.",
-            failedAt: new Date().toISOString(),
-          }),
-        },
-      ],
-    });
-    assert.equal(changed.outcome, "applied", JSON.stringify(changed));
-    release.resolve();
-    const receipt = await submitting;
-    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-  } finally {
-    release.resolve();
-    await submitting;
-  }
-});
-
-for (const drift of ["head", "default-ref", "path-reviewers", "task-title", "lease"] as const) {
-  test(`a changed ${drift} rejects prepared submission before accepting documents`, { timeout: 20_000 }, async (t) => {
-    const { f, worktree, entered, release, headSha } = await preparationFixture(t, "risk", drift === "task-title"),
-      priorSubmissions = f.events().filter((event) => event.type === "execution_submitted").length,
+test(
+  "review dispatch diagnostics can settle while a submission is prepared",
+  { timeout: submitPreWriteTimeoutMs },
+  async (t) => {
+    const { f, entered, release } = await preparationFixture(t, "risk", true),
       submitting = f.run({ kind: "task-submit", taskId, executionId });
     try {
       await entered.promise;
-      if (drift === "head") {
-        writeFileSync(path.join(worktree, "later.txt"), "Moved during preparation.\n");
-        git(worktree, "add", "later.txt");
-        git(worktree, "commit", "-qm", "fix: move delivery head");
-      } else if (drift === "default-ref") {
-        git(f.root, "update-ref", "refs/remotes/origin/main", headSha);
-      } else if (drift === "path-reviewers") {
-        const settings = await f.cell().read("repo.settings.read", {}, principal),
-          changed = await f.cell().run(
-            {
-              kind: "settings-update",
-              reviewPathReviewers: ["data-migration packages/daemon/src/"],
-              expectedVersion: settings.revision,
-            },
-            principal,
-          );
-        assert.equal(changed.outcome, "applied", JSON.stringify(changed));
-      } else if (drift === "task-title") {
-        const changed = await f.run({
-          kind: "task-amend",
-          taskId,
-          patches: [{ field: "title", value: "Changed during preparation" }],
-        });
-        assert.equal(changed.outcome, "applied", JSON.stringify(changed));
-      } else {
-        assert.equal((await f.run({ kind: "task-release", taskId })).outcome, "applied");
-      }
-      const before = f.events().filter((event) => event.type === "documents_written").length;
+      const changed = await f.run({
+        kind: "task-amend",
+        taskId,
+        patches: [
+          {
+            field: "reviewDispatchFailure",
+            value: JSON.stringify({
+              executionId,
+              dispatchKey: "review-diagnostic",
+              code: "runtime_spawn_failed",
+              message: "Reviewer runtime unavailable.",
+              failedAt: new Date().toISOString(),
+            }),
+          },
+        ],
+      });
+      assert.equal(changed.outcome, "applied", JSON.stringify(changed));
       release.resolve();
       const receipt = await submitting;
-      assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-      assert.equal(f.events().filter((event) => event.type === "execution_submitted").length, priorSubmissions);
-      assert.equal(f.events().filter((event) => event.type === "documents_written").length, before);
-      if (drift !== "lease")
-        assert.match(String(receipt.rejectionExplanation), /changed during submission preparation; retry/u);
-      console.log(`[prepared-drift:${drift}] rejected=${receipt.code} document-events=0`);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     } finally {
       release.resolve();
       await submitting;
     }
-  });
+  },
+);
+
+for (const drift of ["head", "default-ref", "path-reviewers", "task-title", "lease"] as const) {
+  test(
+    `a changed ${drift} rejects prepared submission before accepting documents`,
+    { timeout: submitPreWriteTimeoutMs },
+    async (t) => {
+      const { f, worktree, entered, release, headSha } = await preparationFixture(t, "risk", drift === "task-title"),
+        priorSubmissions = f.events().filter((event) => event.type === "execution_submitted").length,
+        submitting = f.run({ kind: "task-submit", taskId, executionId });
+      try {
+        await entered.promise;
+        if (drift === "head") {
+          writeFileSync(path.join(worktree, "later.txt"), "Moved during preparation.\n");
+          git(worktree, "add", "later.txt");
+          git(worktree, "commit", "-qm", "fix: move delivery head");
+        } else if (drift === "default-ref") {
+          git(f.root, "update-ref", "refs/remotes/origin/main", headSha);
+        } else if (drift === "path-reviewers") {
+          const settings = await f.cell().read("repo.settings.read", {}, principal),
+            changed = await f.cell().run(
+              {
+                kind: "settings-update",
+                reviewPathReviewers: ["data-migration packages/daemon/src/"],
+                expectedVersion: settings.revision,
+              },
+              principal,
+            );
+          assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+        } else if (drift === "task-title") {
+          const changed = await f.run({
+            kind: "task-amend",
+            taskId,
+            patches: [{ field: "title", value: "Changed during preparation" }],
+          });
+          assert.equal(changed.outcome, "applied", JSON.stringify(changed));
+        } else {
+          assert.equal((await f.run({ kind: "task-release", taskId })).outcome, "applied");
+        }
+        const before = f.events().filter((event) => event.type === "documents_written").length;
+        release.resolve();
+        const receipt = await submitting;
+        assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+        assert.equal(f.events().filter((event) => event.type === "execution_submitted").length, priorSubmissions);
+        assert.equal(f.events().filter((event) => event.type === "documents_written").length, before);
+        if (drift !== "lease")
+          assert.match(String(receipt.rejectionExplanation), /changed during submission preparation; retry/u);
+        console.log(`[prepared-drift:${drift}] rejected=${receipt.code} document-events=0`);
+      } finally {
+        release.resolve();
+        await submitting;
+      }
+    },
+  );
 }
 
-test("a mismatched lease refuses submit with zero Git children and document events", { timeout: 20_000 }, async (t) => {
-  const { f } = await preparationFixture(t, "fetch"),
-    trace = path.join(f.root, "submit-git.trace"),
-    before = f.events().filter((event) => event.type === "documents_written").length;
-  assert.match(readFileSync(trace, "utf8"), /built-in: git/u, "the observer has recorded actual Git processes");
-  writeFileSync(trace, "");
-  const receipt = await f
-    .cell()
-    .run(
-      { kind: "task-submit", taskId, executionId },
-      { ...owner, actor: { ...owner.actor, executor: { kind: "agent", id: "foreign-lease-holder" } } },
-    );
-  assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-  assert.equal(readFileSync(trace, "utf8").trim(), "");
-  assert.equal(f.events().filter((event) => event.type === "documents_written").length, before);
-  console.log(`[submit-preflight:lease] git=0 document-events=0 code=${receipt.code}`);
-});
+test(
+  "a mismatched lease refuses submit with zero Git children and document events",
+  { timeout: submitPreWriteTimeoutMs },
+  async (t) => {
+    const { f } = await preparationFixture(t, "fetch"),
+      trace = path.join(f.root, "submit-git.trace"),
+      before = f.events().filter((event) => event.type === "documents_written").length;
+    assert.match(readFileSync(trace, "utf8"), /built-in: git/u, "the observer has recorded actual Git processes");
+    writeFileSync(trace, "");
+    const receipt = await f
+      .cell()
+      .run(
+        { kind: "task-submit", taskId, executionId },
+        { ...owner, actor: { ...owner.actor, executor: { kind: "agent", id: "foreign-lease-holder" } } },
+      );
+    assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+    assert.equal(readFileSync(trace, "utf8").trim(), "");
+    assert.equal(f.events().filter((event) => event.type === "documents_written").length, before);
+    console.log(`[submit-preflight:lease] git=0 document-events=0 code=${receipt.code}`);
+  },
+);
 
-test("a prepared assessment is refused when its manifest changes", { timeout: 20_000 }, async (t) => {
+test("a prepared assessment is refused when its manifest changes", { timeout: submitPreWriteTimeoutMs }, async (t) => {
   const { f, entered, release } = await preparationFixture(t, "risk"),
     submitting = f.run({ kind: "task-submit", taskId, executionId });
   try {
@@ -286,23 +300,27 @@ test("a prepared assessment is refused when its manifest changes", { timeout: 20
   }
 });
 
-test("an unrelated default-branch advance keeps the prepared comparison cut", { timeout: 20_000 }, async (t) => {
-  const { f, entered, release, baseSha, headSha } = await preparationFixture(t, "risk"),
-    submitting = f.run({ kind: "task-submit", taskId, executionId });
-  try {
-    await entered.promise;
-    git(f.root, "commit", "--allow-empty", "-qm", "test: unrelated default advance");
-    const nextDefault = git(f.root, "rev-parse", "HEAD");
-    assert.equal(git(f.root, "merge-base", nextDefault, headSha), baseSha);
-    git(f.root, "update-ref", "refs/remotes/origin/main", nextDefault);
-    release.resolve();
-    const accepted = await submitting;
-    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
-    const event = f.events().findLast((event) => event.type === "execution_submitted");
-    assert.ok(event?.type === "execution_submitted");
-    assert.equal(event.payload.execution.submission?.productionDelta?.baseSha, baseSha);
-  } finally {
-    release.resolve();
-    await submitting;
-  }
-});
+test(
+  "an unrelated default-branch advance keeps the prepared comparison cut",
+  { timeout: submitPreWriteTimeoutMs },
+  async (t) => {
+    const { f, entered, release, baseSha, headSha } = await preparationFixture(t, "risk"),
+      submitting = f.run({ kind: "task-submit", taskId, executionId });
+    try {
+      await entered.promise;
+      git(f.root, "commit", "--allow-empty", "-qm", "test: unrelated default advance");
+      const nextDefault = git(f.root, "rev-parse", "HEAD");
+      assert.equal(git(f.root, "merge-base", nextDefault, headSha), baseSha);
+      git(f.root, "update-ref", "refs/remotes/origin/main", nextDefault);
+      release.resolve();
+      const accepted = await submitting;
+      assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+      const event = f.events().findLast((event) => event.type === "execution_submitted");
+      assert.ok(event?.type === "execution_submitted");
+      assert.equal(event.payload.execution.submission?.productionDelta?.baseSha, baseSha);
+    } finally {
+      release.resolve();
+      await submitting;
+    }
+  },
+);

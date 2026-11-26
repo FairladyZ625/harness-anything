@@ -4318,6 +4318,13 @@
         "order": 773
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-active.ts#attachActiveRuntime:91b80ae0d0c0e11112ab36c0cae5de51",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 10010
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-active.ts#attachRuntimeObservations.error:1b03b71e40889f0494d73a08205f1304",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -6125,6 +6132,13 @@
         "role": "technical-port",
         "port": "node_modules/typescript/lib/lib.es2015.core.d.ts#ObjectConstructor.assign",
         "order": 789
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/runtime-engine/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor.close:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate",
+        "order": 10011
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/runtime-engine/runtime-workspace-monitor-thread.ts#openRuntimeWorkspaceMonitor:9eba92c610890f438c6997a24698feb8",

@@ -34,3 +34,17 @@ test("generic workspace text reads reject authored documents; the port is the on
   // A non-authored workspace packet stays readable through the generic adapter.
   assert.equal(readWorkspaceText(root, packetPath, "fromFile"), packetBody);
 });
+
+test("workspaceText resolves authored task packets when rootDir and fromFile use distinct path aliases", (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-workspace-text-alias-")),
+    realRoot = path.join(parent, "real-repo"),
+    aliasRoot = path.join(parent, "alias-repo"),
+    packetRel = "harness/tasks/example/artifacts/reports/review-1.json",
+    packetBody = '{"verdict":"approved"}\n';
+  t.after(() => removeTempRepository(parent));
+  mkdirSync(path.dirname(path.join(realRoot, packetRel)), { recursive: true });
+  writeFileSync(path.join(realRoot, packetRel), packetBody);
+  symlinkSync(realRoot, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+  assert.equal(workspaceText(realRoot, path.join(aliasRoot, packetRel), "fromFile"), packetBody);
+  assert.equal(workspaceText(aliasRoot, path.join(realRoot, packetRel), "fromFile"), packetBody);
+});

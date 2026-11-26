@@ -20,6 +20,7 @@ import {
 } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { dispatchLifecycleReadOf, lifecycleEvent } from "./dispatch-lifecycle-read.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 for (const fault of ["authorization hold", "HEAD timeout", "HEAD signal"] as const) {
@@ -133,10 +134,12 @@ for (const fault of ["authorization hold", "HEAD timeout", "HEAD signal"] as con
             prompt: request.prompt,
           }),
           // The child has stopped without an exit record: reopening must recover through the real queue.
-          runtimeLaunch: () => {
+          runtimeLaunch: (_prepared, persistence) => {
             launches += 1;
+            const pid = exitedChildPid();
+            recordStoppedFixtureContainment(persistence, pid);
             return {
-              pid: exitedChildPid(),
+              pid,
               onOutput: () => undefined,
               onErrorOutput: () => undefined,
               onExit: () => undefined,
@@ -568,6 +571,7 @@ test("missing PID is loss-reconciled before the lifecycle releases its reservati
     reasoningEffort: null,
   });
   appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+  recordStoppedFixtureContainment({ rootDir, dispatchId }, 2_147_483_647);
   const runtime = makeRuntimeSpawner({
     repoId: "missing-pid-reconciliation",
     rootDir,

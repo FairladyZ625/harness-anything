@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { activeCutReviewDispatches } from "../src/daemon-host/review-dispatch-state.ts";
 import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
+const reviewDispatchTimeoutMs = process.platform === "win32" ? 120_000 : 20_000;
+
 /** The principal that records rework-driving verdicts: a person of its own, so denying its
  * runtime-spawn (which kills the automatic worker continuation at admission) never touches the
  * owner's permissions this file's other tests rely on. A reviewer never needs to spawn. */
@@ -119,7 +121,7 @@ function writeOldDataCopyReceipt(root: string, packagePath: string, headCommit: 
 
 test(
   "a review dispatch runs in an immutable snapshot, so a relative workspace link cannot reach the canonical root",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, true, {
       autoSubmit: false,
@@ -139,15 +141,23 @@ test(
         workerPath,
         `the reviewer does not reuse the mutable task worktree: cwd=${cwd} worker=${workerPath}`,
       );
-      assert.match(cwd, new RegExp(`${path.sep}\\.worktrees${path.sep}\\.review${path.sep}`, "u"));
+      assert.match(cwd, /[/\\]\.worktrees[/\\]\.review[/\\]/u);
       assert.notEqual(cwd, path.resolve(f.root), "the reviewer does not run in the canonical root");
-      assert.equal(execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim(), cwd);
+      assert.equal(
+        path.resolve(execFileSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim()),
+        cwd,
+      );
       // The incident shape: `ln -s /tmp/review-…/packages/cli packages/cli` with packages/cli
       // already present lands the link inside the current checkout. In the review worktree that
       // write stays local; the canonical checkout must gain nothing.
       const packageDir = path.join(cwd, "packages", "cli");
       mkdirSync(packageDir, { recursive: true });
-      symlinkSync("/tmp/review-e03b3e5c-delivery/packages/cli", path.join(packageDir, "cli"));
+      const linkTarget =
+        process.platform === "win32"
+          ? path.join(path.dirname(f.root), "review-e03b3e5c-delivery", "packages", "cli")
+          : "/tmp/review-e03b3e5c-delivery/packages/cli";
+      if (process.platform === "win32") mkdirSync(linkTarget, { recursive: true });
+      symlinkSync(linkTarget, path.join(packageDir, "cli"), process.platform === "win32" ? "junction" : undefined);
       assert.equal(existsSync(path.join(f.root, "packages", "cli", "cli")), false);
       assert.doesNotMatch(
         execFileSync("git", ["-C", f.root, "status", "--porcelain"], { encoding: "utf8" }),
@@ -604,7 +614,7 @@ test("decision dispatch-review passes spawn admission and launches once for the 
 
 test(
   "decision dispatch-review --agent refuses instead of returning another agent's in-flight dispatch",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
@@ -671,7 +681,7 @@ test(
 
 test(
   "a settled decision review dispatch publishes its report, packet, and dispatch record through the writer",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
@@ -848,7 +858,7 @@ async function spawnReviewerForKey(f: Awaited<ReturnType<typeof fixture>>, dispa
 
 test(
   "submitted cuts reject explicit dispatch-review and generic reviewer runtime ingress before owner forward",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     // A low-tier code delivery still needs an accepted artifact before submission.
     const f = await fixture(false, true, true, false, false, {
@@ -888,7 +898,7 @@ test(
 
 test(
   "task dispatch-review launches one reviewer bound to the submitted cut without touching the implementation iteration",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -929,7 +939,7 @@ test(
 
 test(
   "reviewer runtime submission fences accept every current-cut key shape and reject both stale-cut shapes",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -976,7 +986,7 @@ test(
 
 test(
   "task dispatch-review expands a batch into one independent review dispatch per task",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -1019,7 +1029,7 @@ test(
 
 test(
   "dispatch-review --agent refuses instead of returning another agent's in-flight review dispatch",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
@@ -1081,7 +1091,7 @@ test(
 
 test(
   "decision dispatch-review refuses an amended digest while the prior digest is still in flight",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
@@ -1150,7 +1160,7 @@ test(
 
 test(
   "decision dispatch-review dispatches an amended digest once the prior digest's reviewer recorded its verdict",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withPolicyGroup(owner, "admin"));
@@ -1272,7 +1282,7 @@ test("active cut review lookup skips historical reviewer rows without dispatchKe
 
 test(
   "a fresh dispatch-review step names the dispatched agent and its runtime instance",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
@@ -1301,7 +1311,7 @@ test(
 
 test(
   "explicit task dispatch-review resolves a declared model to the instance catalog and reports the mapping",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
@@ -1341,7 +1351,7 @@ test(
 
 test(
   "explicit task dispatch-review rejects an unavailable model before worktree setup",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
@@ -1380,7 +1390,7 @@ test(
 
 test(
   "a re-review resumes the prior reviewer provider session for the same task lane",
-  { timeout: 60_000 },
+  { timeout: process.platform === "win32" ? 120_000 : 60_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
@@ -1464,7 +1474,7 @@ test(
 
 test(
   "a rejected reviewer resume starts a fresh session with the previous registered report in its scope",
-  { timeout: 30_000 },
+  { timeout: process.platform === "win32" ? 120_000 : 30_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
@@ -1561,7 +1571,7 @@ test(
 
 test(
   "a reviewer runtime may only record a review; lifecycle writes that would mutate the implementation iteration are denied",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -1619,7 +1629,7 @@ test(
 
 test(
   "a registered review keeps the runtime settlement honest even when the archive collides",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -1644,7 +1654,7 @@ test(
 
 test(
   "an archive collision without a registered review still settles the reviewer dispatch as failed",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -1665,7 +1675,7 @@ test(
 
 test(
   "the reviewer report lands under the reviewed task's own package reports directory",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -1687,7 +1697,7 @@ test(
 
 test(
   "a configured path reviewer replaces the default seat instead of opening a second review gate",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       closeoutProfile: "standard",
@@ -1798,7 +1808,7 @@ test(
 
 test(
   "dispatch-review re-dispatches only the cut's one seat instead of a second reviewer",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {
@@ -1835,7 +1845,7 @@ test(
 
 test(
   "dispatch-review refuses a task with no submitted cut instead of binding the implementation execution",
-  { timeout: 20_000 },
+  { timeout: reviewDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });
     try {

@@ -826,7 +826,7 @@ test(
 test(
   "repo-cell restart re-adopts a live native runtime and settles an exit recorded while absent",
   { timeout: 300_000 },
-  async () => {
+  async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-re-adopt-")),
       root = path.join(parent, "repo"),
       release = path.join(parent, "release"),
@@ -870,7 +870,31 @@ test(
     let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
       providerPid = 0,
       oldAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined,
-      newAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined;
+      newAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined,
+      cleaned = false;
+    const cleanup = async () => {
+      if (cleaned) return;
+      cleaned = true;
+      try {
+        writeFileSync(release, "release");
+      } catch (error) {
+        consumeKnownError(error);
+      }
+      await cell?.close();
+      cell = undefined;
+      oldAuthority?.close();
+      oldAuthority = undefined;
+      newAuthority?.close();
+      newAuthority = undefined;
+      if (providerPid > 0)
+        try {
+          process.kill(providerPid, "SIGTERM");
+        } catch (error) {
+          consumeKnownError(error);
+        }
+      removeTempRepository(parent);
+    };
+    t.after(cleanup);
     try {
       initIngressRepo(root, 4309);
       const writerEpochStateRoot = path.join(parent, "writer-epochs");
@@ -1242,17 +1266,7 @@ test(
         },
       );
     } finally {
-      writeFileSync(release, "release");
-      await cell?.close();
-      oldAuthority?.close();
-      newAuthority?.close();
-      if (providerPid > 0)
-        try {
-          process.kill(providerPid, "SIGTERM");
-        } catch (error) {
-          consumeKnownError(error);
-        }
-      removeTempRepository(parent);
+      await cleanup();
     }
   },
 );
@@ -1660,14 +1674,15 @@ function initIngressRepo(root: string, uid: number): void {
   git(root, "commit", "-qm", "fixture");
 }
 
-async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
-  await eventuallyValue(async () => ((await check()) ? true : null));
+async function eventually(check: () => boolean | Promise<boolean>, signal?: AbortSignal): Promise<void> {
+  await eventuallyValue(async () => ((await check()) ? true : null), signal);
 }
-async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
+async function eventuallyValue<T>(read: () => T | null | Promise<T | null>, signal?: AbortSignal): Promise<T> {
   for (;;) {
+    signal?.throwIfAborted();
     const value = await read();
     if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
 
