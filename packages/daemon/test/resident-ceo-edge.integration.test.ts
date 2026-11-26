@@ -211,18 +211,14 @@ test(
     assert.equal(secondDelegated.outcome, "applied", JSON.stringify(secondDelegated));
     await waitForFleetPublication(f.host, repoId, secondDelegated.opId, localAuthFixture());
     const { request: secondRequest } = evidence(secondDelegated) as { request: PeerRequestV1 };
-    const existingReply = await f.host.run(
-      repoId,
-      {
-        kind: "peer-reply",
-        requestId: secondRequest.requestId,
-        claim: "recipient answered before Resident CEO recovery",
-        requestedAction: "Preserve the recipient's existing assessment.",
-      },
-      edgePersonAuth,
-    );
+    const existingReply = await f.command("node-one", {
+      kind: "peer-reply",
+      requestId: secondRequest.requestId,
+      claim: "recipient answered before Resident CEO recovery",
+      requestedAction: "Preserve the recipient's existing assessment.",
+    });
     assert.equal(existingReply.outcome, "applied", JSON.stringify(existingReply));
-    await waitForFleetPublication(f.host, repoId, existingReply.opId, localAuthFixture());
+    await waitForFleetPublication(f.host, repoId, String(existingReply.receipt?.opId), localAuthFixture());
 
     // Persist status="running" and lastWake.status="running" referencing the settled session
     // and the second request that already reached ANSWERED through the ordinary peer-reply path.

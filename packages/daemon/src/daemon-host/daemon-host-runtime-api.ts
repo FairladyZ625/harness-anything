@@ -245,26 +245,6 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     auth: DaemonAuthenticationContext,
     response: string,
   ): Promise<void> => {
-    const readCurrentRequest = async (): Promise<PeerRequestV1 | null> => {
-      const receipt = await context.host.run(repoId, { kind: "peer-watch", once: true, replyTo: requestId }, auth);
-      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
-        throw context.hostCodedError(
-          receipt.code ?? "resident_ceo_peer_unconfirmed",
-          "Peer request state was not confirmed.",
-        );
-      const evidence = JSON.parse(String(receipt.evidence)) as { readonly request?: unknown };
-      if (
-        evidence.request &&
-        typeof evidence.request === "object" &&
-        !Array.isArray(evidence.request) &&
-        (evidence.request as { readonly requestId?: unknown }).requestId === requestId
-      )
-        return evidence.request as PeerRequestV1;
-      return null;
-    };
-    const isTerminal = (request: PeerRequestV1 | null): boolean =>
-      request !== null && ["ANSWERED", "DONE", "REJECTED", "PROMOTED"].includes(request.state);
-    if (isTerminal(await readCurrentRequest())) return;
     const reply = await context.host.run(
       repoId,
       {
@@ -276,10 +256,9 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       },
       auth,
     );
-    if (reply.outcome !== "applied" && reply.outcome !== "no_changes") {
-      if (isTerminal(await readCurrentRequest())) return;
-      throw context.hostCodedError(reply.code ?? "resident_ceo_reply_unconfirmed", "Peer reply was not confirmed.");
-    }
+    if (reply.outcome === "applied" || reply.outcome === "no_changes") return;
+    if (reply.outcome === "op_rejected" && reply.code === "peer_request_transition_invalid") return;
+    throw context.hostCodedError(reply.code ?? "resident_ceo_reply_unconfirmed", "Peer reply was not confirmed.");
   };
   const withResidentCeoSignal = (
     auth: DaemonAuthenticationContext,
