@@ -14,8 +14,18 @@ import { createJsonRpcProtocolServer } from "../src/daemon-host/protocol/json-rp
 import { currentDaemonProtocolVersion } from "../src/daemon-host/protocol/version.ts";
 import { readRuntimeExecutionPrincipal } from "../src/daemon-host/runtime-execution-principal-store.ts";
 import { fleetFixture, initRepo, localAuthFixture, git } from "./fleet-runtime-recovery.fixtures.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
+
+function fixtureProbeExecutable(rootDir: string): string {
+  if (process.platform !== "win32") return "/usr/bin/true";
+  const binDir = path.join(rootDir, "fixture-bin");
+  mkdirSync(binDir, { recursive: true });
+  const stub = path.join(binDir, "codex-probe-ok.cmd");
+  writeFileSync(stub, "@exit /b 0\r\n", "utf8");
+  return stub;
+}
 
 test(
   "an edge worker escalation reaches its runtime owner and blocks without redispatch",
@@ -44,7 +54,7 @@ test(
       runtimeInstallation: RuntimeInstallationWitness = {
         installationId: runtimeDefinition.installationId,
         kindId: runtimeDefinition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: fixtureProbeExecutable(fixture.root),
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
@@ -93,12 +103,13 @@ test(
       daemonId: "fleet-escalation-edge",
       userRoot: edgeUserRoot,
       runtimeDiscover: () => [runtimeInstallation],
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: (prepared, persistence) => {
         if (!prepared.prompt.includes("Unbound fleet session")) {
           launchedInstances.push(prepared.definition.instanceId);
           launchedPrompts.push(prepared.prompt);
           launchedCredential = prepared.env.HARNESS_EXECUTION_CREDENTIAL ?? null;
         }
+        recordStoppedFixtureContainment(persistence, 91234);
         return {
           pid: 91234,
           onOutput: () => undefined,

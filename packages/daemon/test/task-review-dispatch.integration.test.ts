@@ -8,7 +8,7 @@ import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from 
  * owner's permissions this file's other tests rely on. A reviewer never needs to spawn. */
 const REWORK_REVIEWER_PERSON = "completion-rework-reviewer";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1526,12 +1526,13 @@ test(
       assert.ok(fallback.prompt.includes(`${first.payload.dispatchId}.md`), "fallback must name the prior report");
       // The fallback owns a new dispatch identity, so its mission must name that identity's
       // registration id and report paths; the previous dispatch's report stays read-only input.
-      const fallbackReport = `${f.packagePath}/artifacts/reports/${second.payload.dispatchId}.md`;
+      const fallbackReport = `${f.packagePath}/artifacts/reports/${second.payload.dispatchId}.md`,
+        fallbackFromFile = [...fallback.prompt.matchAll(/--from-file (\S+)/gu)].at(-1)?.[1]?.replace(/[.,;:]+$/u, "");
       assert.ok(
         fallback.prompt.includes(`--review-id review-${second.payload.dispatchId}`) &&
-          fallback.prompt.includes(
-            `--from-file ${path.join(fallback.cwd, "harness", ...fallbackReport.replace(/\.md$/u, ".json").split("/"))}`,
-          ),
+          fallbackFromFile !== undefined &&
+          path.resolve(fallbackFromFile) ===
+            path.join(fallback.cwd, "harness", ...fallbackReport.replace(/\.md$/u, ".json").split("/")),
         `fallback must register under its own dispatch identity: ${fallback.prompt}`,
       );
       assert.ok(
@@ -1715,8 +1716,8 @@ test(
           .split("\n\n")
           .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
           .filter((line): line is string => line !== undefined)
-          .map((line) => path.resolve(line.slice("worktree ".length))),
-        checkout = worktreePaths.find((entry) => entry !== path.resolve(f.root));
+          .map((line) => realpathSync.native(line.slice("worktree ".length).trim())),
+        checkout = worktreePaths.find((entry) => entry !== realpathSync.native(f.root));
       assert.ok(checkout, `expected the bound task worktree beside ${f.root}`);
       const surface = "packages/kernel/src/domain/settings.ts",
         commitSchemaSurface = (body: string) => {

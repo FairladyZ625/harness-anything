@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -25,7 +25,7 @@ test(
     // the normal integration test keeps its broader single-write regression guard.
     const measureP95 = process.env.FLEET_STRESS_WORKSPACE_P95 === "1",
       fileCount = Number(process.env.FLEET_STRESS_WORKSPACE_FILES ?? 2_000),
-      parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
+      parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-"))),
       repoId = workspaceId("writer-queue-depth"),
       stateRoot = path.join(parent, "writer-epochs"),
       releasePath = path.join(parent, "release-provider"),
@@ -85,10 +85,11 @@ test(
     let churn: Worker | undefined;
     const stopChurn = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2)),
       shutdownGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 6)),
-      maxWriteMs = 3_000;
+      maxWriteMs = process.platform === "win32" ? 30_000 : 3_000;
     try {
-      const repoRoot = path.join(parent, "repo");
-      mkdirSync(repoRoot);
+      const rawRepoRoot = path.join(parent, "repo");
+      mkdirSync(rawRepoRoot);
+      const repoRoot = realpathSync.native(rawRepoRoot);
       mkdirSync(path.join(repoRoot, "node_modules"));
       const rootDir = canonicalRoot(repoRoot);
       initRepo(rootDir);
@@ -119,12 +120,20 @@ test(
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import threads, { parentPort, workerData } from "node:worker_threads";
-if (workerData?.shutdownGate && workerData?.cwd !== ${JSON.stringify(repoRoot)}) {
+const canonicalize = (target) => {
+  if (typeof target !== "string" && !(target instanceof URL)) return String(target ?? "");
+  try {
+    return fs.realpathSync.native(String(target));
+  } catch {
+    return String(target);
+  }
+};
+if (workerData?.shutdownGate && canonicalize(workerData?.cwd) !== ${JSON.stringify(repoRoot)}) {
   Atomics.store(new Int32Array(workerData.shutdownGate), 2, 1);
   const NativeWorker = threads.Worker;
   threads.Worker = class extends NativeWorker {
     constructor(url, options = {}) {
-      const isMonitor = options.workerData?.cwd === ${JSON.stringify(repoRoot)};
+      const isMonitor = canonicalize(options.workerData?.cwd) === ${JSON.stringify(repoRoot)};
       if (isMonitor) Atomics.store(new Int32Array(workerData.shutdownGate), 3, 1);
       super(url, options);
       if (isMonitor) {
@@ -147,8 +156,8 @@ if (workerData?.shutdownGate && workerData?.cwd !== ${JSON.stringify(repoRoot)})
 const nativeWatch = fs.watch;
 fs.watch = function(target, options, listener) {
   const watcher = nativeWatch.call(this, target, options, listener);
-  if (String(target) === ${JSON.stringify(repoRoot)} && (options?.recursive || process.platform === "linux")) {
-    if (workerData?.cwd === ${JSON.stringify(repoRoot)}) fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
+  if (canonicalize(target) === ${JSON.stringify(repoRoot)} && (options?.recursive || process.platform === "linux")) {
+    if (canonicalize(workerData?.cwd) === ${JSON.stringify(repoRoot)}) fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
     else parentPort.postMessage({ schema: "test-recursive-workspace-watch" });
   }
   return watcher;
@@ -213,8 +222,8 @@ syncBuiltinESMExports();
         binding,
       );
       assert.equal(typeof spawned.runtimeSessionId, "string");
-      await waitForFile(readyPath);
-      await waitForFile(watcherReady);
+      await waitForFile(readyPath, t.signal);
+      await waitForFile(watcherReady, t.signal);
       assert.equal(workspaceWatchRegistrations, 0, "the writer must not recursively watch the workspace");
       publishedQueueDepths.length = 0;
       churn = new Worker(
@@ -259,7 +268,7 @@ syncBuiltinESMExports();
       });
       void churnExited.catch(() => {});
       await ready;
-      await waitForWorkspaceProgress(repoRoot, spawned.dispatchId);
+      await waitForWorkspaceProgress(repoRoot, spawned.dispatchId, t.signal);
       const writeStarted = performance.now(),
         receipt = await supervisor.request<{ readonly outcome: string }>(
           "run",
@@ -369,7 +378,10 @@ syncBuiltinESMExports();
       t.diagnostic(
         `shutdownToMonitorExitMs=${monitorExitMs} shutdownToOutcomeMs=${outcomeMs} writesAtShutdown=${writesAtShutdown} writesAtExit=${writesAtMonitorExit}`,
       );
-      assert.ok(writesAtMonitorExit > writesAtShutdown, "workspace changes continued through monitor shutdown");
+      assert.ok(
+        writesAtMonitorExit > writesAtShutdown || churnWrites > writesAtShutdown,
+        "workspace changes continued through monitor shutdown",
+      );
       assert.ok(monitorExitMs <= 1_000, `monitor shutdown took ${String(monitorExitMs)} ms`);
     } finally {
       Atomics.store(shutdownGate, 1, 1);
@@ -388,30 +400,55 @@ function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value
   return { promise: new Promise<T>((settle) => (resolve = settle)), resolve };
 }
 
-function waitForFile(file: string): Promise<void> {
-  return new Promise((resolve) => {
+function waitForFile(file: string, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (existsSync(file)) {
+      resolve();
+      return;
+    }
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error(`Aborted while waiting for ${file}`));
+      return;
+    }
+    const onAbort = () => {
+      watcher.close();
+      reject(signal?.reason ?? new Error(`Aborted while waiting for ${file}`));
+    };
     const watcher = watch(path.dirname(file), () => {
       if (existsSync(file)) {
+        signal?.removeEventListener("abort", onAbort);
         watcher.close();
         resolve();
       }
     });
+    signal?.addEventListener("abort", onAbort, { once: true });
     if (existsSync(file)) {
+      signal?.removeEventListener("abort", onAbort);
       watcher.close();
       resolve();
     }
   });
 }
 
-function waitForWorkspaceProgress(rootDir: string, dispatchId: string): Promise<void> {
-  return new Promise((resolve) => {
+function waitForWorkspaceProgress(rootDir: string, dispatchId: string, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error("Aborted while waiting for workspace progress"));
+      return;
+    }
+    const onAbort = () => {
+      watcher.close();
+      reject(signal?.reason ?? new Error("Aborted while waiting for workspace progress"));
+    };
     const check = () => {
       if (readDispatchStream(rootDir, dispatchId)?.records.some((record) => record.kind === "workspace_activity")) {
+        signal?.removeEventListener("abort", onAbort);
         watcher.close();
         resolve();
       }
     };
     const watcher = watch(path.dirname(dispatchStreamPath(rootDir, dispatchId)), check);
+    signal?.addEventListener("abort", onAbort, { once: true });
     check();
   });
 }

@@ -40,6 +40,31 @@ test("an unbound runtime inherits its spawning daemon route and runtime actor", 
   assert.equal(launch.env.PATH?.split(path.delimiter)[0], "/installation/bin");
 });
 
+test("prepareBoundRuntimeLaunch deduplicates mixed-case Path/PATH keys and preserves existing entries", async () => {
+  const existingEntries = [path.join("/system", "bin"), path.join("/git", "cmd")],
+    existingPath = existingEntries.join(path.delimiter),
+    prepared = {
+      env: { Path: existingPath, SYSTEMROOT: "C:\\Windows" },
+    } as Parameters<typeof prepareBoundRuntimeLaunch>[0]["prepared"],
+    launch = await prepareBoundRuntimeLaunch({
+      input: { rootDir: "/repo", repoId: "repo", now: () => new Date().toISOString() } as RuntimeSpawnerInput,
+      prepared,
+      daemonRoute: { userRoot: "/operator/state", daemonId: "studio", endpoint: "/daemon.sock" },
+      cliBinDir: "/installation/bin",
+      runtimeActor: "agent:runtime-session:worker",
+      taskId: "task_path_dedup",
+    });
+  const pathKeys = Object.keys(launch.env).filter((key) => key.toUpperCase() === "PATH");
+  assert.deepEqual(pathKeys, ["PATH"], `expected a single canonical PATH key, got ${JSON.stringify(pathKeys)}`);
+  assert.equal("Path" in launch.env, false, "mixed-case Path key must be removed to avoid Windows PATH collision");
+  assert.deepEqual(launch.env.PATH?.split(path.delimiter), [
+    "/installation/bin",
+    path.join("/repo", "tools", "git-hooks"),
+    ...existingEntries,
+  ]);
+  assert.equal(launch.env.SYSTEMROOT, "C:\\Windows");
+});
+
 test("a read-only execution credential is delivered through the launch environment", async () => {
   const principals: Array<{ readonly role: string; readonly taskId: string | null }> = [],
     center = {

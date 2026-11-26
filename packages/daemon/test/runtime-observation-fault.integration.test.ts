@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, watch, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,19 +11,22 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test(
   "an asynchronous workspace fault cannot kill the canonical writer or a sibling runtime",
   { timeout: 60_000 },
   async (t) => {
-    const root = mkdtempSync(path.join(tmpdir(), "ha-writer-watch-fault-"));
+    const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-writer-watch-fault-")));
     initIngressRepo(root, 0);
-    const faultCwd = path.join(root, "faulted-workspace"),
-      siblingCwd = path.join(root, "sibling-workspace"),
+    const rawFaultCwd = path.join(root, "faulted-workspace"),
+      rawSiblingCwd = path.join(root, "sibling-workspace"),
       watcherReady = path.join(root, "watcher-ready");
-    mkdirSync(faultCwd);
-    mkdirSync(siblingCwd);
+    mkdirSync(rawFaultCwd);
+    mkdirSync(rawSiblingCwd);
+    const faultCwd = realpathSync.native(rawFaultCwd),
+      siblingCwd = realpathSync.native(rawSiblingCwd);
     const originalWorker = workerThreads.Worker;
     const writers: InstanceType<typeof originalWorker>[] = [];
     const writerFailed = Promise.withResolvers<Error>(),
@@ -47,9 +50,16 @@ test(
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 const nativeWatch = fs.watch;
+const canonicalize = (target) => {
+  try {
+    return fs.realpathSync.native(String(target));
+  } catch {
+    return String(target);
+  }
+};
 fs.watch = function(...args) {
   const watcher = nativeWatch.apply(this, args);
-  if (String(args[0]) === ${JSON.stringify(faultCwd)}) {
+  if (canonicalize(args[0]) === ${JSON.stringify(faultCwd)}) {
     watcher.once("change", () => watcher.emit("error", Object.assign(new Error("native watcher permission denied"), {code:"EACCES"})));
     fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
   }
@@ -148,7 +158,8 @@ syncBuiltinESMExports();
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: (request) => {
+      runtimeLaunch: (request, persistence) => {
+        const pid = 2_147_483_647;
         const control = {
           output: (_chunk: string) => undefined as void,
           exit: (_code: number | null) => undefined as void,
@@ -157,7 +168,7 @@ syncBuiltinESMExports();
         };
         controls.set(request.cwd, control);
         return {
-          pid: 2_147_483_647,
+          pid,
           onOutput: (listener) => {
             control.output = listener;
           },
@@ -165,6 +176,7 @@ syncBuiltinESMExports();
           onExit: (listener) => {
             control.exit = (code) => {
               control.exited = true;
+              recordStoppedFixtureContainment(persistence, pid);
               listener(code);
             };
           },
@@ -176,6 +188,7 @@ syncBuiltinESMExports();
               terminationStarted.resolve();
               await finishTermination.promise;
             }
+            recordStoppedFixtureContainment(persistence, pid);
           },
         };
       },
@@ -198,7 +211,7 @@ syncBuiltinESMExports();
     assert.equal(writers.length, 1);
     const writer = writers[0]!,
       threadId = writer.threadId;
-    await waitForFile(watcherReady);
+    await waitForFile(watcherReady, t.signal);
     writeFileSync(path.join(faultCwd, "trigger.txt"), "change");
     assert.match(await survive(observationFailed.promise), /EACCES.*native watcher permission denied/u);
     await survive(terminationStarted.promise);
@@ -237,15 +250,30 @@ syncBuiltinESMExports();
   },
 );
 
-function waitForFile(file: string): Promise<void> {
-  return new Promise((resolve) => {
+function waitForFile(file: string, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (existsSync(file)) {
+      resolve();
+      return;
+    }
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error(`Aborted while waiting for ${file}`));
+      return;
+    }
+    const onAbort = () => {
+      watcher.close();
+      reject(signal?.reason ?? new Error(`Aborted while waiting for ${file}`));
+    };
     const watcher = watch(path.dirname(file), () => {
       if (existsSync(file)) {
+        signal?.removeEventListener("abort", onAbort);
         watcher.close();
         resolve();
       }
     });
+    signal?.addEventListener("abort", onAbort, { once: true });
     if (existsSync(file)) {
+      signal?.removeEventListener("abort", onAbort);
       watcher.close();
       resolve();
     }
