@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { cmdShellInvocation } from "@harness-anything/storage";
 import {
   dispatchStreamPath,
   openDispatchStreamAppender,
@@ -12,6 +13,7 @@ import { tailRuntimeSteerCommands } from "./runtime-worker-control.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";
 import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 import { runtimeKindForId } from "../runtime-engine/runtime-inventory.ts";
+import { terminateRuntimeProcess } from "../runtime-engine/runtime-process-signals.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 import { establishRuntimeProcessGroup } from "./runtime/process-group-reconciler.ts";
 
@@ -20,6 +22,8 @@ type RuntimeWorkerManifest = {
   readonly dispatchId: string;
   readonly executablePath: string;
   readonly args: readonly string[];
+  readonly providerExecutablePath?: string;
+  readonly providerArgs?: readonly string[];
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
   readonly prompt: string;
@@ -243,7 +247,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     queuedPrompt = null;
     queuedSteerMeta = undefined;
     clearTimeout(interruptTimer);
-    if (!settled) child?.kill("SIGTERM");
+    if (!settled && child) terminateRuntimeProcess(child);
   });
   try {
     const containmentId = await establishRuntimeProcessGroup();
@@ -263,14 +267,15 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       continuation = declaration?.unsettledTurnContinuation,
       maxContinuations = continuation?.maxContinuations ?? 0,
       continuationPrompt = continuation?.prompt ?? "Continue the current task from where it left off.";
-    const baseArgs = [...manifest.args];
+    const baseArgs = [...(manifest.providerArgs ?? manifest.args)];
     let args = [...baseArgs],
       prompt = manifest.prompt,
       interrupted = false;
     const interrupt = (): void => {
       if (child && !interrupted) {
         interrupted = true;
-        child.kill("SIGINT");
+        if (process.platform === "win32") terminateRuntimeProcess(child);
+        else child.kill("SIGINT");
       }
     };
     control.handler = (nextPrompt, meta) => {
@@ -301,12 +306,13 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         }, 5_000);
     };
     for (;;) {
-      child = spawn(manifest.executablePath, args, {
+      const attemptCommand = resolveProviderAttemptCommand(manifest, args, providerEnv);
+      child = spawn(attemptCommand.executablePath, attemptCommand.args, {
         cwd: manifest.cwd,
         env: providerEnv,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
-        ...(manifest.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+        ...(attemptCommand.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       });
       child.stderr!.setEncoding("utf8");
       child.stderr!.on("data", (chunk: string) =>
@@ -744,6 +750,36 @@ function providerSteerState(
   }
   return {};
 }
+function resolveProviderAttemptCommand(
+  manifest: RuntimeWorkerManifest,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+): {
+  readonly executablePath: string;
+  readonly args: readonly string[];
+  readonly windowsVerbatimArguments: boolean;
+} {
+  if (manifest.providerExecutablePath === undefined || manifest.providerArgs === undefined) {
+    return {
+      executablePath: manifest.executablePath,
+      args,
+      windowsVerbatimArguments: manifest.windowsVerbatimArguments,
+    };
+  }
+  if (process.platform === "win32" && /\.(?:cmd|bat)$/iu.test(manifest.providerExecutablePath)) {
+    const invocation = cmdShellInvocation(manifest.providerExecutablePath, args, env);
+    return {
+      executablePath: invocation.command,
+      args: invocation.args,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    };
+  }
+  return {
+    executablePath: manifest.providerExecutablePath,
+    args,
+    windowsVerbatimArguments: false,
+  };
+}
 function parseManifest(value: string): RuntimeWorkerManifest {
   const parsed: unknown = JSON.parse(value);
   if (
@@ -753,6 +789,9 @@ function parseManifest(value: string): RuntimeWorkerManifest {
     typeof parsed.executablePath !== "string" ||
     !Array.isArray(parsed.args) ||
     !parsed.args.every((arg) => typeof arg === "string") ||
+    (parsed.providerExecutablePath !== undefined && typeof parsed.providerExecutablePath !== "string") ||
+    (parsed.providerArgs !== undefined &&
+      (!Array.isArray(parsed.providerArgs) || !parsed.providerArgs.every((arg) => typeof arg === "string"))) ||
     typeof parsed.cwd !== "string" ||
     !isRuntimeWorkerRecord(parsed.env) ||
     typeof parsed.prompt !== "string" ||

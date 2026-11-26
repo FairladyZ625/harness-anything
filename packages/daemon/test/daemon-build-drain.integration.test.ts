@@ -173,7 +173,7 @@ for (const detached of [false, true]) {
             backend: "direct-pty",
             name: "Stream drain",
             cwd: { scope: "repo-root" },
-            shellProfileId: "sh",
+            shellProfileId: process.platform === "win32" ? "powershell" : "sh",
           },
         });
         assert.equal(terminal.outcome, "applied", JSON.stringify(terminal));

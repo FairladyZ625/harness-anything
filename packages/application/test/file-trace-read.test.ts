@@ -7,6 +7,7 @@ import {
   normalizeTraceTargetPath,
   parseGitHistory,
   selectPassiveTraceContext,
+  selectReviewTraceContext,
   traceFileCausalHistory,
   traceModulePrefixes,
   type GitHistoryPort,
@@ -400,4 +401,85 @@ test("serving runtime context batches every plan path into one Git process and d
     null,
   );
   assert.equal(invocations.length, 1, "a plan without code paths spawns no Git process");
+});
+
+test("selectReviewTraceContext handles 20+ changed paths with zero Git calls, ranks by path depth (<=10), and filters archived/unfinalized facts", () => {
+  const changedPaths = Array.from(
+    { length: 22 },
+    (_, i) => `packages/application/src/queries/mod-${String(i).padStart(2, "0")}.ts`,
+  );
+  const manyDecisions = [
+    decision("dec_ROOT", "in_effect", ["packages"], "Broad root redline"),
+    decision("dec_PKG", "in_effect", ["packages/application"]),
+    decision("dec_SRC", "in_effect", ["packages/application/src"]),
+    decision("dec_QUERIES", "in_effect", ["packages/application/src/queries"]),
+    decision("dec_EXACT_FILE", "in_effect", ["packages/application/src/queries/mod-19.ts"]),
+    decision("dec_EXACT_REDLINE", "in_effect", ["packages/application/src/queries/mod-20.ts"], "Exact file redline"),
+    decision("dec_DRAFT", "draft", ["packages/application/src/queries/mod-21.ts"]),
+    ...Array.from({ length: 8 }, (_, idx) =>
+      decision(`dec_EXTRA_${String(idx).padStart(2, "0")}`, "in_effect", [
+        `packages/application/src/queries/mod-${String(idx).padStart(2, "0")}.ts`,
+      ]),
+    ),
+  ];
+
+  const projection = {
+    readCut: () => cut(11),
+    readTaskIndex: (query: { taskIds?: string[] }) => ({
+      ...cut(11),
+      rows: [
+        { taskId: TASK_A, title: "Finalized task", status: "done", packagePath: "tasks/a" },
+        { taskId: TASK_C, title: "Unfinalized active task", status: "active", packagePath: "tasks/c" },
+      ].filter((row) => query.taskIds?.includes(row.taskId)),
+    }),
+    readTaskRelationsByTargets: () => ({ ...cut(11), rows: [] }),
+    listDecisions: () => ({ ...cut(11), decisions: manyDecisions }),
+    readDecisions: () => ({ ...cut(11), decisions: [] }),
+    searchFacts: () => ({
+      ...cut(11),
+      facts: [
+        factRow("F-10000001", "packages/application/src/queries/mod-18.ts:10-20", { taskId: TASK_A }),
+        factRow("F-10000002", "packages/application/src/queries/mod-19.ts", { archived: true, taskId: TASK_A }),
+        factRow("F-10000003", "packages/application/src/queries/mod-20.ts", { invalidated: true, taskId: TASK_A }),
+        factRow("F-10000004", "packages/application/src/queries/mod-21.ts", { taskId: TASK_C }),
+        factRow("F-10000005", "packages/application/src/queries/mod-00.ts"),
+      ],
+    }),
+  } as unknown as TraceProjection;
+
+  const result = selectReviewTraceContext({
+    projection,
+    changedPaths: [...changedPaths, "../escape.ts", "packages\\application\\src\\queries\\mod-00.ts"],
+  });
+
+  assert.equal(result.schema, "review-trace-context/v1");
+  assert.equal(result.paths.length, 22, "no 5-file cap for PR diff review activation");
+  assert.deepEqual(result.projectionCut, cut(11));
+  assert.equal(result.decisions.length, 10, "default maxDecisions caps at 10");
+  assert.ok(
+    result.decisions.every((d) => d.state === "in_effect"),
+    "only in-effect decisions are activated",
+  );
+  assert.equal(result.decisions[0]?.decisionId, "dec_EXACT_REDLINE", "deepest path + redline ranks highest");
+  assert.ok(
+    !result.decisions.some((d) => d.decisionId === "dec_ROOT"),
+    "shallowest root decision is shed when >10 deeper decisions match",
+  );
+  assert.deepEqual(
+    result.facts.map((f) => f.factId),
+    ["F-10000001", "F-10000005"],
+    "archived, invalidated, and unfinalized-task facts are filtered out while finalized and standalone facts remain",
+  );
+});
+
+test("selectReviewTraceContext fails closed on mixed projection cuts", () => {
+  const { projection } = fixture({ revision: (method) => (method === "searchFacts" ? 9 : 7) });
+  assert.throws(
+    () =>
+      selectReviewTraceContext({
+        projection,
+        changedPaths: [PATH],
+      }),
+    /multiple event projection cuts/u,
+  );
 });

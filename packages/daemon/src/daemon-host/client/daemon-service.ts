@@ -75,6 +75,8 @@ export function daemonServiceUnitContent(
     readonly ownerPid?: string | undefined;
     /** Explicit attach timeout budget (ms) propagated when configured for an isolated launch. */
     readonly attachTimeoutMs?: number | string | undefined;
+    /** Test-only vertical script blocker file propagated across on-demand scheduled launches. */
+    readonly verticalScriptBlockFile?: string | undefined;
     /** Windows on-demand starts do not opt the user into login autostart. */
     readonly runAtLogin?: boolean;
   },
@@ -96,6 +98,9 @@ export function daemonServiceUnitContent(
       ...(input.extraCaCerts ? { NODE_EXTRA_CA_CERTS: path.resolve(input.extraCaCerts) } : {}),
       ...(input.ownerPid ? { HARNESS_DAEMON_OWNER_PID: input.ownerPid } : {}),
       ...(attachTimeoutMs === undefined ? {} : { [DAEMON_ATTACH_TIMEOUT_ENV]: String(attachTimeoutMs) }),
+      ...(input.verticalScriptBlockFile
+        ? { HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE: input.verticalScriptBlockFile }
+        : {}),
     };
   if (unit.manager === "task-scheduler") {
     // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers. The

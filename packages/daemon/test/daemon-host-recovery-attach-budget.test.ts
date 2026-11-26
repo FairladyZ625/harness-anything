@@ -34,7 +34,11 @@ test("a repository whose open never settles is bounded by an attach budget while
   registerDaemonRepo({ canonicalRoot: hung, repoId: "aaa-hung", userRoot, createConvenienceLinks: false });
   registerDaemonRepo({ canonicalRoot: live, repoId: "zzz-live", userRoot, createConvenienceLinks: false });
   signInPolicyTestUser(userRoot, "writer", ["aaa-hung", "zzz-live"], "admin");
-  const hungOpens: Array<(cell: Awaited<ReturnType<typeof openRepoCell>>) => void> = [];
+  const hungOpens: Array<{
+    readonly resolve: (cell: Awaited<ReturnType<typeof openRepoCell>>) => void;
+    readonly reject: (error: Error) => void;
+    settled: boolean;
+  }> = [];
   const liveCell = await openRepoCell({
     repoId: workspaceId("zzz-live"),
     rootDir: canonicalRoot(live),
@@ -42,8 +46,8 @@ test("a repository whose open never settles is bounded by an attach budget while
   });
   const openCell: typeof openRepoCell = async (cellInput) =>
     cellInput.repoId === workspaceId("aaa-hung")
-      ? new Promise((resolve) => {
-          hungOpens.push(resolve);
+      ? new Promise((resolve, reject) => {
+          hungOpens.push({ resolve, reject, settled: false });
         })
       : liveCell;
   const host = await openDaemonHost({
@@ -58,9 +62,18 @@ test("a repository whose open never settles is bounded by an attach budget while
     assert.equal(
       records.some(
         (record) =>
-          record.event === "repo_attach_timed_out" && record.repoId === "aaa-hung" && record.durationMs === 2_000,
+          record.event === "repo_attach_timed_out" &&
+          record.repoId === "aaa-hung" &&
+          record.rootDir === canonicalRoot(hung) &&
+          record.durationMs === 2_000,
       ),
       true,
+      `expected repo_attach_timed_out with rootDir=${canonicalRoot(hung)}, got ${JSON.stringify(records)}`,
+    );
+    assert.equal(
+      host.status().repos.filter((repo) => repo.repoId === "aaa-hung").length,
+      1,
+      "timed-out open must latch a single unavailable status row",
     );
     assert.equal(
       records.some(
@@ -73,7 +86,8 @@ test("a repository whose open never settles is bounded by an attach budget while
     assert.match(String(latched.lastError), /did not finish attaching within 2000ms/u);
     assert.equal((await host.run("aaa-hung", { kind: "task-list" }, auth)).code, "repo_unavailable");
     assert.equal((await host.run("zzz-live", { kind: "task-list" }, auth)).outcome, "applied");
-    hungOpens[0]!(
+    hungOpens[0]!.settled = true;
+    hungOpens[0]!.resolve(
       await openRepoCell({ repoId: workspaceId("aaa-hung"), rootDir: canonicalRoot(hung), ownerId: "attach-budget" }),
     );
     for (
@@ -88,6 +102,11 @@ test("a repository whose open never settles is bounded by an attach budget while
       "a late open completion must heal the timed-out latch",
     );
   } finally {
+    for (const pending of hungOpens)
+      if (!pending.settled) {
+        pending.settled = true;
+        pending.reject(new Error("test cleanup"));
+      }
     await host.close();
     removeTempRepository(parent);
   }
@@ -384,6 +403,11 @@ test(
             },
           );
           assert.equal(timedOut.durationMs, scenario.expectedMs, `${scenario.daemonId}: ${JSON.stringify(timedOut)}`);
+          assert.equal(
+            timedOut.rootDir,
+            canonicalRoot(repoRoot),
+            `${scenario.daemonId}: repo_attach_timed_out must carry rootDir`,
+          );
         } finally {
           if (child.exitCode === null) {
             const exited = once(child, "exit");
@@ -397,3 +421,114 @@ test(
     }
   },
 );
+
+test("repo attach publishes repo_attach_completed without waiting for a blocked schedule refresh", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-attach-scheduler-")),
+    userRoot = path.join(parent, "user"),
+    repoRoot = path.join(parent, "repo"),
+    records: Record<string, unknown>[] = [],
+    staleClaimFence = "claim_stale_builtin_backup";
+  rosterRepo(repoRoot, "sched-blocked");
+  signInPolicyTestUser(userRoot, "writer", ["sched-blocked"], "admin");
+
+  let announceBuiltinCheck!: (claimFence: string) => void;
+  let releaseBuiltinCheck!: (alive: boolean) => void;
+  const builtinCheckStarted = new Promise<string>((resolve) => {
+    announceBuiltinCheck = resolve;
+  });
+  const builtinCheckGate = new Promise<boolean>((resolve) => {
+    releaseBuiltinCheck = resolve;
+  });
+  let builtinCheckResolved = false;
+
+  const realCell = await openRepoCell({
+    repoId: workspaceId("sched-blocked"),
+    rootDir: canonicalRoot(repoRoot),
+    ownerId: "attach-scheduler",
+  });
+  const openCell: typeof openRepoCell = async () => ({
+    ...realCell,
+    run: async (action, binding, signal) => {
+      if (action.kind === "schedule-list")
+        return {
+          schema: "command-receipt/v2",
+          ok: true,
+          command: "schedule-list",
+          outcome: "applied",
+          evidence: "schedule-list:1",
+          schedules: [
+            {
+              scheduleId: "builtin-ledger-backup",
+              state: "paused",
+              mode: "detect",
+              definitionRevision: 1,
+              updatedAt: "2026-09-10T00:00:00.000Z",
+              nextRunAt: null,
+              spec: {
+                title: "Ledger backup",
+                trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-09-10T00:00:00.000Z" },
+                target: { kind: "builtin", builtinId: "ledger-backup" },
+              },
+              status: {
+                automaticEvaluatedThrough: "2026-09-10T00:00:00.000Z",
+                activeRun: {
+                  claimFence: staleClaimFence,
+                  scheduledFor: "2026-09-10T00:00:00.000Z",
+                  startedAt: "2026-09-10T00:00:00.000Z",
+                },
+              },
+            },
+          ],
+        } as Awaited<ReturnType<typeof realCell.run>>;
+      return realCell.run(action, binding, signal);
+    },
+    hasBuiltinExecutor: async (claimFence) => {
+      announceBuiltinCheck(claimFence);
+      const alive = await builtinCheckGate;
+      builtinCheckResolved = true;
+      return alive;
+    },
+  });
+
+  const host = await openDaemonHost({
+    daemonId: "attach-scheduler",
+    userRoot,
+    attachTimeoutMs: 500,
+    openCell,
+    recordLifecycle: (record) => records.push(record),
+  });
+  try {
+    // Mirror `daemon start` followed by `daemon repo register`: scheduler is already started.
+    await host.attachmentsSettled();
+    const registered = await host.admin({ kind: "register", repoId: "sched-blocked", rootDir: repoRoot }, auth);
+    assert.equal(registered.outcome, "applied", JSON.stringify(registered));
+    assert.equal(builtinCheckResolved, false, "attach must return before blocked scheduler refresh finishes");
+    assert.equal(
+      records.some(
+        (record) =>
+          record.event === "repo_attach_completed" &&
+          record.repoId === "sched-blocked" &&
+          record.rootDir === canonicalRoot(repoRoot),
+      ),
+      true,
+      `expected repo_attach_completed, got ${JSON.stringify(records)}`,
+    );
+    assert.equal(
+      records.some((record) => record.event === "repo_attach_timed_out" && record.repoId === "sched-blocked"),
+      false,
+      `blocked scheduler refresh must not trip attach timeout: ${JSON.stringify(records)}`,
+    );
+    const matchingRows = host.status().repos.filter((repo) => repo.repoId === "sched-blocked");
+    assert.equal(
+      matchingRows.length,
+      1,
+      `must not emit duplicate attached+unavailable rows: ${JSON.stringify(matchingRows)}`,
+    );
+    assert.equal(matchingRows[0]?.state, "attached");
+    assert.equal(await builtinCheckStarted, staleClaimFence, "scheduler refresh must still run asynchronously");
+  } finally {
+    releaseBuiltinCheck(true);
+    await host.close();
+    removeTempRepository(parent);
+  }
+});

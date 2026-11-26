@@ -37,7 +37,7 @@ import {
 
 test(
   "F11/F14/F15: Center fences controlReceipt against persisted request, rejects conflicting terminal receipts, and accepts authorized late receipts on cancelled task-bound sessions without breaking N-1 reducer",
-  { timeout: 120_000 },
+  { timeout: process.platform === "win32" ? 240_000 : 120_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t);
     const originRemote = path.join(f.root, "origin.git");
@@ -426,7 +426,7 @@ test(
 
 test(
   "F6 & F13: paused Edge-B replica delays real CLI retry until catch-up AND hung receipt RPC on session 1 never delays cancel on session 2",
-  { timeout: 120_000 },
+  { timeout: process.platform === "win32" ? 240_000 : 120_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t);
     const originRemote = path.join(f.root, "origin.git");

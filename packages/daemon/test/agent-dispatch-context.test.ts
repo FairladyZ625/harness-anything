@@ -640,7 +640,7 @@ test("a portable Agent dispatches in a repository whose skills live in repositor
       ),
       (error: unknown) =>
         (error as { code?: string; message?: string }).code === "agent_skill_not_found" &&
-        /skills\/not-there/u.test(String((error as Error).message)) &&
+        /skills[/\\]not-there/u.test(String((error as Error).message)) &&
         /Agent portable-worker cannot dispatch/u.test(String((error as Error).message)) &&
         /ha agent install --source/u.test(String((error as Error).message)),
     );
@@ -733,7 +733,7 @@ test("artifact task cwd stays in its package while permissions follow request, a
         binding,
       );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.equal(prepared?.cwd, path.join(root, "harness", packagePath));
+      assert.equal(prepared?.cwd, path.join(canonicalRoot(root), "harness", packagePath));
       assert.equal(prepared?.permissionMode, override ?? "bypass");
       if (process.platform === "win32") assert.equal(prepared?.callbackRelayPath, undefined);
       else assert.match(prepared?.callbackRelayPath ?? "", /^\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
@@ -742,7 +742,7 @@ test("artifact task cwd stays in its package while permissions follow request, a
     assert.equal(launches, 4);
     const taskId = "task_package_code_control";
     await createTask(cell, root, { taskId, title: "Implement a code change" });
-    const workerRoot = path.join(root, "worker-control");
+    const workerRoot = path.join(canonicalRoot(root), "worker-control");
     mkdirSync(workerRoot);
     const receipt = await cell.spawnRuntime(
       {

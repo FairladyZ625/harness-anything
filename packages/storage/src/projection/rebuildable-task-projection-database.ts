@@ -118,6 +118,8 @@ export class ProjectionEventStreamIncompleteError extends Error {
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
 const projectionBusyTimeoutMs = storageReadPolicy.defaultValue.deadlines.projectionBusy;
+const RETRYABLE_WINDOWS_REMOVE_CODES = new Set(["EPERM", "EBUSY"]);
+const windowsRemoveSleepBuffer = new Int32Array(new SharedArrayBuffer(4));
 const runtimeBindingBatchSize = 256;
 const runtimeBindingMaintenanceKey = "runtime-session-task-binding-v1";
 const runtimeSessionExecutionNodeMaintenanceKey = "runtime-session-execution-node-v1";
@@ -154,9 +156,13 @@ function closeQueryOnlyConnection(connection: QueryOnlyConnection): void {
   connection.fingerprint = null;
 }
 
+function projectionRegistryKey(resolvedProjectionPath: string): string {
+  return process.platform === "win32" ? resolvedProjectionPath.toLowerCase() : resolvedProjectionPath;
+}
+
 /** Release the cached query connection when its reader owner leaves the repository. */
 export function closeQueryOnlyReader(projectionPath: string): void {
-  const key = canonicalProjectionPath(projectionPath),
+  const key = projectionRegistryKey(canonicalProjectionPath(projectionPath)),
     connection = queryOnlyConnections.get(key);
   if (!connection) return;
   queryOnlyConnections.delete(key);
@@ -167,13 +173,11 @@ export function closeQueryOnlyReader(projectionPath: string): void {
 
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
-  const resolvedRoot = canonicalProjectionPath(rootDir),
-    normalizedRoot = process.platform === "win32" ? resolvedRoot.toLowerCase() : resolvedRoot,
+  const normalizedRoot = projectionRegistryKey(canonicalProjectionPath(rootDir)),
     prefix = `${normalizedRoot}${path.sep}`;
-  for (const projectionPath of [...projectionClosers.keys()]) {
-    const normalizedPath = process.platform === "win32" ? projectionPath.toLowerCase() : projectionPath;
-    if (normalizedPath !== normalizedRoot && !normalizedPath.startsWith(prefix)) continue;
-    closeProjectionHandlesAt(projectionPath);
+  for (const projectionKey of [...projectionClosers.keys()]) {
+    if (projectionKey !== normalizedRoot && !projectionKey.startsWith(prefix)) continue;
+    closeProjectionHandlesAt(projectionKey);
   }
 }
 
@@ -191,8 +195,9 @@ export function closeQueryOnlyProjectionConnection(projectionPath: string): void
 // at once. Deleting it while any handle is still open is invisible on POSIX -- unlink detaches the
 // name and the open handles keep working -- and EPERM on Windows, so a discard has to close every
 // handle on the path rather than only the caller's. Each owner reopens on its next use.
-function closeProjectionHandlesAt(resolvedProjectionPath: string): void {
-  const closers = projectionClosers.get(resolvedProjectionPath);
+function closeProjectionHandlesAt(projectionPath: string): void {
+  const resolvedProjectionPath = projectionRegistryKey(projectionPath),
+    closers = projectionClosers.get(resolvedProjectionPath);
   if (closers === undefined) return;
   for (const close of [...closers]) close();
   closers.clear();
@@ -206,7 +211,9 @@ export function withDatabase<A>(
   onValidationProgress?: ProjectionProgress,
 ): A {
   if (
-    queryOnlySession?.projectionPath === canonicalProjectionPath(projectionPath) &&
+    queryOnlySession !== null &&
+    projectionRegistryKey(queryOnlySession.projectionPath) ===
+      projectionRegistryKey(canonicalProjectionPath(projectionPath)) &&
     queryOnlySession.readHead === readHead
   )
     return use(queryOnlySession.db);
@@ -218,9 +225,10 @@ export function withQueryOnlyDatabaseSession<A>(
   readHead: EventStreamPort["readHead"],
   use: (db: DatabaseSync) => A,
 ): A {
-  const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
+  const filePath = canonicalProjectionPath(projectionPath),
+    resolvedProjectionPath = projectionRegistryKey(filePath);
   if (queryOnlySession !== null) {
-    if (queryOnlySession.projectionPath === resolvedProjectionPath) {
+    if (projectionRegistryKey(queryOnlySession.projectionPath) === resolvedProjectionPath) {
       const outer = queryOnlySession;
       queryOnlySession = { ...outer, readHead };
       try {
@@ -231,8 +239,7 @@ export function withQueryOnlyDatabaseSession<A>(
     }
     throw new Error("a query-only projection session cannot open a different projection");
   }
-  if (!localRuntimeStateFileSystem.exists(resolvedProjectionPath))
-    throw new Error(`projection is unavailable at ${resolvedProjectionPath}`);
+  if (!localRuntimeStateFileSystem.exists(filePath)) throw new Error(`projection is unavailable at ${filePath}`);
   const connection = queryOnlyConnections.get(resolvedProjectionPath) ?? {
     db: null,
     fingerprint: null,
@@ -244,7 +251,7 @@ export function withQueryOnlyDatabaseSession<A>(
   if (connection.db === null) {
     connection.db =
       /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ new DatabaseSync(
-        resolvedProjectionPath,
+        filePath,
         {
           readOnly: true,
         },
@@ -262,7 +269,7 @@ export function withQueryOnlyDatabaseSession<A>(
     };
   }
   const db = connection.db;
-  queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
+  queryOnlySession = { projectionPath: filePath, readHead, db };
   try {
     // The pragmas ride along with BEGIN on one exec: both are idempotent per connection, and the
     // session keeps exactly one governed statement for its transaction boundary.
@@ -295,6 +302,12 @@ export function withQueryOnlyDatabaseSession<A>(
     if (queryOnlyConnections.get(resolvedProjectionPath) !== connection) closeQueryOnlyConnection(connection);
   }
 }
+
+function windowsRemoveErrorCode(error: unknown): string {
+  if (process.platform !== "win32" || typeof error !== "object" || error === null || !("code" in error)) return "";
+  return String((error as { readonly code?: unknown }).code);
+}
+
 export function discardDatabase(
   projectionPath: string,
   eventStore: EventStreamPort,
@@ -315,7 +328,25 @@ export function discardDatabase(
       eventStreamHead: eventStore.readHead()?.revision ?? null,
     }),
   );
-  localRuntimeStateFileSystem.remove(projectionPath);
+  const canonicalPath = canonicalProjectionPath(projectionPath),
+    deadline = Date.now() + storageReadPolicy.defaultValue.deadlines.openBusy,
+    retryDelayMs = storageReadPolicy.defaultValue.backoff.openBusy;
+  let removeError: unknown;
+  for (;;) {
+    removeError = (() => {
+      try {
+        localRuntimeStateFileSystem.remove(projectionPath);
+        return null;
+      } catch (error) {
+        return error;
+      }
+    })();
+    if (removeError === null) return;
+    if (!RETRYABLE_WINDOWS_REMOVE_CODES.has(windowsRemoveErrorCode(removeError)) || Date.now() >= deadline)
+      throw removeError;
+    closeProjectionHandlesAt(canonicalPath);
+    Atomics.wait(windowsRemoveSleepBuffer, 0, 0, retryDelayMs);
+  }
 }
 // close() shares discard()'s invariant: callers close a projection so they can remove its file, and
 // a handle held by any other owner blocks that on Windows. Closing only the caller's owner made
@@ -337,7 +368,7 @@ function projectionDatabaseOwner(
   }
   const known = owners.get(projectionPath);
   if (known !== undefined) return known;
-  const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
+  const resolvedProjectionPath = projectionRegistryKey(canonicalProjectionPath(projectionPath));
   let db: DatabaseSync | null = null,
     fingerprint: string | null = null,
     schemaChecked = false,

@@ -27,7 +27,7 @@ export function managedShutdownFixture(root: string, fixtureOptions: ManagedShut
   const service = createIdentityManagement(root, {
     ...(fixtureOptions.recordLifecycle ? { recordLifecycle: fixtureOptions.recordLifecycle } : {}),
     spawn: ((command: string, _args: string[], spawnOptions: Parameters<typeof spawn>[2]) => {
-      const name: FixtureChild = path.basename(command) === "postgres" ? "postgres" : "keycloak",
+      const name: FixtureChild = /^postgres(?:\.exe)?$/iu.test(path.basename(command)) ? "postgres" : "keycloak",
         call = (calls[name] += 1);
       fixtureOptions.onSpawn?.(name, call);
       const spawnError = fixtureOptions.spawnErrorOnCall;

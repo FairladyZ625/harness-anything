@@ -1876,9 +1876,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   function raceAttachBudget(
     opening: Promise<void>,
     repoId: string,
-    progress?: Parameters<typeof raceAttachBudgetImpl>[3],
+    rootDir: string,
+    progress?: Parameters<typeof raceAttachBudgetImpl>[4],
   ): Promise<void> {
-    return raceAttachBudgetImpl(extracted, opening, repoId, progress);
+    return raceAttachBudgetImpl(extracted, opening, repoId, rootDir, progress);
   }
   function performOpenRegistered(
     repo: Parameters<typeof performOpenRegisteredImpl>[1],

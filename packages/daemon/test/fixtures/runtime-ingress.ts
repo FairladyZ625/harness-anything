@@ -255,7 +255,7 @@ export function spawnCli(
     });
     let stdout = "",
       stderr = "";
-    const timeout = setTimeout(() => child.kill(), 10_000);
+    const timeout = setTimeout(() => child.kill(), process.platform === "win32" ? 45_000 : 10_000);
     child.stdout.setEncoding("utf8").on("data", (chunk) => {
       stdout += chunk;
     });

@@ -16,7 +16,7 @@ import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 test("doc status reuses unchanged file inputs and observes accepted updates, drafts, conflicts and deletion", async (t) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cache-")),
+  const rootDir = canonicalRoot(mkdtempSync(path.join(tmpdir(), "ha-doc-cache-"))),
     repoId = workspaceId("doc-cache"),
     binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
     paths = Array.from({ length: 24 }, (_, i) => `context/cache/document-${String(i).padStart(2, "0")}.md`),
@@ -202,7 +202,7 @@ test("discovery preserves unknown files and owners and isolates repositories and
     let fileLoads = 0;
     const original = fs.readFileSync,
       spy = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
-        if (String(args[0]).endsWith("/context/common.md")) fileLoads++;
+        if (String(args[0]).replaceAll("\\", "/").endsWith("/context/common.md")) fileLoads++;
         return original(...args);
       });
     syncBuiltinESMExports();

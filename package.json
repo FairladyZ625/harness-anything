@@ -113,6 +113,10 @@
     "postinstall": "node -e \"if(!process.env.ELECTRON_SKIP_BINARY_DOWNLOAD&&require('node:fs').existsSync('node_modules/electron/install.js'))require('./node_modules/electron/install.js')\"",
     "pr:doctor": "node tools/pr-doctor.mjs",
     "retro:extract": "node tools/retro/cli.mjs extract",
+    "retro:eval": "node tools/retro/cli.mjs eval",
+    "retro:distill": "node tools/retro/cli.mjs distill",
+    "retro:audit": "node tools/retro/cli.mjs audit",
+    "retro:prune": "node tools/retro/cli.mjs prune",
     "harness:check-writer-isolate": "node tools/check-writer-isolate.mjs"
   },
   "engines": {

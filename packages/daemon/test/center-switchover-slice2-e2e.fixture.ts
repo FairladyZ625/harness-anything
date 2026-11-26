@@ -1073,17 +1073,20 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
         .outcome,
       "applied",
     );
-    const revAfterOverflow = readRepoRevision(nodeA.repo, repoId);
-    await waitForFleetReplicaRevision(
-      { viewRoot: edgeB.viewRoot, repoId, nodeId: "node-one" },
-      revAfterOverflow,
-      AbortSignal.timeout(45_000),
-    );
-    await waitForFleetReplicaRevision(
-      { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
-      revAfterOverflow,
-      AbortSignal.timeout(45_000),
-    );
+    const revAfterOverflow = readRepoRevision(nodeA.repo, repoId),
+      overflowWaitMs = process.platform === "win32" ? 120_000 : 45_000;
+    await Promise.all([
+      waitForFleetReplicaRevision(
+        { viewRoot: edgeB.viewRoot, repoId, nodeId: "node-one" },
+        revAfterOverflow,
+        AbortSignal.timeout(overflowWaitMs),
+      ),
+      waitForFleetReplicaRevision(
+        { viewRoot: edgeCRbac.viewRoot, repoId, nodeId: "node-c-rbac" },
+        revAfterOverflow,
+        AbortSignal.timeout(overflowWaitMs),
+      ),
+    ]);
     const seqCandidateB = readReplicaGeneration(viewDirB)?.metadata.position.sequence ?? 0;
     assert.ok(
       seqCandidateB - seqEdgeFOffline > DEFAULT_REPLICA_LOG_WINDOW_COMMITS,
@@ -1522,7 +1525,7 @@ export async function runSwitchoverSlice2Mode2E2e(t: TestContext): Promise<void>
         ...extraArgs,
       ];
       const cliEnv: NodeJS.ProcessEnv = { ...process.env };
-      delete cliEnv.HARNESS_EXECUTION_CREDENTIAL;
+      for (const key of Object.keys(cliEnv)) if (key.startsWith("HARNESS_")) delete cliEnv[key];
       try {
         const { stdout, stderr } = await execFileAsync(process.execPath, cliArgs, {
           env: cliEnv,

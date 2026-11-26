@@ -112,6 +112,25 @@ function quoted(value: string): string {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
+const WINDOWS_POWERSHELL_ENV_NAMES = new Set([
+  "systemroot",
+  "windir",
+  "temp",
+  "tmp",
+  "pathext",
+  "comspec",
+  "path",
+  "psmodulepath",
+]);
+
+/** Keep only the Windows runtime variables PowerShell and Add-Type need, avoiding .NET's 65,535-byte env block limit. */
+export function minimalWindowsPowerShellEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source))
+    if (value !== undefined && WINDOWS_POWERSHELL_ENV_NAMES.has(key.toLowerCase())) env[key] = value;
+  return env;
+}
+
 export async function establishWindowsProcessGroup(): Promise<string> {
   // Global names remain visible when a successor daemon runs in another logon session.
   const name = `Global\\HarnessRuntime-${randomUUID()}`;
@@ -119,7 +138,7 @@ export async function establishWindowsProcessGroup(): Promise<string> {
     "powershell.exe",
     invocation(`[HarnessRuntimeJob]::Attach(${process.pid}, ${quoted(name)})`),
     undefined,
-    undefined,
+    minimalWindowsPowerShellEnv(),
     undefined,
     undefined,
     { timeoutMs: daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs },
@@ -145,7 +164,7 @@ export function observeWindowsProcessGroup(
       `@{ activeProcesses = ${active}; uptimeMs = [HarnessRuntimeJob]::GetTickCount64() } | ConvertTo-Json -Compress`,
     ),
     undefined,
-    undefined,
+    minimalWindowsPowerShellEnv(),
     daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs,
   );
   const value = JSON.parse(output) as WindowsGroupObservation;
