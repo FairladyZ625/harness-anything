@@ -715,7 +715,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3): ha fleet center switch (190 -> 191).
   // task_b75af18a8ce517d88ee1cb2bd9 (dec_166C5D2EAB57F8BCA3F15107E2/CH2): ha channel deliver/send (191 -> 193).
   // task_211789c20aee8c48a40535b9ac (dec_166C5D2EAB57F8BCA3F15107E2/CH1,CH4): resident CEO config/start/stop/chat (193 -> 197).
-  assert.equal(actionDeclarations.length, 197);
+  // task_119c1adc483dac7f320354417a (dec_mrbm7oli): resident CEO Phase 2 approve/reject (197 -> 199).
+  assert.equal(actionDeclarations.length, 199);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),

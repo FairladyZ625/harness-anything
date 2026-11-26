@@ -68,7 +68,8 @@ test("retired People mutations are absent from the durable authorization invento
   // task_4f12261e49c43e88193d00eef0 (dec_AAEC26DBB6F23BDF80876ABB2C/CH1,CH3) adds daemon-fleet-center-switch (184 -> 185).
   // task_b75af18a8ce517d88ee1cb2bd9 (dec_166C5D2EAB57F8BCA3F15107E2/CH2) adds channel-deliver and channel-send (185 -> 187).
   // task_211789c20aee8c48a40535b9ac adds resident CEO config/start/stop/chat (187 -> 191).
-  assert.equal(durablePolicyActions.length, 191);
+  // task_119c1adc483dac7f320354417a adds resident CEO Phase 2 approve/reject (191 -> 193).
+  assert.equal(durablePolicyActions.length, 193);
   for (const kind of ["cli-local-effects", "package-assets-build", "daemon-local-state", "preset-convert-local"]) {
     assert.equal(durablePolicyActions.includes(kind), false);
     assert.equal(durableActionKinds.includes(kind), false);

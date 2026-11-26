@@ -37,6 +37,18 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     }[word],
     divergence: "entity-scoped" as const,
   })),
+  ...(["pending_approval", "promoted", "rejected", "failed"] as const).map((word) => ({
+    word,
+    entity: "RuntimeSession" as const,
+    field: "resident CEO proposal status",
+    meaning: {
+      pending_approval: "A resident CEO delegation proposal is awaiting explicit owner approval.",
+      promoted: "The delegation proposal was approved and promoted into a managed HA task.",
+      rejected: "The delegation proposal was rejected by the owner.",
+      failed: "Execution of the approved delegation proposal failed before promotion completed.",
+    }[word],
+    divergence: "entity-scoped" as const,
+  })),
   ...gateRunStatusWordRegister,
   ...dispatchStatusWordRegister,
   ...rbacBackupStatuses.map((word) => ({

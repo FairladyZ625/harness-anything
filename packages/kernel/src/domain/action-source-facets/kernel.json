@@ -65,6 +65,31 @@
     "assignment-migrate": {
       "owner": "relation"
     },
+    "ceo-approve": {
+      "owner": "daemon",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "ceo-approve",
+        "read": false
+      }
+    },
     "ceo-chat": {
       "owner": "daemon",
       "concurrency": {
@@ -112,6 +137,31 @@
       },
       "execution": {
         "ingress": "ceo-config",
+        "read": false
+      }
+    },
+    "ceo-reject": {
+      "owner": "daemon",
+      "concurrency": {
+        "expectedVersion": {
+          "authority": "not-applicable"
+        },
+        "leasePolicy": {
+          "authority": "daemon-host"
+        },
+        "occurrenceClaim": {
+          "authority": "not-applicable"
+        },
+        "idempotency": {
+          "authority": "caller-owned"
+        },
+        "artifactOwnership": {
+          "owner": "host-local",
+          "refTemplate": "daemon-host"
+        }
+      },
+      "execution": {
+        "ingress": "ceo-reject",
         "read": false
       }
     },

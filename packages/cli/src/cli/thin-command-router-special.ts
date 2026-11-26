@@ -101,6 +101,21 @@ export function parseRoutedSpecial(
       ? parseExplain(args, rootDir, repoId, json, route.method)
       : parseGraph(route, args, rootDir, repoId, json, inputs);
   if (route.id === "trace") return parseTrace(route, args, rootDir, repoId, json, inputs);
+  if (route.path[0] === "ceo" && "positional" in route && typeof route.positional === "string") {
+    const target = args[route.path.length];
+    if (!nonEmpty(target) || target.startsWith("--")) return rejected("missing_field", `Use ${route.usage}.`, json);
+    return parseProjected(
+      route.id,
+      args.slice(route.path.length + 1),
+      rootDir,
+      repoId,
+      json,
+      inputs,
+      { [route.positional]: target },
+      {},
+      route.method,
+    );
+  }
   return undefined;
 }
 

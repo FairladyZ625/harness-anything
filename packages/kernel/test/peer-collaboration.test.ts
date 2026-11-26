@@ -198,6 +198,38 @@ test("the active claimant can answer, reject, or promote the request", () => {
       ),
     { code: "peer_request_promotion_task_required" },
   );
+
+  const outcomeReply = {
+    structuredBody: { claim: "Promoted task task_123 reached done.", requestedAction: "Review outcome." },
+    attachments: [],
+    minRevision: 50,
+  };
+  const reported = reducePeerRequestEvent(
+    promoted,
+    envelope(
+      "peer_request_answered",
+      { requestId: "peer_123", requestRevision: 4, claimId: "event-2", reply: outcomeReply },
+      "bob",
+      laterExpiry,
+    ),
+  );
+  assert.equal(reported.state, "PROMOTED");
+  assert.equal(reported.promotedTaskId, "task_123");
+  assert.equal(reported.reply?.structuredBody.claim, "Promoted task task_123 reached done.");
+  assert.deepEqual(parseEntityJsonSchema(requireEntityKindContract("peer-request").schema, reported), reported);
+  assert.throws(
+    () =>
+      reducePeerRequestEvent(
+        promoted,
+        envelope(
+          "peer_request_answered",
+          { requestId: "peer_123", requestRevision: 4, claimId: "wrong-claim", reply: outcomeReply },
+          "bob",
+          laterExpiry,
+        ),
+      ),
+    { code: "peer_request_claim_mismatch" },
+  );
 });
 
 test("registered PeerRequest decoding enforces the PROMOTED task-id discriminator", () => {

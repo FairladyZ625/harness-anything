@@ -4,7 +4,7 @@ import {
   type GeneratedSettingsActionInputField,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { actionRpc, optionalEnum, shape, type RpcShape } from "./daemon-protocol-results.ts";
-import { decisionProviderVendorWords } from "./daemon-protocol-vocabulary.ts";
+import { decisionProviderVendorWords, residentCeoExecutionPolicyWords } from "./daemon-protocol-vocabulary.ts";
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { todoActionRoutes } from "./todo-action-routes.ts";
 import { entityDeclarationRoutes, entityImportRoutes } from "./entity-action-routes.ts";
@@ -53,7 +53,15 @@ export const daemonActionRoutes = Object.freeze([
     commandClass: "admin",
     params: shape({
       repo: shape({ repoId: "string" }),
-      payload: shape({ runtimeInstanceId: "string", model: "string", heartbeatIntervalSec: "number" }),
+      payload: shape({
+        runtimeInstanceId: "string",
+        model: "string",
+        heartbeatIntervalSec: "number",
+        executionPolicy: optionalEnum(residentCeoExecutionPolicyWords),
+        defaultWorkId: "string?",
+        defaultAgentId: "string?",
+        autoApproveSenders: "array?",
+      }),
     }),
   },
   {

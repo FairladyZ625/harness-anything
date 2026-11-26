@@ -110,7 +110,7 @@ import {
 } from "./dispatch-lifecycle.ts";
 import { inboxStatusVocabularies } from "./status-word-register-inbox.ts";
 import { centerSwitchoverFenceStates, centerSwitchoverPhases } from "./center-switchover.ts";
-import { residentCeoProfileStatuses, residentCeoWakeStatuses } from "./resident-ceo.ts";
+import { residentCeoProfileStatuses, residentCeoProposalStatuses, residentCeoWakeStatuses } from "./resident-ceo.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 export { rbacBackupStatuses };
@@ -134,6 +134,33 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     module: "packages/kernel/src/domain/resident-ceo.ts",
     anchor: "residentCeoWakeStatuses",
     words: residentCeoWakeStatuses,
+  },
+  {
+    id: "resident-ceo.proposal-status",
+    entity: "RuntimeSession",
+    field: "resident CEO proposal status",
+    module: "packages/kernel/src/domain/resident-ceo.ts",
+    anchor: "residentCeoProposalStatuses",
+    words: residentCeoProposalStatuses,
+  },
+  {
+    id: "resident-ceo.promoted-task-terminal-state",
+    entity: "Task",
+    field: "status",
+    module: "packages/kernel/src/domain/resident-ceo.ts",
+    anchor: "ResidentCeoPromotedTaskTerminalState",
+    words: ["done", "cancelled"],
+    subsetOf: "task.status",
+    note: "Terminal task statuses propagated back to a promoted PeerRequest by the resident CEO watcher.",
+  },
+  {
+    id: "daemon.resident-ceo.proposal-status",
+    entity: "DaemonWire",
+    field: "resident CEO proposal status",
+    module: "packages/daemon/src/daemon-host/protocol/daemon-protocol-vocabulary.ts",
+    anchor: "residentCeoProposalStatusWords",
+    words: residentCeoProposalStatuses,
+    mirrorOf: "resident-ceo.proposal-status",
   },
   {
     id: "gui.resident-ceo.profile-status",

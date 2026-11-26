@@ -8,7 +8,25 @@
         "order": 1
       }
     ],
+    "ceo-approve": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.approveProposal.saved:17ef4ce8b1bffd2e7f03fa86f2031d16",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.reportPromotedTaskOutcome.saved:8a566fd49ee18411965f950ae81b7756",
+        "route": "ceo-approve"
+      }
+    ],
     "ceo-config": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#codedError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.commitProfileMutation:79cee37abf1b8696b343173252fe25c1",
+        "route": "ceo-config"
+      },
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:2cb7617831c6f6b1acd5f344ae63516a",
         "route": "ceo-config"
@@ -23,6 +41,10 @@
       },
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.reconcileWake:0278ea962c8506506e07e06388dbcab3",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.recordProposal.saved:7a2879dc9464766ce7e66eb36b4c2c93",
         "route": "ceo-config"
       },
       {
@@ -76,6 +98,12 @@
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:dad50c53c7568b3be50b6d6244249ad7",
         "route": "ceo-config"
+      }
+    ],
+    "ceo-reject": [
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.rejectProposal.saved:e49af90759b88405f23bc8c41f2679ee",
+        "route": "ceo-reject"
       }
     ],
     "channel-deliver": [
