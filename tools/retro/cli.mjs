@@ -14,6 +14,7 @@
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { runDistillCli } from "./distill.mjs";
 import { runEvalCli } from "./eval.mjs";
 import { runExtractCli } from "./extract.mjs";
 
@@ -68,6 +69,10 @@ export async function runCli(argv = process.argv.slice(2), io = {}) {
 
   if (command === "eval") {
     return runEvalCli(rest, { stdout, stderr });
+  }
+
+  if (command === "distill") {
+    return runDistillCli(rest, { stdout, stderr });
   }
 
   if (rest.includes("--help") || rest.includes("-h")) {

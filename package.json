@@ -114,6 +114,7 @@
     "pr:doctor": "node tools/pr-doctor.mjs",
     "retro:extract": "node tools/retro/cli.mjs extract",
     "retro:eval": "node tools/retro/cli.mjs eval",
+    "retro:distill": "node tools/retro/cli.mjs distill",
     "harness:check-writer-isolate": "node tools/check-writer-isolate.mjs"
   },
   "engines": {
