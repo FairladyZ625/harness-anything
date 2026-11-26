@@ -1,16 +1,22 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import type { PeerRequestV1 } from "@harness-anything/kernel/internal/domain/peer-collaboration.ts";
 import type { ResidentCeoDelegationProposal } from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { requestDaemonJsonRpcAt } from "../src/daemon-host/client/local-json-rpc-client.ts";
 import { openDaemonHost } from "../src/daemon-host/daemon-host.ts";
+import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
+import { startDaemon } from "../src/daemon-host/runtime.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { eventuallyValue, initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { evidence } from "./task-surface.fixtures.ts";
@@ -637,5 +643,215 @@ test(
     assert.equal(autoPromoted.dispatchError, null, JSON.stringify(autoPromoted));
     assert.equal(typeof autoPromoted.dispatchRuntimeSessionId, "string", JSON.stringify(autoPromoted));
     assert.ok((autoPromoted.dispatchRuntimeSessionId ?? "").length > 0, JSON.stringify(autoPromoted));
+  },
+);
+
+test(
+  "resident CEO read-only peer-ask wake queries sanitized fleet status and runtime instances via real CLI while non-allowlisted commands remain rejected",
+  { timeout: 120_000 },
+  async (t) => {
+    const parent = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-ceo-ro-fleet-runtime-"))),
+      rootDir = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      probeOutputPath = path.join(parent, "ceo-cli-probe.json"),
+      repoId = "ceo-ro-fleet-runtime",
+      daemonId = "ceo-ro-fleet-runtime-test",
+      cliEntry = path.resolve("packages/cli/src/index.ts"),
+      realm = await serveKeycloak();
+    let stop = async (): Promise<void> => {};
+    t.after(async () => {
+      await stop();
+      await realm.close();
+      removeTempRepository(parent);
+    });
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    execFileSync("git", ["-C", rootDir, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+    realm.bind(userRoot);
+    for (const personId of ["person_alice", "person_bob"]) {
+      realm.keycloak.account(personId);
+      realm.keycloak.permit(personId, repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+    }
+    signInAt(userRoot, "person_bob");
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+
+    const executablePath = writeProviderExecutable(
+      path.join(parent, "codex.mjs"),
+      `import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+if (process.argv[2] === "auth" || process.argv[2] === "login") process.exit(0);
+readFileSync(0, "utf8");
+const cli = ${JSON.stringify(cliEntry)};
+const root = ${JSON.stringify(rootDir)};
+const runCli = (args) => {
+  try {
+    const stdout = execFileSync(process.execPath, [cli, "--root", root, "--json", ...args], {
+      encoding: "utf8",
+      env: process.env,
+    });
+    return { status: 0, stdout, stderr: "" };
+  } catch (error) {
+    return {
+      status: error.status ?? 1,
+      stdout: String(error.stdout ?? ""),
+      stderr: String(error.stderr ?? ""),
+    };
+  }
+};
+const results = {
+  fleetStatus: runCli(["daemon", "fleet", "status"]),
+  runtimeList: runCli(["runtime", "instance", "list"]),
+  runtimeProbe: runCli(["runtime", "instance", "list", "--probe"]),
+  runtimeShow: runCli(["runtime", "instance", "show", "codex-provider"]),
+  taskCreate: runCli(["task", "create", "--title", "Forbidden from peer-ask"]),
+};
+writeFileSync(${JSON.stringify(probeOutputPath)}, JSON.stringify(results));
+console.log(JSON.stringify({ type: "thread.started", thread_id: "ceo-ro-fleet-session" }));
+console.log(JSON.stringify({ type: "item.completed", item: { id: "msg", type: "agent_message", text: "Fleet and runtime metadata queried read-only." } }));
+console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+`,
+    );
+
+    const daemon = await startDaemon({
+      daemonId,
+      userRoot,
+      buildSupersessionEnabled: false,
+      runtimeDiscover: () => [
+        {
+          installationId: "ceo-ro-codex",
+          kindId: "codex",
+          executablePath,
+          version: "codex-cli 0.159.1",
+          observedAt: new Date().toISOString(),
+        },
+      ],
+    });
+    assert.ok("stop" in daemon);
+    stop = daemon.stop;
+    const daemonRpc = (method: string, params: JsonObject) =>
+      requestDaemonJsonRpcAt(daemon.endpoint, method, params, 1000, 30_000);
+
+    await eventuallyValue(async () => {
+      const status = await daemonRpc("daemon.status", {});
+      return (status.repos as { readonly repoId: string; readonly state: string }[]).some(
+        (repo) => repo.repoId === repoId && repo.state === "attached",
+      )
+        ? true
+        : null;
+    }, "daemon attaches repository");
+
+    const createdPrimary = await daemonRpc("daemon.runtimeInstance.create", {
+      payload: {
+        instanceId: "codex-provider",
+        name: "Resident CEO Codex",
+        kindId: "codex",
+        installationId: "ceo-ro-codex",
+        providerId: "openai",
+        models: ["test-model"],
+        authMode: "subscription",
+        codex: {},
+      },
+    });
+    assert.equal(createdPrimary.ok, true, JSON.stringify(createdPrimary));
+    const createdSecret = await daemonRpc("daemon.runtimeInstance.create", {
+      payload: {
+        instanceId: "codex-api-secret",
+        name: "Private API Gateway",
+        kindId: "codex",
+        installationId: "ceo-ro-codex",
+        providerId: "custom-gateway",
+        models: ["gpt-6-sol"],
+        authMode: "api-key",
+        credentialRef: "credential:v1:codex-api-secret",
+        codex: {
+          baseUrl: "https://private.gateway.invalid/v1",
+          httpHeaders: { "X-Gateway-Route": "private-sidecar-route" },
+          credentialHeader: "X-Resident-Key",
+        },
+      },
+    });
+    assert.equal(createdSecret.ok, true, JSON.stringify(createdSecret));
+
+    // Configure Resident CEO for Bob, then send a peer-ask from Alice and start Bob's Resident CEO.
+    assert.equal(
+      (
+        await daemonRpc("repo.residentCeo.config", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: "codex-provider",
+            model: "test-model",
+            heartbeatIntervalSec: 300,
+          },
+        })
+      ).ok,
+      true,
+    );
+    signInAt(userRoot, "person_alice");
+    const asked = await daemonRpc("repo.task.run", {
+      repo: { repoId },
+      payload: {
+        action: {
+          kind: "peer-ask",
+          requestKind: "delegate",
+          toPersonId: "person_bob",
+          summary: "Report fleet node status and available runtime models",
+        },
+      },
+    });
+    assert.equal(asked.outcome, "applied", JSON.stringify(asked));
+
+    signInAt(userRoot, "person_bob");
+    assert.equal((await daemonRpc("repo.residentCeo.start", { repo: { repoId }, payload: {} })).ok, true);
+
+    await eventuallyValue(async () => {
+      const status = await daemonRpc("repo.residentCeo.status", { repo: { repoId }, payload: {} });
+      const profile = status.profile as {
+        readonly lastWake?: { readonly status?: string; readonly detail?: string | null } | null;
+      } | null;
+      assert.notEqual(profile?.lastWake?.status, "failed", JSON.stringify(profile?.lastWake));
+      return profile?.lastWake?.status === "succeeded" ? profile : null;
+    }, "resident CEO settles peer-ask read-only wake");
+
+    const observed = JSON.parse(readFileSync(probeOutputPath, "utf8")) as Record<
+      string,
+      { readonly status: number; readonly stdout: string; readonly stderr: string }
+    >;
+    const parseReceipt = (raw: { readonly stdout: string }) =>
+      JSON.parse(raw.stdout.slice(raw.stdout.indexOf("{"))) as Record<string, unknown>;
+
+    const fleetBody = parseReceipt(observed.fleetStatus!);
+    assert.equal(fleetBody.ok, true, JSON.stringify(observed.fleetStatus));
+    assert.equal(fleetBody.schema, "daemon.fleet-overview/v1");
+    assert.equal(fleetBody.repoId, repoId);
+    assert.equal(observed.fleetStatus!.stdout.includes(parent), false);
+
+    const runtimeBody = parseReceipt(observed.runtimeList!);
+    assert.equal(runtimeBody.ok, true, JSON.stringify(observed.runtimeList));
+    const listedInstances = runtimeBody.instances as readonly { readonly instanceId: string }[];
+    assert.ok(listedInstances.some((entry) => entry.instanceId === "codex-provider"));
+    assert.ok(listedInstances.some((entry) => entry.instanceId === "codex-api-secret"));
+    for (const forbidden of [
+      "credential:v1:codex-api-secret",
+      "private.gateway.invalid",
+      "X-Gateway-Route",
+      "private-sidecar-route",
+      "X-Resident-Key",
+      "http_headers",
+      "credential_header",
+      "credentialRef",
+      "executablePath",
+      parent,
+    ]) {
+      assert.equal(
+        observed.runtimeList!.stdout.includes(forbidden),
+        false,
+        `resident CEO runtime instance list must not leak ${forbidden}`,
+      );
+    }
+
+    for (const key of ["runtimeProbe", "runtimeShow", "taskCreate"] as const) {
+      const combined = `${observed[key]!.stdout}${observed[key]!.stderr}`;
+      assert.match(combined, /execution_credential_rejected/u, `${key} must be rejected`);
+      assert.match(combined, /allowlisted ledger queries/u, `${key} must explain the read-only allowlist`);
+    }
   },
 );

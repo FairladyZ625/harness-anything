@@ -132,6 +132,25 @@ for (const scenario of [
       },
     });
     assert.equal(instance.ok, true, JSON.stringify(instance));
+    const secretInstance = await rpc("daemon.runtimeInstance.create", {
+      payload: {
+        instanceId: "codex-secret-gateway",
+        name: "Secret gateway fixture",
+        kindId: "codex",
+        installationId: "codex-fixture",
+        providerId: "sub2api",
+        models: ["gpt-6-sol"],
+        permissionMode: "read-only",
+        authMode: "api-key",
+        credentialRef: "credential:v1:codex-secret-gateway",
+        codex: {
+          baseUrl: "https://gateway.example.invalid/v1",
+          httpHeaders: { "X-Proxy-Route": "internal-sidecar-route" },
+          credentialHeader: "X-Api-Secret",
+        },
+      },
+    });
+    assert.equal(secretInstance.ok, true, JSON.stringify(secretInstance));
     const settings = (await run({ kind: "settings-read" })) as {
       readonly outcome: string;
       readonly entityRevision: number;
@@ -199,7 +218,75 @@ for (const scenario of [
       await settleTurn();
       return;
     }
+    // Sanitized read-only runtime instance list and repo-bound fleet status succeed through the real CLI
+    const runtimeList = await cli(["runtime", "instance", "list"]);
+    const runtimeListBody = receipt(runtimeList) as {
+      readonly ok: boolean;
+      readonly nodeId?: string;
+      readonly instances?: readonly {
+        readonly instanceId: string;
+        readonly kindId: string;
+        readonly providerId: string;
+        readonly models: readonly string[];
+        readonly enabled: boolean;
+        readonly providerHealth?: { readonly status?: string };
+      }[];
+    };
+    assert.equal(
+      runtimeListBody.ok,
+      true,
+      `allowlisted runtime instance list failed: ${runtimeList.stderr}${runtimeList.stdout}`,
+    );
+    assert.ok(runtimeListBody.instances?.some((entry) => entry.instanceId === "codex-ask"));
+    assert.ok(runtimeListBody.instances?.some((entry) => entry.instanceId === "codex-secret-gateway"));
+    for (const forbidden of [
+      "credential:v1:codex-secret-gateway",
+      "gateway.example.invalid",
+      "X-Proxy-Route",
+      "internal-sidecar-route",
+      "X-Api-Secret",
+      "http_headers",
+      "credential_header",
+      "credentialRef",
+      "executablePath",
+      "codex.mjs",
+      parent,
+    ]) {
+      assert.equal(
+        `${runtimeList.stdout}${runtimeList.stderr}`.includes(forbidden),
+        false,
+        `runtime instance list must not leak ${forbidden}`,
+      );
+    }
+
+    const fleetStatus = await cli(["daemon", "fleet", "status"]);
+    const fleetStatusBody = receipt(fleetStatus) as {
+      readonly ok: boolean;
+      readonly schema?: string;
+      readonly repoId?: string;
+      readonly nodes?: readonly { readonly nodeId: string; readonly role: string }[];
+    };
+    assert.equal(
+      fleetStatusBody.ok,
+      true,
+      `allowlisted daemon fleet status failed: ${fleetStatus.stderr}${fleetStatus.stdout}`,
+    );
+    assert.equal(fleetStatusBody.schema, "daemon.fleet-overview/v1");
+    assert.equal(fleetStatusBody.repoId, repoId);
+    assert.ok(fleetStatusBody.nodes?.some((node) => node.nodeId === "center" && node.role === "center"));
+    assert.equal(
+      `${fleetStatus.stdout}${fleetStatus.stderr}`.includes(parent),
+      false,
+      "daemon fleet status must not leak host paths",
+    );
+
+    const crossRepoFleet = await cli(["daemon", "fleet", "status", "--repo", "other-repo"]);
+    assert.notEqual(receipt(crossRepoFleet).ok, true, "cross-repo fleet status must be refused");
+
     for (const [label, response] of [
+      ["runtime instance probe", await cli(["runtime", "instance", "list", "--probe"])],
+      ["runtime instance show", await cli(["runtime", "instance", "show", "codex-ask"])],
+      ["runtime instance delete", await cli(["runtime", "instance", "delete", "codex-ask"])],
       ["outside allowlist read", await cli(["agent", "list"])],
       ["task creation", await cli(["task", "create", "--title", "Read-only task write attempt"])],
       ["task progress write", await cli(["task", "progress", "append", "task_4401_probe", "--text", "must be denied"])],
@@ -213,6 +300,19 @@ for (const scenario of [
         `${label} must be refused by the daemon`,
       );
       assert.match(`${response.stdout}${response.stderr}`, /allowlisted ledger queries/u);
+    }
+    for (const [label, response] of [
+      ["daemon status", await cli(["daemon", "status"])],
+      [
+        "fleet center start",
+        await cli(["daemon", "fleet", "center", "start", "--port", "0", "--repo", repoId, "--quota-bytes", "1024"]),
+      ],
+    ]) {
+      assert.match(
+        `${response.stdout}${response.stderr}`,
+        /execution_credential_rejected/u,
+        `${label} must be refused`,
+      );
     }
     // Release the provider turn so the runtime settles and the test daemon can stop cleanly.
     await settleTurn();

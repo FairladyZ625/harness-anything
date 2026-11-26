@@ -42,6 +42,26 @@ const executionRepositoryReads: ReadonlyMap<string, RepoTaskAction> = new Map([
   ["repo.dossier.context.read", { kind: repositoryReadActionKind }],
 ]);
 
+/** Parse strict read-only parameters on `daemon.runtimeInstance.list` (no probing, no unknown fields). */
+export function parseReadOnlyRuntimeInstanceListPayload(payload: unknown): { readonly all: boolean } {
+  if (!isJsonObject(payload)) throw executionCredentialRejected("read-only-allowlist");
+  for (const key of Object.keys(payload)) {
+    if (key !== "all" && key !== "probe")
+      throw executionCredentialRejected("read-only-allowlist", {
+        detail: `Unsupported runtime instance list parameter: ${key}.`,
+      });
+  }
+  if (payload.all !== undefined && typeof payload.all !== "boolean")
+    throw executionCredentialRejected("read-only-allowlist", {
+      detail: "Runtime instance list parameter `all` must be a boolean.",
+    });
+  if (payload.probe !== undefined && payload.probe !== false)
+    throw executionCredentialRejected("read-only-allowlist", {
+      detail: "Runtime instance probing (--probe) is not allowed for read-only dispatches.",
+    });
+  return { all: payload.all === true };
+}
+
 /** Narrow authentication before any host method can act, including local socket-owner controls. */
 export function requireExecutionRequestScope(
   principal: RuntimeExecutionPrincipal,
@@ -61,6 +81,40 @@ export function requireExecutionRequestScope(
     )
       throw executionCredentialRejected();
     return;
+  }
+  if (principal.role === "read-only") {
+    if (method === "daemon.runtimeInstance.list") {
+      if (Object.keys(params).some((key) => key !== "repo" && key !== "payload"))
+        throw executionCredentialRejected("read-only-allowlist");
+      if (params.repo !== undefined) {
+        if (
+          !isJsonObject(params.repo) ||
+          params.repo.repoId !== principal.repoId ||
+          Object.keys(params.repo).some((key) => key !== "repoId")
+        )
+          throw executionCredentialRejected();
+      }
+      parseReadOnlyRuntimeInstanceListPayload(params.payload);
+      return;
+    }
+    if (method === "repo.fleet.overview.read") {
+      if (
+        !isJsonObject(params.repo) ||
+        params.repo.repoId !== principal.repoId ||
+        Object.keys(params.repo).some((key) => key !== "repoId")
+      )
+        throw executionCredentialRejected();
+      if (
+        Object.keys(params).some((key) => key !== "repo" && key !== "payload") ||
+        (params.payload !== undefined && (!isJsonObject(params.payload) || Object.keys(params.payload).length > 0))
+      )
+        throw executionCredentialRejected("read-only-allowlist");
+      requireExecutionActionScope(principal, { kind: "fleet-overview-read" });
+      return;
+    }
+    if (isJsonObject(params.repo) && params.repo.repoId !== principal.repoId) throw executionCredentialRejected();
+    if (method.startsWith("repo.residentCeo.") || !isJsonObject(params.repo) || !isJsonObject(params.payload))
+      throw executionCredentialRejected("read-only-allowlist");
   }
   if (!isJsonObject(params.repo) || params.repo.repoId !== principal.repoId || !isJsonObject(params.payload))
     throw executionCredentialRejected();
@@ -100,6 +154,7 @@ const readOnlyLedgerQueries = new Set([
   "runtime-status",
   "schedule-list",
   "schedule-runs",
+  "fleet-overview-read",
 ]);
 
 /** A taskless session's requested read-only ceiling becomes an issued server-side role. */

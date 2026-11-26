@@ -54,9 +54,10 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   // A worker's execution authority never includes local service controls or their signal ladder.
-  // `probe` is the exception: it sends only hello/status, reads process counters, and captures with
-  // read-only tools, so the dispatched task can produce its own real-center availability evidence.
-  if (process.env.HARNESS_EXECUTION_CREDENTIAL && command !== "probe") {
+  // `probe` and `daemon fleet status` are the exceptions: the daemon enforces execution scope and
+  // server-side sanitization on `repo.fleet.overview.read`, while all control verbs remain blocked.
+  const isExecutionFleetStatus = argv[at] === "daemon" && command === "fleet" && subcommand === "status";
+  if (process.env.HARNESS_EXECUTION_CREDENTIAL && command !== "probe" && !isExecutionFleetStatus) {
     renderReceipt(
       daemonFailure(
         `${argv[at]}-${argv[at + 1] ?? "status"}`,
