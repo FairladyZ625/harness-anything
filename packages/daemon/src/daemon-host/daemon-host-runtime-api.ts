@@ -55,6 +55,7 @@ import {
 import { probeTlsAddress, validateCertificateNames } from "./tls-listener-admission.ts";
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
+import { PEER_BODY_MAX_LENGTH } from "./protocol/daemon-protocol-commands.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { runReplicaConfirmedRound } from "./runtime-recovery-watch.ts";
@@ -84,6 +85,27 @@ function residentCeoDispatchKey(principalPersonId: string, wakeId: string): stri
 
 function residentCeoWatcherKey(repoId: string, principalPersonId: string): string {
   return `${repoId}:${principalPersonId}`;
+}
+
+const TERMINAL_PEER_STATES = new Set<PeerRequestV1["state"]>(["ANSWERED", "DONE", "REJECTED", "PROMOTED"]);
+
+function boundPeerReplyText(text: string): string {
+  return text.length <= PEER_BODY_MAX_LENGTH ? text : `${text.slice(0, PEER_BODY_MAX_LENGTH - 1)}…`;
+}
+
+function peerReplyRejectionMessage(reply: Readonly<Record<string, unknown>>): string {
+  if (typeof reply.rejectionExplanation === "string" && reply.rejectionExplanation.trim().length > 0)
+    return reply.rejectionExplanation;
+  const nestedError = reply.error;
+  if (
+    nestedError !== null &&
+    typeof nestedError === "object" &&
+    "message" in nestedError &&
+    typeof nestedError.message === "string" &&
+    nestedError.message.trim().length > 0
+  )
+    return nestedError.message;
+  return "Peer reply was not confirmed.";
 }
 
 function hasRunningResidentCeoCandidate(rootDir: string, repoId: string): boolean {
@@ -258,7 +280,18 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     );
     if (reply.outcome === "applied" || reply.outcome === "no_changes") return;
     if (reply.outcome === "op_rejected" && reply.code === "peer_request_transition_invalid") return;
-    throw context.hostCodedError(reply.code ?? "resident_ceo_reply_unconfirmed", "Peer reply was not confirmed.");
+    if (reply.outcome === "op_rejected" && reply.code === "fleet_task_rejected") {
+      const cell = context.cells.get(repoId);
+      if (cell?.readPeerRequest) {
+        const binding = await context.binding(cell.status().rootDir, auth, undefined, repoId);
+        const existing = await cell.readPeerRequest(requestId, binding, auth.connectionSignal);
+        if (existing !== null && TERMINAL_PEER_STATES.has(existing.state)) return;
+      }
+    }
+    throw context.hostCodedError(
+      reply.code ?? "resident_ceo_reply_unconfirmed",
+      peerReplyRejectionMessage(reply as unknown as Readonly<Record<string, unknown>>),
+    );
   };
   const withResidentCeoSignal = (
     auth: DaemonAuthenticationContext,
@@ -360,7 +393,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
               const response =
                 session.result?.text?.trim() || "The request was received. No response text was produced.";
               if (request.peerRequestId !== undefined)
-                await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth, response);
+                await acknowledgeResidentCeoPeer(repoId, request.peerRequestId, auth, boundPeerReplyText(response));
               return { response, persistentSessionId: session.session.providerSessionId };
             },
           };
@@ -458,7 +491,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         repoId,
         wake.peerRequestId,
         auth,
-        settled.result?.text?.trim() || "No response text was produced.",
+        boundPeerReplyText(settled.result?.text?.trim() || "No response text was produced."),
       );
     await residentCeoService(repoId, auth).reconcileWake(principalPersonId, wake.wakeId, {
       runtimeSessionId: settled.session.runtimeSessionId,

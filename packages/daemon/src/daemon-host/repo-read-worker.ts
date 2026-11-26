@@ -78,6 +78,9 @@ function executeRead(request: RepoWriterRequestV1): unknown {
     case "readEventWitness":
       value = reader.readEventWitness(Number(args[0]));
       break;
+    case "readPeerRequest":
+      value = reader.readPeerRequest(String(args[0]), binding);
+      break;
     case "taskIdForDocumentPath":
       value = reader.taskIdForDocumentPath(String(args[0]));
       break;

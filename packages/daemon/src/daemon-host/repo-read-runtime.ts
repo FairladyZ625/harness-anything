@@ -460,6 +460,15 @@ export function makeRepoReadRuntime(
     readDispatchLifecycle: (inputQuery: import("@harness-anything/kernel").DispatchLifecycleQuery) =>
       query((projection) => projection.readDispatchLifecycle(inputQuery)),
     readEventWitness: (revision: number) => query((projection) => projection.readEventWitness(revision)),
+    readPeerRequest: (requestId: string, binding?: RepoCellBinding) => {
+      const readOne = (projection: TaskProjectionQueries) => {
+        const result = projection.readPeerRequests({ by: "id", requestId });
+        return result.status === "ready" ? (result.requests[0] ?? null) : null;
+      };
+      return input.mode === "remote-edge"
+        ? edgeReplicaRead(binding, (projection) => readOne(projection))
+        : query(readOne);
+    },
     taskIdForDocumentPath: (logicalPath: string) =>
       query((projection) => projection.taskIdForDocumentPath(logicalPath)),
     readTaskAuthorizationMetadata: (taskIds: readonly string[]) =>
