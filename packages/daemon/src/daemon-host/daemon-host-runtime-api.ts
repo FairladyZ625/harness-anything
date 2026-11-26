@@ -33,7 +33,9 @@ import {
 } from "@harness-anything/kernel";
 import {
   assertResidentCeoPrincipal,
+  effectiveResidentCeoApprovalGate,
   effectiveResidentCeoExecutionPolicy,
+  isResidentCeoApprovalGateMode,
   isResidentCeoExecutionPolicy,
   type ResidentCeoProfile,
   type ResidentCeoProposalStatus,
@@ -84,6 +86,7 @@ import {
   buildResidentCeoPeerPrompt,
   formatResidentCeoProposalsSummary,
   lookupOpenPeerRequest,
+  makeResidentCeoApprovalGate,
   makeResidentCeoDelegationExecutor,
   settleResidentCeoPeerTurn,
   syncResidentCeoPromotedTaskOutcomes,
@@ -380,6 +383,10 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         repoId,
         auth,
       ),
+      approvalGate: makeResidentCeoApprovalGate({
+        decisionProviders: context.decisionProviders,
+        now: context.now,
+      }),
       now: context.now,
       createId: randomUUID,
       runtime: {
@@ -760,10 +767,17 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       });
       if (operation === "status") {
         const pendingProposals = (saved?.proposals ?? []).filter((entry) => entry.status === "pending_approval").length;
+        const gate = saved ? effectiveResidentCeoApprovalGate(saved) : null;
+        const gateText =
+          gate === null
+            ? ""
+            : gate.mode === "off"
+              ? " · gate=off"
+              : ` · gate=${gate.mode}${gate.providerId ? `(${gate.providerId})` : ""}@${gate.minConfidence}`;
         return receipt(
           saved,
           saved
-            ? `${saved.status} · ${saved.runtimeInstanceId} · ${saved.model} · ${saved.heartbeatIntervalSec}s · policy=${effectiveResidentCeoExecutionPolicy(saved)}${pendingProposals > 0 ? ` · pendingProposals=${pendingProposals}` : ""}${saved.lastWake ? `\nLast wake: ${saved.lastWake.cause} · ${saved.lastWake.status} · ${saved.lastWake.requestedAt}` : ""}`
+            ? `${saved.status} · ${saved.runtimeInstanceId} · ${saved.model} · ${saved.heartbeatIntervalSec}s · policy=${effectiveResidentCeoExecutionPolicy(saved)}${gateText}${pendingProposals > 0 ? ` · pendingProposals=${pendingProposals}` : ""}${saved.lastWake ? `\nLast wake: ${saved.lastWake.cause} · ${saved.lastWake.status} · ${saved.lastWake.requestedAt}` : ""}`
             : "Resident CEO is not configured.",
         );
       }
@@ -803,6 +817,40 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
                   throw context.hostCodedError("invalid_field", "autoApproveSenders must be an array of person ids.");
                 })()
             : undefined;
+        const gateMode = payload.gateMode;
+        if (gateMode !== undefined && !isResidentCeoApprovalGateMode(gateMode))
+          throw context.hostCodedError("invalid_field", "gateMode must be off, secondary-guard, or auto-promote.");
+        const gateProviderId = payload.gateProviderId;
+        if (gateProviderId !== undefined && gateProviderId !== null && typeof gateProviderId !== "string")
+          throw context.hostCodedError(
+            "invalid_field",
+            "gateProviderId must be a decision provider id string or null.",
+          );
+        const gateMinConfidence = payload.gateMinConfidence;
+        if (
+          gateMinConfidence !== undefined &&
+          (typeof gateMinConfidence !== "number" ||
+            !Number.isFinite(gateMinConfidence) ||
+            gateMinConfidence <= 0 ||
+            gateMinConfidence > 1)
+        )
+          throw context.hostCodedError("invalid_field", "gateMinConfidence must be a finite number in (0, 1].");
+        const hasGateUpdate = gateMode !== undefined || gateProviderId !== undefined || gateMinConfidence !== undefined;
+        const approvalGate = hasGateUpdate
+          ? {
+              mode: gateMode ?? saved?.approvalGate?.mode ?? "off",
+              ...(gateProviderId !== undefined
+                ? { providerId: gateProviderId }
+                : saved?.approvalGate?.providerId !== undefined
+                  ? { providerId: saved.approvalGate.providerId }
+                  : {}),
+              ...(gateMinConfidence !== undefined
+                ? { minConfidence: gateMinConfidence }
+                : saved?.approvalGate?.minConfidence !== undefined
+                  ? { minConfidence: saved.approvalGate.minConfidence }
+                  : {}),
+            }
+          : undefined;
         const profile = await service.configure(principalPersonId, {
           repoId,
           runtimeInstanceId,
@@ -812,6 +860,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           ...(typeof payload.defaultWorkId === "string" ? { defaultWorkId: payload.defaultWorkId } : {}),
           ...(typeof payload.defaultAgentId === "string" ? { defaultAgentId: payload.defaultAgentId } : {}),
           ...(autoApproveSenders === undefined ? {} : { autoApproveSenders }),
+          ...(approvalGate === undefined ? {} : { approvalGate }),
         });
         if (profile.status === "running") watchResidentCeoInbox(repoId, principalPersonId);
         return receipt(profile, "Resident CEO configuration saved.");

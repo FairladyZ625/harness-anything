@@ -122,3 +122,84 @@ test("resident CEO Phase 2 CLI parses policy config, proposals, approve, and rej
     reason: "Out of scope",
   });
 });
+
+test("resident CEO Phase 3 CLI parses approval gate flags and rejects invalid mode or confidence range", () => {
+  const configured = parseThinCommand([
+    "ceo",
+    "config",
+    "--instance",
+    "instance_owner",
+    "--model",
+    "model-a",
+    "--heartbeat-interval-sec",
+    "300",
+    "--policy",
+    "approval-gated",
+    "--gate-mode",
+    "auto-promote",
+    "--gate-provider",
+    "openrouter-decider",
+    "--gate-min-confidence",
+    "0.88",
+  ]);
+  assert.equal(configured.ok, true);
+  if (!configured.ok) return;
+  assert.equal(configured.command.method, "repo.residentCeo.config");
+  assert.deepEqual(configured.command.action, {
+    kind: "ceo-config",
+    runtimeInstanceId: "instance_owner",
+    model: "model-a",
+    heartbeatIntervalSec: 300,
+    executionPolicy: "approval-gated",
+    gateMode: "auto-promote",
+    gateProviderId: "openrouter-decider",
+    gateMinConfidence: 0.88,
+  });
+
+  const boundaryOne = parseThinCommand([
+    "ceo",
+    "config",
+    "--instance",
+    "instance_owner",
+    "--model",
+    "model-a",
+    "--heartbeat-interval-sec",
+    "300",
+    "--gate-mode",
+    "secondary-guard",
+    "--gate-min-confidence",
+    "1",
+  ]);
+  assert.equal(boundaryOne.ok, true);
+  if (boundaryOne.ok) assert.equal(boundaryOne.command.action.gateMinConfidence, 1);
+
+  const badMode = parseThinCommand([
+    "ceo",
+    "config",
+    "--instance",
+    "instance_owner",
+    "--model",
+    "model-a",
+    "--heartbeat-interval-sec",
+    "300",
+    "--gate-mode",
+    "yolo",
+  ]);
+  assert.equal(badMode.ok, false);
+
+  for (const invalidConfidence of ["0", "0.0", "1.2", "-0.5", "not-a-number"]) {
+    const badConfidence = parseThinCommand([
+      "ceo",
+      "config",
+      "--instance",
+      "instance_owner",
+      "--model",
+      "model-a",
+      "--heartbeat-interval-sec",
+      "300",
+      "--gate-min-confidence",
+      invalidConfidence,
+    ]);
+    assert.equal(badConfidence.ok, false, `expected --gate-min-confidence ${invalidConfidence} to be rejected`);
+  }
+});

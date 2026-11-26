@@ -4,7 +4,11 @@ import {
   type GeneratedSettingsActionInputField,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { actionRpc, optionalEnum, shape, type RpcShape } from "./daemon-protocol-results.ts";
-import { decisionProviderVendorWords, residentCeoExecutionPolicyWords } from "./daemon-protocol-vocabulary.ts";
+import {
+  decisionProviderVendorWords,
+  residentCeoApprovalGateModeWords,
+  residentCeoExecutionPolicyWords,
+} from "./daemon-protocol-vocabulary.ts";
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { todoActionRoutes } from "./todo-action-routes.ts";
 import { entityDeclarationRoutes, entityImportRoutes } from "./entity-action-routes.ts";
@@ -61,6 +65,9 @@ export const daemonActionRoutes = Object.freeze([
         defaultWorkId: "string?",
         defaultAgentId: "string?",
         autoApproveSenders: "array?",
+        gateMode: optionalEnum(residentCeoApprovalGateModeWords),
+        gateProviderId: "string-null?",
+        gateMinConfidence: "number?",
       }),
     }),
   },
