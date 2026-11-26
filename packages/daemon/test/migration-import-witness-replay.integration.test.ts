@@ -429,6 +429,19 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       /frozen source generation/u,
       "the imported terminal carries a readable result body",
     );
+    const firstRevision = appliedStore.read().revision,
+      firstEventCount = appliedStore.read().events.length,
+      second = (await cell.run(
+        { kind: "migrate-import", sourceRoots },
+        withPolicyGroup({ actor, source: "local" }, "admin"),
+      )) as Record<string, unknown>;
+    assert.equal(second.exitCode, 0, JSON.stringify(second));
+    const rerunStore = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination });
+    assert.equal(rerunStore.read().revision, firstRevision);
+    assert.equal(rerunStore.read().events.length, firstEventCount);
+    assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=2/u);
+    await cell.close();
+    cell = undefined;
     const lifecycleProjection = makeTaskProjection({ rootDir: destination, eventStore: appliedStore });
     try {
       lifecycleProjection.rebuild();
@@ -443,17 +456,6 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
     } finally {
       lifecycleProjection.close();
     }
-    const firstRevision = appliedStore.read().revision,
-      firstEventCount = appliedStore.read().events.length,
-      second = (await cell.run(
-        { kind: "migrate-import", sourceRoots },
-        withPolicyGroup({ actor, source: "local" }, "admin"),
-      )) as Record<string, unknown>;
-    assert.equal(second.exitCode, 0, JSON.stringify(second));
-    const rerunStore = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination });
-    assert.equal(rerunStore.read().revision, firstRevision);
-    assert.equal(rerunStore.read().events.length, firstEventCount);
-    assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=2/u);
   } finally {
     await cell?.close();
     removeTempRepository(scratch);

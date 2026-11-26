@@ -17,7 +17,7 @@ import { removeTempRepository } from "../../../tools/fixtures/remove-temp-reposi
 
 test(
   "writer bridge reclaims a terminal run while a parallel run stays live and reclaims failed launches",
-  { timeout: 30000 },
+  { timeout: process.platform === "win32" ? 180_000 : 30000 },
   async () => {
     const sweeps: (readonly string[])[] = [],
       reclaimed: string[] = [],

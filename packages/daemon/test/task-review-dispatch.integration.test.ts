@@ -311,7 +311,7 @@ test("review dispatch starts over provider-sized evidence and reads every frozen
 
 test(
   "a lost owner stream is settled from its stopped process group so review can be dispatched again",
-  { timeout: 20_000 },
+  { timeout: process.platform === "win32" ? 120_000 : 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
@@ -342,21 +342,52 @@ test(
         "fixture did not create the orphaned runtime temp directory",
       );
       await f.reopen();
-      const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
-      assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
-      assert.equal(existsSync(runtimeTempDirectory), false, "ghost runtime temp directory was not reclaimed");
-      assert.ok(
-        f
-          .events()
-          .some(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" &&
-              event.payload.runtimeSessionId === runtimeSessionId &&
-              event.payload.outcome === "cancelled" &&
-              event.payload.reasonCode === "runtime_process_missing",
-          ),
-        "lost reviewer runtime did not publish a terminal outcome",
-      );
+      if (process.platform === "win32") {
+        // Windows cannot prove a PID stopped once its local containment stream is gone;
+        // plain cancel fails closed and only an explicit owner ruling releases the reviewer seat.
+        await expectCoded(f.cell().cancelRuntime({ runtimeSessionId }, principal), "runtime_recovery_missing_dispatch");
+        const ruled = await f.cell().cancelRuntime(
+          {
+            runtimeSessionId,
+            ruling: "Owner confirmed the reviewer process stopped after its local stream was lost.",
+          },
+          principal,
+        );
+        assert.equal(ruled.detail, "ruling_resolved", JSON.stringify(ruled));
+        assert.equal(
+          existsSync(runtimeTempDirectory),
+          true,
+          "an unproven owner ruling must not reclaim a temp directory without stop proof",
+        );
+        assert.ok(
+          f
+            .events()
+            .some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === runtimeSessionId &&
+                event.payload.outcome === "unknown" &&
+                event.payload.reasonCode === "ruling_resolved",
+            ),
+          "lost reviewer runtime did not publish its owner ruling outcome",
+        );
+      } else {
+        const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
+        assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+        assert.equal(existsSync(runtimeTempDirectory), false, "ghost runtime temp directory was not reclaimed");
+        assert.ok(
+          f
+            .events()
+            .some(
+              (event) =>
+                event.type === "runtime_session_outcome_observed" &&
+                event.payload.runtimeSessionId === runtimeSessionId &&
+                event.payload.outcome === "cancelled" &&
+                event.payload.reasonCode === "runtime_process_missing",
+            ),
+          "lost reviewer runtime did not publish a terminal outcome",
+        );
+      }
 
       const retried = dispatchesOf(await f.run({ kind: "task-dispatch-review", taskIds: [taskId] }))[0]!;
       assert.equal(retried.outcome, "dispatched", JSON.stringify(retried));

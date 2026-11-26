@@ -18,6 +18,7 @@ import { canonicalRoot, workspaceId } from "../src/daemon-host/protocol/daemon-p
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { operationId } from "../src/daemon-host/repo-cell-proof.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
 const settlementActor = withPolicyGroup(
@@ -117,17 +118,20 @@ test(
             prompt: request.prompt,
           };
         },
-        runtimeLaunch: () => ({
-          pid: 4343,
-          onOutput: (listener) => {
-            output = listener;
-          },
-          onErrorOutput: () => undefined,
-          onExit: (listener) => {
-            exit = listener;
-          },
-          terminate: () => undefined,
-        }),
+        runtimeLaunch: (_prepared, persistence) => {
+          recordStoppedFixtureContainment(persistence, 4343);
+          return {
+            pid: 4343,
+            onOutput: (listener) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (listener) => {
+              exit = listener;
+            },
+            terminate: () => undefined,
+          };
+        },
       });
       try {
         assert.equal(
@@ -387,17 +391,20 @@ test(
           cwd: request.cwd,
           prompt: request.prompt,
         }),
-        runtimeLaunch: () => ({
-          pid: 4343,
-          onOutput: (listener) => {
-            output = listener;
-          },
-          onErrorOutput: () => undefined,
-          onExit: (listener) => {
-            exit = listener;
-          },
-          terminate: () => undefined,
-        }),
+        runtimeLaunch: (_prepared, persistence) => {
+          recordStoppedFixtureContainment(persistence, 4343);
+          return {
+            pid: 4343,
+            onOutput: (listener) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (listener) => {
+              exit = listener;
+            },
+            terminate: () => undefined,
+          };
+        },
       });
       try {
         assert.equal(
