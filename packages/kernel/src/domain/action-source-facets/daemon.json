@@ -18,7 +18,7 @@
         "route": "ceo-approve"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.promote.receipt:2b9c7c839a63519e4d0728df51bf4e33",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.promote.receipt:f9fc0fc46931d13370241ad86343c8ac",
         "route": "ceo-approve"
       },
       {

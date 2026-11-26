@@ -23,14 +23,18 @@ function writeProposalCodexStub(parent: string, responses: readonly string[]): s
     `import { readFileSync, writeFileSync } from "node:fs";
 if (process.argv[2] === "auth" || process.argv[2] === "login") process.exit(0);
 if (!(process.argv[2] === "exec" && process.argv.includes("--json"))) process.exit(9);
-readFileSync(0, "utf8");
+const prompt = readFileSync(0, "utf8");
+const isPeerPrompt = prompt.includes("The following is a delegation message from a peer.") || prompt.includes("The following is a message from a peer.");
 const statePath = ${JSON.stringify(statePath)};
-const state = JSON.parse(readFileSync(statePath, "utf8"));
-const text = state.responses[Math.min(state.turn, state.responses.length - 1)] ?? "fallback advisory response";
-state.turn += 1;
-writeFileSync(statePath, JSON.stringify(state));
+let text = "worker runtime completed";
+if (isPeerPrompt) {
+  const state = JSON.parse(readFileSync(statePath, "utf8"));
+  text = state.responses[Math.min(state.turn, state.responses.length - 1)] ?? "fallback advisory response";
+  state.turn += 1;
+  writeFileSync(statePath, JSON.stringify(state));
+}
 const lines = [
-  { type: "thread.started", thread_id: "ceo-phase2-session" },
+  { type: "thread.started", thread_id: isPeerPrompt ? "ceo-phase2-session" : "worker-phase2-session" },
   { type: "item.completed", item: { id: "msg", type: "agent_message", text } },
   { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
 ];
@@ -424,5 +428,214 @@ test(
       await host.close();
       removeTempRepository(parent);
     }
+  },
+);
+
+test(
+  "regression: approval-gated promote -> task-start -> spawnRuntime passes real plan_placeholder validation and dispatches agent",
+  { timeout: 120_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-ceo-p2-dispatch-plan-"));
+    const rootDir = path.join(parent, "repo");
+    const userRoot = path.join(parent, "user");
+    const repoId = "ceo-p2-dispatch-plan";
+    const installation = {
+      installationId: "ceo-p2-codex-dispatch",
+      kindId: "codex" as const,
+      executablePath: writeProposalCodexStub(parent, [
+        JSON.stringify({
+          action: "propose_task",
+          title: "Run live dispatch regression",
+          workId: "task_ceo_p2_dispatch_work",
+          agentId: "delegated-worker",
+          prompt: "Verify that promoted tasks include a complete canonical plan before task-start.",
+          rationale: "Live approval must pass plan_placeholder readiness and launch the worker runtime.",
+        }),
+        JSON.stringify({
+          action: "propose_task",
+          title: "Run allowlist dispatch regression",
+          workId: "task_ceo_p2_dispatch_work",
+          agentId: "delegated-worker",
+          prompt: "Verify allowlist-auto promoted tasks also start and spawn without plan_placeholder failure.",
+          rationale: "Allowlist auto-approval uses the same promotion path.",
+        }),
+      ]),
+      version: "codex-cli 0.159.1",
+      observedAt: new Date().toISOString(),
+    };
+    initIngressRepo(rootDir, process.getuid?.() ?? 0);
+    registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    const host = await openDaemonHost({
+      daemonId: repoId,
+      userRoot,
+      runtimeDiscover: () => [installation],
+    });
+    t.after(async () => {
+      await host.close();
+      removeTempRepository(parent);
+    });
+    await host.attachmentsSettled();
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "codex-provider",
+      name: "Resident CEO Phase 2 Dispatch fixture",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["test-model"],
+      authMode: "subscription",
+      codex: {},
+    });
+
+    const bobAuth = {
+      ...auth,
+      oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+    };
+    await createWorkRoot(host, userRoot, repoId, "task_ceo_p2_dispatch_work", "Resident CEO Dispatch Work", bobAuth);
+
+    const installed = await host.run(
+      repoId,
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "delegated-worker",
+          name: "Delegated Worker",
+          instructions: "Execute approved delegated tasks and verify every requirement.",
+          runtimes: [{ type: "codex" }],
+        },
+        expectedVersion: 0,
+        idempotencyKey: "install-delegated-worker-p2",
+      },
+      bobAuth,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+
+    const ceo = (operation: string, payload: Record<string, unknown> = {}) =>
+      rpc(host, bobAuth, `repo.residentCeo.${operation}`, { repo: { repoId }, payload });
+    const waitBounded = async <T>(read: () => Promise<T | null>, label: string, timeoutMs = 45_000): Promise<T> => {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const value = await read();
+        if (value !== null) return value;
+        const status = await ceo("status");
+        const profile = status.profile as {
+          readonly lastWake?: { readonly status?: string; readonly detail?: string | null } | null;
+          readonly proposals?: readonly ResidentCeoDelegationProposal[];
+        } | null;
+        assert.notEqual(
+          profile?.lastWake?.status,
+          "failed",
+          `${label}: resident CEO wake failed: ${JSON.stringify(profile?.lastWake)}`,
+        );
+        if (Date.now() >= deadline) {
+          const inbox = await host.run(repoId, { kind: "peer-inbox", state: "OPEN", limit: 10 }, bobAuth);
+          assert.fail(
+            `${label}: timed out after ${timeoutMs}ms; lastWake=${JSON.stringify(profile?.lastWake)} proposals=${JSON.stringify(profile?.proposals)} inbox=${inbox.evidence}`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    };
+
+    const configured = await ceo("config", {
+      runtimeInstanceId: "codex-provider",
+      model: "test-model",
+      heartbeatIntervalSec: 300,
+      executionPolicy: "approval-gated",
+      defaultWorkId: "task_ceo_p2_dispatch_work",
+      defaultAgentId: "delegated-worker",
+    });
+    assert.equal(configured.ok, true, JSON.stringify(configured));
+
+    // 1. Manual approval path: peer-promote -> task-start (with real plan_placeholder gate) -> spawnRuntime.
+    // Send Alice's peer request before starting Bob's watcher so the shared test userRoot session
+    // stays signed in as Bob for the entire time Bob's background watcher is running.
+    signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+    const aliceAuth = {
+      ...auth,
+      oidcPrincipal: await host.sessionPrincipal(auth, "repo.residentCeo.status", { repo: { repoId }, payload: {} }),
+    };
+    const delegated1 = await host.run(
+      repoId,
+      {
+        kind: "peer-ask",
+        requestKind: "delegate",
+        toPersonId: "person_bob",
+        summary: "Execute manual dispatch regression",
+      },
+      aliceAuth,
+    );
+    assert.equal(delegated1.outcome, "applied", JSON.stringify(delegated1));
+    const { request: peerReq1 } = evidence(delegated1) as { request: PeerRequestV1 };
+
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    assert.equal((await ceo("start")).ok, true);
+    const pendingProposal = await waitBounded(async () => {
+      const status = await ceo("status");
+      const profile = status.profile as {
+        readonly lastWake?: { readonly status?: string } | null;
+        readonly proposals?: readonly ResidentCeoDelegationProposal[];
+      } | null;
+      if (profile?.lastWake?.status !== "succeeded") return null;
+      const items = profile.proposals ?? [];
+      return (
+        items.find((entry) => entry.peerRequestId === peerReq1.requestId && entry.status === "pending_approval") ?? null
+      );
+    }, "resident CEO creates pending proposal with default agent");
+
+    const approved = await ceo("approve", { proposalId: pendingProposal.proposalId });
+    assert.equal(approved.ok, true, JSON.stringify(approved));
+    const approvedProposal = approved.proposal as ResidentCeoDelegationProposal;
+    assert.equal(approvedProposal.status, "promoted");
+    assert.equal(approvedProposal.dispatchError, null, JSON.stringify(approvedProposal));
+    assert.equal(typeof approvedProposal.dispatchRuntimeSessionId, "string", JSON.stringify(approvedProposal));
+    assert.ok((approvedProposal.dispatchRuntimeSessionId ?? "").length > 0, JSON.stringify(approvedProposal));
+
+    const startedTask = evidence(
+      await host.run(repoId, { kind: "task-show", taskId: approvedProposal.promotedTaskId }, bobAuth),
+    ) as { task: { readonly status: string } };
+    assert.equal(startedTask.task.status, "active", JSON.stringify(startedTask));
+
+    // 2. Allowlist-auto path: peer-promote -> task-start -> spawnRuntime without manual approve.
+    // Pause Bob's watcher while switching the shared test userRoot session to Alice so the
+    // background watcher does not race with Alice's temporary sign-in.
+    assert.equal((await ceo("stop")).ok, true);
+    const withAllowlist = await ceo("config", {
+      runtimeInstanceId: "codex-provider",
+      model: "test-model",
+      heartbeatIntervalSec: 300,
+      executionPolicy: "approval-gated",
+      defaultWorkId: "task_ceo_p2_dispatch_work",
+      defaultAgentId: "delegated-worker",
+      autoApproveSenders: ["person_alice"],
+    });
+    assert.equal(withAllowlist.ok, true, JSON.stringify(withAllowlist));
+
+    signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
+    const delegated2 = await host.run(
+      repoId,
+      {
+        kind: "peer-ask",
+        requestKind: "delegate",
+        toPersonId: "person_bob",
+        summary: "Execute allowlist dispatch regression",
+      },
+      aliceAuth,
+    );
+    assert.equal(delegated2.outcome, "applied", JSON.stringify(delegated2));
+    const { request: peerReq2 } = evidence(delegated2) as { request: PeerRequestV1 };
+
+    signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+    assert.equal((await ceo("start")).ok, true);
+    const autoPromoted = await waitBounded(async () => {
+      const listed = await ceo("proposals", { status: "promoted" });
+      const items = (listed.proposals ?? []) as ResidentCeoDelegationProposal[];
+      return items.find((entry) => entry.peerRequestId === peerReq2.requestId) ?? null;
+    }, "allowlist-auto promotes, starts, and dispatches runtime");
+    assert.equal(autoPromoted.approvalMode, "allowlist-auto");
+    assert.equal(autoPromoted.dispatchError, null, JSON.stringify(autoPromoted));
+    assert.equal(typeof autoPromoted.dispatchRuntimeSessionId, "string", JSON.stringify(autoPromoted));
+    assert.ok((autoPromoted.dispatchRuntimeSessionId ?? "").length > 0, JSON.stringify(autoPromoted));
   },
 );

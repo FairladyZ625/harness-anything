@@ -348,6 +348,28 @@ test("approval-gated lifecycle records proposal, approves with promote + dispatc
   assert.equal(approved.proposal.dispatchRuntimeSessionId, "runtime_dispatched_1");
   assert.equal(approved.proposal.dispatchError, null);
   assert.equal(promoted.length, 1);
+  const firstPromote = promoted[0] as { readonly plan?: string };
+  assert.equal(typeof firstPromote.plan, "string");
+  for (const heading of [
+    "## Brief",
+    "## Goal",
+    "## Cheaper Alternatives",
+    "## Context",
+    "## Required Reading",
+    "## Execution Surface",
+    "## Constraints",
+    "## Deliverable Contract",
+    "## Evidence Protocol",
+    "## Verification",
+  ]) {
+    assert.ok(firstPromote.plan?.includes(heading), `promoted plan missing ${heading}`);
+  }
+  assert.match(firstPromote.plan ?? "", /peer_1/u);
+  assert.match(firstPromote.plan ?? "", /person_alice/u);
+  assert.match(firstPromote.plan ?? "", /task_work_1/u);
+  assert.match(firstPromote.plan ?? "", /neon/u);
+  assert.match(firstPromote.plan ?? "", /Implement feature X/u);
+  assert.match(firstPromote.plan ?? "", /Valid delegation/u);
   assert.equal(dispatched.length, 1);
 
   const firstReport = await service.reportPromotedTaskOutcome("person_owner", {
