@@ -1,21 +1,23 @@
+import { isSameExecution, isSamePerson } from "@harness-anything/kernel/internal/domain/actor-domain-services.ts";
+import { isTerminalStatus } from "@harness-anything/kernel/internal/domain/lifecycle-status.ts";
 import {
-  isSameExecution,
-  isSamePerson,
-  isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
+  type TaskBoundRuntimeBinding,
+} from "@harness-anything/kernel/internal/domain/task-bound-runtime-authority.ts";
+import {
   supersededTaskState,
   taskAmendment,
-  taskClasses,
   taskMutationDraft,
-  type AuthorizationDecision,
-  type CanonicalEventStore,
-  type LeaseV1,
-  type TaskBoundRuntimeBinding,
   type TaskEventV1,
-  type TaskLifecycleSnapshot as Snapshot,
-  type TaskProjection,
-  type TaskV2,
+} from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
+import { taskClasses, type TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
+import type {
+  AuthorizationDecision,
+  CanonicalEventStore,
+  LeaseV1,
+  TaskLifecycleSnapshot as Snapshot,
+  TaskProjection,
 } from "@harness-anything/kernel";
 import type { OrphanRuntimeRecoveryAudit } from "@harness-anything/kernel/internal/domain/orphan-runtime-recovery.ts";
 import type { CommandAction, CommandBinding, CommandOperationPort } from "./command-ports.ts";
