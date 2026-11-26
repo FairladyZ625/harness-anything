@@ -557,8 +557,12 @@ function buildGitRevertCase(revert, diffResult, baseSha, splitSalt) {
   };
 }
 
+function cleanControlCaseId(headSha, splitSalt) {
+  return `retro-neg-${shortOpaqueHash(`clean-control:${headSha}:${splitSalt}`)}`;
+}
+
 function buildCleanControlCase(control, diffResult, baseSha, headSha, matchedPositiveId, splitSalt) {
-  const caseId = `retro-neg-${shortOpaqueHash(`clean-control:${headSha}:${splitSalt}`)}`;
+  const caseId = cleanControlCaseId(headSha, splitSalt);
   return {
     caseObj: sanitizeRetroCase({
       id: caseId,
@@ -578,7 +582,7 @@ function buildCleanControlCase(control, diffResult, baseSha, headSha, matchedPos
       diffLines: diffResult.diffLines,
       diffSizeBucket: classifyDiffSizeBucket(diffResult.diffLines),
       replayRef: { baseSha, headSha },
-      metadata: { matchedPositiveId },
+      ...(matchedPositiveId !== undefined ? { metadata: { matchedPositiveId } } : {}),
     }),
     sourceMapEntry: { origin: "clean-control", taskId: control.taskId ?? null, baseSha, headSha, matchedPositiveId },
   };
@@ -1024,15 +1028,71 @@ export function runExtract(options = {}) {
     );
   }
 
+  const holdoutPath = path.join(outDir, "holdout.json");
+  const tuningPath = path.join(outDir, "tuning.json");
+  let existingHoldout = null;
+  if (existsSync(holdoutPath)) {
+    try {
+      existingHoldout = JSON.parse(readFileSync(holdoutPath, "utf8"));
+    } catch (error) {
+      throw new ExtractError(
+        `Existing holdout dataset is unreadable (${holdoutPath}): ${error instanceof Error ? error.message : String(error)}`,
+        EXIT_INVALID_INPUT,
+      );
+    }
+    const existingIssues = collectRetroCaseIssues(existingHoldout, { allowEmpty: true });
+    if (existingIssues.length > 0) {
+      throw new ExtractError(`Existing holdout dataset is invalid: ${existingIssues.join("; ")}`, EXIT_GATE_FAILURE);
+    }
+  }
+
+  const existingHoldoutById = new Map((existingHoldout?.cases ?? []).map((entry) => [entry.id, entry]));
+  const frozenCleanControlsById = new Map();
+  const reservedPositiveIds = new Set();
+  for (const entry of existingHoldoutById.values()) {
+    if (entry.origin !== "clean-control") continue;
+    frozenCleanControlsById.set(entry.id, entry);
+    if (typeof entry.metadata?.matchedPositiveId === "string" && entry.metadata.matchedPositiveId.length > 0) {
+      reservedPositiveIds.add(entry.metadata.matchedPositiveId);
+    }
+  }
+
   const sourceMap = {};
   const allCasesById = new Map();
   for (const pos of extracted.positives) {
     allCasesById.set(pos.caseObj.id, pos.caseObj);
     sourceMap[pos.caseObj.id] = pos.sourceMapEntry;
   }
+
+  // Preserve frozen holdout clean-control pairings so incremental expansion never mutates
+  // existing holdout metadata.matchedPositiveId, while still rebuilding from current inputs
+  // so genuine tampering with a frozen clean-control case is caught by the immutability check.
+  const unmatchedCleanCandidates = [];
+  for (const candidate of extracted.cleanCandidates) {
+    const candidateId = cleanControlCaseId(candidate.headSha, splitSalt);
+    const frozenControl = frozenCleanControlsById.get(candidateId);
+    if (frozenControl) {
+      const builtNeg = buildCleanControlCase(
+        candidate,
+        candidate.diffResult,
+        candidate.baseSha,
+        candidate.headSha,
+        frozenControl.metadata?.matchedPositiveId,
+        splitSalt,
+      );
+      if (!allCasesById.has(builtNeg.caseObj.id)) {
+        allCasesById.set(builtNeg.caseObj.id, builtNeg.caseObj);
+        sourceMap[builtNeg.caseObj.id] = builtNeg.sourceMapEntry;
+      }
+    } else {
+      unmatchedCleanCandidates.push(candidate);
+    }
+  }
+
+  const unmatchedPositives = extracted.positives.filter((pos) => !reservedPositiveIds.has(pos.caseObj.id));
   for (const { positive, negative } of matchNegativeControlsBySizeBucket(
-    extracted.positives,
-    extracted.cleanCandidates,
+    unmatchedPositives,
+    unmatchedCleanCandidates,
   )) {
     const builtNeg = buildCleanControlCase(
       negative,
@@ -1056,25 +1116,6 @@ export function runExtract(options = {}) {
     }
   }
 
-  const holdoutPath = path.join(outDir, "holdout.json");
-  const tuningPath = path.join(outDir, "tuning.json");
-  let existingHoldout = null;
-  if (existsSync(holdoutPath)) {
-    try {
-      existingHoldout = JSON.parse(readFileSync(holdoutPath, "utf8"));
-    } catch (error) {
-      throw new ExtractError(
-        `Existing holdout dataset is unreadable (${holdoutPath}): ${error instanceof Error ? error.message : String(error)}`,
-        EXIT_INVALID_INPUT,
-      );
-    }
-    const existingIssues = collectRetroCaseIssues(existingHoldout, { allowEmpty: true });
-    if (existingIssues.length > 0) {
-      throw new ExtractError(`Existing holdout dataset is invalid: ${existingIssues.join("; ")}`, EXIT_GATE_FAILURE);
-    }
-  }
-
-  const existingHoldoutById = new Map((existingHoldout?.cases ?? []).map((entry) => [entry.id, entry]));
   const holdoutCasesMap = new Map(strictHoldout ? [] : existingHoldoutById.entries());
   const tuningCasesMap = new Map();
 

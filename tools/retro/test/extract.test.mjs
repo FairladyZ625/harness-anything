@@ -520,6 +520,118 @@ test("holdout append-only lock rejects modifying or deleting existing holdout ca
   );
 });
 
+test("holdout append-only expansion preserves frozen clean-control pairings while rejecting real tampering", async (t) => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "retro-holdout-append-"));
+  t.after(() => rm(temp, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 }));
+
+  const outDir = path.join(temp, "datasets");
+  const sourceMapPath = path.join(temp, "source-map.json");
+  const snapshotPath = path.join(temp, "snapshot.json");
+
+  const makeHexFromIndex = (prefix, idx) => `${prefix}${String(idx).padStart(39, "0")}`;
+  const buildSnapshot = (positiveCount, controlCount) => ({
+    watermark: 43000,
+    reverts: [],
+    tasks: Array.from({ length: positiveCount }, (_, idx) => ({
+      taskId: `task_${String(idx + 1).padStart(26, "0")}`,
+      title: `Reworked task ${idx + 1} in xs bucket`,
+      status: "done",
+      workKind: "fix",
+      riskTier: "medium",
+      executions: [
+        {
+          executionId: `exe_${String(idx + 1).padStart(26, "0")}`,
+          state: "changes_requested",
+          iteration: 1,
+          deliveryBaseline: { kind: "commit", commitSha: makeHexFromIndex("a", idx + 1) },
+          submission: { commitSha: makeHexFromIndex("b", idx + 1), completionClaim: `Fix ${idx + 1}` },
+          diff: makeUnifiedDiff(`src/pos-${idx + 1}.ts`, 10 + idx),
+        },
+      ],
+      reviews: [],
+    })),
+    cleanControls: Array.from({ length: controlCount }, (_, idx) => ({
+      title: `Clean xs control ${idx + 1}`,
+      workKind: "fix",
+      riskTier: "low",
+      baseSha: makeHexFromIndex("c", idx + 1),
+      headSha: makeHexFromIndex("d", idx + 1),
+      diff: makeUnifiedDiff(`src/ctrl-${idx + 1}.ts`, 10 + idx),
+    })),
+  });
+
+  // Initial extraction with maxPositives=4 freezes clean-control cases into holdout.json.
+  await writeFile(snapshotPath, JSON.stringify(buildSnapshot(10, 10), null, 2), "utf8");
+  const initial = runExtract({
+    snapshotFile: snapshotPath,
+    outDir,
+    sourceMapPath,
+    maxPositives: 4,
+    holdoutRatio: 0.5,
+  });
+  assert.equal(initial.exitCode, EXIT_CODES.OK);
+
+  const holdoutPath = path.join(outDir, "holdout.json");
+  const initialHoldoutDoc = JSON.parse(readFileSync(holdoutPath, "utf8"));
+  const initialFrozenControls = initialHoldoutDoc.cases.filter((c) => c.origin === "clean-control");
+  assert.ok(initialFrozenControls.length >= 1, "expected at least one frozen clean-control in holdout");
+
+  // Increasing --max-positives to 10 (adding 6 new positives in the same xs bucket) must append cleanly
+  // without mutating any previously frozen holdout case or its metadata.matchedPositiveId.
+  const expanded = runExtract({
+    snapshotFile: snapshotPath,
+    outDir,
+    sourceMapPath,
+    maxPositives: 10,
+    holdoutRatio: 0.5,
+  });
+  assert.equal(expanded.exitCode, EXIT_CODES.OK);
+
+  const expandedHoldoutDoc = JSON.parse(readFileSync(holdoutPath, "utf8"));
+  assert.ok(
+    expandedHoldoutDoc.cases.length > initialHoldoutDoc.cases.length,
+    "expected holdout.json to grow via append-only expansion",
+  );
+  assert.deepEqual(collectHoldoutImmutabilityIssues(initialHoldoutDoc, expandedHoldoutDoc), []);
+  const expandedById = new Map(expandedHoldoutDoc.cases.map((c) => [c.id, c]));
+  for (const frozenCtrl of initialFrozenControls) {
+    assert.deepEqual(expandedById.get(frozenCtrl.id), frozenCtrl);
+  }
+
+  // Real tampering with a frozen clean-control case in the snapshot must still fail with exit 1.
+  const tamperedSnapshot = buildSnapshot(10, 10);
+  const targetFrozenControl = initialFrozenControls[0];
+  const tamperedCtrl = tamperedSnapshot.cleanControls.find(
+    (ctrl) => ctrl.headSha === targetFrozenControl.replayRef.headSha,
+  );
+  assert.ok(tamperedCtrl, "expected frozen clean-control headSha in snapshot");
+  tamperedCtrl.title = `${tamperedCtrl.title} [TAMPERED]`;
+  const tamperedSnapshotPath = path.join(temp, "tampered-snapshot.json");
+  await writeFile(tamperedSnapshotPath, JSON.stringify(tamperedSnapshot, null, 2), "utf8");
+
+  const holdoutShaBeforeTamper = sha256File(holdoutPath);
+  const tamperStderr = [];
+  const tamperExit = await runCli(
+    [
+      "extract",
+      "--snapshot-file",
+      tamperedSnapshotPath,
+      "--out-dir",
+      outDir,
+      "--source-map",
+      sourceMapPath,
+      "--max-positives",
+      "10",
+      "--holdout-ratio",
+      "0.5",
+    ],
+    { stdout: () => {}, stderr: (line) => tamperStderr.push(line) },
+  );
+  assert.equal(tamperExit, EXIT_CODES.GATE_FAILURE);
+  assert.match(tamperStderr.join("\n"), /Holdout immutability violation: attempted to modify frozen holdout case/u);
+  assert.equal(sha256File(holdoutPath), holdoutShaBeforeTamper);
+});
+
 test("diff normalizer strips private paths, binaries, and lockfiles while keeping valid hunks", () => {
   const dirtyPath = [".harness", "/cache/x.ts"].join("");
   const mixedDiff = [
