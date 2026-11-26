@@ -465,6 +465,11 @@ export interface RepoCell {
   readonly readEventWitness: (
     revision: number,
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
+  readonly readPeerRequest?: (
+    requestId: string,
+    binding?: RepoCellBinding,
+    signal?: AbortSignal,
+  ) => Promise<import("@harness-anything/kernel/internal/domain/peer-collaboration.ts").PeerRequestV1 | null>;
   /** O(1) projection lookup mapping an authored document path to its owning taskId, if any. */
   readonly taskIdForDocumentPath?: (logicalPath: string, signal?: AbortSignal) => Promise<string | null>;
   readonly readTaskAuthorizationMetadata?: (

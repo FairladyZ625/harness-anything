@@ -1321,6 +1321,10 @@ export function createRepoCellApi(
     read,
     readDispatchLifecycle: async (query) => context.projection.readDispatchLifecycle(query),
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
+    readPeerRequest: async (requestId) => {
+      const result = context.projection.readPeerRequests({ by: "id", requestId });
+      return result.status === "ready" ? (result.requests[0] ?? null) : null;
+    },
     taskIdForDocumentPath: async (logicalPath) => context.projection.taskIdForDocumentPath(logicalPath),
     readTaskAuthorizationMetadata: async (taskIds) =>
       taskIds.length === 0

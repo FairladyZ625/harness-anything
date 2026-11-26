@@ -288,11 +288,20 @@ const entityPinProtocolCommands = Object.freeze([
   }),
 ]);
 
-const peerCliText = (field: string, required: boolean, flag?: string): EntityActionInputField => ({
+export const PEER_BODY_MAX_LENGTH = 32 * 1024;
+const peerBodyWire: EntityActionInputField["wire"] = { maxLength: PEER_BODY_MAX_LENGTH };
+
+const peerCliText = (
+  field: string,
+  required: boolean,
+  flag?: string,
+  wire?: EntityActionInputField["wire"],
+): EntityActionInputField => ({
   field,
   type: "string",
   required,
   ...(flag ? { cli: { name: flag, kind: "single", error: { code: "invalid_field" } } } : {}),
+  ...(wire ? { wire } : {}),
 });
 const peerCliBool = (field: string, flag: string): EntityActionInputField => ({
   field,
@@ -317,15 +326,15 @@ const peerProtocolCommands = (
       summary: "Send a structured PeerRequest to another principal with atomic Inbox wakeup.",
       fields: [
         peerCliText("toPersonId", true, "--to"),
-        peerCliText("summary", true, "--summary"),
-        peerCliText("claim", true, "--claim"),
-        peerCliText("requestedAction", true, "--action"),
+        peerCliText("summary", true, "--summary", peerBodyWire),
+        peerCliText("claim", true, "--claim", peerBodyWire),
+        peerCliText("requestedAction", true, "--action", peerBodyWire),
         peerCliText("requestKind", false, "--kind"),
         peerCliText("workId", false, "--work"),
         peerCliText("lane", false, "--lane"),
         peerCliText("anchorRef", false, "--anchor-ref"),
-        peerCliText("rootCause", false, "--root-cause"),
-        peerCliText("verification", false, "--verification"),
+        peerCliText("rootCause", false, "--root-cause", peerBodyWire),
+        peerCliText("verification", false, "--verification", peerBodyWire),
         peerCliText("fromPersonId", false, "--from-person-id"),
         peerCliText("nodeId", false, "--node-id"),
         peerCliText("sessionHint", false, "--session-hint"),
@@ -339,9 +348,9 @@ const peerProtocolCommands = (
         "Delegate work to another principal as a PeerRequest (intent=delegate) with atomic Inbox wakeup; Phase 1 resident CEO replies with read-only assessment and proposed next action.",
       fields: [
         peerCliText("toPersonId", true, "--to"),
-        peerCliText("summary", true, "--title"),
-        peerCliText("claim", false, "--claim"),
-        peerCliText("requestedAction", false, "--action"),
+        peerCliText("summary", true, "--title", peerBodyWire),
+        peerCliText("claim", false, "--claim", peerBodyWire),
+        peerCliText("requestedAction", false, "--action", peerBodyWire),
         peerCliText("workId", false, "--work"),
         peerCliText("lane", false, "--lane"),
         peerCliIdempotency,
@@ -355,16 +364,16 @@ const peerProtocolCommands = (
       summary: "Reply to, complete, or reject a PeerRequest under Tier-A authorization ceilings.",
       fields: [
         peerCliRequestId,
-        peerCliText("claim", false, "--claim"),
-        peerCliText("requestedAction", false, "--action"),
+        peerCliText("claim", false, "--claim", peerBodyWire),
+        peerCliText("requestedAction", false, "--action", peerBodyWire),
         peerCliText("outcome", false, "--outcome"),
-        peerCliText("reason", false, "--reason"),
+        peerCliText("reason", false, "--reason", peerBodyWire),
         peerCliText("operation", false, "--operation"),
         peerCliBool("preflightPassed", "--preflight-passed"),
         peerCliBool("humanConfirmed", "--human-confirmed"),
         peerCliBool("draftOnly", "--draft-only"),
-        peerCliText("rootCause", false, "--root-cause"),
-        peerCliText("verification", false, "--verification"),
+        peerCliText("rootCause", false, "--root-cause", peerBodyWire),
+        peerCliText("verification", false, "--verification", peerBodyWire),
         peerCliIdempotency,
       ],
     },
@@ -411,9 +420,9 @@ const peerProtocolCommands = (
       fields: [
         peerCliText("targetId", true),
         peerCliText("toPersonId", true, "--to"),
-        peerCliText("summary", false, "--summary"),
-        peerCliText("nextAction", false, "--next-action"),
-        peerCliText("blockingGate", false, "--blocking-gate"),
+        peerCliText("summary", false, "--summary", peerBodyWire),
+        peerCliText("nextAction", false, "--next-action", peerBodyWire),
+        peerCliText("blockingGate", false, "--blocking-gate", peerBodyWire),
         peerCliNum("prNumber", "--pr-number"),
         peerCliText("workId", false, "--work"),
         peerCliText("lane", false, "--lane"),
@@ -443,7 +452,7 @@ const peerProtocolCommands = (
         "Force-takeover an active Execution from a disconnected node with stewardshipEpoch fencing and L1 confirmation.",
       fields: [
         peerCliText("targetId", true),
-        peerCliText("reason", true, "--reason"),
+        peerCliText("reason", true, "--reason", peerBodyWire),
         peerCliBool("humanConfirmed", "--human-confirmed"),
         peerCliText("nodeId", false, "--node-id"),
         peerCliNum("thresholdMs", "--threshold-ms"),
@@ -495,6 +504,7 @@ const peerProtocolCommands = (
               pathKind: "non-path",
               field: field.field,
               ...(field.cli.projection ? { projection: field.cli.projection } : {}),
+              ...(field.wire ? { wire: field.wire } : {}),
             }),
           ]
         : [],

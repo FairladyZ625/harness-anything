@@ -41,8 +41,7 @@ import {
   runFleetWriteClient,
 } from "./fleet-edge-write.ts";
 export { fleetEdgeBackoffMs } from "./fleet-edge-write.ts";
-import type { FleetDescriptor } from "./fleet/command-protocol.ts";
-import type { FleetTaskAction } from "./fleet/command-protocol.ts";
+import { FleetContractError, type FleetDescriptor, type FleetTaskAction } from "./fleet/command-protocol.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS } from "./fleet/resource-budget.ts";
 import {
   openFleetDocContentSink,
@@ -577,9 +576,12 @@ export async function runFleetEdgeTask(
           ? error.code
           : error instanceof FleetEdgeTaskError
             ? error.code
-            : typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-              ? error.code
-              : "fleet_task_rejected";
+            : error instanceof FleetContractError
+              ? "invalid_frame"
+              : typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+                ? error.code
+                : "fleet_task_rejected";
+      const message = error instanceof Error ? error.message : String(error);
       return {
         schema: "command-receipt/v2",
         ok: false,
@@ -589,7 +591,8 @@ export async function runFleetEdgeTask(
         ...(receiptFormat === "cli" ? { canonicalOutcome: "op_rejected" } : {}),
         origin: "fleet-edge",
         code,
-        error: { code, message: error instanceof Error ? error.message : String(error) },
+        rejectionExplanation: message,
+        error: { code, message },
       } as Record<string, unknown>;
     }
     const applied = result.outcome === "applied";
@@ -671,7 +674,19 @@ export async function runFleetEdgeTask(
         };
       }
     }
-    const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
+    const receiptRecord: Record<string, unknown> =
+      result.receipt && Object.keys(result.receipt).length > 0
+        ? result.receipt
+        : { outcome: result.outcome, code: result.code };
+    const receipt: Record<string, unknown> = {
+      ...receiptRecord,
+      outcome: typeof receiptRecord.outcome === "string" ? receiptRecord.outcome : result.outcome,
+      ...(typeof receiptRecord.code === "string"
+        ? { code: receiptRecord.code }
+        : result.code !== null
+          ? { code: result.code }
+          : {}),
+    };
     if (applied) {
       if (workspaceRoot !== null && acceptedWorktreeChanges !== null)
         acceptEdgeWorktreeScanBases(acceptedWorktreeChanges, workspaceRoot);
