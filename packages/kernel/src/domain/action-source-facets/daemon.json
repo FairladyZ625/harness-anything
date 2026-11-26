@@ -6934,7 +6934,7 @@
     ],
     "runtime-cancel": [
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-api.ts#createRepoCellApi.cancelRuntime:a18308d7308b5ea641dc16ec8a995fa1",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/repo-cell-api.ts#createRepoCellApi.cancelRuntime:a3a42940f4ef6dc7bbf2cd48f6e4539f",
         "route": "runtime-cancel",
         "role": "effect",
         "order": 0
@@ -6958,6 +6958,26 @@
         "route": "runtime-instance-update",
         "role": "effect",
         "order": 8
+      }
+    ],
+    "runtime-report": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-report-collect-action.ts#runRuntimeReportAction.appended:c96dce964cdee7f827aeb445474cc35b",
+        "route": "runtime-report",
+        "role": "effect",
+        "order": 0
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-report-collect-action.ts#subscribeRuntimeCollectWaiter:015b4bafe94e856c12261b8f851ad396",
+        "route": "runtime-report",
+        "role": "support",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-report-collect-action.ts#subscribeRuntimeCollectWaiter:2faf26cbecf6d038e2717e6209356143",
+        "route": "runtime-report",
+        "role": "support",
+        "order": 1
       }
     ],
     "runtime-run": [
@@ -7002,6 +7022,38 @@
         "route": "runtime-run",
         "role": "effect",
         "order": 11
+      }
+    ],
+    "runtime-steer": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-queued-steer.ts#consumeQueuedSteersAfterTurn.claimWork:30addee2c1f9aae02c382f4e51bfaad5",
+        "route": "runtime-steer",
+        "role": "effect",
+        "order": 1
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-queued-steer.ts#consumeQueuedSteersAfterTurn:30addee2c1f9aae02c382f4e51bfaad5",
+        "route": "runtime-steer",
+        "role": "effect",
+        "order": 2
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-queued-steer.ts#consumeQueuedSteersAfterTurn:30addee2c1f9aae02c382f4e51bfaad5:2",
+        "route": "runtime-steer",
+        "role": "effect",
+        "order": 3
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-queued-steer.ts#consumeQueuedSteersAfterTurn:e15a353a980ceb3bb5a14dc36eb3a6b6",
+        "route": "runtime-steer",
+        "role": "support",
+        "order": 4
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-queued-steer.ts#enqueueQueuedSteer.appended:09cfdca6dfc1215ade593279310ee407",
+        "route": "runtime-steer",
+        "role": "effect",
+        "order": 0
       }
     ],
     "schedule-create": [

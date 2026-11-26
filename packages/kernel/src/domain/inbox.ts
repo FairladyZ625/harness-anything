@@ -16,7 +16,7 @@ import { isNonEmptyString, isRecord } from "./write-chain.contract.ts";
 export const INBOX_MODEL_VERSION = 3;
 export const INBOX_PAGE_LIMIT = 200;
 const INBOX_TEXT_LIMIT = 256;
-const INBOX_SUMMARY_LIMIT = 1024;
+export const INBOX_SUMMARY_LIMIT = 1024;
 
 export const inboxEventTypes = [
   "inbox_item_enqueued",
@@ -48,6 +48,8 @@ export const inboxItemSources = [
   "external_ingress",
   "peer_request",
   "peer_reply",
+  "runtime_steer",
+  "runtime_report",
 ] as const;
 export type InboxItemSource = (typeof inboxItemSources)[number];
 /** External input lands quarantined until host isolation (CH4) exists; it never wakes a runtime. */
@@ -518,7 +520,12 @@ function enqueuedIssues(value: Readonly<Record<string, unknown>>): readonly stri
         value.consumerKind !== "interactive_watch" ||
         !String(value.inboxId).startsWith("person:"))) ||
     ((value.source === "peer_request" || value.source === "peer_reply") &&
-      (value.consumerKind === undefined || value.consumerKind !== "interactive_watch"))
+      (value.consumerKind === undefined || value.consumerKind !== "interactive_watch")) ||
+    (value.source === "runtime_steer" &&
+      (value.admission !== "dispatchable" || !String(value.inboxId).startsWith("task:"))) ||
+    (value.source === "runtime_report" &&
+      (value.admission !== "dispatchable" ||
+        (!String(value.inboxId).startsWith("task:") && !String(value.inboxId).startsWith("person:"))))
   )
     return ["external ingress must be quarantined, and peer messages must use the interactive watch consumer"];
   return [];

@@ -130,7 +130,12 @@ export function requireOwnTaskDocSelection(
 ): void {
   const principal = input.binding.executionPrincipal,
     action = input.action;
-  if (principal === undefined || principal.role !== "implementation" || principal.taskId === null) return;
+  if (
+    principal === undefined ||
+    (principal.role !== "implementation" && principal.role !== "coordinator") ||
+    principal.taskId === null
+  )
+    return;
   if (typeof action.taskId === "string") {
     if (action.taskId !== principal.taskId) throw executionCredentialRejected("write-other-task");
   }

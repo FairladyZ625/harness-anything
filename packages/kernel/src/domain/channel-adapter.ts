@@ -496,6 +496,11 @@ export const channelPolicies: readonly OntologyPolicyDeclaration[] = [
       },
       {
         candidateId:
+          "policy:packages/kernel:packages/kernel/src/domain/inbox.ts#enqueuedIssues:a5d8d2a31bd53b9d3d3e45e6271f082f",
+        route: "channel-deliver",
+      },
+      {
+        candidateId:
           "policy:packages/kernel:packages/kernel/src/ports/canonical-document-claims.ts#contentClaims.claims:b477d628692f3f4b3e71420f3dc45d52",
         route: "channel-deliver",
       },

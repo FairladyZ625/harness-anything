@@ -199,6 +199,44 @@ test("person Inbox supports peer envelopes without task binding and normalizes c
     [],
     "peer traffic must choose its interactive watch consumer explicitly",
   );
+  assert.deepEqual(
+    validateCurrentAgentRuntimeEvent(
+      enqueued(15, {
+        inboxId: "task:task_a",
+        taskId: "task_a",
+        source: "runtime_steer",
+        admission: "dispatchable",
+        consumerKind: "unattended_dispatch",
+        lane: "steer",
+      }),
+    ),
+    [],
+  );
+  assert.notDeepEqual(
+    validateCurrentAgentRuntimeEvent(
+      enqueued(16, {
+        inboxId: "person:owner",
+        taskId: null,
+        source: "runtime_steer",
+        admission: "dispatchable",
+      }),
+    ),
+    [],
+    "runtime_steer must target a task:<taskId> inbox",
+  );
+  assert.deepEqual(
+    validateCurrentAgentRuntimeEvent(
+      enqueued(17, {
+        inboxId: "person:owner",
+        taskId: null,
+        source: "runtime_report",
+        admission: "dispatchable",
+        consumerKind: "interactive_watch",
+        lane: "milestone",
+      }),
+    ),
+    [],
+  );
 });
 
 test("R4 gate: external ingress is admitted only as quarantined_external and never claimable", () => {

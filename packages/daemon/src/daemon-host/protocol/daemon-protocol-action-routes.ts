@@ -424,7 +424,9 @@ export const daemonActionRoutes = Object.freeze([
     shape({
       runtimeSessionId: "string?",
       dispatchId: "string?",
+      taskId: "string?",
       prompt: "string",
+      mode: "string?",
       expected: "json?",
       idempotencyKey: "string?",
     }),

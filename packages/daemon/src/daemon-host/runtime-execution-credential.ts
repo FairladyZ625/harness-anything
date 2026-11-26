@@ -94,7 +94,7 @@ export function runtimeExecutionActor(p: RuntimeExecutionPrincipal) {
   return {
     principal: { personId: p.personId },
     executor:
-      p.source !== "local" && p.role === "implementation"
+      p.source !== "local" && (p.role === "implementation" || p.role === "coordinator")
         ? null
         : { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
   };

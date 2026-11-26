@@ -41,6 +41,8 @@ import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
 import { reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
+import { consumeQueuedSteersAfterTurn } from "./runtime-queued-steer.ts";
+import { notifyRuntimeCollectWaiters } from "./runtime-report-collect-action.ts";
 export { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 
 export async function publishExit(
@@ -736,6 +738,38 @@ export async function publishExit(
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, terminalOutcome, { active, archiveAllowed: !evidencePending });
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
+    if (active.task !== null && !context.input.remote) {
+      const parentTaskId = context.input.projection?.().read(active.task.taskId).snapshot.task?.metadata?.parentTaskId;
+      notifyRuntimeCollectWaiters(context.input.repoId, [active.task.taskId, parentTaskId]);
+    }
+    if (
+      !cancelled &&
+      !escalationStop &&
+      outcome !== "cancelled" &&
+      active.task !== null &&
+      active.role !== "reviewer" &&
+      active.permissionMode !== "read-only" &&
+      !context.input.remote
+    ) {
+      const trigger = {
+        taskId: active.task.taskId,
+        previousDispatchId: active.dispatchId,
+        previousRuntimeSessionId: active.runtimeSessionId,
+        previousKindId: active.kindId,
+        previousProviderSessionId: active.providerSessionId,
+        previousAgentId: active.agent?.id ?? null,
+        previousInstanceId: active.instanceId,
+        previousModel: active.model,
+        previousPermissionMode: active.permissionMode,
+        previousMcpPolicy: active.mcpPolicy ?? null,
+        previousFinalText: active.finalText,
+        binding: active.binding,
+      };
+      context.input.schedule(
+        () => consumeQueuedSteersAfterTurn(context, trigger).then(() => undefined),
+        active.binding,
+      );
+    }
   } catch (error) {
     preserveEvidence?.("runtime terminal settlement failed");
     if (!stopProofPending) {

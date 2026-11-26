@@ -876,9 +876,19 @@ export function createRepoCellApi(
       binding,
       (authorizedBinding) => {
         if (authoredTask !== null) requireTaskPackageMaterialization(context, authoredTask);
+        // Once the coordinator's direct-child spawn is authorized above, the spawned child owns
+        // its own daemon-managed lifecycle without inheriting the parent coordinator's credential.
+        const childDispatchBinding =
+          authorizedBinding.executionPrincipal?.role === "coordinator"
+            ? {
+                ...authorizedBinding,
+                executionPrincipal: undefined,
+                actor: { principal: authorizedBinding.actor.principal, executor: null },
+              }
+            : authorizedBinding;
         return context.runtimeSpawner.spawnTask(
           spawn,
-          authorizedBinding,
+          childDispatchBinding,
           worktree,
           context.projection,
           progress,
@@ -980,7 +990,13 @@ export function createRepoCellApi(
       "runtime-cancel",
       { kind: "runtime-cancel", ...payload },
       binding,
-      (authorizedBinding) => context.runtimeSpawner.cancel(cancel, authorizedBinding),
+      (authorizedBinding) => {
+        const controlBinding =
+          authorizedBinding.executionPrincipal?.role === "coordinator"
+            ? { ...authorizedBinding, executionPrincipal: undefined }
+            : authorizedBinding;
+        return context.runtimeSpawner.cancel(cancel, controlBinding);
+      },
       queueObservation,
       onExecutionStart,
     );
@@ -991,7 +1007,13 @@ export function createRepoCellApi(
       "runtime-steer",
       { kind: "runtime-steer", ...payload },
       binding,
-      (authorizedBinding) => context.runtimeSpawner.steer(payload, authorizedBinding),
+      (authorizedBinding) => {
+        const controlBinding =
+          authorizedBinding.executionPrincipal?.role === "coordinator"
+            ? { ...authorizedBinding, executionPrincipal: undefined }
+            : authorizedBinding;
+        return context.runtimeSpawner.steer(payload, controlBinding);
+      },
       queueObservation,
       onExecutionStart,
     );
@@ -1073,7 +1095,9 @@ export function createRepoCellApi(
             : dispatch.payload.taskId
               ? dispatch.payload.role === "reviewer"
                 ? ("reviewer" as const)
-                : ("implementation" as const)
+                : dispatch.payload.role === "coordinator"
+                  ? ("coordinator" as const)
+                  : ("implementation" as const)
               : dispatch.payload.reviewTarget
                 ? null
                 : dispatch.payload.role === "read-only"

@@ -48,6 +48,7 @@ import { projectedTaskWriteRefusal } from "./projection-readiness.ts";
 import { applyTaskWorktreeLifecycle, taskWorktreeInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "@harness-anything/application/internal/commands/entity-pin-action.ts";
 import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
+import { runRuntimeCollectAction, runRuntimeReportAction } from "./runtime-report-collect-action.ts";
 import { readWork } from "@harness-anything/application/internal/queries/work-read.ts";
 import { runAssignmentMigrationAction } from "@harness-anything/application/internal/commands/assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
@@ -184,6 +185,8 @@ export function executeRepoAction(
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "entity-pin" || action.kind === "entity-unpin") return runEntityPinAction(cell, action, binding);
   if (action.kind === "runtime-incident-dismiss") return runIncidentDismissAction(cell, action, binding);
+  if (action.kind === "runtime-report") return runRuntimeReportAction(cell, action, binding);
+  if (action.kind === "runtime-collect") return runRuntimeCollectAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
     return cell.receiptForOperation(opId, binding);
@@ -540,10 +543,14 @@ async function runTaskEscalation(
       : [],
     recommendation = typeof action.recommendation === "string" ? action.recommendation.trim() : "",
     reason = typeof action.reason === "string" ? action.reason.trim() : "";
-  if (principal?.role !== "implementation" || principal.taskId !== taskId || !dispatchId)
+  if (
+    (principal?.role !== "implementation" && principal?.role !== "coordinator") ||
+    principal.taskId !== taskId ||
+    !dispatchId
+  )
     throw cell.cellCodedError(
       "execution_credential_rejected",
-      "Escalation requires the implementation credential for this task dispatch.",
+      "Escalation requires the implementation or coordinator credential for this task dispatch.",
     );
   const expectedDispatch = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId);
   if (!expectedDispatch)
