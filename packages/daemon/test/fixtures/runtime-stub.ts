@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 // Shared provider-executable fixture: `body` is plain JavaScript that runs
@@ -28,4 +28,14 @@ export function writeProviderExecutable(target: string, body: string): string {
     shim = path.join(path.dirname(target), `${script.replace(/\.mjs$/u, "")}.cmd`);
   writeFileSync(shim, `@echo off\r\n"${process.execPath}" "%~dp0${script}" %*\r\n`);
   return shim;
+}
+
+/** Cross-platform zero-exit executable for fixture installations whose auth probe must succeed. */
+export function probeSuccessExecutable(rootDir: string): string {
+  if (process.platform !== "win32") return "/usr/bin/true";
+  const binDir = path.join(rootDir, "fixture-bin");
+  mkdirSync(binDir, { recursive: true });
+  const stub = path.join(binDir, "provider-probe-ok.cmd");
+  writeFileSync(stub, "@exit /b 0\r\n", "utf8");
+  return stub;
 }

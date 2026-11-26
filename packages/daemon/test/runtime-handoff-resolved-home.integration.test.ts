@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
-import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
@@ -14,7 +15,8 @@ import { dispatchStreamPath, readDispatchStream } from "../src/daemon-host/dispa
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { probeSuccessExecutable, writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import type { JsonObject } from "../src/daemon-host/protocol/json-rpc-types.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
@@ -26,6 +28,8 @@ const phrase = "resolved-home-handoff-sentinel";
 // home survives a later isolation flip on the source, and the target installs into
 // the home its own prepared launch resolved — never a userRoot/instance layout.
 test("native handoff reads the launch-frozen provider directory on both nodes", { timeout: 240_000 }, async (t) => {
+  const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-handoff-home-probe-"));
+  t.after(() => removeTempRepository(probeRoot));
   const f = await fleetFixture(
       t,
       ["tasks/task-fleet-fleet", "agents"],
@@ -33,7 +37,7 @@ test("native handoff reads the launch-frozen provider directory on both nodes", 
         {
           installationId: "handoff-codex",
           kindId: "codex",
-          executablePath: "/usr/bin/true",
+          executablePath: probeSuccessExecutable(probeRoot),
           version: "codex-cli 0.159.1",
           observedAt: new Date().toISOString(),
         },

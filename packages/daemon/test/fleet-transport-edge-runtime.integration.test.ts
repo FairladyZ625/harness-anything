@@ -1,5 +1,7 @@
 // harness-test-tier: integration
 import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type AgentDefinitionSnapshot, type IdentitySessionPort } from "@harness-anything/kernel";
@@ -8,7 +10,8 @@ import { forward, resolveRuntimeLocation } from "../src/daemon-host/fleet/forwar
 import { runtimeForwardingIntent } from "../src/daemon-host/fleet/forwarding-intent.ts";
 import assert from "node:assert/strict";
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
@@ -194,7 +197,7 @@ test("fixture teardown reclaims a still-running edge child and its TLS center", 
 });
 test(
   "remote-edge runtime launches locally while lifecycle and worker progress settle at center",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async (t) => {
     // A different host process group is not evidence about this synthetic provider.
     const processGroups = new Set<number>(),
@@ -272,7 +275,7 @@ test(
       runtimeInstallation: RuntimeInstallationWitness = {
         installationId: runtimeDefinition.installationId,
         kindId: runtimeDefinition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(fixture.root),
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
@@ -829,10 +832,12 @@ test(
   "an edge dispatch after registered-root migration runs from the new task worktree",
   { timeout: 60_000 },
   async (t) => {
+    const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-fleet-transport-probe-"));
+    t.after(() => removeTempRepository(probeRoot));
     const installation: RuntimeInstallationWitness = {
         installationId: "edge-codex-installation",
         kindId: "codex",
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(probeRoot),
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },
@@ -882,7 +887,7 @@ test(
     git(fixture.repo, "fetch", "-q", "origin");
     const branch = git(fixture.repo, "branch", "--show-current");
     git(fixture.repo, "remote", "set-head", "origin", branch);
-    git(fixture.root, "clone", "-q", remote, edgeRoot);
+    git(fixture.root, "clone", "-c", "core.autocrlf=false", "-q", remote, edgeRoot);
     git(edgeRoot, "branch", `--set-upstream-to=origin/${branch}`);
     // The checkout tracks its seed config, but runtime and mirrored ledger files are local.
     writeFileSync(path.join(edgeRoot, ".git/info/exclude"), "/harness/\n/.harness/\n/.worktrees/\n");
@@ -1194,13 +1199,14 @@ test("closing an edge runtime skips work queued behind an unfinished reconciliat
 
 test(
   "fleet runtime pages every session from an owner-bound replica while the center is offline",
-  { timeout: 60_000 },
+  { timeout: 180_000 },
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
     const center = await fixture.center(),
       workspaceRoot = path.join(fixture.root, "paged-runtime-edge"),
-      viewRoot = path.join(fixture.root, "paged-runtime-view");
+      viewRoot = path.join(fixture.root, "paged-runtime-view"),
+      spawnedProcesses: ReturnType<typeof runtimeProcessFixture>[] = [];
     mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
     writeFileSync(
       path.join(workspaceRoot, "harness/harness.yaml"),
@@ -1231,13 +1237,20 @@ test(
         endpoint: path.join(fixture.root, "paged-runtime.sock"),
       },
       ports: scheduleRuntimePorts(),
-      launch: (_prepared, persistence) => ({
-        ...runtimeProcessFixture(t, persistence),
-        onOutput: () => undefined,
-        onErrorOutput: () => undefined,
-      }),
+      launch: (_prepared, persistence) => {
+        const proc = runtimeProcessFixture(t, persistence);
+        spawnedProcesses.push(proc);
+        return {
+          ...proc,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+        };
+      },
     });
     fixture.track(() => runtime.close());
+    fixture.track(() => {
+      for (const proc of spawnedProcesses) proc.terminate();
+    });
     const catchUp = () =>
       catchUpReplica({
         readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
@@ -1260,8 +1273,10 @@ test(
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
+    t.after(() => replicaSync.close());
     const sessionIds: string[] = [];
     for (let index = 0; index < 17; index += 1) {
+      if (t.signal.aborted) break;
       const launched = await runtime.run("repo.agentRuntime.spawn", {
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },

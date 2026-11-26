@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
@@ -214,7 +215,7 @@ test(
       runtimeInstallation: RuntimeInstallationWitness = {
         installationId: runtimeDefinition.installationId,
         kindId: runtimeDefinition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(fixture.root),
         version: "1.0.0",
         observedAt: "2026-08-23T00:00:00.000Z",
       },

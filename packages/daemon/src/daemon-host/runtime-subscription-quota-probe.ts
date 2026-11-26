@@ -154,10 +154,20 @@ export function agyNonInteractiveProbeEnv(
   platform: NodeJS.Platform = process.platform,
 ): NodeJS.ProcessEnv {
   const shimDir = ensureNoBrowserLauncherShimDir(platform);
-  const existingPath = env.PATH ?? env.Path ?? process.env.PATH ?? "";
+  const baseEnv: NodeJS.ProcessEnv = {};
+  let envPath: string | undefined;
+  for (const [key, value] of Object.entries(env)) {
+    if (platform === "win32" ? key.toUpperCase() === "PATH" : key === "PATH") {
+      if (key === "PATH" && value !== undefined) envPath = value;
+      else if (envPath === undefined && value !== undefined) envPath = value;
+      continue;
+    }
+    baseEnv[key] = value;
+  }
+  const existingPath = envPath ?? process.env.PATH ?? process.env.Path ?? "";
   const guardedPath = existingPath ? `${shimDir}${path.delimiter}${existingPath}` : shimDir;
   return {
-    ...env,
+    ...baseEnv,
     // Enforce non-interactive headless background execution: suppress browser launch (both via
     // env conventions and by shadowing OS URL launchers on PATH) and CLI auto-update (`"true"`).
     // Never fabricate SSH_CONNECTION here: isolated instances already set it in isolatedEnvironment,

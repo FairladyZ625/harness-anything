@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { type TestContext } from "node:test";
@@ -41,7 +41,7 @@ export async function fleetNodeClaimFixture(
   revokeDeviceSessions?: Parameters<typeof listenFleetTls>[0]["revokeDeviceSessions"],
   replicaOptions: { readonly replicaAdmission?: boolean } = {},
 ) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-"))),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
     stateRoot = path.join(root, "state"),
