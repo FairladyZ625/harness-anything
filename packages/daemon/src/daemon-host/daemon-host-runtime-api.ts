@@ -395,7 +395,49 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       ]);
       if (probe.status === "rejected") {
         if (context.code(probe.reason) !== "runtime_session_not_found") throw probe.reason;
-        settled = null;
+        if (runtimeNodeId(repoId) === "center") {
+          settled = null;
+        } else {
+          const probeSignal = AbortSignal.timeout(50);
+          const [centerProbe] = await Promise.allSettled([
+            context.host.awaitRuntimeSessions(
+              repoId,
+              { runtimeSessionIds: [targetRuntimeSessionId], mode: "all" },
+              withResidentCeoSignal(auth, probeSignal),
+            ),
+          ]);
+          if (centerProbe.status === "rejected") {
+            const code = context.code(centerProbe.reason);
+            if (probeSignal.aborted || code === "client_disconnected" || code === "ABORT_ERR") return false;
+            if (code !== "runtime_session_not_found") throw centerProbe.reason;
+            settled = null;
+          } else {
+            const awaited = centerProbe.value;
+            if (
+              awaited.session &&
+              typeof awaited.session === "object" &&
+              !Array.isArray(awaited.session) &&
+              awaited.settlement &&
+              typeof awaited.settlement === "object" &&
+              !Array.isArray(awaited.settlement)
+            ) {
+              settled = awaited as unknown as AgentRuntimeSessionResult;
+            } else if (
+              Array.isArray(awaited.unavailable) &&
+              awaited.unavailable.some(
+                (entry) =>
+                  entry !== null &&
+                  typeof entry === "object" &&
+                  !Array.isArray(entry) &&
+                  (entry as { readonly runtimeSessionId?: unknown }).runtimeSessionId === targetRuntimeSessionId,
+              )
+            ) {
+              settled = null;
+            } else {
+              return false;
+            }
+          }
+        }
       } else {
         settled = probe.value;
       }

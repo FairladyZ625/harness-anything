@@ -266,13 +266,15 @@ test(
     });
     t.after(() => restartedEdge.close());
     await restartedEdge.attachmentsSettled();
-    const recoveredSession = await restartedEdge.read(
+    const recoveredSession = (await restartedEdge.awaitRuntimeSessions(
       repoId,
-      "repo.agentRuntime.sessions.read",
-      { runtimeSessionId: settledWake.lastWake!.runtimeSessionId! },
+      { runtimeSessionIds: [settledWake.lastWake!.runtimeSessionId!], mode: "all" },
       edgePersonAuth,
-    );
-    assert.equal(recoveredSession.session.runtimeSessionId, settledWake.lastWake!.runtimeSessionId);
+    )) as {
+      readonly session?: { readonly runtimeSessionId?: string };
+      readonly settlement?: { readonly outcome?: string } | null;
+    };
+    assert.equal(recoveredSession.session?.runtimeSessionId, settledWake.lastWake!.runtimeSessionId);
     assert.equal(recoveredSession.settlement?.outcome, "succeeded");
 
     // Restart must reconcile the wake and retain the already-recorded peer reply.
