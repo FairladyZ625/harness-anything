@@ -690,6 +690,13 @@ const residentCeoProtocolCommands = Object.freeze([
       cliInput("--title", "single", false, { code: "invalid_field" }, { field: "title", pathKind: "non-path" }),
       cliInput("--agent", "single", false, { code: "invalid_field" }, { field: "agentId", pathKind: "non-path" }),
       cliInput(
+        "--target-node",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "targetNodeId", pathKind: "non-path" },
+      ),
+      cliInput(
         "--instance",
         "single",
         false,
@@ -1476,6 +1483,7 @@ const residentCeoDelegationMethods = Object.freeze([
         workId: "string?",
         title: "string?",
         agentId: "string?",
+        targetNodeId: "string?",
         runtimeInstanceId: "string?",
         model: "string?",
         prompt: "string?",

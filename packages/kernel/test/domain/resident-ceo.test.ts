@@ -9,6 +9,7 @@ import {
   effectiveResidentCeoExecutionPolicy,
   evaluateResidentCeoAutoApproval,
   evaluateResidentCeoGateDecision,
+  isValidResidentCeoTargetNodeId,
   parseResidentCeoDelegationDecision,
   recordResidentCeoProposalGateVerdict,
   recordResidentCeoProposalTerminalOutcome,
@@ -149,7 +150,7 @@ test("delegation response parser extracts structured proposals, honors advise_on
     requestedAction: "Run migration audit",
   };
   const structured = parseResidentCeoDelegationDecision(
-    '```json\n{"action":"propose_task","title":"Audit storage migration","workId":"task_work_2","agentId":"sol","prompt":"Check PG schema","rationale":"Needs tracked task."}\n```',
+    '```json\n{"action":"propose_task","title":"Audit storage migration","workId":"task_work_2","agentId":"sol","targetNodeId":"cea7e947","prompt":"Check PG schema","rationale":"Needs tracked task."}\n```',
     fallback,
   );
   assert.deepEqual(structured, {
@@ -157,9 +158,39 @@ test("delegation response parser extracts structured proposals, honors advise_on
     proposedTitle: "Audit storage migration",
     proposedWorkId: "task_work_2",
     proposedAgentId: "sol",
+    proposedTargetNodeId: "cea7e947",
     proposedPrompt: "Check PG schema",
     rationale: "Needs tracked task.",
   });
+
+  const dottedNode = parseResidentCeoDelegationDecision(
+    '{"action":"propose_task","title":"Run on edge","targetNodeId":" edge-mac.prod_1 ","rationale":"Offload build."}',
+    fallback,
+  );
+  assert.equal(dottedNode.decision, "propose_task");
+  if (dottedNode.decision === "propose_task") {
+    assert.equal(dottedNode.proposedTargetNodeId, "edge-mac.prod_1");
+  }
+
+  for (const invalidTarget of ["   ", "bad node", "../escape", "node..double", "-leading", ".leading", "node/slash"]) {
+    assert.equal(isValidResidentCeoTargetNodeId(invalidTarget), false, `expected ${invalidTarget} to fail`);
+    const parsedInvalid = parseResidentCeoDelegationDecision(
+      JSON.stringify({
+        action: "propose_task",
+        title: "Invalid target node",
+        targetNodeId: invalidTarget,
+        rationale: "Reject invalid node ids.",
+      }),
+      fallback,
+    );
+    assert.equal(parsedInvalid.decision, "propose_task");
+    if (parsedInvalid.decision === "propose_task") {
+      assert.equal(parsedInvalid.proposedTargetNodeId, null);
+    }
+  }
+  for (const validTarget of ["cea7e947", "node_edge_1", "edge-1.prod", "center"]) {
+    assert.equal(isValidResidentCeoTargetNodeId(validTarget), true, `expected ${validTarget} to pass`);
+  }
 
   const advise = parseResidentCeoDelegationDecision(
     '{"action":"advise_only","rationale":"Already answered in docs."}',
@@ -173,6 +204,7 @@ test("delegation response parser extracts structured proposals, honors advise_on
     assert.equal(plain.proposedTitle, "Migrate storage");
     assert.equal(plain.proposedWorkId, "task_work_1");
     assert.equal(plain.proposedAgentId, "neon");
+    assert.equal(plain.proposedTargetNodeId, null);
   }
 });
 
@@ -510,4 +542,25 @@ test("evaluateResidentCeoGateDecision enforces deterministic guards, abstain han
   });
   assert.equal(next.proposals?.[0]?.approvalMode, "decider-auto");
   assert.deepEqual(next.proposals?.[0]?.gateVerdict, boundaryPass.verdict);
+  // Legacy persisted proposal without proposedTargetNodeId remains valid and transitions cleanly.
+  assert.equal(next.proposals?.[0]?.proposedTargetNodeId, undefined);
+
+  const invalidTargetNodeGate = evaluateResidentCeoGateDecision({
+    profile: autoPromoteProfile,
+    proposal: {
+      fromPersonId: "person_stranger",
+      proposedWorkId: "task_work_default",
+      proposedAgentId: "neon",
+      proposedTargetNodeId: "bad node!",
+    },
+    observation: {
+      selected: "approve_low_risk",
+      distribution: { approve_low_risk: 0.99 },
+      providerId: "decider-main",
+      model: "decider-v1",
+      evaluatedAt: "2026-11-26T00:00:05.000Z",
+    },
+  });
+  assert.equal(invalidTargetNodeGate.allowAutoPromote, false);
+  assert.equal(invalidTargetNodeGate.verdict.fallbackReason, "invalid_target_node_id");
 });

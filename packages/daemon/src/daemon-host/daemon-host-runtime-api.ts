@@ -381,7 +381,11 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     const service = makeResidentCeoService({
       profiles,
       delegation: makeResidentCeoDelegationExecutor(
-        { host: context.host, codedError: context.hostCodedError },
+        {
+          host: context.host,
+          codedError: context.hostCodedError,
+          resolveLocalNodeId: () => runtimeNodeId(repoId),
+        },
         repoId,
         auth,
       ),
@@ -887,6 +891,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
             ...(typeof payload.workId === "string" ? { workId: payload.workId } : {}),
             ...(typeof payload.title === "string" ? { title: payload.title } : {}),
             ...(typeof payload.agentId === "string" ? { agentId: payload.agentId } : {}),
+            ...(typeof payload.targetNodeId === "string" ? { targetNodeId: payload.targetNodeId } : {}),
             ...(typeof payload.runtimeInstanceId === "string" ? { runtimeInstanceId: payload.runtimeInstanceId } : {}),
             ...(typeof payload.model === "string" ? { model: payload.model } : {}),
             ...(typeof payload.prompt === "string" ? { prompt: payload.prompt } : {}),
@@ -897,11 +902,13 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
           ...receipt(
             approved.profile,
             `Approved proposal ${approved.proposal.proposalId} -> task/${approved.proposal.promotedTaskId}` +
+              `${approved.proposal.dispatchedTargetNodeId ? ` (assigned to node/${approved.proposal.dispatchedTargetNodeId})` : ""}` +
               `${approved.proposal.dispatchRuntimeSessionId ? ` (dispatched ${approved.proposal.dispatchRuntimeSessionId})` : ""}` +
               `${approved.proposal.dispatchError ? ` (dispatch error: ${approved.proposal.dispatchError})` : ""}.`,
           ),
           proposal: approved.proposal as unknown as JsonObject,
           promotedTaskId: approved.proposal.promotedTaskId,
+          dispatchedTargetNodeId: approved.proposal.dispatchedTargetNodeId ?? null,
           dispatchRuntimeSessionId: approved.proposal.dispatchRuntimeSessionId,
           dispatchError: approved.proposal.dispatchError,
         };

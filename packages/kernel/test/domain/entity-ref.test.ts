@@ -73,6 +73,17 @@ test("EntityRef parser derives the twelve canonical kind grammars from authority
   }
   assert.equal(parseEntityRef("execution/task-1/exe-1"), null);
   assert.equal(parseEntityRef("review/exe-1/rev-1"), null);
+  for (const nodeId of ["cea7e947", "node_edge_1", "edge-1.prod"]) {
+    assert.deepEqual(parseEntityRef(`node/${nodeId}`), {
+      raw: `node/${nodeId}`,
+      kind: "node",
+      id: nodeId,
+      externalHarness: false,
+    });
+  }
+  for (const invalidNodeRef of ["node/.leading", "node/edge..prod", "node/bad node", "node/a/b"]) {
+    assert.equal(parseEntityRef(invalidNodeRef), null, `expected ${invalidNodeRef} to be rejected`);
+  }
 });
 
 test("relation ids are deterministic and ignore mutable relation attributes", () => {

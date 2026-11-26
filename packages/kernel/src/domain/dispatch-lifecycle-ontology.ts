@@ -332,7 +332,7 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO event reads use the bounded page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#buildResidentCeoPeerPrompt:ed03e4ff9cc327445ad8ae55bc63ef7b",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#buildResidentCeoPeerPrompt:f163311e978b7d2b0c19db1134f16bf4",
     "residentCeoDelegation",
     "Resident CEO emits structured delegation proposal prompts only under approval-gated policy.",
   ],
@@ -342,7 +342,7 @@ export const daemonResidentCeoPolicySources = [
     "Resident CEO peer request lookup uses the bounded 20-item page limit.",
   ],
   [
-    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:092bbbc27f58fc12928e8b0326d90384",
+    "policy:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#settleResidentCeoPeerTurn:44252584b03de738d0bcc2dbf4f42395",
     "residentCeoDelegation",
     "Resident CEO records structured proposals instead of advisory replies only under approval-gated policy.",
   ],
