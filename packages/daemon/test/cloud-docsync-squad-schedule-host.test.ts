@@ -387,3 +387,69 @@ test("cloud query host enforces G38 bounds, error mapping, and authorization acr
     assert.equal(noAuth.status, 401, route);
   }
 });
+
+test("cloud query host self-heals poisoned reader on readerRoutes and releases readers on close()", async () => {
+  let openCount = 0;
+  let closeCalls = 0;
+  let firstClosed = false;
+  const host = createCloudQueryHost({
+    pool: {} as never,
+    authorizer: {
+      authorizeRepositoryRead: async () => ({ outcome: "allowed", personId: "person_owner" }),
+    },
+    repositories: new Map([["repo", { tenantId: "tenant", projectId: "project", readers: [], policyEpoch: 0 }]]),
+    openQueryReader: () => {
+      openCount++;
+      const attempt = openCount;
+      return {
+        path: `memory:doc-test-${attempt}`,
+        isClosed: () => (attempt === 1 ? firstClosed : false),
+        close: () => {
+          closeCalls++;
+          if (attempt === 1) firstClosed = true;
+        },
+        withSession: <A>(read: (q: never) => A): A => {
+          if (attempt === 1) {
+            firstClosed = true;
+            throw Object.assign(new Error("PostgreSQL task query worker timed out"), {
+              code: "pg_query_worker_timeout",
+            });
+          }
+          return read({
+            readDocuments: () => ({
+              status: "ready" as const,
+              watermark: 1,
+              sourceRevision: 1,
+              documents: [
+                { path: "tasks/t1/task_plan.md", blobSha256: "a".repeat(64), size: 10, mediaType: "text/markdown" },
+              ],
+              page: { nextPath: null },
+            }),
+          } as never);
+        },
+      } as unknown as PgTaskQueryReader;
+    },
+    maxInFlight: 4,
+  });
+
+  const get = () =>
+    host(
+      new Request("http://cloud.local/v1/repositories/repo/doc-list?limit=10", {
+        headers: { authorization: "Bearer valid-token" },
+      }),
+    );
+
+  const failed = await get();
+  assert.equal(failed.status, 504);
+  assert.equal(openCount, 1);
+
+  const recovered = await get();
+  assert.equal(recovered.status, 200);
+  const body = (await recovered.json()) as { ok: boolean; documents: { path: string }[] };
+  assert.equal(body.ok, true);
+  assert.equal(body.documents.length, 1);
+  assert.equal(openCount, 2);
+
+  await host.close();
+  assert.ok(closeCalls >= 1, "host.close() must close cached readers");
+});

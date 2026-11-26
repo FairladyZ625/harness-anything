@@ -21,10 +21,29 @@ import {
 } from "@harness-anything/application/internal/queries/schedules-gui-read.ts";
 import { makeSquadCanonicalReader } from "@harness-anything/application/internal/queries/squad-canonical-read.ts";
 import {
+  readCompletionDeliveryStatus,
+  readTaskCompletion,
+} from "@harness-anything/application/internal/queries/task-completion-read.ts";
+import {
+  taskListPayload,
+  withWorkspacePackagePaths,
+} from "@harness-anything/application/internal/queries/task-list-read.ts";
+import { queryCodedError } from "@harness-anything/application/internal/queries/task-query-ports.ts";
+import { makeTaskQueryReadModel } from "@harness-anything/application/internal/queries/task-query-read.ts";
+import { readEffectiveCloseoutGates } from "@harness-anything/application/internal/queries/task-settings-read.ts";
+import { taskShowFromProjection } from "@harness-anything/application/internal/queries/task-show-read.ts";
+import {
+  projectedTaskSettings,
+  resolveTaskRootThreshold,
+} from "@harness-anything/application/internal/queries/task-wip-settings.ts";
+import {
+  blockingOf,
   canonicalLedgerCut,
+  closeoutReadiness,
   documentPath,
   RAW_ARTIFACT_POLICY_ID,
   type CanonicalSquadRun,
+  type TaskProjectionListQuery,
 } from "@harness-anything/kernel";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import type { PgTaskQueryMethods } from "../../../storage/src/pg/pg-task-query-contract.ts";
@@ -82,6 +101,51 @@ export function createCloudDomainRoutes(
     return taskId;
   };
 
+  const namedText = (search: URLSearchParams, key: string): Record<string, string> => {
+    const value = optionalText(search, key);
+    return value === undefined ? {} : { [key]: value };
+  };
+
+  const taskPage = (search: URLSearchParams) => {
+    const limitValue = search.get("limit"),
+      limit = limitValue === null ? undefined : Number(limitValue),
+      cursor = search.get("cursor") ?? undefined,
+      { minimumRows, pageSizes } = storageReadPolicy.defaultValue;
+    if (
+      (limit !== undefined && (!Number.isSafeInteger(limit) || limit < minimumRows || limit > pageSizes.standard)) ||
+      (cursor !== undefined && (!cursor || cursor.length > pageSizes.summaries))
+    )
+      throw fault(400, "invalid_page");
+    return { ...(limit === undefined ? {} : { limit }), ...(cursor === undefined ? {} : { cursor }) };
+  };
+
+  const listQuery = (search: URLSearchParams): TaskProjectionListQuery => {
+    const status = optionalText(search, "status");
+    const updatedAfter = optionalText(search, "updatedAfter");
+    const updatedBefore = optionalText(search, "updatedBefore");
+    const parent = search.get("parentTaskId");
+    return {
+      ...taskPage(search),
+      ...(status === undefined ? {} : { status }),
+      ...(updatedAfter === undefined ? {} : { updatedAfter }),
+      ...(updatedBefore === undefined ? {} : { updatedBefore }),
+      ...(parent !== null && TASK_ID.test(parent) ? { parentTaskId: parent } : {}),
+    } as TaskProjectionListQuery;
+  };
+
+  const listAction = (search: URLSearchParams) => {
+    const parent = search.get("parentTaskId");
+    const depth = search.get("depth");
+    return {
+      ...(depth === null ? {} : { depth }),
+      ...(parent !== null && TASK_ID.test(parent) ? { parentTaskId: parent } : {}),
+      ...namedText(search, "workKind"),
+      ...namedText(search, "riskTier"),
+      ...namedText(search, "urgency"),
+      ...namedText(search, "search"),
+    };
+  };
+
   const prefetchBlobs = (reader: PgTaskQueryReader, shas: readonly string[]): ReadonlyMap<string, Uint8Array> => {
     const blobs = new Map<string, Uint8Array>();
     for (const sha256 of new Set(shas)) {
@@ -119,6 +183,59 @@ export function createCloudDomainRoutes(
   };
 
   return new Map<string, CloudReaderRoute>([
+    [
+      "task-list",
+      (reader, { statelessRoot, search }) =>
+        reader.withSession((queries: PgTaskQueryMethods) => {
+          const { payload } = taskListPayload(
+            {
+              readTaskIndex: queries.readTaskIndex,
+              readTaskChildCounts: queries.readTaskChildCounts,
+              rootThreshold: resolveTaskRootThreshold(projectedTaskSettings(queries), {}).threshold,
+            },
+            listQuery(search),
+            listAction(search),
+            queryCodedError,
+          );
+          return withWorkspacePackagePaths(statelessRoot, payload);
+        }),
+    ],
+    [
+      "tasks",
+      (reader, { statelessRoot, search }) =>
+        reader.withSession((queries: PgTaskQueryMethods) =>
+          makeTaskQueryReadModel({
+            rootDir: statelessRoot,
+            projection: queries,
+            readPinnedEntities: (query) => queries.listPinnedEntities(query),
+            ports: {},
+            judgments: cloudTaskJudgments(queries),
+          }).guiTasks(listQuery(search)),
+        ),
+    ],
+    [
+      "task-show",
+      (reader, { statelessRoot, search }) =>
+        reader.withSession((queries: PgTaskQueryMethods) =>
+          taskShowFromProjection(
+            statelessRoot,
+            queries,
+            requiredTaskId(search),
+            undefined,
+            undefined,
+            "include_done",
+            {},
+            {},
+          ),
+        ),
+    ],
+    [
+      "task-completion",
+      (reader, { statelessRoot, search }) =>
+        reader.withSession((queries: PgTaskQueryMethods) =>
+          readTaskCompletion(queries, requiredTaskId(search), statelessRoot, undefined, {}),
+        ),
+    ],
     [
       "doc-list",
       (reader, { search }) => {
@@ -355,6 +472,25 @@ export function createCloudDomainRoutes(
       },
     ],
   ]);
+}
+
+function cloudTaskJudgments(queries: PgTaskQueryMethods) {
+  return {
+    closeout: (
+      snapshot: Parameters<typeof closeoutReadiness>[0],
+      availability: Parameters<typeof closeoutReadiness>[1],
+      _gates: Parameters<typeof closeoutReadiness>[2],
+      _delivery: Parameters<typeof closeoutReadiness>[3],
+      rootDir?: string,
+    ) =>
+      closeoutReadiness(
+        snapshot,
+        availability,
+        readEffectiveCloseoutGates(queries, snapshot),
+        readCompletionDeliveryStatus(queries, snapshot, rootDir),
+      ),
+    blocking: blockingOf,
+  };
 }
 
 function cloudScheduleActionFacet(actionKind: ScheduleGuiActionKind) {

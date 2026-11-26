@@ -5917,6 +5917,34 @@
         "order": 464
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/cloud-query-host.ts#dropCachedReader:614237c67892027534f54cdf78b99da8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 10012
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/cloud-query-worker-pool.ts#createCloudQueryWorkerPool.dropSlot:ca40d0afdc94ea8467aebeec7252d5f2",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Set.delete",
+        "order": 10014
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/cloud-query-worker-pool.ts#createCloudQueryWorkerPool.stopSlotWorker:2a9c342f66f76529081d3e1caa468f88",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/worker_threads.d.ts#worker_threads.Worker.terminate",
+        "order": 10015
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/cloud-query-worker.ts#dropCachedReader:614237c67892027534f54cdf78b99da8",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/typescript/lib/lib.es2015.collection.d.ts#Map.delete",
+        "order": 10013
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/fleet-sync/fleet/center-delivery-drain.ts#createFleetDeliveryDrain.admit.preparationFinished:87dec94c55a86cac746c606159f08b6e",
         "route": "daemon-local-state",
         "role": "technical-port",
