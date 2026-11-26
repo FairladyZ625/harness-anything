@@ -73,7 +73,11 @@ export function makeDaemonCommandReceipt(command: string, receipt: object): Json
     } = receipt as Readonly<Record<string, unknown>>,
     fields = Object.fromEntries(Object.entries(declared).filter(([, value]) => value !== undefined)),
     knownOutcome = statusWord(receiptOutcomeWords, fields.outcome),
-    ok = fields.outcome === "applied" || fields.outcome === "pending" || fields.outcome === "no_changes";
+    ok =
+      fields.outcome === "applied" ||
+      fields.outcome === "queued" ||
+      fields.outcome === "pending" ||
+      fields.outcome === "no_changes";
   if (!knownOutcome) {
     const wrappedSummary = nonEmpty(fields.summary)
       ? String(fields.summary)
@@ -619,7 +623,7 @@ export function writeReceipt(value: JsonObject): string[] {
   const outcome = value.outcome,
     entityId = validationEntityId(value, ["opId", "taskId", "decisionId", "command"], "receipt:<unknown>"),
     proof = isJsonObject(value.proof) ? value.proof : {},
-    applied = outcome === "applied",
+    applied = outcome === "applied" || outcome === "queued",
     pending = outcome === "pending",
     noChanges = outcome === "no_changes",
     failed = outcome === "op_rejected" || outcome === "indeterminate",
@@ -729,13 +733,18 @@ export function validateDaemonGuiCommandReceipt(value: unknown): readonly string
       ...taskFields,
       ...(value.command === "runtime-spawn" ? ["steerSupported"] : []),
       ...(value.command === "runtime-cancel" || value.command === "runtime-steer"
-        ? ["controlRequestId", "targetNodeId"]
+        ? ["controlRequestId", "targetNodeId", "inboxId", "inboxItemId", "mode"]
         : []),
+      ...(value.command === "runtime-report" ? ["inboxId", "inboxItemId", "reportKind"] : []),
     ],
     receipt = Object.fromEntries(
       writeReceiptFields.filter((field) => Object.hasOwn(value, field)).map((field) => [field, value[field]]),
     ) as JsonObject,
-    ok = value.outcome === "applied" || value.outcome === "pending" || value.outcome === "no_changes",
+    ok =
+      value.outcome === "applied" ||
+      value.outcome === "queued" ||
+      value.outcome === "pending" ||
+      value.outcome === "no_changes",
     unknown = Object.keys(value).find((field) => !allowed.includes(field)),
     errors: string[] = [];
   if (unknown) errors.push(validationError(entityId, unknown, value[unknown], "field is not declared"));

@@ -221,6 +221,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const dispatchState = input.runtimeInstanceDispatchState ?? createRuntimeInstanceDispatchState();
   const activeRuntimeHandles = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
+    queuedSteerInFlight = new Set<string>(),
     launch = input.launch ?? launchNative,
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider, input.repoId).then((value) => value ?? undefined) ??
@@ -256,6 +257,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     providerErrorLimit,
     publishRuntimeEvent,
     exiting,
+    queuedSteerInFlight,
+    spawnQueuedSteerTurn: (payload, binding, options) =>
+      spawnAttempt(payload, binding, { recoveryRequested: options?.recoveryRequested === true }),
     runtimeResultText: (active, code, outcome) =>
       runtimeSpawnerDelegates.runtimeResultText(extracted, active, code, outcome),
     resultMediaType,
@@ -1121,7 +1125,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               readOnlyCeiling: launchedPermissionMode === "read-only" || unboundReadOnlyAgent,
             })
           : null,
-      dispatchRole = tasklessExecutionRole === "read-only" ? "read-only" : role;
+      dispatchRole =
+        tasklessExecutionRole === "read-only"
+          ? "read-only"
+          : taskId && !readOnlyAttach && !reviewerBinding && agent?.role === "commander" && role === undefined
+            ? "coordinator"
+            : role;
     if (dispatchRole === "read-only" && !daemonRoute)
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
@@ -1547,10 +1556,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 dispatchId: newDispatchId,
                 taskId,
                 executionId: taskBinding!.executionId,
-                role: reviewerBinding ? "reviewer" : "implementation",
+                role: reviewerBinding ? "reviewer" : dispatchRole === "coordinator" ? "coordinator" : "implementation",
                 surfaces: taskExecutionSurfaces(
                   taskSnapshot?.task ?? null,
-                  reviewerBinding ? "reviewer" : "implementation",
+                  reviewerBinding ? "reviewer" : dispatchRole === "coordinator" ? "coordinator" : "implementation",
                 ),
               },
             }

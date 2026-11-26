@@ -204,11 +204,14 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
 
 function validateRuntimeSteerPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["runtime steer request is invalid"];
-  const { runtimeSessionId, dispatchId, prompt, idempotencyKey } = value;
+  const { runtimeSessionId, dispatchId, taskId, prompt, mode, idempotencyKey } = value;
+  const targets = (nonEmpty(runtimeSessionId) ? 1 : 0) + (nonEmpty(dispatchId) ? 1 : 0) + (nonEmpty(taskId) ? 1 : 0);
   return !nonEmpty(prompt) ||
-    nonEmpty(runtimeSessionId) === nonEmpty(dispatchId) ||
+    targets !== 1 ||
     (runtimeSessionId !== undefined && !nonEmpty(runtimeSessionId)) ||
     (dispatchId !== undefined && !nonEmpty(dispatchId)) ||
+    (taskId !== undefined && !nonEmpty(taskId)) ||
+    (mode !== undefined && mode !== "auto" && mode !== "queue" && mode !== "interrupt") ||
     (idempotencyKey !== undefined && (!nonEmpty(idempotencyKey) || !idempotencyKey.trim()))
     ? ["runtime steer request is invalid"]
     : [];

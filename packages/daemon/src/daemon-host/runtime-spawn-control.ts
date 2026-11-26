@@ -50,6 +50,12 @@ import {
   type RuntimeSteerExpectation,
   type RuntimeSteerSelector,
 } from "./runtime-steer-target.ts";
+import {
+  buildQueuedSteerReceipt,
+  consumeQueuedSteersAfterTurn,
+  enqueueQueuedSteer,
+  type RuntimeSteerMode,
+} from "./runtime-queued-steer.ts";
 
 export async function cancelRuntime(
   context: RuntimeSpawnerContext,
@@ -608,22 +614,73 @@ export async function steerRuntime(
     throw runtimeSpawnError("invalid_runtime_steer", `Runtime steer payload contains an ${unknownField}`);
   const runtimeSessionIdInput = payload.runtimeSessionId,
     dispatchIdInput = payload.dispatchId,
+    taskIdInput = payload.taskId,
     prompt = requiredRuntimeSpawnText(payload.prompt, "prompt"),
+    modeInput = payload.mode === undefined ? "auto" : String(payload.mode),
     expected = parseRuntimeSteerExpectation(payload.expected),
     idempotencyKey =
       payload.idempotencyKey === undefined
         ? null
         : requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey").trim();
+  if (modeInput !== "auto" && modeInput !== "queue" && modeInput !== "interrupt")
+    throw runtimeSpawnError("invalid_runtime_steer", "Runtime steer mode must be auto, queue, or interrupt.");
+  const steerMode: RuntimeSteerMode = modeInput;
   if (payload.idempotencyKey !== undefined && !idempotencyKey)
     throw runtimeSpawnError("invalid_runtime_steer", "Runtime steer idempotencyKey must not be empty.");
-  if ((typeof runtimeSessionIdInput === "string") === (typeof dispatchIdInput === "string"))
-    throw runtimeSpawnError("invalid_runtime_steer", "Specify exactly one runtime session id or dispatch id.");
-  const selector: RuntimeSteerSelector =
-      typeof dispatchIdInput === "string"
-        ? { dispatchId: dispatchIdInput }
-        : { runtimeSessionId: runtimeSessionIdInput as string },
-    { rootDir, repoId } = context.input,
-    runtimeHandles = context.processes,
+  const targetCount =
+    (typeof runtimeSessionIdInput === "string" ? 1 : 0) +
+    (typeof dispatchIdInput === "string" ? 1 : 0) +
+    (typeof taskIdInput === "string" ? 1 : 0);
+  if (targetCount !== 1)
+    throw runtimeSpawnError(
+      "invalid_runtime_steer",
+      "Specify exactly one runtime session id, dispatch id, or task id.",
+    );
+  const { rootDir, repoId } = context.input,
+    runtimeHandles = context.processes;
+
+  // Resolve a task-targeted steer to its live runtime or latest task dispatch, or enqueue directly to task:<taskId>.
+  let resolvedSelector: RuntimeSteerSelector | null =
+    typeof dispatchIdInput === "string"
+      ? { dispatchId: dispatchIdInput }
+      : typeof runtimeSessionIdInput === "string"
+        ? { runtimeSessionId: runtimeSessionIdInput }
+        : null;
+  let taskLatestDispatch:
+    | ReturnType<
+        ReturnType<RuntimeSpawnerContext["requiredRuntimeProjection"]>["readLatestRuntimeDispatchesByTaskIds"]
+      >[number]
+    | null = null;
+  if (typeof taskIdInput === "string") {
+    const activeForTask = [...runtimeHandles.values()].find((entry) => entry.task?.taskId === taskIdInput);
+    if (activeForTask) {
+      resolvedSelector = { runtimeSessionId: activeForTask.runtimeSessionId };
+    } else if (!context.input.remote) {
+      const projection = context.requiredRuntimeProjection(context.input);
+      taskLatestDispatch = projection.readLatestRuntimeDispatchesByTaskIds([taskIdInput])[0] ?? null;
+      if (taskLatestDispatch) resolvedSelector = { dispatchId: taskLatestDispatch.payload.dispatchId };
+      else if (steerMode === "interrupt")
+        throw runtimeSpawnError("runtime_not_running", `No running dispatch was found for task ${taskIdInput}.`);
+      else if (!projection.readTaskExists(taskIdInput))
+        throw runtimeSpawnError("task_not_found", `Task ${taskIdInput} does not exist.`);
+      else {
+        const queued = enqueueQueuedSteer(
+          context,
+          { taskId: taskIdInput, prompt, dispatchId: null, runtimeSessionId: null, agentId: null, idempotencyKey },
+          binding,
+        );
+        return buildQueuedSteerReceipt({
+          queued,
+          taskId: taskIdInput,
+          runtimeSessionId: null,
+          dispatchId: null,
+        });
+      }
+    } else {
+      throw runtimeSpawnError("runtime_not_running", `No local dispatch was found for task ${taskIdInput}.`);
+    }
+  }
+  const selector = resolvedSelector!,
     activeForSelector =
       "runtimeSessionId" in selector
         ? runtimeHandles.get(selector.runtimeSessionId)
@@ -645,6 +702,48 @@ export async function steerRuntime(
         ? findRuntimeSteerHeader(rootDir, selector)
         : null;
   if (!localHeader) {
+    if (
+      (steerMode === "queue" || steerMode === "auto") &&
+      typeof taskIdInput === "string" &&
+      taskLatestDispatch !== null &&
+      !context.input.remote
+    ) {
+      const queued = enqueueQueuedSteer(
+        context,
+        {
+          taskId: taskIdInput,
+          prompt,
+          dispatchId: taskLatestDispatch.payload.dispatchId,
+          runtimeSessionId: taskLatestDispatch.payload.runtimeSessionId,
+          agentId: taskLatestDispatch.payload.agentId ?? null,
+          idempotencyKey,
+        },
+        binding,
+      );
+      if (taskLatestDispatch.payload.role !== "reviewer") {
+        const trigger = {
+          taskId: taskIdInput,
+          previousDispatchId: taskLatestDispatch.payload.dispatchId,
+          previousRuntimeSessionId: taskLatestDispatch.payload.runtimeSessionId,
+          previousKindId: taskLatestDispatch.payload.kindId,
+          previousProviderSessionId: taskLatestDispatch.payload.resumeProviderSessionId ?? null,
+          previousAgentId: taskLatestDispatch.payload.agentId ?? null,
+          previousInstanceId: taskLatestDispatch.payload.instanceId,
+          previousModel: taskLatestDispatch.payload.definitionSnapshot.model ?? null,
+          previousPermissionMode: taskLatestDispatch.payload.launchedPermissionMode ?? null,
+          previousMcpPolicy: taskLatestDispatch.payload.definitionSnapshot.mcpPolicy ?? null,
+          previousFinalText: null,
+          binding,
+        };
+        context.input.schedule(() => consumeQueuedSteersAfterTurn(context, trigger).then(() => undefined), binding);
+      }
+      return buildQueuedSteerReceipt({
+        queued,
+        taskId: taskIdInput,
+        runtimeSessionId: taskLatestDispatch.payload.runtimeSessionId,
+        dispatchId: taskLatestDispatch.payload.dispatchId,
+      });
+    }
     if (context.input.runtimeNode === undefined && context.input.remote === undefined)
       return requestRemoteEdgeSteer(context, { selector, prompt, expected, idempotencyKey }, binding);
     throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
@@ -703,6 +802,74 @@ export async function steerRuntime(
       throw refuse("runtime_steer_target_changed", "The steer target changed while it was being resolved.");
     }
   }
+  const boundTaskId = header.taskId ?? (typeof taskIdInput === "string" ? taskIdInput : null),
+    activeKindId = active?.kindId ?? header.kindId ?? null,
+    providerSupportsLiveSteer = activeKindId ? runtimeKindForId(activeKindId).steerSupported : false,
+    processAlive = Boolean(active && view?.policy.processAlive === true),
+    useQueueMode =
+      !context.input.remote &&
+      (steerMode === "queue" ||
+        (steerMode === "auto" && boundTaskId !== null && (!providerSupportsLiveSteer || !processAlive)));
+  if (useQueueMode) {
+    if (boundTaskId === null)
+      throw refuse(
+        "runtime_steer_unavailable",
+        "Queue steer requires a task-bound runtime with a canonical task inbox.",
+      );
+    const queueTarget = runtimeSteerTarget(
+      rootDir,
+      repoId,
+      header,
+      processAlive ? "running" : view?.attempt.phase === "starting" ? "starting" : "stopped",
+      undefined,
+      view?.controlLeafDispatchId,
+    );
+    const mismatch = expected ? runtimeSteerMismatch(expected, queueTarget) : null;
+    if (mismatch)
+      throw runtimeSteerRefusal(
+        "runtime_steer_target_changed",
+        `The steer target no longer matches expected.${mismatch.field}.`,
+        queueTarget,
+        mismatch.field,
+        mismatch.expected,
+      );
+    const queued = enqueueQueuedSteer(
+      context,
+      {
+        taskId: boundTaskId,
+        prompt,
+        dispatchId: header.dispatchId,
+        runtimeSessionId,
+        agentId: active?.agent?.id ?? header.agentId ?? null,
+        idempotencyKey,
+      },
+      binding,
+    );
+    if (!processAlive && header.role !== "reviewer") {
+      const trigger = {
+        taskId: boundTaskId,
+        previousDispatchId: header.dispatchId,
+        previousRuntimeSessionId: runtimeSessionId,
+        previousKindId: activeKindId,
+        previousProviderSessionId: active?.providerSessionId ?? header.resumeProviderSessionId ?? null,
+        previousAgentId: active?.agent?.id ?? header.agentId ?? null,
+        previousInstanceId: active?.instanceId ?? header.instanceId,
+        previousModel: active?.model ?? header.model ?? null,
+        previousPermissionMode: active?.permissionMode ?? header.permissionMode ?? null,
+        previousMcpPolicy: active?.mcpPolicy ?? header.mcpPolicy ?? null,
+        previousFinalText: active?.finalText ?? null,
+        binding,
+      };
+      context.input.schedule(() => consumeQueuedSteersAfterTurn(context, trigger).then(() => undefined), binding);
+    }
+    return buildQueuedSteerReceipt({
+      queued,
+      taskId: boundTaskId,
+      runtimeSessionId,
+      dispatchId: header.dispatchId,
+      steerTarget: runtimeSteerReceiptTarget(queueTarget) as unknown as JsonObject,
+    });
+  }
   if (active && !runtimeKindForId(active.kindId).steerSupported)
     throw refuse("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
   if (!view?.policy.canSteer)
@@ -758,6 +925,22 @@ export async function steerRuntime(
       mismatch.field,
       mismatch.expected,
     );
+  const interruptQueued =
+    steerMode === "interrupt" && boundTaskId !== null && !context.input.remote && context.input.store
+      ? enqueueQueuedSteer(
+          context,
+          {
+            taskId: boundTaskId,
+            prompt,
+            dispatchId: header.dispatchId,
+            runtimeSessionId,
+            agentId: active.agent?.id ?? header.agentId ?? null,
+            idempotencyKey,
+            lane: "interrupt",
+          },
+          binding,
+        )
+      : null;
   const version = target.version + 1;
   // The dispatch stream is the control channel: the worker host owning the provider follows
   // this file, so a host adopted after a daemon restart is steered like one this daemon spawned.
@@ -785,6 +968,8 @@ export async function steerRuntime(
     ok: true,
     command: "runtime-steer",
     outcome: "applied",
+    ...(steerMode === "interrupt" ? { mode: "interrupt" } : {}),
+    ...(interruptQueued ? { inboxId: interruptQueued.inboxId, inboxItemId: interruptQueued.inboxItemId } : {}),
     opId,
     runtimeSessionId,
     dispatchId: header.dispatchId,

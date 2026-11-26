@@ -179,3 +179,99 @@ test("file codecs resolve a selected repository root symlink before checking an 
   assert.equal(materializeCommandFileInputs(parsed.command).action.prompt, "inside prompt");
   assert.equal(serializeFleetAction(parsed.command).prompt, "inside prompt");
 });
+
+test("runtime steer accepts task targets, --mode auto|queue|interrupt, and --message alias", () => {
+  const byTask = parseThinCommand([
+    "runtime",
+    "steer",
+    "task_abcdef0123456789abcdef01",
+    "--mode",
+    "queue",
+    "--message",
+    "仅做子包 A，跳过 B",
+  ]);
+  assert.equal(byTask.ok, true, JSON.stringify(byTask));
+  if (!byTask.ok) throw new Error(byTask.nextAction);
+  assert.equal(byTask.command.method, "repo.agentRuntime.steer");
+  assert.equal(byTask.command.action.taskId, "task_abcdef0123456789abcdef01");
+  assert.equal(byTask.command.action.mode, "queue");
+  assert.equal(byTask.command.action.prompt, "仅做子包 A，跳过 B");
+
+  const badMode = parseThinCommand(["runtime", "steer", "runtime_s", "--prompt", "x", "--mode", "bogus"]);
+  assert.equal(badMode.ok, false);
+  if (badMode.ok) throw new Error("expected invalid mode rejection");
+  assert.equal(badMode.code, "invalid_field");
+
+  const conflict = parseThinCommand(["runtime", "steer", "runtime_s", "--prompt", "a", "--message", "b"]);
+  assert.equal(conflict.ok, false);
+});
+
+test("runtime report, runtime collect, and runtime status --cursor parse cleanly", () => {
+  const report = parseThinCommand([
+    "runtime",
+    "report",
+    "--task",
+    "task_abcdef0123456789abcdef01",
+    "--kind",
+    "milestone",
+    "--summary",
+    "子包 A 已提交",
+  ]);
+  assert.equal(report.ok, true, JSON.stringify(report));
+  if (!report.ok) throw new Error(report.nextAction);
+  assert.equal(report.command.method, "repo.task.run");
+  assert.equal(report.command.action.kind, "runtime-report");
+  assert.equal(report.command.action.taskId, "task_abcdef0123456789abcdef01");
+  assert.equal(report.command.action.reportKind, "milestone");
+  assert.equal(report.command.action.summary, "子包 A 已提交");
+
+  const badKind = parseThinCommand([
+    "runtime",
+    "report",
+    "--task",
+    "task_abcdef0123456789abcdef01",
+    "--kind",
+    "unknown",
+    "--summary",
+    "x",
+  ]);
+  assert.equal(badKind.ok, false);
+
+  const collect = parseThinCommand([
+    "runtime",
+    "collect",
+    "task_abcdef0123456789abcdef01",
+    "--since",
+    "42",
+    "--wait-event",
+    "--timeout-ms",
+    "5000",
+  ]);
+  assert.equal(collect.ok, true, JSON.stringify(collect));
+  if (!collect.ok) throw new Error(collect.nextAction);
+  assert.equal(collect.command.method, "repo.task.read");
+  assert.equal(collect.command.action.kind, "runtime-collect");
+  assert.equal(collect.command.action.taskId, "task_abcdef0123456789abcdef01");
+  assert.equal(collect.command.action.since, 42);
+  assert.equal(collect.command.action.waitEvent, true);
+  assert.equal(collect.command.action.timeoutMs, 5000);
+
+  const collectBySession = parseThinCommand(["runtime", "collect", "runtime_session1"]);
+  assert.equal(collectBySession.ok, true, JSON.stringify(collectBySession));
+  if (!collectBySession.ok) throw new Error(collectBySession.nextAction);
+  assert.equal(collectBySession.command.action.runtimeSessionId, "runtime_session1");
+
+  const statusCursor = parseThinCommand([
+    "runtime",
+    "status",
+    "--limit",
+    "64",
+    "--cursor",
+    "runtime-session:runtime_abc",
+  ]);
+  assert.equal(statusCursor.ok, true, JSON.stringify(statusCursor));
+  if (!statusCursor.ok) throw new Error(statusCursor.nextAction);
+  assert.equal(statusCursor.command.method, "repo.agentRuntime.overview");
+  assert.equal(statusCursor.command.action.limit, 64);
+  assert.equal(statusCursor.command.action.cursor, "runtime-session:runtime_abc");
+});
