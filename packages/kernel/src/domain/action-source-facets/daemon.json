@@ -4429,13 +4429,6 @@
         "order": 792
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:a0b0f071891fac0fad06b1d15d6ba9fe",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write",
-        "order": 794
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:cd5e990b3b9eae3a884ce53f2f01078f",
         "route": "daemon-local-state",
         "role": "technical-port",
