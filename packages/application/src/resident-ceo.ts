@@ -46,6 +46,7 @@ export interface ResidentCeoDelegationExecutor {
     readonly peerRequestId: string;
     readonly workId: string;
     readonly title: string;
+    readonly plan?: string;
     readonly idempotencyKey: string;
   }) => Promise<{ readonly promotedTaskId: string }>;
   readonly dispatchAgent?: (input: {
@@ -103,6 +104,85 @@ export interface ResidentCeoApproveProposalInput {
 
 function codedError(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
+}
+
+export interface ResidentCeoPromotedTaskPlanInput {
+  readonly proposalId: string;
+  readonly peerRequestId: string;
+  readonly fromPersonId: string;
+  readonly decidedByPersonId: string;
+  readonly approvalMode: ResidentCeoApprovalMode;
+  readonly workId: string;
+  readonly agentId: string | null;
+  readonly title: string;
+  readonly summary: string;
+  readonly prompt: string;
+  readonly rationale: string;
+  readonly wakeId: string;
+}
+
+function singleLinePlanField(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+export function buildResidentCeoPromotedTaskPlan(input: ResidentCeoPromotedTaskPlanInput): string {
+  const title = singleLinePlanField(input.title);
+  const summary = singleLinePlanField(input.summary);
+  const prompt = singleLinePlanField(input.prompt);
+  const rationale = singleLinePlanField(input.rationale);
+  const assignee = input.agentId ? `agent \`${input.agentId}\`` : "the assigned executor";
+  return [
+    `# ${title}`,
+    "",
+    "Task Contract: harness-task v1",
+    "",
+    "## Brief",
+    "",
+    `Execute peer delegation \`${input.peerRequestId}\` from \`${input.fromPersonId}\` under work \`${input.workId}\`: ${title}.`,
+    "",
+    "## Goal",
+    "",
+    `Resolve the approved delegation request (${summary}) and deliver the requested outcome: ${prompt}.`,
+    "",
+    "## Cheaper Alternatives",
+    "",
+    `- Doing nothing leaves peer request \`${input.peerRequestId}\` from \`${input.fromPersonId}\` unresolved without tracked task ownership.`,
+    `- Replying advisory-only without promotion cannot execute or verify the delegated work (${rationale}).`,
+    "",
+    "## Context",
+    "",
+    `- Proposal: \`${input.proposalId}\` (wake \`${input.wakeId}\`, approval mode \`${input.approvalMode}\`, approved by \`${input.decidedByPersonId}\`).`,
+    `- Source PeerRequest: \`${input.peerRequestId}\` from \`${input.fromPersonId}\`.`,
+    `- Target Work: \`${input.workId}\`; Assigned Executor: ${assignee}.`,
+    `- Rationale: ${rationale}`,
+    "",
+    "## Required Reading",
+    "",
+    `- Canonical PeerRequest \`${input.peerRequestId}\` and parent Work \`${input.workId}\` ledger state.`,
+    "- Task package `task_plan.md` and `task-contract.json` materialized for this promoted task.",
+    "",
+    "## Execution Surface",
+    "",
+    `Operate inside the leased worktree and branch for this task under work \`${input.workId}\`; keep edits scoped to the files required by the delegation and do not touch unrelated worktrees or the canonical root checkout.`,
+    "",
+    "## Constraints",
+    "",
+    `- Stay strictly within the scope approved for proposal \`${input.proposalId}\` and peer request \`${input.peerRequestId}\`.`,
+    "- Do not weaken repository gates, bypass canonical ledger transitions, or perform destructive external actions without explicit owner approval.",
+    "",
+    "## Deliverable Contract",
+    "",
+    `Deliver the concrete changes or artifacts requested in "${prompt}" to \`${input.decidedByPersonId}\` and report terminal task status back to \`${input.fromPersonId}\` through peer request \`${input.peerRequestId}\`.`,
+    "",
+    "## Evidence Protocol",
+    "",
+    "Record concrete verification commands, observed runner outputs, changed file paths, and execution receipts in closeout and submission so reviewers can verify every claim.",
+    "",
+    "## Verification",
+    "",
+    "Run the targeted tests and repository checks covering the modified surface, confirm all assertions pass, and record exact commands and real runner output before closing out.",
+    "",
+  ].join("\n");
 }
 
 export function makeResidentCeoService(input: ResidentCeoServiceInput) {
@@ -171,10 +251,26 @@ export function makeResidentCeoService(input: ResidentCeoServiceInput) {
     const agentId =
       (approveInput.agentId?.trim() || proposal.proposedAgentId || profile.defaultAgentId || "").trim() || null;
     const prompt = (approveInput.prompt?.trim() || proposal.proposedPrompt || proposal.summary).trim();
+    const approvalMode = approveInput.approvalMode ?? "manual";
+    const plan = buildResidentCeoPromotedTaskPlan({
+      proposalId: proposal.proposalId,
+      peerRequestId: proposal.peerRequestId,
+      fromPersonId: proposal.fromPersonId,
+      decidedByPersonId: principalPersonId,
+      approvalMode,
+      workId,
+      agentId,
+      title,
+      summary: proposal.summary,
+      prompt,
+      rationale: proposal.rationale,
+      wakeId: proposal.wakeId,
+    });
     const { promotedTaskId } = await delegation.promote({
       peerRequestId: proposal.peerRequestId,
       workId,
       title,
+      plan,
       idempotencyKey: `resident-ceo-promote-${proposal.proposalId}`,
     });
     let dispatchRuntimeSessionId: string | null = null;

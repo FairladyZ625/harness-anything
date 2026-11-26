@@ -74,6 +74,7 @@ export function makeResidentCeoDelegationExecutor(
           requestId: input.peerRequestId,
           work: input.workId,
           title: input.title,
+          ...(input.plan ? { plan: input.plan } : {}),
           idempotencyKey: input.idempotencyKey,
         },
         auth,

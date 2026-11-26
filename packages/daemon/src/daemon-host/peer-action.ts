@@ -724,10 +724,12 @@ export function runPeerAction(
     }
 
     nextWorkspaceRev += 1;
+    const plan = optionalString(action.plan);
     const taskAction = cell.taskCreateAction(cell.rootDir, {
       kind: "task-create",
       title: optionalString(action.title) ?? current.summary,
       parentTaskId: work,
+      ...(plan ? { plan } : {}),
       idempotencyKey: `peer-promote:${requestId}`,
     });
     const prepared = prepareTaskCreateAt(cell, taskAction, binding, { workspaceRevision: nextWorkspaceRev });

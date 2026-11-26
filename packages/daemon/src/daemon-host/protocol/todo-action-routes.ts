@@ -114,6 +114,7 @@ export const todoActionRoutes = [
       requestId: "string",
       work: "string",
       title: "string?",
+      plan: "string?",
       idempotencyKey: "string?",
     }),
   ),
