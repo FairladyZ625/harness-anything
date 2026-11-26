@@ -371,6 +371,7 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
         );
       } catch (error) {
         if (context.code(error) !== "runtime_session_not_found") throw error;
+        consumeKnownError(error);
         settled = null;
       }
       if (settled !== null && settled.settlement === null) return false;

@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 import { evidence } from "./task-surface.fixtures.ts";
 
 function makeCodexLauncher(launchedArgs: (readonly string[])[]) {
@@ -55,7 +56,7 @@ test(
   async (t) => {
     const repoId = "lease-repo";
     const stubDir = mkdtempSync(path.join(tmpdir(), "ha-resident-ceo-edge-stub-"));
-    t.after(() => rmSync(stubDir, { recursive: true, force: true }));
+    t.after(() => removeTempRepository(stubDir));
     const installation = {
       installationId: "edge-ceo-codex-install",
       kindId: "codex" as const,
