@@ -260,8 +260,13 @@ export class JsonRpcLineClient {
     return response.result;
   }
   close(): void {
-    this.output.end();
     this.lines.close();
+    // On Windows named pipes, half-closing (`end()`) while pausing the reader (`lines.close()`)
+    // leaves the client socket handle open with a pending ShutdownWrap until the peer closes its
+    // side. Destroying a socket transport matches shutdown/stream clients and keeps short-lived
+    // CLI processes from hanging after writing their receipt.
+    if (this.output instanceof net.Socket) this.output.destroy();
+    else this.output.end();
   }
   private readResponse(id: number): Promise<JsonRpcResponse> {
     return new Promise((resolve, reject) => {
@@ -337,14 +342,6 @@ async function requestWithSocket(
           : null,
       result = await client.request(method, params, responseTimeoutMs);
     return warning ? { ...result, daemonBuild: warning } : result;
-  } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      (error as { readonly code?: unknown }).code === "daemon_response_timeout"
-    )
-      socket.destroy();
-    throw error;
   } finally {
     client.close();
   }

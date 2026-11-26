@@ -59,10 +59,19 @@ public static class HarnessRuntimeJob {
   static void Check(bool success) {
     if (!success) throw new Win32Exception(Marshal.GetLastWin32Error());
   }
-  public static void Attach(uint pid, string name) {
+  public static string Attach(uint pid, string baseName) {
+    string name = "Global\\" + baseName;
     IntPtr job = CreateJobObject(IntPtr.Zero, name);
-    if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
     int creationError = Marshal.GetLastWin32Error();
+    if (job == IntPtr.Zero && creationError == 5) {
+      // Least-privilege scheduled tasks on Windows Server strip SeCreateGlobalPrivilege.
+      // Fall back to the interactive logon session namespace so same-session daemon restarts
+      // still observe and terminate the witnessed job without widening privileges.
+      name = "Local\\" + baseName;
+      job = CreateJobObject(IntPtr.Zero, name);
+      creationError = Marshal.GetLastWin32Error();
+    }
+    if (job == IntPtr.Zero) throw new Win32Exception(creationError);
     try {
       if (creationError == 183) throw new InvalidOperationException("Runtime job already exists");
       ExtendedLimits limits = new ExtendedLimits();
@@ -84,6 +93,7 @@ public static class HarnessRuntimeJob {
         Check(DuplicateHandle(GetCurrentProcess(), job, worker, out ownedHandle, 0, false, 2));
       } finally { CloseHandle(worker); }
     } finally { CloseHandle(job); }
+    return name;
   }
   public static int Observe(string name, bool terminate) {
     IntPtr job = OpenJobObject(0x0004 | (terminate ? 0x0008u : 0u), false, name);
@@ -131,19 +141,27 @@ export function minimalWindowsPowerShellEnv(source: NodeJS.ProcessEnv = process.
   return env;
 }
 
-export async function establishWindowsProcessGroup(): Promise<string> {
-  // Global names remain visible when a successor daemon runs in another logon session.
-  const name = `Global\\HarnessRuntime-${randomUUID()}`;
-  await runProcessTextAsync(
+export async function establishWindowsProcessGroup(deps?: {
+  readonly runPowerShell?: typeof runProcessTextAsync;
+  readonly baseName?: string;
+}): Promise<string> {
+  // Prefer Global\ when SeCreateGlobalPrivilege is held so a successor daemon in another logon
+  // session can observe the job; fall back to Local\ under least-privilege scheduled tasks on
+  // Windows Server where SeCreateGlobalPrivilege is stripped.
+  const baseName = deps?.baseName ?? `HarnessRuntime-${randomUUID()}`;
+  const output = await (deps?.runPowerShell ?? runProcessTextAsync)(
     "powershell.exe",
-    invocation(`[HarnessRuntimeJob]::Attach(${process.pid}, ${quoted(name)})`),
+    invocation(`[HarnessRuntimeJob]::Attach(${process.pid}, ${quoted(baseName)})`),
     undefined,
     minimalWindowsPowerShellEnv(),
     undefined,
     undefined,
     { timeoutMs: daemonRuntimePolicy.defaultValue.runtime.windowsProcessGroupTimeoutMs },
   );
-  return name;
+  const containmentId = output.trim();
+  if (containmentId !== `Global\\${baseName}` && containmentId !== `Local\\${baseName}`)
+    throw new Error(`Unexpected Windows runtime job name: ${containmentId || "(empty)"}`);
+  return containmentId;
 }
 
 export interface WindowsGroupObservation {

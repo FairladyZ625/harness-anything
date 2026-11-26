@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import net from "node:net";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -184,6 +184,7 @@ test("a reused connection keeps its socket listener counts flat across read roun
         );
       }
       client.close();
+      assert.equal(socket.destroyed, true, "closing a socket-backed RPC client must destroy the underlying socket");
       await new Promise((resolve) => setTimeout(resolve, 25));
       assert.deepEqual(
         { data: socket.listenerCount("data"), end: socket.listenerCount("end"), error: socket.listenerCount("error") },
@@ -458,6 +459,74 @@ test("a socket error delivered after close remains handled as daemon unavailable
     clientClose(client);
   }
 });
+
+test(
+  "requestDaemonJsonRpcAt lets a short-lived CLI process exit even when the server pauses its socket after replying",
+  { timeout: 15_000 },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-json-rpc-exit-")),
+      socketPath = localUserDaemonEndpoint(parent, "json-rpc-exit"),
+      sockets = new Set<net.Socket>(),
+      server = net.createServer({ allowHalfOpen: true }, (socket) => {
+        sockets.add(socket);
+        socket.once("close", () => sockets.delete(socket));
+        socket.on("error", () => undefined);
+        socket.on("data", (chunk: Buffer) => {
+          for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
+            const request = JSON.parse(line) as { readonly id: number; readonly method: string },
+              result = request.method === "protocol.hello" ? fixtureDaemonHello() : { ok: true };
+            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+          }
+        });
+      });
+    mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+    const clientModule = new URL("../src/daemon-host/client/local-json-rpc-client.ts", import.meta.url).href;
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { requestDaemonJsonRpcAt } from ${JSON.stringify(clientModule)};
+         const result = await requestDaemonJsonRpcAt(${JSON.stringify(socketPath)}, "daemon.status", {}, 2_000, 2_000);
+         process.stdout.write(JSON.stringify(result) + "\\n");`,
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let stdout = "",
+      stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    try {
+      const outcome = await new Promise<{ readonly code: number | null; readonly timedOut: boolean }>((resolve) => {
+        const timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          resolve({ code: null, timedOut: true });
+        }, 5_000);
+        child.once("exit", (code) => {
+          clearTimeout(timer);
+          resolve({ code, timedOut: false });
+        });
+      });
+      assert.equal(outcome.timedOut, false, `CLI child hung after printing reply (stdout=${stdout}, stderr=${stderr})`);
+      assert.equal(outcome.code, 0, `unexpected child exit code (stdout=${stdout}, stderr=${stderr})`);
+      assert.deepEqual(JSON.parse(stdout.trim()), { ok: true });
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await closeServer(server);
+      removeTempRepository(parent);
+    }
+  },
+);
 
 function clientClose(client: { readonly close: () => void }): void {
   try {

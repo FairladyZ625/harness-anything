@@ -207,6 +207,7 @@ export async function daemonSocketProbe(socketPath: string): Promise<boolean> {
         resolve(up);
       };
     const timer = setTimeout(() => finish(false), 250);
+    timer.unref?.();
     socket.once("connect", () => {
       clearTimeout(timer);
       finish(true);

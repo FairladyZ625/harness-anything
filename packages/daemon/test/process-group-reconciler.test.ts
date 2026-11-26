@@ -1,6 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,6 +21,7 @@ import {
   type ProcessGroupReconcilerDeps,
 } from "../src/daemon-host/runtime/process-group-reconciler.ts";
 import {
+  establishWindowsProcessGroup,
   minimalWindowsPowerShellEnv,
   observeWindowsProcessGroup,
 } from "../src/daemon-host/runtime/windows-process-group-port.ts";
@@ -293,6 +296,90 @@ test(
     } finally {
       if (previous === undefined) delete process.env.HARNESS_TEST_TIER_MANIFEST;
       else process.env.HARNESS_TEST_TIER_MANIFEST = previous;
+    }
+  },
+);
+
+test("establishWindowsProcessGroup accepts Global and Local job names and fails closed on unexpected output", async () => {
+  const baseName = "HarnessRuntime-test-fallback";
+  const invocations: string[] = [];
+  const decode = (args: readonly string[]) => Buffer.from(args.at(-1)!, "base64").toString("utf16le");
+  const globalName = await establishWindowsProcessGroup({
+    baseName,
+    runPowerShell: async (_cmd, args) => {
+      invocations.push(decode(args));
+      return `Global\\${baseName}\r\n`;
+    },
+  });
+  assert.equal(globalName, `Global\\${baseName}`);
+  assert.match(invocations[0]!, /creationError == 5/u);
+  assert.match(invocations[0]!, /"Local\\\\" \+ baseName/u);
+
+  const localName = await establishWindowsProcessGroup({
+    baseName,
+    runPowerShell: async () => `Local\\${baseName}\r\n`,
+  });
+  assert.equal(localName, `Local\\${baseName}`);
+
+  await assert.rejects(
+    establishWindowsProcessGroup({
+      baseName,
+      runPowerShell: async () => "Global\\HarnessRuntime-wrong\r\n",
+    }),
+    /Unexpected Windows runtime job name/u,
+  );
+  await assert.rejects(
+    establishWindowsProcessGroup({
+      baseName,
+      runPowerShell: async () => "",
+    }),
+    /Unexpected Windows runtime job name/u,
+  );
+});
+
+test(
+  "establishWindowsProcessGroup attaches a live Windows child job and observeWindowsProcessGroup tracks exit",
+  { skip: process.platform !== "win32" ? "requires Windows Job Objects" : false, timeout: 60_000 },
+  async () => {
+    const portModule = new URL("../src/daemon-host/runtime/windows-process-group-port.ts", import.meta.url).href;
+    const child = spawn(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        `import { establishWindowsProcessGroup } from ${JSON.stringify(portModule)};
+         const name = await establishWindowsProcessGroup();
+         process.send(name);
+         process.stdin.resume();`,
+      ],
+      { stdio: ["pipe", "ignore", "pipe", "ipc"], windowsHide: true },
+    );
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    const exited = once(child, "exit");
+    try {
+      const [containmentId] = (await Promise.race([
+        once(child, "message"),
+        exited.then(([code]) => {
+          throw new Error(`child exited early (${String(code)}): ${stderr}`);
+        }),
+      ])) as [string];
+      assert.match(containmentId, /^(?:Global|Local)\\HarnessRuntime-[0-9a-f-]+$/u);
+      const alive = observeWindowsProcessGroup(containmentId, false);
+      assert.ok((alive.activeProcesses ?? 0) >= 1, JSON.stringify(alive));
+      child.stdin.end();
+      await exited;
+      const stopped = observeWindowsProcessGroup(containmentId, false);
+      assert.equal(stopped.activeProcesses, 0, JSON.stringify(stopped));
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        child.stdin.end();
+        child.kill("SIGKILL");
+        await exited;
+      }
     }
   },
 );

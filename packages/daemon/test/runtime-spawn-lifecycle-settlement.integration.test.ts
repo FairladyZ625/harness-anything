@@ -1158,6 +1158,7 @@ test(
       );
       assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
       rmSync(release, { force: true });
+      rmSync(pidFile, { force: true });
       const lostReceipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
@@ -1176,15 +1177,16 @@ test(
           return null;
         }
       });
-      const lostDispatchId = String(lostReceipt.dispatchId),
-        hostPid = await eventuallyValue(() => {
-          const started = dispatchText(root, lostDispatchId)
-            .trim()
-            .split(/\r?\n/u)
-            .map((line) => JSON.parse(line) as Record<string, unknown>)
-            .find((record) => record.kind === "process_started");
-          return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
-        });
+      const lostDispatchId = String(lostReceipt.dispatchId);
+      await eventually(() => dispatchText(root, lostDispatchId).includes("provider-re-adopt-session"));
+      const hostPid = await eventuallyValue(() => {
+        const started = dispatchText(root, lostDispatchId)
+          .trim()
+          .split(/\r?\n/u)
+          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .find((record) => record.kind === "process_started");
+        return Number.isInteger(started?.pid) && Number(started?.pid) > 0 ? Number(started?.pid) : null;
+      });
       await cell.close();
       cell = undefined;
       process.kill(hostPid, "SIGKILL");
