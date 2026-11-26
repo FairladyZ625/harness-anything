@@ -23,10 +23,9 @@ import {
   type TaskBootstrapEventV1,
 } from "@harness-anything/kernel/internal/domain/task-bootstrap-event.ts";
 import { materializePgProjectionEvents } from "../../../storage/src/pg/index.ts";
-import { createPgTaskQueryReader, type PgTaskQueryReader } from "../../../storage/src/pg/pg-task-query-reader.ts";
 import { makePostgresTaskEventStore } from "../../../storage/src/postgres/index.ts";
 import { canonicalEventWritePlan, type CanonicalWriteBundle } from "../../../storage/src/store/task-event-store.ts";
-import { createCloudQueryHost } from "../../src/fleet-sync/cloud-query-host.ts";
+import { createCloudQueryHost, type CloudQueryHost } from "../../src/fleet-sync/cloud-query-host.ts";
 import { validateScheduleRuns } from "../../src/daemon-host/protocol/schedule-runs-contract.ts";
 import { validateSchedulesList } from "../../src/daemon-host/protocol/schedules-contract.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../../src/daemon-host/squad-run-contract.ts";
@@ -39,7 +38,7 @@ export async function assertCloudDocSyncSquadSchedulePg(fixture: {
   readonly pool: PgPool;
   readonly connectionString: string;
 }): Promise<void> {
-  const readers: PgTaskQueryReader[] = [];
+  let host: CloudQueryHost | undefined;
   try {
     const repoId = "cloud-slice3-pg";
     const scope = {
@@ -516,7 +515,7 @@ export async function assertCloudDocSyncSquadSchedulePg(fixture: {
       }),
     );
 
-    const host = createCloudQueryHost({
+    host = createCloudQueryHost({
       pool: fixture.pool,
       authorizer: {
         authorizeRepositoryRead: async ({ token }) => {
@@ -526,20 +525,11 @@ export async function assertCloudDocSyncSquadSchedulePg(fixture: {
         },
       },
       repositories: new Map([[repoId, scope]]),
-      openQueryReader: ({ repoId: targetRepoId, scope: targetScope }) => {
-        const reader = createPgTaskQueryReader({
-          connectionString: fixture.connectionString,
-          scope: targetScope,
-          repoId: targetRepoId,
-        });
-        readers.push(reader);
-        return reader;
-      },
       maxInFlight: 8,
     });
 
     const get = (route: string, token = "valid-token") =>
-      host(
+      host!(
         new Request(`http://cloud.local/v1/repositories/${repoId}/${route}`, {
           headers: token ? { authorization: `Bearer ${token}` } : {},
         }),
@@ -658,7 +648,12 @@ export async function assertCloudDocSyncSquadSchedulePg(fixture: {
     assert.equal((await get("schedules", "denied-token")).status, 403);
     assert.equal((await get("doc-list?limit=99999")).status, 400);
     assert.equal((await get("schedule-runs?scheduleId=cloud-nightly&limit=999")).status, 400);
+
+    // 5. Concurrent non-blocking reads across task-list + doc-list through worker pool
+    const [concurrentTasks, concurrentDocs] = await Promise.all([get("task-list"), get("doc-list?limit=50")]);
+    assert.equal(concurrentTasks.status, 200);
+    assert.equal(concurrentDocs.status, 200);
   } finally {
-    for (const reader of readers) reader.close();
+    await host?.close();
   }
 }

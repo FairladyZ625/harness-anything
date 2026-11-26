@@ -6,6 +6,7 @@ import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import type { PgTaskQueryMethods } from "./pg-task-query-contract.ts";
 import type { PostgresTaskEventStoreRequest, PostgresTaskEventStoreResult } from "../postgres/pg-task-event-store.ts";
 import type { LeaseV1 } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import type { PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
 import type { WriterEpochLease } from "../writer-epoch-contract.ts";
 import type { PgRelationCycleRefreshPage } from "./pg-relation-cycle-audit.ts";
@@ -73,6 +74,7 @@ export interface PgTaskQueryReaderOptions {
 export interface PgTaskQueryReader {
   readonly path: string;
   readonly withSession: <A>(read: (queries: PgTaskQueryMethods) => A) => A;
+  readonly isClosed: () => boolean;
   readonly close: () => void;
   readonly executeCanonical: (request: PostgresTaskEventStoreRequest) => PostgresTaskEventStoreResult;
   readonly changeLease: (
@@ -176,7 +178,10 @@ export function createPgTaskQueryReader(
       });
   let requestId = 0,
     activeSession = false,
-    closed = false;
+    closed = false,
+    cleanlyClosed = false,
+    exited = false,
+    terminated = false;
   let lifecycleError: Error | undefined;
   // EventEmitter errors arrive after a synchronous caller yields. Consume them here even
   // when a fatal response or the bounded wait has already invalidated the reader.
@@ -186,6 +191,7 @@ export function createPgTaskQueryReader(
     port1.close();
   });
   worker.on("exit", (code) => {
+    exited = true;
     if (!closed)
       lifecycleError = Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), {
         code: "pg_query_worker_exited",
@@ -200,11 +206,22 @@ export function createPgTaskQueryReader(
       rollbackGraceMs,
     });
   } catch (error) {
+    closed = true;
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "pg_query_worker_timeout" || error.code === "pg_query_worker_protocol_error")
+    )
+      terminated = true;
     port1.close();
     throw error;
   }
   if (startup.error) {
-    if (Atomics.load(ready, 1) !== 1) void worker.terminate();
+    closed = true;
+    if (Atomics.load(ready, 1) !== 1) {
+      terminated = true;
+      void Promise.resolve(worker.terminate()).catch(consumeKnownError);
+    }
     port1.close();
     throw restoreError(startup.error);
   }
@@ -267,6 +284,12 @@ export function createPgTaskQueryReader(
       );
     } catch (error) {
       closed = true;
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "pg_query_worker_timeout" || error.code === "pg_query_worker_protocol_error")
+      )
+        terminated = true;
       port1.close();
       throw error;
     }
@@ -274,7 +297,10 @@ export function createPgTaskQueryReader(
       lifecycleError = response.error ? restoreError(response.error) : undefined;
       closed = true;
       port1.close();
-      if (Atomics.load(state, 1) !== 1 && (!owner || Atomics.load(owner.state, 1) !== 1)) void worker.terminate();
+      if (Atomics.load(state, 1) !== 1 && (!owner || Atomics.load(owner.state, 1) !== 1)) {
+        terminated = true;
+        void Promise.resolve(worker.terminate()).catch(consumeKnownError);
+      }
     }
     if (response.error) throw restoreError(response.error);
     return response.result as Result;
@@ -348,14 +374,21 @@ export function createPgTaskQueryReader(
         if (!closed) request("end");
       }
     },
+    isClosed: () => closed,
     close: () => {
-      if (closed) return;
-      if (activeSession) throw new Error("cannot close PostgreSQL task query reader during a session");
+      if (!closed && activeSession) throw new Error("cannot close PostgreSQL task query reader during a session");
       try {
-        request("close");
+        if (!closed) {
+          request("close");
+          cleanlyClosed = true;
+        }
       } finally {
         closed = true;
         port1.close();
+        if (!cleanlyClosed && !exited && !terminated && Atomics.load(state, 1) !== 1 && Atomics.load(ready, 1) !== 1) {
+          terminated = true;
+          void Promise.resolve(worker.terminate()).catch(consumeKnownError);
+        }
       }
     },
   };

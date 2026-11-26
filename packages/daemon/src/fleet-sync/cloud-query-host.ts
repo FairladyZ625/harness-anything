@@ -2,42 +2,20 @@ import path from "node:path";
 import { readPersonalAgendaAwaitsFromAsyncProjection } from "@harness-anything/application/internal/queries/agenda-awaits-read.ts";
 import { readCollaboratorTaskPageFromAsyncProjection } from "@harness-anything/application/internal/queries/collaborator-reads.ts";
 import { readClaimableTasks } from "@harness-anything/application/internal/queries/task-claimable-read.ts";
-import {
-  readCompletionDeliveryStatus,
-  readTaskCompletion,
-} from "@harness-anything/application/internal/queries/task-completion-read.ts";
-import {
-  taskListPayload,
-  withWorkspacePackagePaths,
-} from "@harness-anything/application/internal/queries/task-list-read.ts";
-import { makeTaskQueryReadModel } from "@harness-anything/application/internal/queries/task-query-read.ts";
 import { queryCodedError } from "@harness-anything/application/internal/queries/task-query-ports.ts";
 import {
   mergeRepositoryLocalSettings,
-  readEffectiveCloseoutGates,
   readRepositorySettings,
 } from "@harness-anything/application/internal/queries/task-settings-read.ts";
-import { taskShowFromProjection } from "@harness-anything/application/internal/queries/task-show-read.ts";
-import {
-  projectedTaskSettings,
-  resolveTaskRootThreshold,
-} from "@harness-anything/application/internal/queries/task-wip-settings.ts";
 import { workTopologyFromAsyncProjection } from "@harness-anything/application/internal/queries/work-topology-read.ts";
 import { workspaceSummaryFromProjectionRead } from "@harness-anything/application/internal/queries/workspace-summary-read.ts";
-import {
-  blockingOf,
-  closeoutReadiness,
-  localSettings,
-  SETTINGS_ID,
-  type AssignmentRelationLike,
-  type TaskProjectionListQuery,
-} from "@harness-anything/kernel";
+import { localSettings, SETTINGS_ID, type AssignmentRelationLike } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import { withPgProjectionReadSession } from "@harness-anything/storage/pg/read-only";
-import { createPgTaskQueryReader, type PgTaskQueryReader } from "../../../storage/src/pg/pg-task-query-reader.ts";
-import type { PgTaskQueryMethods } from "../../../storage/src/pg/pg-task-query-contract.ts";
+import type { PgTaskQueryReader } from "../../../storage/src/pg/pg-task-query-reader.ts";
 import { createCloudDomainRoutes } from "./cloud-domain-routes.ts";
+import { createCloudQueryWorkerPool } from "./cloud-query-worker-pool.ts";
 
 type ReadSession = Parameters<typeof withPgProjectionReadSession>[1];
 type Projection = Parameters<Parameters<typeof withPgProjectionReadSession>[2]>[0];
@@ -47,7 +25,6 @@ type QueryContext = {
   readonly claim: CloudTaskClaimGrant | null;
 };
 type Route = (projection: Projection, context: QueryContext) => Promise<unknown>;
-type SyncRoute = (queries: PgTaskQueryMethods, context: QueryContext) => unknown;
 
 export interface CloudTaskClaimGrant {
   readonly claimant: {
@@ -61,7 +38,13 @@ export interface CloudTaskClaimGrant {
 
 /** A node with no checkout. Layout discovery starts here and must not assume a task worktree exists. */
 const STATELESS_ROOT = path.join(path.parse(process.cwd()).root, "harness-stateless-query");
-const TASK_ID = /^[A-Za-z0-9._:-]{1,128}$/u;
+const DEFAULT_MAX_READERS = 64;
+const DEFAULT_MAX_WORKERS = 4;
+const POISONED_READER_CODES = new Set([
+  "pg_query_worker_timeout",
+  "pg_query_worker_exited",
+  "pg_query_worker_protocol_error",
+]);
 
 export type CloudQueryAuthorizationResult =
   | { readonly outcome: "allowed"; readonly personId: string }
@@ -129,54 +112,6 @@ const routes = new Map<string, Route>([
   ],
 ]);
 
-const syncRoutes = new Map<string, SyncRoute>([
-  [
-    "task-list",
-    (queries, { search }) => {
-      const { payload } = taskListPayload(
-        {
-          readTaskIndex: queries.readTaskIndex,
-          readTaskChildCounts: queries.readTaskChildCounts,
-          rootThreshold: resolveTaskRootThreshold(projectedTaskSettings(queries), {}).threshold,
-        },
-        listQuery(search),
-        listAction(search),
-        queryCodedError,
-      );
-      return withWorkspacePackagePaths(STATELESS_ROOT, payload);
-    },
-  ],
-  [
-    "tasks",
-    (queries, { search }) =>
-      makeTaskQueryReadModel({
-        rootDir: STATELESS_ROOT,
-        projection: queries,
-        readPinnedEntities: (query) => queries.listPinnedEntities(query),
-        ports: {},
-        judgments: cloudTaskJudgments(queries),
-      }).guiTasks(listQuery(search)),
-  ],
-  [
-    "task-show",
-    (queries, { search }) =>
-      taskShowFromProjection(
-        STATELESS_ROOT,
-        queries,
-        requiredTaskId(search),
-        undefined,
-        undefined,
-        "include_done",
-        {},
-        {},
-      ),
-  ],
-  [
-    "task-completion",
-    (queries, { search }) => readTaskCompletion(queries, requiredTaskId(search), STATELESS_ROOT, undefined, {}),
-  ],
-]);
-
 export interface CloudQueryHostOptions {
   readonly pool: Parameters<typeof withPgProjectionReadSession>[0];
   readonly authorizer: CloudQueryAuthorizer;
@@ -196,9 +131,16 @@ export interface CloudQueryHostOptions {
   }) => Promise<CloudTaskClaimGrant>;
   /** A replica sheds overload before OIDC and PG receive work. */
   readonly maxInFlight: number;
+  readonly maxReaders?: number;
+  readonly maxWorkers?: number;
+  readonly idleTimeoutMs?: number;
   readonly timeoutMs?: number;
   readonly onError?: (error: unknown) => void;
 }
+
+export type CloudQueryHost = ((request: Request) => Promise<Response>) & {
+  readonly close: () => Promise<void>;
+};
 
 const INT32_CEILING = 0x7fff_ffff;
 const READ_ONLY_HEADERS: ReadonlyArray<readonly [string, string]> = [["allow", "GET"]];
@@ -206,31 +148,63 @@ const OVERLOAD_HEADERS: ReadonlyArray<readonly [string, string]> = [["retry-afte
 const BEARER_CHALLENGE_HEADERS: ReadonlyArray<readonly [string, string]> = [["www-authenticate", "Bearer"]];
 
 /** Independent Fetch handler for GET /v1/repositories/{repoId}/{route}. The caller owns the pool and listener. */
-export function createCloudQueryHost(options: CloudQueryHostOptions): (request: Request) => Promise<Response> {
+export function createCloudQueryHost(options: CloudQueryHostOptions): CloudQueryHost {
   const timeoutMs = options.timeoutMs ?? storageReadPolicy.defaultValue.deadlines.query;
+  const maxReaders = options.maxReaders ?? DEFAULT_MAX_READERS;
+  const maxWorkers = options.maxWorkers ?? Math.min(options.maxInFlight, DEFAULT_MAX_WORKERS);
+  const idleTimeoutMs = options.idleTimeoutMs ?? storageReadPolicy.defaultValue.deadlines.query * 2;
   const minimumLimit = storageReadPolicy.defaultValue.minimumRows;
   if (
     !isWithinBounds(timeoutMs, minimumLimit, INT32_CEILING) ||
-    !isWithinBounds(options.maxInFlight, minimumLimit, Number.MAX_SAFE_INTEGER)
+    !isWithinBounds(options.maxInFlight, minimumLimit, Number.MAX_SAFE_INTEGER) ||
+    !isWithinBounds(maxReaders, minimumLimit, Number.MAX_SAFE_INTEGER) ||
+    !isWithinBounds(maxWorkers, minimumLimit, Number.MAX_SAFE_INTEGER) ||
+    !isWithinBounds(idleTimeoutMs, minimumLimit, INT32_CEILING)
   )
     throw new RangeError("Cloud query admission requires positive, bounded limits.");
   const repositories = new Map(options.repositories);
   const readers = new Map<string, PgTaskQueryReader>();
   const readerRoutes = createCloudDomainRoutes((status, code) => new QueryFault(status, code));
+  const workerPool = createCloudQueryWorkerPool({
+    maxWorkers,
+    maxReadersPerWorker: maxReaders,
+    idleTimeoutMs,
+    makeFault: (status, code) => new QueryFault(status, code),
+    onError: options.onError,
+  });
   let inFlight = 0;
-  return async (request) => {
+  let closed = false;
+  let closing: Promise<void> | undefined;
+
+  const close = (): Promise<void> =>
+    (closing ??= (async () => {
+      closed = true;
+      const cachedReaders = [...readers.values()];
+      readers.clear();
+      for (const reader of cachedReaders) {
+        const result = closeReaderQuietly(reader);
+        if (!result.closed) options.onError?.(result.error);
+      }
+      await workerPool.close();
+    })());
+
+  const attach = (fn: (request: Request) => Promise<Response>): CloudQueryHost => {
+    Reflect.set(fn, "close", close);
+    return fn as CloudQueryHost;
+  };
+
+  return attach(async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     const match = /^\/v1\/repositories\/([A-Za-z0-9._-]{1,256})\/([a-z-]+)$/u.exec(url.pathname);
     const routeName = match?.[2];
     const route = routeName === undefined ? undefined : routes.get(routeName);
-    const syncRoute = routeName === undefined ? undefined : syncRoutes.get(routeName);
     const readerRoute = routeName === undefined ? undefined : readerRoutes.get(routeName);
-    if (!match || (route === undefined && syncRoute === undefined && readerRoute === undefined))
-      return fault(404, "route_not_found");
+    if (!match || (route === undefined && readerRoute === undefined)) return fault(404, "route_not_found");
     if (request.method !== "GET") return fault(405, "method_not_allowed", READ_ONLY_HEADERS);
     const repoId = match[1]!;
     const token = /^Bearer ([^\s,]+)$/iu.exec(request.headers.get("authorization") ?? "")?.[1];
     if (!token) return fault(401, "authentication_required", BEARER_CHALLENGE_HEADERS);
+    if (closed) return fault(503, "query_store_unavailable");
     if (inFlight >= options.maxInFlight) return fault(429, "query_overloaded", OVERLOAD_HEADERS);
 
     inFlight++;
@@ -239,6 +213,7 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
     const work = (async () => {
       try {
         signal.throwIfAborted();
+        if (closed) throw new QueryFault(503, "query_store_unavailable");
         const personId = await authorizeRepository(options.authorizer, token, repoId, signal);
         const scope = repositories.get(repoId);
         if (!scope) throw new QueryFault(404, "repository_not_found");
@@ -249,22 +224,55 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
             ? await options.authorizeTaskClaim({ token, repoId, personId, signal })
             : null;
         const context = { search: url.searchParams, personId, claim };
-        const value = readerRoute
-          ? readerRoute(taskReader(readers, options.pool, repoId, scope, options.openQueryReader), {
+        let value: unknown;
+        if (readerRoute) {
+          if (options.openQueryReader) {
+            const reader = acquireCachedReader(
+              readers,
+              maxReaders,
               repoId,
-              statelessRoot: STATELESS_ROOT,
-              search: url.searchParams,
-              personId,
-            })
-          : syncRoute
-            ? taskReader(readers, options.pool, repoId, scope, options.openQueryReader).withSession(
-                (queries: PgTaskQueryMethods) => syncRoute(queries, context),
-              )
-            : await withPgProjectionReadSession(
-                options.pool,
-                { scope, repoId, signal, deadlineAt },
-                (projection: Projection) => route!(projection, context),
-              );
+              scope,
+              options.openQueryReader,
+              options.onError,
+            );
+            try {
+              value = readerRoute(reader, {
+                repoId,
+                statelessRoot: STATELESS_ROOT,
+                search: url.searchParams,
+                personId,
+              });
+              if (isReaderClosed(reader)) evictCachedReader(readers, repoId, reader, options.onError);
+            } catch (error) {
+              if (isReaderClosed(reader) || isPoisonedReaderError(error))
+                evictCachedReader(readers, repoId, reader, options.onError);
+              throw error;
+            }
+          } else {
+            const connectionString = options.pool.options?.connectionString;
+            if (typeof connectionString !== "string" || connectionString.length === 0)
+              throw new QueryFault(503, "query_store_unavailable");
+            value = await workerPool.query(
+              {
+                routeName: routeName!,
+                repoId,
+                scope,
+                connectionString,
+                search: url.searchParams.toString(),
+                personId,
+                statelessRoot: STATELESS_ROOT,
+                timeoutMs,
+              },
+              signal,
+            );
+          }
+        } else {
+          value = await withPgProjectionReadSession(
+            options.pool,
+            { scope, repoId, signal, deadlineAt },
+            (projection: Projection) => route!(projection, context),
+          );
+        }
         signal.throwIfAborted();
         return Response.json(value, { headers: { "cache-control": "no-store" } });
       } catch (error) {
@@ -294,10 +302,17 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
           code === "projection_pending" ||
           code === "claim_authorization_unavailable" ||
           code === "query_store_unavailable" ||
-          code === "replica_unavailable"
+          code === "replica_unavailable" ||
+          code === "pg_query_worker_exited" ||
+          code === "pg_query_worker_protocol_error"
         )
-          return fault(503, code);
-        if (code === "57014") return fault(504, "query_timeout");
+          return fault(
+            503,
+            code === "pg_query_worker_exited" || code === "pg_query_worker_protocol_error"
+              ? "query_store_unavailable"
+              : code,
+          );
+        if (code === "57014" || code === "pg_query_worker_timeout") return fault(504, "query_timeout");
         if (code === "identity_unavailable" || code === "daemon_error") return fault(503, "identity_unavailable");
         options.onError?.(error);
         return fault(500, "query_failed");
@@ -318,7 +333,7 @@ export function createCloudQueryHost(options: CloudQueryHostOptions): (request: 
     } finally {
       signal.removeEventListener("abort", cancel);
     }
-  };
+  });
 }
 
 async function authorizeRepository(
@@ -367,90 +382,73 @@ function aborted(request: Request): Response {
   return request.signal.aborted ? fault(499, "request_cancelled") : fault(504, "query_timeout");
 }
 
-function taskReader(
+function isReaderClosed(reader: PgTaskQueryReader): boolean {
+  return typeof reader.isClosed === "function" && reader.isClosed();
+}
+
+function isPoisonedReaderError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (("code" in error && typeof error.code === "string" && POISONED_READER_CODES.has(error.code)) ||
+      error.message.includes("PostgreSQL task query reader is closed"))
+  );
+}
+
+function closeReaderQuietly(reader: PgTaskQueryReader): { readonly closed: boolean; readonly error?: unknown } {
+  if (typeof reader.close !== "function") return { closed: true };
+  try {
+    reader.close();
+    return { closed: true };
+  } catch (error) {
+    return { closed: false, error };
+  }
+}
+
+function dropCachedReader(readers: Map<string, PgTaskQueryReader>, repoId: string): void {
+  readers.delete(repoId);
+}
+
+function evictCachedReader(
   readers: Map<string, PgTaskQueryReader>,
-  pool: { readonly options?: { readonly connectionString?: unknown } },
+  repoId: string,
+  expected?: PgTaskQueryReader,
+  onError?: (error: unknown) => void,
+): void {
+  const cached = readers.get(repoId);
+  if (!cached) return;
+  if (expected !== undefined && cached !== expected) return;
+  dropCachedReader(readers, repoId);
+  const result = closeReaderQuietly(cached);
+  if (!result.closed) onError?.(result.error);
+}
+
+function acquireCachedReader(
+  readers: Map<string, PgTaskQueryReader>,
+  maxReaders: number,
   repoId: string,
   scope: ReadSession["scope"],
-  openQueryReader?: CloudQueryHostOptions["openQueryReader"],
+  openQueryReader: NonNullable<CloudQueryHostOptions["openQueryReader"]>,
+  onError?: (error: unknown) => void,
 ): PgTaskQueryReader {
   const cached = readers.get(repoId);
-  if (cached) return cached;
-  if (openQueryReader) {
-    const reader = openQueryReader({ repoId, scope });
-    readers.set(repoId, reader);
-    return reader;
+  if (cached) {
+    if (!isReaderClosed(cached)) {
+      dropCachedReader(readers, repoId);
+      readers.set(repoId, cached);
+      return cached;
+    }
+    dropCachedReader(readers, repoId);
+    const result = closeReaderQuietly(cached);
+    if (!result.closed) onError?.(result.error);
   }
-  const connectionString = pool.options?.connectionString;
-  if (typeof connectionString !== "string" || connectionString.length === 0)
-    throw new QueryFault(503, "query_store_unavailable");
-  const reader = createPgTaskQueryReader({ connectionString, scope, repoId });
+  while (readers.size >= maxReaders) {
+    const oldestRepoId = readers.keys().next().value;
+    if (oldestRepoId === undefined) break;
+    evictCachedReader(readers, oldestRepoId, undefined, onError);
+  }
+  const reader = openQueryReader({ repoId, scope });
   readers.set(repoId, reader);
   return reader;
-}
-
-function cloudTaskJudgments(queries: PgTaskQueryMethods) {
-  return {
-    closeout: (
-      snapshot: Parameters<typeof closeoutReadiness>[0],
-      availability: Parameters<typeof closeoutReadiness>[1],
-      _gates: Parameters<typeof closeoutReadiness>[2],
-      _delivery: Parameters<typeof closeoutReadiness>[3],
-      rootDir?: string,
-    ) =>
-      closeoutReadiness(
-        snapshot,
-        availability,
-        readEffectiveCloseoutGates(queries, snapshot),
-        readCompletionDeliveryStatus(queries, snapshot, rootDir),
-      ),
-    blocking: blockingOf,
-  };
-}
-
-function listQuery(search: URLSearchParams): TaskProjectionListQuery {
-  const status = optionalText(search, "status");
-  const updatedAfter = optionalText(search, "updatedAfter");
-  const updatedBefore = optionalText(search, "updatedBefore");
-  const parent = search.get("parentTaskId");
-  return {
-    ...page(search),
-    ...(status === undefined ? {} : { status }),
-    ...(updatedAfter === undefined ? {} : { updatedAfter }),
-    ...(updatedBefore === undefined ? {} : { updatedBefore }),
-    ...(parent !== null && TASK_ID.test(parent) ? { parentTaskId: parent } : {}),
-  } as TaskProjectionListQuery;
-}
-
-function listAction(search: URLSearchParams) {
-  const parent = search.get("parentTaskId");
-  const depth = search.get("depth");
-  return {
-    ...(depth === null ? {} : { depth }),
-    ...(parent !== null && TASK_ID.test(parent) ? { parentTaskId: parent } : {}),
-    ...namedText(search, "workKind"),
-    ...namedText(search, "riskTier"),
-    ...namedText(search, "urgency"),
-    ...namedText(search, "search"),
-  };
-}
-
-function optionalText(search: URLSearchParams, key: string): string | undefined {
-  const value = search.get(key);
-  if (value === null) return undefined;
-  if (value.length === 0 || value.length > 256) throw new QueryFault(400, "invalid_command");
-  return value;
-}
-
-function namedText(search: URLSearchParams, key: string): Record<string, string> {
-  const value = optionalText(search, key);
-  return value === undefined ? {} : { [key]: value };
-}
-
-function requiredTaskId(search: URLSearchParams): string {
-  const taskId = search.get("taskId");
-  if (taskId === null || !TASK_ID.test(taskId)) throw new QueryFault(400, "invalid_task_id");
-  return taskId;
 }
 
 function assignmentRelations(page: {

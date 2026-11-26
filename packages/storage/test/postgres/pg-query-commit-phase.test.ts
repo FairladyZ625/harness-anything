@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter, once } from "node:events";
-import { MessageChannel } from "node:worker_threads";
+import { MessageChannel, Worker } from "node:worker_threads";
 import type { Pool } from "pg";
 import { createPgTaskQueryReader, waitForPgQueryWorker } from "../../src/pg/pg-task-query-reader.ts";
 import { startPgQuerySession } from "../../src/pg/pg-task-query-worker.ts";
@@ -453,3 +453,103 @@ test("savepoint read commit work runs only after its physical snapshot commits",
   assert.equal(events.filter((event) => event === "COMMIT").length, 1);
   assert.equal(events.at(-1), "confirmed-watermark-write");
 });
+
+test(
+  "reader close terminates the worker on close error or timeout and exposes isClosed",
+  { timeout: 5000 },
+  async () => {
+    // 1. Non-fatal close RPC error must still terminate the worker and mark reader closed.
+    {
+      let terminateCalls = 0;
+      const reader = createPgTaskQueryReader(
+        { repoId: "close-err", scope: { tenantId: "t", projectId: "p", policyEpoch: 1 } },
+        (input) => {
+          input.responsePort.postMessage({ id: 0 });
+          Atomics.store(input.ready, 0, 1);
+          return Object.assign(new EventEmitter(), {
+            unref() {},
+            terminate() {
+              terminateCalls++;
+            },
+            postMessage(request: { id: number; op: string }) {
+              if (request.op === "close") {
+                input.responsePort.postMessage({
+                  id: request.id,
+                  error: { name: "Error", message: "pool end failed" },
+                });
+                Atomics.store(input.state, 0, 1);
+              }
+            },
+          });
+        },
+      );
+      assert.equal(reader.isClosed(), false);
+      assert.throws(() => reader.close(), /pool end failed/);
+      assert.equal(reader.isClosed(), true);
+      assert.equal(terminateCalls, 1);
+    }
+
+    // 2. Timed-out close RPC must terminate the worker and mark reader closed.
+    {
+      let terminateCalls = 0;
+      const reader = createPgTaskQueryReader(
+        { repoId: "close-timeout", scope: { tenantId: "t", projectId: "p", policyEpoch: 1 }, queryTimeoutMs: 40 },
+        (input) => {
+          input.responsePort.postMessage({ id: 0 });
+          Atomics.store(input.ready, 0, 1);
+          return Object.assign(new EventEmitter(), {
+            unref() {},
+            terminate() {
+              terminateCalls++;
+            },
+            postMessage() {
+              // Deliberately never respond to force close timeout.
+            },
+          });
+        },
+      );
+      assert.throws(() => reader.close(), { code: "pg_query_worker_timeout" });
+      assert.equal(reader.isClosed(), true);
+      assert.equal(terminateCalls, 1);
+    }
+
+    // 3. Real Worker thread with a live timer must actually exit after close() fails (zero orphan leak).
+    {
+      let realWorker!: Worker;
+      const reader = createPgTaskQueryReader(
+        { repoId: "close-real-worker", scope: { tenantId: "t", projectId: "p", policyEpoch: 1 } },
+        (input) => {
+          const script = `
+          const { parentPort, workerData } = require("node:worker_threads");
+          const keepAlive = setInterval(() => {}, 60000);
+          workerData.responsePort.postMessage({ id: 0 });
+          Atomics.store(workerData.ready, 0, 1);
+          Atomics.notify(workerData.ready, 0);
+          parentPort.on("message", (request) => {
+            if (request.op === "close") {
+              workerData.responsePort.postMessage({
+                id: request.id,
+                error: { name: "Error", message: "close failed with live handle" },
+              });
+              Atomics.store(workerData.state, 0, 1);
+              Atomics.notify(workerData.state, 0);
+            }
+          });
+          void keepAlive;
+        `;
+          realWorker = new Worker(script, {
+            eval: true,
+            workerData: { ready: input.ready, state: input.state, responsePort: input.responsePort },
+            transferList: [input.responsePort],
+          });
+          return realWorker;
+        },
+      );
+      const exited = once(realWorker, "exit");
+      assert.equal(reader.isClosed(), false);
+      assert.throws(() => reader.close(), /close failed with live handle/);
+      assert.equal(reader.isClosed(), true);
+      await exited;
+    }
+  },
+);

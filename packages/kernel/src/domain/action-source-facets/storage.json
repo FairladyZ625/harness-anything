@@ -290,6 +290,13 @@
         "order": 1004
       },
       {
+        "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#createPgTaskQueryReader.close:f4f67a0092ae65b768463d9ff4bc7057",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/storage/src/pg/pg-task-query-reader.ts#PgQueryEndpoint.terminate",
+        "order": 1299
+      },
+      {
         "candidateId": "action:packages/storage:packages/storage/src/pg/pg-task-query-reader.ts#createPgTaskQueryReader.request:aa823ba10d2665676a006c5f9e1f8ddf",
         "route": "daemon-local-state",
         "role": "support",
