@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { daemonBuildStamp } from "../src/daemon-host/build-identity.ts";
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
@@ -58,7 +58,7 @@ export async function fleetEdgeHostFixture(
 ) {
   // The edge lives outside the center fixture's root: its daemon writes until it is closed.
   const name = options.name ?? "edge",
-    root = mkdtempSync(path.join(tmpdir(), "ha-edge-host-")),
+    root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-edge-host-"))),
     edgeRoot = path.join(root, name),
     edgeUser = path.join(root, `${name}-user`),
     viewRoot = options.viewRoot ?? path.join(root, `${name}-view`);

@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import { statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   assertOwnedSocketDirectory,
@@ -140,7 +140,7 @@ function resolveRelayedDaemonTarget(
   if (!injectedRoot) throw fail("HARNESS_CANONICAL_ROOT is not set");
   const canonicalRoot = bindRelayedRoot(injectedRoot, fail),
     selectedRoot = bindCanonicalRoot(input.rootDir);
-  if (selectedRoot !== canonicalRoot && !selectedRoot.startsWith(`${canonicalRoot}${path.sep}`))
+  if (!isSameOrChildPath(canonicalRoot, selectedRoot))
     throw fail(
       `selected root ${JSON.stringify(selectedRoot)} is outside the dispatched canonical root ` +
         JSON.stringify(canonicalRoot),
@@ -178,6 +178,23 @@ function bindRelayedRoot(value: string, fail: (reason: string) => Error): Canoni
   }
 }
 
+function canonicalComparePath(target: string): string {
+  const resolved = path.resolve(target),
+    canonical = existsSync(resolved) ? realpathSync.native(resolved) : resolved;
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+}
+
+function isSameOrChildPath(parent: string, candidate: string): boolean {
+  const normalizedParent = canonicalComparePath(parent),
+    normalizedCandidate = canonicalComparePath(candidate);
+  return (
+    normalizedCandidate === normalizedParent ||
+    normalizedCandidate.startsWith(
+      normalizedParent.endsWith(path.sep) ? normalizedParent : `${normalizedParent}${path.sep}`,
+    )
+  );
+}
+
 export function resolveLocalDaemonTargetFromRepos(
   input: LocalDaemonTargetInput,
   repos: ReadonlyArray<DaemonRegistryRepo>,
@@ -191,10 +208,11 @@ export function resolveLocalDaemonTargetFromRepos(
   const requested = input.repoIdOverride ?? env.HARNESS_DAEMON_REPO_ID;
   const rootDir = bindCanonicalRoot(input.rootDir);
   const rootedRepos = registeredRepos
-    .filter(
-      (candidate) => candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`),
-    )
-    .sort((left, right) => right.canonicalRoot.length - left.canonicalRoot.length);
+    .filter((candidate) => isSameOrChildPath(candidate.canonicalRoot, rootDir))
+    .sort(
+      (left, right) =>
+        canonicalComparePath(right.canonicalRoot).length - canonicalComparePath(left.canonicalRoot).length,
+    );
   const repo = input.repoIdOverride
     ? registeredRepos.find((candidate) => candidate.repoId === requested && candidate.state === "enabled")
     : env.HARNESS_DAEMON_REPO_ID
@@ -202,7 +220,7 @@ export function resolveLocalDaemonTargetFromRepos(
           (candidate) =>
             candidate.repoId === requested &&
             candidate.state === "enabled" &&
-            (candidate.canonicalRoot === rootDir || rootDir.startsWith(`${candidate.canonicalRoot}${path.sep}`)),
+            isSameOrChildPath(candidate.canonicalRoot, rootDir),
         ) ?? rootedRepos[0])
       : rootedRepos[0];
   if (!repo || repo.state !== "enabled")

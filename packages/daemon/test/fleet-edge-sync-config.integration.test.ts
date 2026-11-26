@@ -183,7 +183,8 @@ test(
     assert.equal(persistedFirst.loginUrl, publishedAuthority.url);
     assert.equal(persistedFirst.loginRealm, publishedAuthority.realm);
     assert.equal(typeof firstWriterEpoch, "number");
-    assert.equal(statSync(configFile).mode & 0o777, 0o600, "the file carries the machine credential");
+    if (process.platform !== "win32")
+      assert.equal(statSync(configFile).mode & 0o777, 0o600, "the file carries the machine credential");
 
     writeFleetEdgeConfig(e.edgeUser, "lease-repo", {
       ...connection,

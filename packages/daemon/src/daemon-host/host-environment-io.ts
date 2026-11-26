@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
 import {
   hostEnvironmentFiles,
   hostScratchPrefixes,
@@ -10,6 +11,33 @@ import {
 
 export function hostEnvironmentFilePath(kind: keyof typeof hostEnvironmentFiles, directory: string): string {
   return path.join(directory, hostEnvironmentFiles[kind].name);
+}
+
+const WINDOWS_TRANSIENT_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+/**
+ * Windows NTFS `MoveFileExW` returns transient `EPERM`/`EACCES`/`EBUSY` when concurrent
+ * readers or writers hold a handle on the destination path. Retry briefly with bounded
+ * backoff only on `win32` and never mask a destination-directory collision.
+ */
+async function retryWindowsTransientRename(target: string, performRename: () => Promise<void>): Promise<void> {
+  if (process.platform !== "win32") {
+    await performRename();
+    return;
+  }
+  const deadline = Date.now() + storageReadPolicy.defaultValue.deadlines.openBusy,
+    retryDelayMs = storageReadPolicy.defaultValue.backoff.openBusy;
+  for (;;) {
+    const renameError = await performRename().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    if (renameError === null) return;
+    if (statSync(target, { throwIfNoEntry: false })?.isDirectory()) throw renameError;
+    const code = (renameError as NodeJS.ErrnoException).code;
+    if (!code || !WINDOWS_TRANSIENT_RENAME_CODES.has(code) || Date.now() >= deadline) throw renameError;
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+  }
 }
 
 /** Publish a host checkpoint with one rename in its owning directory. */
@@ -24,7 +52,7 @@ export async function writeHostEnvironmentFile(
   let published = false;
   try {
     await writeFile(handle, contents, "utf8").finally(() => handle.close());
-    await rename(temporary, target);
+    await retryWindowsTransientRename(target, () => rename(temporary, target));
     published = true;
   } finally {
     if (!published) await rm(temporary, { force: true });
@@ -66,7 +94,8 @@ export async function openCallerOutputLineWriter(filePath: string): Promise<{
     cleaned = true;
     await rm(temporary, { force: true });
   };
-  const publishEntries = (targetPath: string) => rename(temporary, targetPath);
+  const publishEntries = (targetPath: string) =>
+    retryWindowsTransientRename(targetPath, () => rename(temporary, targetPath));
   return {
     writeLine: async (line: string) => {
       await handle.write(line, undefined, "utf8");
@@ -127,7 +156,7 @@ export async function writeCallerOutputFile(filePath: string, contents: string |
   let published = false;
   try {
     await writeFile(handle, contents, typeof contents === "string" ? "utf8" : undefined).finally(() => handle.close());
-    await rename(temporary, filePath);
+    await retryWindowsTransientRename(filePath, () => rename(temporary, filePath));
     published = true;
   } finally {
     if (!published) await rm(temporary, { force: true });

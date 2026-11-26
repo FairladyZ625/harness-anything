@@ -41,6 +41,8 @@ test("windowsPostgresLaunch wraps only elevated win32 launches in the restricted
   assert.equal(launchArgs.includes("-EncodedCommand"), true);
   const decoded = Buffer.from(launchArgs.at(-1)!, "base64").toString("utf16le");
   assert.match(decoded, /CreateRestrictedToken/u);
+  assert.match(decoded, /AddUserToTokenDacl/u);
+  assert.match(decoded, /SetTokenInformation/u);
   assert.match(decoded, /CreateProcessAsUser/u);
   assert.match(decoded, /JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE|0x2000u/u);
 });
@@ -69,6 +71,9 @@ test("buildWindowsRestrictedLaunchArgs propagates stdout, stderr, quoted argumen
 test("minimalWindowsPowerShellEnv drops oversized runner variables so Add-Type stays under 65535 bytes", () => {
   const filtered = minimalWindowsPowerShellEnv({
     SystemRoot: "C:\\Windows",
+    SystemDrive: "C:",
+    OS: "Windows_NT",
+    ProgramData: "C:\\ProgramData",
     ComSpec: "C:\\Windows\\System32\\cmd.exe",
     Path: "C:\\Windows\\System32",
     TEMP: "C:\\Temp",
@@ -76,6 +81,9 @@ test("minimalWindowsPowerShellEnv drops oversized runner variables so Add-Type s
     PGUSER: "postgres",
   });
   assert.equal(filtered.SystemRoot, "C:\\Windows");
+  assert.equal(filtered.SystemDrive, "C:");
+  assert.equal(filtered.OS, "Windows_NT");
+  assert.equal(filtered.ProgramData, "C:\\ProgramData");
   assert.equal(filtered.ComSpec, "C:\\Windows\\System32\\cmd.exe");
   assert.equal(filtered.Path, "C:\\Windows\\System32");
   assert.equal(filtered.TEMP, "C:\\Temp");

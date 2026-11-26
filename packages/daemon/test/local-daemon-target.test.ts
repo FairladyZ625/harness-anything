@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -50,6 +50,30 @@ test("local daemon target resolves a v1 workspace after the shared registry read
     assert.equal(target.canonicalRoot, realpathSync.native(workspaceRoot));
     assert.equal(persisted.schema, "harness-daemon-registry/v2");
     assert.equal(persisted.repos[0]?.connectionId, "local");
+  } finally {
+    removeTempRepository(fixtureRoot);
+  }
+});
+
+test("local daemon target matches a registry entry stored via a non-canonical alias path", async () => {
+  const fixtureRoot = mkdtempSync(path.join(tmpdir(), "ha-local-daemon-alias-")),
+    realParent = path.join(fixtureRoot, "real-parent"),
+    aliasParent = path.join(fixtureRoot, "alias-parent"),
+    workspaceRoot = path.join(realParent, "workspace"),
+    aliasWorkspaceRoot = path.join(aliasParent, "workspace"),
+    userRoot = path.join(fixtureRoot, "user");
+  try {
+    mkdirSync(workspaceRoot, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    symlinkSync(realParent, aliasParent, process.platform === "win32" ? "junction" : "dir");
+    writeFileSync(
+      path.join(userRoot, "registry.json"),
+      `${JSON.stringify(registry([repo("aliased", aliasWorkspaceRoot)]), null, 2)}\n`,
+    );
+
+    const target = await resolveLocalDaemonTarget({ rootDir: workspaceRoot, userRoot, env: {} });
+    assert.equal(target.repoId, "aliased");
+    assert.equal(target.canonicalRoot, realpathSync.native(workspaceRoot));
   } finally {
     removeTempRepository(fixtureRoot);
   }

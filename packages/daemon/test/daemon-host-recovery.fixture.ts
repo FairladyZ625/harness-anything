@@ -14,6 +14,7 @@ export function rosterRepo(rootDir: string, repoId: string): void {
   git(rootDir, "config", "user.name", "Host Recovery Test");
   git(rootDir, "config", "user.email", "host-recovery@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
+  git(rootDir, "config", "core.autocrlf", "false");
   git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "fixture base");
   mkdirSync(path.join(rootDir, "harness"));
   writeFileSync(

@@ -340,12 +340,39 @@ export const P4_RELATION_READ_CASES = {
 
 export const P4_READ_BACKENDS = (process.env.FLEET_STRESS_G38_P4_BACKENDS ?? "pglite,postgres").split(",");
 
+function summarizeP4TraceMeasurements(measurements) {
+  return Object.fromEntries(
+    Object.entries(measurements).map(([probeId, entry]) => [
+      probeId,
+      {
+        size: entry.size,
+        firstResultSize: entry.firstResultSize,
+        resultSize: entry.resultSize,
+        firstCall: entry.firstCall,
+        counts: entry.counts,
+        firstStatementCount: entry.firstStatements.length,
+        warmStatementCount: entry.warmStatements.length,
+      },
+    ]),
+  );
+}
+
 export async function verifyPgRelationReadCost(t, backend, dimension) {
   const probeIds = P4_RELATION_READ_CASES[dimension],
-    pair = {};
+    pair = {},
+    verboseTrace = process.env.HARNESS_G38_P4_TRACE_FULL === "1";
   for (const [scale, size] of Object.entries(READ_SCALES)) {
     pair[scale] = await tracePgProbe(dimension, size, probeIds, backend);
-    t.diagnostic(JSON.stringify({ p4Trace: { backend, dimension, scale, measurements: pair[scale] } }));
+    t.diagnostic(
+      JSON.stringify({
+        p4Trace: {
+          backend,
+          dimension,
+          scale,
+          measurements: verboseTrace ? pair[scale] : summarizeP4TraceMeasurements(pair[scale]),
+        },
+      }),
+    );
   }
   // review-dispatch_812a346aaff225c51da0fb31/F1: the original-scale
   // cost trace must not silently accept a PK scan with residual type/state filters.
