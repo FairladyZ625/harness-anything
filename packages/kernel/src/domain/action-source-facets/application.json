@@ -8,16 +8,6 @@
         "order": 1
       }
     ],
-    "ceo-approve": [
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.approveProposal.saved:17ef4ce8b1bffd2e7f03fa86f2031d16",
-        "route": "ceo-approve"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.reportPromotedTaskOutcome.saved:8a566fd49ee18411965f950ae81b7756",
-        "route": "ceo-approve"
-      }
-    ],
     "ceo-config": [
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#codedError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
@@ -36,19 +26,7 @@
         "route": "ceo-config"
       },
       {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:bae4b47c29e7621386db1d3af29cea30",
-        "route": "ceo-config"
-      },
-      {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.reconcileWake:0278ea962c8506506e07e06388dbcab3",
-        "route": "ceo-config"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.recordProposal.saved:7a2879dc9464766ce7e66eb36b4c2c93",
-        "route": "ceo-config"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.requiredProfile:75e4389a91bf1e37243cc4391c5a1ffd",
         "route": "ceo-config"
       },
       {
@@ -61,10 +39,6 @@
       },
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.update:0485e7675edfe724c3e72033805d3505",
-        "route": "ceo-config"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake.saved:88078d24618db723ce588296d03316a8",
         "route": "ceo-config"
       },
       {
@@ -88,22 +62,12 @@
         "route": "ceo-config"
       },
       {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:bae4b47c29e7621386db1d3af29cea30",
-        "route": "ceo-config"
-      },
-      {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:ceb285bdce5151f391a0182f23f5def7",
         "route": "ceo-config"
       },
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:dad50c53c7568b3be50b6d6244249ad7",
         "route": "ceo-config"
-      }
-    ],
-    "ceo-reject": [
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.rejectProposal.saved:e49af90759b88405f23bc8c41f2679ee",
-        "route": "ceo-reject"
       }
     ],
     "channel-deliver": [
