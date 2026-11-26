@@ -194,10 +194,45 @@ export function createRuntimeSessionActionCatalog(
       targetIdField: "runtimeSessionId",
     }),
   });
+  const report = Object.freeze({
+    ...baseAction("runtime_session_liveness_changed"),
+    id: "report",
+    input: input([
+      field("taskId", "string", true),
+      field("reportKind", "string", true),
+      field("summary", "string", true),
+      field("idempotencyKey", "string", false),
+    ]),
+    policy: Object.freeze({ ref: run.policy.ref, action: "runtime-report" }),
+    criteria: Object.freeze([]),
+    concurrency: Object.freeze({
+      expectedVersion: Object.freeze({ authority: "task-progress-head", required: false }),
+      leasePolicy: Object.freeze({ authority: "task-lease/v1 when reporting as execution actor" }),
+      occurrenceClaim: noOccurrence,
+      idempotency: Object.freeze({ authority: "idempotencyKey" }),
+      artifactOwnership: Object.freeze({ owner: "task/{taskId}/progress.md" }),
+    }),
+    effects: Object.freeze([
+      { ref: "task_progress_appended", projection: "TaskProjection" },
+      { ref: "inbox_item_enqueued", projection: "InboxProjection" },
+    ]),
+    returns: actionResultContract,
+    explain: "Record a structured task progress report and notify the parent inbox.",
+    execution: Object.freeze({
+      ingress: "runtime-report",
+      compile: null,
+      read: false,
+      implementation: "catalog-runtime" as const,
+      topology: "center-forward-write" as const,
+      remoteEdgeAdmission: "via-center-forward" as const,
+      targetIdField: "taskId",
+    }),
+  });
   return Object.freeze({
     ref: "kernel/runtime-session-action/v1",
     actions: Object.freeze([
       run,
+      report,
       ...runtimeSessionActionIds.map((id) => {
         const declared = baseAction(id);
         return Object.freeze({

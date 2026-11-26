@@ -41,7 +41,7 @@ import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
 import { processGroupRecoveryHint, probeProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { terminateRuntimeTree } from "./runtime-spawn-process.ts";
 import { reclaimSessionSkillSnapshot } from "./agent-skill-snapshot.ts";
-import { consumeQueuedSteersAfterTurn } from "./runtime-queued-steer.ts";
+import { consumeQueuedSteersAfterTurn, queuedSteerTargetRefusalReason } from "./runtime-queued-steer.ts";
 import { notifyRuntimeCollectWaiters } from "./runtime-report-collect-action.ts";
 export { runtimeSpawnReceipt } from "../runtime-engine/runtime-spawn-receipt.ts";
 
@@ -747,8 +747,7 @@ export async function publishExit(
       !escalationStop &&
       outcome !== "cancelled" &&
       active.task !== null &&
-      active.role !== "reviewer" &&
-      active.permissionMode !== "read-only" &&
+      queuedSteerTargetRefusalReason({ role: active.role, permissionMode: active.permissionMode }) === null &&
       !context.input.remote
     ) {
       const trigger = {
@@ -758,6 +757,7 @@ export async function publishExit(
         previousKindId: active.kindId,
         previousProviderSessionId: active.providerSessionId,
         previousAgentId: active.agent?.id ?? null,
+        previousRole: active.role,
         previousInstanceId: active.instanceId,
         previousModel: active.model,
         previousPermissionMode: active.permissionMode,

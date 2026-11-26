@@ -54,8 +54,20 @@ import {
   buildQueuedSteerReceipt,
   consumeQueuedSteersAfterTurn,
   enqueueQueuedSteer,
+  queuedSteerTargetRefusalReason,
   type RuntimeSteerMode,
 } from "./runtime-queued-steer.ts";
+
+function isRemoteNodeSource(source: unknown): source is { readonly kind: "node"; readonly nodeId: string } {
+  return (
+    typeof source === "object" &&
+    source !== null &&
+    "kind" in source &&
+    (source as { readonly kind?: unknown }).kind === "node" &&
+    "nodeId" in source &&
+    typeof (source as { readonly nodeId?: unknown }).nodeId === "string"
+  );
+}
 
 export async function cancelRuntime(
   context: RuntimeSpawnerContext,
@@ -624,7 +636,8 @@ export async function steerRuntime(
         : requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey").trim();
   if (modeInput !== "auto" && modeInput !== "queue" && modeInput !== "interrupt")
     throw runtimeSpawnError("invalid_runtime_steer", "Runtime steer mode must be auto, queue, or interrupt.");
-  const steerMode: RuntimeSteerMode = modeInput;
+  const steerMode: RuntimeSteerMode = modeInput,
+    explicitMode: RuntimeSteerMode | undefined = payload.mode === undefined ? undefined : steerMode;
   if (payload.idempotencyKey !== undefined && !idempotencyKey)
     throw runtimeSpawnError("invalid_runtime_steer", "Runtime steer idempotencyKey must not be empty.");
   const targetCount =
@@ -702,12 +715,21 @@ export async function steerRuntime(
         ? findRuntimeSteerHeader(rootDir, selector)
         : null;
   if (!localHeader) {
+    const taskLatestIsRemote = taskLatestDispatch !== null && isRemoteNodeSource(taskLatestDispatch.source);
     if (
       (steerMode === "queue" || steerMode === "auto") &&
       typeof taskIdInput === "string" &&
       taskLatestDispatch !== null &&
+      !taskLatestIsRemote &&
       !context.input.remote
     ) {
+      const targetRole = taskLatestDispatch.payload.role ?? null,
+        targetPermissionMode = taskLatestDispatch.payload.launchedPermissionMode ?? null,
+        nonConsumableReason = queuedSteerTargetRefusalReason({
+          role: targetRole,
+          permissionMode: targetPermissionMode,
+        });
+      if (nonConsumableReason !== null) throw runtimeSpawnError("runtime_steer_unsupported", nonConsumableReason);
       const queued = enqueueQueuedSteer(
         context,
         {
@@ -716,27 +738,28 @@ export async function steerRuntime(
           dispatchId: taskLatestDispatch.payload.dispatchId,
           runtimeSessionId: taskLatestDispatch.payload.runtimeSessionId,
           agentId: taskLatestDispatch.payload.agentId ?? null,
+          role: targetRole,
+          permissionMode: targetPermissionMode,
           idempotencyKey,
         },
         binding,
       );
-      if (taskLatestDispatch.payload.role !== "reviewer") {
-        const trigger = {
-          taskId: taskIdInput,
-          previousDispatchId: taskLatestDispatch.payload.dispatchId,
-          previousRuntimeSessionId: taskLatestDispatch.payload.runtimeSessionId,
-          previousKindId: taskLatestDispatch.payload.kindId,
-          previousProviderSessionId: taskLatestDispatch.payload.resumeProviderSessionId ?? null,
-          previousAgentId: taskLatestDispatch.payload.agentId ?? null,
-          previousInstanceId: taskLatestDispatch.payload.instanceId,
-          previousModel: taskLatestDispatch.payload.definitionSnapshot.model ?? null,
-          previousPermissionMode: taskLatestDispatch.payload.launchedPermissionMode ?? null,
-          previousMcpPolicy: taskLatestDispatch.payload.definitionSnapshot.mcpPolicy ?? null,
-          previousFinalText: null,
-          binding,
-        };
-        context.input.schedule(() => consumeQueuedSteersAfterTurn(context, trigger).then(() => undefined), binding);
-      }
+      const trigger = {
+        taskId: taskIdInput,
+        previousDispatchId: taskLatestDispatch.payload.dispatchId,
+        previousRuntimeSessionId: taskLatestDispatch.payload.runtimeSessionId,
+        previousKindId: taskLatestDispatch.payload.kindId,
+        previousProviderSessionId: taskLatestDispatch.payload.resumeProviderSessionId ?? null,
+        previousAgentId: taskLatestDispatch.payload.agentId ?? null,
+        previousRole: targetRole,
+        previousInstanceId: taskLatestDispatch.payload.instanceId,
+        previousModel: taskLatestDispatch.payload.definitionSnapshot.model ?? null,
+        previousPermissionMode: targetPermissionMode,
+        previousMcpPolicy: taskLatestDispatch.payload.definitionSnapshot.mcpPolicy ?? null,
+        previousFinalText: null,
+        binding,
+      };
+      context.input.schedule(() => consumeQueuedSteersAfterTurn(context, trigger).then(() => undefined), binding);
       return buildQueuedSteerReceipt({
         queued,
         taskId: taskIdInput,
@@ -745,7 +768,11 @@ export async function steerRuntime(
       });
     }
     if (context.input.runtimeNode === undefined && context.input.remote === undefined)
-      return requestRemoteEdgeSteer(context, { selector, prompt, expected, idempotencyKey }, binding);
+      return requestRemoteEdgeSteer(
+        context,
+        { selector, prompt, expected, idempotencyKey, mode: explicitMode },
+        binding,
+      );
     throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
   }
   let header = localHeader;
@@ -806,16 +833,25 @@ export async function steerRuntime(
     activeKindId = active?.kindId ?? header.kindId ?? null,
     providerSupportsLiveSteer = activeKindId ? runtimeKindForId(activeKindId).steerSupported : false,
     processAlive = Boolean(active && view?.policy.processAlive === true),
+    targetRole = active?.role ?? header.role ?? null,
+    targetPermissionMode = active?.permissionMode ?? header.permissionMode ?? null,
     useQueueMode =
       !context.input.remote &&
       (steerMode === "queue" ||
         (steerMode === "auto" && boundTaskId !== null && (!providerSupportsLiveSteer || !processAlive)));
+  if (context.input.remote !== undefined && steerMode === "queue")
+    throw refuse("runtime_steer_unsupported", "Queue steer is not supported on a remote edge runtime.");
   if (useQueueMode) {
     if (boundTaskId === null)
       throw refuse(
         "runtime_steer_unavailable",
         "Queue steer requires a task-bound runtime with a canonical task inbox.",
       );
+    const nonConsumableReason = queuedSteerTargetRefusalReason({
+      role: targetRole,
+      permissionMode: targetPermissionMode,
+    });
+    if (nonConsumableReason !== null) throw refuse("runtime_steer_unsupported", nonConsumableReason);
     const queueTarget = runtimeSteerTarget(
       rootDir,
       repoId,
@@ -841,11 +877,13 @@ export async function steerRuntime(
         dispatchId: header.dispatchId,
         runtimeSessionId,
         agentId: active?.agent?.id ?? header.agentId ?? null,
+        role: targetRole,
+        permissionMode: targetPermissionMode,
         idempotencyKey,
       },
       binding,
     );
-    if (!processAlive && header.role !== "reviewer") {
+    if (!processAlive) {
       const trigger = {
         taskId: boundTaskId,
         previousDispatchId: header.dispatchId,
@@ -853,9 +891,10 @@ export async function steerRuntime(
         previousKindId: activeKindId,
         previousProviderSessionId: active?.providerSessionId ?? header.resumeProviderSessionId ?? null,
         previousAgentId: active?.agent?.id ?? header.agentId ?? null,
+        previousRole: targetRole,
         previousInstanceId: active?.instanceId ?? header.instanceId,
         previousModel: active?.model ?? header.model ?? null,
-        previousPermissionMode: active?.permissionMode ?? header.permissionMode ?? null,
+        previousPermissionMode: targetPermissionMode,
         previousMcpPolicy: active?.mcpPolicy ?? header.mcpPolicy ?? null,
         previousFinalText: active?.finalText ?? null,
         binding,
@@ -993,6 +1032,7 @@ async function requestRemoteEdgeSteer(
     readonly prompt: string;
     readonly expected: RuntimeSteerExpectation | null;
     readonly idempotencyKey: string | null;
+    readonly mode?: RuntimeSteerMode;
   },
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
@@ -1005,7 +1045,7 @@ async function requestRemoteEdgeSteer(
           projection.readLatestRuntimeDispatchBySession?.(input.selector.runtimeSessionId) ??
           null);
   if (!dispatchEvent) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
-  if (typeof dispatchEvent.source !== "object" || dispatchEvent.source === null || dispatchEvent.source.kind !== "node")
+  if (!isRemoteNodeSource(dispatchEvent.source))
     throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
   if (
     binding.actor.executor !== null ||
@@ -1051,6 +1091,17 @@ async function requestRemoteEdgeSteer(
     ),
     session = projection.readRuntimeSession(runtimeSessionId),
     kindId = view?.attempt.kindId ?? dispatchEvent.payload.kindId;
+  if (input.mode === "queue") {
+    const nonConsumableReason = queuedSteerTargetRefusalReason({
+      role: dispatchEvent.payload.role ?? null,
+      permissionMode: dispatchEvent.payload.launchedPermissionMode ?? null,
+    });
+    throw runtimeSpawnError(
+      "runtime_steer_unsupported",
+      nonConsumableReason ??
+        `Queue steer is not supported for remote edge runtime ${runtimeSessionId} on node ${targetNodeId}.`,
+    );
+  }
   if (!runtimeKindForId(kindId as never).steerSupported)
     throw runtimeSpawnError("runtime_steer_unsupported", `${kindId} does not support runtime steering.`);
   if (!view?.policy.canSteer || !session || session.outcome !== null)
@@ -1109,6 +1160,7 @@ async function requestRemoteEdgeSteer(
         targetNodeId,
         dispatchId: view.attempt.dispatchId,
         prompt: input.prompt,
+        ...(input.mode !== undefined ? { mode: input.mode } : {}),
         ...(input.expected ? { expected: input.expected } : {}),
       },
     },

@@ -297,6 +297,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     ],
     actions: [
       "run",
+      "report",
       "runtime_session_started",
       "runtime_session_provider_bound",
       "runtime_session_task_bound",

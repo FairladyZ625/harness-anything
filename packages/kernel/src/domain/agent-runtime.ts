@@ -209,6 +209,9 @@ export interface RuntimeSteerRequestedExpected {
   readonly version?: number;
 }
 
+const runtimeSteerModes = ["auto", "queue", "interrupt"] as const;
+export type RuntimeSteerMode = (typeof runtimeSteerModes)[number];
+
 /**
  * Expand-contract Step-1 (dec_659E15CF, expiry 2027-02-06): carried on `runtime_session_liveness_changed`
  * during the N/N-1 compatibility window so previous-version Edge nodes can hydrate PG seeds and replay WAL.
@@ -226,6 +229,7 @@ export type RuntimeControlRequest =
       readonly targetNodeId: string;
       readonly dispatchId: string;
       readonly prompt: string;
+      readonly mode?: RuntimeSteerMode;
       readonly expected?: RuntimeSteerRequestedExpected;
     };
 
@@ -572,6 +576,7 @@ interface RuntimePayloads extends InboxEventPayloads {
     readonly controlRequestId: string;
     readonly targetNodeId: string;
     readonly prompt: string;
+    readonly mode?: RuntimeSteerMode;
     readonly expected?: RuntimeSteerRequestedExpected;
   };
 }
@@ -694,7 +699,7 @@ function validateAgentRuntimePayloadFields(
             : type === "runtime_cancel_requested"
               ? ["reason"]
               : type === "runtime_steer_requested"
-                ? ["expected"]
+                ? ["expected", "mode"]
                 : type === "runtime_dispatch_requested"
                   ? [
                       "startedAt",
@@ -739,6 +744,7 @@ function validateAgentRuntimePayloadFields(
   if (
     type === "runtime_steer_requested" &&
     (!isNonEmptyString(value.prompt) ||
+      (value.mode !== undefined && !validRuntimeSteerMode(value.mode)) ||
       (value.expected !== undefined && !validRuntimeSteerRequestedExpected(value.expected, allowUnknownFields)))
   )
     return ["runtime steer request payload is invalid"];
@@ -1395,6 +1401,9 @@ export function resolveScheduledPermissionMode(input: {
 export function validRuntimePermissionModeSource(value: unknown): value is RuntimePermissionModeSource {
   return typeof value === "string" && (runtimePermissionModeSources as readonly string[]).includes(value);
 }
+function validRuntimeSteerMode(value: unknown): value is RuntimeSteerMode {
+  return typeof value === "string" && (runtimeSteerModes as readonly string[]).includes(value);
+}
 function validRuntimeControlRequest(value: unknown, allowUnknownFields: boolean): boolean {
   if (!isRecord(value)) return false;
   if (value.action === "cancel") {
@@ -1410,7 +1419,7 @@ function validRuntimeControlRequest(value: unknown, allowUnknownFields: boolean)
   }
   if (value.action === "steer") {
     const required = ["action", "controlRequestId", "targetNodeId", "dispatchId", "prompt"],
-      allowed = [...required, "expected"];
+      allowed = [...required, "mode", "expected"];
     if (!hasRequiredFields(value, required)) return false;
     if (!allowUnknownFields && Object.keys(value).some((key) => !allowed.includes(key))) return false;
     return (
@@ -1418,6 +1427,7 @@ function validRuntimeControlRequest(value: unknown, allowUnknownFields: boolean)
       isNonEmptyString(value.targetNodeId) &&
       isNonEmptyString(value.dispatchId) &&
       isNonEmptyString(value.prompt) &&
+      (value.mode === undefined || validRuntimeSteerMode(value.mode)) &&
       (value.expected === undefined || validRuntimeSteerRequestedExpected(value.expected, allowUnknownFields))
     );
   }

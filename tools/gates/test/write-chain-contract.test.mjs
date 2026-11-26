@@ -242,9 +242,17 @@ test("G02 freezes deterministic event bytes and a committed head shape", () => {
   );
 });
 
-test("G02/G07 expose one four-state receipt contract", async () => {
+test("G02/G07 expose the registered receipt outcome vocabulary", async () => {
   const contract = await import("../../../packages/kernel/src/domain/write-chain.contract.ts");
-  assert.deepEqual(contract.writeReceiptOutcomes, ["applied", "pending", "no_changes", "indeterminate", "op_rejected"]);
+  // dec_A7A88E2079CA1DE548234A6CC3: non-destructive queued steer adds "queued" outcome.
+  assert.deepEqual(contract.writeReceiptOutcomes, [
+    "applied",
+    "queued",
+    "pending",
+    "no_changes",
+    "indeterminate",
+    "op_rejected",
+  ]);
 });
 
 test("G03 rejects a second writer and a token from an old generation", () => {

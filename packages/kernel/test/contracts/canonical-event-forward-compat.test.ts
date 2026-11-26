@@ -407,6 +407,26 @@ test("runtime_session_liveness_changed controlRequest and controlReceipt readers
     },
   };
   assert.deepEqual(validateCurrentCanonicalEvent(steerControl), []);
+  for (const mode of ["auto", "queue", "interrupt"] as const) {
+    const withMode = {
+      ...steerControl,
+      payload: {
+        ...steerControl.payload,
+        controlRequest: { ...steerControl.payload.controlRequest, mode },
+      },
+    };
+    assert.deepEqual(validateCurrentCanonicalEvent(withMode), [], `controlRequest.mode=${mode}`);
+    assert.deepEqual(parseCanonicalEvent(stableStringify(withMode) + "\n"), withMode);
+  }
+  const badModeControl = {
+    ...steerControl,
+    payload: {
+      ...steerControl.payload,
+      controlRequest: { ...steerControl.payload.controlRequest, mode: "bogus" },
+    },
+  };
+  assert.ok(validateCurrentCanonicalEvent(badModeControl).length > 0);
+  assert.throws(() => parseCanonicalEvent(serializeEventEnvelope(badModeControl)), /runtime control request payload/u);
   const futureSteerControl = {
     ...steerControl,
     payload: {

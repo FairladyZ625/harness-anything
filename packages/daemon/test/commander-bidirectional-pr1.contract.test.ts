@@ -16,6 +16,13 @@ import {
   requireExecutionActionScope,
   requireExecutionRequestScope,
 } from "../src/daemon-host/runtime-execution-scope.ts";
+import { openDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
+import { steerRuntime } from "../src/daemon-host/runtime-spawn-control.ts";
+import { consumeQueuedSteersAfterTurn, enqueueQueuedSteer } from "../src/daemon-host/runtime-queued-steer.ts";
+import { createActiveRuntime } from "../src/daemon-host/runtime-spawn-active.ts";
+import type { RuntimeSpawnerContext } from "../src/daemon-host/runtime-spawn-context.ts";
+import { canonicalEventWritePlan, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { compileInboxEnqueuedEvent } from "@harness-anything/kernel/internal/domain/agent-runtime-event.ts";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
   acceptedWorkDecision,
@@ -152,7 +159,7 @@ async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   owner: ReturnType<typeof withPolicyGroup>,
   id: string,
-  role: "commander" | "worker",
+  role: "commander" | "worker" | "reviewer",
   instanceId: string,
 ): Promise<void> {
   setFixtureAgentBinding(cell.status().rootDir, id, instanceId);
@@ -748,6 +755,378 @@ test(
       assert.equal(snap2.reports[0]!.kind, "converged");
       assert.equal(snap2.reports[0]!.summary, "子包 A/B 均已收口");
       assert.ok(snap2.nextSince > snap1.nextSince);
+    } finally {
+      for (const turn of fake.turns) turn.finish(0);
+      await cell?.close();
+      removeTempRepository(root);
+    }
+  },
+);
+
+test(
+  "E2E-4 (F-4D8B1F60): reviewer queue steer is rejected before enqueue and residual reviewer-bound items never leak into rework worker",
+  { timeout: 30_000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-pr1-f4d8b1f60-"));
+    const repoId = workspaceId("pr1-f4d8b1f60");
+    const owner = withPolicyGroup(
+      { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+    const fake = createFakeAgyController();
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+    try {
+      initGitRepo(root);
+      cell = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(root),
+        ownerId: "pr1-f4d8b1f60-owner",
+        runtimeDaemonRoute: {
+          userRoot: path.join(root, ".daemon-user-root"),
+          daemonId: "pr1-f4d8b1f60",
+          endpoint: path.join(root, ".daemon.sock"),
+        },
+        runtimeInstances: () => [makeAgyInstance("agy-main")],
+        prepareRuntimeLaunch: (instanceId, request) => ({
+          definition: makeAgyDefinition(instanceId),
+          installation: agyInstallation,
+          protocolFamily: "agy",
+          executablePath: agyInstallation.executablePath,
+          args: ["--output-format", "stream-json", "--model", "gemini-4-neon"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
+        runtimeLaunch: fake.launcher as never,
+      });
+      await installAgent(cell, owner, "sol-worker", "worker", "agy-main");
+
+      const decisionRef = await acceptedWorkDecision(cell, owner, "pr1-f4d8b1f60");
+      const workId = await createTask(cell, owner, owner, { title: "Work F-4D8B1F60", taskClass: "work", decisionRef });
+      const taskId = await createTask(cell, owner, owner, { title: "Reviewer Isolation Task", parentTaskId: workId });
+
+      // 1. Direct contract proof on active & stopped reviewer dispatch: --mode auto and --mode queue MUST be rejected before enqueue.
+      const reviewerDispatchId = "dispatch_c10000000000000000000001",
+        reviewerSessionId = "runtime_c10000000000000000000001";
+      openDispatchStream(root, {
+        dispatchId: reviewerDispatchId,
+        runtimeSessionId: reviewerSessionId,
+        taskId,
+        executionId: "exe_review_1",
+        instanceId: "agy-main",
+        kindId: "agy",
+        model: "gemini-4-neon",
+        agentId: "closeout-reviewer",
+        role: "reviewer",
+        cwd: root,
+        startedAt: "2026-11-27T00:00:00.000Z",
+        binding: { actor: owner.actor, source: "local" },
+      });
+
+      const activeReviewer = createActiveRuntime({
+        process: {
+          pid: 980_001,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        },
+        dispatchId: reviewerDispatchId,
+        runtimeSessionId: reviewerSessionId,
+        dispatchOpId: "op-disp-reviewer-1",
+        instanceId: "agy-main",
+        kindId: "agy",
+        resolvedProviderDirectory: null,
+        permissionMode: "read-only",
+        agent: { id: "closeout-reviewer", name: "Closeout Reviewer" },
+        role: "reviewer",
+        delegatedBy: null,
+        squadId: null,
+        publicationOwner: "runtime",
+        parentRuntimeSessionId: null,
+        binding: { actor: owner.actor, source: "local" },
+        task: { taskId, executionId: "exe_review_1", leaseVersion: 1 },
+        decisionReviewTarget: null,
+        schedule: null,
+        cwd: root,
+        prompt: "Review submission.",
+        onExitCommand: null,
+        model: "gemini-4-neon",
+        reasoningEffort: null,
+        fast: false,
+        tokenLimit: null,
+        stallTimeoutMs: 60_000,
+        lastProgressAtMs: Date.now(),
+        startedAt: "2026-11-27T00:00:00.000Z",
+        stream: {} as never,
+        resumeProviderSessionId: null,
+        providerSessionId: null,
+      });
+
+      let reviewerAlive = true;
+      const storeAppends: unknown[] = [];
+      const reviewerCtx = {
+        input: {
+          repoId,
+          rootDir: root,
+          now: () => "2026-11-27T00:05:00.000Z",
+          schedule: () => undefined,
+          store: () => ({
+            readHead: () => ({ revision: 10 }),
+            append: (entry: unknown) => {
+              storeAppends.push(entry);
+              return { revision: 11 };
+            },
+          }),
+          projection: () => ({
+            readDispatchLifecycle: () => ({
+              status: "ready" as const,
+              watermark: 10,
+              sourceRevision: 10,
+              rows: [
+                {
+                  attempt: {
+                    dispatchId: reviewerDispatchId,
+                    runtimeSessionId: reviewerSessionId,
+                    kindId: "agy",
+                    phase: reviewerAlive ? "running" : "settled",
+                    process: reviewerAlive ? "alive" : "exited",
+                    stopProof: reviewerAlive ? "none" : "proven_stopped",
+                    outcome: reviewerAlive ? null : "succeeded",
+                    fence: { verified: true, owner: "local" },
+                  },
+                  policy: {
+                    processAlive: reviewerAlive,
+                    canSteer: false,
+                    attemptSettled: !reviewerAlive,
+                    groupSettled: !reviewerAlive,
+                  },
+                  controlLeafDispatchId: reviewerDispatchId,
+                },
+              ],
+            }),
+          }),
+        },
+        processes: new Map([[reviewerSessionId, activeReviewer]]),
+        requiredRuntimeStore: () => ({
+          readHead: () => ({ revision: 10 }),
+          append: (entry: unknown) => {
+            storeAppends.push(entry);
+            return { revision: 11 };
+          },
+        }),
+        requiredRuntimeProjection: () => ({
+          readDispatchLifecycle: () => ({
+            status: "ready" as const,
+            watermark: 10,
+            sourceRevision: 10,
+            rows: [
+              {
+                attempt: {
+                  dispatchId: reviewerDispatchId,
+                  runtimeSessionId: reviewerSessionId,
+                  kindId: "agy",
+                  phase: reviewerAlive ? "running" : "settled",
+                  process: reviewerAlive ? "alive" : "exited",
+                  stopProof: reviewerAlive ? "none" : "proven_stopped",
+                  outcome: reviewerAlive ? null : "succeeded",
+                  fence: { verified: true, owner: "local" },
+                },
+                policy: {
+                  processAlive: reviewerAlive,
+                  canSteer: false,
+                  attemptSettled: !reviewerAlive,
+                  groupSettled: !reviewerAlive,
+                },
+                controlLeafDispatchId: reviewerDispatchId,
+              },
+            ],
+          }),
+          readInbox: () => ({ status: "ready" as const, items: [] }),
+        }),
+        runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      } as unknown as RuntimeSpawnerContext;
+
+      // Active reviewer: --mode auto and --mode queue by dispatchId and taskId are all refused before enqueue.
+      for (const payload of [
+        { dispatchId: reviewerDispatchId, mode: "auto", prompt: "Reviewer steer auto" },
+        { dispatchId: reviewerDispatchId, mode: "queue", prompt: "Reviewer steer queue" },
+        { taskId, mode: "auto", prompt: "Reviewer task steer auto" },
+        { taskId, mode: "queue", prompt: "Reviewer task steer queue" },
+      ]) {
+        await assert.rejects(() => steerRuntime(reviewerCtx, payload, { actor: owner.actor, source: "local" }), {
+          code: "runtime_steer_unsupported",
+        });
+      }
+      // Stopped reviewer: also refused before enqueue.
+      reviewerAlive = false;
+      await assert.rejects(
+        () =>
+          steerRuntime(
+            reviewerCtx,
+            { dispatchId: reviewerDispatchId, mode: "queue", prompt: "Stopped reviewer steer" },
+            { actor: owner.actor, source: "local" },
+          ),
+        { code: "runtime_steer_unsupported" },
+      );
+      assert.equal(storeAppends.length, 0, "refused reviewer queue steer must leave zero pending inbox items");
+
+      // enqueueQueuedSteer itself also enforces refusal for reviewer and read-only targets.
+      assert.throws(
+        () =>
+          enqueueQueuedSteer(
+            reviewerCtx,
+            {
+              taskId,
+              prompt: "Direct enqueue to reviewer",
+              dispatchId: reviewerDispatchId,
+              runtimeSessionId: reviewerSessionId,
+              agentId: "closeout-reviewer",
+              role: "reviewer",
+              permissionMode: "read-only",
+              idempotencyKey: null,
+            },
+            { actor: owner.actor, source: "local" },
+          ),
+        { code: "runtime_steer_unsupported" },
+      );
+
+      // 2. Claim-side isolation proof: even if a legacy/residual reviewer-bound runtime_steer item exists in task:<taskId>,
+      //    a subsequent rework worker turn on the same task MUST NOT claim or consume it!
+      await cell.close();
+      cell = undefined;
+      const seedStore = makeTaskEventStore({ rootDir: canonicalRoot(root), repoId });
+      const seedProjection = makeTaskProjection({ rootDir: canonicalRoot(root), eventStore: seedStore });
+      seedProjection.catchUp();
+      const rev = (seedStore.readHead()?.revision ?? 0) + 1;
+      const residualEvent = compileInboxEnqueuedEvent({
+        eventId: "event-residual-reviewer-steer",
+        workspaceRevision: rev,
+        opId: "op-residual-reviewer-steer",
+        actor: owner.actor,
+        source: "local",
+        occurredAt: "2026-11-27T00:06:00.000Z",
+        payload: {
+          inboxId: `task:${taskId}`,
+          itemId: "steer_residual_reviewer_1",
+          source: "runtime_steer",
+          sourceRef: `dispatch/${reviewerDispatchId}`,
+          sourceEpoch: rev,
+          dedupeKey: "runtime-steer:residual-reviewer-1",
+          admission: "dispatchable",
+          consumerKind: "unattended_dispatch",
+          taskId,
+          agentId: "closeout-reviewer",
+          lane: "steer",
+          correlationId: reviewerDispatchId,
+          summary: "Stale instruction aimed at reviewer only",
+          enqueuedAt: "2026-11-27T00:06:00.000Z",
+        },
+      });
+      const residualPlan = canonicalEventWritePlan(residualEvent, "inbox", `task:${taskId}`);
+      seedStore.append({ event: residualEvent, plan: residualPlan, blobs: [] });
+      seedProjection.apply(residualEvent, residualPlan);
+
+      // Direct consumer check: consumeQueuedSteersAfterTurn returns null for a rework worker trigger.
+      const directClaimResult = await consumeQueuedSteersAfterTurn(
+        {
+          input: {
+            repoId,
+            rootDir: root,
+            now: () => "2026-11-27T00:07:00.000Z",
+            schedule: () => undefined,
+            store: () => seedStore,
+            projection: () => seedProjection,
+          },
+          processes: new Map(),
+          requiredRuntimeStore: () => seedStore,
+          requiredRuntimeProjection: () => seedProjection,
+          spawnQueuedSteerTurn: async () => {
+            throw new Error("should not spawn");
+          },
+          runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        } as unknown as RuntimeSpawnerContext,
+        {
+          taskId,
+          previousDispatchId: "dispatch_c20000000000000000000002",
+          previousRuntimeSessionId: "runtime_c20000000000000000000002",
+          previousKindId: "agy",
+          previousProviderSessionId: null,
+          previousAgentId: "sol-worker",
+          previousRole: "worker",
+          previousInstanceId: "agy-main",
+          previousModel: "gemini-4-neon",
+          previousPermissionMode: "bypass",
+          previousMcpPolicy: null,
+          previousFinalText: "Rework complete.",
+          binding: { actor: owner.actor, source: "local" },
+        },
+      );
+      assert.equal(directClaimResult, null);
+      await seedStore.drain();
+
+      // Reopen RepoCell, spawn a real rework worker turn on the same task, and let it finish cleanly.
+      cell = await openRepoCell({
+        repoId,
+        rootDir: canonicalRoot(root),
+        ownerId: "pr1-f4d8b1f60-owner",
+        runtimeDaemonRoute: {
+          userRoot: path.join(root, ".daemon-user-root"),
+          daemonId: "pr1-f4d8b1f60",
+          endpoint: path.join(root, ".daemon.sock"),
+        },
+        runtimeInstances: () => [makeAgyInstance("agy-main")],
+        prepareRuntimeLaunch: (instanceId, request) => ({
+          definition: makeAgyDefinition(instanceId),
+          installation: agyInstallation,
+          protocolFamily: "agy",
+          executablePath: agyInstallation.executablePath,
+          args: ["--output-format", "stream-json", "--model", "gemini-4-neon"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        }),
+        runtimeLaunch: fake.launcher as never,
+      });
+
+      const reworkSpawn = await cell.spawnRuntime(
+        {
+          agentId: "sol-worker",
+          taskId,
+          prompt: "Rework implementation after review.",
+          dispatchKey: "f4d8b1f60-rework-worker-1",
+        },
+        owner,
+      );
+      assert.equal(reworkSpawn.outcome, "applied", JSON.stringify(reworkSpawn));
+      assert.equal(fake.turns.length, 1);
+      const reworkTurn = fake.turns[0]!;
+      reworkTurn.emitOutput(
+        JSON.stringify({ event: "result", result: { status: "SUCCESS", response: "Rework complete." } }),
+      );
+      reworkTurn.finish(0);
+
+      // Give scheduled turn-end handlers a chance to run; no follow-up turn may spawn!
+      await new Promise<void>((resolve) => setTimeout(resolve, 150));
+      assert.equal(
+        fake.turns.length,
+        1,
+        "rework worker must NEVER spawn a continuation consuming a reviewer-bound inbox item",
+      );
+
+      // Confirm via runtime-collect that the residual reviewer-bound item was never claimed/completed by the worker.
+      const collectAfterRework = await cell.run({ kind: "runtime-collect", taskId }, owner);
+      const collectData = evidence(collectAfterRework) as {
+        readonly inbox: readonly {
+          readonly itemId: string;
+          readonly status: string;
+          readonly completedByDispatchId: string | null;
+        }[];
+      };
+      const residualRow = collectData.inbox.find((item) => item.itemId === "steer_residual_reviewer_1");
+      assert.ok(residualRow, "residual item should remain visible in collect");
+      assert.equal(residualRow.status, "pending", "residual reviewer item must not be claimed by rework worker");
+      assert.equal(residualRow.completedByDispatchId, null);
     } finally {
       for (const turn of fake.turns) turn.finish(0);
       await cell?.close();

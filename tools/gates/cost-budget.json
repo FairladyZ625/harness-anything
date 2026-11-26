@@ -473,6 +473,10 @@
           "reason": "relation reconfirm compiles one relation event identified by relationId; owner relation traversal is measured by relation-relate."
         },
         {
+          "actions": ["runtime-report"],
+          "reason": "runtime-report targets one task and atomically writes one progress event plus one bounded Inbox notification to the parent or owner inbox; no history collection is traversed."
+        },
+        {
           "actions": ["runtime_session_cancelled"],
           "reason": "runtime-session lifecycle event records one session state change with scalar payload; no collection is traversed."
         },
@@ -852,6 +856,9 @@
         },
         "command:relation-triples": {
           "measurements": ["cli-relation-triples"]
+        },
+        "command:runtime-collect": {
+          "measurements": ["cli-runtime-collect"]
         },
         "command:runtime-sessions-await": {
           "measurements": ["runtime-await"]

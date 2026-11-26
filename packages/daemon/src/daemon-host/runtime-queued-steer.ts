@@ -4,6 +4,7 @@ import {
   sha256Text,
   type CanonicalContentBlob,
   type CanonicalEventStore,
+  type RuntimeSteerMode,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import {
@@ -23,7 +24,17 @@ import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 const TERMINAL_OR_FROZEN_TASK_STATUSES = new Set(["submitted", "in_review", "done", "cancelled", "archived"]);
 const PREVIOUS_SUMMARY_LIMIT = 2000;
 
-export type RuntimeSteerMode = "auto" | "queue" | "interrupt";
+export type { RuntimeSteerMode };
+
+/** Roles/modes excluded from turn-end queued steer continuation cannot accept queued steers. */
+export function queuedSteerTargetRefusalReason(input: {
+  readonly role?: string | null;
+  readonly permissionMode?: string | null;
+}): string | null {
+  if (input.role === "reviewer") return "Reviewer dispatches cannot consume queued steer instructions.";
+  if (input.permissionMode === "read-only") return "Read-only dispatches cannot consume queued steer instructions.";
+  return null;
+}
 
 export interface EnqueueQueuedSteerInput {
   readonly taskId: string;
@@ -31,6 +42,8 @@ export interface EnqueueQueuedSteerInput {
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
   readonly agentId: string | null;
+  readonly role?: string | null;
+  readonly permissionMode?: string | null;
   readonly idempotencyKey: string | null;
   readonly lane?: "steer" | "interrupt";
 }
@@ -58,6 +71,7 @@ export interface QueuedSteerTurnTrigger {
   readonly previousKindId: string | null;
   readonly previousProviderSessionId: string | null;
   readonly previousAgentId: string | null;
+  readonly previousRole?: string | null;
   readonly previousInstanceId: string | null;
   readonly previousModel: string | null;
   readonly previousPermissionMode: string | null;
@@ -95,6 +109,13 @@ export function enqueueQueuedSteer(
   input: EnqueueQueuedSteerInput,
   binding: RuntimeBinding,
 ): EnqueueQueuedSteerResult {
+  if (input.lane !== "interrupt") {
+    const refusalReason = queuedSteerTargetRefusalReason({
+      role: input.role ?? null,
+      permissionMode: input.permissionMode ?? null,
+    });
+    if (refusalReason !== null) throw context.runtimeSpawnError("runtime_steer_unsupported", refusalReason);
+  }
   const store = context.requiredRuntimeStore(context.input),
     projection = context.requiredRuntimeProjection(context.input),
     inboxId = `task:${input.taskId}`,
@@ -254,6 +275,16 @@ function taskAllowsQueuedSteerContinuation(projection: TaskProjection, taskId: s
   return !TERMINAL_OR_FROZEN_TASK_STATUSES.has(task.status);
 }
 
+function matchesQueuedSteerTarget(item: InboxItem, trigger: QueuedSteerTurnTrigger): boolean {
+  if (item.source !== "runtime_steer" || item.lane === "interrupt") return false;
+  if (item.sourceRef.startsWith("dispatch/")) {
+    const targetDispatchId = item.sourceRef.slice("dispatch/".length);
+    if (!trigger.previousDispatchId || trigger.previousDispatchId !== targetDispatchId) return false;
+  }
+  if (item.agentId !== null && trigger.previousAgentId !== item.agentId) return false;
+  return true;
+}
+
 /**
  * Atomically claim pending `runtime_steer` items from `task:<taskId>` and start at most one
  * follow-up turn per task. Supports in-place providerSessionId resume when available and falls
@@ -268,6 +299,13 @@ export async function consumeQueuedSteersAfterTurn(
   readonly degraded: boolean;
 } | null> {
   if (context.closed?.() || context.input.remote || !context.spawnQueuedSteerTurn) return null;
+  if (
+    queuedSteerTargetRefusalReason({
+      role: trigger.previousRole ?? null,
+      permissionMode: trigger.previousPermissionMode,
+    }) !== null
+  )
+    return null;
   const inboxId = `task:${trigger.taskId}`,
     inFlight = context.queuedSteerInFlight;
   if (inFlight?.has(inboxId)) return null;
@@ -282,11 +320,7 @@ export async function consumeQueuedSteersAfterTurn(
     inboxId,
     limit: 50,
   });
-  if (
-    peek.status !== "ready" ||
-    !peek.items.some((item) => item.source === "runtime_steer" && item.lane !== "interrupt")
-  )
-    return null;
+  if (peek.status !== "ready" || !peek.items.some((item) => matchesQueuedSteerTarget(item, trigger))) return null;
 
   inFlight?.add(inboxId);
   const claimId = `steer-turn-${randomUUID().slice(0, 12)}`;
@@ -310,7 +344,7 @@ export async function consumeQueuedSteersAfterTurn(
           limit: 50,
         });
       if (queueRead.status !== "ready") return [];
-      const pending = queueRead.items.filter((item) => item.source === "runtime_steer" && item.lane !== "interrupt");
+      const pending = queueRead.items.filter((item) => matchesQueuedSteerTarget(item, trigger));
       if (pending.length === 0) return [];
       const claimedAt = context.input.now(),
         leaseUntil = new Date(Date.parse(claimedAt) + runtimeExecutionLifetimeMs).toISOString();

@@ -209,6 +209,7 @@ export const canonicalContractDecodePolicy = {
     "policy:packages/kernel:packages/kernel/src/domain/write-source.ts#validateWriteSource:ef8007f98bc02186273289314a41344c",
     "policy:packages/kernel:packages/kernel/src/domain/write-source.ts#validateWriteSource:0ad539e9a25fa9bcb3cde0020e48a2b0",
     "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:70e423e16f7ce956e254f806f5b06548",
+    "policy:packages/kernel:packages/kernel/src/domain/agent-runtime.ts#validateAgentRuntimePayloadFields:4989bf379fe434e5e7a296e67112de24",
     "policy:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUpsertPayload:ac88416695457e924743eedc4a33f2b1",
     "policy:packages/kernel:packages/kernel/src/domain/entity-event.ts#validateUnknownKindUpsertPayload:11e952077930a64209df49306bd34032",
     "policy:packages/kernel:packages/kernel/src/domain/entity-owned-content.ts#validateEntityOwnedContent:8ab1eab006d4a72bc5ad37e29daea9bb",
