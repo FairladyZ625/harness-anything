@@ -451,6 +451,7 @@ export async function openRepoCellProxy(
     },
     readDispatchLifecycle: (queryValue, signal) => query("readDispatchLifecycle", [queryValue], undefined, signal),
     readEventWitness: (revision) => query("readEventWitness", [revision]),
+    readPeerRequest: (requestId, binding, signal) => query("readPeerRequest", [requestId], binding, signal),
     taskIdForDocumentPath: (logicalPath, signal) => query("taskIdForDocumentPath", [logicalPath], undefined, signal),
     readTaskAuthorizationMetadata: (taskIds, signal) =>
       query("readTaskAuthorizationMetadata", [taskIds], undefined, signal),
