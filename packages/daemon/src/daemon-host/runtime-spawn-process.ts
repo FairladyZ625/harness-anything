@@ -38,6 +38,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { requestProcessGroupStop } from "./runtime/process-group-reconciler.ts";
+import { minimalWindowsPowerShellEnv } from "./runtime/windows-process-group-port.ts";
 
 const { providerErrorLimit, resumeAdmissionTimeoutMs, exitNotificationTimeoutMs } =
   daemonRuntimePolicy.defaultValue.process;
@@ -266,7 +267,7 @@ async function readWindowsProcessRows(): Promise<readonly ProcessTableRow[]> {
       "$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId | ConvertTo-Json -Compress",
     ],
     undefined,
-    undefined,
+    minimalWindowsPowerShellEnv(),
     undefined,
     undefined,
     { timeoutMs: daemonRuntimePolicy.defaultValue.process.processTableTimeoutMs },
@@ -522,17 +523,30 @@ export function exitNotificationCommand(
   readonly args: readonly string[];
   readonly windowsVerbatimArguments: boolean;
 } {
+  if (/[\0\r\n]/u.test(command))
+    throw runtimeSpawnError(
+      "runtime_windows_cmd_argument_rejected",
+      `Exit notification command cannot carry NUL, CR or LF characters: ${JSON.stringify(command.slice(0, 60))}`,
+    );
   if (process.platform !== "win32" || !/\.(?:cmd|bat)$/iu.test(command))
     return {
       executablePath: command,
       args: [],
       windowsVerbatimArguments: false,
     };
-  return {
-    executablePath: environment.ComSpec ?? environment.COMSPEC ?? "cmd.exe",
-    args: ["/d", "/s", "/c", `""${command}""`],
-    windowsVerbatimArguments: true,
-  };
+  try {
+    const invocation = cmdShellInvocation(command, [], environment);
+    return {
+      executablePath: invocation.command,
+      args: invocation.args,
+      windowsVerbatimArguments: invocation.windowsVerbatimArguments,
+    };
+  } catch (error) {
+    throw runtimeSpawnError(
+      "runtime_windows_cmd_argument_rejected",
+      `${command} launches through a Windows .cmd shim, which cannot carry unsafe command characters: ${runtimeErrorMessage(error)}`,
+    );
+  }
 }
 
 export function launchNative(

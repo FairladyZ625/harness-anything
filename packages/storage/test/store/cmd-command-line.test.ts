@@ -62,4 +62,6 @@ test("cmd shell invocation falls back to cmd.exe and refuses unsafe script paths
   assert.deepEqual(cmdShellInvocation("C:\\a.cmd", [], {}).args, ["/e:ON", "/v:OFF", "/d", "/c", '""C:\\a.cmd""']);
   assert.throws(() => cmdShellInvocation('we"ird.cmd', [], {}), /may not contain/u);
   assert.throws(() => cmdShellInvocation("C:\\trailing\\", [], {}), /may not contain/u);
+  for (const rejected of ["C:\\bad\nscript.cmd", "C:\\bad\rscript.cmd", "C:\\bad\r\nscript.cmd", "C:\\bad\0script.cmd"])
+    assert.throws(() => cmdShellInvocation(rejected, [], {}), /NUL, CR or LF/u, JSON.stringify(rejected));
 });
