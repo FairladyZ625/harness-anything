@@ -13,9 +13,8 @@ import {
 import { taskProjectionSchemaVersion } from "../projection/projection-schema.ts";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import { sqliteLedgerPath } from "./sqlite-ledger-layout.ts";
+import { sqliteDatabasePath, sqliteLedgerPath } from "./sqlite-ledger-layout.ts";
 import { configureLedgerConnection } from "./sqlite-ledger-connections.ts";
-import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import type { GenerationThreeActivation } from "./generation-three-activation.ts";
 
 type SelectionInput = { readonly rootInput: HarnessLayoutInput; readonly repoId?: string };

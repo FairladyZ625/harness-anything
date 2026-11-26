@@ -36,7 +36,7 @@ import {
   assertSqliteMigrationWritable,
   readSqliteMigrationControl,
 } from "../migration/sqlite-control.ts";
-import { sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
+import { sqliteDatabasePath, sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
 export { sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
 import { readGenerationThreeActivation } from "./generation-three-selection.ts";
 import { publishGenerationThreeActivation } from "./generation-three-activation.ts";
@@ -44,7 +44,6 @@ import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/cano
 import path from "node:path";
 import { readGenerationThreeActivationAtPath, selectGenerationThree } from "./generation-three-selection.ts";
 import { DatabaseSync } from "node:sqlite";
-import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import {
   serializeCanonicalEventUnchecked,

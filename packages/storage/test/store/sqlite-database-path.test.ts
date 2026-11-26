@@ -6,7 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { removeTempRepository } from "../../../../tools/fixtures/remove-temp-repository.ts";
-import { sqliteDatabasePath } from "../../src/sqlite-database-path.ts";
+import { sqliteDatabasePath } from "../../src/store/sqlite-ledger-layout.ts";
 
 test("sqliteDatabasePath leaves non-Windows, URI, memory, and short paths unchanged", () => {
   const longUnix = `/${"a".repeat(280)}/ledger.sqlite`;

@@ -19,7 +19,7 @@ import {
   type SwitchoverReplicaCut,
 } from "@harness-anything/kernel/internal/domain/center-switchover.ts";
 import { readGenerationThreeActivationAtPath } from "./store/generation-three-selection.ts";
-import { sqliteDatabasePath } from "./sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 import { advancePersistentWriterEpochFloor, openPersistentWriterEpoch } from "./writer-epoch.ts";
 import {
   clearCenterMigrating,

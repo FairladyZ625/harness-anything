@@ -10,7 +10,7 @@ import {
   type ScheduleV1,
 } from "@harness-anything/kernel";
 import { isMigrationImportRecord, migrationImportError, nonEmpty } from "./migration-values.ts";
-import { sqliteDatabasePath } from "./sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 export interface MigrationFormatObservation {
   readonly code: "legacy_event_normalized" | "schedule_definition_facet_mismatch" | "source_projection_rebuilt";
   readonly sourcePath: string;

@@ -16,7 +16,7 @@ import {
 import { canonicalEventContentClaims } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { openReplicaProjection } from "./replica-projection.ts";
 import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
-import { sqliteDatabasePath } from "./sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 
 interface SeedCheckpoint {
   readonly processedOutcomes: number;

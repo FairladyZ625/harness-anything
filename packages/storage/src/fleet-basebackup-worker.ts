@@ -17,7 +17,7 @@ import type {
 } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS, openReplicaStore } from "./store/replica-store.ts";
-import { sqliteDatabasePath } from "./sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
 if (storageContext) {

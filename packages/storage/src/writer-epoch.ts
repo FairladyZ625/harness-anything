@@ -18,7 +18,7 @@ import type { StorageBackendConfig } from "./storage-backend.ts";
 import { requireExternalWriterEpochOpener } from "./sql-backend-adapters.ts";
 import { writerEpochStorage } from "./writer-epoch-storage.ts";
 import { throwIfWriterEpochRetired } from "./center-relocation-state.ts";
-import { sqliteDatabasePath } from "./sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 
 type EpochRow = {
   readonly repo_id: string;

@@ -19,7 +19,7 @@ import {
 import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
 import { localGitText } from "./local-version-control-system.ts";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./sqlite-event-store.ts";
-import { sqliteDatabasePath } from "../sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./sqlite-ledger-layout.ts";
 
 export interface LedgerBackupManifestV1 {
   readonly schema: "ledger-backup/v1";

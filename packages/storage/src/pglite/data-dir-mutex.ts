@@ -1,7 +1,7 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { sqliteDatabasePath } from "../sqlite-database-path.ts";
+import { sqliteDatabasePath } from "../store/sqlite-ledger-layout.ts";
 
 /** Internal capability: the physical owner's parent retains the OS lock until database close/exit. */
 export interface PGliteDirectoryMutexProof {

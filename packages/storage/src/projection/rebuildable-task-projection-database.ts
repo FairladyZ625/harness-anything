@@ -2,7 +2,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import path from "node:path";
 import { ensureRuntimeMemberIndex, ensureRuntimeMemberIndexColumns } from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
-import { sqliteDatabasePath } from "../sqlite-database-path.ts";
+import { sqliteDatabasePath } from "../store/sqlite-ledger-layout.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
   localEventFileSystem,

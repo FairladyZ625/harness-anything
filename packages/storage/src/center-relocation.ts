@@ -9,7 +9,7 @@ import {
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { readGenerationThreeActivationAtPath } from "./store/generation-three-selection.ts";
-import { sqliteDatabasePath } from "./sqlite-database-path.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 import type { RbacBackupStatus } from "@harness-anything/kernel/internal/domain/status-vocabulary.ts";
 import { validatePromotableReplica } from "@harness-anything/kernel/internal/domain/replica-promotion.ts";

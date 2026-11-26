@@ -6,14 +6,13 @@ import path from "node:path";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { openSqliteEventStore, resolveActiveGeneration } from "../store/sqlite-event-store.ts";
-import { sqliteLedgerPath } from "../store/sqlite-ledger-layout.ts";
+import { sqliteDatabasePath, sqliteLedgerPath } from "../store/sqlite-ledger-layout.ts";
 import { publishGenerationThreeActivation } from "../store/generation-three-activation.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
 import { readSqliteMigrationControl, ensureSqliteMigrationControl } from "./sqlite-control.ts";
 import { assertMigrationValue, validateStorageManifest } from "./manifest.ts";
 import { auditMigrationProjection, migrationEventStream } from "./projection.ts";
 import { StorageMigrationError, type MigrationEndpoint, type MigrationTuple } from "./types.ts";
-import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 
 export function openSqliteMigrationEndpoint(input: {
