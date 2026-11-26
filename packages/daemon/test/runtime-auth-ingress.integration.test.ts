@@ -76,7 +76,18 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
     daemonId: "runtime-auth-ingress",
     userRoot,
     runtimeDiscover: () => [installation],
-    runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" },
+    runtimeEnv: {
+      HOME: path.join(parent, "operator-home"),
+      PATH: process.env.PATH ?? "",
+      ...(process.platform === "win32"
+        ? {
+            SYSTEMROOT: process.env.SystemRoot ?? process.env.SYSTEMROOT,
+            SYSTEMDRIVE: process.env.SystemDrive ?? process.env.SYSTEMDRIVE,
+            COMSPEC: process.env.ComSpec ?? process.env.COMSPEC,
+            PATHEXT: process.env.PATHEXT,
+          }
+        : {}),
+    },
   });
   const stateRoot = path.join(userRoot, "runtime-instances", "codex-signin"),
     authFile = path.join(stateRoot, "home", ".codex", "auth.json");
@@ -286,7 +297,18 @@ test("denied runtime auth leaves no installation witness or instance state", asy
       daemonId: "runtime-auth-denied",
       userRoot,
       runtimeDiscover: () => [installation],
-      runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" },
+      runtimeEnv: {
+        HOME: path.join(parent, "operator-home"),
+        PATH: process.env.PATH ?? "",
+        ...(process.platform === "win32"
+          ? {
+              SYSTEMROOT: process.env.SystemRoot ?? process.env.SYSTEMROOT,
+              SYSTEMDRIVE: process.env.SystemDrive ?? process.env.SYSTEMDRIVE,
+              COMSPEC: process.env.ComSpec ?? process.env.COMSPEC,
+              PATHEXT: process.env.PATHEXT,
+            }
+          : {}),
+      },
     }),
     installationsFile = path.join(userRoot, "runtime-installations.json"),
     stateRoot = path.join(userRoot, "runtime-instances", "codex-denied");

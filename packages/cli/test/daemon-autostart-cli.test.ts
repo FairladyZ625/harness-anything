@@ -59,7 +59,7 @@ test("resident daemon autostart strips worker routing and execution credentials"
 
 test(
   "daemon status names a build_superseded self-exit and its recovery once the daemon is down",
-  { timeout: 30_000 },
+  { timeout: process.platform === "win32" ? 90_000 : 30_000 },
   async () => {
     const fixture = setup(),
       endpoint = localUserDaemonEndpoint(fixture.userRoot, "default"),

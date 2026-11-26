@@ -120,6 +120,13 @@
     ],
     "daemon-local-state": [
       {
+        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:431987126ddd4c669ca5a483082da8ee",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "packages/daemon/scripts/smoke-package.mjs#run",
+        "order": 1008
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:527d5bfa3caa8049753b6fe1e15aca08",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -132,13 +139,6 @@
         "role": "technical-port",
         "port": "packages/daemon/scripts/smoke-package.mjs#run",
         "order": 1007
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:65c3d1581ce199a33378e830555e04d5",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "packages/daemon/scripts/smoke-package.mjs#run",
-        "order": 1008
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/scripts/smoke-package.mjs#<module>:a10871453e91b1fc08af4718f95ec81d",
@@ -4397,18 +4397,18 @@
         "order": 792
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:a0b0f071891fac0fad06b1d15d6ba9fe",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write",
+        "order": 794
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:cd5e990b3b9eae3a884ce53f2f01078f",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
         "order": 793
-      },
-      {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchNative:ee79f2b2d9e4547be10fb4d8751cfaf3",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/stream.d.ts#stream.Stream.Writable.write",
-        "order": 794
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-spawn-process.ts#launchRuntimeProcess:60bacab7d538fc093e20ddade365d715",
@@ -4754,13 +4754,6 @@
         "order": 1357
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:32f7eb5655e093d3bec2422cec927422",
-        "route": "daemon-local-state",
-        "role": "technical-port",
-        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
-        "order": 833
-      },
-      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:43dd53d0ac2682cbc4bcc74003a31926",
         "route": "daemon-local-state",
         "role": "technical-port",
@@ -4787,6 +4780,13 @@
         "role": "technical-port",
         "port": "packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost.append",
         "order": 1356
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:84641a4fdaa244f82c29748ea67f7d05",
+        "route": "daemon-local-state",
+        "role": "technical-port",
+        "port": "node_modules/@types/node/child_process.d.ts#child_process.spawn",
+        "order": 833
       },
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/runtime-worker-host.ts#runRuntimeWorkerHost:955298051ef6bb6e3585b560ad159877",
@@ -5360,7 +5360,7 @@
         "order": 888
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/terminal-host.ts#openTerminalHost.input:494ec531b255440abc4b4ff8ce536480",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/terminal-host.ts#openTerminalHost.input:69ec7e8ffb6b98ecde138b06b0ccd074",
         "route": "daemon-local-state",
         "role": "technical-port",
         "port": "node_modules/node-pty/typings/node-pty.d.ts#node-pty.IPty.write",

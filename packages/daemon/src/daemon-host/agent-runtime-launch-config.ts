@@ -67,8 +67,12 @@ export function isolatedEnvironment(
       LOCALAPPDATA: path.join(home, "AppData", "Local"),
       ...kind,
     };
-    for (const key of ["PATH", "PATHEXT", "LANG", "LC_ALL", "SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC"])
-      if (source[key]) result[key] = source[key];
+    for (const key of ["PATH", "PATHEXT", "LANG", "LC_ALL", "SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC"]) {
+      const value =
+        source[key] ??
+        Object.entries(source).find(([entryKey, entryValue]) => entryValue && entryKey.toUpperCase() === key)?.[1];
+      if (value) result[key] = value;
+    }
     return result;
   }
   const result: NodeJS.ProcessEnv = {

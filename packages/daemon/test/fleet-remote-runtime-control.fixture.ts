@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
@@ -8,6 +8,7 @@ import type { AgentRuntimeEventV1 } from "@harness-anything/kernel/internal/doma
 import type { RuntimeInstallationWitness } from "../src/daemon-host/agent-runtime-instances.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForDurableCondition } from "../../../tools/fixtures/event-arrival.ts";
 
@@ -29,11 +30,9 @@ export function createObservableCodexProviderScript(
     readonly resumeGateFile?: string;
   },
 ): string {
-  const scriptPath = path.join(dir, `${name}.mjs`);
-  writeFileSync(
-    scriptPath,
+  return writeProviderExecutable(
+    path.join(dir, `${name}.mjs`),
     [
-      "#!/usr/bin/env node",
       'import fs from "node:fs";',
       'if (process.argv.includes("login") || process.argv.includes("doctor") || process.argv.includes("--version")) {',
       '  process.stdout.write("Logged in\\n");',
@@ -81,8 +80,6 @@ export function createObservableCodexProviderScript(
       "setInterval(() => undefined, 1000);",
     ].join("\n") + "\n",
   );
-  chmodSync(scriptPath, 0o755);
-  return scriptPath;
 }
 
 export function readProviderTrace(tracePath: string): Array<{

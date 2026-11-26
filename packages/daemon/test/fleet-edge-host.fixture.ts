@@ -37,6 +37,7 @@ export async function fleetEdgeHostFixture(
     readonly oidcPorts?: Partial<OidcSessionPorts>;
     readonly centerPort?: number;
     readonly openCell?: Parameters<typeof openDaemonHost>[0]["openCell"];
+    readonly attachTimeoutMs?: number;
     readonly waitForAttachments?: boolean;
     readonly runtimeLaunch?: Parameters<typeof openDaemonHost>[0]["runtimeLaunch"];
     readonly runtimeDiscover?: Parameters<typeof openDaemonHost>[0]["runtimeDiscover"];
@@ -171,6 +172,7 @@ export async function fleetEdgeHostFixture(
     daemonId: `${name}-daemon`,
     ...(options.now ? { now: options.now } : {}),
     ...(options.openCell ? { openCell: options.openCell } : {}),
+    ...(options.attachTimeoutMs !== undefined ? { attachTimeoutMs: options.attachTimeoutMs } : {}),
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     ...(options.recordLifecycle ? { recordLifecycle: options.recordLifecycle } : {}),

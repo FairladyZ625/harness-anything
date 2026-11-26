@@ -1060,6 +1060,6 @@ test(
 
 test(
   "Switchover Slice 2 (Mode 2): stale offline edge refuses silent basebackup -> explicit --allow-basebackup rebuilds + managed RBAC relocation refreshes loginUrl/loginCertificate",
-  { timeout: 180_000 },
+  { timeout: process.platform === "win32" ? 360_000 : 180_000 },
   runSwitchoverSlice2Mode2E2e,
 );

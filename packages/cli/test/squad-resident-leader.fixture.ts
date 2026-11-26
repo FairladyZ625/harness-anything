@@ -164,6 +164,9 @@ if (args[0] === "--version") {
 if (args[0] === "login" && args[1] === "status") {
   process.exit(0);
 }
+if (args[0] === "app-server") {
+  process.exit(0);
+}
 const prompt = fs.readFileSync(0, "utf8");
 const frame = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 const initialLeader = prompt.includes("# Squad dispatch protocol");

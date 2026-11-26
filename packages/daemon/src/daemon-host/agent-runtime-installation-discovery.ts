@@ -198,14 +198,27 @@ function modelSearchCapableModels(output: string): string[] {
 }
 
 export function versionProbeEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
+  const lookup =
+    platform === "win32"
+      ? (key: string): string | undefined => {
+          const direct = env[key];
+          if (direct !== undefined) return direct;
+          const lower = key.toLowerCase();
+          for (const [name, value] of Object.entries(env))
+            if (name.toLowerCase() === lower && value !== undefined) return value;
+          return undefined;
+        }
+      : (key: string): string | undefined => env[key];
   const result: NodeJS.ProcessEnv = {
-    PATH: env.PATH ?? "",
+    PATH: lookup("PATH") ?? "",
     LANG: "C",
     LC_ALL: "C",
   };
   if (platform === "win32")
-    for (const key of ["SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"])
-      if (env[key]) result[key] = env[key];
+    for (const key of ["SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"]) {
+      const value = lookup(key);
+      if (value) result[key] = value;
+    }
   return result;
 }
 

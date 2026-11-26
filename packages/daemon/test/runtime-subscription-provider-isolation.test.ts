@@ -7,6 +7,7 @@ import test from "node:test";
 import { openRuntimeInstanceStore } from "../src/daemon-host/agent-runtime-instance-store.ts";
 import { runtimeInstanceConfig } from "../src/daemon-host/agent-runtime-instance-config.ts";
 import { isolatedEnvironment, launchEnvironment } from "../src/daemon-host/agent-runtime-launch-config.ts";
+import { versionProbeEnvironment } from "../src/daemon-host/agent-runtime-installation-discovery.ts";
 import {
   runtimeKindForId,
   supportsRuntimeSubscriptionMultiAccountIsolation,
@@ -220,6 +221,22 @@ test("AGY and AGY ACP enforce file token storage in isolatedEnvironment without 
     agy: {},
   });
   assert.equal(launchEnvironment(agyOperatorConfig, { PATH: "/opt/test/bin" }).SSH_CONNECTION, undefined);
+});
+
+test("isolatedEnvironment preserves mixed-case Windows system variables from cloned env objects", () => {
+  const source: NodeJS.ProcessEnv = {
+      Path: "C:\\Windows\\System32;C:\\Program Files\\nodejs",
+      SystemRoot: "C:\\Windows",
+      SystemDrive: "C:",
+      ComSpec: "C:\\Windows\\System32\\cmd.exe",
+      OPENAI_API_KEY: "must-not-leak",
+    },
+    isolated = isolatedEnvironment(source, "C:\\ha\\state", "codex", "win32");
+  assert.equal(isolated.PATH, source.Path);
+  assert.equal(isolated.SYSTEMROOT, "C:\\Windows");
+  assert.equal(isolated.SYSTEMDRIVE, "C:");
+  assert.equal(isolated.COMSPEC, "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(isolated.OPENAI_API_KEY, undefined);
 });
 
 test("AGY operator-environment probes keep SSH_CONNECTION unset for Keychain login while isolated probes enforce SSH_CONNECTION", async () => {
@@ -489,3 +506,25 @@ for (const kindId of ["codex-acp", "claude-acp"] as const) {
     }
   });
 }
+
+test("versionProbeEnvironment preserves mixed-case Windows system variables on cloned env objects", () => {
+  const probed = versionProbeEnvironment(
+    {
+      Path: "C:\\Windows\\System32;D:\\bin",
+      SystemRoot: "C:\\Windows",
+      SystemDrive: "C:",
+      ComSpec: "C:\\Windows\\System32\\cmd.exe",
+      Pathext: ".COM;.EXE;.BAT;.CMD",
+      Temp: "D:\\tmp",
+      SECRET_TOKEN: "must-not-leak",
+    },
+    "win32",
+  );
+  assert.equal(probed.PATH, "C:\\Windows\\System32;D:\\bin");
+  assert.equal(probed.SYSTEMROOT, "C:\\Windows");
+  assert.equal(probed.SYSTEMDRIVE, "C:");
+  assert.equal(probed.COMSPEC, "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(probed.PATHEXT, ".COM;.EXE;.BAT;.CMD");
+  assert.equal(probed.TEMP, "D:\\tmp");
+  assert.equal(probed.SECRET_TOKEN, undefined);
+});

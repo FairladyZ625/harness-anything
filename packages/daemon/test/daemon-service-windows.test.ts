@@ -53,12 +53,20 @@ test("Windows owns one least-privilege scheduled task per local daemon target", 
   assert.ok(!daemonServiceUnitContent(unit, launch).includes("NODE_EXTRA_CA_CERTS"));
   assert.ok(!script.includes("HARNESS_DAEMON_OWNER_PID"));
   assert.ok(!script.includes("HARNESS_DAEMON_ATTACH_TIMEOUT_MS"));
+  assert.ok(!script.includes("HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE"));
   const ownedEncoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/u.exec(
-    daemonServiceUnitContent(unit, { ...launch, runAtLogin: false, ownerPid: "42424", attachTimeoutMs: 900_000 }),
+    daemonServiceUnitContent(unit, {
+      ...launch,
+      runAtLogin: false,
+      ownerPid: "42424",
+      attachTimeoutMs: 900_000,
+      verticalScriptBlockFile: "C:/tmp/a'b.block",
+    }),
   )![1]!;
   const ownedScript = Buffer.from(ownedEncoded, "base64").toString("utf16le");
   assert.ok(ownedScript.includes("$env:HARNESS_DAEMON_OWNER_PID = '42424'"));
   assert.ok(ownedScript.includes("$env:HARNESS_DAEMON_ATTACH_TIMEOUT_MS = '900000'"));
+  assert.ok(ownedScript.includes("$env:HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE = 'C:/tmp/a''b.block'"));
   for (const invalid of ["0", "-1", "abc", 0]) {
     assert.throws(
       () => daemonServiceUnitContent(unit, { ...launch, runAtLogin: false, attachTimeoutMs: invalid }),

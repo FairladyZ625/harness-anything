@@ -56,7 +56,11 @@ import {
   type AgentRuntimeEventV1,
   type TaskEventV1,
 } from "@harness-anything/kernel";
-import { makeTaskEventStore, activateEmptyCanonicalGeneration } from "@harness-anything/storage";
+import {
+  activateEmptyCanonicalGeneration,
+  closeSqliteEventStoresUnder,
+  makeTaskEventStore,
+} from "@harness-anything/storage";
 import { registerDaemonRepo } from "@harness-anything/storage";
 
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
@@ -287,6 +291,7 @@ async function seedLegacyTask(root: string, userRoot: string, repoId: string, ta
     store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     await store.drain();
   } finally {
+    closeSqliteEventStoresUnder(root);
     authority.close();
   }
 }
@@ -386,6 +391,7 @@ async function seedAttachableRuntime(
       store.append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
     await store.drain();
   } finally {
+    closeSqliteEventStoresUnder(root);
     authority.close();
   }
 }

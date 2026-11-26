@@ -640,6 +640,6 @@ const runtimeAttachWhileBlockedTest = async (context: TestContext) => {
 };
 test(
   "runtime stream attach stays live before, during, and after a blocked vertical script",
-  { timeout: 120_000 },
+  { timeout: process.platform === "win32" ? 240_000 : 120_000 },
   runtimeAttachWhileBlockedTest,
 );

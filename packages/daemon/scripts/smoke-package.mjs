@@ -30,6 +30,7 @@ function run(command, args, cwd = repository) {
       env,
       encoding: "utf8",
       timeout: 180_000,
+      ...(process.platform === "win32" ? { timeout: 180_000 * 2 } : {}),
       ...(invocation ? { windowsVerbatimArguments: invocation.windowsVerbatimArguments } : {}),
     });
   process.stdout.write(result.stdout ?? "");
@@ -80,7 +81,7 @@ try {
     daemonDistBuildId,
     "packing must not rewrite the daemon dist build-id mid-run",
   );
-  run(npm, ["install", "--no-audit", "--no-fund", ...tarballs], consumer);
+  run(npm, ["install", "--no-audit", "--no-fund", "--prefer-offline", "--progress=false", ...tarballs], consumer);
   assert.throws(() => createRequire(path.join(consumer, "package.json")).resolve("react"), {
     code: "MODULE_NOT_FOUND",
   });

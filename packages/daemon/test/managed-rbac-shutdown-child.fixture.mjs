@@ -12,7 +12,20 @@ if (process.argv[2] === "server") {
     config = JSON.parse(readFileSync(path.join(root, "rbac", "config.json"), "utf8")),
     pidFile = path.join(root, "rbac", "data", "postgres", "postmaster.pid");
   if (mode === "exit-before-ready") process.exit(0);
-  if (name === "postgres" && existsSync(pidFile)) process.exit(1);
+  if (name === "postgres" && existsSync(pidFile)) {
+    const existingPid = Number(readFileSync(pidFile, "utf8").trim());
+    let alive = false;
+    if (Number.isSafeInteger(existingPid) && existingPid > 0) {
+      try {
+        process.kill(existingPid, 0);
+        alive = true;
+      } catch {
+        alive = false;
+      }
+    }
+    if (alive) process.exit(1);
+    rmSync(pidFile, { force: true });
+  }
   let server = null,
     healthServer = null;
   const listen = () => {

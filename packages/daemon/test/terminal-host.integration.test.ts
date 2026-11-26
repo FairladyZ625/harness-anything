@@ -234,6 +234,7 @@ test("windows terminals preserve SystemRoot and pass command shims to node-pty a
       readonly args: readonly string[] | string;
       readonly options: Record<string, unknown>;
     }> = [];
+    const writes: string[] = [];
     const host = openTerminalHost({
       repoId: "repo-windows",
       rootDir: root,
@@ -248,7 +249,9 @@ test("windows terminals preserve SystemRoot and pass command shims to node-pty a
             exit = listener;
             return { dispose: () => undefined };
           },
-          write: () => undefined,
+          write: (data: string) => {
+            writes.push(data);
+          },
           resize: () => undefined,
           kill: () => {
             exit?.({ exitCode: 0 });
@@ -263,7 +266,7 @@ test("windows terminals preserve SystemRoot and pass command shims to node-pty a
       shellProfileId: "default",
       name: "Windows shell",
     });
-    host.spawnTrusted({
+    const auth = host.spawnTrusted({
       idempotencyKey: "windows-auth",
       name: "Codex · Sign in",
       executablePath: "C:\\Program Files\\Codex\\codex.cmd",
@@ -273,10 +276,14 @@ test("windows terminals preserve SystemRoot and pass command shims to node-pty a
       publicCwd: "runtime-instance:codex",
       profile: "runtime-auth",
     });
+    host.input({ sessionId: auth.sessionId!, daemonGeneration: 9, clientSeq: 1, utf8: "first-token\n" });
+    host.input({ sessionId: auth.sessionId!, daemonGeneration: 9, clientSeq: 2, utf8: "second-token\r\n" });
+    host.input({ sessionId: auth.sessionId!, daemonGeneration: 9, clientSeq: 3, utf8: "third-token\r" });
     assert.equal(launches[0]?.file, "powershell.exe");
     assert.equal((launches[0]?.options.env as Record<string, unknown>).SystemRoot, "C:\\Windows");
     assert.equal(launches[1]?.file, "C:\\Windows\\System32\\cmd.exe");
     assert.equal(launches[1]?.args, '/d /s /c ""C:\\Program Files\\Codex\\codex.cmd" login"');
+    assert.deepEqual(writes, ["first-token\r", "second-token\r", "third-token\r"]);
     await host.close();
   } finally {
     if (previousSystemRoot === undefined) delete process.env.SystemRoot;

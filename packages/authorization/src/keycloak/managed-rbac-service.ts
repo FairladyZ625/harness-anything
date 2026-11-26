@@ -50,6 +50,7 @@ import {
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
+import { windowsPostgresLaunch } from "./windows-restricted-launch.ts";
 import { fetchManagedArtifactResource } from "./managed-artifact-download.ts";
 import {
   MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
@@ -953,10 +954,15 @@ export class ManagedRbacService {
     await this.#hardenPostgresAuthentication(binary, data);
     if (this.#stopping) return;
     /* @gate-identity non-state/environment-io.a4045c59c63fc3a2 */ mkdirSync(logs, { recursive: true, mode: 0o700 });
+    const postgresArgs = ["-D", data, "-h", "127.0.0.1", "-p", String(config.postgresPort)],
+      [launchCommand, launchArgs] =
+        this.#ports.spawn === spawn
+          ? await windowsPostgresLaunch(binary, postgresArgs, this.#ports.platform, this.#host)
+          : [binary, postgresArgs];
     return this.#spawnUntilReady(
       "postgres",
-      binary,
-      ["-D", data, "-h", "127.0.0.1", "-p", String(config.postgresPort)],
+      launchCommand,
+      launchArgs,
       {},
       /database system is ready to accept connections/u,
       30_000,
@@ -982,15 +988,14 @@ export class ManagedRbacService {
       ].join("\n");
     let result: Awaited<ReturnType<ManagedRbacHost["runProcessExitAsync"]>>;
     try {
-      result = await this.#host.runProcessExitAsync(
-        binary,
-        ["--single", "-D", data, "postgres"],
-        undefined,
-        undefined,
-        sql,
-        undefined,
-        { timeoutMs: identityHealthProbePolicy.defaultValue.postgresPasswordTimeoutMs },
-      );
+      const singleArgs = ["--single", "-D", data, "postgres"],
+        [launchCommand, launchArgs] =
+          this.#ports.spawn === spawn
+            ? await windowsPostgresLaunch(binary, singleArgs, this.#ports.platform, this.#host)
+            : [binary, singleArgs];
+      result = await this.#host.runProcessExitAsync(launchCommand, launchArgs, undefined, undefined, sql, undefined, {
+        timeoutMs: identityHealthProbePolicy.defaultValue.postgresPasswordTimeoutMs,
+      });
     } catch (error) {
       const code =
         typeof error === "object" && error !== null && "code" in error ? String(error.code) : "unknown error";
@@ -1084,7 +1089,7 @@ export class ManagedRbacService {
             : {}),
         },
         /Keycloak .* started in/u,
-        60_000,
+        this.#ports.platform === "win32" ? 120_000 : 60_000,
         path.join(this.#root, "runtime", "keycloak"),
         passthrough
           ? () => {

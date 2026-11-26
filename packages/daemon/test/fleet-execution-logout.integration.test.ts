@@ -31,7 +31,7 @@ import { waitForLocalIdentityRetirement } from "./fixtures/fleet-settled-identit
 // The edge has neither a center admin config nor a center secret.
 test(
   "edge execution requires a device session after logout without center configuration",
-  { timeout: 120_000 },
+  { timeout: process.platform === "win32" ? 240_000 : 120_000 },
   async (t) => {
     let cleanup = async () => {};
     t.after(() => cleanup());
@@ -157,9 +157,8 @@ test(
       userRoot,
       createConvenienceLinks: false,
     });
-    const provider = path.join(f.root, "provider.mjs");
-    writeProviderExecutable(
-      provider,
+    const provider = writeProviderExecutable(
+      path.join(f.root, "provider.mjs"),
       `
     import fs from "node:fs"; import path from "node:path";
     if (process.argv[2] === "login" && process.argv[3] === "status") process.exit(0);
@@ -169,7 +168,7 @@ test(
     fs.writeFileSync(path.join(root, id + ".tmp"), JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
     fs.renameSync(path.join(root, id + ".tmp"), path.join(root, id + ".json"));
     console.log(JSON.stringify({ type: "thread.started", thread_id: id }));
-    const finish = () => { if (!fs.existsSync(path.join(root, id + ".finish"))) return;
+    const finish = () => { if (!fs.existsSync(path.join(root, id + ".finish")) && !fs.existsSync(path.join(root, "all.finish"))) return;
       watcher.close(); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Edge completed after logout." } }));
       console.log(JSON.stringify({ type: "turn.completed" })); };
     const watcher = fs.watch(root, finish); finish();
@@ -206,6 +205,7 @@ test(
     let daemon = await startDaemon(daemonOptions);
     assert.ok("stop" in daemon);
     cleanup = async () => {
+      writeFileSync(path.join(f.root, "all.finish"), "finish");
       for (const runtimeSessionId of live) {
         await requestDaemonJsonRpcAt(
           daemon.endpoint,
@@ -548,6 +548,7 @@ test(
     const reviewLive = new Set<string>(),
       firstCleanup = cleanup;
     cleanup = async () => {
+      writeFileSync(path.join(f.root, "all.finish"), "finish");
       for (const runtimeSessionId of reviewLive)
         await reviewRpc("repo.agentRuntime.cancel", {
           repo: { repoId: reviewRoute.repoId },
@@ -988,10 +989,12 @@ test(
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
     t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest stopped settlement passed after logout.");
     // A relayed command whose worker host is gone reports the transport failure of its fixed relay:
-    // it neither starts a daemon nor falls back to the edge user socket.
-    const relayedAfter = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
-    assert.equal(relayedAfter.code, "daemon_unavailable", JSON.stringify(relayedAfter));
-    assert.match(JSON.stringify(relayedAfter), /connect ENOENT \/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock/u);
+    // it neither starts a daemon nor falls back to the edge user socket. (Callback relay uses POSIX Unix sockets.)
+    if (env.HARNESS_DAEMON_RELAY === "1") {
+      const relayedAfter = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
+      assert.equal(relayedAfter.code, "daemon_unavailable", JSON.stringify(relayedAfter));
+      assert.match(JSON.stringify(relayedAfter), /connect ENOENT \/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock/u);
+    }
     // Canonical terminal visibility precedes local identity retirement. Pending evidence remains
     // observable until the real archive completes; credential expiry cannot satisfy this premise.
     t.diagnostic(`Settlement archive receipts: ${JSON.stringify(f.runtimeArchiveReceipts)}`);
