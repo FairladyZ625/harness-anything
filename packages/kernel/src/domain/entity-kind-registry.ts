@@ -23,9 +23,11 @@ import {
   executionRuntimeBudgetJudgment,
 } from "./task-submission-policy.ts";
 import {
+  daemonResidentCeoPolicySources,
   daemonRuntimeSessionPolicySources,
   dispatchLifecyclePolicies,
   dispatchLifecycleJudgment,
+  residentCeoJudgments,
 } from "./dispatch-lifecycle-ontology.ts";
 import { inboxJudgments, inboxPolicies } from "./inbox.ts";
 import { todoSchema } from "./todo.ts";
@@ -1084,49 +1086,10 @@ const daemonRuntimeSessionPolicy = daemonDomainPolicy("runtime-session", daemonR
   "packages/daemon/test/agent-runtime-session-groups.contract.test.ts",
   "packages/daemon/test/agent-runtime-token-usage.test.ts",
 ]);
-const daemonResidentCeoPolicy = daemonDomainPolicy(
-  "resident-ceo",
-  [
-    [
-      "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.residentCeoService.runtime.run.receipt.mcpPolicy:10b79b4f8c0b0052d770c191c1551d40",
-      "residentCeoRuntime",
-      "Resident CEO runtime turns use the disabled MCP policy.",
-    ],
-    [
-      "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.page.limit:0dd585c292e12f6bf0b47a1d330750d6",
-      "residentCeoInbox",
-      "Resident CEO inbox reads use the bounded page limit.",
-    ],
-    [
-      "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.receipt.limit:0dd585c292e12f6bf0b47a1d330750d6",
-      "residentCeoInbox",
-      "Resident CEO peer replies use the bounded receipt limit.",
-    ],
-    [
-      "policy:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.page.limit:bf38217595aafee0d2b364031d7e7000",
-      "residentCeoInbox",
-      "Resident CEO event reads use the bounded page limit.",
-    ],
-  ] as const,
-  ["packages/daemon/test/resident-ceo.integration.test.ts"],
-);
-
-const residentCeoPrincipalJudgment = {
-  id: "resident-ceo-principal",
-  symbol: "packages/kernel/src/domain/resident-ceo.ts#assertResidentCeoPrincipal",
-  inputs: ["ResidentCeoProfile", "principalPersonId"],
-  output: "void or ResidentCeoProfileError",
-  failureCodes: ["resident_ceo_principal_mismatch"],
-  explain: "A resident CEO profile may only be read or updated by its anchored principal person.",
-  consumers: ["packages/application/src/resident-ceo.ts", "packages/daemon/src/daemon-host/daemon-host-runtime-api.ts"],
-  sources: [
-    {
-      candidateId:
-        "judgment:packages/kernel:packages/kernel/src/domain/resident-ceo.ts#assertResidentCeoPrincipal:c8c638e607792c3b9b5abdb5048786bd",
-      route: "assertResidentCeoPrincipal",
-    },
-  ],
-} as const satisfies import("./ontology-source.ts").OntologyJudgmentDeclaration;
+const daemonResidentCeoPolicy = daemonDomainPolicy("resident-ceo", daemonResidentCeoPolicySources, [
+  "packages/daemon/test/resident-ceo.integration.test.ts",
+  "packages/daemon/test/resident-ceo-phase2.integration.test.ts",
+]);
 
 const daemonHostPolicy = daemonDomainPolicy(
   "host",
@@ -1665,7 +1628,7 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     },
     stateStores: stateStoresForKind("settings"),
     actionCatalog: settingsActionCatalog,
-    judgments: [residentCeoPrincipalJudgment],
+    judgments: [...residentCeoJudgments],
     entityStore: null,
     authoring: { kind: "settings-event", contractRef: "settings-event/v1" },
     sdkExposure: noSdkExposure,

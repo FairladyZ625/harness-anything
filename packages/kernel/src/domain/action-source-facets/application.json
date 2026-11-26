@@ -10,6 +10,14 @@
     ],
     "ceo-config": [
       {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#codedError:5e760bf72f2e4e84a5d8c4f6eddc5d65",
+        "route": "ceo-config"
+      },
+      {
+        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.commitProfileMutation:79cee37abf1b8696b343173252fe25c1",
+        "route": "ceo-config"
+      },
+      {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:2cb7617831c6f6b1acd5f344ae63516a",
         "route": "ceo-config"
       },
@@ -18,15 +26,7 @@
         "route": "ceo-config"
       },
       {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.configure:bae4b47c29e7621386db1d3af29cea30",
-        "route": "ceo-config"
-      },
-      {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.reconcileWake:0278ea962c8506506e07e06388dbcab3",
-        "route": "ceo-config"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.requiredProfile:75e4389a91bf1e37243cc4391c5a1ffd",
         "route": "ceo-config"
       },
       {
@@ -39,10 +39,6 @@
       },
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.update:0485e7675edfe724c3e72033805d3505",
-        "route": "ceo-config"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake.saved:88078d24618db723ce588296d03316a8",
         "route": "ceo-config"
       },
       {
@@ -63,10 +59,6 @@
       },
       {
         "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:57750f1230d8a50817065395165b8353",
-        "route": "ceo-config"
-      },
-      {
-        "candidateId": "action:packages/application:packages/application/src/resident-ceo.ts#makeResidentCeoService.wake:bae4b47c29e7621386db1d3af29cea30",
         "route": "ceo-config"
       },
       {

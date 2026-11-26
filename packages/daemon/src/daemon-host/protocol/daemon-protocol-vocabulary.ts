@@ -17,6 +17,10 @@ import type {
   taskPhaseSteps,
 } from "@harness-anything/kernel";
 import type { CanonicalMaterializationState } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import type {
+  ResidentCeoExecutionPolicy,
+  ResidentCeoProposalStatus,
+} from "@harness-anything/kernel/internal/domain/resident-ceo.ts";
 import type { TaskDeliveryStage } from "./daemon-protocol-results.ts";
 
 export const AGENDA_PIN_CRITERIA = "blocking an active work or awaiting owner decision; otherwise leave unpinned";
@@ -114,6 +118,33 @@ export const reviewFindingLabelWords = Object.freeze([
 export const reviewFindingLabelWordsAreExact: [ReviewFindingLabel] extends [(typeof reviewFindingLabelWords)[number]]
   ? true
   : never = true;
+
+export const residentCeoExecutionPolicyWords = Object.freeze([
+  "advisory-only",
+  "approval-gated",
+] as const satisfies readonly ResidentCeoExecutionPolicy[]);
+
+export const residentCeoProposalStatusWords = Object.freeze([
+  "pending_approval",
+  "promoted",
+  "rejected",
+  "failed",
+] as const satisfies readonly ResidentCeoProposalStatus[]);
+
+type _AssertExactResidentCeoExecutionPolicy = [ResidentCeoExecutionPolicy] extends [
+  (typeof residentCeoExecutionPolicyWords)[number],
+]
+  ? true
+  : never;
+type _AssertExactResidentCeoProposalStatus = [ResidentCeoProposalStatus] extends [
+  (typeof residentCeoProposalStatusWords)[number],
+]
+  ? true
+  : never;
+export type ResidentCeoProtocolVocabularyExact = readonly [
+  _AssertExactResidentCeoExecutionPolicy,
+  _AssertExactResidentCeoProposalStatus,
+];
 
 export const decisionProviderVendorWords = Object.freeze([
   "openrouter",

@@ -37,7 +37,12 @@ import {
 import { daemonReadRoutes } from "./daemon-protocol-read-routes.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
 import { declaredActionClass, optionalEnum, shape } from "./daemon-protocol-results.ts";
-import { AGENDA_PIN_CRITERIA, daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
+import {
+  AGENDA_PIN_CRITERIA,
+  daemonRepoModeWords,
+  residentCeoExecutionPolicyWords,
+  residentCeoProposalStatusWords,
+} from "./daemon-protocol-vocabulary.ts";
 
 const slotInput = cliInput(
   "--slot",
@@ -516,7 +521,7 @@ const residentCeoProtocolCommands = Object.freeze([
     phase: "ResidentCeo",
     path: ["ceo", "config"],
     summary:
-      "Configure the signed-in person's resident CEO provider instance, model, and heartbeat interval (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+      "Configure the signed-in person's resident CEO provider instance, model, heartbeat interval, and optional Phase 2 execution policy (default: advisory-only).",
     method: "repo.residentCeo.config",
     payloadFields: [],
     inputs: [
@@ -543,6 +548,38 @@ const residentCeoProtocolCommands = Object.freeze([
           regex: "^(?:0|[1-9][0-9]*)$",
         },
       ),
+      cliInput(
+        "--policy",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "executionPolicy",
+          pathKind: "non-path",
+          enum: residentCeoExecutionPolicyWords,
+        },
+      ),
+      cliInput(
+        "--default-work",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "defaultWorkId", pathKind: "non-path" },
+      ),
+      cliInput(
+        "--default-agent",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "defaultAgentId", pathKind: "non-path" },
+      ),
+      cliInput(
+        "--auto-approve-sender",
+        "repeated",
+        false,
+        { code: "invalid_field" },
+        { field: "autoApproveSenders", pathKind: "non-path" },
+      ),
     ],
   }),
   defineHostAdminCommand({
@@ -551,7 +588,7 @@ const residentCeoProtocolCommands = Object.freeze([
     phase: "ResidentCeo",
     path: ["ceo", "start"],
     summary:
-      "Start the signed-in person's resident CEO (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+      "Start the signed-in person's resident CEO (advisory-only by default; supports approval-gated delegation when explicitly configured).",
     method: "repo.residentCeo.start",
     payloadFields: [],
     inputs: [],
@@ -571,8 +608,7 @@ const residentCeoProtocolCommands = Object.freeze([
     hostAuthority: "own-session",
     phase: "ResidentCeo",
     path: ["ceo", "status"],
-    summary:
-      "Read the signed-in person's resident CEO status and most recent wake receipt (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+    summary: "Read the signed-in person's resident CEO status, execution policy, and most recent wake receipt.",
     method: "repo.residentCeo.status",
     payloadFields: [],
     inputs: [],
@@ -582,12 +618,69 @@ const residentCeoProtocolCommands = Object.freeze([
     hostAuthority: "own-session",
     phase: "ResidentCeo",
     path: ["ceo", "chat"],
-    summary:
-      "Send a message to the signed-in person's resident CEO and continue its persistent provider session (Phase 1: read-only assessment and advisory reply; MCP disabled).",
+    summary: "Send a message to the signed-in person's resident CEO and continue its persistent provider session.",
     method: "repo.residentCeo.chat",
     payloadFields: [],
     inputs: [
       cliInput("--message", "single", true, { code: "invalid_field" }, { field: "message", pathKind: "non-path" }),
+    ],
+  }),
+  defineRepoReadCommand({
+    id: "ceo-proposals",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "proposals"],
+    summary: "List resident CEO delegation proposals awaiting approval, promoted, or rejected.",
+    method: "repo.residentCeo.proposals",
+    payloadFields: [],
+    inputs: [
+      cliInput(
+        "--status",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "status", pathKind: "non-path", enum: residentCeoProposalStatusWords },
+      ),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-approve",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "approve", "<proposal-id>"],
+    summary:
+      "Approve a pending resident CEO delegation proposal, atomically promoting its PeerRequest to a managed HA task and optionally dispatching an agent.",
+    method: "repo.residentCeo.approve",
+    positional: "proposalId",
+    positionalInputs: [{ name: "<proposal-id>", pathKind: "non-path", pathReader: "none" }],
+    payloadFields: [],
+    inputs: [
+      cliInput("--work", "single", false, { code: "invalid_field" }, { field: "workId", pathKind: "non-path" }),
+      cliInput("--title", "single", false, { code: "invalid_field" }, { field: "title", pathKind: "non-path" }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }, { field: "agentId", pathKind: "non-path" }),
+      cliInput(
+        "--instance",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "runtimeInstanceId", pathKind: "non-path" },
+      ),
+      cliInput("--model", "single", false, { code: "invalid_field" }, { field: "model", pathKind: "non-path" }),
+      cliInput("--prompt", "single", false, { code: "invalid_field" }, { field: "prompt", pathKind: "non-path" }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "ceo-reject",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    path: ["ceo", "reject", "<proposal-id>"],
+    summary: "Reject a pending resident CEO delegation proposal and notify the requesting peer.",
+    method: "repo.residentCeo.reject",
+    positional: "proposalId",
+    positionalInputs: [{ name: "<proposal-id>", pathKind: "non-path", pathReader: "none" }],
+    payloadFields: [],
+    inputs: [
+      cliInput("--reason", "single", true, { code: "invalid_field" }, { field: "reason", pathKind: "non-path" }),
     ],
   }),
 ]);
@@ -1323,6 +1416,59 @@ export const daemonProtocolMethods = Object.freeze([
   },
 ] as const);
 
+const residentCeoDelegationMethods = Object.freeze([
+  {
+    id: "ceo-proposals",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.proposals",
+    actionKind: "ceo-proposals",
+    requiresRepo: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ status: optionalEnum(residentCeoProposalStatusWords) }),
+    }),
+  },
+  {
+    id: "ceo-approve",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.approve",
+    actionKind: "ceo-approve",
+    requiresRepo: true,
+    commandClass: "admin",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        proposalId: "string",
+        workId: "string?",
+        title: "string?",
+        agentId: "string?",
+        runtimeInstanceId: "string?",
+        model: "string?",
+        prompt: "string?",
+      }),
+    }),
+  },
+  {
+    id: "ceo-reject",
+    hostAuthority: "own-session",
+    phase: "ResidentCeo",
+    method: "repo.residentCeo.reject",
+    actionKind: "ceo-reject",
+    requiresRepo: true,
+    commandClass: "admin",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({
+        proposalId: "string",
+        reason: "string",
+      }),
+    }),
+  },
+] as const);
+
 /* Runtime instance method descriptors live in the browser-safe protocol graph. */
 export { interactiveRpcMethods, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
 
@@ -1396,6 +1542,7 @@ export const fleetProtocolMethods = Object.freeze([
 
 export const daemonOwnedRpcMethods = Object.freeze([
   ...daemonProtocolMethods,
+  ...residentCeoDelegationMethods,
   ...runtimeInstanceMethods,
   ...providerMethods,
   ...runtimeInstanceAuthMethods,

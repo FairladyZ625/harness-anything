@@ -39,3 +39,86 @@ test("resident CEO config CLI carries the selected instance, model, and heartbea
     heartbeatIntervalSec: 600,
   });
 });
+
+test("resident CEO Phase 2 CLI parses policy config, proposals, approve, and reject commands", () => {
+  const configured = parseThinCommand([
+    "ceo",
+    "config",
+    "--instance",
+    "instance_owner",
+    "--model",
+    "model-a",
+    "--heartbeat-interval-sec",
+    "300",
+    "--policy",
+    "approval-gated",
+    "--default-work",
+    "task_work_1",
+    "--default-agent",
+    "neon",
+    "--auto-approve-sender",
+    "person_alice",
+    "--auto-approve-sender",
+    "person_carol",
+  ]);
+  assert.equal(configured.ok, true);
+  if (!configured.ok) return;
+  assert.equal(configured.command.method, "repo.residentCeo.config");
+  assert.deepEqual(configured.command.action, {
+    kind: "ceo-config",
+    runtimeInstanceId: "instance_owner",
+    model: "model-a",
+    heartbeatIntervalSec: 300,
+    executionPolicy: "approval-gated",
+    defaultWorkId: "task_work_1",
+    defaultAgentId: "neon",
+    autoApproveSenders: ["person_alice", "person_carol"],
+  });
+
+  const proposals = parseThinCommand(["ceo", "proposals", "--status", "pending_approval"]);
+  assert.equal(proposals.ok, true);
+  if (!proposals.ok) return;
+  assert.equal(proposals.command.method, "repo.residentCeo.proposals");
+  assert.deepEqual(proposals.command.action, { kind: "ceo-proposals", status: "pending_approval" });
+
+  const approved = parseThinCommand([
+    "ceo",
+    "approve",
+    "prop_abc123",
+    "--work",
+    "task_work_1",
+    "--title",
+    "Custom promoted title",
+    "--agent",
+    "neon",
+    "--instance",
+    "instance_owner",
+    "--model",
+    "model-a",
+    "--prompt",
+    "Execute migration",
+  ]);
+  assert.equal(approved.ok, true);
+  if (!approved.ok) return;
+  assert.equal(approved.command.method, "repo.residentCeo.approve");
+  assert.deepEqual(approved.command.action, {
+    kind: "ceo-approve",
+    proposalId: "prop_abc123",
+    workId: "task_work_1",
+    title: "Custom promoted title",
+    agentId: "neon",
+    runtimeInstanceId: "instance_owner",
+    model: "model-a",
+    prompt: "Execute migration",
+  });
+
+  const rejected = parseThinCommand(["ceo", "reject", "prop_abc123", "--reason", "Out of scope"]);
+  assert.equal(rejected.ok, true);
+  if (!rejected.ok) return;
+  assert.equal(rejected.command.method, "repo.residentCeo.reject");
+  assert.deepEqual(rejected.command.action, {
+    kind: "ceo-reject",
+    proposalId: "prop_abc123",
+    reason: "Out of scope",
+  });
+});

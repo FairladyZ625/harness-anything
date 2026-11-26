@@ -597,6 +597,20 @@ export function reducePeerRequestEvent(current: PeerRequestV1 | null, event: Pee
     return Object.freeze({ ...next, state: "CLAIMED", claim, promotedTaskId: null });
   }
 
+  if (current.state === "PROMOTED" && event.type === "peer_request_answered") {
+    if (current.claim === null || event.payload.claimId !== current.claim.claimId)
+      throw new PeerRequestDomainError(
+        "peer_request_claim_mismatch",
+        "PeerRequest outcome update must present the claim that promoted the request.",
+      );
+    return Object.freeze({
+      ...next,
+      state: "PROMOTED",
+      promotedTaskId: current.promotedTaskId,
+      reply: freezePeerContent(event.payload.reply),
+    });
+  }
+
   if (current.state !== "CLAIMED" || current.claim === null)
     throw new PeerRequestDomainError(
       "peer_request_transition_invalid",
@@ -1152,6 +1166,11 @@ export const peerPolicies = [
       {
         candidateId:
           "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.payload.admission:0434b29be0266d9440715451ee9874bd:2",
+        route: "peer-promote",
+      },
+      {
+        candidateId:
+          "policy:packages/daemon:packages/daemon/src/daemon-host/peer-action.ts#runPeerAction.payload.admission:0434b29be0266d9440715451ee9874bd:3",
         route: "peer-accept-handoff",
       },
     ],

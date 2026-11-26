@@ -8,13 +8,35 @@
         "order": 2
       }
     ],
+    "ceo-approve": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.dispatchAgent.shown:70ca165c4795462b000d9cd0aee84709",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.dispatchAgent.started:30852e29a2d9d015eaf2ef674a67bfa5",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.promote.receipt:2b9c7c839a63519e4d0728df51bf4e33",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.reportTerminalOutcome.receipt:3bcdc1252cd55f1797e63838ced0121e",
+        "route": "ceo-approve"
+      },
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#syncResidentCeoPromotedTaskOutcomes.shown:809d759c406ca7feb8318e52f51f548b",
+        "route": "ceo-approve"
+      }
+    ],
     "ceo-config": [
       {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.acknowledgeResidentCeoPeer.reply:7e250c8a72d653aa08d5e7d049462d13",
         "route": "ceo-config"
       },
       {
-        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.receipt:5ea1b5229386cd7d2f87137673dfd5cf",
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/daemon-host-runtime-api.ts#createDaemonHostRuntimeApi.watchResidentCeoInbox.run.receipt:8d4f195b043ce73fe2fe2f7b5c326ac0",
         "route": "ceo-config"
       },
       {
@@ -22,8 +44,18 @@
         "route": "ceo-config"
       },
       {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#lookupOpenPeerRequest.receipt:8ebcee0bb2001254284114be18157e1e",
+        "route": "ceo-config"
+      },
+      {
         "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-profile-store.ts#openResidentCeoProfileStore.write:95dc514598a4657c1c4ae3480de2f19b",
         "route": "ceo-config"
+      }
+    ],
+    "ceo-reject": [
+      {
+        "candidateId": "action:packages/daemon:packages/daemon/src/daemon-host/resident-ceo-delegation.ts#makeResidentCeoDelegationExecutor.rejectPeerRequest.receipt:b66309a4633fe343cf66078041242979",
+        "route": "ceo-reject"
       }
     ],
     "channel-deliver": [

@@ -217,205 +217,118 @@
     "actionCoverage": {
       "measured": {
         "task-create": {
-          "measurements": [
-            "task-create:ledger-events",
-            "task-create:work-tasks"
-          ]
+          "measurements": ["task-create:ledger-events", "task-create:work-tasks"]
         },
         "doc-submit": {
-          "measurements": [
-            "doc-submit:ledger-events",
-            "doc-submit:documents",
-            "doc-submit:event-bytes"
-          ]
+          "measurements": ["doc-submit:ledger-events", "doc-submit:documents", "doc-submit:event-bytes"]
         },
         "dossier-synthesize": {
-          "measurements": [
-            "dossier-synthesize:accepted-history"
-          ]
+          "measurements": ["dossier-synthesize:accepted-history"]
         },
         "task-start": {
-          "measurements": [
-            "task-start:ledger-events"
-          ]
+          "measurements": ["task-start:ledger-events"]
         },
         "task-progress-append": {
-          "measurements": [
-            "task-progress-append:ledger-events"
-          ]
+          "measurements": ["task-progress-append:ledger-events"]
         },
         "fact-record": {
-          "measurements": [
-            "fact-record:ledger-events"
-          ]
+          "measurements": ["fact-record:ledger-events"]
         },
         "decision-propose": {
-          "measurements": [
-            "decision-propose:ledger-events",
-            "decision-propose:claims"
-          ]
+          "measurements": ["decision-propose:ledger-events", "decision-propose:claims"]
         },
         "decision-reject": {
-          "measurements": [
-            "decision-reject:ledger-events",
-            "decision-reject:claims"
-          ]
+          "measurements": ["decision-reject:ledger-events", "decision-reject:claims"]
         },
         "relation-relate": {
-          "measurements": [
-            "relation-relate:ledger-events",
-            "relation-relate:owner-relations"
-          ]
+          "measurements": ["relation-relate:ledger-events", "relation-relate:owner-relations"]
         },
         "decision-reckon": {
-          "measurements": [
-            "decision-reckon:ledger-events"
-          ]
+          "measurements": ["decision-reckon:ledger-events"]
         },
         "task-submit": {
-          "measurements": [
-            "task-submit:task-artifacts",
-            "task-submit:worktree-documents",
-            "task-submit:write-port"
-          ]
+          "measurements": ["task-submit:task-artifacts", "task-submit:worktree-documents", "task-submit:write-port"]
         },
         "task-push": {
-          "measurements": [
-            "task-push:write-port"
-          ]
+          "measurements": ["task-push:write-port"]
         },
         "decision-repin": {
-          "measurements": [
-            "decision-repin:decisions",
-            "decision-repin:claims"
-          ]
+          "measurements": ["decision-repin:decisions", "decision-repin:claims"]
         },
         "fact-archive": {
-          "measurements": [
-            "fact-archive:facts"
-          ]
+          "measurements": ["fact-archive:facts"]
         },
         "agent-assign": {
-          "measurements": [
-            "agent-assign:assignment-history"
-          ]
+          "measurements": ["agent-assign:assignment-history"]
         },
         "agent-unassign": {
-          "measurements": [
-            "agent-unassign:assignment-history"
-          ]
+          "measurements": ["agent-unassign:assignment-history"]
         },
         "decision-assign": {
-          "measurements": [
-            "decision-assign:assignment-history"
-          ]
+          "measurements": ["decision-assign:assignment-history"]
         },
         "decision-unassign": {
-          "measurements": [
-            "decision-unassign:assignment-history"
-          ]
+          "measurements": ["decision-unassign:assignment-history"]
         },
         "fact-assign": {
-          "measurements": [
-            "fact-assign:assignment-history"
-          ]
+          "measurements": ["fact-assign:assignment-history"]
         },
         "fact-unassign": {
-          "measurements": [
-            "fact-unassign:assignment-history"
-          ]
+          "measurements": ["fact-unassign:assignment-history"]
         },
         "schedule-assign": {
-          "measurements": [
-            "schedule-assign:assignment-history"
-          ]
+          "measurements": ["schedule-assign:assignment-history"]
         },
         "schedule-unassign": {
-          "measurements": [
-            "schedule-unassign:assignment-history"
-          ]
+          "measurements": ["schedule-unassign:assignment-history"]
         },
         "schedule-run-now": {
-          "measurements": [
-            "schedule-run-now:unchanged-ledger-files"
-          ]
+          "measurements": ["schedule-run-now:unchanged-ledger-files"]
         },
         "squad-assign": {
-          "measurements": [
-            "squad-assign:assignment-history"
-          ]
+          "measurements": ["squad-assign:assignment-history"]
         },
         "squad-unassign": {
-          "measurements": [
-            "squad-unassign:assignment-history"
-          ]
+          "measurements": ["squad-unassign:assignment-history"]
         },
         "task-assign": {
-          "measurements": [
-            "task-assign:assignment-history"
-          ]
+          "measurements": ["task-assign:assignment-history"]
         },
         "task-unassign": {
-          "measurements": [
-            "task-unassign:assignment-history"
-          ]
+          "measurements": ["task-unassign:assignment-history"]
         },
         "decision-accept": {
-          "measurements": [
-            "decision-accept:claims"
-          ]
+          "measurements": ["decision-accept:claims"]
         },
         "decision-defer": {
-          "measurements": [
-            "decision-defer:claims"
-          ]
+          "measurements": ["decision-defer:claims"]
         },
         "decision-retire": {
-          "measurements": [
-            "decision-retire:claims"
-          ]
+          "measurements": ["decision-retire:claims"]
         },
         "decision-amend": {
-          "measurements": [
-            "decision-amend:claims",
-            "decision-amend:scope"
-          ]
+          "measurements": ["decision-amend:claims", "decision-amend:scope"]
         },
         "decision-claim-add": {
-          "measurements": [
-            "decision-claim-add:claims"
-          ]
+          "measurements": ["decision-claim-add:claims"]
         },
         "decision-claim-fulfill": {
-          "measurements": [
-            "decision-claim-fulfill:claims"
-          ]
+          "measurements": ["decision-claim-fulfill:claims"]
         },
         "decision-review": {
-          "measurements": [
-            "decision-review:claims"
-          ]
+          "measurements": ["decision-review:claims"]
         },
         "decision-respond-review": {
-          "measurements": [
-            "decision-respond-review:claims",
-            "decision-respond-review:review-findings"
-          ]
+          "measurements": ["decision-respond-review:claims", "decision-respond-review:review-findings"]
         },
         "entity-pin": {
-          "measurements": [
-            "entity-pin:agenda-pins"
-          ]
+          "measurements": ["entity-pin:agenda-pins"]
         },
         "entity-unpin": {
-          "measurements": [
-            "entity-unpin:agenda-pins"
-          ]
+          "measurements": ["entity-unpin:agenda-pins"]
         },
         "task-respond-review": {
-          "measurements": [
-            "task-respond-review:responses"
-          ]
+          "measurements": ["task-respond-review:responses"]
         },
         "task-review-execution": {
           "measurements": [
@@ -432,442 +345,291 @@
           ]
         },
         "task-amend": {
-          "measurements": [
-            "task-amend:patches",
-            "task-amend:anchored-relations",
-            "task-amend:cloud-writer-collections"
-          ]
+          "measurements": ["task-amend:patches", "task-amend:anchored-relations", "task-amend:cloud-writer-collections"]
         },
         "decision-override-review": {
-          "measurements": [
-            "decision-override-review:claims"
-          ]
+          "measurements": ["decision-override-review:claims"]
         },
         "decision-transition": {
-          "measurements": [
-            "decision-transition:claims"
-          ]
+          "measurements": ["decision-transition:claims"]
         },
         "task-dispatch-review": {
-          "measurements": [
-            "task-dispatch-review:task-ids"
-          ]
+          "measurements": ["task-dispatch-review:task-ids"]
         },
         "runtime-run": {
-          "measurements": [
-            "runtime-run:execution-dispatches"
-          ]
+          "measurements": ["runtime-run:execution-dispatches"]
         },
         "task-witness-run": {
-          "measurements": [
-            "task-witness-run:frozen-gates"
-          ]
+          "measurements": ["task-witness-run:frozen-gates"]
         },
         "task-transition": {
-          "measurements": [
-            "task-transition:materialization-degree"
-          ]
+          "measurements": ["task-transition:materialization-degree"]
         },
         "task-complete": {
-          "measurements": [
-            "task-complete:materialization-degree"
-          ]
+          "measurements": ["task-complete:materialization-degree"]
         },
         "task-archive": {
-          "measurements": [
-            "task-archive:materialization-degree"
-          ]
+          "measurements": ["task-archive:materialization-degree"]
         },
         "relation-unrelate": {
-          "measurements": [
-            "relation-unrelate:materialization-degree"
-          ]
+          "measurements": ["relation-unrelate:materialization-degree"]
         }
       },
       "notApplicable": [
         {
-          "actions": [
-            "channel-deliver",
-            "channel-send"
-          ],
+          "actions": ["channel-deliver", "channel-send"],
           "reason": "Each channel operation accepts one message and writes a fixed number of canonical Inbox events, independent of repository history size."
         },
         {
-          "actions": [
-            "entity-archive"
-          ],
+          "actions": ["entity-archive"],
           "reason": "artifact entity mutation targets one entity version and emits one archive event; the mutation boundary has no collection input."
         },
         {
-          "actions": [
-            "entity-delete"
-          ],
+          "actions": ["entity-delete"],
           "reason": "artifact entity mutation targets one entity id and emits one delete event; no entity collection is enumerated."
         },
         {
-          "actions": [
-            "entity-import"
-          ],
+          "actions": ["entity-import"],
           "reason": "artifact entity import processes one submitted artifact entity; imported payload membership is outside this event writer."
         },
         {
-          "actions": [
-            "entity-update"
-          ],
+          "actions": ["entity-update"],
           "reason": "artifact entity mutation updates one entity version; it has no collection or batch input."
         },
         {
-          "actions": [
-            "agent-delete"
-          ],
+          "actions": ["agent-delete"],
           "reason": "compiled entity-delete event has one agent id and scalar reason; packages/application/src/commands/entity-action-catalog-executor.ts does not enumerate an agent collection."
         },
         {
-          "actions": [
-            "agent-install"
-          ],
+          "actions": ["agent-install"],
           "reason": "compiled entity upsert has one agent document; the catalog compiler consumes one target and has no collection input."
         },
         {
-          "actions": [
-            "agent-retire"
-          ],
+          "actions": ["agent-retire"],
           "reason": "compiled agent-retired event reads one current entity revision; no collection is traversed."
         },
         {
-          "actions": [
-            "assignment-migrate"
-          ],
+          "actions": ["assignment-migrate"],
           "reason": "relation assignment migration is a single relation event; assignment-history growth is measured by the assign/unassign probes."
         },
         {
-          "actions": [
-            "decision-dispatch-review"
-          ],
+          "actions": ["decision-dispatch-review"],
           "reason": "dispatch-review is a single Decision catalog runtime request; the action payload has no collection field or batch traversal."
         },
         {
-          "actions": [
-            "decision-rematerialize"
-          ],
+          "actions": ["decision-rematerialize"],
           "reason": "rematerialize targets one Decision document and emits one catalog event; no collection is traversed by the writer."
         },
         {
-          "actions": [
-            "distill-promote"
-          ],
+          "actions": ["distill-promote"],
           "reason": "fact promotion is a single declared-only event with scalar fact id and target fields; no collection is read at this boundary."
         },
         {
-          "actions": [
-            "doc-conflict-overwrite-center"
-          ],
+          "actions": ["doc-conflict-overwrite-center"],
           "reason": "declared-only document conflict overwrite emits one conflict event for one path; document-count and body-size dimensions are measured on doc-submit."
         },
         {
-          "actions": [
-            "doc-conflict-resolve"
-          ],
+          "actions": ["doc-conflict-resolve"],
           "reason": "declared-only document conflict resolution addresses one path and emits one event; it has no collection input."
         },
         {
-          "actions": [
-            "doc-retire"
-          ],
+          "actions": ["doc-retire"],
           "reason": "declared-only document retirement addresses one document path and emits one event; no document collection is scanned."
         },
         {
-          "actions": [
-            "fact-reclassify"
-          ],
+          "actions": ["fact-reclassify"],
           "reason": "fact reclassification reads one fact and compiles one fact event; it does not enumerate facts."
         },
         {
-          "actions": [
-            "fact-rematerialize"
-          ],
+          "actions": ["fact-rematerialize"],
           "reason": "fact rematerialization targets one fact document; the batch fact collection dimension is measured by fact-archive."
         },
         {
-          "actions": [
-            "fact-type-register"
-          ],
+          "actions": ["fact-type-register"],
           "reason": "fact type registration appends one scalar type declaration; no fact collection is traversed."
         },
         {
-          "actions": [
-            "fact-unarchive"
-          ],
+          "actions": ["fact-unarchive"],
           "reason": "fact unarchive reads one fact and compiles one event; it has no collection input."
         },
         {
-          "actions": [
-            "migrate-import"
-          ],
+          "actions": ["migrate-import"],
           "reason": "migration import is a declared-only ingress for one import request; imported member counts are outside this canonical event writer."
         },
         {
-          "actions": [
-            "people-delegate"
-          ],
+          "actions": ["people-delegate"],
           "reason": "person delegation runtime targets one principal and one delegation edge; it has no collection or batch field."
         },
         {
-          "actions": [
-            "people-revoke-delegation"
-          ],
+          "actions": ["people-revoke-delegation"],
           "reason": "delegation revoke targets one principal and one edge; the runtime does not enumerate a collection."
         },
         {
-          "actions": [
-            "preset-upgrade"
-          ],
+          "actions": ["preset-upgrade"],
           "reason": "preset upgrade is a single task catalog runtime mutation with scalar preset data; no collection is read by the write boundary."
         },
         {
-          "actions": [
-            "relation-reconfirm"
-          ],
+          "actions": ["relation-reconfirm"],
           "reason": "relation reconfirm compiles one relation event identified by relationId; owner relation traversal is measured by relation-relate."
         },
         {
-          "actions": [
-            "runtime_session_cancelled"
-          ],
+          "actions": ["runtime_session_cancelled"],
           "reason": "runtime-session lifecycle event records one session state change with scalar payload; no collection is traversed."
         },
         {
-          "actions": [
-            "runtime_session_exited"
-          ],
+          "actions": ["runtime_session_exited"],
           "reason": "runtime-session exit event records one session outcome; no collection is traversed."
         },
         {
-          "actions": [
-            "runtime_session_liveness_changed"
-          ],
+          "actions": ["runtime_session_liveness_changed"],
           "reason": "runtime-session liveness event records one status update; no collection is traversed."
         },
         {
-          "actions": [
-            "runtime_session_outcome_observed"
-          ],
+          "actions": ["runtime_session_outcome_observed"],
           "reason": "runtime-session outcome event records one observation; no collection is traversed."
         },
         {
-          "actions": [
-            "runtime_session_provider_bound"
-          ],
+          "actions": ["runtime_session_provider_bound"],
           "reason": "runtime-session provider binding records one provider reference; no collection is traversed."
         },
         {
-          "actions": [
-            "runtime_session_started"
-          ],
+          "actions": ["runtime_session_started"],
           "reason": "runtime-session start event records one session; no collection is traversed."
         },
         {
-          "actions": [
-            "runtime_session_task_bound"
-          ],
+          "actions": ["runtime_session_task_bound"],
           "reason": "runtime-session task binding records one task reference; no collection is traversed."
         },
         {
-          "actions": [
-            "schedule-claim"
-          ],
+          "actions": ["schedule-claim"],
           "reason": "schedule claim runtime updates one occurrence lease; it has no collection or batch input."
         },
         {
-          "actions": [
-            "schedule-create"
-          ],
+          "actions": ["schedule-create"],
           "reason": "schedule create runtime inserts one schedule definition; recurring occurrences are generated separately and are not read here."
         },
         {
-          "actions": [
-            "schedule-delete"
-          ],
+          "actions": ["schedule-delete"],
           "reason": "schedule delete runtime removes one schedule definition; it does not enumerate schedules."
         },
         {
-          "actions": [
-            "schedule-disable"
-          ],
+          "actions": ["schedule-disable"],
           "reason": "schedule disable runtime updates one schedule definition; no schedule collection is traversed."
         },
         {
-          "actions": [
-            "schedule-dispatch-link"
-          ],
+          "actions": ["schedule-dispatch-link"],
           "reason": "schedule dispatch-link runtime updates one link; no collection is traversed."
         },
         {
-          "actions": [
-            "schedule-enable"
-          ],
+          "actions": ["schedule-enable"],
           "reason": "schedule enable runtime updates one schedule definition; no collection is traversed."
         },
         {
-          "actions": [
-            "schedule-missed"
-          ],
+          "actions": ["schedule-missed"],
           "reason": "schedule missed runtime records one occurrence; no occurrence collection is traversed."
         },
         {
-          "actions": [
-            "schedule-settle"
-          ],
+          "actions": ["schedule-settle"],
           "reason": "schedule settle runtime updates one occurrence; no collection is traversed."
         },
         {
-          "actions": [
-            "schedule-update"
-          ],
+          "actions": ["schedule-update"],
           "reason": "schedule update runtime updates one schedule definition; no collection is traversed."
         },
         {
-          "actions": [
-            "script-run"
-          ],
+          "actions": ["script-run"],
           "reason": "script execution is a declared-only event for one execution request; script output collection is outside this writer."
         },
         {
-          "actions": [
-            "settings-update"
-          ],
+          "actions": ["settings-update"],
           "reason": "settings update runtime replaces one repository settings record; it has no collection input."
         },
         {
-          "actions": [
-            "squad-cancel"
-          ],
+          "actions": ["squad-cancel"],
           "reason": "squad cancel runtime updates one squad; no squad member collection is read by this writer."
         },
         {
-          "actions": [
-            "squad-delete"
-          ],
+          "actions": ["squad-delete"],
           "reason": "compiled entity-delete event has one squad id and scalar reason; no squad collection is enumerated."
         },
         {
-          "actions": [
-            "squad-install"
-          ],
+          "actions": ["squad-install"],
           "reason": "compiled entity upsert has one squad document; the catalog compiler consumes one target."
         },
         {
-          "actions": [
-            "squad-run"
-          ],
+          "actions": ["squad-run"],
           "reason": "squad run runtime targets one squad run; it has no collection or batch field."
         },
         {
-          "actions": [
-            "task-annotate"
-          ],
+          "actions": ["task-annotate"],
           "reason": "task annotation runtime appends one scalar annotation to one execution; it does not enumerate annotations."
         },
         {
-          "actions": [
-            "task-artifact-add"
-          ],
+          "actions": ["task-artifact-add"],
           "reason": "artifact-add runtime writes one named artifact; the task-submit artifact collection dimension covers multi-artifact publication."
         },
         {
-          "actions": [
-            "task-attest"
-          ],
+          "actions": ["task-attest"],
           "reason": "task attestation runtime records one gate witness; it has no collection input."
         },
         {
-          "actions": [
-            "task-contract-migrate"
-          ],
+          "actions": ["task-contract-migrate"],
           "reason": "contract migration targets one task package and one schema version; no task collection is traversed."
         },
         {
-          "actions": [
-            "task-declare-executor"
-          ],
+          "actions": ["task-declare-executor"],
           "reason": "executor declaration updates one execution identity; no collection is traversed."
         },
         {
-          "actions": [
-            "task-delete"
-          ],
+          "actions": ["task-delete"],
           "reason": "task delete runtime removes one task aggregate; it has no collection or batch field."
         },
         {
-          "actions": [
-            "task-escalate"
-          ],
+          "actions": ["task-escalate"],
           "reason": "escalation writes one task escalation record with scalar options; no collection is traversed."
         },
         {
-          "actions": [
-            "task-escalation-resolve"
-          ],
+          "actions": ["task-escalation-resolve"],
           "reason": "escalation resolution writes one response for one dispatch; no collection is traversed."
         },
         {
-          "actions": [
-            "task-release"
-          ],
+          "actions": ["task-release"],
           "reason": "task release updates one lease holder; no task collection is traversed."
         },
         {
-          "actions": [
-            "task-rematerialize"
-          ],
+          "actions": ["task-rematerialize"],
           "reason": "task rematerialize targets one task package; artifact collection scaling is measured by task-submit."
         },
         {
-          "actions": [
-            "task-reopen"
-          ],
+          "actions": ["task-reopen"],
           "reason": "task reopen updates one task status; no collection is traversed."
         },
         {
-          "actions": [
-            "task-rework"
-          ],
+          "actions": ["task-rework"],
           "reason": "rework updates one execution and task iteration; no collection is traversed."
         },
         {
-          "actions": [
-            "task-settle"
-          ],
+          "actions": ["task-settle"],
           "reason": "task settle records one execution settlement; no collection is traversed."
         },
         {
-          "actions": [
-            "task-supersede"
-          ],
+          "actions": ["task-supersede"],
           "reason": "task supersede links one old task to one replacement; no task collection is traversed."
         },
         {
-          "actions": [
-            "task-witness-claim"
-          ],
+          "actions": ["task-witness-claim"],
           "reason": "witness claim records one gate run claim; no collection is traversed."
         },
         {
-          "actions": [
-            "task-witness-rerun"
-          ],
+          "actions": ["task-witness-rerun"],
           "reason": "witness rerun records one new gate run; no collection is traversed."
         },
         {
-          "actions": [
-            "task-witness-revoke"
-          ],
+          "actions": ["task-witness-revoke"],
           "reason": "witness revoke records one gate run revocation; no collection is traversed."
         },
         {
-          "actions": [
-            "task-witness-settle"
-          ],
+          "actions": ["task-witness-settle"],
           "reason": "witness settle records one gate result; no collection is traversed."
         },
         {
@@ -883,63 +645,43 @@
           "reason": "peer collaboration writes append one bounded PeerRequest event plus one interactive_watch Inbox wakeup; no history collection is traversed."
         },
         {
-          "actions": [
-            "todo-add"
-          ],
+          "actions": ["todo-add"],
           "reason": "todo add runtime creates one todo item; no todo collection is traversed."
         },
         {
-          "actions": [
-            "todo-archive"
-          ],
+          "actions": ["todo-archive"],
           "reason": "todo archive runtime updates one todo item; no todo collection is traversed."
         },
         {
-          "actions": [
-            "todo-done"
-          ],
+          "actions": ["todo-done"],
           "reason": "todo done runtime updates one todo item; no todo collection is traversed."
         },
         {
-          "actions": [
-            "todo-promote"
-          ],
+          "actions": ["todo-promote"],
           "reason": "todo promote runtime updates one todo item and target reference; no collection is traversed."
         },
         {
-          "actions": [
-            "todo-relate"
-          ],
+          "actions": ["todo-relate"],
           "reason": "todo relate runtime writes one relation edge; owner relation traversal is measured by relation-relate."
         },
         {
-          "actions": [
-            "todo-reopen"
-          ],
+          "actions": ["todo-reopen"],
           "reason": "todo reopen runtime updates one todo item; no collection is traversed."
         },
         {
-          "actions": [
-            "vertical-declaration-migrate"
-          ],
+          "actions": ["vertical-declaration-migrate"],
           "reason": "vertical declaration migration writes one declaration; no collection is traversed."
         },
         {
-          "actions": [
-            "vertical-kind-publish-schema"
-          ],
+          "actions": ["vertical-kind-publish-schema"],
           "reason": "vertical kind schema publication targets one kind; no collection is traversed."
         },
         {
-          "actions": [
-            "vertical-kind-retire"
-          ],
+          "actions": ["vertical-kind-retire"],
           "reason": "vertical kind retirement targets one kind; no collection is traversed."
         },
         {
-          "actions": [
-            "vertical-kind-upsert"
-          ],
+          "actions": ["vertical-kind-upsert"],
           "reason": "vertical kind upsert targets one kind definition; no collection is traversed."
         }
       ]
@@ -947,10 +689,7 @@
   },
   "writePortExternalWait": {
     "schema": "write-port-external-wait-budget/v1",
-    "metrics": [
-      "networkRoundTrips",
-      "remoteChildProcesses"
-    ],
+    "metrics": ["networkRoundTrips", "remoteChildProcesses"],
     "baseline": {
       "task-submit": {
         "networkRoundTrips": 0,
@@ -983,207 +722,124 @@
     "readCoverage": {
       "measured": {
         "method:protocol.dispatchLifecycle.enable": {
-          "measurements": [
-            "protocol-lifecycle-enable"
-          ]
+          "measurements": ["protocol-lifecycle-enable"]
         },
         "background:projection-recovery": {
-          "measurements": [
-            "projection-recovery"
-          ]
+          "measurements": ["projection-recovery"]
         },
         "method:repo.agentRuntime.attach": {
-          "measurements": [
-            "runtime-attach"
-          ]
+          "measurements": ["runtime-attach"]
         },
         "background:archive-maintenance": {
-          "measurements": [
-            "archive-maintenance",
-            "archive-compaction-volume"
-          ]
+          "measurements": ["archive-maintenance", "archive-compaction-volume"]
         },
         "background:archive-retention-inputs": {
-          "measurements": [
-            "archive-retention-inputs"
-          ]
+          "measurements": ["archive-retention-inputs"]
         },
         "background:in-flight-work": {
-          "measurements": [
-            "in-flight-work"
-          ]
+          "measurements": ["in-flight-work"]
         },
         "background:node-auto-claim-assignments": {
-          "measurements": [
-            "node-auto-claim-assignments"
-          ]
+          "measurements": ["node-auto-claim-assignments"]
         },
         "background:schedule-poll": {
-          "measurements": [
-            "schedule-poll"
-          ]
+          "measurements": ["schedule-poll"]
         },
         "background:squad-recovery": {
-          "measurements": [
-            "squad-recovery"
-          ]
+          "measurements": ["squad-recovery"]
         },
         "background:startup-adopt": {
-          "measurements": [
-            "startup-adopt"
-          ]
+          "measurements": ["startup-adopt"]
         },
         "background:startup-temp-sweep": {
-          "measurements": [
-            "startup-temp-sweep"
-          ]
+          "measurements": ["startup-temp-sweep"]
         },
         "command:agenda": {
-          "measurements": [
-            "agenda"
-          ]
+          "measurements": ["agenda"]
         },
         "command:agent-diff": {
-          "measurements": [
-            "cli-agent-diff"
-          ]
+          "measurements": ["cli-agent-diff"]
         },
         "command:agent-history": {
-          "measurements": [
-            "cli-agent-history"
-          ]
+          "measurements": ["cli-agent-history"]
         },
         "command:agent-inspect": {
-          "measurements": [
-            "cli-agent-inspect"
-          ]
+          "measurements": ["cli-agent-inspect"]
         },
         "command:agent-list": {
-          "measurements": [
-            "cli-agent-list"
-          ]
+          "measurements": ["cli-agent-list"]
         },
         "command:agent-rollback": {
-          "measurements": [
-            "agent-rollback"
-          ]
+          "measurements": ["agent-rollback"]
         },
         "command:agent-version-read": {
-          "measurements": [
-            "cli-agent-version-read"
-          ]
+          "measurements": ["cli-agent-version-read"]
         },
         "command:decision-list": {
-          "measurements": [
-            "cli-decision-list"
-          ]
+          "measurements": ["cli-decision-list"]
         },
         "command:decision-show": {
-          "measurements": [
-            "cli-decision-show"
-          ]
+          "measurements": ["cli-decision-show"]
         },
         "command:decision-validate": {
-          "measurements": [
-            "cli-decision-validate"
-          ]
+          "measurements": ["cli-decision-validate"]
         },
         "command:decision-verify": {
-          "measurements": [
-            "cli-decision-verify"
-          ]
+          "measurements": ["cli-decision-verify"]
         },
         "command:doc-show": {
-          "measurements": [
-            "cli-doc-show"
-          ]
+          "measurements": ["cli-doc-show"]
         },
         "command:doc-status": {
-          "measurements": [
-            "cli-doc-status"
-          ]
+          "measurements": ["cli-doc-status"]
         },
         "command:doc-sync-dry-run": {
-          "measurements": [
-            "cli-doc-sync-dry-run"
-          ]
+          "measurements": ["cli-doc-sync-dry-run"]
         },
         "command:dossier-context": {
-          "measurements": [
-            "dossier-context"
-          ]
+          "measurements": ["dossier-context"]
         },
         "command:dossier-status": {
-          "measurements": [
-            "dossier-status"
-          ]
+          "measurements": ["dossier-status"]
         },
         "command:doctor-health": {
-          "measurements": [
-            "cli-doctor-health"
-          ]
+          "measurements": ["cli-doctor-health"]
         },
         "command:entity-get": {
-          "measurements": [
-            "cli-entity-get"
-          ]
+          "measurements": ["cli-entity-get"]
         },
         "command:entity-list": {
-          "measurements": [
-            "cli-entity-list"
-          ]
+          "measurements": ["cli-entity-list"]
         },
         "command:event-list": {
-          "measurements": [
-            "cli-event-list"
-          ]
+          "measurements": ["cli-event-list"]
         },
         "command:event-show": {
-          "measurements": [
-            "cli-event-show"
-          ]
+          "measurements": ["cli-event-show"]
         },
         "command:event-subscribe": {
-          "measurements": [
-            "canonical-event-page"
-          ]
+          "measurements": ["canonical-event-page"]
         },
         "command:explain": {
-          "measurements": [
-            "explain-actions"
-          ]
+          "measurements": ["explain-actions"]
         },
         "command:fact-show": {
-          "measurements": [
-            "cli-fact-show"
-          ]
+          "measurements": ["cli-fact-show"]
         },
         "command:fact-type-list": {
-          "measurements": [
-            "cli-fact-type-list"
-          ]
+          "measurements": ["cli-fact-type-list"]
         },
         "command:graph": {
-          "measurements": [
-            "cli-graph"
-          ]
+          "measurements": ["cli-graph"]
         },
         "command:ledger-audit-export": {
-          "measurements": [
-            "cli-ledger-audit-export",
-            "ledger-audit-export-date",
-            "ledger-audit-export-date-multipage"
-          ]
+          "measurements": ["cli-ledger-audit-export", "ledger-audit-export-date", "ledger-audit-export-date-multipage"]
         },
         "command:ledger-reconcile": {
-          "measurements": [
-            "ledger-reconcile"
-          ]
+          "measurements": ["ledger-reconcile"]
         },
         "command:receipt-show": {
-          "measurements": [
-            "cli-receipt-show"
-          ]
+          "measurements": ["cli-receipt-show"]
         },
         "command:relation-list": {
           "measurements": [
@@ -1195,295 +851,175 @@
           ]
         },
         "command:relation-triples": {
-          "measurements": [
-            "cli-relation-triples"
-          ]
+          "measurements": ["cli-relation-triples"]
         },
         "command:runtime-sessions-await": {
-          "measurements": [
-            "runtime-await"
-          ]
+          "measurements": ["runtime-await"]
         },
         "command:runtime-status": {
-          "measurements": [
-            "runtime-overview-default",
-            "runtime-overview",
-            "runtime-overview-page"
-          ]
+          "measurements": ["runtime-overview-default", "runtime-overview", "runtime-overview-page"]
         },
         "command:schedule-list": {
-          "measurements": [
-            "cli-schedule-list"
-          ]
+          "measurements": ["cli-schedule-list"]
         },
         "command:schedule-reckon": {
-          "measurements": [
-            "cli-schedule-reckon"
-          ]
+          "measurements": ["cli-schedule-reckon"]
         },
         "command:schedule-runs": {
-          "measurements": [
-            "cli-schedule-runs"
-          ]
+          "measurements": ["cli-schedule-runs"]
         },
         "command:schedule-show": {
-          "measurements": [
-            "cli-schedule-show"
-          ]
+          "measurements": ["cli-schedule-show"]
         },
         "command:settings-read": {
-          "measurements": [
-            "cli-settings-read"
-          ]
+          "measurements": ["cli-settings-read"]
         },
         "command:settings-show": {
-          "measurements": [
-            "cli-settings-show"
-          ]
+          "measurements": ["cli-settings-show"]
         },
         "command:squad-inspect": {
-          "measurements": [
-            "cli-squad-inspect"
-          ]
+          "measurements": ["cli-squad-inspect"]
         },
         "command:squad-list": {
-          "measurements": [
-            "cli-squad-list"
-          ]
+          "measurements": ["cli-squad-list"]
         },
         "command:squad-status": {
-          "measurements": [
-            "cli-squad-status"
-          ]
+          "measurements": ["cli-squad-status"]
         },
         "command:task-delivery-certificate": {
-          "measurements": [
-            "cli-task-delivery-certificate"
-          ]
+          "measurements": ["cli-task-delivery-certificate"]
         },
         "command:task-dispatches": {
-          "measurements": [
-            "task-dispatches",
-            "dispatch-point",
-            "task-dispatches-page"
-          ]
+          "measurements": ["task-dispatches", "dispatch-point", "task-dispatches-page"]
         },
         "command:task-list": {
-          "measurements": [
-            "cli-task-list"
-          ]
+          "measurements": ["cli-task-list"]
         },
         "command:channel-list": {
-          "measurements": [
-            "cli-channel-list"
-          ]
+          "measurements": ["cli-channel-list"]
         },
         "command:task-read-set": {
-          "measurements": [
-            "cli-task-read-set"
-          ]
+          "measurements": ["cli-task-read-set"]
         },
         "command:task-review": {
-          "measurements": [
-            "cli-task-review"
-          ]
+          "measurements": ["cli-task-review"]
         },
         "command:task-show": {
-          "measurements": [
-            "cli-task-show"
-          ]
+          "measurements": ["cli-task-show"]
         },
         "command:peer-inbox": {
-          "measurements": [
-            "peer-inbox"
-          ]
+          "measurements": ["peer-inbox"]
         },
         "command:peer-watch": {
-          "measurements": [
-            "peer-watch"
-          ]
+          "measurements": ["peer-watch"]
         },
         "command:todo-list": {
-          "measurements": [
-            "cli-todo-list"
-          ]
+          "measurements": ["cli-todo-list"]
         },
         "command:todo-show": {
-          "measurements": [
-            "cli-todo-show"
-          ]
+          "measurements": ["cli-todo-show"]
         },
         "command:trace": {
-          "measurements": [
-            "cli-trace"
-          ]
+          "measurements": ["cli-trace"]
         },
         "command:vertical-kind-list": {
-          "measurements": [
-            "cli-vertical-kind-list"
-          ]
+          "measurements": ["cli-vertical-kind-list"]
         },
         "command:vertical-kind-show": {
-          "measurements": [
-            "cli-vertical-kind-show"
-          ]
+          "measurements": ["cli-vertical-kind-show"]
         },
         "command:vertical-list": {
-          "measurements": [
-            "cli-vertical-list"
-          ]
+          "measurements": ["cli-vertical-list"]
         },
         "command:work-list": {
-          "measurements": [
-            "cli-work-list"
-          ]
+          "measurements": ["cli-work-list"]
         },
         "command:work-show": {
-          "measurements": [
-            "cli-work-show"
-          ]
+          "measurements": ["cli-work-show"]
         },
         "method:daemon.gui.home.read": {
-          "measurements": [
-            "home-overview"
-          ]
+          "measurements": ["home-overview"]
         },
         "method:observe.tail": {
-          "measurements": [
-            "event-tail"
-          ]
+          "measurements": ["event-tail"]
         },
         "method:repo.agenda.read": {
-          "measurements": [
-            "agenda"
-          ]
+          "measurements": ["agenda"]
         },
         "method:repo.agent.entities.list": {
-          "measurements": [
-            "repo.agent.entities.list"
-          ]
+          "measurements": ["repo.agent.entities.list"]
         },
         "method:repo.agent.entity.read": {
-          "measurements": [
-            "repo.agent.entity.read"
-          ]
+          "measurements": ["repo.agent.entity.read"]
         },
         "method:repo.agent.history.read": {
-          "measurements": [
-            "repo.agent.history.read"
-          ]
+          "measurements": ["repo.agent.history.read"]
         },
         "method:repo.agent.version.read": {
-          "measurements": [
-            "agent-version-rpc"
-          ]
+          "measurements": ["agent-version-rpc"]
         },
         "method:repo.agentRuntime.events.read": {
-          "measurements": [
-            "runtime-events"
-          ]
+          "measurements": ["runtime-events"]
         },
         "method:repo.agentRuntime.overview": {
-          "measurements": [
-            "runtime-overview-default",
-            "runtime-overview",
-            "runtime-overview-page"
-          ]
+          "measurements": ["runtime-overview-default", "runtime-overview", "runtime-overview-page"]
         },
         "method:repo.agentRuntime.sessions.await": {
-          "measurements": [
-            "runtime-await"
-          ]
+          "measurements": ["runtime-await"]
         },
         "method:repo.agentRuntime.sessions.read": {
-          "measurements": [
-            "runtime-session"
-          ]
+          "measurements": ["runtime-session"]
         },
         "method:repo.agentRuntime.tokenUsage": {
-          "measurements": [
-            "repo.agentRuntime.tokenUsage"
-          ]
+          "measurements": ["repo.agentRuntime.tokenUsage"]
         },
         "method:repo.agentRuntime.tokenUsageDetail": {
-          "measurements": [
-            "repo.agentRuntime.tokenUsageDetail"
-          ]
+          "measurements": ["repo.agentRuntime.tokenUsageDetail"]
         },
         "method:repo.artifacts.list": {
-          "measurements": [
-            "repo.artifacts.list"
-          ]
+          "measurements": ["repo.artifacts.list"]
         },
         "method:repo.decision.list": {
-          "measurements": [
-            "repo.decision.list"
-          ]
+          "measurements": ["repo.decision.list"]
         },
         "method:repo.decision.show": {
-          "measurements": [
-            "repo.decision.show"
-          ]
+          "measurements": ["repo.decision.show"]
         },
         "method:repo.decisions.list": {
-          "measurements": [
-            "repo.decisions.list"
-          ]
+          "measurements": ["repo.decisions.list"]
         },
         "method:repo.doc.show": {
-          "measurements": [
-            "repo.doc.show"
-          ]
+          "measurements": ["repo.doc.show"]
         },
         "method:repo.dossier.context.read": {
-          "measurements": [
-            "dossier-context"
-          ]
+          "measurements": ["dossier-context"]
         },
         "method:repo.dossier.read": {
-          "measurements": [
-            "dossier-content"
-          ]
+          "measurements": ["dossier-content"]
         },
         "method:repo.dossier.status": {
-          "measurements": [
-            "dossier-status"
-          ]
+          "measurements": ["dossier-status"]
         },
         "method:repo.entity.actions.explain": {
-          "measurements": [
-            "explain-actions"
-          ]
+          "measurements": ["explain-actions"]
         },
         "method:repo.entity.content.read": {
-          "measurements": [
-            "repo.entity.content.read"
-          ]
+          "measurements": ["repo.entity.content.read"]
         },
         "method:repo.entity.kinds.read": {
-          "measurements": [
-            "repo.entity.kinds.read"
-          ]
+          "measurements": ["repo.entity.kinds.read"]
         },
         "method:repo.entity.locator.read": {
-          "measurements": [
-            "repo.entity.locator.read"
-          ]
+          "measurements": ["repo.entity.locator.read"]
         },
         "method:repo.entity.rows.read": {
-          "measurements": [
-            "repo.entity.rows.read"
-          ]
+          "measurements": ["repo.entity.rows.read"]
         },
         "method:repo.events.read": {
-          "measurements": [
-            "canonical-event-page"
-          ]
+          "measurements": ["canonical-event-page"]
         },
         "method:repo.fleet.overview.read": {
-          "measurements": [
-            "fleet-overview"
-          ]
+          "measurements": ["fleet-overview"]
         },
         "method:repo.projection.read": {
           "measurements": [
@@ -1493,178 +1029,106 @@
           ]
         },
         "method:repo.receipt.show": {
-          "measurements": [
-            "repo.receipt.show"
-          ]
+          "measurements": ["repo.receipt.show"]
         },
         "method:repo.reckoning.signals.read": {
-          "measurements": [
-            "repo.reckoning.signals.read"
-          ]
+          "measurements": ["repo.reckoning.signals.read"]
         },
         "method:repo.settings.read": {
-          "measurements": [
-            "repo.settings.read"
-          ]
+          "measurements": ["repo.settings.read"]
         },
         "method:repo.squad.entities.list": {
-          "measurements": [
-            "repo.squad.entities.list"
-          ]
+          "measurements": ["repo.squad.entities.list"]
         },
         "method:repo.squad.entity.read": {
-          "measurements": [
-            "repo.squad.entity.read"
-          ]
+          "measurements": ["repo.squad.entity.read"]
         },
         "method:repo.squad.run.read": {
-          "measurements": [
-            "repo.squad.run.read"
-          ]
+          "measurements": ["repo.squad.run.read"]
         },
         "method:repo.squad.runs.list": {
-          "measurements": [
-            "repo.squad.runs.list"
-          ]
+          "measurements": ["repo.squad.runs.list"]
         },
         "method:repo.task.dispatches": {
-          "measurements": [
-            "task-dispatches",
-            "dispatch-point",
-            "task-dispatches-page"
-          ]
+          "measurements": ["task-dispatches", "dispatch-point", "task-dispatches-page"]
         },
         "method:repo.trace.read": {
-          "measurements": [
-            "cli-trace"
-          ]
+          "measurements": ["cli-trace"]
         },
         "method:repo.task.show": {
-          "measurements": [
-            "repo.task.show"
-          ]
+          "measurements": ["repo.task.show"]
         },
         "method:repo.tasks.assignmentDirectory": {
-          "measurements": [
-            "assignment-directory"
-          ]
+          "measurements": ["assignment-directory"]
         },
         "method:repo.tasks.claimable": {
-          "measurements": [
-            "claimable-tasks"
-          ]
+          "measurements": ["claimable-tasks"]
         },
         "method:repo.tasks.completion.read": {
-          "measurements": [
-            "repo.tasks.completion.read"
-          ]
+          "measurements": ["repo.tasks.completion.read"]
         },
         "method:repo.tasks.deliveryDiff.read": {
-          "measurements": [
-            "repo.tasks.deliveryDiff.read"
-          ]
+          "measurements": ["repo.tasks.deliveryDiff.read"]
         },
         "method:repo.tasks.document.read": {
-          "measurements": [
-            "document-point",
-            "output-point-same-task"
-          ]
+          "measurements": ["document-point", "output-point-same-task"]
         },
         "method:repo.tasks.documents.list": {
-          "measurements": [
-            "document-prefix"
-          ]
+          "measurements": ["document-prefix"]
         },
         "method:repo.tasks.list": {
-          "measurements": [
-            "task-list"
-          ]
+          "measurements": ["task-list"]
         },
         "method:repo.channel.list": {
-          "measurements": [
-            "repo.channel.list"
-          ]
+          "measurements": ["repo.channel.list"]
         },
         "method:repo.peer.inbox": {
-          "measurements": [
-            "repo.peer.inbox"
-          ]
+          "measurements": ["repo.peer.inbox"]
         },
         "method:repo.tasks.runtimeContext.read": {
-          "measurements": [
-            "repo.tasks.runtimeContext.read"
-          ]
+          "measurements": ["repo.tasks.runtimeContext.read"]
         },
         "method:repo.tasks.wip": {
-          "measurements": [
-            "repo.tasks.wip"
-          ]
+          "measurements": ["repo.tasks.wip"]
         },
         "method:repo.todo.list": {
-          "measurements": [
-            "repo.todo.list"
-          ]
+          "measurements": ["repo.todo.list"]
         },
         "method:repo.todo.show": {
-          "measurements": [
-            "repo.todo.show"
-          ]
+          "measurements": ["repo.todo.show"]
         },
         "method:repo.triadic.relationGraph": {
-          "measurements": [
-            "relation-page",
-            "relation-page-all-visible",
-            "relation-page-low-visibility"
-          ]
+          "measurements": ["relation-page", "relation-page-all-visible", "relation-page-low-visibility"]
         },
         "method:repo.vertical.declaration.read": {
-          "measurements": [
-            "repo.vertical.declaration.read"
-          ]
+          "measurements": ["repo.vertical.declaration.read"]
         },
         "method:repo.vertical.list": {
-          "measurements": [
-            "repo.vertical.list"
-          ]
+          "measurements": ["repo.vertical.list"]
         },
         "method:repo.work.topology.read": {
-          "measurements": [
-            "repo.work.topology.read"
-          ]
+          "measurements": ["repo.work.topology.read"]
         },
         "method:repo.works.briefs.read": {
-          "measurements": [
-            "repo.works.briefs.read"
-          ]
+          "measurements": ["repo.works.briefs.read"]
         },
         "method:repo.works.index": {
-          "measurements": [
-            "repo.works.index"
-          ]
+          "measurements": ["repo.works.index"]
         },
         "method:repo.workspace.scope.read": {
-          "measurements": [
-            "repo.workspace.scope.read"
-          ]
+          "measurements": ["repo.workspace.scope.read"]
         },
         "method:repo.workspace.summary.read": {
-          "measurements": [
-            "workspace-summary"
-          ]
+          "measurements": ["workspace-summary"]
         }
       },
       "notApplicable": [
         {
-          "reads": [
-            "method:daemon.skillEval.cases.list"
-          ],
+          "reads": ["method:daemon.skillEval.cases.list"],
           "reason": "Returns the selected skill evaluation catalog cases from the host-local catalog (skill-eval-production.ts), not canonical repository history; selected catalog cases are the explicit result k."
         },
         {
-          "reads": [
-            "method:daemon.fleet.center.read",
-            "method:daemon.fleet.center.external-address.read"
-          ],
+          "reads": ["method:daemon.fleet.center.read", "method:daemon.fleet.center.external-address.read"],
           "reason": "Reads the current fleet-center listener/address singleton in daemon host state (json-rpc-server.ts), with no repository projection or history enumeration."
         },
         {
@@ -1679,16 +1143,11 @@
           "reason": "Host status/handshake/control-receipt readers expose current daemon, process, registry or bounded control state, not canonical repository history (daemon-host-open.ts, gui-system-read.ts, gui-s3-control.ts)."
         },
         {
-          "reads": [
-            "method:repo.task.read"
-          ],
+          "reads": ["method:repo.task.read"],
           "reason": "Transport envelope dispatches the registered repo-read CLI actions. Every action is independently enumerated and covered as command:<id>; the envelope itself performs no projection read (repo-cell-action-dispatch.ts)."
         },
         {
-          "reads": [
-            "command:agent-validate",
-            "command:squad-validate"
-          ],
+          "reads": ["command:agent-validate", "command:squad-validate"],
           "reason": "Validate the supplied declaration/source and current runtime instance catalog; validateAgentEntityAction does not query ledger history (agent-entities.ts:validateAgentEntityAction)."
         },
         {
@@ -1727,55 +1186,41 @@
           "reason": "Compose the current asset catalog plus one Settings singleton (gui-catalog.ts:openGuiCatalog); rereread invalidates the catalog digest. No history enumeration. Settings dependency is independently measured; current catalog membership is result k."
         },
         {
-          "reads": [
-            "method:repo.preset.run.status"
-          ],
+          "reads": ["method:repo.preset.run.status"],
           "reason": "Reads one local run status receipt by runId, not canonical history (preset-run-status reader)."
         },
         {
-          "reads": [
-            "method:repo.agent.skills.list"
-          ],
+          "reads": ["method:repo.agent.skills.list"],
           "reason": "Discovers the currently installed skill directories (agent-skills.ts); no canonical ledger query. Returned installed skills are the explicit result k."
         },
         {
-          "reads": [
-            "method:repo.policy.metadata.read"
-          ],
+          "reads": ["method:repo.policy.metadata.read"],
           "reason": "Reads current external Keycloak policy metadata (readPolicyMetadata), not repository history. No network or credentials are used by this repository-scale fixture."
         },
         {
-          "reads": [
-            "method:repo.terminal.attach",
-            "method:repo.terminal.detach",
-            "method:repo.terminal.sessions.list"
-          ],
+          "reads": ["method:repo.terminal.attach", "method:repo.terminal.detach", "method:repo.terminal.sessions.list"],
           "reason": "Operate on current in-memory terminal sessions/processes, not canonical runtime-session history (daemon-host-runtime-api.ts)."
         },
         {
-          "reads": [
-            "background:host-reattach"
-          ],
+          "reads": ["background:host-reattach"],
           "reason": "Enumerates current registered repositories and opens each independently; current registry entries are input k (daemon-host-recovery.ts). Per-repository canonical startup readers are separately measured."
         },
         {
-          "reads": [
-            "background:squad-reconcile"
-          ],
+          "reads": ["background:squad-reconcile"],
           "reason": "After measured squad-recovery hydrates state, reconciles current active runs from its in-memory Map and keyed dispatch/task reads; loop population is active work k (squad-coordinator.ts:reconcile)."
         },
         {
-          "reads": [
-            "background:worktree-reconcile"
-          ],
+          "reads": ["background:worktree-reconcile"],
           "reason": "Enumerates currently materialized local task worktrees, then reads each named task/snapshot; current worktrees are explicit input k, not a canonical task-history scan (task-worktree.ts:reconcileAbandonedTaskWorktrees)."
         },
         {
           "reads": [
             "command:ceo-status",
-            "method:repo.residentCeo.status"
+            "method:repo.residentCeo.status",
+            "command:ceo-proposals",
+            "method:repo.residentCeo.proposals"
           ],
-          "reason": "Reads Resident CEO profiles from the RepoCell local-settings JSON map and selects the current principal's profile (resident-ceo-profile-store.ts); this is host-local configuration, not canonical event, runtime, dispatch, output or relation history."
+          "reason": "Reads Resident CEO profiles and bounded proposals from the RepoCell local-settings JSON map and selects the current principal's profile (resident-ceo-profile-store.ts); this is host-local configuration, not canonical event, runtime, dispatch, output or relation history."
         }
       ]
     },

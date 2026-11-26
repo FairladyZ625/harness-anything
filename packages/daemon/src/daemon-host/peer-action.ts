@@ -560,9 +560,12 @@ export function runPeerAction(
     const batch: CanonicalWriteBundle[] = [];
     let state: PeerRequestV1 = current;
     let nextWorkspaceRev = head;
+    const outcome = optionalString(action.outcome) ?? "answered";
+    const updatingPromotedOutcome =
+      state.state === "PROMOTED" && state.promotedTaskId !== null && outcome === "answered";
     const claimActive =
       state.state === "CLAIMED" && state.claim !== null && Date.parse(state.claim.expiresAt) > Date.parse(now);
-    if (!claimActive) {
+    if (!claimActive && !updatingPromotedOutcome) {
       nextWorkspaceRev += 1;
       const expiresAt = new Date(Date.parse(now) + DEFAULT_CLAIM_LEASE_MS).toISOString();
       const claimEvent = compilePeerRequestClaimed(
@@ -579,8 +582,10 @@ export function runPeerAction(
       state = reducePeerRequestEvent(state, claimEvent);
       batch.push(buildPeerEventBundle(claimEvent, requestId));
     }
+    if (updatingPromotedOutcome && state.claim === null) {
+      reject("peer_request_transition_invalid", `Promoted PeerRequest ${requestId} is missing its claim fence.`);
+    }
 
-    const outcome = optionalString(action.outcome) ?? "answered";
     nextWorkspaceRev += 1;
     let terminalEvent: PeerRequestEventV1;
     if (outcome === "done") {
@@ -657,7 +662,7 @@ export function runPeerAction(
           dedupeKey: inboxDedupeKey({ source: "peer_reply", sourceRef: requestId, sourceEpoch: state.revision }),
           admission: "dispatchable",
           consumerKind: "interactive_watch",
-          taskId: null,
+          taskId: state.promotedTaskId ?? null,
           agentId: null,
           senderPersonId: personId,
           workId: current.to.workId ?? null,
@@ -749,12 +754,50 @@ export function runPeerAction(
     state = reducePeerRequestEvent(state, promoteEvent);
     batch.push(buildPeerEventBundle(promoteEvent, requestId));
 
+    const inboxRevision = nextWorkspaceRev + 1;
+    const promotedTitle = optionalString(action.title) ?? current.summary;
+    batch.push(
+      buildInboxEnqueueBundle({
+        opId: `${opId}-notify`,
+        workspaceRevision: inboxRevision,
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: now,
+        payload: {
+          inboxId: `person:${current.from.personId}`,
+          itemId: `peer-reply-${requestId}-${state.revision}`,
+          source: "peer_reply",
+          sourceRef: requestId,
+          sourceEpoch: state.revision,
+          dedupeKey: inboxDedupeKey({ source: "peer_reply", sourceRef: requestId, sourceEpoch: state.revision }),
+          admission: "dispatchable",
+          consumerKind: "interactive_watch",
+          taskId: prepared.fields.taskId,
+          agentId: null,
+          senderPersonId: personId,
+          workId: work,
+          lane: current.to.lane ?? null,
+          correlationId: requestId,
+          minRevision: inboxRevision,
+          requiredBlobSha256s: [],
+          summary: `Promoted (${requestId}) -> task/${prepared.fields.taskId}: ${promotedTitle}`.slice(0, 1024),
+          enqueuedAt: now,
+        },
+      }),
+    );
+
     commitBatch(cell, batch, prepared);
     return {
       ...cell.readResult(
         opId,
-        { request: state, promotedTaskId: prepared.fields.taskId, taskRef: `task/${prepared.fields.taskId}` },
-        nextWorkspaceRev,
+        {
+          request: state,
+          promotedTaskId: prepared.fields.taskId,
+          taskRef: `task/${prepared.fields.taskId}`,
+          replyInboxId: `person:${current.from.personId}`,
+          minRevision: inboxRevision,
+        },
+        inboxRevision,
         null,
       ),
       authorizationDecision: binding.authorizationDecision,

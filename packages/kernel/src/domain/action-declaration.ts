@@ -11,6 +11,16 @@ export const actionPresentation = {
   "ceo-start": { domain: "daemon", name: "启动常驻 CEO", description: "启动当前主理人的常驻 CEO。" },
   "ceo-stop": { domain: "daemon", name: "停止常驻 CEO", description: "停止当前主理人的常驻 CEO。" },
   "ceo-chat": { domain: "daemon", name: "续聊常驻 CEO", description: "向当前主理人的常驻 CEO 发送消息。" },
+  "ceo-approve": {
+    domain: "daemon",
+    name: "批准常驻 CEO 委派提案",
+    description: "批准待确认的跨节点委派提案并原子晋升为受管任务。",
+  },
+  "ceo-reject": {
+    domain: "daemon",
+    name: "拒绝常驻 CEO 委派提案",
+    description: "拒绝待确认的跨节点委派提案并向发起方回写拒绝理由。",
+  },
   "preset-convert-local": {
     domain: "preset",
     name: "转换本地旧版包",
@@ -456,6 +466,8 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("ceo-start", undefined, false),
   hostAdmin("ceo-stop", undefined, false),
   hostAdmin("ceo-chat", undefined, false),
+  hostAdmin("ceo-approve", undefined, false),
+  hostAdmin("ceo-reject", undefined, false),
   declare("daemon-fleet-center-switch", "admin", { scope: "host-local", writer: "caller-process" }),
   declare("daemon-fleet-center-promote-from-edge", "admin", { scope: "host-local", writer: "caller-process" }),
   hostAdmin("daemon-fleet-edge-sync", undefined, false),
