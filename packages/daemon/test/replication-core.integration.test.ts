@@ -362,14 +362,16 @@ test("sender streams eventless commits to the real replica and records an applie
 
 test("receiver reports an apply failure to the sender before closing the stream", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-stream-failure-core-"));
-  t.after(() => removeTempRepository(root));
   const slots = openReplicationSlots(path.join(root, "slots.sqlite")),
     abort = new AbortController(),
     position = { history: "failure-history", sequence: 0, revision: 0 },
     nextPosition = { ...position, sequence: 1 },
     commit = { position: nextPosition, events: [], outcome: null, writer: null },
     observed: { readonly code: string; readonly message: string }[] = [];
-  t.after(() => slots.close());
+  t.after(() => {
+    slots.close();
+    removeTempRepository(root);
+  });
   const channel = () => {
       const queue: ReplicationFrame[] = [],
         waiters: {

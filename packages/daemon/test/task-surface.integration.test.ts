@@ -38,14 +38,17 @@ after(() => {
 
 test("work owner appends without a lease while outsider and ordinary task require one, including cold replay", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-work-progress-"));
-  t.after(() => removeTempRepository(rootDir));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  t.after(async () => {
+    await cell?.close();
+    removeTempRepository(rootDir);
+  });
   initRepo(rootDir);
-  const cell = await openRepoCell({
+  cell = await openRepoCell({
     repoId: workspaceId("work-progress"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "work-progress",
   });
-  t.after(() => cell.close());
   const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
   const decisionRef = await acceptedWorkDecision(cell, binding, "work-progress");
   for (const [taskId, presetId, taskClass] of [
@@ -82,6 +85,8 @@ test("work owner appends without a lease while outsider and ordinary task requir
   );
   assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
   await waitForFixturePublication(cell, delegated.opId, binding);
+  await cell.close();
+  cell = undefined;
   const store = makeTaskEventStore({ repoId: "work-progress", rootDir });
   const projection = makeTaskProjection({ rootDir, eventStore: store });
   try {
@@ -99,14 +104,16 @@ test("work owner appends without a lease while outsider and ordinary task requir
 
 test("task create rejects ids that cannot form task entity references", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-id-ref-"));
-  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("task-id-ref"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "task-id-ref-create",
   });
-  t.after(() => cell.close());
+  t.after(async () => {
+    await cell.close();
+    removeTempRepository(rootDir);
+  });
   const rejected = await cell.run(
     { kind: "task-create", taskId: "t0", title: "Invalid id" },
     withPolicyGroup({ actor, source: "local" }, "admin"),
@@ -664,14 +671,16 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
 
 test("a lifecycle rejection bound to a declared criterion reports the guard's own reason", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-reason-"));
-  t.after(() => removeTempRepository(rootDir));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("task-rejection-reason"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "task-rejection-reason",
   });
-  t.after(() => cell.close());
+  t.after(async () => {
+    await cell.close();
+    removeTempRepository(rootDir);
+  });
   await cell.run(
     { kind: "task-create", taskId: "task-reason", title: "Reason" },
     withPolicyGroup({ actor, source: "local" }, "admin"),
