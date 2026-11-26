@@ -6,6 +6,9 @@ import { analyzeModuleClosure } from "./analyze-module-closure.mjs";
 export const writerEntries = [
   { mode: "sqlite", entry: "packages/daemon/src/writer-cell/repo-writer-worker.ts" },
   { mode: "pg", entry: "packages/daemon/src/writer-cell/repo-writer-worker-pg.ts" },
+  { mode: "pglite", entry: "packages/daemon/src/writer-cell/repo-writer-worker-pglite.ts" },
+  { mode: "cloud", entry: "packages/daemon/src/writer-cell/cloud-writer-shard.ts" },
+  { mode: "pg", entry: "packages/daemon/src/writer-cell/cloud-writer-pg-repository.ts" },
 ];
 const forbiddenPackages = /(?:^|\/)node_modules\/(?:node-pty|ws|undici|fast-check|pure-rand)(?:\/|$)/u;
 const forbiddenWorkspace =
@@ -49,7 +52,8 @@ export function checkWriterIsolate(root = process.cwd(), entries = writerEntries
     samples = [];
   for (const { mode, entry } of entries) {
     const analysis = analyzeModuleClosure({ root, entry }),
-      unprivileged = mode === "pg" ? withoutPgTransport(analysis) : null,
+      usesPgAdapter = mode === "pg" || mode === "pglite",
+      unprivileged = usesPgAdapter ? withoutPgTransport(analysis) : null,
       daemonModules = analysis.modules.filter((m) => m.path.startsWith("packages/daemon/")).length;
     samples.push({ mode, entry, modules: analysis.moduleCount, daemonModules });
     if (daemonModules > 60) violations.push(`${entry}: daemon closure ${daemonModules} exceeds 60`);
@@ -77,12 +81,12 @@ export function checkWriterIsolate(root = process.cwd(), entries = writerEntries
     for (const { to, from, specifier } of analysis.edges) {
       if (specifier === "effect" || specifier === "@harness-anything/kernel")
         violations.push(`${entry}: runtime root barrel ${specifier} in ${from}`);
-      if (forbiddenBuiltin.has(to) && (mode !== "pg" || !pgTransportBuiltin.has(to) || unprivileged.has(to)))
+      if (forbiddenBuiltin.has(to) && (!usesPgAdapter || !pgTransportBuiltin.has(to) || unprivileged.has(to)))
         violations.push(`${entry}: forbidden process/network capability ${to}`);
     }
     for (const item of analysis.unresolvedImports) {
       if (
-        mode === "pg" &&
+        usesPgAdapter &&
         item.specifier === "pg-native" &&
         /node_modules\/pg\/lib\/native\/client\.js$/u.test(item.path)
       )

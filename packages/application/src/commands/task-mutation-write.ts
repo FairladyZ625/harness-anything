@@ -1,12 +1,11 @@
 import {
   compileTaskLifecycleWrite,
-  createTaskEvent,
   lifecycleDocumentFetchPaths,
-  reduceTaskEvent,
-  sha256Text,
-  type TaskEventV1,
-  type TaskLifecycleSnapshot,
-} from "@harness-anything/kernel";
+} from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
+import { createTaskEvent, type TaskEventV1 } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
+import { reduceTaskEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle-replay.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import type { CommandBinding } from "./command-ports.ts";
 import type { TaskMutation } from "./task-mutation.ts";
 

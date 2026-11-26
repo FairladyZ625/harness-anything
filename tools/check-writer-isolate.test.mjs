@@ -101,3 +101,39 @@ test("fails closed above sixty daemon modules", (t) => {
   for (let i = 0; i < 60; i++) write(`packages/daemon/src/writer-cell/module-${i}.ts`, "export {};\n");
   assert.ok(checkWriterIsolate(root).violations.some((v) => v.includes("daemon closure 61 exceeds 60")));
 });
+
+test("registers cloud writer shard, PG cloud repository, and PGlite worker and rejects queries or root barrel imports", (t) => {
+  const entries = new Set(writerEntries.map((item) => item.entry));
+  assert.ok(entries.has("packages/daemon/src/writer-cell/cloud-writer-shard.ts"));
+  assert.ok(entries.has("packages/daemon/src/writer-cell/cloud-writer-pg-repository.ts"));
+  assert.ok(entries.has("packages/daemon/src/writer-cell/repo-writer-worker-pglite.ts"));
+
+  const { root, write } = fixture(t),
+    cloudEntry = "packages/daemon/src/writer-cell/cloud-writer-shard.ts";
+  assert.equal(checkWriterIsolate(root).ok, true);
+
+  write(
+    "packages/application/src/queries/task-completion-read.ts",
+    "export const readCompletionContext = () => ({});\n",
+  );
+  write(cloudEntry, 'import "../../../application/src/queries/task-completion-read.ts";\n');
+  assert.ok(
+    checkWriterIsolate(root).violations.some(
+      (v) =>
+        v.includes(cloudEntry) &&
+        v.includes("forbidden module packages/application/src/queries/task-completion-read.ts"),
+    ),
+  );
+
+  write(
+    "node_modules/@harness-anything/kernel/package.json",
+    JSON.stringify({ name: "@harness-anything/kernel", exports: "./index.js", type: "module" }),
+  );
+  write("node_modules/@harness-anything/kernel/index.js", "export const sha256Text = (v) => v;\n");
+  write(cloudEntry, 'import { sha256Text } from "@harness-anything/kernel"; void sha256Text;\n');
+  assert.ok(
+    checkWriterIsolate(root).violations.some(
+      (v) => v.includes(cloudEntry) && v.includes("runtime root barrel @harness-anything/kernel"),
+    ),
+  );
+});

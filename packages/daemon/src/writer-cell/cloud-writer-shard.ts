@@ -2,22 +2,25 @@ import path from "node:path";
 import { appendProgress } from "@harness-anything/application/internal/commands/task-progress-append.ts";
 import { taskMutation } from "@harness-anything/application/internal/commands/task-mutation.ts";
 import { compileTaskMutationWrite } from "@harness-anything/application/internal/commands/task-mutation-write.ts";
-import { readCompletionContext } from "@harness-anything/application/internal/queries/task-completion-read.ts";
-import {
-  isTaskProgressEvent,
-  sha256Text,
-  stableStringify,
-  type ActorIdentity,
-  type AuthorizationDecision,
-  type CanonicalEventAppendReceipt,
-  type CanonicalEventCut,
-  type CanonicalEventStore,
-  type CanonicalEventV1,
-  type TaskProjection,
-  type WriteSource,
-} from "@harness-anything/kernel";
+import { isTaskProgressEvent } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
+import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/storage-read-policy.ts";
+import type {
+  ActorIdentity,
+  AuthorizationDecision,
+  CanonicalEventAppendReceipt,
+  CanonicalEventCut,
+  CanonicalEventStore,
+  CanonicalEventV1,
+  TaskProjection,
+  WriteSource,
+} from "@harness-anything/kernel";
+import {
+  cloudCompletionContext,
+  requestedExpectedRevision,
+  verifyReplayPayload,
+} from "./cloud-writer-shard-helpers.ts";
 
 /** A writer with no checkout. Layout discovery starts here and must not assume a task worktree. */
 export const CLOUD_WRITER_ROOT = path.join(path.parse(process.cwd()).root, "harness-cloud-writer");
@@ -89,6 +92,7 @@ export interface CloudWriterShard {
 const MUTATION_KINDS = new Set(["task-amend", "task-archive", "task-reopen", "task-delete", "task-release"]);
 const PROGRESS_KIND = "task-progress-append";
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9._:-]{1,200}$/u;
+const MAX_ACCEPTED_FINGERPRINTS = 8192;
 const WRITE_ONLY_HEADERS: ReadonlyArray<readonly [string, string]> = [["allow", "POST"]];
 const OVERLOAD_HEADERS: ReadonlyArray<readonly [string, string]> = [["retry-after", "1"]];
 const BEARER_CHALLENGE_HEADERS: ReadonlyArray<readonly [string, string]> = [["www-authenticate", "Bearer"]];
@@ -106,6 +110,7 @@ export function createCloudWriterShard(options: CloudWriterShardOptions): CloudW
     throw new RangeError("Cloud writer admission requires positive, bounded limits.");
   const repositories = new Map(options.repositories),
     fenced = new Set<string>(),
+    acceptedFingerprints: FingerprintCache = { active: new Map(), previous: new Map() },
     now = options.now ?? (() => new Date().toISOString());
   let inFlight = 0,
     // One ordered outbox chain: records publish in acceptance order, after their write turn.
@@ -147,7 +152,9 @@ export function createCloudWriterShard(options: CloudWriterShardOptions): CloudW
         ...(actor.authorizationDecision ? { authorizationDecision: actor.authorizationDecision } : {}),
       };
       const opId = `cloud-${sha256Text(stableStringify({ repoId, person: actor.actor.principal, idempotencyKey }))}`;
-      const result = repository.withAppendFence(() => executeWrite(repository, repoId, action, binding, opId, now));
+      const result = repository.withAppendFence(() =>
+        executeWrite(repository, repoId, action, binding, opId, now, acceptedFingerprints),
+      );
       if (result.appended) schedulePublication({ repoId, ...result.appended });
       return Response.json(
         { receipt: result.receipt, replayed: result.appended === null },
@@ -167,6 +174,8 @@ export function createCloudWriterShard(options: CloudWriterShardOptions): CloudW
         return fault(409, code);
       }
       if (code === "op_conflict" || code === "idempotency_key_reused") return fault(409, "idempotency_key_reused");
+      if (code === "revision_conflict")
+        return fault(409, "revision_conflict", [], error instanceof Error ? error.message : undefined);
       if (code !== null) return fault(422, code, [], error instanceof Error ? error.message : undefined);
       options.onError?.(error);
       return fault(500, "write_failed");
@@ -193,6 +202,11 @@ type CloudBinding = {
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
+type FingerprintCache = {
+  active: Map<string, string>;
+  previous: Map<string, string>;
+};
+
 function executeWrite(
   repository: CloudWriterRepository,
   repoId: string,
@@ -200,10 +214,18 @@ function executeWrite(
   binding: CloudBinding,
   opId: string,
   now: () => string,
+  acceptedFingerprints: FingerprintCache,
 ): { readonly receipt: CloudWriteReceipt; readonly appended: Omit<CloudOutboxRecord, "repoId"> | null } {
   const { store, projection } = repository,
+    fingerprint = sha256Text(stableStringify(action)),
     existing = store.readEvent(opId);
-  if (existing) return { receipt: replayReceipt(existing, action, opId), appended: null };
+  if (existing) {
+    const accepted = acceptedFingerprints.active.get(opId) ?? acceptedFingerprints.previous.get(opId);
+    verifyReplayPayload(existing, action, opId, accepted, fingerprint, codedError);
+    return { receipt: receiptFor(existing, opId), appended: null };
+  }
+  const expectedRevision = requestedExpectedRevision(action);
+  let knownTaskIds: Set<string> | null = null;
   const port = {
     input: { repoId },
     store,
@@ -230,16 +252,42 @@ function executeWrite(
         worktreeVisible: false,
       },
     }),
-    projectedTaskIds: () => new Set<string>(),
+    projectedTaskIds: () => {
+      if (knownTaskIds) return knownTaskIds;
+      const read = projection.list();
+      if (read.watermark !== read.sourceRevision)
+        throw codedError(
+          "content_not_ready",
+          `Task identity projection is behind the canonical event stream: watermark ${String(read.watermark)}, ` +
+            `source revision ${String(read.sourceRevision)}.`,
+        );
+      knownTaskIds = new Set(read.rows.map(({ taskId }) => taskId));
+      return knownTaskIds;
+    },
     // A cloud shard tracks no host-local dispatch index; supersede, which needs it, is not routed here.
     readDispatchLiveEntries: () => [],
   };
-  if (action.kind === PROGRESS_KIND) appendProgress(port, action, binding);
-  else {
+  if (action.kind === PROGRESS_KIND) {
+    if (expectedRevision !== undefined) {
+      const taskId = requiredCellText(action.taskId, "taskId"),
+        current = projection.read(taskId);
+      if (current.status === "ready" && current.snapshot.task && current.snapshot.revision !== expectedRevision)
+        throw new CodedError(
+          "revision_conflict",
+          `Task ${taskId} is at revision ${String(current.snapshot.revision)}; expected ${String(expectedRevision)}.`,
+        );
+    }
+    appendProgress(port, action, binding);
+  } else {
     const taskId = requiredCellText(action.taskId, "taskId"),
       current = projection.read(taskId);
     if (current.status !== "ready" || !current.snapshot.task || !current.packagePath)
       throw new CodedError("task_not_found", `Task ${taskId} is not ready in this repository's projection.`);
+    if (expectedRevision !== undefined && current.snapshot.revision !== expectedRevision)
+      throw new CodedError(
+        "revision_conflict",
+        `Task ${taskId} is at revision ${String(current.snapshot.revision)}; expected ${String(expectedRevision)}.`,
+      );
     const packagePath = current.packagePath,
       mutation = taskMutation(port, action, current.snapshot.task, current.snapshot, binding),
       compiled = compileTaskMutationWrite({
@@ -263,32 +311,26 @@ function executeWrite(
             ? { path: target, body: read.document.body, blobSha256: read.document.blobSha256 }
             : null;
         },
-        completionContext: (next) => readCompletionContext(projection, taskId, next, current.status, CLOUD_WRITER_ROOT),
+        completionContext: (next) => cloudCompletionContext(projection, taskId, next, current.status, codedError),
       });
     store.append(compiled);
     projection.apply(compiled.event, compiled.plan);
   }
   const event = store.readEvent(opId);
   if (event === null) throw new CodedError("write_not_accepted", `Write ${opId} was not appended.`);
+  rememberFingerprint(acceptedFingerprints, opId, fingerprint);
   return {
     receipt: receiptFor(event, opId),
     appended: { opId, revision: event.workspaceRevision, cut: store.publication(event).cut },
   };
 }
 
-function replayReceipt(
-  event: CanonicalEventV1,
-  action: Readonly<Record<string, unknown>> & { readonly kind: string },
-  opId: string,
-): CloudWriteReceipt {
-  const receipt = receiptFor(event, opId),
-    sameKind = action.kind === PROGRESS_KIND ? isTaskProgressEvent(event) : !isTaskProgressEvent(event);
-  if (!sameKind || receipt.taskId !== action.taskId)
-    throw new CodedError(
-      "idempotency_key_reused",
-      `Idempotency key already accepted operation ${opId} for another write.`,
-    );
-  return receipt;
+function rememberFingerprint(fingerprints: FingerprintCache, opId: string, fingerprint: string): void {
+  if (!fingerprints.active.has(opId) && fingerprints.active.size >= MAX_ACCEPTED_FINGERPRINTS) {
+    fingerprints.previous = fingerprints.active;
+    fingerprints.active = new Map();
+  }
+  fingerprints.active.set(opId, fingerprint);
 }
 
 /** The accepted receipt is a function of the stored event alone, so a replay returns it unchanged. */
@@ -315,6 +357,16 @@ function parseAction(value: unknown): Readonly<Record<string, unknown>> & { read
   if (typeof action.kind !== "string" || !(MUTATION_KINDS.has(action.kind) || action.kind === PROGRESS_KIND))
     throw new WriteFault(400, "unsupported_command");
   if (action.dryRun !== undefined) throw new WriteFault(400, "invalid_command");
+  if (action.expectedRevision !== undefined && !isNonNegativeSafeInteger(action.expectedRevision))
+    throw new WriteFault(400, "invalid_command");
+  if (action.expectedVersion !== undefined && !isNonNegativeSafeInteger(action.expectedVersion))
+    throw new WriteFault(400, "invalid_command");
+  if (
+    action.expectedRevision !== undefined &&
+    action.expectedVersion !== undefined &&
+    action.expectedRevision !== action.expectedVersion
+  )
+    throw new WriteFault(400, "invalid_command");
   return action as Readonly<Record<string, unknown>> & { readonly kind: string };
 }
 
@@ -352,6 +404,10 @@ function requiredCellText(value: unknown, name: string): string {
 
 function isPositiveSafeInteger(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0;
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 class WriteFault extends Error {

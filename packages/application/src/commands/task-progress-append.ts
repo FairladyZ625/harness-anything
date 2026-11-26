@@ -1,18 +1,21 @@
+import { canStartExecution } from "@harness-anything/kernel/internal/domain/task-lifecycle-command-transitions.ts";
 import {
-  canStartExecution,
   compileTaskProgress,
   isTaskProgressEvent,
-  resolveTaskBoundRuntimeBinding,
-  runtimeSessionIdFromActor,
-  sha256Text,
-  stableStringify,
   taskProgressWritePlan,
-  type CanonicalEventAppendReceipt,
-  type DocEventChange,
-  type EventPublicationKillpoint,
   type TaskProgressEventV1,
   type TaskProgressEvidence,
-  type WriteReceiptDraft,
+} from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
+import {
+  resolveTaskBoundRuntimeBinding,
+  runtimeSessionIdFromActor,
+} from "@harness-anything/kernel/internal/domain/task-bound-runtime-authority.ts";
+import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import type {
+  CanonicalEventAppendReceipt,
+  DocEventChange,
+  EventPublicationKillpoint,
+  WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import type { CommandAction, CommandBinding, CommandOperationPort, PublicPublication } from "./command-ports.ts";
 
