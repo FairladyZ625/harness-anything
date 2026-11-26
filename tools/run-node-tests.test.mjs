@@ -37,12 +37,14 @@ import {
   parseRunnerArgs,
   partitionIntegrationWeightOverruns,
   partitionTestFiles,
+  planTestFileTimeouts,
   testOrdinalInPartition,
   testChildEnvironment,
   resolveTestConcurrency,
   runsCliEntry,
   selectTestFiles,
   validateManifest,
+  WINDOWS_TEST_FILE_TIMEOUT_FLOOR_MS,
 } from "./node-test-runner-lib.mjs";
 import {
   deriveTestTierManifest,
@@ -926,6 +928,103 @@ test("run-node-tests writes [node-test-duration] lines when HARNESS_INTEGRATION_
     assert.equal(result.status, 0, result.stderr);
     const written = readFileSync(durationLog, "utf8");
     assert.match(written, /\[node-test-duration\] \d+ tools\/test-fixtures\/runner-output-drain\//u);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("planTestFileTimeouts isolates per-file stall delays and applies the Windows floor only when env is unset", () => {
+  const files = [
+    "packages/daemon/test/fleet-center-lifecycle.integration.test.ts",
+    "packages/daemon/test/replication-large-commit.integration.test.ts",
+  ];
+  const markers = {
+    "packages/daemon/test/replication-large-commit.integration.test.ts": 180_000,
+  };
+  const linuxPlan = planTestFileTimeouts({
+    files,
+    testFileTimeouts: markers,
+    defaultTestTimeoutMs: 900_000,
+    explicitTestTimeoutEnv: false,
+    unboundedAllowed: false,
+    platform: "linux",
+  });
+  assert.equal(linuxPlan.selectedFileTimeouts.get(files[0]), 900_000);
+  assert.equal(linuxPlan.selectedFileTimeouts.get(files[1]), 180_000);
+  assert.equal(linuxPlan.stallReportMs, 810_000);
+  assert.deepEqual(linuxPlan.stallReportFileMs, { [files[1]]: 162_000 });
+
+  const winPlan = planTestFileTimeouts({
+    files,
+    testFileTimeouts: markers,
+    defaultTestTimeoutMs: 900_000,
+    explicitTestTimeoutEnv: false,
+    unboundedAllowed: false,
+    platform: "win32",
+  });
+  assert.equal(winPlan.selectedFileTimeouts.get(files[0]), 900_000);
+  assert.equal(winPlan.selectedFileTimeouts.get(files[1]), WINDOWS_TEST_FILE_TIMEOUT_FLOOR_MS);
+  assert.equal(winPlan.stallReportMs, 810_000);
+  assert.deepEqual(winPlan.stallReportFileMs, {
+    [files[1]]: Math.floor(WINDOWS_TEST_FILE_TIMEOUT_FLOOR_MS * 0.9),
+  });
+
+  const explicitWinPlan = planTestFileTimeouts({
+    files,
+    testFileTimeouts: {},
+    defaultTestTimeoutMs: 250,
+    explicitTestTimeoutEnv: true,
+    unboundedAllowed: false,
+    platform: "win32",
+  });
+  assert.equal(explicitWinPlan.selectedFileTimeouts.get(files[0]), 250);
+  assert.equal(explicitWinPlan.fileTimeoutMs, 250);
+  assert.equal(explicitWinPlan.stallReportMs, 1_000);
+});
+
+test("node-test-stall-report emits diagnostics without calling process.report.getReport on win32", () => {
+  const stallReportUrl = new URL("./node-test-stall-report.mjs", import.meta.url).href;
+  const script = [
+    'if (process.platform === "win32") {',
+    '  process.report.getReport = () => { throw new Error("must not call process.report.getReport on win32"); };',
+    "}",
+    "setTimeout(() => {}, 250);",
+  ].join("\n");
+  const result = spawnSync(process.execPath, [`--import=${stallReportUrl}`, "-e", script], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    env: { ...process.env, HARNESS_TEST_STALL_REPORT_MS: "100" },
+    timeout: 10_000,
+  });
+  assert.equal(result.error, undefined, result.stderr);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /\[stall-report\] .* still running after 100ms;/u);
+  if (process.platform === "win32") {
+    assert.match(result.stderr, /\(win32 safe summary\)/u);
+    assert.match(result.stderr, /\[stall-report\]\s+Timeout count=/u);
+    assert.doesNotMatch(result.stderr, /must not call process\.report\.getReport/u);
+  }
+});
+
+test("node-test-stall-report honors per-file HARNESS_TEST_STALL_REPORT_FILE_MS overrides", () => {
+  const stallReportUrl = new URL("./node-test-stall-report.mjs", import.meta.url).href;
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-stall-override-"));
+  const targetScript = path.join(tempRoot, "short-file.mjs");
+  writeFileSync(targetScript, "setTimeout(() => {}, 250);\n", "utf8");
+  try {
+    const result = spawnSync(process.execPath, [`--import=${stallReportUrl}`, targetScript], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HARNESS_TEST_STALL_REPORT_MS: "60000",
+        HARNESS_TEST_STALL_REPORT_FILE_MS: JSON.stringify({ "short-file.mjs": 80 }),
+      },
+      timeout: 10_000,
+    });
+    assert.equal(result.error, undefined, result.stderr);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /\[stall-report\] .* still running after 80ms;/u);
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
