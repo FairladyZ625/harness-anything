@@ -2,6 +2,7 @@ import { existsSync, readFileSync, realpathSync, readlinkSync } from "node:fs";
 import path from "node:path";
 import { identityDatabaseProcessPolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
+import { minimalWindowsPowerShellEnv } from "./windows-restricted-launch.ts";
 
 export async function stopManagedPostgresOrphan(input: {
   readonly host: ManagedRbacHost;
@@ -95,12 +96,12 @@ async function processOwnsPostgres(
         `$p=Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; ` +
         "if ($null -eq $p) { exit 1 }; " +
         "[pscustomobject]@{ path=$p.ExecutablePath; commandLine=$p.CommandLine } | ConvertTo-Json -Compress",
-      process = await input.host.runProcessExitAsync("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        query,
-      ]);
+      process = await input.host.runProcessExitAsync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", query],
+        undefined,
+        minimalWindowsPowerShellEnv(),
+      );
     if (process.exitCode !== 0) return false;
     const observed = JSON.parse(process.stdout) as { readonly path?: string; readonly commandLine?: string },
       commandLine = observed.commandLine ?? "",

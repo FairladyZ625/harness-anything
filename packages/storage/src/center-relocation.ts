@@ -9,6 +9,7 @@ import {
   localRuntimeStateFileSystem,
 } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { readGenerationThreeActivationAtPath } from "./store/generation-three-selection.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 import type { RbacBackupStatus } from "@harness-anything/kernel/internal/domain/status-vocabulary.ts";
 import { validatePromotableReplica } from "@harness-anything/kernel/internal/domain/replica-promotion.ts";
@@ -178,9 +179,9 @@ export async function promoteFromEdge(input: PromoteFromEdgeInput): Promise<Prom
     stagingDirectory = path.join(targetStoreDir, `.promote-from-edge-${randomUUID()}`);
     localLedgerBackupFileSystem.mkdir(stagingDirectory, { recursive: true });
     const stagedDatabasePath = path.join(stagingDirectory, "ledger.sqlite"),
-      sourceDatabase = new DatabaseSync(replicaDatabasePath, { readOnly: true });
+      sourceDatabase = new DatabaseSync(sqliteDatabasePath(replicaDatabasePath), { readOnly: true });
     try {
-      sourceDatabase.exec(`VACUUM INTO ${sqlString(stagedDatabasePath)}`);
+      sourceDatabase.exec(`VACUUM INTO ${sqlString(sqliteDatabasePath(stagedDatabasePath))}`);
     } finally {
       sourceDatabase.close();
     }
@@ -660,7 +661,7 @@ function selectBundleLedgerPath(payloadRoot: string, repoId: string): string {
 
 function readBundleHead(payloadRoot: string, repoId: string): { finalRevision: number; tipHash: string } {
   const ledgerFile = selectBundleLedgerPath(payloadRoot, repoId),
-    database = new DatabaseSync(ledgerFile, { readOnly: true });
+    database = new DatabaseSync(sqliteDatabasePath(ledgerFile), { readOnly: true });
   try {
     const metadata = database.prepare("SELECT repo_id, revision FROM ledger_meta WHERE singleton=1").get() as
         | { repo_id?: unknown; revision?: unknown }

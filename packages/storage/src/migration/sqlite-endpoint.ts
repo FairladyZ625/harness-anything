@@ -6,7 +6,7 @@ import path from "node:path";
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { openSqliteEventStore, resolveActiveGeneration } from "../store/sqlite-event-store.ts";
-import { sqliteLedgerPath } from "../store/sqlite-ledger-layout.ts";
+import { sqliteDatabasePath, sqliteLedgerPath } from "../store/sqlite-ledger-layout.ts";
 import { publishGenerationThreeActivation } from "../store/generation-three-activation.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection.ts";
 import { readSqliteMigrationControl, ensureSqliteMigrationControl } from "./sqlite-control.ts";
@@ -40,7 +40,7 @@ export function openSqliteMigrationEndpoint(input: {
     }),
     db =
       /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ new DatabaseSync(
-        databasePath,
+        sqliteDatabasePath(databasePath),
       );
   /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.exec(
     "PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL",

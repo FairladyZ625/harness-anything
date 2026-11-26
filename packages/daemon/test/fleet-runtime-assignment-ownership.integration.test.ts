@@ -15,12 +15,13 @@ import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-r
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { scheduleRuntimePorts, definition, eventually } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
 
 for (const distinctNode of [false, true])
   for (const firstExitCode of [0, 1]) {
     test(
       `${distinctNode ? "different nodes with one owner" : "same node"} settle task leases independently (first exit=${firstExitCode})`,
-      { timeout: 60_000 },
+      { timeout: process.platform === "win32" ? 120_000 : 60_000 },
       async (t) => {
         const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
         const second = {
@@ -136,13 +137,14 @@ for (const distinctNode of [false, true])
               endpoint: path.join(fixture.root, "edge.sock"),
             },
             ports: scheduleRuntimePorts(),
-            launch: (prepared) => {
+            launch: (prepared, persistence) => {
               const taskId = path.basename(prepared.cwd);
+              const pid = taskId === fixture.subject.taskId ? 81234 : 81235;
               assert.ok(prepared.env.HARNESS_EXECUTION_CREDENTIAL);
               credentials.set(taskId, prepared.env.HARNESS_EXECUTION_CREDENTIAL);
               let output: ((chunk: string) => void) | undefined;
               return {
-                pid: taskId === fixture.subject.taskId ? 81234 : 81235,
+                pid,
                 onOutput: (listener) => {
                   output = listener;
                 },
@@ -152,6 +154,7 @@ for (const distinctNode of [false, true])
                     output?.(
                       `${JSON.stringify({ type: "thread.started", thread_id: `provider-${taskId}` })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "Task completed." } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
                     );
+                    recordStoppedFixtureContainment(persistence, pid);
                     listener(taskId === fixture.subject.taskId ? firstExitCode : 0);
                   });
                 },

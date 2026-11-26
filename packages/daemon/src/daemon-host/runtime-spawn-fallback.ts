@@ -1098,7 +1098,7 @@ export async function releaseFallbackResources(
   if (role === "reviewer" && cwd) {
     const targetPath = resolveManagedReviewWorktreePath(context.input.rootDir, cwd);
     if (targetPath !== null) {
-      const inUseBySibling =
+      const inUseBySibling = () =>
         context.processes !== undefined &&
         [...context.processes.values()].some(
           (active) =>
@@ -1106,8 +1106,8 @@ export async function releaseFallbackResources(
             active.cwd === targetPath ||
             resolveManagedReviewWorktreePath(context.input.rootDir, active.cwd) === targetPath,
         );
-      if (!inUseBySibling) {
-        const failure = await reclaimReviewWorktree(context.input.rootDir, targetPath);
+      if (!inUseBySibling()) {
+        const failure = await reclaimReviewWorktree(context.input.rootDir, targetPath, () => !inUseBySibling());
         if (failure)
           console.error(
             `[review-worktree] ${lifecycle.controlLeafDispatchId} could not be reclaimed: ${failure.message}`,

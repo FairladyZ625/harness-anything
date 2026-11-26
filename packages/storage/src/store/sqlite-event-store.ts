@@ -36,7 +36,7 @@ import {
   assertSqliteMigrationWritable,
   readSqliteMigrationControl,
 } from "../migration/sqlite-control.ts";
-import { sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
+import { sqliteDatabasePath, sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
 export { sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
 import { readGenerationThreeActivation } from "./generation-three-selection.ts";
 import { publishGenerationThreeActivation } from "./generation-three-activation.ts";
@@ -257,7 +257,7 @@ function openSqliteEventStoreInternal(
   if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db =
     /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ new DatabaseSync(
-      databasePath,
+      sqliteDatabasePath(databasePath),
       {
         readOnly: options.readOnly ?? false,
       },

@@ -2,6 +2,39 @@ import type { ManagedRbacHost } from "./managed-host.ts";
 
 let cachedWindowsAdminToken: Promise<boolean> | null = null;
 
+const WINDOWS_POWERSHELL_ENV_NAMES = new Set([
+  "systemroot",
+  "windir",
+  "temp",
+  "tmp",
+  "pathext",
+  "comspec",
+  "path",
+  "psmodulepath",
+  "userprofile",
+  "appdata",
+  "localappdata",
+  "homedrive",
+  "homepath",
+  "lang",
+  "tz",
+]);
+
+/**
+ * Keep only the Windows runtime variables PowerShell, Add-Type (`csc.exe`), and PostgreSQL need,
+ * avoiding .NET Framework's 65,535-byte `Process.Start` environment block limit when the parent
+ * inherits large test/tooling variables (such as `HARNESS_TEST_TIER_MANIFEST`).
+ */
+export function minimalWindowsPowerShellEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue;
+    const lower = key.toLowerCase();
+    if (WINDOWS_POWERSHELL_ENV_NAMES.has(lower) || lower.startsWith("lc_") || lower.startsWith("pg")) env[key] = value;
+  }
+  return env;
+}
+
 /**
  * PostgreSQL refuses to run `postgres.exe` with an enabled `BUILTIN\Administrators` token
  * (such as GitHub Actions `windows-latest` runners or elevated Windows shells), whereas
@@ -11,13 +44,18 @@ export function isWindowsAdminToken(host: ManagedRbacHost, platform: NodeJS.Plat
   if (platform !== "win32") return Promise.resolve(false);
   if (cachedWindowsAdminToken === null) {
     cachedWindowsAdminToken = host
-      .runProcessExitAsync("powershell.exe", [
-        "-NoLogo",
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
-      ])
+      .runProcessExitAsync(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)",
+        ],
+        undefined,
+        minimalWindowsPowerShellEnv(),
+      )
       .then(
         (result) => result.exitCode === 0 && result.stdout.trim().toLowerCase() === "true",
         () => false,

@@ -1,6 +1,7 @@
 import { mkdirSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { sqliteDatabasePath } from "../store/sqlite-ledger-layout.ts";
 
 /** Internal capability: the physical owner's parent retains the OS lock until database close/exit. */
 export interface PGliteDirectoryMutexProof {
@@ -30,7 +31,7 @@ export function acquirePGliteDirectoryMutex(dataDir: string | undefined) {
     return { proof: parent, close: () => undefined };
   }
   const database = /* @gate-identity state-store/execution.pglite-owner */ new DatabaseSync(
-    `${directory}.harness-owner-lock`,
+    sqliteDatabasePath(`${directory}.harness-owner-lock`),
   );
   try {
     /* @gate-identity state-store/execution.pglite-owner */ database.exec("PRAGMA busy_timeout=0; BEGIN EXCLUSIVE");

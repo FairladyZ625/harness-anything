@@ -16,6 +16,7 @@ import {
 import { canonicalEventContentClaims } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { openReplicaProjection } from "./replica-projection.ts";
 import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 
 interface SeedCheckpoint {
   readonly processedOutcomes: number;
@@ -107,7 +108,7 @@ export async function hydrateReplicaSeed(rootDir: string, metadata: BaseBackupMe
   } finally {
     importer.close();
   }
-  const database = /* @gate-identity state-store/task.replica-seed */ new DatabaseSync(ledgerPath);
+  const database = /* @gate-identity state-store/task.replica-seed */ new DatabaseSync(sqliteDatabasePath(ledgerPath));
   try {
     /* @gate-identity state-store/task.replica-seed */ database.exec("BEGIN IMMEDIATE");
     /* @gate-identity state-store/task.replica-seed */ database

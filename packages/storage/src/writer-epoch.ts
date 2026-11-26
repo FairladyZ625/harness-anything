@@ -18,6 +18,7 @@ import type { StorageBackendConfig } from "./storage-backend.ts";
 import { requireExternalWriterEpochOpener } from "./sql-backend-adapters.ts";
 import { writerEpochStorage } from "./writer-epoch-storage.ts";
 import { throwIfWriterEpochRetired } from "./center-relocation-state.ts";
+import { sqliteDatabasePath } from "./store/sqlite-ledger-layout.ts";
 
 type EpochRow = {
   readonly repo_id: string;
@@ -36,7 +37,7 @@ function openEpochDatabase(databasePath: string): DatabaseSync {
   );
   const database =
     /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ new DatabaseSync(
-      databasePath,
+      sqliteDatabasePath(databasePath),
     );
   /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.exec(
     "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
@@ -337,7 +338,7 @@ function legacyUnreadable(repoId: string, legacyPath: string, detail: string): W
 
 function targetEpochFloor(databasePath: string, repoId: string): number | null {
   if (!existsSync(databasePath)) return null;
-  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const database = new DatabaseSync(sqliteDatabasePath(databasePath), { readOnly: true });
   try {
     const statement =
       /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ database.prepare(
@@ -358,7 +359,7 @@ function assertLegacyWriterEpochRepoMigrated(stateRoot: string, repoId: string, 
   const legacyPath = path.join(stateRoot, "writer-epochs.sqlite");
   if (!existsSync(legacyPath)) return;
 
-  const legacy = new DatabaseSync(legacyPath, { readOnly: true });
+  const legacy = new DatabaseSync(sqliteDatabasePath(legacyPath), { readOnly: true });
   try {
     const userVersion = Number(
       /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ (
@@ -405,7 +406,7 @@ export function migrateLegacyWriterEpochDatabase(stateRoot: string): LegacyWrite
 
   const legacy =
     /* @gate-identity state-store/execution.source.storage.src.writer-epoch.sqlite-database */ new DatabaseSync(
-      legacyPath,
+      sqliteDatabasePath(legacyPath),
     );
   let transactionOpen = false;
   try {
