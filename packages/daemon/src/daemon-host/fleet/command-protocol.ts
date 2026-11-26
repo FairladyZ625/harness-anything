@@ -100,6 +100,7 @@ const fleetOperationalReadMethods = [
   "repo.tasks.runtimeContext.read",
   "repo.agentRuntime.lifecycle.read",
   "repo.agentRuntime.sessions.await",
+  "repo.agentRuntime.sessions.read",
   "repo.task.dispatches",
   "repo.access.members.read",
   "repo.fleet.overview.read",

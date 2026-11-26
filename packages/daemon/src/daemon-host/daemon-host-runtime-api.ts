@@ -1,7 +1,7 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { raceLifetime, runDaemonRetry } from "./daemon-retry.ts";
+import { exponentialBackoffMs, raceLifetime, runDaemonRetry } from "./daemon-retry.ts";
 import { readLocalState } from "./repo-cell-settings-state.ts";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
@@ -245,6 +245,26 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     auth: DaemonAuthenticationContext,
     response: string,
   ): Promise<void> => {
+    const readCurrentRequest = async (): Promise<PeerRequestV1 | null> => {
+      const receipt = await context.host.run(repoId, { kind: "peer-watch", once: true, replyTo: requestId }, auth);
+      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+        throw context.hostCodedError(
+          receipt.code ?? "resident_ceo_peer_unconfirmed",
+          "Peer request state was not confirmed.",
+        );
+      const evidence = JSON.parse(String(receipt.evidence)) as { readonly request?: unknown };
+      if (
+        evidence.request &&
+        typeof evidence.request === "object" &&
+        !Array.isArray(evidence.request) &&
+        (evidence.request as { readonly requestId?: unknown }).requestId === requestId
+      )
+        return evidence.request as PeerRequestV1;
+      return null;
+    };
+    const isTerminal = (request: PeerRequestV1 | null): boolean =>
+      request !== null && ["ANSWERED", "DONE", "REJECTED", "PROMOTED"].includes(request.state);
+    if (isTerminal(await readCurrentRequest())) return;
     const reply = await context.host.run(
       repoId,
       {
@@ -256,8 +276,10 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
       },
       auth,
     );
-    if (reply.outcome !== "applied" && reply.outcome !== "no_changes")
+    if (reply.outcome !== "applied" && reply.outcome !== "no_changes") {
+      if (isTerminal(await readCurrentRequest())) return;
       throw context.hostCodedError(reply.code ?? "resident_ceo_reply_unconfirmed", "Peer reply was not confirmed.");
+    }
   };
   const withResidentCeoSignal = (
     auth: DaemonAuthenticationContext,
@@ -274,32 +296,53 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     auth: DaemonAuthenticationContext,
     signal?: AbortSignal,
   ): Promise<AgentRuntimeSessionResult | null> => {
-    const awaited = await context.host.awaitRuntimeSessions(
-      repoId,
-      { runtimeSessionIds: [runtimeSessionId], mode: "all" },
-      withResidentCeoSignal(auth, signal),
-    );
-    if (
-      awaited.session &&
-      typeof awaited.session === "object" &&
-      !Array.isArray(awaited.session) &&
-      awaited.settlement &&
-      typeof awaited.settlement === "object" &&
-      !Array.isArray(awaited.settlement)
-    )
-      return awaited as unknown as AgentRuntimeSessionResult;
-    if (
-      Array.isArray(awaited.unavailable) &&
-      awaited.unavailable.some(
-        (entry) =>
-          entry !== null &&
-          typeof entry === "object" &&
-          !Array.isArray(entry) &&
-          (entry as { readonly runtimeSessionId?: unknown }).runtimeSessionId === runtimeSessionId,
-      )
-    )
-      return null;
-    return context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth);
+    const waitSignal = withResidentCeoSignal(auth, signal).connectionSignal;
+    return runDaemonRetry({
+      run: async () => {
+        const awaited = await context.host.awaitRuntimeSessions(
+          repoId,
+          { runtimeSessionIds: [runtimeSessionId], mode: "all" },
+          withResidentCeoSignal(auth, signal),
+        );
+        if (
+          awaited.session &&
+          typeof awaited.session === "object" &&
+          !Array.isArray(awaited.session) &&
+          awaited.settlement &&
+          typeof awaited.settlement === "object" &&
+          !Array.isArray(awaited.settlement)
+        )
+          return awaited as unknown as AgentRuntimeSessionResult;
+        if (
+          Array.isArray(awaited.unavailable) &&
+          awaited.unavailable.some(
+            (entry) =>
+              entry !== null &&
+              typeof entry === "object" &&
+              !Array.isArray(entry) &&
+              (entry as { readonly runtimeSessionId?: unknown }).runtimeSessionId === runtimeSessionId,
+          )
+        )
+          return null;
+        return context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth);
+      },
+      signal: waitSignal,
+      retryDelay: (settled, attempt) => {
+        if (settled.ok) return null;
+        const code = context.code(settled.error).toUpperCase();
+        return [
+          "REPLICA_UNAVAILABLE",
+          "ECONNREFUSED",
+          "ECONNRESET",
+          "ETIMEDOUT",
+          "ENOTFOUND",
+          "EHOSTUNREACH",
+          "EPIPE",
+        ].includes(code)
+          ? exponentialBackoffMs({ attempt, baseMs: 250, maxMs: 5_000 })
+          : null;
+      },
+    });
   };
   const residentCeoService = (repoId: string, auth: Parameters<typeof context.binding>[1]) => {
     return makeResidentCeoService({
@@ -363,17 +406,19 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
     if (options.waitForSettlement) {
       settled = await awaitResidentCeoRuntimeSettlement(repoId, targetRuntimeSessionId, auth, options.signal);
     } else {
-      try {
-        settled = await context.host.read(
+      const [probe] = await Promise.allSettled([
+        context.host.read(
           repoId,
           "repo.agentRuntime.sessions.read",
           { runtimeSessionId: targetRuntimeSessionId },
           auth,
-        );
-      } catch (error) {
-        if (context.code(error) !== "runtime_session_not_found") throw error;
-        consumeKnownError(error);
+        ),
+      ]);
+      if (probe.status === "rejected") {
+        if (context.code(probe.reason) !== "runtime_session_not_found") throw probe.reason;
         settled = null;
+      } else {
+        settled = probe.value;
       }
       if (settled !== null && settled.settlement === null) return false;
     }

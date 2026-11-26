@@ -88,6 +88,18 @@ test(
       runtimeDiscover: async () => [installation],
       runtimeLaunch,
     });
+    const awaitRuntimeSessions = edge.host.awaitRuntimeSessions.bind(edge.host);
+    let interruptedSettlementRead = false;
+    Object.defineProperty(edge.host, "awaitRuntimeSessions", {
+      configurable: true,
+      value: async (...args: Parameters<typeof awaitRuntimeSessions>) => {
+        if (!interruptedSettlementRead) {
+          interruptedSettlementRead = true;
+          throw Object.assign(new Error("synthetic Fleet read interruption"), { code: "ECONNRESET" });
+        }
+        return awaitRuntimeSessions(...args);
+      },
+    });
 
     const edgePersonAuth = {
       ...auth,
@@ -155,6 +167,7 @@ test(
       15_000,
     );
     assert.equal(settledWake.lastWake?.cause, "peer-request");
+    assert.equal(interruptedSettlementRead, true, "the first Fleet settlement read must be interrupted");
     assert.equal(settledWake.persistentSessionId, "edge-ceo-session");
     assert.ok(settledWake.lastWake?.completedAt, "completedAt must be populated after settlement");
     assert.ok(!launchedArgs[0]?.includes("resume"), JSON.stringify(launchedArgs[0]));
@@ -182,9 +195,7 @@ test(
     assert.ok(launchedArgs[1]?.includes("resume"), JSON.stringify(launchedArgs[1]));
     assert.ok(launchedArgs[1]?.includes("edge-ceo-session"), JSON.stringify(launchedArgs[1]));
 
-    // 3. Restart reconciliation: close the first edge daemon BEFORE creating the second OPEN
-    //    delegation so the pre-restart watcher cannot answer it, then persist status="running"
-    //    and lastWake.status="running" referencing the ALREADY-SETTLED runtimeSessionId from turn 1.
+    // 3. Restart reconciliation preserves an existing peer reply while recovering a settled wake.
     await edge.host.close();
 
     const secondDelegated = await f.host.run(
@@ -200,9 +211,21 @@ test(
     assert.equal(secondDelegated.outcome, "applied", JSON.stringify(secondDelegated));
     await waitForFleetPublication(f.host, repoId, secondDelegated.opId, localAuthFixture());
     const { request: secondRequest } = evidence(secondDelegated) as { request: PeerRequestV1 };
+    const existingReply = await f.host.run(
+      repoId,
+      {
+        kind: "peer-reply",
+        requestId: secondRequest.requestId,
+        claim: "recipient answered before Resident CEO recovery",
+        requestedAction: "Preserve the recipient's existing assessment.",
+      },
+      edgePersonAuth,
+    );
+    assert.equal(existingReply.outcome, "applied", JSON.stringify(existingReply));
+    await waitForFleetPublication(f.host, repoId, existingReply.opId, localAuthFixture());
 
-    // Rewrite settings.local.json so person-one has status="running" and lastWake.status="running"
-    // referencing the ALREADY-SETTLED runtimeSessionId from turn 1 and the OPEN secondRequest.
+    // Persist status="running" and lastWake.status="running" referencing the settled session
+    // and the second request that already reached ANSWERED through the ordinary peer-reply path.
     const localSettingsPath = resolveHarnessLayout(edge.edgeRoot).settingsLocalPath;
     const localSettings = JSON.parse(readFileSync(localSettingsPath, "utf8")) as Record<string, unknown>;
     const profiles = JSON.parse(String(localSettings.residentCeoProfilesJson)) as Record<
@@ -247,9 +270,16 @@ test(
     });
     t.after(() => restartedEdge.close());
     await restartedEdge.attachmentsSettled();
+    const recoveredSession = await restartedEdge.read(
+      repoId,
+      "repo.agentRuntime.sessions.read",
+      { runtimeSessionId: settledWake.lastWake!.runtimeSessionId! },
+      edgePersonAuth,
+    );
+    assert.equal(recoveredSession.session.runtimeSessionId, settledWake.lastWake!.runtimeSessionId);
+    assert.equal(recoveredSession.settlement?.outcome, "succeeded");
 
-    // Restart must automatically reconcile lastWake from "running" -> "succeeded", restore
-    // persistentSessionId, and reply to the pending OPEN peer request without manual intervention.
+    // Restart must reconcile the wake and retain the already-recorded peer reply.
     const reconciled = await eventuallyValue(
       async () => {
         const status = await ceo(restartedEdge, "status");
@@ -287,7 +317,7 @@ test(
       "center observes peer-reply ANSWERED after restart reconciliation",
       10_000,
     );
-    assert.equal(answeredSecond.reply?.structuredBody.claim, "edge ceo assessment turn 1");
+    assert.equal(answeredSecond.reply?.structuredBody.claim, "recipient answered before Resident CEO recovery");
 
     // Follow-up `ha ceo chat` after restart reconciliation must succeed (no resident_ceo_busy).
     const chatAfterRestart = await ceo(restartedEdge, "chat", { message: "Chat after restart reconciliation" });

@@ -1204,6 +1204,7 @@ export function createDaemonHostRepositoryApi(
         if (
           method === "repo.events.read" ||
           method === "repo.task.dispatches" ||
+          method === "repo.agentRuntime.sessions.read" ||
           method === "repo.fleet.overview.read" ||
           method === "repo.policy.metadata.read"
         ) {
