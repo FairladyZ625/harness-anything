@@ -229,6 +229,7 @@ export async function ensureLocalDaemonRunning(input: {
               ownerPid: environment.HARNESS_DAEMON_OWNER_PID,
               ...(attachTimeoutMs === undefined ? {} : { attachTimeoutMs }),
               verticalScriptBlockFile: environment.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE,
+              nodeTestContext: environment.NODE_TEST_CONTEXT,
               runAtLogin: false,
             }),
             daemonStdioLogPath(target.userRoot, target.daemonId),

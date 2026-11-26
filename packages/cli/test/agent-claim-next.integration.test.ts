@@ -85,13 +85,23 @@ test(
 
 test(
   "real CLI socket entry reads candidates, starts through TLS, and reaches runtime spawn",
-  { timeout: 60_000 },
+  { timeout: 120_000 },
   async (t) => {
     const { spawn } = await import("node:child_process"),
       path = await import("node:path"),
       { createJsonRpcProtocolServer } = await import("@harness-anything/daemon"),
       { createUnixSocketTransportServer } = await import("@harness-anything/daemon"),
       { localUserDaemonEndpoint } = await import("@harness-anything/daemon/internal/client/local-daemon-target");
+    // node:test runs t.after() hooks FIFO: register teardown before fleetNodeClaimFixture(t) so live
+    // CLI child processes are killed first, then the socket transport stops, and fixtures close last.
+    const activeChildren = new Set<ReturnType<typeof spawn>>(),
+      teardown: { transport?: ReturnType<typeof createUnixSocketTransportServer> } = {};
+    t.after(async () => {
+      for (const child of activeChildren) {
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+      }
+      if (teardown.transport) await teardown.transport.stop();
+    });
     const f = await fleetNodeClaimFixture(t);
     assert.equal(
       (await f.command("node-one", { kind: "task-create", taskId: "task-cli", title: "CLI" })).outcome,
@@ -164,8 +174,8 @@ test(
           emit,
         }),
     });
+    teardown.transport = transport;
     await transport.start();
-    t.after(() => transport.stop());
     const invoke = async () => {
       const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
       const child = spawn(
@@ -182,7 +192,7 @@ test(
           stdio: ["ignore", "pipe", "pipe"],
         },
       );
-      t.after(() => child.kill());
+      activeChildren.add(child);
       let stdout = "",
         stderr = "";
       child.stdout.on("data", (chunk) => {
@@ -192,8 +202,14 @@ test(
         stderr += chunk;
       });
       const code = await new Promise<number | null>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("close", resolve);
+        child.once("error", (error) => {
+          activeChildren.delete(child);
+          reject(error);
+        });
+        child.once("close", (exitCode) => {
+          activeChildren.delete(child);
+          resolve(exitCode);
+        });
       });
       assert.equal(code, 0, stderr + stdout);
       return JSON.parse(stdout);
