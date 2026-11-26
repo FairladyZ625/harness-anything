@@ -521,9 +521,10 @@ test(
         defaultAgentId: "delegated-worker",
       });
       assert.equal(configured.ok, true, JSON.stringify(configured));
-      assert.equal((await ceo("start")).ok, true);
 
       // 1. Manual approval path: peer-promote -> task-start (with real plan_placeholder gate) -> spawnRuntime.
+      // Send Alice's peer request before starting Bob's watcher so the shared test userRoot session
+      // stays signed in as Bob for the entire time Bob's background watcher is running.
       signInPolicyTestUser(userRoot, "person_alice", [repoId], "admin");
       const aliceAuth = {
         ...auth,
@@ -543,6 +544,7 @@ test(
       const { request: peerReq1 } = evidence(delegated1) as { request: PeerRequestV1 };
 
       signInPolicyTestUser(userRoot, "person_bob", [repoId], "admin");
+      assert.equal((await ceo("start")).ok, true);
       const pendingProposal = await eventuallyValue(async () => {
         const listed = await ceo("proposals", { status: "pending_approval" });
         const items = (listed.proposals ?? []) as ResidentCeoDelegationProposal[];
