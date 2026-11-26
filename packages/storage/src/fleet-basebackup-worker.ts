@@ -17,6 +17,7 @@ import type {
 } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 import { DEFAULT_REPLICA_LOG_WINDOW_COMMITS, openReplicaStore } from "./store/replica-store.ts";
+import { sqliteDatabasePath } from "./sqlite-database-path.ts";
 
 const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
 if (storageContext) {
@@ -73,8 +74,8 @@ const archive: BaseBackupArchive = {
 };
 parentPort!.postMessage({ kind: "complete", archive });
 async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBackupMetadata> {
-  const ledger = new DatabaseSync(input.ledgerPath, { readOnly: true });
-  const projection = new DatabaseSync(input.projectionPath, { readOnly: true });
+  const ledger = new DatabaseSync(sqliteDatabasePath(input.ledgerPath), { readOnly: true });
+  const projection = new DatabaseSync(sqliteDatabasePath(input.projectionPath), { readOnly: true });
   try {
     ledger.exec("BEGIN");
     projection.exec("BEGIN");
@@ -105,8 +106,8 @@ async function prepareSqliteBackup(input: SqliteBaseBackupInput): Promise<BaseBa
       cache = path.join(payload, BASE_BACKUP_ARCHIVE_ROOT, "cache");
     await /* @gate-identity state-store/task.backup-sqlite */ mkdir(store, { recursive: true });
     await /* @gate-identity state-store/task.backup-sqlite */ mkdir(cache, { recursive: true });
-    await backup(ledger, path.join(store, "ledger.sqlite"));
-    await backup(projection, path.join(cache, "task.sqlite"));
+    await backup(ledger, sqliteDatabasePath(path.join(store, "ledger.sqlite")));
+    await backup(projection, sqliteDatabasePath(path.join(cache, "task.sqlite")));
     // Retain a bounded replication_log window so promotable replicas can serve lagging edges after Switchover.
     const replicaLedger = openReplicaStore({
       databasePath: path.join(store, "ledger.sqlite"),

@@ -10,6 +10,7 @@ import {
   type ScheduleV1,
 } from "@harness-anything/kernel";
 import { isMigrationImportRecord, migrationImportError, nonEmpty } from "./migration-values.ts";
+import { sqliteDatabasePath } from "./sqlite-database-path.ts";
 export interface MigrationFormatObservation {
   readonly code: "legacy_event_normalized" | "schedule_definition_facet_mismatch" | "source_projection_rebuilt";
   readonly sourcePath: string;
@@ -118,7 +119,7 @@ export function readMigrationProjectionOracleAtPath(
   formatObservations: readonly MigrationFormatObservation[],
 ): MigrationProjectionOracle {
   const layout = resolveHarnessLayout(sourceRoot);
-  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const database = new DatabaseSync(sqliteDatabasePath(databasePath), { readOnly: true });
   try {
     const meta = rows(database, "SELECT watermark FROM projection_meta WHERE singleton=1")[0],
       watermark = number(meta?.watermark, "projection watermark"),

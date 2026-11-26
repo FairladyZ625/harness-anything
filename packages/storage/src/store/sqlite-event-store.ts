@@ -44,6 +44,7 @@ import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/cano
 import path from "node:path";
 import { readGenerationThreeActivationAtPath, selectGenerationThree } from "./generation-three-selection.ts";
 import { DatabaseSync } from "node:sqlite";
+import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import {
   serializeCanonicalEventUnchecked,
@@ -257,7 +258,7 @@ function openSqliteEventStoreInternal(
   if (!options.readOnly) localRuntimeStateFileSystem.mkdirp(path.dirname(databasePath));
   const db =
     /* @gate-identity state-store/task.source.storage.src.store.sqlite-event-store.sqlite-database */ new DatabaseSync(
-      databasePath,
+      sqliteDatabasePath(databasePath),
       {
         readOnly: options.readOnly ?? false,
       },

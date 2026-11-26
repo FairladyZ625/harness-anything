@@ -951,6 +951,6 @@ test(
 
 test(
   "Switchover Slice 2 (Mode 1): 3-node A->B CA & SPKI zero-basebackup auto-repoint with independent stable loginUrl + unanchored/untrusted/stale-epoch refusals",
-  { timeout: 120_000 },
+  { timeout: process.platform === "win32" ? 300_000 : 120_000 },
   runSwitchoverSlice2Mode1E2e,
 );

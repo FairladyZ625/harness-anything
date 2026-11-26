@@ -19,6 +19,7 @@ import { assertReplicationAcknowledgement } from "./replication-slot-contract.ts
 import { openPgReplicationSlots } from "./postgres/pg-slot-client.ts";
 import type { StorageBackendConfig } from "./storage-backend.ts";
 import { existsSync } from "node:fs";
+import { sqliteDatabasePath } from "./sqlite-database-path.ts";
 /** Transport state only. A new authenticated session fences the previous node/repo sender. */
 function openSqliteReplicationSlots(file: string) {
   /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.filesystem-store */ mkdirSync(
@@ -27,7 +28,7 @@ function openSqliteReplicationSlots(file: string) {
   );
   const db =
     /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ new DatabaseSync(
-      file,
+      sqliteDatabasePath(file),
     );
   /* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ db.exec(/* @gate-identity state-store/execution.source.storage.src.fleet-replication-slot.sqlite-database */ `PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
     CREATE TABLE IF NOT EXISTS replication_slot (

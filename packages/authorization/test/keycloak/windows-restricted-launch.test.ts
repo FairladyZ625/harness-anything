@@ -5,6 +5,7 @@ import test from "node:test";
 import type { ManagedRbacHost } from "../../src/keycloak/managed-host.ts";
 import {
   buildWindowsRestrictedLaunchArgs,
+  minimalWindowsPowerShellEnv,
   quoteWindowsArg,
   windowsPostgresLaunch,
 } from "../../src/keycloak/windows-restricted-launch.ts";
@@ -54,9 +55,30 @@ test("buildWindowsRestrictedLaunchArgs propagates stdout, stderr, quoted argumen
     'process.stdout.write("OUT:" + process.argv[1] + "\\n"); process.stderr.write("ERR\\n"); process.exit(7);',
     'space and "quote"',
   ]);
-  const result = spawnSync(cmd, args, { encoding: "utf8", timeout: 30_000 });
+  const result = spawnSync(cmd, args, {
+    encoding: "utf8",
+    timeout: 30_000,
+    env: minimalWindowsPowerShellEnv({ ...process.env, HARNESS_TEST_TIER_MANIFEST: "x".repeat(95_000) }),
+  });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 7);
   assert.equal(result.stdout, 'OUT:space and "quote"\n');
   assert.equal(result.stderr, "ERR\n");
+});
+
+test("minimalWindowsPowerShellEnv drops oversized runner variables so Add-Type stays under 65535 bytes", () => {
+  const filtered = minimalWindowsPowerShellEnv({
+    SystemRoot: "C:\\Windows",
+    ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    Path: "C:\\Windows\\System32",
+    TEMP: "C:\\Temp",
+    HARNESS_TEST_TIER_MANIFEST: "x".repeat(95_000),
+    PGUSER: "postgres",
+  });
+  assert.equal(filtered.SystemRoot, "C:\\Windows");
+  assert.equal(filtered.ComSpec, "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(filtered.Path, "C:\\Windows\\System32");
+  assert.equal(filtered.TEMP, "C:\\Temp");
+  assert.equal(filtered.PGUSER, "postgres");
+  assert.equal(filtered.HARNESS_TEST_TIER_MANIFEST, undefined);
 });

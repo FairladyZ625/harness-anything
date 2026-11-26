@@ -1419,6 +1419,11 @@ export function createDaemonHostRuntimeApi(context: DaemonHostApiContext): {
               : "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
         context.localOnly(auth);
+        // Ensure startup repository attachments have settled before sync/repoint starts or waits on
+        // the resident replica stream; otherwise startReplicaSyncs() defers and waitForFleetReplicaReady()
+        // observes no live stream and surfaces stale on-disk replica-health failures.
+        if (context.initialAttachments && !context.initialAttachmentsSettled?.())
+          await context.startInitialAttachments();
         const persistedConfig = readFleetEdgeConfig(context.input.userRoot, request.repoId),
           edgeRoot = registeredRoot as string;
         if (repoint) {

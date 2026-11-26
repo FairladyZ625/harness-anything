@@ -2,6 +2,10 @@ import { existsSync, readFileSync, readdirSync, realpathSync, readlinkSync } fro
 import path from "node:path";
 import { managedIdentityPolicy } from "@harness-anything/kernel/internal/domain/managed-identity-policy.ts";
 import type { ManagedRbacHost } from "./managed-host.ts";
+import { minimalWindowsPowerShellEnv } from "./windows-restricted-launch.ts";
+
+/** Windows PowerShell CIM/NetTCPIP cold start regularly exceeds 5s under concurrent JVM/PostgreSQL load. */
+const windowsInspectionTimeoutMs = managedIdentityPolicy.defaultValue.timeoutMs * 3;
 
 export async function stopManagedKeycloakOrphan(input: {
   readonly host: ManagedRbacHost;
@@ -83,10 +87,10 @@ async function findListenerProcesses(input: {
                 `Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.State -eq 'Listen' -and $_.LocalPort -eq ${port} } | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | ConvertTo-Json -Compress`,
               ],
               undefined,
+              minimalWindowsPowerShellEnv(),
               undefined,
               undefined,
-              undefined,
-              { timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs },
+              { timeoutMs: windowsInspectionTimeoutMs },
             )
           : null;
     if (!result)
@@ -248,11 +252,11 @@ async function matchesManagedKeycloakProcess(
         "powershell.exe",
         ["-NoProfile", "-NonInteractive", "-Command", query],
         undefined,
-        undefined,
+        minimalWindowsPowerShellEnv(),
         undefined,
         undefined,
         {
-          timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs,
+          timeoutMs: windowsInspectionTimeoutMs,
         },
       );
     if (process.exitCode !== 0) return false;
@@ -307,11 +311,11 @@ async function isWindowsProcessAlive(host: ManagedRbacHost, pid: number): Promis
       `if (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }`,
     ],
     undefined,
-    undefined,
+    minimalWindowsPowerShellEnv(),
     undefined,
     undefined,
     {
-      timeoutMs: managedIdentityPolicy.defaultValue.timeoutMs,
+      timeoutMs: windowsInspectionTimeoutMs,
     },
   );
   return result.exitCode === 0;

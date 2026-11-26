@@ -50,7 +50,7 @@ import {
 } from "./managed-rbac-listener-certificate.ts";
 import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import { stopManagedKeycloakOrphan } from "./managed-keycloak-orphan.ts";
-import { windowsPostgresLaunch } from "./windows-restricted-launch.ts";
+import { minimalWindowsPowerShellEnv, windowsPostgresLaunch } from "./windows-restricted-launch.ts";
 import { fetchManagedArtifactResource } from "./managed-artifact-download.ts";
 import {
   MANAGED_RBAC_ACCESS_ADMIN_JOURNAL_SCHEMA,
@@ -958,14 +958,18 @@ export class ManagedRbacService {
       [launchCommand, launchArgs] =
         this.#ports.spawn === spawn
           ? await windowsPostgresLaunch(binary, postgresArgs, this.#ports.platform, this.#host)
-          : [binary, postgresArgs];
+          : [binary, postgresArgs],
+      useMinimalWindowsEnv = this.#ports.platform === "win32" && launchCommand === "powershell.exe";
     return this.#spawnUntilReady(
       "postgres",
       launchCommand,
       launchArgs,
-      {},
+      useMinimalWindowsEnv ? minimalWindowsPowerShellEnv() : {},
       /database system is ready to accept connections/u,
       30_000,
+      undefined,
+      undefined,
+      useMinimalWindowsEnv,
     );
   }
 
@@ -992,8 +996,12 @@ export class ManagedRbacService {
         [launchCommand, launchArgs] =
           this.#ports.spawn === spawn
             ? await windowsPostgresLaunch(binary, singleArgs, this.#ports.platform, this.#host)
-            : [binary, singleArgs];
-      result = await this.#host.runProcessExitAsync(launchCommand, launchArgs, undefined, undefined, sql, undefined, {
+            : [binary, singleArgs],
+        launchEnv =
+          this.#ports.platform === "win32" && launchCommand === "powershell.exe"
+            ? minimalWindowsPowerShellEnv()
+            : undefined;
+      result = await this.#host.runProcessExitAsync(launchCommand, launchArgs, undefined, launchEnv, sql, undefined, {
         timeoutMs: identityHealthProbePolicy.defaultValue.postgresPasswordTimeoutMs,
       });
     } catch (error) {
@@ -1195,6 +1203,7 @@ export class ManagedRbacService {
     // Runs once on every termination the supervisor owns (exit, or an error with no exit), before
     // the next start may claim the same resources (e.g. the Keycloak TLS passthrough listener).
     onTerminate?: () => void,
+    replaceEnv = false,
   ): Promise<void> {
     const logs = path.join(this.#root, "logs");
     /* @gate-identity non-state/environment-io.17c06ba5fde6715a */ mkdirSync(logs, { recursive: true, mode: 0o700 });
@@ -1215,7 +1224,7 @@ export class ManagedRbacService {
       }),
       [launchCommand, launchArgs] = windowsBatchLaunch(command, args, this.#ports.platform),
       child = this.#ports.spawn(launchCommand, launchArgs, {
-        env: { ...process.env, ...env },
+        env: replaceEnv ? env : { ...process.env, ...env },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
         ...(name === "keycloak" && this.#ports.platform !== "win32" ? { detached: true } : {}),
@@ -1252,14 +1261,18 @@ export class ManagedRbacService {
         onTerminate?.();
         this.#children.delete(name);
         this.#readiness.delete(name);
-        if (!ready)
+        if (!ready) {
+          const detail = formatProcessFailureOutput(observed);
           settleError?.(
             error ??
               managedRbacError(
                 "rbac_process_failed",
-                `${name} exited before readiness (code ${String(code)}, signal ${String(signal)}).`,
+                detail
+                  ? `${name} exited before readiness (code ${String(code)}, signal ${String(signal)}): ${detail}`
+                  : `${name} exited before readiness (code ${String(code)}, signal ${String(signal)}).`,
               ),
           );
+        }
         this.#childExited(name, code, signal);
       };
     child.stdout?.on("data", observe);
@@ -1910,6 +1923,17 @@ function signalProcessGroup(processGroup: number, signal: NodeJS.Signals): boole
     if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
     throw error;
   }
+}
+
+function formatProcessFailureOutput(observed: string): string {
+  const cleaned = observed
+    .replace(/^#< CLIXML\r?\n?/u, "")
+    .replace(/<[^>]+>/gu, " ")
+    .replaceAll("_x000D__x000A_", " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (!cleaned) return "";
+  return cleaned.length > 512 ? `...${cleaned.slice(-512)}` : cleaned;
 }
 
 function managedRbacError(code: string, message: string): Error {

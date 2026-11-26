@@ -14,7 +14,11 @@ import { forwardingIntentForAction } from "../src/daemon-host/fleet/forwarding-i
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { oidcCenterSelections } from "../src/daemon-host/oidc-center-selection.ts";
-import { fleetEdgeConfigPath, writeFleetEdgeConfig } from "../src/daemon-host/client/fleet-edge-config.ts";
+import {
+  fleetEdgeConfigPath,
+  resolveFleetEdgeRepoIdForRoot,
+  writeFleetEdgeConfig,
+} from "../src/daemon-host/client/fleet-edge-config.ts";
 import { fetchWithTlsCa } from "../src/daemon-host/tls-ca-certificate.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -344,6 +348,20 @@ test("selection bindings match across canonicalized paths, Windows 8.3 short pat
     selection.write(shortPath, stored);
     assert.deepEqual(selection.read(canonicalLong), stored);
     assert.deepEqual(selection.read(shortPath), stored);
+
+    mkdirSync(path.join(longRoot, "harness"), { recursive: true });
+    writeFileSync(path.join(longRoot, "harness", "harness.yaml"), "schema: harness-anything/v1\n");
+    writeDaemonRegistryRepo({
+      userRoot: active.userRoot,
+      canonicalRoot: canonicalLong,
+      repoId: "edge-case-repo",
+      mode: "remote-edge",
+      authoredBranch: "main",
+      createConvenienceLinks: false,
+    });
+    assert.equal(resolveFleetEdgeRepoIdForRoot(active.userRoot, upper), "edge-case-repo");
+    assert.equal(resolveFleetEdgeRepoIdForRoot(active.userRoot, lower), "edge-case-repo");
+    assert.equal(resolveFleetEdgeRepoIdForRoot(active.userRoot, shortPath), "edge-case-repo");
   }
 });
 

@@ -29,6 +29,7 @@ import {
   reclaimReviewWorktree,
   reconcileClosedTaskWorktrees,
   taskWorkspaceView,
+  verifyReviewCheckout,
 } from "../src/daemon-host/task-worktree.ts";
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/daemon-host/squad-worker-checkout.ts";
 import { nodeModulesSetupAdapter } from "../src/daemon-host/worktree-setup-node-modules.ts";
@@ -1174,4 +1175,42 @@ test("an explicit stack checkout preserves its anchor and refuses an unrelated e
     git(path.join(rootDir, ".worktrees/task-unrelated"), "rev-parse", "HEAD"),
     git(rootDir, "rev-parse", "HEAD"),
   );
+});
+
+test("concurrent review worktree reclaim and pinned checkout serialize without commit mismatch", async (t) => {
+  const fixture = repositoryFixture(t);
+  git(fixture.root, "checkout", "-qb", "task-review-race");
+  commit(fixture.root, "delivery.txt");
+  const frozenCommit = git(fixture.root, "rev-parse", "HEAD");
+  git(fixture.root, "checkout", "-q", "main");
+  const reviewBinding = bindingOf("task-review-race");
+
+  const initial = await checkoutTaskWorktree(
+    fixture.root,
+    "task-review-race",
+    reviewBinding,
+    noWorktreeSetup(),
+    undefined,
+    undefined,
+    { pinnedCommit: frozenCommit },
+  );
+  assert.ok(initial);
+  assert.equal(git(initial.cwd, "rev-parse", "HEAD"), frozenCommit);
+
+  const [reclaimError, nextCheckout] = await Promise.all([
+    reclaimReviewWorktree(fixture.root, initial.cwd),
+    checkoutTaskWorktree(fixture.root, "task-review-race", reviewBinding, noWorktreeSetup(), undefined, undefined, {
+      pinnedCommit: frozenCommit,
+    }),
+  ]);
+  assert.equal(reclaimError, null);
+  assert.ok(nextCheckout);
+  assert.equal(existsSync(nextCheckout.cwd), true);
+  assert.equal(git(nextCheckout.cwd, "rev-parse", "HEAD"), frozenCommit);
+
+  // Removing the linked .git file must not let verifyReviewCheckout silently accept parent main HEAD.
+  const mainHead = git(fixture.root, "rev-parse", "HEAD"),
+    orphanedDir = path.join(fixture.root, ".worktrees", ".review", "task-review-race", mainHead);
+  mkdirSync(orphanedDir, { recursive: true });
+  await assert.rejects(verifyReviewCheckout(orphanedDir, mainHead), { code: "review_checkout_commit_mismatch" });
 });

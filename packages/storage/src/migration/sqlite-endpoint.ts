@@ -13,6 +13,7 @@ import { readSqliteMigrationControl, ensureSqliteMigrationControl } from "./sqli
 import { assertMigrationValue, validateStorageManifest } from "./manifest.ts";
 import { auditMigrationProjection, migrationEventStream } from "./projection.ts";
 import { StorageMigrationError, type MigrationEndpoint, type MigrationTuple } from "./types.ts";
+import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 
 export function openSqliteMigrationEndpoint(input: {
@@ -40,7 +41,7 @@ export function openSqliteMigrationEndpoint(input: {
     }),
     db =
       /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ new DatabaseSync(
-        databasePath,
+        sqliteDatabasePath(databasePath),
       );
   /* @gate-identity state-store/migration.source.storage.src.migration.sqlite-endpoint.sqlite-database */ db.exec(
     "PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL",

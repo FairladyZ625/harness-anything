@@ -19,6 +19,7 @@ import {
   type SwitchoverReplicaCut,
 } from "@harness-anything/kernel/internal/domain/center-switchover.ts";
 import { readGenerationThreeActivationAtPath } from "./store/generation-three-selection.ts";
+import { sqliteDatabasePath } from "./sqlite-database-path.ts";
 import { advancePersistentWriterEpochFloor, openPersistentWriterEpoch } from "./writer-epoch.ts";
 import {
   clearCenterMigrating,
@@ -179,7 +180,7 @@ export function readCenterFrozenCut(input: {
       finalRevision = ledger.revision(),
       tipHash = canonicalLedgerCut(input.repoId, ledger.eventIdentityAtRevision(finalRevision)).headDigest,
       writerEpoch = ledger.writerFence()?.epoch ?? 0;
-    const rawDb = new DatabaseSync(ledger.databasePath, { readOnly: true });
+    const rawDb = new DatabaseSync(sqliteDatabasePath(ledger.databasePath), { readOnly: true });
     let replicationLogWindow: CenterReplicationLogRow[];
     try {
       const minSeq = Math.max(0, position.sequence - windowSize);
@@ -340,9 +341,9 @@ export async function promoteReplicaForSwitchover(
     stagingDirectory = path.join(targetStoreDir, `.switchover-promote-${randomUUID()}`);
     localLedgerBackupFileSystem.mkdir(stagingDirectory, { recursive: true });
     const stagedDatabasePath = path.join(stagingDirectory, "ledger.sqlite"),
-      sourceDatabase = new DatabaseSync(replicaDatabasePath, { readOnly: true });
+      sourceDatabase = new DatabaseSync(sqliteDatabasePath(replicaDatabasePath), { readOnly: true });
     try {
-      sourceDatabase.exec(`VACUUM INTO ${sqlString(stagedDatabasePath)}`);
+      sourceDatabase.exec(`VACUUM INTO ${sqlString(sqliteDatabasePath(stagedDatabasePath))}`);
     } finally {
       sourceDatabase.close();
     }
@@ -493,7 +494,7 @@ export async function promoteReplicaForSwitchover(
           "edge_replica_integrity_failed",
           "Promoted switchover ledger differs from verified history/epoch cut.",
         );
-      const statsDb = new DatabaseSync(promotedLedger.databasePath, { readOnly: true });
+      const statsDb = new DatabaseSync(sqliteDatabasePath(promotedLedger.databasePath), { readOnly: true });
       try {
         const stats = statsDb
           .prepare("SELECT MIN(sequence) AS min_seq, COUNT(*) AS row_count FROM replication_log")
@@ -544,7 +545,7 @@ export function readExistingWriterEpochHighWatermark(stateRoot: string, repoId: 
   const epochDbPath = path.join(path.resolve(stateRoot), "writer-epochs", `${repoId}.sqlite`);
   if (!localRuntimeStateFileSystem.exists(epochDbPath)) return null;
   const hasLiveWal = localRuntimeStateFileSystem.exists(`${epochDbPath}-wal`);
-  const target = hasLiveWal ? epochDbPath : `${pathToFileURL(epochDbPath).href}?immutable=1`;
+  const target = hasLiveWal ? sqliteDatabasePath(epochDbPath) : `${pathToFileURL(epochDbPath).href}?immutable=1`;
   const db = new DatabaseSync(target, { readOnly: true });
   try {
     const currentRow = db.prepare("SELECT epoch FROM writer_epochs WHERE repo_id = ?").get(repoId) as

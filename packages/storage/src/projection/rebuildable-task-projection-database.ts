@@ -2,6 +2,7 @@ import { storageReadPolicy } from "@harness-anything/kernel/internal/domain/stor
 import path from "node:path";
 import { ensureRuntimeMemberIndex, ensureRuntimeMemberIndexColumns } from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
+import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
   localEventFileSystem,
@@ -251,7 +252,7 @@ export function withQueryOnlyDatabaseSession<A>(
   if (connection.db === null) {
     connection.db =
       /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ new DatabaseSync(
-        filePath,
+        sqliteDatabasePath(filePath),
         {
           readOnly: true,
         },
@@ -582,7 +583,7 @@ function assertEventStreamContinuity(
 }
 function openDatabase(projectionPath: string): DatabaseSync {
   return /* @gate-identity state-store/task.source.storage.src.projection.rebuildable-task-projection-database.sqlite-database */ new DatabaseSync(
-    projectionPath,
+    sqliteDatabasePath(projectionPath),
   );
 }
 function configureDatabase(db: DatabaseSync): void {

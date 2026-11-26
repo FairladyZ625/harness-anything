@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -185,19 +186,23 @@ export async function checkoutTaskWorktree(
   const cwd = path.join(rootDir, binding.path),
     steps = worktree.setup,
     stepTimeoutMs = worktree.setupStepTimeoutMs;
-  return inWorktreeTurn(cwd, async () => {
-    if (options.pinnedCommit !== undefined) {
-      const pinnedCommit = options.pinnedCommit;
-      if (pinnedCommit === null || !/^[0-9a-f]{40}$/u.test(pinnedCommit))
-        throw cellCodedError(
-          "review_checkout_commit_unavailable",
-          `Task ${taskId}'s reviewer dispatch has no frozen delivery commit to check out.`,
-        );
-      // A review is a read of an immutable cut, not another use of the worker's mutable
-      // delivery checkout. Keep the two worktrees independent so a worker can rebase or
-      // amend after submit without invalidating the review that was already dispatched.
-      const reviewCwd = pinnedReviewWorktreePath(rootDir, taskId, pinnedCommit),
-        fresh = !existsSync(reviewCwd);
+  if (options.pinnedCommit !== undefined) {
+    const pinnedCommit = options.pinnedCommit;
+    if (pinnedCommit === null || !/^[0-9a-f]{40}$/u.test(pinnedCommit))
+      throw cellCodedError(
+        "review_checkout_commit_unavailable",
+        `Task ${taskId}'s reviewer dispatch has no frozen delivery commit to check out.`,
+      );
+    // A review is a read of an immutable cut, not another use of the worker's mutable
+    // delivery checkout. Keep the two worktrees independent — and serialize checkout and
+    // reclaim on the review path itself so a settling review cannot remove the snapshot
+    // while a successor review is preparing or verifying it.
+    const reviewCwd = pinnedReviewWorktreePath(rootDir, taskId, pinnedCommit),
+      turnKey = canonicalWorktreeTurnKey(reviewCwd);
+    bumpReviewWorktreeGeneration(turnKey);
+    return inWorktreeTurn(reviewCwd, async () => {
+      bumpReviewWorktreeGeneration(turnKey);
+      const fresh = !existsSync(reviewCwd);
       await ensurePinnedCommit(rootDir, binding.branch, pinnedCommit);
       if (fresh) await addPinnedReviewWorktree(rootDir, reviewCwd, pinnedCommit);
       const verify = () => verifyReviewCheckout(reviewCwd, pinnedCommit);
@@ -218,7 +223,9 @@ export async function checkoutTaskWorktree(
         baseRef: fresh ? pinnedCommit : null,
         setup: prepared,
       };
-    }
+    });
+  }
+  return inWorktreeTurn(cwd, async () => {
     if (acceptedCommit !== undefined) {
       if (!/^[0-9a-f]{40}$/u.test(acceptedCommit))
         throw cellCodedError("runtime_handoff_sha_invalid", "Handoff requires a complete commit SHA.");
@@ -432,14 +439,22 @@ export async function verifyReviewCheckout(cwd: string, commit: string): Promise
     throw cellCodedError("review_checkout_commit_unavailable", "The frozen delivery commit is not a full Git SHA.");
   const head = await runProcessExitAsync(
       "git",
-      ["-C", cwd, "rev-parse", "HEAD"],
+      ["-C", cwd, "rev-parse", "--show-toplevel", "HEAD"],
       undefined,
       { ...process.env, GIT_TERMINAL_PROMPT: "0" },
       undefined,
       undefined,
       { timeoutMs: 30_000 },
     ),
-    actualHead = head.exitCode === 0 ? head.stdout.trim() : "";
+    lines = head.exitCode === 0 ? head.stdout.trim().split(/\r?\n/u) : [],
+    actualRoot = lines[0]?.trim() ?? "",
+    actualHead = lines[1]?.trim() ?? "";
+  if (!actualRoot || canonicalWorktreeTurnKey(actualRoot) !== canonicalWorktreeTurnKey(cwd))
+    throw cellCodedError(
+      "review_checkout_commit_mismatch",
+      `Reviewer checkout ${cwd} is not an independent Git worktree for frozen delivery commit ${commit}; ` +
+        "the cut must be reviewed at its frozen commit.",
+    );
   if (actualHead !== commit)
     throw cellCodedError(
       "review_checkout_commit_mismatch",
@@ -480,16 +495,36 @@ async function refreshDefaultBranch(rootDir: string): Promise<void> {
 // Checkout and publication run outside the repository writer. They share a turn per worktree path,
 // so setup and branch/PR effects cannot overlap for that checkout; unrelated worktrees remain independent.
 const worktreeTurns = new Map<string, Promise<void>>();
+const reviewWorktreeGenerations = new Map<string, number>();
+
+function canonicalWorktreeTurnKey(cwd: string): string {
+  const resolved = path.resolve(cwd),
+    pending: string[] = [];
+  let current = resolved;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    pending.unshift(path.basename(current));
+    current = parent;
+  }
+  const canonical = existsSync(current) ? path.join(realpathSync.native(current), ...pending) : resolved;
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+}
+
+function bumpReviewWorktreeGeneration(key: string): void {
+  reviewWorktreeGenerations.set(key, (reviewWorktreeGenerations.get(key) ?? 0) + 1);
+}
 
 export function inWorktreeTurn<T>(cwd: string, work: () => Promise<T>): Promise<T> {
-  const turn = (worktreeTurns.get(cwd) ?? Promise.resolve()).then(work),
+  const key = canonicalWorktreeTurnKey(cwd),
+    turn = (worktreeTurns.get(key) ?? Promise.resolve()).then(work),
     settled = turn.then(
       () => undefined,
       () => undefined,
     );
-  worktreeTurns.set(cwd, settled);
+  worktreeTurns.set(key, settled);
   void settled.then(() => {
-    if (worktreeTurns.get(cwd) === settled) worktreeTurns.delete(cwd);
+    if (worktreeTurns.get(key) === settled) worktreeTurns.delete(key);
   });
   return turn;
 }
@@ -598,16 +633,28 @@ export function resolveManagedReviewWorktreePath(rootDir: string, cwd: string): 
 }
 
 /** Removes a detached reviewer snapshot after settlement; returns a diagnostic for the caller to record. */
-export async function reclaimReviewWorktree(rootDir: string, cwd: string): Promise<Error | null> {
+export async function reclaimReviewWorktree(
+  rootDir: string,
+  cwd: string,
+  shouldReclaim?: () => boolean,
+): Promise<Error | null> {
   const target = resolveManagedReviewWorktreePath(rootDir, cwd);
   if (target === null) return null;
-  try {
-    await reviewGit(rootDir, "worktree", "remove", "--force", target);
-    await reviewGit(rootDir, "worktree", "prune");
-    return null;
-  } catch (error) {
-    return error instanceof Error ? error : new Error(String(error));
-  }
+  const turnKey = canonicalWorktreeTurnKey(target),
+    observedGeneration = reviewWorktreeGenerations.get(turnKey) ?? 0;
+  return inWorktreeTurn(target, async () => {
+    if ((reviewWorktreeGenerations.get(turnKey) ?? 0) !== observedGeneration) return null;
+    if (shouldReclaim && !shouldReclaim()) return null;
+    const current = resolveManagedReviewWorktreePath(rootDir, target);
+    if (current === null) return null;
+    try {
+      await reviewGit(rootDir, "worktree", "remove", "--force", current);
+      await reviewGit(rootDir, "worktree", "prune");
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  });
 }
 
 /** A partial or corrupt file is `invalid`, not "no marker": the read must answer unobservable with

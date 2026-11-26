@@ -60,7 +60,7 @@
         "explain": "Read-only legacy epoch database compatibility and imported floor witness before attach; cannot admit a writer until the explicit offline migration completes.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/writer-epoch.ts#assertLegacyWriterEpochRepoMigrated:82d0019c2f5b0cad9c6385a91804d0d8",
+            "candidateId": "judgment:packages/storage:packages/storage/src/writer-epoch.ts#assertLegacyWriterEpochRepoMigrated:e7dc93e314940e5042139cd386ba85c9",
             "route": "packages/storage/src/writer-epoch.ts#assertLegacyWriterEpochRepoMigrated"
           }
         ],
@@ -238,7 +238,7 @@
         "explain": "Read-only generation certificate witness validates the selected physical ledger metadata, accepted prefix cut and projection bound; preserves accepted-history bytes.",
         "sources": [
           {
-            "candidateId": "judgment:packages/storage:packages/storage/src/store/generation-three-selection.ts#assertGenerationThreeActivationLedger:bd42bda7f46db5fc3d759e25baf00f8d",
+            "candidateId": "judgment:packages/storage:packages/storage/src/store/generation-three-selection.ts#assertGenerationThreeActivationLedger:1d195fc897fbb28a629efac760f88e1d",
             "route": "packages/storage/src/store/generation-three-selection.ts#assertGenerationThreeActivationLedger"
           }
         ],

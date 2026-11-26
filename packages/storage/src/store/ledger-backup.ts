@@ -19,6 +19,7 @@ import {
 import { decodeLegacyEventBytes, readStoppedLegacyGeneration } from "./legacy-generation-source.ts";
 import { localGitText } from "./local-version-control-system.ts";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./sqlite-event-store.ts";
+import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 
 export interface LedgerBackupManifestV1 {
   readonly schema: "ledger-backup/v1";
@@ -438,9 +439,9 @@ function vanishedDuringCopy(error: unknown, source: string): boolean {
 function vacuumSqlite(rootDir: string, databasePath: string, payloadRoot: string): void {
   const target = path.join(payloadRoot, path.relative(rootDir, databasePath));
   fileSystem.mkdir(path.dirname(target), { recursive: true });
-  const db = new DatabaseSync(databasePath, { readOnly: true });
+  const db = new DatabaseSync(sqliteDatabasePath(databasePath), { readOnly: true });
   try {
-    db.exec(`VACUUM INTO ${sqlString(target)}`);
+    db.exec(`VACUUM INTO ${sqlString(sqliteDatabasePath(target))}`);
   } finally {
     db.close();
   }
@@ -451,7 +452,7 @@ function inspectSqlite(databasePath: string): {
   readonly opIds: number;
   readonly integrity: string;
 } {
-  const db = new DatabaseSync(databasePath, { readOnly: true });
+  const db = new DatabaseSync(sqliteDatabasePath(databasePath), { readOnly: true });
   try {
     const integrity = String(db.prepare("PRAGMA integrity_check").get()!.integrity_check);
     if (integrity !== "ok") throw new Error(`SQLite integrity check failed: ${integrity}`);

@@ -15,6 +15,7 @@ import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/cano
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { sqliteLedgerPath } from "./sqlite-ledger-layout.ts";
 import { configureLedgerConnection } from "./sqlite-ledger-connections.ts";
+import { sqliteDatabasePath } from "../sqlite-database-path.ts";
 import type { GenerationThreeActivation } from "./generation-three-activation.ts";
 
 type SelectionInput = { readonly rootInput: HarnessLayoutInput; readonly repoId?: string };
@@ -72,7 +73,7 @@ function assertGenerationThreeActivationLedger(
     throw new TaskEventStoreError("invalid_store", "generation 3 activation names an empty ledger");
   let ledger: DatabaseSync;
   try {
-    ledger = new DatabaseSync(database, { readOnly: true });
+    ledger = new DatabaseSync(sqliteDatabasePath(database), { readOnly: true });
   } catch (error) {
     throw new TaskEventStoreError(
       "invalid_store",
@@ -162,7 +163,7 @@ function projectionCacheCarriesAcceptedHistory(projectionPath: string): boolean 
   if (projectionSize === null || projectionSize === 0) return false;
   let projection: DatabaseSync;
   try {
-    projection = new DatabaseSync(projectionPath, { readOnly: true });
+    projection = new DatabaseSync(sqliteDatabasePath(projectionPath), { readOnly: true });
   } catch (error) {
     throw new TaskEventStoreError(
       "invalid_store",

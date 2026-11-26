@@ -1357,15 +1357,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (role !== "reviewer" || inheritedFallback !== undefined) return;
         const targetPath = resolveManagedReviewWorktreePath(input.rootDir, cwd);
         if (targetPath === null) return;
-        const inUseBySibling = [...activeRuntimeHandles.values()].some(
-          (entry) =>
-            entry.runtimeSessionId !== runtimeSessionId &&
-            (entry.cwd === cwd ||
-              entry.cwd === targetPath ||
-              resolveManagedReviewWorktreePath(input.rootDir, entry.cwd) === targetPath),
-        );
-        if (inUseBySibling) return;
-        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, targetPath);
+        const inUseBySibling = () =>
+          [...activeRuntimeHandles.values()].some(
+            (entry) =>
+              entry.runtimeSessionId !== runtimeSessionId &&
+              (entry.cwd === cwd ||
+                entry.cwd === targetPath ||
+                resolveManagedReviewWorktreePath(input.rootDir, entry.cwd) === targetPath),
+          );
+        if (inUseBySibling()) return;
+        const reviewCleanupFailure = await reclaimReviewWorktree(input.rootDir, targetPath, () => !inUseBySibling());
         if (reviewCleanupFailure)
           console.error(`[review-worktree] ${newDispatchId} could not be reclaimed: ${reviewCleanupFailure.message}`);
       };

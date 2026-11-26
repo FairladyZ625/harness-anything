@@ -1600,3 +1600,46 @@ test("same-endpoint rotation advances version, stale versions conflict, and part
     await managed.close();
   }
 });
+
+test("rbac_process_failed preserves observed child stderr diagnostics", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-stderr-"));
+  mkdirSync(path.join(root, "rbac", "runtime", "postgres", "bin"), { recursive: true });
+  writeFileSync(path.join(root, "rbac", "runtime", "postgres", "bin", "postgres"), "");
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      schema: "harness-managed-rbac/v1",
+      mode: "managed",
+      url: "http://127.0.0.1:1",
+      realm: "harness",
+      clientId: "harness-center",
+      versions: managedRbacVersions,
+      postgresPort: 2,
+      managementPort: 3,
+    }),
+  );
+  try {
+    const service = createIdentityManagement(root, {
+      platform: "linux",
+      spawn: (() => {
+        const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter };
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+        setImmediate(() => {
+          child.stderr.emit("data", Buffer.from("FATAL: cannot bind address: permission denied\n"));
+          child.emit("exit", 1, null);
+        });
+        return child;
+      }) as unknown as typeof import("node:child_process").spawn,
+    });
+    await assert.rejects(service.resume(), (error: unknown) => {
+      const candidate = error as Error & { readonly code?: string };
+      assert.equal(candidate.code, "rbac_process_failed");
+      assert.match(candidate.message, /postgres exited before readiness \(code 1, signal null\)/u);
+      assert.match(candidate.message, /FATAL: cannot bind address: permission denied/u);
+      return true;
+    });
+  } finally {
+    removeTempRepository(root);
+  }
+});

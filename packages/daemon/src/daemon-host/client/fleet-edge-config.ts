@@ -274,8 +274,9 @@ export function removeFleetEdgePinnedCaCert(filePath: string): void {
   if (existsSync(filePath)) removeFileDurably(filePath);
 }
 function canonicalComparePath(target: string): string {
-  const resolved = path.resolve(target);
-  return existsSync(resolved) ? realpathSync.native(resolved) : resolved;
+  const resolved = path.resolve(target),
+    canonical = existsSync(resolved) ? realpathSync.native(resolved) : resolved;
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
 }
 export function resolveFleetEdgeRepoIdForRoot(userRoot: string, rootDir: string): string | null {
   const target = canonicalComparePath(rootDir),
