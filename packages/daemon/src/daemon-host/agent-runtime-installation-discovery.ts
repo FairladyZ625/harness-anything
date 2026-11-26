@@ -35,7 +35,7 @@ export async function discoverRuntimeInstallations(
     // directly launchable by Node, so only inspect executable suffixes here;
     // test and real installations expose the command through a .cmd/.exe entry.
     suffixes = platform === "win32" ? [".cmd", ".exe"] : [""];
-  const directories = (env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  const directories = (lookupEnvValue(env, "PATH", platform) ?? "").split(path.delimiter).filter(Boolean);
   for (const { kindId, executable } of runtimeKinds) {
     const declaration: RuntimeProviderDeclaration["executable"] = executable,
       entries = [
@@ -197,26 +197,25 @@ function modelSearchCapableModels(output: string): string[] {
     .filter(Boolean);
 }
 
+function lookupEnvValue(env: NodeJS.ProcessEnv, key: string, platform: NodeJS.Platform): string | undefined {
+  const direct = env[key];
+  if (direct !== undefined) return direct;
+  if (platform !== "win32") return undefined;
+  const lower = key.toLowerCase();
+  for (const [name, value] of Object.entries(env))
+    if (name.toLowerCase() === lower && value !== undefined) return value;
+  return undefined;
+}
+
 export function versionProbeEnvironment(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
-  const lookup =
-    platform === "win32"
-      ? (key: string): string | undefined => {
-          const direct = env[key];
-          if (direct !== undefined) return direct;
-          const lower = key.toLowerCase();
-          for (const [name, value] of Object.entries(env))
-            if (name.toLowerCase() === lower && value !== undefined) return value;
-          return undefined;
-        }
-      : (key: string): string | undefined => env[key];
   const result: NodeJS.ProcessEnv = {
-    PATH: lookup("PATH") ?? "",
+    PATH: lookupEnvValue(env, "PATH", platform) ?? "",
     LANG: "C",
     LC_ALL: "C",
   };
   if (platform === "win32")
     for (const key of ["SYSTEMROOT", "SYSTEMDRIVE", "COMSPEC", "PATHEXT", "TEMP", "TMP"]) {
-      const value = lookup(key);
+      const value = lookupEnvValue(env, key, platform);
       if (value) result[key] = value;
     }
   return result;
@@ -305,10 +304,12 @@ function executableInvocation(
 ): { readonly command: string; readonly argv: readonly string[]; readonly windowsVerbatimArguments: boolean } {
   const shim = (platform === "win32" || process.platform === "win32") && /\.(?:cmd|bat)$/iu.test(executablePath);
   if (!shim) return { command: executablePath, argv: [...args], windowsVerbatimArguments: false };
+  // cmd.exe turns a missing .cmd/.bat file into exit code 1 rather than ENOENT, which would
+  // misclassify a missing executable as an authentication rejection. Fail with ENOENT up front.
+  if (process.platform === "win32") accessSync(executablePath, constants.F_OK);
   const comSpec =
-      environment.ComSpec ??
-      environment.COMSPEC ??
-      (process.platform === "win32" ? (process.env.ComSpec ?? process.env.COMSPEC) : undefined),
+      lookupEnvValue(environment, "ComSpec", "win32") ??
+      (process.platform === "win32" ? lookupEnvValue(process.env, "ComSpec", "win32") : undefined),
     invocation = cmdShellInvocation(executablePath, args, comSpec ? { ...environment, ComSpec: comSpec } : environment);
   return {
     command: invocation.command,

@@ -299,7 +299,7 @@ export function sharedProviderDirectory(
   const environment = runtimeKindForId(kindId).executable.configHomeEnvironment,
     explicit = environment ? env[environment] : undefined;
   if (explicit) return path.resolve(explicit);
-  const home = platform === "win32" ? env.USERPROFILE : env.HOME;
+  const home = platform === "win32" ? (env.USERPROFILE ?? env.HOME) : env.HOME;
   return home ? providerConfigDirectory(path.resolve(home), kindId) : null;
 }
 

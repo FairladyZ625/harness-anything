@@ -1,12 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { isTaskEvent, upsertCloseoutSubmissionFacts } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { RuntimeProcessStartRejected } from "../src/daemon-host/runtime-spawn-process.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
@@ -31,10 +34,12 @@ test(
   "an edge worker credential submits its cut and automatically dispatches its reviewer",
   { timeout: 90_000 },
   async (t) => {
+    const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-fleet-submit-probe-"));
+    t.after(() => removeTempRepository(probeRoot));
     const installation = {
         installationId: definition.installationId,
         kindId: definition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(probeRoot),
         version: "1.0.0",
         observedAt: "2026-11-07T00:00:00.000Z",
       },
@@ -247,10 +252,12 @@ test(
   "the real edge host persists auto-review launch failures and dispatches after explicit retry",
   { timeout: 120_000 },
   async (t) => {
+    const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-fleet-submit-probe-"));
+    t.after(() => removeTempRepository(probeRoot));
     const installation = {
         installationId: definition.installationId,
         kindId: definition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(probeRoot),
         version: "1.0.0",
         observedAt: "2026-11-07T00:00:00.000Z",
       },
@@ -949,6 +956,17 @@ test(
         runtimeAgentBindings: [{ agentId: "carbon-worker", instance: "unconfigured-instance" }],
       }),
     );
+
+    const savedGhToken = process.env.GH_TOKEN,
+      savedGithubToken = process.env.GITHUB_TOKEN;
+    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+    t.after(() => {
+      if (savedGhToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = savedGhToken;
+      if (savedGithubToken === undefined) delete process.env.GITHUB_TOKEN;
+      else process.env.GITHUB_TOKEN = savedGithubToken;
+    });
 
     let allowHostingCredential = false,
       prExists = false,

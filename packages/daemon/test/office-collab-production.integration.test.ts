@@ -23,7 +23,7 @@ import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-r
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { runtimeProcessFixture } from "./fixtures/runtime-process.ts";
 import { initIngressRepo, spawnCli } from "./fixtures/runtime-ingress.ts";
-import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { probeSuccessExecutable, writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { registerBootstrappedDaemonRepo, registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
@@ -327,7 +327,7 @@ test(
       runtimeInstallation: RuntimeInstallationWitness = {
         installationId: runtimeDefinition.installationId,
         kindId: runtimeDefinition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(fixture.root),
         version: "1.0.0",
         observedAt: "2026-11-21T00:00:00.000Z",
       },
@@ -882,7 +882,7 @@ test(
       runtimeInstallation: RuntimeInstallationWitness = {
         installationId: runtimeDefinition.installationId,
         kindId: runtimeDefinition.kindId,
-        executablePath: "/usr/bin/true",
+        executablePath: probeSuccessExecutable(fixture.root),
         version: "1.0.0",
         observedAt: "2026-11-21T00:00:00.000Z",
       };

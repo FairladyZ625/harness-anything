@@ -480,6 +480,13 @@ test("agyNonInteractiveProbeEnv never fabricates SSH_CONNECTION and passes throu
     "darwin",
   );
   assert.equal(isolatedEnv.SSH_CONNECTION, "127.0.0.1 0 127.0.0.1 22");
+
+  const winEnv = agyNonInteractiveProbeEnv(
+    { USERPROFILE: "C:\\Users\\operator", Path: "C:\\Windows\\System32;C:\\Tools" },
+    "win32",
+  );
+  assert.equal("Path" in winEnv, false, "win32 probe env must strip mixed-case Path to avoid PATH collision");
+  assert.ok(winEnv.PATH?.endsWith(`${path.delimiter}C:\\Windows\\System32;C:\\Tools`), winEnv.PATH);
 });
 
 test("warmAuthReadiness probes enabled unchecked instances, skips disabled, deduplicates concurrent calls, and cancels cleanly", async () => {
@@ -487,12 +494,11 @@ test("warmAuthReadiness probes enabled unchecked instances, skips disabled, dedu
     bin = path.join(userRoot, "bin"),
     trace = path.join(userRoot, "probe-trace.jsonl"),
     startedFlag = path.join(userRoot, "models-started"),
-    releaseFlag = path.join(userRoot, "models-release"),
-    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+    releaseFlag = path.join(userRoot, "models-release");
   mkdirSync(bin, { recursive: true });
   writeFileSync(trace, "");
-  writeProviderExecutable(
-    agyPath,
+  const agyPath = writeProviderExecutable(
+    path.join(bin, "agy"),
     `
       const fs = require("node:fs");
       const args = process.argv.slice(2);
@@ -619,11 +625,10 @@ test("warmAuthReadiness probes enabled unchecked instances, skips disabled, dedu
 
 test("openDaemonHost with runtimeAuthWarmup warms enabled instances at startup and drains cleanly on close", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-daemon-host-warmup-")),
-    bin = path.join(userRoot, "bin"),
-    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+    bin = path.join(userRoot, "bin");
   mkdirSync(bin, { recursive: true });
-  writeProviderExecutable(
-    agyPath,
+  const agyPath = writeProviderExecutable(
+    path.join(bin, "agy"),
     `
       const args = process.argv.slice(2);
       if (args[0] === "models") console.log("gemini-4-hydrogen-low\\tmodel");
@@ -686,11 +691,10 @@ test("backgroundAuthWarmup refreshes a single enabled instance on create, update
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-mutation-warmup-")),
     bin = path.join(userRoot, "bin"),
     startedFlag = path.join(userRoot, "waiter-started"),
-    releaseFlag = path.join(userRoot, "waiter-release"),
-    agyPath = path.join(bin, process.platform === "win32" ? "agy.cmd" : "agy");
+    releaseFlag = path.join(userRoot, "waiter-release");
   mkdirSync(bin, { recursive: true });
-  writeProviderExecutable(
-    agyPath,
+  const agyPath = writeProviderExecutable(
+    path.join(bin, "agy"),
     `
       const fs = require("node:fs");
       const args = process.argv.slice(2);

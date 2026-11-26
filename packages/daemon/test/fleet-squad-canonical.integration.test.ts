@@ -1,7 +1,11 @@
 // harness-test-tier: integration
 import { randomUUID } from "node:crypto";
-import { utimesSync } from "node:fs";
+import { mkdtempSync, utimesSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { recordStoppedFixtureContainment } from "./fixtures/runtime-process.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -29,10 +33,12 @@ import { waitForState } from "./fleet-replication.fixture.ts";
 import { makeFleetSquadCoordinator } from "../src/daemon-host/fleet-squad-coordinator.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
+  const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-fleet-squad-probe-"));
+  t.after(() => removeTempRepository(probeRoot));
   const witness = {
       installationId: "squad-install",
       kindId: "codex",
-      executablePath: "/usr/bin/true",
+      executablePath: probeSuccessExecutable(probeRoot),
       version: "fixture",
       observedAt: new Date().toISOString(),
     },
@@ -138,7 +144,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const a = await fleetEdgeHostFixture(t, f, {
     name: "owner",
     runtimeDiscover: () => [witness],
-    runtimeLaunch: () => {
+    runtimeLaunch: (_prepared, persistence) => {
       launches += 1;
       return {
         pid: 90210,
@@ -147,6 +153,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
         onExit: () => undefined,
         terminate: () => {
           kills += 1;
+          recordStoppedFixtureContainment(persistence, 90210);
         },
       };
     },

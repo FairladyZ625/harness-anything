@@ -13,6 +13,7 @@ import { openNodeAutoClaimLoop } from "../src/daemon-host/node-auto-claim.ts";
 import { readNodeAutoClaimDiagnostics, writeNodeAutoClaimPolicy } from "../src/daemon-host/node-auto-claim-config.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { eventually, eventuallyValue } from "./fixtures/runtime-ingress.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -136,10 +137,12 @@ test(
     process.on("uncaughtExceptionMonitor", monitor);
     t.after(() => process.off("uncaughtExceptionMonitor", monitor));
     try {
+      const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-auto-claim-probe-"));
+      t.after(() => removeTempRepository(probeRoot));
       const installation: RuntimeInstallationWitness = {
           installationId: "auto-claim-codex-installation",
           kindId: "codex",
-          executablePath: "/usr/bin/true",
+          executablePath: probeSuccessExecutable(probeRoot),
           version: "1.0.0",
           observedAt: "2026-11-02T00:00:00.000Z",
         },

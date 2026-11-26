@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import net from "node:net";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -8,6 +9,8 @@ import { pathToFileURL } from "node:url";
 import { submissionDigest } from "@harness-anything/kernel";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { waitForDurableValue } from "../../../tools/fixtures/event-arrival.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/daemon-host/fleet-edge-runtime.ts";
@@ -38,11 +41,13 @@ function runtimeProcess() {
 }
 
 async function submitFromEdge(t: TestContext, delivery: "git" | "ledger", edgeReviewerUnavailable = false) {
+  const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-center-review-probe-"));
+  t.after(() => removeTempRepository(probeRoot));
   const launches: { cwd: string; credential: string | undefined }[] = [],
     installation = {
       installationId: definition.installationId,
       kindId: definition.kindId,
-      executablePath: "/usr/bin/true",
+      executablePath: probeSuccessExecutable(probeRoot),
       version: "1.0.0",
       observedAt: "2026-11-07T00:00:00.000Z",
     },

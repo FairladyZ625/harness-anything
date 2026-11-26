@@ -18,8 +18,9 @@ import {
   openRuntimeInstanceStore,
   type RuntimeAuthReadiness,
 } from "../src/daemon-host/agent-runtime-instances.ts";
+import { providerSubscriptionReadiness } from "../src/daemon-host/agent-runtime-launch-config.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
-import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { probeSuccessExecutable, writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { runtimeKindForId } from "../src/runtime-engine/runtime-inventory.ts";
 import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 
@@ -898,6 +899,77 @@ test("runtime instance update edits the base URL of an existing instance", async
     removeTempRepository(userRoot);
   }
 });
+
+test(
+  "win32 discovery and subscription readiness handle mixed-case Path/ComSpec and .cmd probe shims",
+  { skip: process.platform !== "win32" ? "requires Windows .cmd execution semantics" : false },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-win32-probe-readiness-"));
+    try {
+      const bin = path.join(root, "bin");
+      mkdirSync(bin, { recursive: true });
+      const codex = writeProviderExecutable(
+        path.join(bin, "codex"),
+        `const args = process.argv.slice(2);
+if (args[0] === "--version") { console.log("codex-cli 1.0.0"); process.exit(0); }
+if (args[0] === "login" && args[1] === "status") { process.exit(process.env.PROBE_READY === "1" ? 0 : 1); }
+process.exit(2);
+`,
+      );
+      const mixedCaseEnv: NodeJS.ProcessEnv = {
+        Path: `${bin}${path.delimiter}${process.env.Path ?? process.env.PATH ?? ""}`,
+        ComSpec: process.env.ComSpec ?? process.env.COMSPEC,
+        SystemRoot: process.env.SystemRoot ?? process.env.SYSTEMROOT,
+        SystemDrive: process.env.SystemDrive ?? process.env.SYSTEMDRIVE,
+        PATHEXT: process.env.PATHEXT,
+        USERPROFILE: root,
+      };
+      const witnessed = await discoverRuntimeInstallations({ env: mixedCaseEnv, platform: "win32" });
+      const found = witnessed.find(
+        (entry) =>
+          entry.kindId === "codex" && entry.executablePath.toLowerCase() === realpathSync.native(codex).toLowerCase(),
+      );
+      assert.ok(found, `expected mixed-case Path discovery to witness ${codex}; saw ${JSON.stringify(witnessed)}`);
+
+      const ready = await providerSubscriptionReadiness(
+        { installation: found, env: { ...mixedCaseEnv, PROBE_READY: "1" }, isolationState: "enforced" },
+        "win32",
+      );
+      assert.equal(ready.status, "ready", JSON.stringify(ready));
+
+      const unauthenticated = await providerSubscriptionReadiness(
+        { installation: found, env: { ...mixedCaseEnv, PROBE_READY: "0" }, isolationState: "enforced" },
+        "win32",
+      );
+      assert.equal(unauthenticated.status, "not-ready");
+      assert.equal(unauthenticated.code, "runtime_subscription_required");
+
+      const okFixture = probeSuccessExecutable(root);
+      const fixtureReady = await providerSubscriptionReadiness(
+        {
+          installation: { ...found, executablePath: okFixture },
+          env: mixedCaseEnv,
+          isolationState: "operator-environment",
+        },
+        "win32",
+      );
+      assert.equal(fixtureReady.status, "ready", JSON.stringify(fixtureReady));
+
+      const missing = await providerSubscriptionReadiness(
+        {
+          installation: { ...found, executablePath: path.join(root, "does-not-exist.cmd") },
+          env: mixedCaseEnv,
+          isolationState: "operator-environment",
+        },
+        "win32",
+      );
+      assert.equal(missing.status, "not-ready");
+      assert.equal(missing.code, "runtime_auth_probe_failed");
+    } finally {
+      removeTempRepository(root);
+    }
+  },
+);
 
 function requireDirectory(directory: string): void {
   mkdirSync(directory);

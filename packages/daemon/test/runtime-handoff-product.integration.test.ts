@@ -3,7 +3,8 @@ import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, globSync, lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, globSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
@@ -21,7 +22,8 @@ import { readDispatchStream } from "../src/daemon-host/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { probeSuccessExecutable, writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
 // Explicit live acceptance uses the installed macOS Codex and each node's own auth link.
 // CI leaves this unset and runs the deterministic provider subprocess.
 const liveCodex = process.env.HARNESS_HANDOFF_LIVE_CODEX;
@@ -34,6 +36,8 @@ test(
   "node handoff facade exports a settled process and launches the same native session at the exact SHA",
   { timeout: liveCodex ? 360_000 : 120_000 },
   async (t) => {
+    const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-handoff-product-probe-"));
+    t.after(() => removeTempRepository(probeRoot));
     const f = await fleetFixture(
         t,
         ["tasks/task-fleet-fleet", "agents"],
@@ -41,7 +45,7 @@ test(
           {
             installationId: "handoff-codex",
             kindId: "codex",
-            executablePath: "/usr/bin/true",
+            executablePath: probeSuccessExecutable(probeRoot),
             version: "codex-cli 0.159.1",
             observedAt: new Date().toISOString(),
           },

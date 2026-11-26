@@ -1,4 +1,4 @@
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, realpathSync, renameSync } from "node:fs";
 import path from "node:path";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
@@ -6,8 +6,8 @@ import { oidcCenterSelections } from "./oidc-center-selection.ts";
 
 /** Relocate only edge-owned paths that were rooted in the old workspace's join layout. */
 export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repoId: string, userRoot?: string): void {
-  const sourceRoot = path.resolve(oldRoot),
-    targetRoot = path.resolve(newRoot),
+  const sourceRoot = canonicalizeExistingPrefix(oldRoot),
+    targetRoot = canonicalizeExistingPrefix(newRoot),
     effectiveUserRoot = userRoot ?? daemonUserRoot();
   if (sourceRoot === targetRoot) return;
   const config = readFleetEdgeConfig(effectiveUserRoot, repoId);
@@ -67,12 +67,35 @@ export function migrateFleetEdgeWorkspace(oldRoot: string, newRoot: string, repo
     });
 }
 
+function canonicalizeExistingPrefix(inputPath: string): string {
+  const resolved = path.resolve(inputPath);
+  if (existsSync(resolved)) return realpathSync.native(resolved);
+  const pendingSegments: string[] = [];
+  let current = resolved;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return resolved;
+    pendingSegments.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(realpathSync.native(current), ...pendingSegments);
+}
+
 function relocateAbsolutePath(value: string, sourceRoot: string, targetRoot: string): string | null {
   if (!path.isAbsolute(value)) return null;
-  const resolved = path.resolve(value),
-    relative = path.relative(sourceRoot, resolved);
+  const resolved = canonicalizeExistingPrefix(value),
+    canonicalSource = canonicalizeExistingPrefix(sourceRoot),
+    relative =
+      process.platform === "win32"
+        ? path.win32.relative(canonicalSource.toLowerCase(), resolved.toLowerCase())
+        : path.relative(canonicalSource, resolved);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
-  return relative === "" ? targetRoot : path.join(targetRoot, relative);
+  if (relative === "") return targetRoot;
+  // Preserve original suffix casing from `resolved` when re-rooting under `targetRoot`.
+  const suffix = path.relative(canonicalSource, resolved);
+  return suffix === "" || suffix === ".." || suffix.startsWith(`..${path.sep}`) || path.isAbsolute(suffix)
+    ? path.join(targetRoot, relative)
+    : path.join(targetRoot, suffix);
 }
 
 function moveDefaultView(source: string, target: string): void {

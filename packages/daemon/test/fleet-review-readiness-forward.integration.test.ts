@@ -1,8 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { removeTempRepository } from "../../../tools/fixtures/remove-temp-repository.ts";
+import { probeSuccessExecutable } from "./fixtures/runtime-stub.ts";
 import { createIdentitySession } from "../src/daemon-host/authorization-provider.ts";
 import { applyFleetMirrorCut } from "../src/daemon-host/fleet-edge-mirror.ts";
 import { forward } from "../src/daemon-host/fleet/forwarding-port.ts";
@@ -18,10 +21,12 @@ test(
   "forward returns Git divergence diagnostics for accepted submit and manual review receipts",
   { timeout: 120_000 },
   async (t) => {
+    const probeRoot = mkdtempSync(path.join(tmpdir(), "ha-review-readiness-probe-"));
+    t.after(() => removeTempRepository(probeRoot));
     const installation = {
       installationId: definition.installationId,
       kindId: definition.kindId,
-      executablePath: "/usr/bin/true",
+      executablePath: probeSuccessExecutable(probeRoot),
       version: "1.0.0",
       observedAt: "2026-11-07T00:00:00.000Z",
     };
