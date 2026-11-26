@@ -2,7 +2,7 @@
 import { revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -18,6 +18,9 @@ import { reviewDispatchKey } from "../src/daemon-host/task-review-dispatch.ts";
 import { dispatchStreamPath } from "../src/daemon-host/dispatch-stream.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
+
+const submitDispatchTimeoutMs = process.platform === "win32" ? 120_000 : 20_000;
+const submitWorktreeTimeoutMs = process.platform === "win32" ? 120_000 : 30_000;
 
 function gitIn(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -136,46 +139,51 @@ async function submitWithDeferredReview(f: ChildFixture): Promise<Record<string,
   return submitted;
 }
 
-test("a low-risk submit freezes no dispatch and never launches a reviewer", { timeout: 20_000 }, async () => {
-  const f = await fixture(false, true, true, false, false, {
-    autoSubmit: false,
-    create: { riskTier: "low" },
-  });
-  try {
-    await f.install();
-    const submitted = await f.submit(),
-      next = (submitted as { readonly next?: readonly { readonly command?: string }[] }).next ?? [],
-      transition = (submitted as { readonly transition?: { readonly from?: string; readonly to?: string } }).transition;
-    assert.deepEqual(
-      next.map((entry) => entry.command),
-      [],
-      "a zero-blocker artifact-only low-risk submit auto-completes to done with no manual step remaining",
-    );
-    assert.deepEqual(transition, { from: "active/implementation", to: "done/review" });
-    assert.equal(f.launches.length, 0, "low-risk submissions must not dispatch at submit");
-    assert.equal(
-      f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
-      0,
-      "no reviewer dispatch event may be recorded for a low-risk cut",
-    );
-    // The state a resuming agent reads must agree with the auto-completed receipt.
-    const shown = await f.run({ kind: "task-show", taskId }),
-      evidence = JSON.parse(String(shown.evidence)) as {
-        readonly task: { readonly status: string };
-        readonly completionBlocker: unknown;
-        readonly completionNext: { readonly action?: string } | null;
-      };
-    assert.equal(evidence.task.status, "done");
-    assert.equal(evidence.completionBlocker, null);
-    assert.equal(evidence.completionNext, null);
-  } finally {
-    await f.close();
-  }
-});
+test(
+  "a low-risk submit freezes no dispatch and never launches a reviewer",
+  { timeout: submitDispatchTimeoutMs },
+  async () => {
+    const f = await fixture(false, true, true, false, false, {
+      autoSubmit: false,
+      create: { riskTier: "low" },
+    });
+    try {
+      await f.install();
+      const submitted = await f.submit(),
+        next = (submitted as { readonly next?: readonly { readonly command?: string }[] }).next ?? [],
+        transition = (submitted as { readonly transition?: { readonly from?: string; readonly to?: string } })
+          .transition;
+      assert.deepEqual(
+        next.map((entry) => entry.command),
+        [],
+        "a zero-blocker artifact-only low-risk submit auto-completes to done with no manual step remaining",
+      );
+      assert.deepEqual(transition, { from: "active/implementation", to: "done/review" });
+      assert.equal(f.launches.length, 0, "low-risk submissions must not dispatch at submit");
+      assert.equal(
+        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
+        0,
+        "no reviewer dispatch event may be recorded for a low-risk cut",
+      );
+      // The state a resuming agent reads must agree with the auto-completed receipt.
+      const shown = await f.run({ kind: "task-show", taskId }),
+        evidence = JSON.parse(String(shown.evidence)) as {
+          readonly task: { readonly status: string };
+          readonly completionBlocker: unknown;
+          readonly completionNext: { readonly action?: string } | null;
+        };
+      assert.equal(evidence.task.status, "done");
+      assert.equal(evidence.completionBlocker, null);
+      assert.equal(evidence.completionNext, null);
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 test(
   "a copied reviewer declaration whose skills are absent cannot take the default seat",
-  { timeout: 20_000 },
+  { timeout: submitDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     try {
@@ -220,7 +228,7 @@ test(
 
 test(
   "submit automatically dispatches the accepted cut and complete never dispatches a reviewer",
-  { timeout: 20_000 },
+  { timeout: submitDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     try {
@@ -246,56 +254,60 @@ test(
   },
 );
 
-test("submit and amend dispatch their own frozen cuts without owner forward", { timeout: 20_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
-  try {
-    await f.install();
-    const reportPath = path.join(f.root, "harness", f.packagePath, "artifacts", "independent.md");
-    writeFileSync(reportPath, "Corrected job=41; SQL range 0–336h.\n");
-    await f.submit();
-    assert.equal(f.launches.length, 1);
-    const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
-    writeFileSync(
-      closeoutPath,
-      readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Amended reviewed delivery "),
-    );
-    let amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
-    for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
-      await waitForFixturePublication(f.cell(), amended.opId, owner);
-      amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+test(
+  "submit and amend dispatch their own frozen cuts without owner forward",
+  { timeout: submitDispatchTimeoutMs },
+  async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+    try {
+      await f.install();
+      const reportPath = path.join(f.root, "harness", f.packagePath, "artifacts", "independent.md");
+      writeFileSync(reportPath, "Corrected job=41; SQL range 0–336h.\n");
+      await f.submit();
+      assert.equal(f.launches.length, 1);
+      const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
+      writeFileSync(
+        closeoutPath,
+        readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Amended reviewed delivery "),
+      );
+      let amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
+        await waitForFixturePublication(f.cell(), amended.opId, owner);
+        amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      }
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      assert.equal(f.launches.length, 2, "amend dispatches the replacement cut through the same port");
+      const dispatches = f
+        .events()
+        .filter(
+          (event) => event.type === "runtime_dispatch_requested" && !event.payload.dispatchKey.includes(":fallback:"),
+        );
+      assert.equal(dispatches.length, 2);
+      const dispatch = dispatches[1]!;
+      assert.ok(dispatch.type === "runtime_dispatch_requested");
+      const read = await f
+        .cell()
+        .run(
+          { kind: "doc-show", path: `${f.packagePath}/artifacts/independent.md`, raw: true },
+          reviewerExecutionBinding(dispatch.payload.runtimeSessionId, dispatch.payload.dispatchId),
+        );
+      assert.equal(read.outcome, "applied", JSON.stringify(read));
+      assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
+      assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
+      assert.doesNotMatch(
+        f.launches[0]!.prompt,
+        /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
+        "reviewer dispatches carry no worker delivery protocols",
+      );
+    } finally {
+      await f.close();
     }
-    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-    assert.equal(f.launches.length, 2, "amend dispatches the replacement cut through the same port");
-    const dispatches = f
-      .events()
-      .filter(
-        (event) => event.type === "runtime_dispatch_requested" && !event.payload.dispatchKey.includes(":fallback:"),
-      );
-    assert.equal(dispatches.length, 2);
-    const dispatch = dispatches[1]!;
-    assert.ok(dispatch.type === "runtime_dispatch_requested");
-    const read = await f
-      .cell()
-      .run(
-        { kind: "doc-show", path: `${f.packagePath}/artifacts/independent.md`, raw: true },
-        reviewerExecutionBinding(dispatch.payload.runtimeSessionId, dispatch.payload.dispatchId),
-      );
-    assert.equal(read.outcome, "applied", JSON.stringify(read));
-    assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
-    assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
-    assert.doesNotMatch(
-      f.launches[0]!.prompt,
-      /# Living Deliverable Protocol|最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u,
-      "reviewer dispatches carry no worker delivery protocols",
-    );
-  } finally {
-    await f.close();
-  }
-});
+  },
+);
 
 test(
   "submit dispatches its reviewer when the published task branch still points at a replaced WIP commit",
-  { timeout: 30_000 },
+  { timeout: submitWorktreeTimeoutMs },
   async () => {
     // The worker's delivery order is commit → submit → push. A WIP commit pushed earlier can
     // therefore be the remote task branch's only tip while the frozen cut replaces it locally.
@@ -331,7 +343,7 @@ test(
 
 test(
   "a reviewer dispatched without a task worktree is created at the frozen delivery commit",
-  { timeout: 30_000 },
+  { timeout: submitWorktreeTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, {
       autoSubmit: false,
@@ -366,79 +378,95 @@ test(
   },
 );
 
-test("a reviewer ignores a stale worker worktree and reviews the frozen snapshot", { timeout: 30_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, {
-    autoSubmit: false,
-    create: { presetId: "standard-task" },
-  });
-  try {
-    const worktree = path.join(f.root, ".worktrees", taskId),
-      { frozen } = publishSupersededWipCut(f, worktree);
-    await submitWithDeferredReview(f);
-    // Another node may still hold an old checkout of this task. The review uses an independent
-    // snapshot, so it must not reject or inspect that tree.
-    gitIn(worktree, "reset", "--hard", `${frozen}~1`);
-    const dispatched = (await f.run({
-      kind: "task-dispatch-review",
-      taskIds: [taskId],
-      agentId: "closeout-reviewer",
-    })) as Record<string, unknown>;
-    assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
-    assert.equal(f.launches.length, 1, "a stale worker checkout must not block the reviewer");
-    assert.equal(gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"), frozen);
-    assert.notEqual(gitIn(worktree, "rev-parse", "HEAD"), frozen);
-  } finally {
-    await f.close();
-  }
-});
+test(
+  "a reviewer ignores a stale worker worktree and reviews the frozen snapshot",
+  { timeout: submitWorktreeTimeoutMs },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task" },
+    });
+    try {
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        { frozen } = publishSupersededWipCut(f, worktree);
+      await submitWithDeferredReview(f);
+      // Another node may still hold an old checkout of this task. The review uses an independent
+      // snapshot, so it must not reject or inspect that tree.
+      gitIn(worktree, "reset", "--hard", `${frozen}~1`);
+      const dispatched = (await f.run({
+        kind: "task-dispatch-review",
+        taskIds: [taskId],
+        agentId: "closeout-reviewer",
+      })) as Record<string, unknown>;
+      assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
+      assert.equal(f.launches.length, 1, "a stale worker checkout must not block the reviewer");
+      assert.equal(gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"), frozen);
+      assert.notEqual(gitIn(worktree, "rev-parse", "HEAD"), frozen);
+    } finally {
+      await f.close();
+    }
+  },
+);
 
-test("a reviewer never moves a task branch checked out by another worktree", { timeout: 30_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, {
-    autoSubmit: false,
-    create: { presetId: "standard-task" },
-  });
-  try {
-    const worktree = path.join(f.root, ".worktrees", taskId),
-      { wip, frozen } = publishSupersededWipCut(f, worktree);
-    await submitWithDeferredReview(f);
-    gitIn(f.root, "worktree", "remove", "--force", worktree);
-    // A peer worktree owns the task branch at the replaced WIP cut. Renaming or moving that
-    // branch would rewrite the peer's symbolic HEAD and break its delivery path.
-    const peer = path.join(f.root, "peer-worktree");
-    gitIn(f.root, "worktree", "add", peer, taskId);
-    gitIn(peer, "reset", "--hard", wip);
-    const peerEntry = () => {
-      const entry = gitIn(f.root, "worktree", "list", "--porcelain")
-        .split("\n\n")
-        .find((block) => block.startsWith(`worktree ${peer}\n`));
-      assert.ok(entry, "the peer worktree is registered");
-      return entry;
-    };
-    const peerBefore = peerEntry();
-    assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`);
-    assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip);
-    const dispatched = (await f.run({
-      kind: "task-dispatch-review",
-      taskIds: [taskId],
-      agentId: "closeout-reviewer",
-    })) as Record<string, unknown>;
-    assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
-    assert.equal(f.launches.length, 1, "a branch owned by another worktree must not block a reviewer");
-    assert.equal(gitIn(peer, "branch", "--show-current"), taskId, "the peer keeps its branch name");
-    assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`, "the peer keeps its symbolic HEAD");
-    assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip, "the peer keeps its HEAD commit");
-    assert.equal(peerEntry(), peerBefore, "the peer worktree entry keeps its branch, HEAD and config identity");
-    assert.equal(gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"), frozen);
-    assert.notEqual(frozen, wip);
-  } finally {
-    await f.close();
-  }
-});
+test(
+  "a reviewer never moves a task branch checked out by another worktree",
+  { timeout: submitWorktreeTimeoutMs },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task" },
+    });
+    try {
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        { wip, frozen } = publishSupersededWipCut(f, worktree);
+      await submitWithDeferredReview(f);
+      gitIn(f.root, "worktree", "remove", "--force", worktree);
+      // A peer worktree owns the task branch at the replaced WIP cut. Renaming or moving that
+      // branch would rewrite the peer's symbolic HEAD and break its delivery path.
+      const peer = path.join(f.root, "peer-worktree");
+      gitIn(f.root, "worktree", "add", peer, taskId);
+      gitIn(peer, "reset", "--hard", wip);
+      const normalizePath = (value: string) => {
+        const canonical = realpathSync.native(path.resolve(value));
+        return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+      };
+      const peerEntry = () => {
+        const entry = gitIn(f.root, "worktree", "list", "--porcelain")
+          .replaceAll("\r\n", "\n")
+          .split("\n\n")
+          .find((block) => {
+            const match = /^worktree (.+)$/mu.exec(block);
+            return match !== null && normalizePath(match[1]!) === normalizePath(peer);
+          });
+        assert.ok(entry, "the peer worktree is registered");
+        return entry;
+      };
+      const peerBefore = peerEntry();
+      assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`);
+      assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip);
+      const dispatched = (await f.run({
+        kind: "task-dispatch-review",
+        taskIds: [taskId],
+        agentId: "closeout-reviewer",
+      })) as Record<string, unknown>;
+      assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
+      assert.equal(f.launches.length, 1, "a branch owned by another worktree must not block a reviewer");
+      assert.equal(gitIn(peer, "branch", "--show-current"), taskId, "the peer keeps its branch name");
+      assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`, "the peer keeps its symbolic HEAD");
+      assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip, "the peer keeps its HEAD commit");
+      assert.equal(peerEntry(), peerBefore, "the peer worktree entry keeps its branch, HEAD and config identity");
+      assert.equal(gitIn(f.launches[0]!.cwd, "rev-parse", "HEAD"), frozen);
+      assert.notEqual(frozen, wip);
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 test(
   "forward's explicit reviewer overrides the cut's frozen claim and reports the argument source",
   {
-    timeout: 30_000,
+    timeout: submitWorktreeTimeoutMs,
   },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
@@ -620,7 +648,7 @@ test("legacy base-key dispatch for an alternate reviewer is reused by reroute an
 test(
   "resumed submit keeps frozen reviewer over settings and recovers dispatch through dispatch-review",
   {
-    timeout: 30_000,
+    timeout: submitWorktreeTimeoutMs,
   },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
@@ -679,7 +707,7 @@ test(
 
 test(
   "amending an in-review cut dispatches the reviewer for the replaced cut once, through the forward's path",
-  { timeout: 20_000 },
+  { timeout: submitDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false);
     try {
@@ -748,7 +776,7 @@ async function cancelLiveReview(f: ChildFixture) {
 
 test(
   "an amendment after the prior review was cancelled dispatches the replacement cut",
-  { timeout: 20_000 },
+  { timeout: submitDispatchTimeoutMs },
   async () => {
     const f = await fixture(false, true, false, false, false, { autoSubmit: false });
     try {
@@ -776,9 +804,29 @@ test(
   },
 );
 
+async function cancelLostStreamReviewer(f: ChildFixture, runtimeSessionId: string): Promise<void> {
+  if (process.platform === "win32") {
+    // Windows cannot prove a PID stopped once its local containment stream is gone;
+    // only an explicit owner ruling settles the lost reviewer seat.
+    const ruled = await f.cell().cancelRuntime(
+      {
+        runtimeSessionId,
+        ruling: "Owner confirmed the reviewer process stopped after its local stream was lost.",
+      },
+      principal,
+    );
+    assert.equal(ruled.detail, "ruling_resolved", JSON.stringify(ruled));
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "unknown");
+    return;
+  }
+  const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
+  assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+  assert.equal(await f.awaitOutcome(runtimeSessionId), "cancelled");
+}
+
 test(
   "an amendment whose cut is unchanged after its review was cancelled reopens the review seat",
-  { timeout: 20_000 },
+  { timeout: submitDispatchTimeoutMs },
   async () => {
     // The T6 field path: the cancelled reviewer settles without archiving its mission/dispatch
     // documents (a lost owner stream is the deterministic local shape), so the next amendment
@@ -798,11 +846,7 @@ test(
       assert.ok(dispatch?.type === "runtime_dispatch_requested");
       rmSync(dispatchStreamPath(f.root, dispatch.payload.dispatchId), { force: true });
       await f.reopen();
-      const cancelled = await f
-        .cell()
-        .cancelRuntime({ runtimeSessionId: dispatch.payload.runtimeSessionId }, principal);
-      assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
-      assert.equal(await f.awaitOutcome(dispatch.payload.runtimeSessionId), "cancelled");
+      await cancelLostStreamReviewer(f, dispatch.payload.runtimeSessionId);
       const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       assert.equal(amended.outcome, "applied", JSON.stringify(amended));
       assert.equal(f.launches.length, 2, "the cancelled review seat must be reopened by the amendment");
@@ -818,70 +862,72 @@ test(
   },
 );
 
-test("a resumed submit of an already-reviewed cut keeps the registered review", { timeout: 30_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, {
-    autoSubmit: false,
-    runtimePid: 2_147_483_646,
-  });
-  try {
-    await f.install();
-    await f.submit();
-    const dispatch = f
-      .events()
-      .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
-    assert.ok(dispatch?.type === "runtime_dispatch_requested");
-    // Register under the dispatch's own report/packet paths: automatic submission artifacts
-    // exclude exactly those, so the resumed cut keeps the same digest and reaches the hook.
-    const { dispatchId, runtimeSessionId } = dispatch.payload,
-      report = `${f.packagePath}/artifacts/reports/${dispatchId}.md`,
-      packet = `${f.packagePath}/artifacts/reports/${dispatchId}.json`;
-    mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
-    writeFileSync(path.join(f.root, "harness", report), "# Review\n\nApproved.\n");
-    writeFileSync(
-      path.join(f.root, "harness", packet),
-      JSON.stringify({
-        verdict: "approved",
-        reason: "The submitted cut was checked.",
-        evidenceChecked: ["README.md"],
-        findings: [],
-        resolutions: [],
-      }),
-    );
-    const reviewed = await f.cell().run(
-      {
-        kind: "task-review-execution",
-        taskId,
-        executionId,
-        reviewId: `review-${dispatchId}`,
-        fromFile: `harness/${packet}`,
-      },
-      withPolicyGroup(
+test(
+  "a resumed submit of an already-reviewed cut keeps the registered review",
+  { timeout: submitWorktreeTimeoutMs },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      runtimePid: 2_147_483_646,
+    });
+    try {
+      await f.install();
+      await f.submit();
+      const dispatch = f
+        .events()
+        .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+      assert.ok(dispatch?.type === "runtime_dispatch_requested");
+      // Register under the dispatch's own report/packet paths: automatic submission artifacts
+      // exclude exactly those, so the resumed cut keeps the same digest and reaches the hook.
+      const { dispatchId, runtimeSessionId } = dispatch.payload,
+        report = `${f.packagePath}/artifacts/reports/${dispatchId}.md`,
+        packet = `${f.packagePath}/artifacts/reports/${dispatchId}.json`;
+      mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+      writeFileSync(path.join(f.root, "harness", report), "# Review\n\nApproved.\n");
+      writeFileSync(
+        path.join(f.root, "harness", packet),
+        JSON.stringify({
+          verdict: "approved",
+          reason: "The submitted cut was checked.",
+          evidenceChecked: ["README.md"],
+          findings: [],
+          resolutions: [],
+        }),
+      );
+      const reviewed = await f.cell().run(
         {
-          actor: {
-            principal: owner.actor.principal,
-            executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
-          },
-          source: "local",
+          kind: "task-review-execution",
+          taskId,
+          executionId,
+          reviewId: `review-${dispatchId}`,
+          fromFile: `harness/${packet}`,
         },
-        "admin",
-      ),
-    );
-    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    // Settle the reviewer without archiving its mission/dispatch documents, so the cut digest
-    // stays unchanged and the resumed submit reaches the automatic dispatch hook.
-    rmSync(dispatchStreamPath(f.root, dispatchId), { force: true });
-    await f.reopen();
-    const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
-    assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
-    assert.equal(await f.awaitOutcome(runtimeSessionId), "cancelled");
-    const resumed = await f.run({ kind: "task-submit", taskId, executionId });
-    assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
-    assert.equal(f.launches.length, 1, "a registered review must not be replaced by another reviewer");
-    assert.match(JSON.stringify(resumed.warnings), /no new reviewer was dispatched/u);
-  } finally {
-    await f.close();
-  }
-});
+        withPolicyGroup(
+          {
+            actor: {
+              principal: owner.actor.principal,
+              executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+            },
+            source: "local",
+          },
+          "admin",
+        ),
+      );
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      // Settle the reviewer without archiving its mission/dispatch documents, so the cut digest
+      // stays unchanged and the resumed submit reaches the automatic dispatch hook.
+      rmSync(dispatchStreamPath(f.root, dispatchId), { force: true });
+      await f.reopen();
+      await cancelLostStreamReviewer(f, runtimeSessionId);
+      const resumed = await f.run({ kind: "task-submit", taskId, executionId });
+      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+      assert.equal(f.launches.length, 1, "a registered review must not be replaced by another reviewer");
+      assert.match(JSON.stringify(resumed.warnings), /no new reviewer was dispatched/u);
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 // Keep this last: it revokes runtime-spawn for the rest of this test file's policy realm.
 test("automatic submit dispatch cannot lend its authorization decision to runtime-spawn", async () => {

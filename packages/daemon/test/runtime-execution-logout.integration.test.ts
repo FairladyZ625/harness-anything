@@ -37,6 +37,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   let cleanupRuntimes = async () => {};
   let stop = async (): Promise<void> => {};
   t.after(async () => {
+    writeFileSync(path.join(parent, "shutdown.all"), "shutdown");
     await cleanupRuntimes();
     await stop();
     await realm.close();
@@ -67,7 +68,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     fs.writeFileSync(envPath + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
     fs.renameSync(envPath + ".tmp", envPath);
     const finish = () => {
-      if (!fs.existsSync(path.join(dir, id + ".finish"))) return;
+      if (!fs.existsSync(path.join(dir, id + ".finish")) && !fs.existsSync(path.join(dir, "shutdown.all"))) return;
       watcher.close();
       console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Completed permitted task actions." } }));
       console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));

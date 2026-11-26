@@ -291,10 +291,21 @@ for (const mode of ["incremental", "cold"] as const)
   );
 
 function resolveSystemGit(): string {
-  const output = execFileSync(process.platform === "win32" ? "where" : "which", ["git"], { encoding: "utf8" }).trim();
-  const first = output.split(/\r?\n/u).find((line) => line.trim().length > 0);
+  const candidates =
+    process.platform === "win32"
+      ? execFileSync("where.exe", ["git.exe"], { encoding: "utf8" })
+          .trim()
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : execFileSync("which", ["git"], { encoding: "utf8" })
+          .trim()
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean);
+  const first = candidates[0];
   assert.ok(first, "system git executable must exist in PATH");
-  return first.trim();
+  return first;
 }
 
 function decisionProposeAction(title: string) {
@@ -325,14 +336,13 @@ function pauseGitPublication(parent: string, repoRoot: string, subcommand: strin
     enteredFile = path.join(controlDir, "entered"),
     releaseFile = path.join(controlDir, "release"),
     realGit = resolveSystemGit(),
-    gitShimPath = path.join(binDir, "git");
+    gitShimPath = path.join(binDir, "git"),
+    gitShimScriptPath = path.join(binDir, "git-shim.mjs"),
+    gitCmdPath = path.join(binDir, "git.cmd");
   mkdirSync(controlDir);
   mkdirSync(binDir);
   // Wrapper script intercepts only armed invocations for repoARoot + target subcommand, pausing via fs.watch.
-  writeFileSync(
-    gitShimPath,
-    `#!${process.execPath}
-import { spawnSync } from "node:child_process";
+  const shimBody = `import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -345,9 +355,14 @@ const enteredFile = ${JSON.stringify(enteredFile)};
 const releaseFile = ${JSON.stringify(releaseFile)};
 const controlDir = ${JSON.stringify(controlDir)};
 
+const normalize = (value) => {
+  const resolved = path.resolve(value);
+  const canonical = fs.existsSync(resolved) ? fs.realpathSync.native(resolved) : resolved;
+  return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+};
 const cIdx = args.indexOf("-C");
-const targetCwd = cIdx >= 0 ? path.resolve(args[cIdx + 1]) : process.cwd();
-const matchesTarget = targetCwd === path.resolve(repoA) && args.includes(targetCmd);
+const targetCwd = cIdx >= 0 ? args[cIdx + 1] : process.cwd();
+const matchesTarget = normalize(targetCwd) === normalize(repoA) && args.includes(targetCmd);
 
 if (matchesTarget && fs.existsSync(armFile) && !fs.existsSync(releaseFile)) {
   let claimed = false;
@@ -374,10 +389,14 @@ if (matchesTarget && fs.existsSync(armFile) && !fs.existsSync(releaseFile)) {
 
 const result = spawnSync(realGit, args, { stdio: "inherit" });
 process.exit(result.status ?? 1);
-`,
-    "utf8",
-  );
-  chmodSync(gitShimPath, 0o755);
+`;
+  if (process.platform === "win32") {
+    writeFileSync(gitShimScriptPath, shimBody, "utf8");
+    writeFileSync(gitCmdPath, `@echo off\r\n"${process.execPath}" "${gitShimScriptPath}" %*\r\n`, "utf8");
+  } else {
+    writeFileSync(gitShimPath, `#!${process.execPath}\n${shimBody}`, "utf8");
+    chmodSync(gitShimPath, 0o755);
+  }
   return { binDir, armFile, enteredFile, releaseFile };
 }
 

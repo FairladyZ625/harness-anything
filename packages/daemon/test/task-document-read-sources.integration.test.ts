@@ -67,7 +67,7 @@ const taskId = "task-doc-sources",
 async function startTaskWithTwoCuts(
   options: { readonly startBinding?: RepoCellBinding; readonly beforeOpen?: (root: string) => void } = {},
 ) {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sources-")),
+  const rootDir = canonicalRoot(mkdtempSync(path.join(tmpdir(), "ha-doc-sources-"))),
     repoId = workspaceId("task-doc-sources");
   initRepo(rootDir);
   options.beforeOpen?.(rootDir);
@@ -834,7 +834,7 @@ function git(rootDir: string, ...args: string[]): string {
 
 function worktreeRoots(rootDir: string): readonly string[] {
   return execFileSync("git", ["-C", rootDir, "worktree", "list", "--porcelain"], { encoding: "utf8" })
-    .split("\n")
+    .split(/\r?\n/u)
     .filter((line) => line.startsWith("worktree "))
-    .map((line) => line.slice("worktree ".length).trim());
+    .map((line) => canonicalRoot(line.slice("worktree ".length).trim()));
 }

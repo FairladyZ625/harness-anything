@@ -118,19 +118,36 @@ function insideAnyWorkspaceRoot(roots: readonly string[], candidate: string): bo
   return roots.some((rootDir) => insideWorkspace(rootDir, candidate));
 }
 
+function canonicalizeExistingPrefix(target: string): string {
+  const resolved = path.resolve(target);
+  if (existsSync(resolved)) return realpathSync.native(resolved);
+  const pending: string[] = [];
+  let current = resolved;
+  while (!existsSync(current)) {
+    const parent = path.dirname(current);
+    if (parent === current) return resolved;
+    pending.unshift(path.basename(current));
+    current = parent;
+  }
+  return path.join(realpathSync.native(current), ...pending);
+}
+
 function realWorkspaceRoots(rootDir: string): readonly string[] {
-  const roots = [realpathSync(rootDir)],
+  const roots = [realpathSync.native(rootDir)],
     authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
   if (existsSync(authoredRoot)) {
-    const realAuthoredRoot = realpathSync(authoredRoot);
+    const realAuthoredRoot = realpathSync.native(authoredRoot);
     if (!roots.includes(realAuthoredRoot)) roots.push(realAuthoredRoot);
   }
   return roots;
 }
 /** A path is a reviewer artifact only when it stays inside the workspace boundary. */
 function insideWorkspace(rootDir: string, candidate: string): boolean {
-  const root = path.resolve(rootDir);
-  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+  const root = canonicalizeExistingPrefix(rootDir),
+    normalizedCandidate = canonicalizeExistingPrefix(candidate);
+  const comparableRoot = process.platform === "win32" ? root.toLowerCase() : root,
+    comparableCandidate = process.platform === "win32" ? normalizedCandidate.toLowerCase() : normalizedCandidate;
+  return comparableCandidate === comparableRoot || comparableCandidate.startsWith(`${comparableRoot}${path.sep}`);
 }
 
 /**
@@ -269,7 +286,7 @@ export function reviewerArtifactsForReview(
   }
   const allowedRealRoots = realWorkspaceRoots(cell.rootDir);
   const readReviewArtifact = (absolute: string): string => {
-    const real = realpathSync(absolute);
+    const real = realpathSync.native(absolute);
     if (!insideAnyWorkspaceRoot(allowedRealRoots, real))
       throw cell.cellCodedError("invalid_command", "Reviewer artifact must stay inside the reviewer workspace.");
     return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(real));

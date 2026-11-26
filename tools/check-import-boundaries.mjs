@@ -676,7 +676,7 @@ function workspacePackageForFile(rel) {
   const match = /^(packages\/[^/]+)\//u.exec(rel);
   return match ? workspacePackageByRoot.get(path.join(root, match[1])) : undefined;
 }
-const packageDirectoryName = (workspacePackage) => path.posix.basename(workspacePackage.root);
+const packageDirectoryName = (workspacePackage) => path.basename(workspacePackage.root);
 const packageGraph = new Map(workspacePackages.map((workspacePackage) => [workspacePackage.name, new Set()]));
 for (const workspacePackage of workspacePackages) {
   const declared =
@@ -697,7 +697,7 @@ const packageAdjacency = new Map(packageNames.map((name) => [name, [...packageGr
 for (const component of stronglyConnectedComponents(packageNames, packageAdjacency)) {
   if (component.length < 2) continue;
   record(
-    path.join(root, workspacePackageByName.get(component[0]).root),
+    workspacePackageByName.get(component[0]).root,
     `workspace package dependency cycle: ${component.sort().join(" -> ")} -> ${component.sort()[0]}`,
   );
 }
@@ -710,12 +710,12 @@ for (const [importer, targets] of packageGraph) {
       targetDirectory = packageDirectoryName(workspacePackageByName.get(target));
     if (deliveryLeaves.has(targetDirectory))
       record(
-        path.join(root, workspacePackageByName.get(importer).root),
+        workspacePackageByName.get(importer).root,
         `workspace package ${importerDirectory} must not depend on delivery package ${targetDirectory}`,
       );
     if (targetDirectory === daemonPackage && !deliveryLeaves.has(importerDirectory))
       record(
-        path.join(root, workspacePackageByName.get(importer).root),
+        workspacePackageByName.get(importer).root,
         `workspace package ${importerDirectory} must not depend on the daemon composition root ${targetDirectory}`,
       );
   }

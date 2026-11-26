@@ -181,8 +181,41 @@ async function runShell(command: string, cwd: string, log: string, environment: 
   }
 }
 
+function resolveWindowsPosixShell(environment: NodeJS.ProcessEnv): string | null {
+  const pathValue = environment.PATH ?? environment.Path ?? "";
+  const gitCandidates: string[] = [];
+  for (const directory of pathValue.split(path.delimiter)) {
+    const trimmed = directory.trim();
+    if (!trimmed) continue;
+    const directSh = path.join(trimmed, "sh.exe");
+    if (existsSync(directSh)) return directSh;
+    const gitExe = path.join(trimmed, "git.exe");
+    if (existsSync(gitExe)) gitCandidates.push(gitExe);
+  }
+  const candidates = [
+    ...gitCandidates.flatMap((gitExe) => {
+      const gitRoot = path.resolve(path.dirname(gitExe), "..");
+      return [path.join(gitRoot, "bin", "sh.exe"), path.join(gitRoot, "usr", "bin", "sh.exe")];
+    }),
+    "C:\\Program Files\\Git\\bin\\sh.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
+
 function spawnShell(command: string, cwd: string, log: string, environment: NodeJS.ProcessEnv, timeoutMs: number) {
-  if (process.platform === "win32")
+  if (process.platform === "win32") {
+    const posixShell = resolveWindowsPosixShell(environment);
+    if (posixShell !== null)
+      return runProcessExitAsync(
+        posixShell,
+        ["-c", `exec >>"$HARNESS_SETUP_LOG" 2>&1\n${command}`],
+        cwd,
+        { ...environment, HARNESS_SETUP_LOG: log },
+        undefined,
+        undefined,
+        { timeoutMs },
+      );
     return runProcessExitAsync(
       environment.ComSpec ?? "cmd.exe",
       ["/d", "/s", "/c", `"${command} >> "${log}" 2>&1"`],
@@ -192,6 +225,7 @@ function spawnShell(command: string, cwd: string, log: string, environment: Node
       undefined,
       { windowsVerbatimArguments: true, timeoutMs },
     );
+  }
   // The shell leads its own process group, and the timeout kills that whole group: what the step started (an
   // install) goes with it. Until the exit event the shell is at least unreaped, so its group still exists.
   const shell = startDetachedProcess(

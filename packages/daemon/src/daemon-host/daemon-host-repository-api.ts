@@ -160,6 +160,20 @@ async function bindPersonalRead(
   return { ...binding, taskClaimant: { personId: binding.actor.principal.personId, nodeId, teamIds } };
 }
 
+function sameRegisteredRoot(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) return left === right;
+  const normalize = (value: string) => {
+    const resolved = path.resolve(value);
+    const canonical = existsSync(resolved)
+      ? realpathSync.native(resolved)
+      : existsSync(path.dirname(resolved))
+        ? path.join(realpathSync.native(path.dirname(resolved)), path.basename(resolved))
+        : resolved;
+    return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+  };
+  return normalize(left) === normalize(right);
+}
+
 export function createDaemonHostRepositoryApi(
   context: DaemonHostApiContext,
 ): Pick<
@@ -281,7 +295,8 @@ export function createDaemonHostRepositoryApi(
       context.localOnly(auth);
       const requestedRoot = canonicalRoot(request.rootDir, true),
         registeredRoot = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-          (repo) => repo.state === "enabled" && repo.mode === "local" && repo.canonicalRoot === requestedRoot,
+          (repo) =>
+            repo.state === "enabled" && repo.mode === "local" && sameRegisteredRoot(repo.canonicalRoot, requestedRoot),
         ),
         reusedRegistration = request.repoId === undefined && registeredRoot !== undefined;
       if (request.repoId !== undefined && registeredRoot && registeredRoot.repoId !== request.repoId)
@@ -324,7 +339,7 @@ export function createDaemonHostRepositoryApi(
       const claimedRegistration = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
         (repo) => repo.repoId === bootstrap.repoId,
       );
-      if (claimedRegistration && claimedRegistration.canonicalRoot !== bootstrap.rootDir)
+      if (claimedRegistration && !sameRegisteredRoot(claimedRegistration.canonicalRoot, bootstrap.rootDir))
         throw context.hostCodedError(
           "repository_already_registered",
           `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
@@ -521,7 +536,7 @@ export function createDaemonHostRepositoryApi(
       if (request.kind === "backup" || request.kind === "restore-drill") {
         const rootDir = realpathSync.native(request.rootDir),
           repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
-            (candidate) => candidate.state === "enabled" && candidate.canonicalRoot === rootDir,
+            (candidate) => candidate.state === "enabled" && sameRegisteredRoot(candidate.canonicalRoot, rootDir),
           ),
           actionKind = request.kind === "backup" ? "ledger-backup" : "ledger-restore-drill",
           authorizationDecision = await requireAuthorizedHostAction({
@@ -652,7 +667,7 @@ export function createDaemonHostRepositoryApi(
           oldRoot !== undefined &&
           oldRoot !== null &&
           existing?.mode === "remote-edge" &&
-          requestedRoot !== oldRoot
+          !sameRegisteredRoot(requestedRoot, oldRoot)
         )
           await context.migrateEdgeWorkspace(request.repoId, oldRoot, requestedRoot);
         const effectiveMode = request.mode ?? existing?.mode ?? "local",

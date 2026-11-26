@@ -114,7 +114,8 @@ function walk(directory, repoRoot) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) files.push(...walk(target, repoRoot));
-    else if (entry.isFile() && /\.(?:mjs|js|ts)$/u.test(entry.name)) files.push(path.relative(repoRoot, target));
+    else if (entry.isFile() && /\.(?:mjs|js|ts)$/u.test(entry.name))
+      files.push(path.relative(repoRoot, target).split(path.sep).join("/"));
   }
   return files.sort();
 }

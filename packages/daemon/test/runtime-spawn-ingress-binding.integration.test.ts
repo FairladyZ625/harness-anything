@@ -218,10 +218,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", { time
       assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u"));
       assert.ok(launchedPrompt.includes("Repository registration: enabled"));
       assert.equal(launchedPrompt.includes("Canonical repository root"), false);
-      assert.ok(launchedPrompt.includes(`Worker repository root: ${realpathSync(workerRoot)}`));
+      assert.ok(launchedPrompt.includes(`Worker repository root: ${realpathSync.native(workerRoot)}`));
       assert.ok(
         launchedPrompt.includes(
-          `Task package root: ${path.join(realpathSync(root), "harness", "tasks", "task-runtime-agent-agent-runtime")}`,
+          `Task package root: ${path.join(realpathSync.native(root), "harness", "tasks", "task-runtime-agent-agent-runtime")}`,
         ),
       );
       assert.ok(launchedPrompt.includes(`Canonical Task ID: ${taskId}`));
