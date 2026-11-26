@@ -64,7 +64,8 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
     assert.equal(JSON.stringify(created).includes(secret), false);
     const file = readFileSync(path.join(parent, "decision-providers.json"), "utf8");
     assert.equal(file.includes(secret), false);
-    assert.equal(statSync(path.join(parent, "decision-providers.json")).mode & 0o777, 0o600);
+    if (process.platform !== "win32")
+      assert.equal(statSync(path.join(parent, "decision-providers.json")).mode & 0o777, 0o600);
 
     const probed = await service.command({ kind: "provider-probe", providerId: "review-choice" });
     assert.equal(probeKey, secret);

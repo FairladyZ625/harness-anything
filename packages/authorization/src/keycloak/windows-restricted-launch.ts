@@ -4,7 +4,16 @@ let cachedWindowsAdminToken: Promise<boolean> | null = null;
 
 const WINDOWS_POWERSHELL_ENV_NAMES = new Set([
   "systemroot",
+  "systemdrive",
   "windir",
+  "os",
+  "computername",
+  "username",
+  "userdomain",
+  "programdata",
+  "allusersprofile",
+  "processor_architecture",
+  "number_of_processors",
   "temp",
   "tmp",
   "pathext",
@@ -91,6 +100,7 @@ const restrictedLauncherSource = `
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 public static class HarnessRestrictedLauncher {
@@ -114,6 +124,8 @@ public static class HarnessRestrictedLauncher {
   [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr GetStdHandle(int n);
   [DllImport("advapi32.dll", SetLastError = true)] private static extern bool OpenProcessToken(IntPtr p, uint a, out IntPtr t);
+  [DllImport("advapi32.dll", SetLastError = true)] private static extern bool GetTokenInformation(IntPtr t, int c, IntPtr i, int l, out int r);
+  [DllImport("advapi32.dll", SetLastError = true)] private static extern bool SetTokenInformation(IntPtr t, int c, IntPtr i, int l);
   [DllImport("advapi32.dll", SetLastError = true)] private static extern bool CreateRestrictedToken(IntPtr t, uint f, uint dc, [In] SID_AND_ATTRIBUTES[] ds, uint pc, IntPtr p, uint rc, IntPtr r, out IntPtr nt);
   [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)] private static extern bool CreateProcessAsUser(IntPtr t, string app, StringBuilder cmd, IntPtr pa, IntPtr ta, bool inh, uint cf, IntPtr env, string cwd, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
   [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] private static extern IntPtr CreateJobObject(IntPtr a, string n);
@@ -123,6 +135,43 @@ public static class HarnessRestrictedLauncher {
   [DllImport("kernel32.dll", SetLastError = true)] private static extern uint WaitForSingleObject(IntPtr h, uint ms);
   [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetExitCodeProcess(IntPtr p, out uint c);
   [DllImport("kernel32.dll", SetLastError = true)] private static extern bool CloseHandle(IntPtr h);
+  private static void AddUserToTokenDacl(IntPtr restricted) {
+    IntPtr userBuf = IntPtr.Zero, daclBuf = IntPtr.Zero, newAclBuf = IntPtr.Zero, newDaclStruct = IntPtr.Zero;
+    try {
+      int len = 0;
+      GetTokenInformation(restricted, 1, IntPtr.Zero, 0, out len);
+      userBuf = Marshal.AllocHGlobal(len);
+      if (!GetTokenInformation(restricted, 1, userBuf, len, out len)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      var userSid = new SecurityIdentifier(Marshal.ReadIntPtr(userBuf));
+      len = 0;
+      GetTokenInformation(restricted, 6, IntPtr.Zero, 0, out len);
+      daclBuf = Marshal.AllocHGlobal(len);
+      if (!GetTokenInformation(restricted, 6, daclBuf, len, out len)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      IntPtr oldAclPtr = Marshal.ReadIntPtr(daclBuf);
+      RawAcl acl;
+      if (oldAclPtr != IntPtr.Zero) {
+        int aclSize = (ushort)Marshal.ReadInt16(oldAclPtr, 2);
+        byte[] existing = new byte[aclSize];
+        Marshal.Copy(oldAclPtr, existing, 0, aclSize);
+        acl = new RawAcl(existing, 0);
+      } else {
+        acl = new RawAcl(2, 1);
+      }
+      acl.InsertAce(acl.Count, new CommonAce(AceFlags.None, AceQualifier.AccessAllowed, 0x10000000, userSid, false, null));
+      byte[] updated = new byte[acl.BinaryLength];
+      acl.GetBinaryForm(updated, 0);
+      newAclBuf = Marshal.AllocHGlobal(updated.Length);
+      Marshal.Copy(updated, 0, newAclBuf, updated.Length);
+      newDaclStruct = Marshal.AllocHGlobal(IntPtr.Size);
+      Marshal.WriteIntPtr(newDaclStruct, newAclBuf);
+      if (!SetTokenInformation(restricted, 6, newDaclStruct, IntPtr.Size)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    } finally {
+      if (newDaclStruct != IntPtr.Zero) Marshal.FreeHGlobal(newDaclStruct);
+      if (newAclBuf != IntPtr.Zero) Marshal.FreeHGlobal(newAclBuf);
+      if (daclBuf != IntPtr.Zero) Marshal.FreeHGlobal(daclBuf);
+      if (userBuf != IntPtr.Zero) Marshal.FreeHGlobal(userBuf);
+    }
+  }
   public static int Run(string exePath, string commandLine) {
     IntPtr token = IntPtr.Zero, restricted = IntPtr.Zero, job = IntPtr.Zero;
     var pi = new PROCESS_INFORMATION();
@@ -139,6 +188,7 @@ public static class HarnessRestrictedLauncher {
         new SID_AND_ATTRIBUTES { Sid = ph.AddrOfPinnedObject(), Attributes = 0 }
       };
       if (!CreateRestrictedToken(token, 0x1u, 2u, ds, 0, IntPtr.Zero, 0, IntPtr.Zero, out restricted)) throw new Win32Exception(Marshal.GetLastWin32Error());
+      AddUserToTokenDacl(restricted);
       var si = new STARTUPINFO { cb = Marshal.SizeOf(typeof(STARTUPINFO)), dwFlags = 0x100, hStdInput = GetStdHandle(-10), hStdOutput = GetStdHandle(-11), hStdError = GetStdHandle(-12) };
       if (!CreateProcessAsUser(restricted, exePath, new StringBuilder(commandLine), IntPtr.Zero, IntPtr.Zero, true, 0x08000004u, IntPtr.Zero, null, ref si, out pi)) throw new Win32Exception(Marshal.GetLastWin32Error());
       job = CreateJobObject(IntPtr.Zero, null);

@@ -109,18 +109,6 @@
         "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
       },
       {
-        "path": "packages/daemon/test/decision-provider.integration.test.ts",
-        "count": 1,
-        "ref": "task_60653ee4139523060fac49b667",
-        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
-      },
-      {
-        "path": "packages/daemon/test/fleet-edge-sync-config.integration.test.ts",
-        "count": 1,
-        "ref": "task_60653ee4139523060fac49b667",
-        "reason": "Pre-existing legacy unguarded-posix-mode-assertion occurrence(s) frozen at baseline; zero growth allowed."
-      },
-      {
         "path": "packages/daemon/test/managed-rbac-service.test.ts",
         "count": 3,
         "ref": "task_60653ee4139523060fac49b667",

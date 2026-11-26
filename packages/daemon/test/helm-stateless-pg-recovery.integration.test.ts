@@ -15,7 +15,7 @@ const repoRoot = path.resolve(import.meta.dirname, "../../..");
 const entrypointTemplatePath = path.join(repoRoot, "deploy/helm/harness-center/templates/entrypoint-configmap.yaml");
 
 function extractEntrypointScript(): string {
-  const template = readFileSync(entrypointTemplatePath, "utf8");
+  const template = readFileSync(entrypointTemplatePath, "utf8").replace(/\r\n/gu, "\n");
   const marker = "  start-center.sh: |\n";
   const index = template.indexOf(marker);
   assert.ok(index >= 0, "entrypoint-configmap.yaml must define data.start-center.sh");
@@ -24,6 +24,27 @@ function extractEntrypointScript(): string {
     .split("\n")
     .map((line) => (line.startsWith("    ") ? line.slice(4) : line));
   return `${scriptLines.join("\n").trimEnd()}\n`;
+}
+
+function resolvePosixShell(): string {
+  if (process.platform !== "win32") return "/bin/sh";
+  const gitLookup = spawnSync("where.exe", ["git.exe"], { encoding: "utf8" });
+  const gitPaths =
+    gitLookup.status === 0
+      ? gitLookup.stdout
+          .split(/\r?\n/u)
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+  const candidates = [
+    ...gitPaths.flatMap((gitPath) => {
+      const gitRoot = path.resolve(path.dirname(gitPath), "..");
+      return [path.join(gitRoot, "bin", "sh.exe"), path.join(gitRoot, "usr", "bin", "sh.exe")];
+    }),
+    "C:\\Program Files\\Git\\bin\\sh.exe",
+    "C:\\Program Files\\Git\\usr\\bin\\sh.exe",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? "sh";
 }
 
 test(
@@ -72,7 +93,7 @@ test(
 
     // Pod 1: fresh emptyDir userRoot with mounted daemon-storage.json Secret and fleet.enabled=false
     writeFileSync(path.join(pod1UserRoot, "daemon-storage.json"), JSON.stringify(storageConfig, null, 2));
-    const pod1Entrypoint = spawnSync("/bin/sh", [scriptPath], {
+    const pod1Entrypoint = spawnSync(resolvePosixShell(), [scriptPath], {
       env: {
         ...process.env,
         HARNESS_DAEMON_ENTRY: stubDaemonPath,
@@ -101,6 +122,7 @@ test(
     let revisionAfterPod1: number;
     let recordedFactId: string;
     try {
+      await pod1Host.attachmentsSettled();
       const bootstrapped = await pod1Host.bootstrap(
         {
           rootDir: pod1Registered.canonicalRoot,
@@ -152,7 +174,7 @@ test(
 
     // Pod 2: completely separate fresh emptyDir userRoot, mounting ONLY the same daemon-storage.json Secret.
     writeFileSync(path.join(pod2UserRoot, "daemon-storage.json"), JSON.stringify(storageConfig, null, 2));
-    const pod2Entrypoint = spawnSync("/bin/sh", [scriptPath], {
+    const pod2Entrypoint = spawnSync(resolvePosixShell(), [scriptPath], {
       env: {
         ...process.env,
         HARNESS_DAEMON_ENTRY: stubDaemonPath,

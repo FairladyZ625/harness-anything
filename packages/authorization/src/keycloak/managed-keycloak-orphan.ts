@@ -84,7 +84,7 @@ async function findListenerProcesses(input: {
                 "-NoProfile",
                 "-NonInteractive",
                 "-Command",
-                `Get-NetTCPConnection -ErrorAction Stop | Where-Object { $_.State -eq 'Listen' -and $_.LocalPort -eq ${port} } | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique | ConvertTo-Json -Compress`,
+                `@(Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique) | ConvertTo-Json -Compress`,
               ],
               undefined,
               minimalWindowsPowerShellEnv(),

@@ -1,6 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -103,4 +105,50 @@ test("Windows orphan reclamation resolves kc.bat /bin/.. home properties while r
     assert.equal(taskkillCalls.length, 0, `must not terminate ${commandLine}`);
     void keycloakToolsHome;
   }
+});
+
+test("Windows port inspection filters by LocalPort/State Listen without failing on unoccupied ports", async (t) => {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-kc-win-port-"))),
+    java = path.join(root, "runtime", "java", "bin", "java.exe"),
+    keycloakHome = path.join(root, "runtime", "keycloak"),
+    observedCommands: string[] = [];
+  t.after(() => removeTempRepository(root));
+  mkdirSync(path.dirname(java), { recursive: true });
+  mkdirSync(keycloakHome, { recursive: true });
+  writeFileSync(java, "fixture");
+
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const freePort = (server.address() as { readonly port: number }).port;
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+
+  const host: ManagedRbacHost = {
+    runProcessText: () => "",
+    runProcessTextAsync: async () => "",
+    runProcessExitAsync: async (command, args, _cwd, env) => {
+      const script = args.at(-1) ?? "";
+      observedCommands.push(script);
+      if (process.platform === "win32" && command === "powershell.exe") {
+        const result = spawnSync(command, [...args], { encoding: "utf8", env, timeout: 15_000 });
+        return { exitCode: result.status ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
+    validateCertificateNames: () => undefined,
+    mapListenerBindError: (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+  };
+
+  await stopManagedKeycloakOrphan({
+    host,
+    root,
+    java,
+    keycloakHome,
+    ports: [freePort],
+    platform: "win32",
+  });
+  assert.equal(observedCommands.length, 1);
+  assert.match(
+    observedCommands[0]!,
+    new RegExp(`Get-NetTCPConnection -LocalPort ${freePort} -State Listen -ErrorAction SilentlyContinue`, "u"),
+  );
 });

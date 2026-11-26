@@ -302,9 +302,10 @@ test(
         'shell_environment_policy={inherit="all",ignore_default_excludes=true,exclude=[],include_only=[]}',
         "-",
       ]);
+      const launchedEnv = launched?.env as Record<string, unknown>;
       assert.match(
-        String((launched?.env as Record<string, unknown>).HOME),
-        /runtime-instances\/resident-codex\/home$/u,
+        String(process.platform === "win32" ? launchedEnv.USERPROFILE : launchedEnv.HOME),
+        /runtime-instances[/\\]resident-codex[/\\]home$/u,
       );
       const secretRejected = await rpc("repo.agentRuntime.spawn", {
         repo: { repoId: "alpha" },

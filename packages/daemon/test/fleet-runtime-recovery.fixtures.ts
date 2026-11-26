@@ -48,7 +48,7 @@ export async function fleetFixture(
 ) {
   // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
   // from it compares equal where the temporary directory is itself a symbolic link.
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-fleet-one-"))),
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "ha-fleet-one-"))),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
     stateRoot = path.join(root, "state"),
